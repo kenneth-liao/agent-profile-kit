@@ -1,0 +1,21 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Local dependencies and generated output
+node_modules
+dist/
+build/
+coverage/
+.cache/
+.tmp/
+tmp/
+
+# Disposable per-issue worktrees
+.worktrees/
+
+# Agent/runtime local state
+.codex/
+.agents/
+*.log
