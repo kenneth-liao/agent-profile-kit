@@ -34,7 +34,7 @@ Ask the user:
 
 Always use a new git worktree to isolate the changes and prevent impacting other agents or the user working in the same project. Create it **inside the repo** at `.worktrees/<branch>` (`git worktree add -b <branch> .worktrees/<branch>`), never as a sibling dir; ensure `.worktrees/` is in `.gitignore` (add it if missing) so the worktree stays uncommitted. Use the tdd skill to implement all changes using TDD.
 
-### 5. Review the changes
+### 5. Communicate the changes
 
 Provide a concise summary of the work and anything that should be flagged, as well as next steps. Ask the user if they want you to open PR.
 
