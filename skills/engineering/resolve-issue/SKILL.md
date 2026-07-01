@@ -45,3 +45,11 @@ When the PR should close the issue on merge, use a GitHub closing keyword in the
 ### 6. Document
 
 Document any important context in the project memory to pick up later in a fresh session, such as what was accomplished, next steps, and gotchas. If any new/unexpected issues, requirements, decisions, gotchas, etc. came up, document these in a comment on the issue. This is important context for posterity.
+
+### 7. Clean up
+
+Suggest a clean up plan to the user that you can perform once the user confirms the PR merged. As an example, clean up might include:
+
+- Deleting stale branches, worktrees, and other files
+- Cleaning up any test data in databases
+- Pulling the latest from remote to local
