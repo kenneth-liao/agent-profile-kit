@@ -38,7 +38,7 @@ Always use a new git worktree to isolate the changes and prevent impacting other
 
 Provide a concise summary of the work and anything that should be flagged, as well as next steps. Ask the user if they want you to open PR.
 
-If yes, commit and open the PR.
+If yes, commit, push, and open the PR.
 
 When the PR should close the issue on merge, use a GitHub closing keyword in the PR body, such as `Closes #123`, `Fixes #123`, or `Resolves #123`.
 
