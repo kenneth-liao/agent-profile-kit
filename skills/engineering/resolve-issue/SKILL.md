@@ -21,7 +21,7 @@ If you have not already explored the codebase, do so to understand the current s
 
 ### 3. Draft the implementation plan
 
-Summarize your understanding of the issue and propose a task list to the user for how you plan to implement/resolve the issue, accounting for all dependencies. Also highlight how the changes will address all Acceptance criteria for this issue. 
+Summarize your understanding of the issue and propose a task list to the user for how you plan to implement/resolve the issue. The plan must account for all dependencies and directly address all acceptance criteria in the issue.
 
 If anything unexpected surfaces such as new issues, architecture/design decisions, gotchas, etc., these should be surfaced to the user. Get alignment with the user before proceeding.
 
@@ -44,7 +44,9 @@ When the PR should close the issue on merge, use a GitHub closing keyword in the
 
 ### 6. Document
 
-Document any important context in the project memory to pick up later in a fresh session, such as what was accomplished, next steps, and gotchas. If any new/unexpected issues, requirements, decisions, gotchas, etc. came up, document these in a comment on the issue. This is important context for posterity.
+Document any important context for posterity that would reduce friction or repeated work when continuing in a fresh session. E.g. learnings, deviations from the plan, follow-ups, new/unexpected issues, key architecture or design decisions, and gotchas. 
+
+These should documented be where appropriate such as the project memory, user's context system, docs, etc. Also update the issue with a concise summary of these and check off all of the acceptance criteria that were completed. Leave any unfinsihed ones unchecked.
 
 ### 7. Clean up
 
