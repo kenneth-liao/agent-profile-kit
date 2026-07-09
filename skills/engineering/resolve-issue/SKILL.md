@@ -21,7 +21,7 @@ If you have not already explored the codebase, do so to understand the current s
 
 ### 3. Draft the implementation plan
 
-Summarize your understanding of the issue and propose a task list to the user for how you plan to implement/resolve the issue. The plan must account for all dependencies and directly address all acceptance criteria in the issue.
+Summarize your understanding of the issue and propose an implementation plan. The plan must explicitly list the user-facing behaviors or system capabilities you intend to test (e.g., 'user can checkout with valid cart'), rather than low-level test implementation details or code. The plan should also account for dependencies and highlight how your changes will satisfy all acceptance criteria.
 
 If anything unexpected surfaces such as new issues, architecture/design decisions, gotchas, etc., these should be surfaced to the user. Get alignment with the user before proceeding.
 
@@ -33,6 +33,10 @@ Ask the user:
 ### 4. Implement the changes
 
 Always use a new git worktree to isolate the changes and prevent impacting other agents or the user working in the same project. Create it **inside the repo** at `.worktrees/<branch>` (`git worktree add -b <branch> .worktrees/<branch>`), never as a sibling dir; ensure `.worktrees/` is in `.gitignore` (add it if missing) so the worktree stays uncommitted. Use the tdd skill to implement all changes using TDD.
+
+### 5. Review changes
+
+Call the dispatch-code-review skill and dispatch a new subagent to review the changes. Fix/address any substantive issues raised in the review.
 
 ### 5. Communicate the changes
 
