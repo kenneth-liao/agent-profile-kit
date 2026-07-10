@@ -1,6 +1,6 @@
-# Agent Kit Operating Manual
+# Agent Profile Kit Operating Manual
 
-This repository is the canonical home for agent commands, shared context, tools, skills, and workflow guidance used on this system.
+This repository is the open-source Agent Profile Kit engine. Its current personal and reusable artifact content is legacy migration input and is not part of the target public product boundary.
 
 ## Repository Rules
 
@@ -12,12 +12,15 @@ This repository is the canonical home for agent commands, shared context, tools,
 
 ## Canonical Locations
 
-- `commands/` owns reusable command definitions.
-- `context/` owns shared context packages and cross-project knowledge.
-- `skills/` owns agent skills and their documentation.
-- `tools/` owns local tools, scripts, and integrations.
+- `cli/` owns the `agent-profile-kit` command and user-facing orchestration.
+- `adapters/` owns Host-specific generation and launch integration.
+- `installer/` owns shared validation, planning, lifecycle, and launcher orchestration.
+- `schemas/` owns portable Workspace and artifact schemas.
 - `docs/adr/` owns accepted decisions and rationale.
+- `docs/ARCHITECTURE.md` owns living structural facts.
 - `docs/runbooks/` owns operational playbooks.
 - `docs/archive/` owns shipped plans and spent research only.
+
+`commands/`, `context/`, and `skills/` are legacy migration input. Do not add new personal content to the open-source engine. A maintained user workflow belongs in the user's Workspace; an Adapter may generate Host-specific activation interfaces from it.
 
 When a new category of fact does not fit these locations, record the placement decision in `docs/adr/` before spreading it across the repo.

@@ -1,17 +1,26 @@
-# Agent Kit
+# Agent Profile Kit
 
-Agent Kit is the monorepo and single source of truth for agent commands, shared context, tools, skills, and operating guidance used across this system.
+Agent Profile Kit is a user-agnostic CLI and format for composing a user's Skills, Context, Agents, Hooks, and Tools into portable Profiles. Host Adapters generate native Profile Installations for supported agent products without modifying their global configuration.
 
-## Layout
+## Product layout
 
-- `commands/` - reusable agent commands and command definitions.
-- `context/` - shared context packages and cross-project knowledge.
-- `skills/` - agent skills and skill documentation.
-- `tools/` - local tools, scripts, and integrations for agent workflows.
+- `cli/` - the `agent-profile-kit` command.
+- `adapters/` - all Host-specific generation and launch integration.
+- `installer/` - validation, planning, installation, update, status, uninstall, and launch orchestration.
+- `schemas/` - portable Workspace and artifact schemas.
 - `docs/adr/` - accepted architectural and workflow decisions.
+- `docs/ARCHITECTURE.md` - the living system structure and delivery model.
 - `docs/runbooks/` - operational playbooks for risky or repeatable procedures.
 - `docs/archive/` - shipped plans and spent research kept only for provenance.
 
+The existing `commands/`, `context/`, and `skills/` content is legacy migration input. Personal material will move to a user-owned Workspace; reusable material may later become optional content rather than part of the engine.
+
+## User data
+
+Canonical user content lives under `~/.agents/agent-profile-kit/workspace/`. Disposable Host-specific output lives separately under `~/.agents/agent-profile-kit/installations/`.
+
+`agent-profile-kit init` creates an empty Workspace with a schema marker, artifact directories, and short human/agent bootstrap files. Current authoring guidance remains owned by the CLI through `agent-profile-kit guide` and `agent-profile-kit guide --agent`; initialization does not copy personal or opinionated starter content.
+
 ## Working Principles
 
-This repository favors one canonical home per fact. When adding content, place it in the directory that owns that kind of fact rather than duplicating it across docs or scripts.
+This repository favors one canonical home per fact. The open-source repository owns product behavior; each Workspace owns its user's artifacts; generated Profile Installations are never edited as sources.
