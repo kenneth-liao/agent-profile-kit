@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -265,6 +266,22 @@ describe("agent-profile-kit init", () => {
     expect(result.stderr).toContain("symlink target is empty");
     expect(result.stderr).toContain("initialize the target directly");
     expect(await snapshotTree(target)).toEqual(before);
+  });
+
+  test("a dangling Workspace symlink fails with safe remediation guidance", () => {
+    const home = isolatedHome();
+    const applicationRoot = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(applicationRoot, "workspace");
+    mkdirSync(applicationRoot, { recursive: true });
+    symlinkSync(join(home, "missing-workspace"), workspace);
+
+    const result = runCli(home, "init");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Workspace symlink target does not exist");
+    expect(result.stderr).toContain("remove the symlink or restore its target");
+    expect(lstatSync(workspace).isSymbolicLink()).toBe(true);
   });
 
   test("a user with an existing empty Workspace directory receives a valid Workspace", () => {

@@ -80,7 +80,7 @@ async function inspectWorkspace(
   } catch (error) {
     if (pathEntryStats.isSymbolicLink() && hasErrorCode(error, "ENOENT")) {
       throw new Error(
-        `Cannot initialize ${path}: the Workspace symlink target does not exist`,
+        `Cannot initialize ${path}: the Workspace symlink target does not exist; remove the symlink or restore its target before retrying`,
       );
     }
     throw error;
