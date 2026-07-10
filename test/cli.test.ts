@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -17,7 +18,7 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
 
 import { WORKSPACE_SCHEMA_VERSION } from "../schemas/workspace-manifest.js";
 import {
@@ -101,6 +102,21 @@ function writeContextOnlyProfile(home: string): void {
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
     "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+  );
+}
+
+function writeProfileWithSkill(home: string): void {
+  const workspace = workspacePath(home);
+  writeContextOnlyProfile(home);
+  const skill = join(workspace, "skills", "review-pr");
+  mkdirSync(skill);
+  writeFileSync(
+    join(skill, "SKILL.md"),
+    "---\nname: review-pr\ndescription: Review a pull request. Use when asked to review code changes.\n---\n\n# Review a pull request\n",
+  );
+  writeFileSync(
+    join(workspace, "profiles", "coding.yaml"),
+    "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\nagents: []\nhooks: []\ntools: []\n",
   );
 }
 
@@ -655,6 +671,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       destination,
       engineVersion: "0.test",
       profile,
+      skills: [],
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     await installContextOnlyCodex(plan("Previous Context.\n"));
@@ -739,6 +756,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       destination,
       engineVersion: "0.test",
       profile,
+      skills: [],
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     await installContextOnlyCodex(plan("Previous Context.\n"));
@@ -781,6 +799,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
+      skills: [],
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     };
     await installContextOnlyCodex(plan);
@@ -834,6 +853,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
+      skills: [],
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     const manifest = join(destination, "installation.yaml");
@@ -873,6 +893,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
+      skills: [],
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     writeFileSync(join(destination, "edited-output.md"), "User edit.\n");
@@ -1289,6 +1310,232 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     expect(existsSync(codexInvocation)).toBe(false);
   });
 
+  test("a user can select a standard Skill by its name without detecting Codex", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const bin = join(home, "bin");
+    const codexInvocation = join(home, "codex-invoked");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      `#!/bin/sh\nprintf invoked > ${JSON.stringify(codexInvocation)}\nexit 1\n`,
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(
+      home,
+      { PATH: `${bin}:${process.env.PATH ?? ""}` },
+      "validate",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Workspace valid");
+    expect(existsSync(codexInvocation)).toBe(false);
+  });
+
+  test("a user can install a selected standard Skill unchanged without its sidecar", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const skill = join(workspacePath(home), "skills", "review-pr");
+    mkdirSync(join(skill, "references"));
+    writeFileSync(join(skill, "references", "checklist.md"), "# Checklist\n\n- Preserve bytes.\n");
+    writeFileSync(join(skill, "agent-profile-kit.yaml"), "orchestration: local-only\n");
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then\n" +
+        "  case \"$4\" in\n" +
+        "    developer_instructions=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n' ;;\n" +
+        "    skills.config=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit Skill capability probe\\\"}]}]\\n' ;;\n" +
+        "    *) exit 1 ;;\n" +
+        "  esac\n" +
+        "  exit 0\n" +
+        "fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(
+      home,
+      { PATH: `${bin}:${process.env.PATH ?? ""}` },
+      "install",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+    const installation = join(
+      home,
+      ".agents",
+      "agent-profile-kit",
+      "installations",
+      "coding",
+      "codex",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(join(installation, "skills", "review-pr", "SKILL.md"))).toEqual(
+      readFileSync(join(skill, "SKILL.md")),
+    );
+    expect(
+      readFileSync(join(installation, "skills", "review-pr", "references", "checklist.md")),
+    ).toEqual(readFileSync(join(skill, "references", "checklist.md")));
+    expect(existsSync(join(installation, "skills", "review-pr", "agent-profile-kit.yaml"))).toBe(false);
+    expect(parse(readFileSync(join(installation, "installation.yaml"), "utf8"))).toMatchObject({
+      selected_artifacts: { context: ["team-rules"], skills: ["review-pr"] },
+    });
+    writeFileSync(join(skill, "agent-profile-kit.yaml"), "orchestration: changed\n");
+    expect(runCli(home, "status", "--profile", "coding", "--host", "codex").stdout).toBe(
+      "Status: stale source\n",
+    );
+    writeFileSync(join(skill, "references", "checklist.md"), "# Checklist\n\n- Updated.\n");
+    expect(runCliWithEnvironment(home, { PATH: `${bin}:${process.env.PATH ?? ""}` }, "update").status).toBe(0);
+    expect(
+      readFileSync(join(installation, "skills", "review-pr", "references", "checklist.md"), "utf8"),
+    ).toContain("Updated.");
+    expect(runCli(home, "status", "--profile", "coding", "--host", "codex").stdout).toBe(
+      "Status: current\n",
+    );
+  });
+
+  test("a user can see selected Skills in a Codex installation plan", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then\n" +
+        "  case \"$4\" in\n" +
+        "    developer_instructions=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n' ;;\n" +
+        "    skills.config=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit Skill capability probe\\\"}]}]\\n' ;;\n" +
+        "    *) exit 1 ;;\n" +
+        "  esac\n" +
+        "  exit 0\n" +
+        "fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(
+      home,
+      { PATH: `${bin}:${process.env.PATH ?? ""}` },
+      "plan",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Skills:\n- review-pr");
+  });
+
+  test("a user can run an installed Profile with only its selected Skills", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const bin = join(home, "bin");
+    const argumentsRecord = join(home, "codex-arguments");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then\n" +
+        "  case \"$4\" in\n" +
+        "    developer_instructions=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n' ;;\n" +
+        "    skills.config=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit Skill capability probe\\\"}]}]\\n' ;;\n" +
+        "    *) exit 1 ;;\n" +
+        "  esac\n" +
+        "  exit 0\n" +
+        "fi\n" +
+        "printf '%s\\n' \"$@\" > \"$CODEX_ARGUMENTS_RECORD\"\n" +
+        "exit 23\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = {
+      CODEX_ARGUMENTS_RECORD: argumentsRecord,
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+    };
+    expect(
+      runCliWithEnvironment(
+        home,
+        environment,
+        "install",
+        "--profile",
+        "coding",
+        "--host",
+        "codex",
+      ).status,
+    ).toBe(0);
+    const installation = join(
+      home,
+      ".agents",
+      "agent-profile-kit",
+      "installations",
+      "coding",
+      "codex",
+    );
+    rmSync(workspacePath(home), { recursive: true });
+    const project = join(home, "project");
+    mkdirSync(project);
+
+    const result = runCliFromDirectory(
+      home,
+      project,
+      environment,
+      "run",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+      "--",
+      "native task",
+    );
+
+    expect(result.status, result.stderr).toBe(23);
+    expect(readFileSync(argumentsRecord, "utf8")).toContain(
+      `skills.config=[{path=${JSON.stringify(
+        join(home, ".agents", "agent-profile-kit", "installations", "coding", "codex", "skills", "review-pr"),
+      )},enabled=true}]`,
+    );
+    expect(readFileSync(argumentsRecord, "utf8")).toContain("native task");
+
+    const manifestPath = join(installation, "installation.yaml");
+    const manifest = parse(readFileSync(manifestPath, "utf8")) as {
+      selected_artifacts: { context: string[]; skills: string[] };
+    };
+    manifest.selected_artifacts.skills = ["../../outside"];
+    writeFileSync(manifestPath, stringify(manifest));
+    rmSync(argumentsRecord);
+
+    const unsafe = runCliFromDirectory(
+      home,
+      project,
+      environment,
+      "run",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+      "--",
+      "native task",
+    );
+
+    expect(unsafe.status).toBe(1);
+    expect(unsafe.stderr).toContain("selected_artifacts.skills");
+    expect(existsSync(argumentsRecord)).toBe(false);
+  });
+
   test("a user can reorganize a Context Module without changing its Artifact ID", () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
@@ -1305,6 +1552,72 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Workspace valid");
+  });
+
+  test("a user can reorganize a Skill without changing its Artifact ID or Profile selection", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const workspace = workspacePath(home);
+    mkdirSync(join(workspace, "skills", "engineering"));
+    renameSync(
+      join(workspace, "skills", "review-pr"),
+      join(workspace, "skills", "engineering", "pull-request-review"),
+    );
+
+    const result = runCli(home, "validate");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Workspace valid");
+  });
+
+  test("a user receives ingestion errors for invalid, duplicate, and missing standard Skills", () => {
+    const invalidSkills = [
+      {
+        expected: "selects missing Skill 'missing'",
+        write: (workspace: string) =>
+          writeFileSync(
+            join(workspace, "profiles", "coding.yaml"),
+            "id: coding\ncontext:\n  - team-rules\nskills:\n  - missing\nagents: []\nhooks: []\ntools: []\n",
+          ),
+      },
+      {
+        expected: "Skill Artifact ID 'review-pr' is duplicated",
+        write: (workspace: string) => {
+          const duplicate = join(workspace, "skills", "duplicate");
+          mkdirSync(duplicate);
+          writeFileSync(
+            join(duplicate, "SKILL.md"),
+            "---\nname: review-pr\ndescription: A duplicate Skill.\n---\n",
+          );
+        },
+      },
+      {
+        expected: "Skill skills/review-pr/SKILL.md name must be a lowercase kebab-case Artifact ID",
+        write: (workspace: string) =>
+          writeFileSync(
+            join(workspace, "skills", "review-pr", "SKILL.md"),
+            "---\nname: Review-PR\ndescription: Invalid standard name.\n---\n",
+          ),
+      },
+      {
+        expected: "Skill skills/review-pr/SKILL.md sidecar must be a YAML mapping",
+        write: (workspace: string) =>
+          writeFileSync(join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"), ""),
+      },
+    ];
+
+    for (const invalid of invalidSkills) {
+      const home = isolatedHome();
+      expect(runCli(home, "init").status).toBe(0);
+      writeProfileWithSkill(home);
+      invalid.write(workspacePath(home));
+
+      const result = runCli(home, "validate");
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(invalid.expected);
+    }
   });
 
   test("a user receives structural errors for invalid Context-only Profile definitions", async () => {
@@ -1567,7 +1880,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       host_version: "codex-cli 0.test",
       adapter_version: packageManifest.version,
       engine_version: packageManifest.version,
-      selected_artifacts: { context: ["team-rules"] },
+      selected_artifacts: { context: ["team-rules"], skills: [] },
       outputs: ["context.md"],
       workspace_input_hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
       output_hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),

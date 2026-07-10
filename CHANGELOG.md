@@ -13,6 +13,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Added bundled human and agent Workspace authoring guides ([#3](https://github.com/kenneth-liao/agent-profile-kit/issues/3)).
 - Added Context-only Codex Profile validation, planning, installation, and launch ([#4](https://github.com/kenneth-liao/agent-profile-kit/issues/4)).
 - Added transactional Profile Installation status, update, and verified uninstall lifecycle management ([#5](https://github.com/kenneth-liao/agent-profile-kit/issues/5)).
+- Added portable standard Skill selection, installation, freshness tracking, and process-scoped Codex integration ([#6](https://github.com/kenneth-liao/agent-profile-kit/issues/6)).
 
 ### Changed
 

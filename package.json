@@ -1,6 +1,6 @@
 {
   "name": "agent-profile-kit",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Compose portable agent material into host-native profiles.",
   "type": "module",
   "bin": {

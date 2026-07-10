@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 import { detectCodexCapability, type CodexCapability } from "../adapters/codex.js";
 import { type Profile, type ContextModule } from "../schemas/context-profile.js";
+import { type Skill } from "../schemas/skill.js";
 import { type GitProvenance, workspaceGitProvenance } from "./git-provenance.js";
 import { hashWorkspaceInputs } from "./hashes.js";
 import { ingestWorkspace } from "./ingest-workspace.js";
@@ -14,6 +15,7 @@ export interface ContextOnlyCodexPlan {
   readonly engineVersion: string;
   readonly gitProvenance?: GitProvenance;
   readonly profile: Profile;
+  readonly skills: readonly Skill[];
   readonly workspaceInputHash: string;
 }
 
@@ -56,7 +58,12 @@ export async function planContextOnlyCodex(
     throw new Error(`Profile '${profileId}' does not exist in the Workspace`);
   }
   const context = composeContext(profile, workspace.contexts);
-  const capability = await detectCodexCapability();
+  const skills = profile.skills.map((id) => {
+    const skill = workspace.skills.get(id);
+    if (!skill) throw new Error(`Profile '${profile.id}' selects missing Skill '${id}'`);
+    return skill;
+  });
+  const capability = await detectCodexCapability(skills.length > 0);
   const gitProvenance = await workspaceGitProvenance(workspace.path);
   return {
     capability,
@@ -65,6 +72,7 @@ export async function planContextOnlyCodex(
     engineVersion: ENGINE_VERSION,
     ...(gitProvenance ? { gitProvenance } : {}),
     profile,
-    workspaceInputHash: hashWorkspaceInputs(profile, workspace.contexts),
+    skills,
+    workspaceInputHash: await hashWorkspaceInputs(profile, workspace.contexts, workspace.skills),
   };
 }

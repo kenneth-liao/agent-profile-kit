@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { codexContextOverride, runCodex } from "../adapters/codex.js";
+import { codexContextOverride, codexSkillsOverride, runCodex } from "../adapters/codex.js";
 import { parseInstallationManifest } from "../schemas/installation-manifest.js";
 import { installationPath } from "./plan.js";
 
@@ -31,11 +31,14 @@ export async function runContextOnlyCodex(
 ): Promise<number> {
   if (
     nativeArguments.some(
-      (_, index) => configKey(configOverride(nativeArguments, index) ?? "") === "developer_instructions",
+      (_, index) =>
+        ["developer_instructions", "skills.config"].includes(
+          configKey(configOverride(nativeArguments, index) ?? "") ?? "",
+        ),
     )
   ) {
     throw new Error(
-      "Native Codex arguments may not override developer_instructions selected by the Profile",
+      "Native Codex arguments may not override developer_instructions selected by the Profile or skills.config selected by the Profile",
     );
   }
 
@@ -49,5 +52,14 @@ export async function runContextOnlyCodex(
     );
   }
   const context = await readFile(join(installation, "context.md"), "utf8");
-  return runCodex(["-c", codexContextOverride(context), ...nativeArguments]);
+  const skills = manifest.selectedArtifacts.skills.map((skillId) =>
+    join(installation, "skills", skillId),
+  );
+  return runCodex([
+    "-c",
+    codexContextOverride(context),
+    "-c",
+    codexSkillsOverride(skills),
+    ...nativeArguments,
+  ]);
 }

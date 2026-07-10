@@ -7,12 +7,31 @@ import {
   parseProfile,
   type Profile,
 } from "../schemas/context-profile.js";
+import { parseSkill, type Skill } from "../schemas/skill.js";
 import { validateWorkspaceStructure, workspacePath } from "./workspace.js";
 
 export interface Workspace {
   readonly path: string;
   readonly contexts: ReadonlyMap<string, ContextModule>;
   readonly profiles: ReadonlyMap<string, Profile>;
+  readonly skills: ReadonlyMap<string, Skill>;
+}
+
+async function skillPaths(directory: string, prefix = ""): Promise<readonly string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const paths = await Promise.all(
+    entries.map(async (entry) => {
+      const relativePath = join(prefix, entry.name);
+      if (!entry.isDirectory()) return [];
+      const source = join(directory, entry.name);
+      const nested = await skillPaths(source, relativePath);
+      const children = await readdir(source, { withFileTypes: true });
+      return children.some((child) => child.isFile() && child.name === "SKILL.md")
+        ? [relativePath, ...nested]
+        : nested;
+    }),
+  );
+  return paths.flat().sort();
 }
 
 async function sourceFiles(
@@ -49,6 +68,7 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
   await validateWorkspaceStructure(path);
   const contexts = new Map<string, ContextModule>();
   const profiles = new Map<string, Profile>();
+  const skills = new Map<string, Skill>();
 
   for (const name of await sourceFiles(join(path, "context"), ".md")) {
     const sourcePath = join(path, "context", name);
@@ -66,6 +86,27 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
       "Profile",
     );
   }
+  for (const name of await skillPaths(join(path, "skills"))) {
+    const sourcePath = join(path, "skills", name);
+    let sidecar: string | undefined;
+    try {
+      sidecar = await readFile(join(sourcePath, "agent-profile-kit.yaml"), "utf8");
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
+    }
+    addUnique(
+      skills,
+      parseSkill(
+        await readFile(join(sourcePath, "SKILL.md"), "utf8"),
+        `skills/${name}/SKILL.md`,
+        sourcePath,
+        sidecar,
+      ),
+      "Skill",
+    );
+  }
 
   for (const profile of profiles.values()) {
     if (profile.context.length === 0) {
@@ -80,19 +121,23 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
         );
       }
     }
+    for (const skillId of profile.skills) {
+      if (!skills.has(skillId)) {
+        throw new Error(`Profile '${profile.id}' selects missing Skill '${skillId}'`);
+      }
+    }
     for (const [name, selection] of [
-      ["skills", profile.skills],
       ["agents", profile.agents],
       ["hooks", profile.hooks],
       ["tools", profile.tools],
     ] as const) {
       if (selection.length > 0) {
         throw new Error(
-          `Profile '${profile.id}' selects ${name}, which this Context-only release does not support`,
+          `Profile '${profile.id}' selects ${name}, which this release does not support`,
         );
       }
     }
   }
 
-  return { path, contexts, profiles };
+  return { path, contexts, profiles, skills };
 }

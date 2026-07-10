@@ -14,11 +14,12 @@ The initial release supports macOS only.
 
 Running the command again against the valid Workspace is safe and reports it unchanged.
 
-## Context-only Codex tracer
+## Context and Skills Codex tracer
 
-The first Profile tracer supports Context Modules and explicit flat Profiles.
-Validate the Workspace, inspect the generated Context and Codex capability,
-install disposable output, then launch it from the target project:
+The first Profile tracer supports Context Modules, standard Agent Skills, and
+explicit flat Profiles. Validate the Workspace, inspect the generated Context,
+Skills, and Codex capability, install disposable output, then launch it from the
+target project:
 
 ```sh
 agent-profile-kit validate
@@ -34,7 +35,7 @@ source changes from edits to generated output. To remove disposable output,
 run `agent-profile-kit uninstall --profile coding --host codex`; it deletes
 only an installation whose Manifest confirms that identity.
 
-See `agent-profile-kit guide` for the Context Module and Profile formats.
+See `agent-profile-kit guide` for the Context Module, Skill, and Profile formats.
 
 ## Product layout
 

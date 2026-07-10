@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const CONTEXT_PROBE = "agent-profile-kit capability probe";
+const SKILL_PROBE = "agent-profile-kit Skill capability probe";
 
 export interface CodexCapability {
   readonly version: string;
@@ -30,7 +34,7 @@ async function executeCodex(arguments_: readonly string[]): Promise<CommandResul
   });
 }
 
-function probeIsVisibleToCodex(source: string): boolean {
+function probeIsVisibleToCodex(source: string, expectedText: string): boolean {
   let messages: unknown;
   try {
     messages = JSON.parse(source);
@@ -52,15 +56,36 @@ function probeIsVisibleToCodex(source: string): boolean {
             typeof content === "object" &&
             content !== null &&
             "text" in content &&
-            content.text === CONTEXT_PROBE,
+            content.text === expectedText,
         ),
     )
   );
 }
 
-export async function detectCodexCapability(): Promise<CodexCapability> {
+async function skillProbe(): Promise<CommandResult> {
+  const directory = await mkdtemp(join(tmpdir(), "agent-profile-kit-codex-skill-probe-"));
+  try {
+    await writeFile(
+      join(directory, "SKILL.md"),
+      `---\nname: agent-profile-kit-capability-probe\ndescription: ${SKILL_PROBE}\n---\n`,
+    );
+    return await executeCodex([
+      "debug",
+      "prompt-input",
+      "-c",
+      codexSkillsOverride([directory]),
+    ]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+export async function detectCodexCapability(
+  requiresSkills = false,
+): Promise<CodexCapability> {
   let versionResult: CommandResult;
   let probeResult: CommandResult;
+  let skillsResult: CommandResult | undefined;
   try {
     versionResult = await executeCodex(["--version"]);
     probeResult = await executeCodex([
@@ -69,6 +94,7 @@ export async function detectCodexCapability(): Promise<CodexCapability> {
       "-c",
       `developer_instructions=${JSON.stringify(CONTEXT_PROBE)}`,
     ]);
+    skillsResult = requiresSkills ? await skillProbe() : undefined;
   } catch (error) {
     throw new Error(
       `Codex capability detection failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -81,9 +107,17 @@ export async function detectCodexCapability(): Promise<CodexCapability> {
       `Codex capability detection failed while reading its version: ${versionResult.stderr.trim()}`,
     );
   }
-  if (probeResult.exitCode !== 0 || !probeIsVisibleToCodex(probeResult.stdout)) {
+  if (probeResult.exitCode !== 0 || !probeIsVisibleToCodex(probeResult.stdout, CONTEXT_PROBE)) {
     throw new Error(
       "Codex does not support the required per-process developer instructions surface",
+    );
+  }
+  if (
+    skillsResult &&
+    (skillsResult.exitCode !== 0 || !probeIsVisibleToCodex(skillsResult.stdout, SKILL_PROBE))
+  ) {
+    throw new Error(
+      "Codex does not support the required per-process Skills configuration surface",
     );
   }
   return { version };
@@ -91,6 +125,11 @@ export async function detectCodexCapability(): Promise<CodexCapability> {
 
 export const codexContextOverride = (context: string): string =>
   `developer_instructions=${JSON.stringify(context)}`;
+
+export const codexSkillsOverride = (paths: readonly string[]): string =>
+  `skills.config=[${paths
+    .map((path) => `{path=${JSON.stringify(path)},enabled=true}`)
+    .join(",")}]`;
 
 export async function runCodex(
   arguments_: readonly string[],

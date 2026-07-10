@@ -80,6 +80,7 @@ async function main(): Promise<void> {
         "Host: codex\n" +
         `Capability: supported (${plan.capability.version})\n` +
         `Destination: ${plan.destination}\n` +
+        `Skills:${plan.skills.length === 0 ? " none" : `\n${plan.skills.map((skill) => `- ${skill.id}`).join("\n")}`}\n` +
         "Context output:\n" +
         `${plan.context}\n`,
     );
