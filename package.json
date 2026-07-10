@@ -11,7 +11,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "bun run typecheck && bun build cli/index.ts --target=node --outfile=dist/cli.js --silent",
+    "build": "bun run typecheck && bun build cli/index.ts --target=node --packages=bundle --outfile=dist/cli.js --silent",
     "test": "bun test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepack": "bun run build"
