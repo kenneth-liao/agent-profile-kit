@@ -9,6 +9,8 @@ import {
 import { hasErrorCode } from "./fs-error.js";
 import { hashOutputDirectory } from "./hashes.js";
 import { type ContextOnlyCodexPlan } from "./plan.js";
+import { syncCodexSkillLibraryUnderLock } from "./codex-skill-library.js";
+import { withCodexLifecycleLock } from "./codex-lifecycle-lock.js";
 
 export interface InstallationFileSystem {
   readonly lstat: (path: string) => Promise<Stats>;
@@ -56,7 +58,7 @@ async function installationManifest(
     outputHash: await hashOutputDirectory(staging),
     outputs: ["context.md"],
     profileId: plan.profile.id,
-    selectedArtifacts: { context: plan.profile.context, skills: [] },
+    selectedArtifacts: { context: plan.profile.context, skills: plan.profile.skills },
     schemaVersion: 1,
     workspaceInputHash: plan.workspaceInputHash,
     ...(plan.gitProvenance ? { git: plan.gitProvenance } : {}),
@@ -142,37 +144,43 @@ export async function installContextOnlyCodex(
   plan: ContextOnlyCodexPlan,
   options: InstallationLifecycleOptions = {},
 ): Promise<void> {
-  const fileSystem = options.fileSystem ?? nodeInstallationFileSystem;
-  const parent = dirname(plan.destination);
-  await fileSystem.mkdir(parent, { recursive: true });
-  await ensureInstallationIsMissing(plan.destination, fileSystem);
-  let staging: string | undefined;
-  try {
-    staging = await fileSystem.mkdtemp(join(parent, ".install-"));
-    await stageInstallation(staging, plan, fileSystem);
-    await fileSystem.rename(staging, plan.destination);
-  } catch (error) {
-    await cleanupStaging(staging, fileSystem, error);
-    if (hasErrorCode(error, "EEXIST") || hasErrorCode(error, "ENOTEMPTY")) {
-      throw existingInstallationError(plan.destination);
+  return withCodexLifecycleLock(plan.skillLibrary.home, async () => {
+    const fileSystem = options.fileSystem ?? nodeInstallationFileSystem;
+    const parent = dirname(plan.destination);
+    await fileSystem.mkdir(parent, { recursive: true });
+    await ensureInstallationIsMissing(plan.destination, fileSystem);
+    let staging: string | undefined;
+    try {
+      staging = await fileSystem.mkdtemp(join(parent, ".install-"));
+      await stageInstallation(staging, plan, fileSystem);
+      await syncCodexSkillLibraryUnderLock(plan.skillLibrary);
+      await fileSystem.rename(staging, plan.destination);
+    } catch (error) {
+      await cleanupStaging(staging, fileSystem, error);
+      if (hasErrorCode(error, "EEXIST") || hasErrorCode(error, "ENOTEMPTY")) {
+        throw existingInstallationError(plan.destination);
+      }
+      throw error;
     }
-    throw error;
-  }
+  });
 }
 
 export async function updateContextOnlyCodex(
   plan: ContextOnlyCodexPlan,
   options: InstallationLifecycleOptions = {},
 ): Promise<void> {
-  const fileSystem = options.fileSystem ?? nodeInstallationFileSystem;
-  const parent = dirname(plan.destination);
-  let staging: string | undefined;
-  try {
-    staging = await fileSystem.mkdtemp(join(parent, ".install-"));
-    await stageInstallation(staging, plan, fileSystem);
-    await replaceInstallation(staging, plan.destination, fileSystem);
-  } catch (error) {
-    await cleanupStaging(staging, fileSystem, error);
-    throw error;
-  }
+  return withCodexLifecycleLock(plan.skillLibrary.home, async () => {
+    const fileSystem = options.fileSystem ?? nodeInstallationFileSystem;
+    const parent = dirname(plan.destination);
+    let staging: string | undefined;
+    try {
+      staging = await fileSystem.mkdtemp(join(parent, ".install-"));
+      await stageInstallation(staging, plan, fileSystem);
+      await syncCodexSkillLibraryUnderLock(plan.skillLibrary);
+      await replaceInstallation(staging, plan.destination, fileSystem);
+    } catch (error) {
+      await cleanupStaging(staging, fileSystem, error);
+      throw error;
+    }
+  });
 }

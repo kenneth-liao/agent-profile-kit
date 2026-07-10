@@ -23,7 +23,10 @@ function compareNames(
   return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
 }
 
-async function skillInput(skill: Skill): Promise<unknown> {
+async function skillInput(
+  skill: Skill,
+  ignoredFiles: readonly string[] = [],
+): Promise<unknown> {
   const entries: unknown[] = [];
   async function visit(directory: string, prefix: string): Promise<void> {
     const children = await readdir(directory, { withFileTypes: true });
@@ -31,6 +34,7 @@ async function skillInput(skill: Skill): Promise<unknown> {
     for (const child of children) {
       const path = join(directory, child.name);
       const relativePath = prefix.length === 0 ? child.name : `${prefix}/${child.name}`;
+      if (ignoredFiles.includes(relativePath)) continue;
       const mode = (await lstat(path)).mode & 0o7777;
       if (child.isDirectory()) {
         entries.push({ mode, path: relativePath, type: "directory" });
@@ -44,6 +48,15 @@ async function skillInput(skill: Skill): Promise<unknown> {
   }
   await visit(skill.path, "");
   return { files: entries, id: skill.id };
+}
+
+export async function hashSkillCatalog(skills: ReadonlyMap<string, Skill>): Promise<string> {
+  const entries = await Promise.all(
+    [...skills.values()]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((skill) => skillInput(skill, ["agent-profile-kit.yaml"])),
+  );
+  return sha256(JSON.stringify({ skills: entries, workspace_schema_version: WORKSPACE_SCHEMA_VERSION }));
 }
 
 export async function hashWorkspaceInputs(
@@ -85,7 +98,10 @@ export async function hashWorkspaceInputs(
   );
 }
 
-export async function hashOutputDirectory(root: string): Promise<string> {
+export async function hashOutputDirectory(
+  root: string,
+  ignoredFiles: readonly string[] = ["installation.yaml"],
+): Promise<string> {
   const hash = createHash("sha256");
 
   async function visit(directory: string, prefix: string): Promise<void> {
@@ -93,7 +109,7 @@ export async function hashOutputDirectory(root: string): Promise<string> {
     entries.sort(compareNames);
     for (const entry of entries) {
       const relativePath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
-      if (relativePath === "installation.yaml") continue;
+      if (ignoredFiles.includes(relativePath)) continue;
       const path = join(directory, entry.name);
       const mode = (await lstat(path)).mode & 0o7777;
       if (entry.isDirectory()) {
@@ -110,7 +126,7 @@ export async function hashOutputDirectory(root: string): Promise<string> {
         writeFrame(hash, await readFile(path));
         continue;
       }
-      throw new Error(`Profile Installation output contains unsupported entry '${relativePath}'`);
+      throw new Error(`Generated output contains unsupported entry '${relativePath}'`);
     }
   }
 

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   chmodSync,
@@ -7,6 +8,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -27,7 +29,15 @@ import {
   updateContextOnlyCodex,
 } from "../installer/install.js";
 import { workspaceGitProvenance } from "../installer/git-provenance.js";
+import { uninstallContextOnlyCodex } from "../installer/uninstall.js";
+import { withCodexLifecycleLock } from "../installer/codex-lifecycle-lock.js";
 import { type ContextOnlyCodexPlan } from "../installer/plan.js";
+import {
+  codexSkillLibraryPath,
+  planCodexSkillLibrary,
+  syncCodexSkillLibrary,
+} from "../installer/codex-skill-library.js";
+import { ingestWorkspace } from "../installer/ingest-workspace.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const cliPath = join(repositoryRoot, "dist", "cli.js");
@@ -120,6 +130,22 @@ function writeProfileWithSkill(home: string): void {
   );
 }
 
+function emptySkillLibraryPlan(home: string) {
+  return {
+    additions: [],
+    changes: [],
+    destination: codexSkillLibraryPath(home),
+    home,
+    removals: [],
+    skills: new Map(),
+    workspaceInputHash: `sha256:${createHash("sha256")
+      .update(
+        JSON.stringify({ skills: [], workspace_schema_version: WORKSPACE_SCHEMA_VERSION }),
+      )
+      .digest("hex")}`,
+  } as const;
+}
+
 function runCliAsync(home: string, ...arguments_: string[]) {
   return new Promise<{ status: number | null; stderr: string; stdout: string }>(
     (resolvePromise, rejectPromise) => {
@@ -140,6 +166,28 @@ function runCliAsync(home: string, ...arguments_: string[]) {
       child.stderr.on("data", (chunk: string) => {
         stderr += chunk;
       });
+      child.on("error", rejectPromise);
+      child.on("close", (status) => resolvePromise({ status, stderr, stdout }));
+    },
+  );
+}
+
+function runCliAsyncWithEnvironment(
+  home: string,
+  environment: NodeJS.ProcessEnv,
+  ...arguments_: string[]
+) {
+  return new Promise<{ status: number | null; stderr: string; stdout: string }>(
+    (resolvePromise, rejectPromise) => {
+      const child = spawn(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
+        env: { ...process.env, ...environment, HOME: home },
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => (stdout += chunk));
+      child.stderr.on("data", (chunk: string) => (stderr += chunk));
       child.on("error", rejectPromise);
       child.on("close", (status) => resolvePromise({ status, stderr, stdout }));
     },
@@ -671,6 +719,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       destination,
       engineVersion: "0.test",
       profile,
+      skillLibrary: emptySkillLibraryPlan(home),
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     await installContextOnlyCodex(plan("Previous Context.\n"));
@@ -755,6 +804,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       destination,
       engineVersion: "0.test",
       profile,
+      skillLibrary: emptySkillLibraryPlan(home),
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     await installContextOnlyCodex(plan("Previous Context.\n"));
@@ -797,6 +847,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
+      skillLibrary: emptySkillLibraryPlan(home),
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     };
     await installContextOnlyCodex(plan);
@@ -850,6 +901,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
+      skillLibrary: emptySkillLibraryPlan(home),
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     const manifest = join(destination, "installation.yaml");
@@ -889,6 +941,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
+      skillLibrary: emptySkillLibraryPlan(home),
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     writeFileSync(join(destination, "edited-output.md"), "User edit.\n");
@@ -929,7 +982,9 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toBe("Status: missing installation\n");
+    expect(result.stdout).toBe(
+      "Profile Installation: missing installation\nCodex Skill Library: missing installation\n",
+    );
   });
 
   test("a user can identify a malformed Installation Manifest without reading source or Codex", () => {
@@ -948,7 +1003,9 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     const result = runCli(home, "status", "--profile", "coding", "--host", "codex");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toBe("Status: malformed Manifest\n");
+    expect(result.stdout).toBe(
+      "Profile Installation: malformed Manifest\nCodex Skill Library: missing installation\n",
+    );
   });
 
   test("a user can verify a current Profile Installation without invoking Codex", () => {
@@ -994,7 +1051,10 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     const codexInvocation = join(home, "codex-invoked");
     writeFileSync(
       join(bin, "codex"),
-      `#!/bin/sh\nprintf invoked > ${JSON.stringify(codexInvocation)}\nexit 1\n`,
+      `#!/bin/sh\nprintf invoked > ${JSON.stringify(codexInvocation)}\n` +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
     );
 
     const result = runCliWithEnvironment(
@@ -1008,7 +1068,9 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     );
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toBe("Status: current\n");
+    expect(result.stdout).toBe(
+      "Profile Installation: current\nCodex Skill Library: current\n",
+    );
     expect(existsSync(codexInvocation)).toBe(false);
     chmodSync(
       join(
@@ -1026,7 +1088,9 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     const drifted = runCli(home, "status", "--profile", "coding", "--host", "codex");
 
     expect(drifted.status, drifted.stderr).toBe(0);
-    expect(drifted.stdout).toBe("Status: drifted output\n");
+    expect(drifted.stdout).toBe(
+      "Profile Installation: drifted output\nCodex Skill Library: current\n",
+    );
   });
 
   test("a user can explicitly update an installed Profile after its source changes", () => {
@@ -1087,7 +1151,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       "Always preserve the updated project boundary.",
     );
     expect(runCli(home, "status", "--profile", "coding", "--host", "codex").stdout).toBe(
-      "Status: current\n",
+      "Profile Installation: current\nCodex Skill Library: current\n",
     );
   });
 
@@ -1245,6 +1309,145 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     }
   });
 
+  test("a running Codex session pins its Skill generation through update and blocks final uninstall", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const bin = join(home, "bin");
+    const argumentsRecord = join(home, "codex-arguments");
+    const started = join(home, "codex-started");
+    const release = join(home, "release-codex");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "printf '%s\\n' \"$@\" > \"$CODEX_ARGUMENTS_RECORD\"\n" +
+        "printf started > \"$CODEX_STARTED\"\n" +
+        "while [ ! -f \"$CODEX_RELEASE\" ]; do sleep 0.01; done\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = {
+      CODEX_ARGUMENTS_RECORD: argumentsRecord,
+      CODEX_RELEASE: release,
+      CODEX_STARTED: started,
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+    };
+    expect(
+      runCliWithEnvironment(home, environment, "install", "--profile", "coding", "--host", "codex").status,
+    ).toBe(0);
+    const library = codexSkillLibraryPath(home);
+    const originalGeneration = readlinkSync(library);
+    const session = spawn(
+      process.env.NODE_BINARY ?? "node",
+      [cliPath, "run", "--profile", "coding", "--host", "codex", "--", "task"],
+      { env: { ...process.env, ...environment, HOME: home } },
+    );
+    try {
+      await new Promise<void>((resolvePromise, rejectPromise) => {
+        const deadline = setTimeout(() => rejectPromise(new Error("Timed out waiting for Codex")), 5_000);
+        const poll = setInterval(() => {
+          if (!existsSync(started)) return;
+          clearInterval(poll);
+          clearTimeout(deadline);
+          resolvePromise();
+        }, 10);
+        session.once("error", rejectPromise);
+      });
+      writeFileSync(
+        join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+        "---\nname: review-pr\ndescription: Updated while running.\n---\nUpdated.\n",
+      );
+
+      expect(runCliWithEnvironment(home, environment, "update").status).toBe(0);
+      expect(readlinkSync(library)).not.toBe(originalGeneration);
+      expect(readFileSync(argumentsRecord, "utf8")).toContain(originalGeneration);
+      const activeUninstall = runCli(
+        home,
+        "uninstall",
+        "--profile",
+        "coding",
+        "--host",
+        "codex",
+      );
+      expect(activeUninstall.status).toBe(1);
+      expect(activeUninstall.stderr).toContain("managed Codex run is active");
+      expect(existsSync(originalGeneration)).toBe(true);
+      expect(existsSync(library)).toBe(true);
+    } finally {
+      writeFileSync(release, "");
+      await new Promise<void>((resolvePromise) => session.once("close", () => resolvePromise()));
+    }
+    expect(runCli(home, "uninstall", "--profile", "coding", "--host", "codex").status).toBe(0);
+    expect(existsSync(library)).toBe(false);
+    expect(existsSync(originalGeneration)).toBe(false);
+  });
+
+  test("final uninstall prunes an unlocked lease left by a killed run wrapper", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const bin = join(home, "bin");
+    const started = join(home, "codex-started");
+    const release = join(home, "release-codex");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "printf started > \"$CODEX_STARTED\"\n" +
+        "while [ ! -f \"$CODEX_RELEASE\" ]; do sleep 0.01; done\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = {
+      CODEX_RELEASE: release,
+      CODEX_STARTED: started,
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+    };
+    expect(
+      runCliWithEnvironment(home, environment, "install", "--profile", "coding", "--host", "codex").status,
+    ).toBe(0);
+    const session = spawn(
+      process.env.NODE_BINARY ?? "node",
+      [cliPath, "run", "--profile", "coding", "--host", "codex", "--", "task"],
+      { env: { ...process.env, ...environment, HOME: home } },
+    );
+    try {
+      await new Promise<void>((resolvePromise, rejectPromise) => {
+        const deadline = setTimeout(() => rejectPromise(new Error("Timed out waiting for Codex")), 5_000);
+        const poll = setInterval(() => {
+          if (!existsSync(started)) return;
+          clearInterval(poll);
+          clearTimeout(deadline);
+          resolvePromise();
+        }, 10);
+        session.once("error", rejectPromise);
+      });
+      const exited = new Promise<void>((resolvePromise) =>
+        session.once("exit", () => resolvePromise()),
+      );
+      session.kill("SIGKILL");
+      await exited;
+
+      const active = runCli(home, "uninstall", "--profile", "coding", "--host", "codex");
+      expect(active.status).toBe(1);
+      expect(active.stderr).toContain("managed Codex run is active");
+    } finally {
+      writeFileSync(release, "");
+    }
+    let uninstall;
+    const deadline = Date.now() + 5_000;
+    do {
+      uninstall = runCli(home, "uninstall", "--profile", "coding", "--host", "codex");
+      if (uninstall.status === 0) break;
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
+    } while (Date.now() < deadline);
+    expect(uninstall.status, uninstall.stderr).toBe(0);
+    expect(existsSync(codexSkillLibraryPath(home))).toBe(false);
+  });
+
   test("a user can distinguish stale source from drifted generated output", () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
@@ -1276,7 +1479,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     );
 
     expect(runCli(home, "status", "--profile", "coding", "--host", "codex").stdout).toBe(
-      "Status: stale source\n",
+      "Profile Installation: stale source\nCodex Skill Library: current\n",
     );
     const installedContext = join(
       home,
@@ -1290,7 +1493,55 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     writeFileSync(installedContext, "Edited generated output.\n");
 
     expect(runCli(home, "status", "--profile", "coding", "--host", "codex").stdout).toBe(
-      "Status: stale source, drifted output\n",
+      "Profile Installation: stale source, drifted output\nCodex Skill Library: current\n",
+    );
+  });
+
+  test("status distinguishes Profile freshness from shared Codex Skill Library freshness and drift", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const unselected = join(workspacePath(home), "skills", "write-release-notes");
+    mkdirSync(unselected);
+    writeFileSync(
+      join(unselected, "SKILL.md"),
+      "---\nname: write-release-notes\ndescription: Write release notes.\n---\nOriginal.\n",
+    );
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    expect(
+      runCliWithEnvironment(
+        home,
+        { PATH: `${bin}:${process.env.PATH ?? ""}` },
+        "install",
+        "--profile",
+        "coding",
+        "--host",
+        "codex",
+      ).status,
+    ).toBe(0);
+    writeFileSync(
+      join(unselected, "SKILL.md"),
+      "---\nname: write-release-notes\ndescription: Write release notes.\n---\nChanged.\n",
+    );
+
+    expect(runCli(home, "status", "--profile", "coding", "--host", "codex").stdout).toBe(
+      "Profile Installation: current\nCodex Skill Library: stale source\n",
+    );
+    writeFileSync(
+      join(home, ".agents", "skills", "agent-profile-kit", "review-pr", "SKILL.md"),
+      "drifted generated Skill\n",
+    );
+    expect(runCli(home, "status", "--profile", "coding", "--host", "codex").stdout).toBe(
+      "Profile Installation: current\nCodex Skill Library: stale source, drifted output\n",
     );
   });
 
@@ -1357,16 +1608,27 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     expect(result.stdout).toContain("Workspace valid");
   });
 
-  test("a user is stopped before a Codex Skills plan when the Host lacks per-process Skill discovery", () => {
+  test("a Codex Skills plan projects the complete Workspace library and selects only the Profile Skills", () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
     writeProfileWithSkill(home);
+    const unselected = join(workspacePath(home), "skills", "write-release-notes");
+    mkdirSync(join(unselected, "references"), { recursive: true });
+    writeFileSync(
+      join(unselected, "SKILL.md"),
+      "---\nname: write-release-notes\ndescription: Write release notes from completed work.\n---\n\n# Write release notes\n",
+    );
+    writeFileSync(join(unselected, "references", "style.md"), "Keep it concise.\n");
+    writeFileSync(join(unselected, "agent-profile-kit.yaml"), "orchestration: local-only\n");
     const bin = join(home, "bin");
     const codexInvocation = join(home, "codex-invoked");
     mkdirSync(bin);
     writeFileSync(
       join(bin, "codex"),
-      `#!/bin/sh\nprintf invoked > ${JSON.stringify(codexInvocation)}\nexit 1\n`,
+      `#!/bin/sh\nprintf invoked > ${JSON.stringify(codexInvocation)}\n` +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
     );
     chmodSync(join(bin, "codex"), 0o755);
 
@@ -1380,15 +1642,450 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       "codex",
     );
 
-    expect(result.status).toBe(1);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("does not support per-process Skill discovery and isolation");
-    expect(existsSync(codexInvocation)).toBe(false);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Selected Skills: review-pr");
+    expect(result.stdout).toContain("Codex Skill Library:");
+    expect(result.stdout).toContain("Projected Skills: review-pr, write-release-notes");
+    expect(result.stdout).toContain("Add: review-pr, write-release-notes");
+    expect(existsSync(codexInvocation)).toBe(true);
     expect(
       existsSync(
         join(home, ".agents", "agent-profile-kit", "installations", "coding", "codex"),
       ),
     ).toBe(false);
+    expect(existsSync(join(home, ".agents", "skills", "agent-profile-kit"))).toBe(false);
+  });
+
+  test("installation mirrors every Workspace Skill byte-for-byte without sidecars or unrelated global changes", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const workspaceSkill = join(workspacePath(home), "skills", "review-pr");
+    mkdirSync(join(workspaceSkill, "scripts"));
+    const script = join(workspaceSkill, "scripts", "check.sh");
+    writeFileSync(script, "#!/bin/sh\nprintf checked\\n\n");
+    chmodSync(script, 0o755);
+    writeFileSync(join(workspaceSkill, "agent-profile-kit.yaml"), "orchestration: local-only\n");
+    const unselected = join(workspacePath(home), "skills", "write-release-notes");
+    mkdirSync(unselected);
+    writeFileSync(
+      join(unselected, "SKILL.md"),
+      "---\nname: write-release-notes\ndescription: Write release notes.\n---\n\n# Notes\n",
+    );
+
+    const nativeSkill = join(home, ".agents", "skills", "native-skill");
+    mkdirSync(nativeSkill, { recursive: true });
+    writeFileSync(
+      join(nativeSkill, "SKILL.md"),
+      "---\nname: native-skill\ndescription: Existing user Skill.\ncodex-only-field: preserved\n---\n",
+    );
+    const codexConfig = join(home, ".codex", "config.toml");
+    mkdirSync(join(home, ".codex"));
+    writeFileSync(codexConfig, "model = \"user-choice\"\n");
+    const beforeNative = await snapshotTree(join(home, ".agents", "skills", "native-skill"));
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(
+      home,
+      { PATH: `${bin}:${process.env.PATH ?? ""}` },
+      "install",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    const library = join(home, ".agents", "skills", "agent-profile-kit");
+    expect(await listTree(library)).toEqual([
+      ".agent-profile-kit.yaml",
+      "review-pr/",
+      "review-pr/SKILL.md",
+      "review-pr/scripts/",
+      "review-pr/scripts/check.sh",
+      "write-release-notes/",
+      "write-release-notes/SKILL.md",
+    ]);
+    expect(readFileSync(join(library, "review-pr", "SKILL.md"))).toEqual(
+      readFileSync(join(workspaceSkill, "SKILL.md")),
+    );
+    expect(readFileSync(join(library, "review-pr", "scripts", "check.sh"))).toEqual(
+      readFileSync(script),
+    );
+    expect(statSync(join(library, "review-pr", "scripts", "check.sh")).mode & 0o777).toBe(0o755);
+    expect(existsSync(join(library, "review-pr", "agent-profile-kit.yaml"))).toBe(false);
+    expect(await snapshotTree(nativeSkill)).toEqual(beforeNative);
+    expect(readFileSync(codexConfig, "utf8")).toBe("model = \"user-choice\"\n");
+    const manifest = parse(
+      readFileSync(
+        join(home, ".agents", "agent-profile-kit", "installations", "coding", "codex", "installation.yaml"),
+        "utf8",
+      ),
+    ) as { selected_artifacts: { skills: string[] } };
+    expect(manifest.selected_artifacts.skills).toEqual(["review-pr"]);
+  });
+
+  test("a later plan reports Codex Skill Library additions, changes, and removals", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const workspace = workspacePath(home);
+    const removed = join(workspace, "skills", "old-skill");
+    mkdirSync(removed);
+    writeFileSync(
+      join(removed, "SKILL.md"),
+      "---\nname: old-skill\ndescription: An old Skill.\n---\n",
+    );
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = { PATH: `${bin}:${process.env.PATH ?? ""}` };
+    expect(
+      runCliWithEnvironment(home, environment, "install", "--profile", "coding", "--host", "codex").status,
+    ).toBe(0);
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review changed code.\n---\nChanged.\n",
+    );
+    rmSync(removed, { recursive: true });
+    const added = join(workspace, "skills", "new-skill");
+    mkdirSync(added);
+    writeFileSync(
+      join(added, "SKILL.md"),
+      "---\nname: new-skill\ndescription: A new Skill.\n---\n",
+    );
+
+    const result = runCliWithEnvironment(
+      home,
+      environment,
+      "plan",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Add: new-skill");
+    expect(result.stdout).toContain("Change: review-pr");
+    expect(result.stdout).toContain("Remove: old-skill");
+  });
+
+  test("a current plan still reports the complete projected Codex Skill catalog", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const extra = join(workspacePath(home), "skills", "write-release-notes");
+    mkdirSync(extra);
+    writeFileSync(
+      join(extra, "SKILL.md"),
+      "---\nname: write-release-notes\ndescription: Write release notes.\n---\n",
+    );
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = { PATH: `${bin}:${process.env.PATH ?? ""}` };
+    expect(
+      runCliWithEnvironment(home, environment, "install", "--profile", "coding", "--host", "codex").status,
+    ).toBe(0);
+
+    const result = runCliWithEnvironment(
+      home,
+      environment,
+      "plan",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Projected Skills: review-pr, write-release-notes");
+    expect(result.stdout).toContain("Add: (none)");
+    expect(result.stdout).toContain("Change: (none)");
+    expect(result.stdout).toContain("Remove: (none)");
+  });
+
+  test("a failed Codex Skill Library synchronization preserves the previous complete library", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const workspace = await ingestWorkspace(home);
+    const initialPlan = await planCodexSkillLibrary(home, workspace.skills);
+    await syncCodexSkillLibrary(initialPlan);
+    const library = codexSkillLibraryPath(home);
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Changed review workflow.\n---\nChanged.\n",
+    );
+    const replacementWorkspace = await ingestWorkspace(home);
+    const replacementPlan = await planCodexSkillLibrary(home, replacementWorkspace.skills);
+    const before = await snapshotTree(library);
+    rmSync(join(workspacePath(home), "skills", "review-pr", "SKILL.md"));
+
+    await expect(syncCodexSkillLibrary(replacementPlan)).rejects.toThrow(
+      "Workspace Skills changed after",
+    );
+    expect(await snapshotTree(library)).toEqual(before);
+  });
+
+  test("library updates atomically switch immutable generations and reclaim unreferenced ones", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    let workspace = await ingestWorkspace(home);
+    await syncCodexSkillLibrary(await planCodexSkillLibrary(home, workspace.skills));
+    const library = codexSkillLibraryPath(home);
+    expect(lstatSync(library).isSymbolicLink()).toBe(true);
+    const previousGeneration = readlinkSync(library);
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Updated review workflow.\n---\nUpdated.\n",
+    );
+    workspace = await ingestWorkspace(home);
+
+    await syncCodexSkillLibrary(await planCodexSkillLibrary(home, workspace.skills));
+
+    const currentGeneration = readlinkSync(library);
+    expect(currentGeneration).not.toBe(previousGeneration);
+    expect(existsSync(previousGeneration)).toBe(false);
+    expect(existsSync(currentGeneration)).toBe(true);
+    expect(readFileSync(join(library, "review-pr", "SKILL.md"), "utf8")).toContain(
+      "Updated.",
+    );
+  });
+
+  test("a half-created empty Skill Library state directory is claimable", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const state = join(home, ".agents", "agent-profile-kit", "codex-skill-library");
+    mkdirSync(state, { recursive: true });
+    expect(existsSync(join(state, ".agent-profile-kit-owned"))).toBe(false);
+
+    await syncCodexSkillLibrary(
+      await planCodexSkillLibrary(home, (await ingestWorkspace(home)).skills),
+    );
+
+    expect(readFileSync(join(state, ".agent-profile-kit-owned"), "utf8")).toBe(
+      "agent-profile-kit\n",
+    );
+    expect(existsSync(codexSkillLibraryPath(home))).toBe(true);
+  });
+
+  test("a corrupt unleased generation is restaged on the next sync", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const workspace = await ingestWorkspace(home);
+    const plan = await planCodexSkillLibrary(home, workspace.skills);
+    await syncCodexSkillLibrary(plan);
+    const library = codexSkillLibraryPath(home);
+    const generation = readlinkSync(library);
+    writeFileSync(join(generation, "review-pr", "SKILL.md"), "corrupted\n");
+
+    await syncCodexSkillLibrary(plan);
+
+    expect(readFileSync(join(library, "review-pr", "SKILL.md"), "utf8")).toContain(
+      "Review a pull request",
+    );
+    expect(readFileSync(join(generation, "review-pr", "SKILL.md"), "utf8")).toContain(
+      "Review a pull request",
+    );
+  });
+
+  test("planning refuses an unowned library destination and a conflicting user Skill before writing", async () => {
+    for (const conflict of ["unowned destination", "Skill identity"] as const) {
+      const home = isolatedHome();
+      expect(runCli(home, "init").status).toBe(0);
+      writeProfileWithSkill(home);
+      const library = join(home, ".agents", "skills", "agent-profile-kit");
+      if (conflict === "unowned destination") {
+        mkdirSync(library, { recursive: true });
+        writeFileSync(join(library, "user-file.txt"), "preserve me\n");
+      } else {
+        const existing = join(home, ".agents", "skills", "existing");
+        mkdirSync(existing, { recursive: true });
+        writeFileSync(
+          join(existing, "SKILL.md"),
+          "---\nname: review-pr\ndescription: Existing user Skill.\n---\n",
+        );
+      }
+      const root = join(home, ".agents", "skills");
+      const before = await snapshotTree(root);
+
+      const result = runCli(home, "plan", "--profile", "coding", "--host", "codex");
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(
+        conflict === "unowned destination" ? "Refusing unowned" : "conflicts with an existing Codex Skill",
+      );
+      expect(await snapshotTree(root)).toEqual(before);
+    }
+  });
+
+  test("planning detects a conflicting Skill reached through a symlinked discovery directory", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const external = join(home, "external-skills", "conflict");
+    mkdirSync(external, { recursive: true });
+    writeFileSync(
+      join(external, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Symlinked existing Skill.\n---\n",
+    );
+    const discoveryRoot = join(home, ".agents", "skills");
+    mkdirSync(discoveryRoot, { recursive: true });
+    symlinkSync(join(home, "external-skills"), join(discoveryRoot, "linked"));
+
+    const result = runCli(home, "plan", "--profile", "coding", "--host", "codex");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("conflicts with an existing Codex Skill");
+    expect(existsSync(codexSkillLibraryPath(home))).toBe(false);
+  });
+
+  test("uninstall keeps the shared library until the final installed Codex Profile is removed", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const workspace = workspacePath(home);
+    writeFileSync(
+      join(workspace, "context", "review-rules.md"),
+      "---\nid: review-rules\n---\nReview carefully.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "review.yaml"),
+      "id: review\ncontext:\n  - review-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = { PATH: `${bin}:${process.env.PATH ?? ""}` };
+    for (const profile of ["coding", "review"]) {
+      expect(
+        runCliWithEnvironment(home, environment, "install", "--profile", profile, "--host", "codex").status,
+      ).toBe(0);
+    }
+    const library = join(home, ".agents", "skills", "agent-profile-kit");
+
+    expect(runCli(home, "uninstall", "--profile", "coding", "--host", "codex").status).toBe(0);
+    expect(existsSync(library)).toBe(true);
+    expect(runCli(home, "uninstall", "--profile", "review", "--host", "codex").status).toBe(0);
+    expect(existsSync(library)).toBe(false);
+  });
+
+  test("final uninstall cannot delete the shared library beneath a concurrent Profile install", async () => {
+    const home = isolatedHome();
+    const makePlan = (profileId: string): ContextOnlyCodexPlan => ({
+      capability: { version: "codex-cli 0.test" },
+      context: `${profileId} Context.\n`,
+      destination: join(
+        home,
+        ".agents",
+        "agent-profile-kit",
+        "installations",
+        profileId,
+        "codex",
+      ),
+      engineVersion: "0.test",
+      profile: {
+        id: profileId,
+        context: ["team-rules"],
+        skills: [],
+        agents: [],
+        hooks: [],
+        tools: [],
+      },
+      skillLibrary: emptySkillLibraryPlan(home),
+      workspaceInputHash: `sha256:${"a".repeat(64)}`,
+    });
+    await installContextOnlyCodex(makePlan("coding"));
+    const review = makePlan("review");
+    let releasePublication!: () => void;
+    const publicationReleased = new Promise<void>((resolvePromise) => {
+      releasePublication = resolvePromise;
+    });
+    let publicationReached!: () => void;
+    const atPublication = new Promise<void>((resolvePromise) => {
+      publicationReached = resolvePromise;
+    });
+    const install = installContextOnlyCodex(review, {
+      fileSystem: {
+        ...nodeInstallationFileSystem,
+        rename: async (from, to) => {
+          if (from.includes(".install-") && to === review.destination) {
+            publicationReached();
+            await publicationReleased;
+          }
+          await nodeInstallationFileSystem.rename(from, to);
+        },
+      },
+    });
+    await atPublication;
+    const uninstall = uninstallContextOnlyCodex(home, "coding");
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+    releasePublication();
+
+    await expect(install).resolves.toBeUndefined();
+    await expect(uninstall).resolves.toContain("coding/codex");
+    expect(existsSync(review.destination)).toBe(true);
+    expect(existsSync(codexSkillLibraryPath(home))).toBe(true);
+  });
+
+  test("two contenders serialize through a pre-existing kernel lock file", async () => {
+    const home = isolatedHome();
+    const root = join(home, ".agents", "agent-profile-kit");
+    const lock = join(root, ".codex-lifecycle.lock");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(lock, "left by a terminated process\n");
+    let active = 0;
+    let maximumActive = 0;
+    let executions = 0;
+    const operation = () =>
+      withCodexLifecycleLock(home, async () => {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        executions += 1;
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+        active -= 1;
+      });
+
+    await Promise.all([operation(), operation()]);
+
+    expect(executions).toBe(2);
+    expect(maximumActive).toBe(1);
+    expect(existsSync(lock)).toBe(true);
   });
 
   test("a tampered Manifest cannot make Codex load a Skill outside a Context-only Profile Installation", () => {
@@ -1933,7 +2630,19 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
   test("a user can run an installed Profile from their project with native arguments and exit status preserved", () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
-    writeContextOnlyProfile(home);
+    writeProfileWithSkill(home);
+    const unselected = join(workspacePath(home), "skills", "write-release-notes");
+    mkdirSync(unselected);
+    writeFileSync(
+      join(unselected, "SKILL.md"),
+      "---\nname: write-release-notes\ndescription: Write release notes.\n---\n",
+    );
+    const nativeSkill = join(home, ".agents", "skills", "native-skill");
+    mkdirSync(nativeSkill, { recursive: true });
+    writeFileSync(
+      join(nativeSkill, "SKILL.md"),
+      "---\nname: native-skill\ndescription: Existing user Skill.\n---\n",
+    );
     const bin = join(home, "bin");
     const argumentsRecord = join(home, "codex-arguments");
     const directoryRecord = join(home, "codex-directory");
@@ -1996,6 +2705,10 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     const arguments_ = readFileSync(argumentsRecord, "utf8");
     expect(arguments_).toContain("developer_instructions=");
     expect(arguments_).toContain("Always preserve the project boundary.");
+    expect(arguments_).toContain("review-pr/SKILL.md\",enabled=true");
+    expect(arguments_).toContain("write-release-notes/SKILL.md\",enabled=false");
+    expect(arguments_).toContain("codex-skill-library/generations/");
+    expect(arguments_).not.toContain(join(nativeSkill, "SKILL.md"));
     expect(arguments_).toContain('--config\nmodel_reasoning_effort = "high"\n');
     expect(arguments_).toContain("--model\no3\nnative task\n");
     expect(readFileSync(join(globalCodex, "config.toml"), "utf8")).toBe(
@@ -2004,5 +2717,117 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     expect(readFileSync(join(project, ".codex", "config.toml"), "utf8")).toBe(
       projectConfig,
     );
+  });
+
+  test("run rejects a Skill collision in the native Codex --cd project before launch", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const bin = join(home, "bin");
+    const invocation = join(home, "codex-invoked");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        `printf invoked > ${JSON.stringify(invocation)}\n`,
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = { PATH: `${bin}:${process.env.PATH ?? ""}` };
+    expect(
+      runCliWithEnvironment(home, environment, "install", "--profile", "coding", "--host", "codex").status,
+    ).toBe(0);
+    const project = join(home, "conflicting-project");
+    const projectSkill = join(project, ".agents", "skills", "review-pr");
+    mkdirSync(projectSkill, { recursive: true });
+    writeFileSync(
+      join(projectSkill, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Project-local conflict.\n---\n",
+    );
+
+    const result = runCliWithEnvironment(
+      home,
+      environment,
+      "run",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+      "--",
+      "--cd",
+      project,
+      "task",
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("conflicts with an existing Codex Skill");
+    expect(existsSync(invocation)).toBe(false);
+  });
+
+  test("concurrent managed Codex runs receive independent Profile Skill filters", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    const workspace = workspacePath(home);
+    writeContextOnlyProfile(home);
+    for (const id of ["skill-one", "skill-two"]) {
+      const skill = join(workspace, "skills", id);
+      mkdirSync(skill);
+      writeFileSync(
+        join(skill, "SKILL.md"),
+        `---\nname: ${id}\ndescription: ${id} test workflow.\n---\n`,
+      );
+      writeFileSync(
+        join(workspace, "profiles", `${id}.yaml`),
+        `id: ${id}\ncontext:\n  - team-rules\nskills:\n  - ${id}\nagents: []\nhooks: []\ntools: []\n`,
+      );
+    }
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "printf '%s\\n' \"$@\" > \"$CODEX_ARGUMENTS_RECORD\"\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const path = `${bin}:${process.env.PATH ?? ""}`;
+    for (const profile of ["skill-one", "skill-two"]) {
+      expect(
+        runCliWithEnvironment(
+          home,
+          { PATH: path },
+          "install",
+          "--profile",
+          profile,
+          "--host",
+          "codex",
+        ).status,
+      ).toBe(0);
+    }
+    const records = [join(home, "one.args"), join(home, "two.args")];
+    const results = await Promise.all(
+      ["skill-one", "skill-two"].map((profile, index) =>
+        runCliAsyncWithEnvironment(
+          home,
+          { CODEX_ARGUMENTS_RECORD: records[index], PATH: path },
+          "run",
+          "--profile",
+          profile,
+          "--host",
+          "codex",
+          "--",
+          "task",
+        ),
+      ),
+    );
+    expect(results.map(({ status }) => status)).toEqual([0, 0]);
+    const one = readFileSync(records[0]!, "utf8");
+    const two = readFileSync(records[1]!, "utf8");
+    expect(one).toContain("skill-one/SKILL.md\",enabled=true");
+    expect(one).toContain("skill-two/SKILL.md\",enabled=false");
+    expect(two).toContain("skill-one/SKILL.md\",enabled=false");
+    expect(two).toContain("skill-two/SKILL.md\",enabled=true");
   });
 });

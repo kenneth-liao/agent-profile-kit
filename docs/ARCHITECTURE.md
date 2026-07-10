@@ -26,6 +26,9 @@ The default application root separates canonical user content from generated sta
 │   └── tools/
 └── installations/             # Agent Profile Kit-owned disposable output
     └── <profile-id>/<host-id>/
+
+~/.agents/skills/
+└── agent-profile-kit@         # Atomic pointer to the current Codex Skill Library generation
 ```
 
 The initial release supports exactly one Workspace per user at the fixed path above. It has no public Workspace path override, registry, or project-specific Workspace selection. The Workspace may be a private or public Git repository version-controlled independently of Agent Profile Kit, but Git is not required. Repository visibility and content review are the user's responsibility; Agent Profile Kit provides only a brief reminder to review personal material before publishing and does not scan, classify, or block Workspace publication. Credential values remain invalid regardless of repository visibility. Backups include `workspace/`; `installations/` can always be regenerated.
@@ -48,7 +51,7 @@ Initialization creates a Git-friendly `.gitignore` and prints optional commands 
 
 ## Source and Runtime Boundary
 
-Agent Profile Kit participates when a Profile Installation is created or updated and when its transparent launcher starts an Agent Host. Agent Hosts use generated Profile Installations at runtime and never load canonical files from the canonical Workspace.
+Agent Profile Kit participates when a Profile Installation is created or updated and when its transparent launcher starts an Agent Host. Agent Hosts use generated Profile Installations and explicitly owned Host projections at runtime and never load canonical files from the canonical Workspace.
 
 ```mermaid
 flowchart LR
@@ -111,11 +114,11 @@ Agent Tools are model-callable and use focused MCP servers as their default port
 
 Profiles are explicit, flat selections of canonical Context, Skills, Agents, Hooks, and Tools for a kind of work, such as coding, research, or personal assistance. Profiles have no inheritance, select stable Artifact IDs, and may coexist across simultaneous Agent Host sessions. They do not abstract general Host settings such as model selection, reasoning level, theme, sandbox mode, telemetry, or session behavior.
 
-A Profile is explicitly selected and applied as a per-process overlay when launching an Agent Host. The initial design has no default Profile. The Host's ordinary global and project configuration remains in effect and remains user-owned. Agent Profile Kit guarantees that one session does not receive material selected only by another Profile; it does not suppress unrelated global or project customization.
+A Profile is explicitly selected and applied when launching an Agent Host. The initial design has no default Profile. An Adapter chooses the smallest supported native delivery mechanism for each artifact category; the resulting session must still observe exactly the selected Agent Profile Kit material. The Host's ordinary global and project configuration remains in effect and remains user-owned. Agent Profile Kit guarantees that one managed session does not receive Agent Profile Kit material selected only by another Profile; it does not suppress unrelated global or project customization.
 
 Canonical Profiles are flat YAML files under the Workspace's `profiles/`. Each declares its stable Profile ID and explicit Context, Skill, Agent, Hook, and Tool selections. Profiles have no inheritance, inclusions, wildcards, or Host-specific settings.
 
-Generated Profile Installations are persistent mutable directories under `~/.agents/agent-profile-kit/installations/<profile-id>/<host-id>/`. Each directory is self-contained, so the same canonical artifact may appear in multiple generated installations without creating another maintained source. An explicit `install` creates one Host/Profile pair, while `update` regenerates the already-installed set recorded by manifests. Launching never installs, updates, or checks the canonical source for staleness.
+Generated Profile Installations are persistent mutable directories under `~/.agents/agent-profile-kit/installations/<profile-id>/<host-id>/`. They are self-contained by default. A Host Adapter may additionally own a shared disposable projection when the Host cannot discover an artifact category from a Profile Installation. An explicit `install` creates one Host/Profile pair and synchronizes required shared output, while `update` regenerates the already-installed set and shared output recorded by manifests. Launching never installs, updates, or checks the canonical source for staleness.
 
 Source-dependent operations such as `install`, `update`, and source comparison always read the fixed canonical Workspace and can run from any directory. `run`, installation-only status checks, and `uninstall` can also run anywhere. Only the Host launched by `run` interprets the current working directory as its project. Uninstall removes a whole Profile Installation only after its Manifest confirms the expected Profile and Host identity.
 
@@ -136,9 +139,11 @@ flowchart LR
 
 Each `~/.agents/agent-profile-kit/installations/<profile-id>/<host-id>/` installation root has one Installation Manifest covering that one Profile's generated output. The entire root is Agent Profile Kit-owned and disposable. The Manifest records the Profile ID, Host and Adapter version, Agent Profile Kit version, selected artifacts and resolved dependencies, schema version, a deterministic hash of every resolved Workspace input, and a hash of the complete generated installation. If the Workspace uses Git, its commit SHA and dirty state are recorded as informational provenance only; the input hash determines freshness. Updates stage and validate a complete replacement instead of tracking ownership file by file.
 
+The Codex Skill Library discovered at `~/.agents/skills/agent-profile-kit/` has a separate whole-tree ownership Manifest because it serves every installed Codex Profile. It is a byte-preserving projection of the complete valid Workspace Skill catalog, excluding Agent Profile Kit sidecars. Synchronization stages and validates an immutable generation under `~/.agents/agent-profile-kit/codex-skill-library/generations/`, then atomically replaces the discovery symlink. Prior generations remain readable until no Profile or active run depends on them, so ordinary Codex readers never observe a partially replaced or temporarily missing library. Each managed run resolves the discovery pointer and passes filter paths for that immutable generation. The native process holds a kernel-backed lease file through `lockf`, so update cannot change its Skills and a killed wrapper cannot orphan a live or permanently stale logical lease. Final uninstall fails while a run is active and prunes lease files whose kernel lock proves the process has ended. A kernel-backed lifecycle lock covers shared synchronization, leases, Profile publication, dependency enumeration, and removal; the operating system releases it automatically on a crash. An existing destination without the expected owned generation pointer, or an existing Codex Skill outside the library with a colliding Artifact ID, is rejected before any write. Conflict checks cover Codex's user, repository (including the native launch directory), admin, and system discovery scopes; plugin Skill names are Host-namespaced and cannot collide with portable Artifact IDs. Uninstall removes the discovery pointer and generations only after the final dependency ends and only when ownership is still provable.
+
 `validate` checks the Workspace independently of a Host. `plan --profile <id> --host <id>` is read-only: it resolves dependencies, checks the Adapter Capability Contract, compares desired output with the existing installation, and reports additions, changes, removals, destinations, and failures. `install` consumes the same plan before applying it so preview and write behavior cannot diverge.
 
-Updates are explicit. Status reporting identifies current, stale, and drifted Profile Installations.
+Updates are explicit. Status reporting distinguishes Profile Installation freshness and drift from shared Codex Skill Library freshness and drift.
 
 ## Versioning
 
@@ -158,9 +163,9 @@ An update guarantees the new installation for sessions launched afterward. Alrea
 
 ### Initial Adapter mappings
 
-The Claude Code Adapter generates one native plugin per Profile containing Skills, rendered Agents, Hooks, MCP servers, and executable utilities. It generates composed Context separately and launches Claude Code with the Profile plugin directory and appended system-prompt file. This uses session-scoped native inputs and leaves Claude's global and project configuration active.
+The Claude Code Adapter generates composed Context and launches Claude Code with an appended system-prompt file. It exposes Skills by adding a Profile Installation directory containing `.claude/skills/`. Agents, Hooks, and Tools use the smallest supported session input for their category; a generated plugin is optional when it materially improves delivery rather than a required Profile container. These session-scoped native inputs leave Claude's global and project configuration active.
 
-The Codex Adapter currently generates only composed Context within the Profile Installation and passes it through the per-process `developer_instructions` override. Codex does not currently expose a supported process-scoped Skill discovery and isolation surface; `skills.config` only controls already-discovered Skills and cannot register a Profile Installation directory. A Profile that selects Skills therefore fails before Host detection or installation rather than mutating global Skill directories, changing `CODEX_HOME`, or claiming weaker isolation. Agent, Hook, and Tool mappings remain deferred to their dedicated issues.
+The Codex Adapter stores composed Context within the Profile Installation and passes it through the per-process `developer_instructions` override. Because Codex does not currently expose a supported process-scoped Skill discovery path, the Adapter transactionally mirrors every Workspace Skill into its dedicated standard user Skill subtree at `~/.agents/skills/agent-profile-kit/`. Managed launches pass a process-only `skills.config` value that enables selected library Skills and disables unselected library Skills without mentioning unrelated native Skills. Agent Profile Kit never writes `~/.codex/config.toml`, changes `CODEX_HOME`, or modifies existing user, project, admin, system, or plugin capabilities. Ordinary Codex launches discover the complete library. Agent, Hook, and Tool mappings remain deferred to their dedicated issues.
 
 ## Configuration and Credentials
 
