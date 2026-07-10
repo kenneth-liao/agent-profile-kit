@@ -39,8 +39,8 @@ afterAll(() => {
   }
 });
 
-function isolatedHome(): string {
-  const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-test-"));
+function isolatedHome(prefix = "agent-profile-kit-test-"): string {
+  const home = mkdtempSync(join(tmpdir(), prefix));
   temporaryDirectories.push(home);
   return home;
 }
@@ -192,6 +192,24 @@ describe("agent-profile-kit init", () => {
     expect(readFileSync(join(workspace, ".gitignore"), "utf8")).toBe(
       ".DS_Store\n",
     );
+  });
+
+  test("optional Git setup works when the Workspace path contains shell metacharacters", () => {
+    const home = isolatedHome("agent profile-$`'\"-");
+    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+
+    const result = runCli(home, "init");
+    const cdLine = result.stdout
+      .split("\n")
+      .find((line) => line.startsWith("  cd "));
+    expect(cdLine).toBeDefined();
+
+    const shellResult = spawnSync("/bin/sh", ["-c", `${cdLine?.trim()}\npwd`], {
+      encoding: "utf8",
+    });
+
+    expect(shellResult.status, shellResult.stderr).toBe(0);
+    expect(shellResult.stdout.trim()).toBe(workspace);
   });
 
   test("a user can repeat initialization without changing a valid Workspace", async () => {
@@ -353,6 +371,22 @@ describe("agent-profile-kit init", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("Workspace is incomplete");
     expect(result.stderr).toContain("tools");
+    expect(await snapshotTree(workspace)).toEqual(before);
+  });
+
+  test("an unsupported Workspace schema version fails with migration guidance", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    expect(runCli(home, "init").status).toBe(0);
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 2\n");
+    const before = await snapshotTree(workspace);
+
+    const result = runCli(home, "init");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Unsupported Workspace schema version 2");
+    expect(result.stderr).toContain("supports version 1");
     expect(await snapshotTree(workspace)).toEqual(before);
   });
 

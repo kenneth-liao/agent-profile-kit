@@ -14,6 +14,10 @@ function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function quoteForPosixShell(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
 async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
 
@@ -38,7 +42,7 @@ async function main(): Promise<void> {
     `Initialized Agent Profile Kit Workspace at ${result.path}\n` +
       "Next: run agent-profile-kit guide\n" +
       "Agent prompt: Run agent-profile-kit guide --agent, then help me create the smallest useful Profile.\n" +
-      `Optional Git setup:\n  cd ${JSON.stringify(result.path)}\n  git init\n` +
+      `Optional Git setup:\n  cd ${quoteForPosixShell(result.path)}\n  git init\n` +
       "Review personal content before publishing this Workspace.\n",
   );
 }
