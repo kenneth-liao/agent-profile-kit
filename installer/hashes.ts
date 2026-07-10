@@ -58,13 +58,16 @@ export async function hashWorkspaceInputs(
     }
     return { content: context.content, id: context.id };
   });
-  const selectedSkills = await Promise.all(
-    profile.skills.map((id) => {
-      const skill = skills.get(id);
-      if (!skill) throw new Error(`Profile '${profile.id}' selects missing Skill '${id}'`);
-      return skillInput(skill);
-    }),
-  );
+  const selectedSkills =
+    profile.skills.length === 0
+      ? undefined
+      : await Promise.all(
+          profile.skills.map((id) => {
+            const skill = skills.get(id);
+            if (!skill) throw new Error(`Profile '${profile.id}' selects missing Skill '${id}'`);
+            return skillInput(skill);
+          }),
+        );
   return sha256(
     JSON.stringify({
       context_modules: selectedContexts,
@@ -76,7 +79,7 @@ export async function hashWorkspaceInputs(
         skills: profile.skills,
         tools: profile.tools,
       },
-      skills: selectedSkills,
+      ...(selectedSkills ? { skills: selectedSkills } : {}),
       workspace_schema_version: WORKSPACE_SCHEMA_VERSION,
     }),
   );

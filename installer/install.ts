@@ -1,6 +1,6 @@
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { type Stats } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   formatInstallationManifest,
@@ -54,34 +54,13 @@ async function installationManifest(
     hostId: "codex",
     hostVersion: plan.capability.version,
     outputHash: await hashOutputDirectory(staging),
-    outputs: await installationOutputs(staging),
+    outputs: ["context.md"],
     profileId: plan.profile.id,
-    selectedArtifacts: { context: plan.profile.context, skills: plan.profile.skills },
+    selectedArtifacts: { context: plan.profile.context, skills: [] },
     schemaVersion: 1,
     workspaceInputHash: plan.workspaceInputHash,
     ...(plan.gitProvenance ? { git: plan.gitProvenance } : {}),
   };
-}
-
-function comparePaths(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
-async function installationOutputs(root: string): Promise<readonly string[]> {
-  const outputs: string[] = [];
-  async function visit(directory: string): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true });
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await visit(path);
-      } else if (entry.isFile() && relative(root, path) !== "installation.yaml") {
-        outputs.push(relative(root, path));
-      }
-    }
-  }
-  await visit(root);
-  return outputs.sort(comparePaths);
 }
 
 function existingInstallationError(destination: string): Error {
@@ -109,13 +88,6 @@ async function stageInstallation(
   fileSystem: InstallationFileSystem,
 ): Promise<void> {
   await fileSystem.writeFile(join(staging, "context.md"), plan.context);
-  for (const skill of plan.skills) {
-    const destination = join(staging, "skills", skill.id);
-    await cp(skill.path, destination, {
-      filter: (source) => source !== join(skill.path, "agent-profile-kit.yaml"),
-      recursive: true,
-    });
-  }
   await fileSystem.writeFile(
     join(staging, "installation.yaml"),
     formatInstallationManifest(await installationManifest(staging, plan, fileSystem)),

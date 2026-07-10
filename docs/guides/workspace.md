@@ -16,15 +16,21 @@ only `schema_version: 1`; the `profiles/`, `context/`, `skills/`, `agents/`,
 `hooks/`, and `tools/` directories identify the canonical homes for portable
 artifacts. Do not treat generated Host output as source material.
 
-The current tracer supports Context and Skills in Codex Profiles. A Context
-Module is a Markdown file under `context/` with frontmatter containing one
-stable, lowercase kebab-case `id`; the Markdown body is the Context. A Skill is
-a standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
+The current Codex tracer supports Context Modules. A Context Module is a
+Markdown file under `context/` with frontmatter containing one stable,
+lowercase kebab-case `id`; the Markdown body is the Context. A Skill is a
+standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
 standard `name` is its stable Artifact ID. The frontmatter needs a lowercase
 hyphenated `name` and a non-empty `description`. Scripts, references, and
 assets remain ordinary standard Skill content. If a Skill needs Agent Profile
-Kit-only metadata, put it in an optional `agent-profile-kit.yaml` sidecar; it
-is never copied into the installed standard Skill.
+Kit-only metadata, put it in an optional `agent-profile-kit.yaml` sidecar.
+
+Skill packages are validated independently of a Host. Codex does not yet offer
+a supported process-scoped way to discover only the selected Skill packages, so
+planning or installing a Codex Profile that selects Skills fails clearly before
+any Host or installation write. Do not work around this limitation with global
+Skill directories or `CODEX_HOME`; those would violate Profile isolation and
+ordinary Host configuration preservation.
 
 A Profile is a YAML file under `profiles/` with an `id` and explicit `context`,
 `skills`, `agents`, `hooks`, and `tools` arrays. In this tracer, `agents`,
@@ -64,8 +70,8 @@ Run `agent-profile-kit validate`, then preview the generated Context with
 explicit: `agent-profile-kit install --profile coding --host codex`. Launch an
 installed Profile from the intended project with
 `agent-profile-kit run --profile coding --host codex -- <native Codex arguments>`.
-The launcher adds only the selected Context and Skills using Codex's
-per-process configuration overrides; ordinary global and project Codex
+The launcher adds only the selected Context using Codex's per-process
+developer-instructions override; ordinary global and project Codex
 configuration remains Host-owned.
 
 Use `agent-profile-kit status --profile coding --host codex` to inspect a

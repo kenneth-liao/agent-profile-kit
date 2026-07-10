@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { codexContextOverride, codexSkillsOverride, runCodex } from "../adapters/codex.js";
+import { codexContextOverride, runCodex } from "../adapters/codex.js";
 import { parseInstallationManifest } from "../schemas/installation-manifest.js";
 import { installationPath } from "./plan.js";
 
@@ -32,13 +32,11 @@ export async function runContextOnlyCodex(
   if (
     nativeArguments.some(
       (_, index) =>
-        ["developer_instructions", "skills.config"].includes(
-          configKey(configOverride(nativeArguments, index) ?? "") ?? "",
-        ),
+        configKey(configOverride(nativeArguments, index) ?? "") === "developer_instructions",
     )
   ) {
     throw new Error(
-      "Native Codex arguments may not override developer_instructions selected by the Profile or skills.config selected by the Profile",
+      "Native Codex arguments may not override developer_instructions selected by the Profile",
     );
   }
 
@@ -52,14 +50,10 @@ export async function runContextOnlyCodex(
     );
   }
   const context = await readFile(join(installation, "context.md"), "utf8");
-  const skills = manifest.selectedArtifacts.skills.map((skillId) =>
-    join(installation, "skills", skillId),
-  );
-  return runCodex([
-    "-c",
-    codexContextOverride(context),
-    "-c",
-    codexSkillsOverride(skills),
-    ...nativeArguments,
-  ]);
+  if (manifest.selectedArtifacts.skills.length > 0) {
+    throw new Error(
+      "Codex does not support per-process Skill discovery and isolation for Profile-selected Skills",
+    );
+  }
+  return runCodex(["-c", codexContextOverride(context), ...nativeArguments]);
 }

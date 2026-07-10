@@ -671,7 +671,6 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       destination,
       engineVersion: "0.test",
       profile,
-      skills: [],
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     await installContextOnlyCodex(plan("Previous Context.\n"));
@@ -756,7 +755,6 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       destination,
       engineVersion: "0.test",
       profile,
-      skills: [],
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     await installContextOnlyCodex(plan("Previous Context.\n"));
@@ -799,7 +797,6 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
-      skills: [],
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     };
     await installContextOnlyCodex(plan);
@@ -853,7 +850,6 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
-      skills: [],
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     const manifest = join(destination, "installation.yaml");
@@ -893,7 +889,6 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
-      skills: [],
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
     writeFileSync(join(destination, "edited-output.md"), "User edit.\n");
@@ -982,6 +977,20 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         "codex",
       ).status,
     ).toBe(0);
+    const manifestPath = join(
+      home,
+      ".agents",
+      "agent-profile-kit",
+      "installations",
+      "coding",
+      "codex",
+      "installation.yaml",
+    );
+    const legacyManifest = parse(readFileSync(manifestPath, "utf8")) as {
+      selected_artifacts: Record<string, unknown>;
+    };
+    delete legacyManifest.selected_artifacts.skills;
+    writeFileSync(manifestPath, stringify(legacyManifest));
     const codexInvocation = join(home, "codex-invoked");
     writeFileSync(
       join(bin, "codex"),
@@ -1334,7 +1343,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     expect(existsSync(codexInvocation)).toBe(false);
   });
 
-  test("a user can install a selected standard Skill unchanged without its sidecar", async () => {
+  test("a user can validate standard Skill content with a separate sidecar", () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
     writeProfileWithSkill(home);
@@ -1342,86 +1351,22 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     mkdirSync(join(skill, "references"));
     writeFileSync(join(skill, "references", "checklist.md"), "# Checklist\n\n- Preserve bytes.\n");
     writeFileSync(join(skill, "agent-profile-kit.yaml"), "orchestration: local-only\n");
-    const bin = join(home, "bin");
-    mkdirSync(bin);
-    writeFileSync(
-      join(bin, "codex"),
-      "#!/bin/sh\n" +
-        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
-        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then\n" +
-        "  case \"$4\" in\n" +
-        "    developer_instructions=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n' ;;\n" +
-        "    skills.config=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit Skill capability probe\\\"}]}]\\n' ;;\n" +
-        "    *) exit 1 ;;\n" +
-        "  esac\n" +
-        "  exit 0\n" +
-        "fi\n" +
-        "exit 1\n",
-    );
-    chmodSync(join(bin, "codex"), 0o755);
-
-    const result = runCliWithEnvironment(
-      home,
-      { PATH: `${bin}:${process.env.PATH ?? ""}` },
-      "install",
-      "--profile",
-      "coding",
-      "--host",
-      "codex",
-    );
-    const installation = join(
-      home,
-      ".agents",
-      "agent-profile-kit",
-      "installations",
-      "coding",
-      "codex",
-    );
+    const result = runCli(home, "validate");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(readFileSync(join(installation, "skills", "review-pr", "SKILL.md"))).toEqual(
-      readFileSync(join(skill, "SKILL.md")),
-    );
-    expect(
-      readFileSync(join(installation, "skills", "review-pr", "references", "checklist.md")),
-    ).toEqual(readFileSync(join(skill, "references", "checklist.md")));
-    expect(existsSync(join(installation, "skills", "review-pr", "agent-profile-kit.yaml"))).toBe(false);
-    expect(parse(readFileSync(join(installation, "installation.yaml"), "utf8"))).toMatchObject({
-      selected_artifacts: { context: ["team-rules"], skills: ["review-pr"] },
-    });
-    writeFileSync(join(skill, "agent-profile-kit.yaml"), "orchestration: changed\n");
-    expect(runCli(home, "status", "--profile", "coding", "--host", "codex").stdout).toBe(
-      "Status: stale source\n",
-    );
-    writeFileSync(join(skill, "references", "checklist.md"), "# Checklist\n\n- Updated.\n");
-    expect(runCliWithEnvironment(home, { PATH: `${bin}:${process.env.PATH ?? ""}` }, "update").status).toBe(0);
-    expect(
-      readFileSync(join(installation, "skills", "review-pr", "references", "checklist.md"), "utf8"),
-    ).toContain("Updated.");
-    expect(runCli(home, "status", "--profile", "coding", "--host", "codex").stdout).toBe(
-      "Status: current\n",
-    );
+    expect(result.stdout).toContain("Workspace valid");
   });
 
-  test("a user can see selected Skills in a Codex installation plan", () => {
+  test("a user is stopped before a Codex Skills plan when the Host lacks per-process Skill discovery", () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
     writeProfileWithSkill(home);
     const bin = join(home, "bin");
+    const codexInvocation = join(home, "codex-invoked");
     mkdirSync(bin);
     writeFileSync(
       join(bin, "codex"),
-      "#!/bin/sh\n" +
-        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
-        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then\n" +
-        "  case \"$4\" in\n" +
-        "    developer_instructions=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n' ;;\n" +
-        "    skills.config=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit Skill capability probe\\\"}]}]\\n' ;;\n" +
-        "    *) exit 1 ;;\n" +
-        "  esac\n" +
-        "  exit 0\n" +
-        "fi\n" +
-        "exit 1\n",
+      `#!/bin/sh\nprintf invoked > ${JSON.stringify(codexInvocation)}\nexit 1\n`,
     );
     chmodSync(join(bin, "codex"), 0o755);
 
@@ -1435,14 +1380,21 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       "codex",
     );
 
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("Skills:\n- review-pr");
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("does not support per-process Skill discovery and isolation");
+    expect(existsSync(codexInvocation)).toBe(false);
+    expect(
+      existsSync(
+        join(home, ".agents", "agent-profile-kit", "installations", "coding", "codex"),
+      ),
+    ).toBe(false);
   });
 
-  test("a user can run an installed Profile with only its selected Skills", () => {
+  test("a tampered Manifest cannot make Codex load a Skill outside a Context-only Profile Installation", () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
-    writeProfileWithSkill(home);
+    writeContextOnlyProfile(home);
     const bin = join(home, "bin");
     const argumentsRecord = join(home, "codex-arguments");
     mkdirSync(bin);
@@ -1450,14 +1402,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       join(bin, "codex"),
       "#!/bin/sh\n" +
         "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
-        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then\n" +
-        "  case \"$4\" in\n" +
-        "    developer_instructions=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n' ;;\n" +
-        "    skills.config=*) printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit Skill capability probe\\\"}]}]\\n' ;;\n" +
-        "    *) exit 1 ;;\n" +
-        "  esac\n" +
-        "  exit 0\n" +
-        "fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
         "printf '%s\\n' \"$@\" > \"$CODEX_ARGUMENTS_RECORD\"\n" +
         "exit 23\n",
     );
@@ -1485,30 +1430,8 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       "coding",
       "codex",
     );
-    rmSync(workspacePath(home), { recursive: true });
     const project = join(home, "project");
     mkdirSync(project);
-
-    const result = runCliFromDirectory(
-      home,
-      project,
-      environment,
-      "run",
-      "--profile",
-      "coding",
-      "--host",
-      "codex",
-      "--",
-      "native task",
-    );
-
-    expect(result.status, result.stderr).toBe(23);
-    expect(readFileSync(argumentsRecord, "utf8")).toContain(
-      `skills.config=[{path=${JSON.stringify(
-        join(home, ".agents", "agent-profile-kit", "installations", "coding", "codex", "skills", "review-pr"),
-      )},enabled=true}]`,
-    );
-    expect(readFileSync(argumentsRecord, "utf8")).toContain("native task");
 
     const manifestPath = join(installation, "installation.yaml");
     const manifest = parse(readFileSync(manifestPath, "utf8")) as {
@@ -1516,7 +1439,6 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     };
     manifest.selected_artifacts.skills = ["../../outside"];
     writeFileSync(manifestPath, stringify(manifest));
-    rmSync(argumentsRecord);
 
     const unsafe = runCliFromDirectory(
       home,

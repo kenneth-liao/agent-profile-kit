@@ -14,12 +14,12 @@ The initial release supports macOS only.
 
 Running the command again against the valid Workspace is safe and reports it unchanged.
 
-## Context and Skills Codex tracer
+## Context-only Codex tracer
 
-The first Profile tracer supports Context Modules, standard Agent Skills, and
-explicit flat Profiles. Validate the Workspace, inspect the generated Context,
-Skills, and Codex capability, install disposable output, then launch it from the
-target project:
+The first Profile tracer supports Context Modules and explicit flat Profiles.
+Standard Skill packages are validated in the Workspace, but Codex currently has
+no supported process-scoped Skill discovery and isolation surface, so a Profile
+that selects Skills fails clearly before Host detection or installation.
 
 ```sh
 agent-profile-kit validate

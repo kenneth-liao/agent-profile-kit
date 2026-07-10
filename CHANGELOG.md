@@ -13,16 +13,18 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Added bundled human and agent Workspace authoring guides ([#3](https://github.com/kenneth-liao/agent-profile-kit/issues/3)).
 - Added Context-only Codex Profile validation, planning, installation, and launch ([#4](https://github.com/kenneth-liao/agent-profile-kit/issues/4)).
 - Added transactional Profile Installation status, update, and verified uninstall lifecycle management ([#5](https://github.com/kenneth-liao/agent-profile-kit/issues/5)).
-- Added portable standard Skill selection, installation, freshness tracking, and process-scoped Codex integration ([#6](https://github.com/kenneth-liao/agent-profile-kit/issues/6)).
+- Added standard Skill package ingestion and validation groundwork, including separate Agent Profile Kit sidecars ([#6](https://github.com/kenneth-liao/agent-profile-kit/issues/6)).
 
 ### Changed
 
+- Codex rejects Profiles that select Skills before Host detection or installation because it has no supported process-scoped Skill discovery and isolation surface yet ([#6](https://github.com/kenneth-liao/agent-profile-kit/issues/6)).
 - Marked the PR review follow-up skills for explicit invocation only.
 - Simplified Workspace staging to clean only output owned by the running initialization process ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 - Simplified initialization warnings to their single concurrent-cleanup producer ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 
 ### Fixed
 
+- Reject Codex Profiles that select Skills until Codex exposes a supported process-scoped discovery and isolation surface ([#6](https://github.com/kenneth-liao/agent-profile-kit/issues/6)).
 - Recover from interrupted Profile Installation replacement without blocking later updates ([#21](https://github.com/kenneth-liao/agent-profile-kit/pull/21)).
 - Report an existing Profile Installation without modifying it ([#20](https://github.com/kenneth-liao/agent-profile-kit/pull/20)).
 - Report incomplete Workspace structure with an actionable error without modifying user-owned source ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
