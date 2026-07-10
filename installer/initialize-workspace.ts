@@ -49,6 +49,10 @@ export interface InitializationResult {
   readonly path: string;
 }
 
+function hasErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
 async function inspectWorkspace(
   path: string,
 ): Promise<"missing" | "empty" | "valid"> {
@@ -56,11 +60,7 @@ async function inspectWorkspace(
   try {
     pathStats = await lstat(path);
   } catch (error) {
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (hasErrorCode(error, "ENOENT")) {
       return "missing";
     }
     throw error;
@@ -88,18 +88,39 @@ async function validateWorkspace(path: string): Promise<void> {
   const manifest = await readFile(join(path, "workspace.yaml"), "utf8");
   parseWorkspaceManifest(manifest);
 
-  const requiredDirectories = await Promise.all(
-    ARTIFACT_DIRECTORIES.map((directory) => stat(join(path, directory))),
-  );
-  if (requiredDirectories.some((entry) => !entry.isDirectory())) {
-    throw new Error("Workspace artifact locations must be directories");
+  await Promise.all([
+    ...ARTIFACT_DIRECTORIES.map((directory) =>
+      requireWorkspaceEntry(path, directory, "directory"),
+    ),
+    ...["README.md", "AGENTS.md", ".gitignore"].map((file) =>
+      requireWorkspaceEntry(path, file, "file"),
+    ),
+  ]);
+}
+
+async function requireWorkspaceEntry(
+  workspace: string,
+  name: string,
+  kind: "directory" | "file",
+): Promise<void> {
+  let entryStats;
+  try {
+    entryStats = await stat(join(workspace, name));
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      throw new Error(
+        `Workspace is incomplete at ${workspace}: missing required ${kind} '${name}'`,
+      );
+    }
+    throw error;
   }
 
-  const requiredFiles = await Promise.all(
-    ["README.md", "AGENTS.md", ".gitignore"].map((file) => stat(join(path, file))),
-  );
-  if (requiredFiles.some((entry) => !entry.isFile())) {
-    throw new Error("Workspace bootstrap pointers must be files");
+  const hasExpectedKind =
+    kind === "directory" ? entryStats.isDirectory() : entryStats.isFile();
+  if (!hasExpectedKind) {
+    throw new Error(
+      `Workspace is invalid at ${workspace}: '${name}' must be a ${kind}`,
+    );
   }
 }
 
@@ -142,11 +163,7 @@ export async function initializeWorkspace(
       try {
         await mkdir(destination);
       } catch (restorationError) {
-        if (
-          !(restorationError instanceof Error) ||
-          !("code" in restorationError) ||
-          restorationError.code !== "EEXIST"
-        ) {
+        if (!hasErrorCode(restorationError, "EEXIST")) {
           throw new AggregateError(
             [error, restorationError],
             `Initialization failed and the empty Workspace directory could not be restored: ${destination}`,

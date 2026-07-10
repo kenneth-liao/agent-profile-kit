@@ -14,3 +14,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 ### Changed
 
 - Marked the PR review follow-up skills for explicit invocation only.
+
+### Fixed
+
+- Report incomplete Workspace structure with an actionable error without modifying user-owned source ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).

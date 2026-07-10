@@ -16,6 +16,11 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const cliPath = join(repositoryRoot, "dist", "cli.js");
+const packageVersion = (
+  JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
+    readonly version: string;
+  }
+).version;
 const temporaryDirectories: string[] = [];
 
 beforeAll(() => {
@@ -178,9 +183,8 @@ describe("agent-profile-kit init", () => {
   test("a non-empty unrecognized directory is rejected without modifying any entry", async () => {
     const home = isolatedHome();
     const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
-    mkdirSync(join(workspace, "existing"), { recursive: true });
-    writeFileSync(join(workspace, "notes.txt"), "keep me\n");
-    writeFileSync(join(workspace, "existing", "data.txt"), "untouched\n");
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(join(workspace, ".DS_Store"), "Finder metadata\n");
     const before = await snapshotTree(workspace);
 
     const result = runCli(home, "init");
@@ -189,6 +193,22 @@ describe("agent-profile-kit init", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("non-empty");
     expect(result.stderr).toContain("not an Agent Profile Kit Workspace");
+    expect(await snapshotTree(workspace)).toEqual(before);
+  });
+
+  test("an incomplete recognized Workspace fails clearly without being repaired", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    expect(runCli(home, "init").status).toBe(0);
+    rmSync(join(workspace, "tools"), { recursive: true });
+    const before = await snapshotTree(workspace);
+
+    const result = runCli(home, "init");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Workspace is incomplete");
+    expect(result.stderr).toContain("tools");
     expect(await snapshotTree(workspace)).toEqual(before);
   });
 
@@ -210,7 +230,7 @@ describe("agent-profile-kit init", () => {
     const { archive, metadata } = packPackage(join(home, "package"));
 
     expect(metadata.name).toBe("agent-profile-kit");
-    expect(metadata.version).toBe("0.1.0");
+    expect(metadata.version).toBe(packageVersion);
     expect(metadata.files.map(({ path }) => path).sort()).toEqual([
       "README.md",
       "dist/cli.js",
