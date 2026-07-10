@@ -2,6 +2,18 @@
 
 Agent Profile Kit is a user-agnostic CLI and format for composing a user's Skills, Context, Agents, Hooks, and Tools into portable Profiles. Host Adapters generate native Profile Installations for supported agent products without modifying their global configuration.
 
+## Quick start
+
+Initialize the canonical Workspace without a global installation:
+
+```sh
+npx agent-profile-kit init
+```
+
+The initial release supports macOS only.
+
+Running the command again against the valid Workspace is safe and reports it unchanged.
+
 ## Product layout
 
 - `cli/` - the `agent-profile-kit` command.

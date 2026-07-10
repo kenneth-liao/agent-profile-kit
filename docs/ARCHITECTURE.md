@@ -30,9 +30,13 @@ The default application root separates canonical user content from generated sta
 
 The initial release supports exactly one Workspace per user at the fixed path above. It has no public Workspace path override, registry, or project-specific Workspace selection. The Workspace may be a private or public Git repository version-controlled independently of Agent Profile Kit, but Git is not required. Repository visibility and content review are the user's responsibility; Agent Profile Kit provides only a brief reminder to review personal material before publishing and does not scan, classify, or block Workspace publication. Credential values remain invalid regardless of repository visibility. Backups include `workspace/`; `installations/` can always be regenerated.
 
+The fixed Workspace path may be a symbolic link to a valid Workspace stored elsewhere. The fixed path remains the only public lookup location; the link does not introduce a Workspace registry or alternate selection mechanism.
+
 ### Initialization and guidance
 
 `agent-profile-kit init` creates an empty, structurally valid Workspace. `workspace.yaml` marks the root and schema version; empty artifact directories provide the authoring locations. The command does not install personal material, starter Skills, or a sample Profile.
+
+The schema version identifies the complete Workspace Manifest shape. Unknown fields are rejected so misspellings cannot silently enter the trusted model; adding a manifest field requires a new schema version and the explicit migration path described below.
 
 The generated `README.md` and `AGENTS.md` are short bootstrap pointers rather than copies of maintained product instructions. Human guidance comes from `agent-profile-kit guide`; agent-oriented authoring guidance comes from `agent-profile-kit guide --agent`. The agent guide combines current schemas and examples with an actionable workflow: inspect the Workspace, elicit the user's session needs one decision at a time, create the smallest useful Profile and artifacts, preserve artifact boundaries, exclude credentials and project facts, validate, produce a Host-specific plan, and obtain direction before an unrequested installation. Both guides are bundled documentation resources printed by the CLI rather than duplicated hardcoded text. The `init` result prints both the manual next step and a ready-to-use prompt telling an agent to run the agent guide. A globally installed management Skill is therefore optional future convenience rather than a bootstrap dependency.
 
