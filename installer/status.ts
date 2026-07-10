@@ -49,7 +49,11 @@ export async function statusContextOnlyCodex(
 
   const workspace = await ingestWorkspace(home);
   const profile = workspace.profiles.get(profileId);
-  if (!profile || hashWorkspaceInputs(profile, workspace.contexts) !== manifest.workspaceInputHash) {
+  if (
+    !profile ||
+    (await hashWorkspaceInputs(profile, workspace.contexts, workspace.skills)) !==
+      manifest.workspaceInputHash
+  ) {
     statuses.unshift("stale source");
   }
 

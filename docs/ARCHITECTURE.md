@@ -160,7 +160,7 @@ An update guarantees the new installation for sessions launched afterward. Alrea
 
 The Claude Code Adapter generates one native plugin per Profile containing Skills, rendered Agents, Hooks, MCP servers, and executable utilities. It generates composed Context separately and launches Claude Code with the Profile plugin directory and appended system-prompt file. This uses session-scoped native inputs and leaves Claude's global and project configuration active.
 
-The Codex Adapter generates Skills, Agent configuration layers, Hook handlers, Tool configuration, and composed Context within the Profile Installation. It passes their native representations through per-process `-c` configuration overrides, including `developer_instructions`, `skills.config`, `agents`, `hooks`, and `mcp_servers`. It does not register a marketplace plugin, create a file under `~/.codex`, or change `CODEX_HOME`. This mapping remains conditional on passing the Adapter acceptance test for the supported Codex version.
+The Codex Adapter currently generates only composed Context within the Profile Installation and passes it through the per-process `developer_instructions` override. Codex does not currently expose a supported process-scoped Skill discovery and isolation surface; `skills.config` only controls already-discovered Skills and cannot register a Profile Installation directory. A Profile that selects Skills therefore fails before Host detection or installation rather than mutating global Skill directories, changing `CODEX_HOME`, or claiming weaker isolation. Agent, Hook, and Tool mappings remain deferred to their dedicated issues.
 
 ## Configuration and Credentials
 

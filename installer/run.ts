@@ -31,7 +31,8 @@ export async function runContextOnlyCodex(
 ): Promise<number> {
   if (
     nativeArguments.some(
-      (_, index) => configKey(configOverride(nativeArguments, index) ?? "") === "developer_instructions",
+      (_, index) =>
+        configKey(configOverride(nativeArguments, index) ?? "") === "developer_instructions",
     )
   ) {
     throw new Error(
@@ -49,5 +50,10 @@ export async function runContextOnlyCodex(
     );
   }
   const context = await readFile(join(installation, "context.md"), "utf8");
+  if (manifest.selectedArtifacts.skills.length > 0) {
+    throw new Error(
+      "Codex does not support per-process Skill discovery and isolation for Profile-selected Skills",
+    );
+  }
   return runCodex(["-c", codexContextOverride(context), ...nativeArguments]);
 }

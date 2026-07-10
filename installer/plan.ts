@@ -55,6 +55,11 @@ export async function planContextOnlyCodex(
   if (!profile) {
     throw new Error(`Profile '${profileId}' does not exist in the Workspace`);
   }
+  if (profile.skills.length > 0) {
+    throw new Error(
+      "Codex does not support per-process Skill discovery and isolation for Profile-selected Skills",
+    );
+  }
   const context = composeContext(profile, workspace.contexts);
   const capability = await detectCodexCapability();
   const gitProvenance = await workspaceGitProvenance(workspace.path);
@@ -65,6 +70,6 @@ export async function planContextOnlyCodex(
     engineVersion: ENGINE_VERSION,
     ...(gitProvenance ? { gitProvenance } : {}),
     profile,
-    workspaceInputHash: hashWorkspaceInputs(profile, workspace.contexts),
+    workspaceInputHash: await hashWorkspaceInputs(profile, workspace.contexts, workspace.skills),
   };
 }

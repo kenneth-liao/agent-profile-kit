@@ -56,7 +56,7 @@ async function installationManifest(
     outputHash: await hashOutputDirectory(staging),
     outputs: ["context.md"],
     profileId: plan.profile.id,
-    selectedArtifacts: { context: plan.profile.context },
+    selectedArtifacts: { context: plan.profile.context, skills: [] },
     schemaVersion: 1,
     workspaceInputHash: plan.workspaceInputHash,
     ...(plan.gitProvenance ? { git: plan.gitProvenance } : {}),

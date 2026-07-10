@@ -3,6 +3,7 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { type ContextModule, type Profile } from "../schemas/context-profile.js";
+import { type Skill } from "../schemas/skill.js";
 import { WORKSPACE_SCHEMA_VERSION } from "../schemas/workspace-manifest.js";
 
 function sha256(source: string | Uint8Array): string {
@@ -22,10 +23,34 @@ function compareNames(
   return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
 }
 
-export function hashWorkspaceInputs(
+async function skillInput(skill: Skill): Promise<unknown> {
+  const entries: unknown[] = [];
+  async function visit(directory: string, prefix: string): Promise<void> {
+    const children = await readdir(directory, { withFileTypes: true });
+    children.sort(compareNames);
+    for (const child of children) {
+      const path = join(directory, child.name);
+      const relativePath = prefix.length === 0 ? child.name : `${prefix}/${child.name}`;
+      const mode = (await lstat(path)).mode & 0o7777;
+      if (child.isDirectory()) {
+        entries.push({ mode, path: relativePath, type: "directory" });
+        await visit(path, relativePath);
+      } else if (child.isFile()) {
+        entries.push({ content: sha256(await readFile(path)), mode, path: relativePath, type: "file" });
+      } else {
+        throw new Error(`Skill '${skill.id}' contains unsupported entry '${relativePath}'`);
+      }
+    }
+  }
+  await visit(skill.path, "");
+  return { files: entries, id: skill.id };
+}
+
+export async function hashWorkspaceInputs(
   profile: Profile,
   contexts: ReadonlyMap<string, ContextModule>,
-): string {
+  skills: ReadonlyMap<string, Skill>,
+): Promise<string> {
   const selectedContexts = profile.context.map((id) => {
     const context = contexts.get(id);
     if (!context) {
@@ -33,6 +58,16 @@ export function hashWorkspaceInputs(
     }
     return { content: context.content, id: context.id };
   });
+  const selectedSkills =
+    profile.skills.length === 0
+      ? undefined
+      : await Promise.all(
+          profile.skills.map((id) => {
+            const skill = skills.get(id);
+            if (!skill) throw new Error(`Profile '${profile.id}' selects missing Skill '${id}'`);
+            return skillInput(skill);
+          }),
+        );
   return sha256(
     JSON.stringify({
       context_modules: selectedContexts,
@@ -44,6 +79,7 @@ export function hashWorkspaceInputs(
         skills: profile.skills,
         tools: profile.tools,
       },
+      ...(selectedSkills ? { skills: selectedSkills } : {}),
       workspace_schema_version: WORKSPACE_SCHEMA_VERSION,
     }),
   );

@@ -17,8 +17,9 @@ Running the command again against the valid Workspace is safe and reports it unc
 ## Context-only Codex tracer
 
 The first Profile tracer supports Context Modules and explicit flat Profiles.
-Validate the Workspace, inspect the generated Context and Codex capability,
-install disposable output, then launch it from the target project:
+Standard Skill packages are validated in the Workspace, but Codex currently has
+no supported process-scoped Skill discovery and isolation surface, so a Profile
+that selects Skills fails clearly before Host detection or installation.
 
 ```sh
 agent-profile-kit validate
@@ -34,7 +35,7 @@ source changes from edits to generated output. To remove disposable output,
 run `agent-profile-kit uninstall --profile coding --host codex`; it deletes
 only an installation whose Manifest confirms that identity.
 
-See `agent-profile-kit guide` for the Context Module and Profile formats.
+See `agent-profile-kit guide` for the Context Module, Skill, and Profile formats.
 
 ## Product layout
 

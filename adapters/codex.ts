@@ -30,7 +30,7 @@ async function executeCodex(arguments_: readonly string[]): Promise<CommandResul
   });
 }
 
-function probeIsVisibleToCodex(source: string): boolean {
+function probeIsVisibleToCodex(source: string, expectedText: string): boolean {
   let messages: unknown;
   try {
     messages = JSON.parse(source);
@@ -52,7 +52,7 @@ function probeIsVisibleToCodex(source: string): boolean {
             typeof content === "object" &&
             content !== null &&
             "text" in content &&
-            content.text === CONTEXT_PROBE,
+            content.text === expectedText,
         ),
     )
   );
@@ -81,7 +81,7 @@ export async function detectCodexCapability(): Promise<CodexCapability> {
       `Codex capability detection failed while reading its version: ${versionResult.stderr.trim()}`,
     );
   }
-  if (probeResult.exitCode !== 0 || !probeIsVisibleToCodex(probeResult.stdout)) {
+  if (probeResult.exitCode !== 0 || !probeIsVisibleToCodex(probeResult.stdout, CONTEXT_PROBE)) {
     throw new Error(
       "Codex does not support the required per-process developer instructions surface",
     );
