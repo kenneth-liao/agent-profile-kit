@@ -1,14 +1,11 @@
 import { parse } from "yaml";
 
 export const WORKSPACE_SCHEMA_VERSION = 1;
+export const WORKSPACE_MANIFEST_FILE = "workspace.yaml";
 
 export const WORKSPACE_MANIFEST = `schema_version: ${WORKSPACE_SCHEMA_VERSION}\n`;
 
-export interface WorkspaceManifest {
-  readonly schemaVersion: typeof WORKSPACE_SCHEMA_VERSION;
-}
-
-export function parseWorkspaceManifest(source: string): WorkspaceManifest {
+export function parseWorkspaceManifest(source: string): void {
   let value: unknown;
   try {
     value = parse(source);
@@ -54,5 +51,4 @@ export function parseWorkspaceManifest(source: string): WorkspaceManifest {
     );
   }
 
-  return { schemaVersion: WORKSPACE_SCHEMA_VERSION };
 }

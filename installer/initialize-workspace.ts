@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
   parseWorkspaceManifest,
   WORKSPACE_MANIFEST,
+  WORKSPACE_MANIFEST_FILE,
 } from "../schemas/workspace-manifest.js";
 
 const ARTIFACT_DIRECTORIES = [
@@ -26,7 +27,7 @@ const ARTIFACT_DIRECTORIES = [
 ] as const;
 
 const WORKSPACE_ROOT_FILES = {
-  "workspace.yaml": WORKSPACE_MANIFEST,
+  [WORKSPACE_MANIFEST_FILE]: WORKSPACE_MANIFEST,
   "README.md": `# Agent Profile Kit Workspace
 
 This Workspace is the canonical source for your Agent Profile Kit material.
@@ -100,7 +101,7 @@ async function inspectWorkspace(
     }
     return "empty";
   }
-  if (!entries.includes("workspace.yaml")) {
+  if (!entries.includes(WORKSPACE_MANIFEST_FILE)) {
     throw new Error(
       `Cannot initialize ${path}: directory is non-empty and is not an Agent Profile Kit Workspace`,
     );
@@ -111,16 +112,17 @@ async function inspectWorkspace(
 }
 
 async function validateWorkspace(path: string): Promise<void> {
-  const manifest = await readFile(join(path, "workspace.yaml"), "utf8");
+  await requireWorkspaceEntry(path, WORKSPACE_MANIFEST_FILE, "file");
+  const manifest = await readFile(join(path, WORKSPACE_MANIFEST_FILE), "utf8");
   parseWorkspaceManifest(manifest);
 
   await Promise.all([
     ...ARTIFACT_DIRECTORIES.map((directory) =>
       requireWorkspaceEntry(path, directory, "directory"),
     ),
-    ...Object.keys(WORKSPACE_ROOT_FILES).map((file) =>
-      requireWorkspaceEntry(path, file, "file"),
-    ),
+    ...Object.keys(WORKSPACE_ROOT_FILES)
+      .filter((file) => file !== WORKSPACE_MANIFEST_FILE)
+      .map((file) => requireWorkspaceEntry(path, file, "file")),
   ]);
 }
 

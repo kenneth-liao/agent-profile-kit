@@ -352,6 +352,21 @@ describe("agent-profile-kit init", () => {
     expect(await snapshotTree(workspace)).toEqual(before);
   });
 
+  test("a Workspace Manifest path with the wrong kind fails clearly", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    mkdirSync(join(workspace, "workspace.yaml"), { recursive: true });
+    const before = await snapshotTree(workspace);
+
+    const result = runCli(home, "init");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("'workspace.yaml' must be a file");
+    expect(result.stderr).not.toContain("EISDIR");
+    expect(await snapshotTree(workspace)).toEqual(before);
+  });
+
   test("an unsupported Workspace schema version fails with migration guidance", async () => {
     const home = isolatedHome();
     const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
