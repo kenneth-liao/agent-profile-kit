@@ -14,6 +14,21 @@ The initial release supports macOS only.
 
 Running the command again against the valid Workspace is safe and reports it unchanged.
 
+## Context-only Codex tracer
+
+The first Profile tracer supports Context Modules and explicit flat Profiles.
+Validate the Workspace, inspect the generated Context and Codex capability,
+install disposable output, then launch it from the target project:
+
+```sh
+agent-profile-kit validate
+agent-profile-kit plan --profile coding --host codex
+agent-profile-kit install --profile coding --host codex
+agent-profile-kit run --profile coding --host codex -- --model o3
+```
+
+See `agent-profile-kit guide` for the Context Module and Profile formats.
+
 ## Product layout
 
 - `cli/` - the `agent-profile-kit` command.

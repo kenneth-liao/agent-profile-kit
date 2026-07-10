@@ -2,10 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
+  chmodSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -52,6 +54,46 @@ function runCli(home: string, ...arguments_: string[]) {
     encoding: "utf8",
     env: { ...process.env, HOME: home },
   });
+}
+
+function runCliWithEnvironment(
+  home: string,
+  environment: NodeJS.ProcessEnv,
+  ...arguments_: string[]
+) {
+  return spawnSync(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
+    encoding: "utf8",
+    env: { ...process.env, ...environment, HOME: home },
+  });
+}
+
+function runCliFromDirectory(
+  home: string,
+  directory: string,
+  environment: NodeJS.ProcessEnv,
+  ...arguments_: string[]
+) {
+  return spawnSync(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
+    cwd: directory,
+    encoding: "utf8",
+    env: { ...process.env, ...environment, HOME: home },
+  });
+}
+
+function workspacePath(home: string): string {
+  return join(home, ".agents", "agent-profile-kit", "workspace");
+}
+
+function writeContextOnlyProfile(home: string): void {
+  const workspace = workspacePath(home);
+  writeFileSync(
+    join(workspace, "context", "team-rules.md"),
+    "---\nid: team-rules\n---\nAlways preserve the project boundary.\n",
+  );
+  writeFileSync(
+    join(workspace, "profiles", "coding.yaml"),
+    "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+  );
 }
 
 function runCliAsync(home: string, ...arguments_: string[]) {
@@ -584,5 +626,390 @@ describe("agent-profile-kit init", () => {
 
     expect(guideResult.status, guideResult.stderr).toBe(0);
     expect(guideResult.stdout).toContain("# Agent Profile Kit agent workflow");
+  });
+});
+
+describe("agent-profile-kit Context-only Codex Profile", () => {
+  test("a user can validate a Context Module and flat Profile without detecting Codex", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeContextOnlyProfile(home);
+    const bin = join(home, "bin");
+    const codexInvocation = join(home, "codex-invoked");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      `#!/bin/sh\nprintf invoked > ${JSON.stringify(codexInvocation)}\nexit 1\n`,
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(
+      home,
+      { PATH: `${bin}:${process.env.PATH ?? ""}` },
+      "validate",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Workspace valid");
+    expect(existsSync(codexInvocation)).toBe(false);
+  });
+
+  test("a user can reorganize a Context Module without changing its Artifact ID", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeContextOnlyProfile(home);
+    const workspace = workspacePath(home);
+    rmSync(join(workspace, "context", "team-rules.md"));
+    mkdirSync(join(workspace, "context", "engineering"));
+    writeFileSync(
+      join(workspace, "context", "engineering", "team-rules.md"),
+      "---\nid: team-rules\n---\nAlways preserve the project boundary.\n",
+    );
+
+    const result = runCli(home, "validate");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Workspace valid");
+  });
+
+  test("a user receives structural errors for invalid Context-only Profile definitions", async () => {
+    const invalidDefinitions = [
+      {
+        expected: "must start with YAML frontmatter",
+        write: (workspace: string) =>
+          writeFileSync(
+            join(workspace, "context", "team-rules.md"),
+            "id: team-rules\nnot valid Context\n",
+          ),
+      },
+      {
+        expected: "Artifact ID 'team-rules' is duplicated",
+        write: (workspace: string) =>
+          writeFileSync(
+            join(workspace, "context", "duplicate.md"),
+            "---\nid: team-rules\n---\nDuplicate Context.\n",
+          ),
+      },
+      {
+        expected: "selects missing Context Module 'missing'",
+        write: (workspace: string) =>
+          writeFileSync(
+            join(workspace, "profiles", "coding.yaml"),
+            "id: coding\ncontext:\n  - missing\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+          ),
+      },
+      {
+        expected: "without wildcards",
+        write: (workspace: string) =>
+          writeFileSync(
+            join(workspace, "profiles", "coding.yaml"),
+            "id: coding\ncontext:\n  - team-*\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+          ),
+      },
+      {
+        expected: "does not allow fields: inherits",
+        write: (workspace: string) =>
+          writeFileSync(
+            join(workspace, "profiles", "coding.yaml"),
+            "id: coding\ninherits: base\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+          ),
+      },
+      {
+        expected: "does not allow fields: codex",
+        write: (workspace: string) =>
+          writeFileSync(
+            join(workspace, "profiles", "coding.yaml"),
+            "id: coding\ncodex:\n  model: o3\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+          ),
+      },
+      {
+        expected: "must select at least one Context Module",
+        write: (workspace: string) =>
+          writeFileSync(
+            join(workspace, "profiles", "coding.yaml"),
+            "id: coding\ncontext: []\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+          ),
+      },
+    ];
+
+    for (const definition of invalidDefinitions) {
+      const home = isolatedHome();
+      expect(runCli(home, "init").status).toBe(0);
+      const workspace = workspacePath(home);
+      writeContextOnlyProfile(home);
+      definition.write(workspace);
+      const afterMutation = await snapshotTree(workspace);
+
+      const result = runCli(home, "validate");
+
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(definition.expected);
+      expect(await snapshotTree(workspace)).toEqual(afterMutation);
+    }
+  });
+
+  test("a user cannot use an unsafe Profile ID to address an installation", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+
+    const result = runCli(
+      home,
+      "run",
+      "--profile",
+      "../outside",
+      "--host",
+      "codex",
+      "--",
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Profile id must be a lowercase kebab-case Artifact ID");
+    expect(result.stderr).not.toContain("ENOENT");
+  });
+
+  test("a user cannot replace selected Context with a whitespace-form Codex override", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+
+    const result = runCli(
+      home,
+      "run",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+      "--",
+      "--config",
+      'developer_instructions = "replacement"',
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "may not override developer_instructions selected by the Profile",
+    );
+    expect(result.stderr).not.toContain("ENOENT");
+  });
+
+  test("a user can preview deterministic Context output without changing Codex or installation state", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeContextOnlyProfile(home);
+    const workspace = workspacePath(home);
+    writeFileSync(
+      join(workspace, "context", "second.md"),
+      "---\nid: second\n---\nThis intentionally contradicts the first module.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\n  - second\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const globalCodex = join(home, ".codex");
+    mkdirSync(globalCodex);
+    writeFileSync(join(globalCodex, "config.toml"), "model = \"preserved\"\n");
+    const beforeGlobalConfig = readFileSync(join(globalCodex, "config.toml"), "utf8");
+    const beforeWorkspace = await snapshotTree(workspace);
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(
+      home,
+      { PATH: `${bin}:${process.env.PATH ?? ""}` },
+      "plan",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Profile: coding");
+    expect(result.stdout).toContain("Capability: supported (codex-cli 0.test)");
+    expect(result.stdout).toContain("<!-- Context Module: team-rules -->");
+    expect(result.stdout).toContain("Always preserve the project boundary.");
+    expect(result.stdout).toContain("<!-- Context Module: second -->");
+    expect(result.stdout).toContain("This intentionally contradicts the first module.");
+    expect(readFileSync(join(globalCodex, "config.toml"), "utf8")).toBe(
+      beforeGlobalConfig,
+    );
+    expect(await snapshotTree(workspace)).toEqual(beforeWorkspace);
+    expect(
+      existsSync(
+        join(home, ".agents", "agent-profile-kit", "installations", "coding", "codex"),
+      ),
+    ).toBe(false);
+  });
+
+  test("a user is stopped before installation writes when Codex lacks the required Context surface", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeContextOnlyProfile(home);
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli unsupported\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ]; then printf '[]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(
+      home,
+      { PATH: `${bin}:${process.env.PATH ?? ""}` },
+      "install",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(
+      "does not support the required per-process developer instructions surface",
+    );
+    expect(
+      existsSync(
+        join(home, ".agents", "agent-profile-kit", "installations", "coding", "codex"),
+      ),
+    ).toBe(false);
+  });
+
+  test("a user can install a self-contained Context-only Codex Profile", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeContextOnlyProfile(home);
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(
+      home,
+      { PATH: `${bin}:${process.env.PATH ?? ""}` },
+      "install",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+    const installation = join(
+      home,
+      ".agents",
+      "agent-profile-kit",
+      "installations",
+      "coding",
+      "codex",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Installed Profile at ${installation}`);
+    expect(await listTree(installation)).toEqual(["context.md", "installation.yaml"]);
+    expect(readFileSync(join(installation, "context.md"), "utf8")).toContain(
+      "<!-- Context Module: team-rules -->",
+    );
+    expect(readFileSync(join(installation, "installation.yaml"), "utf8")).toBe(
+      "schema_version: 1\n" +
+        "profile_id: coding\n" +
+        "host_id: codex\n" +
+        "context:\n" +
+        "  - team-rules\n" +
+        "outputs:\n" +
+        "  - context.md\n",
+    );
+  });
+
+  test("a user can run an installed Profile from their project with native arguments and exit status preserved", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeContextOnlyProfile(home);
+    const bin = join(home, "bin");
+    const argumentsRecord = join(home, "codex-arguments");
+    const directoryRecord = join(home, "codex-directory");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "printf '%s\\n' \"$PWD\" > \"$CODEX_DIRECTORY_RECORD\"\n" +
+        "printf '%s\\n' \"$@\" > \"$CODEX_ARGUMENTS_RECORD\"\n" +
+        "exit 23\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = {
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      CODEX_ARGUMENTS_RECORD: argumentsRecord,
+      CODEX_DIRECTORY_RECORD: directoryRecord,
+    };
+    expect(
+      runCliWithEnvironment(
+        home,
+        environment,
+        "install",
+        "--profile",
+        "coding",
+        "--host",
+        "codex",
+      ).status,
+    ).toBe(0);
+    rmSync(workspacePath(home), { recursive: true });
+    const project = join(home, "project");
+    mkdirSync(join(project, ".codex"), { recursive: true });
+    writeFileSync(join(project, ".codex", "config.toml"), "model = \"project\"\n");
+    const globalCodex = join(home, ".codex");
+    mkdirSync(globalCodex);
+    writeFileSync(join(globalCodex, "config.toml"), "model = \"global\"\n");
+    const globalConfig = readFileSync(join(globalCodex, "config.toml"), "utf8");
+    const projectConfig = readFileSync(join(project, ".codex", "config.toml"), "utf8");
+
+    const result = runCliFromDirectory(
+      home,
+      project,
+      environment,
+      "run",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+      "--",
+      "--config",
+      'model_reasoning_effort = "high"',
+      "--model",
+      "o3",
+      "native task",
+    );
+
+    expect(result.status, result.stderr).toBe(23);
+    expect(readFileSync(directoryRecord, "utf8").trim()).toBe(realpathSync(project));
+    const arguments_ = readFileSync(argumentsRecord, "utf8");
+    expect(arguments_).toContain("developer_instructions=");
+    expect(arguments_).toContain("Always preserve the project boundary.");
+    expect(arguments_).toContain('--config\nmodel_reasoning_effort = "high"\n');
+    expect(arguments_).toContain("--model\no3\nnative task\n");
+    expect(readFileSync(join(globalCodex, "config.toml"), "utf8")).toBe(
+      globalConfig,
+    );
+    expect(readFileSync(join(project, ".codex", "config.toml"), "utf8")).toBe(
+      projectConfig,
+    );
   });
 });

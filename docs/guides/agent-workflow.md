@@ -18,11 +18,12 @@ Use this workflow when helping a person author their Workspace.
    Host preferences, authentication, credential values, and machine-specific
    bindings outside the Workspace. Never copy generated Host files back into
    canonical source.
-5. Validate before planning when the CLI provides those commands. Plan for a
-   specific Profile and Host before any installation, and inspect the plan for
-   selected artifacts and capability failures. The current schema version is 1;
-   today it defines the Workspace root and artifact directories, while
-   artifact-format validation is delivered by later CLI releases.
+5. Validate before planning. The current tracer accepts Context Modules with
+   `id` frontmatter and flat Context-only Profiles with explicit arrays for
+   every artifact category. Run `agent-profile-kit validate`, then
+   `agent-profile-kit plan --profile <id> --host codex`; inspect the selected
+   Context, destination, and capability result before requesting installation.
+   The current Workspace schema version is 1.
 6. Do not install anything without direction. Explain the plan, ask the user
    whether to apply it, and only then run an installation command they
    explicitly requested.

@@ -7,6 +7,11 @@ import {
   errorMessage,
   initializeWorkspace,
 } from "../installer/initialize-workspace.js";
+import { ingestWorkspace } from "../installer/ingest-workspace.js";
+import { installContextOnlyCodex } from "../installer/install.js";
+import { planContextOnlyCodex } from "../installer/plan.js";
+import { runContextOnlyCodex } from "../installer/run.js";
+import { requireArtifactId } from "../schemas/context-profile.js";
 
 function formatError(error: unknown): string {
   if (error instanceof AggregateError) {
@@ -20,6 +25,22 @@ function formatError(error: unknown): string {
 
 function quoteForPosixShell(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function profileAndHost(arguments_: readonly string[]): { host: string; profile: string } {
+  if (
+    arguments_.length !== 4 ||
+    arguments_[0] !== "--profile" ||
+    arguments_[2] !== "--host" ||
+    !arguments_[1] ||
+    !arguments_[3]
+  ) {
+    throw new Error("Usage: --profile <id> --host codex");
+  }
+  return {
+    profile: requireArtifactId(arguments_[1], "Profile id"),
+    host: arguments_[3],
+  };
 }
 
 async function main(): Promise<void> {
@@ -39,9 +60,62 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (arguments_.length === 1 && arguments_[0] === "validate") {
+    const workspace = await ingestWorkspace(homedir());
+    process.stdout.write(`Workspace valid at ${workspace.path}\n`);
+    return;
+  }
+
+  if (arguments_[0] === "plan") {
+    const { host, profile } = profileAndHost(arguments_.slice(1));
+    if (host !== "codex") {
+      throw new Error(`Unsupported Agent Host '${host}'`);
+    }
+    const plan = await planContextOnlyCodex(homedir(), profile);
+    process.stdout.write(
+      `Profile: ${plan.profile.id}\n` +
+        "Host: codex\n" +
+        `Capability: supported (${plan.capability.version})\n` +
+        `Destination: ${plan.destination}\n` +
+        "Context output:\n" +
+        `${plan.context}\n`,
+    );
+    return;
+  }
+
+  if (arguments_[0] === "install") {
+    const { host, profile } = profileAndHost(arguments_.slice(1));
+    if (host !== "codex") {
+      throw new Error(`Unsupported Agent Host '${host}'`);
+    }
+    const plan = await planContextOnlyCodex(homedir(), profile);
+    await installContextOnlyCodex(plan);
+    process.stdout.write(`Installed Profile at ${plan.destination}\n`);
+    return;
+  }
+
+  if (arguments_[0] === "run") {
+    const runArguments = arguments_.slice(1);
+    if (runArguments.length < 5 || runArguments[4] !== "--") {
+      throw new Error(
+        "Usage: agent-profile-kit run --profile <id> --host codex -- <native Codex arguments>",
+      );
+    }
+    const { host, profile } = profileAndHost(runArguments.slice(0, 4));
+    if (host !== "codex") {
+      throw new Error(`Unsupported Agent Host '${host}'`);
+    }
+    process.exitCode = await runContextOnlyCodex(
+      homedir(),
+      profile,
+      runArguments.slice(5),
+    );
+    return;
+  }
+
   if (arguments_.length !== 1 || arguments_[0] !== "init") {
     process.stderr.write(
-      "Usage: agent-profile-kit init\n       agent-profile-kit guide [--agent]\n",
+      "Usage: agent-profile-kit init\n       agent-profile-kit guide [--agent]\n       agent-profile-kit validate\n       agent-profile-kit plan --profile <id> --host codex\n       agent-profile-kit install --profile <id> --host codex\n       agent-profile-kit run --profile <id> --host codex -- <native Codex arguments>\n",
     );
     process.exitCode = 1;
     return;
