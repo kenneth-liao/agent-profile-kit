@@ -937,6 +937,60 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     );
   });
 
+  test("a user receives clear guidance when an installation already exists", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeContextOnlyProfile(home);
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = { PATH: `${bin}:${process.env.PATH ?? ""}` };
+    expect(
+      runCliWithEnvironment(
+        home,
+        environment,
+        "install",
+        "--profile",
+        "coding",
+        "--host",
+        "codex",
+      ).status,
+    ).toBe(0);
+    const installation = join(
+      home,
+      ".agents",
+      "agent-profile-kit",
+      "installations",
+      "coding",
+      "codex",
+    );
+    const before = await snapshotTree(installation);
+
+    const result = runCliWithEnvironment(
+      home,
+      environment,
+      "install",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(`Installation already exists at ${installation}`);
+    expect(result.stderr).toContain("remove it before installing again");
+    expect(result.stderr).not.toContain("EEXIST");
+    expect(await snapshotTree(installation)).toEqual(before);
+  });
+
   test("a user can run an installed Profile from their project with native arguments and exit status preserved", () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
