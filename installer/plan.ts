@@ -2,13 +2,19 @@ import { join } from "node:path";
 
 import { detectCodexCapability, type CodexCapability } from "../adapters/codex.js";
 import { type Profile, type ContextModule } from "../schemas/context-profile.js";
+import { type GitProvenance, workspaceGitProvenance } from "./git-provenance.js";
+import { hashWorkspaceInputs } from "./hashes.js";
 import { ingestWorkspace } from "./ingest-workspace.js";
+import { ENGINE_VERSION } from "./version.js";
 
 export interface ContextOnlyCodexPlan {
   readonly capability: CodexCapability;
   readonly context: string;
   readonly destination: string;
+  readonly engineVersion: string;
+  readonly gitProvenance?: GitProvenance;
   readonly profile: Profile;
+  readonly workspaceInputHash: string;
 }
 
 export function installationPath(home: string, profileId: string): string {
@@ -51,10 +57,14 @@ export async function planContextOnlyCodex(
   }
   const context = composeContext(profile, workspace.contexts);
   const capability = await detectCodexCapability();
+  const gitProvenance = await workspaceGitProvenance(workspace.path);
   return {
     capability,
     context,
     destination: installationPath(home, profile.id),
+    engineVersion: ENGINE_VERSION,
+    ...(gitProvenance ? { gitProvenance } : {}),
     profile,
+    workspaceInputHash: hashWorkspaceInputs(profile, workspace.contexts),
   };
 }

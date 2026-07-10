@@ -50,6 +50,14 @@ The launcher adds only the selected Context using Codex's per-process
 developer-instructions override; ordinary global and project Codex configuration
 remains Host-owned.
 
+Use `agent-profile-kit status --profile coding --host codex` to inspect a
+Profile Installation. It distinguishes a missing or malformed Manifest, stale
+Workspace source, and drifted generated output. Regeneration is always
+explicit: `agent-profile-kit update` refreshes every verified installed
+Profile/Host pair and never runs during launch. To delete generated output,
+use `agent-profile-kit uninstall --profile coding --host codex`; it removes
+only a whole installation whose Manifest confirms the requested identity.
+
 Review personal content before publishing this Workspace. Agent Profile Kit
 does not classify private material, and credential values do not belong in a
 Workspace regardless of whether you publish it.

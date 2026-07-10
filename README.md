@@ -24,8 +24,15 @@ install disposable output, then launch it from the target project:
 agent-profile-kit validate
 agent-profile-kit plan --profile coding --host codex
 agent-profile-kit install --profile coding --host codex
+agent-profile-kit status --profile coding --host codex
 agent-profile-kit run --profile coding --host codex -- --model o3
 ```
+
+After editing the Workspace, run `agent-profile-kit update` to explicitly
+regenerate every verified installed Profile/Host pair. `status` distinguishes
+source changes from edits to generated output. To remove disposable output,
+run `agent-profile-kit uninstall --profile coding --host codex`; it deletes
+only an installation whose Manifest confirms that identity.
 
 See `agent-profile-kit guide` for the Context Module and Profile formats.
 

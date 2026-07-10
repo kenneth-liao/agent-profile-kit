@@ -1,10 +1,17 @@
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
 
 export interface InstallationManifest {
-  readonly context: readonly string[];
+  readonly adapterVersion: string;
+  readonly engineVersion: string;
+  readonly git?: { readonly commit: string; readonly dirty: boolean };
   readonly hostId: "codex";
+  readonly hostVersion: string;
+  readonly outputHash: string;
   readonly outputs: readonly ["context.md"];
   readonly profileId: string;
+  readonly selectedArtifacts: { readonly context: readonly string[] };
+  readonly schemaVersion: 1;
+  readonly workspaceInputHash: string;
 }
 
 function requireString(value: unknown, description: string): string {
@@ -21,6 +28,45 @@ function requireStringArray(value: unknown, description: string): readonly strin
   return value;
 }
 
+function requireHash(value: unknown, description: string): string {
+  const hash = requireString(value, description);
+  if (!/^sha256:[a-f0-9]{64}$/.test(hash)) {
+    throw new Error(`Installation Manifest ${description} must be a SHA-256 hash`);
+  }
+  return hash;
+}
+
+function requireSelectedArtifacts(
+  value: unknown,
+): { readonly context: readonly string[] } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Installation Manifest selected_artifacts must be a YAML mapping");
+  }
+  const selectedArtifacts = value as Record<string, unknown>;
+  const unknown = Object.keys(selectedArtifacts).filter((field) => field !== "context");
+  if (unknown.length > 0 || !("context" in selectedArtifacts)) {
+    throw new Error("Installation Manifest selected_artifacts must contain only context");
+  }
+  return { context: requireStringArray(selectedArtifacts.context, "selected_artifacts.context") };
+}
+
+function requireGitProvenance(
+  value: unknown,
+): { readonly commit: string; readonly dirty: boolean } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Installation Manifest git must be a YAML mapping");
+  }
+  const git = value as Record<string, unknown>;
+  const unknown = Object.keys(git).filter((field) => !["commit", "dirty"].includes(field));
+  if (unknown.length > 0 || !("commit" in git) || !("dirty" in git)) {
+    throw new Error("Installation Manifest git must contain only commit and dirty");
+  }
+  if (typeof git.dirty !== "boolean") {
+    throw new Error("Installation Manifest git.dirty must be a boolean");
+  }
+  return { commit: requireString(git.commit, "git.commit"), dirty: git.dirty };
+}
+
 export function parseInstallationManifest(source: string): InstallationManifest {
   let value: unknown;
   try {
@@ -32,7 +78,19 @@ export function parseInstallationManifest(source: string): InstallationManifest 
     throw new Error("Installation Manifest must be a YAML mapping");
   }
   const manifest = value as Record<string, unknown>;
-  const fields = ["schema_version", "profile_id", "host_id", "context", "outputs"];
+  const fields = [
+    "schema_version",
+    "profile_id",
+    "host_id",
+    "host_version",
+    "adapter_version",
+    "engine_version",
+    "selected_artifacts",
+    "outputs",
+    "workspace_input_hash",
+    "output_hash",
+    "git",
+  ];
   const unknown = Object.keys(manifest).filter((field) => !fields.includes(field));
   if (unknown.length > 0) {
     throw new Error(`Installation Manifest does not allow fields: ${unknown.join(", ")}`);
@@ -47,10 +105,38 @@ export function parseInstallationManifest(source: string): InstallationManifest 
   if (outputs.length !== 1 || outputs[0] !== "context.md") {
     throw new Error("Installation Manifest outputs must contain only context.md");
   }
+  const git = "git" in manifest ? requireGitProvenance(manifest.git) : undefined;
   return {
-    context: requireStringArray(manifest.context, "context"),
+    adapterVersion: requireString(manifest.adapter_version, "adapter_version"),
+    engineVersion: requireString(manifest.engine_version, "engine_version"),
     hostId: "codex",
+    hostVersion: requireString(manifest.host_version, "host_version"),
+    outputHash: requireHash(manifest.output_hash, "output_hash"),
     outputs: ["context.md"],
     profileId: requireString(manifest.profile_id, "profile_id"),
+    selectedArtifacts: requireSelectedArtifacts(manifest.selected_artifacts),
+    schemaVersion: 1,
+    workspaceInputHash: requireHash(
+      manifest.workspace_input_hash,
+      "workspace_input_hash",
+    ),
+    ...(git ? { git } : {}),
   };
+}
+
+export function formatInstallationManifest(manifest: InstallationManifest): string {
+  const value = {
+    schema_version: manifest.schemaVersion,
+    profile_id: manifest.profileId,
+    host_id: manifest.hostId,
+    host_version: manifest.hostVersion,
+    adapter_version: manifest.adapterVersion,
+    engine_version: manifest.engineVersion,
+    selected_artifacts: { context: manifest.selectedArtifacts.context },
+    outputs: manifest.outputs,
+    workspace_input_hash: manifest.workspaceInputHash,
+    output_hash: manifest.outputHash,
+    ...(manifest.git ? { git: manifest.git } : {}),
+  };
+  return stringify(value);
 }
