@@ -18,11 +18,12 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const cliPath = join(repositoryRoot, "dist", "cli.js");
-const packageVersion = (
+const packageManifest = (
   JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
+    readonly os?: readonly string[];
     readonly version: string;
   }
-).version;
+);
 const temporaryDirectories: string[] = [];
 
 beforeAll(() => {
@@ -373,7 +374,8 @@ describe("agent-profile-kit init", () => {
     const { archive, metadata } = packPackage(join(home, "package"));
 
     expect(metadata.name).toBe("agent-profile-kit");
-    expect(metadata.version).toBe(packageVersion);
+    expect(metadata.version).toBe(packageManifest.version);
+    expect(packageManifest.os).toEqual(["darwin"]);
     expect(metadata.files.map(({ path }) => path).sort()).toEqual([
       "README.md",
       "dist/cli.js",

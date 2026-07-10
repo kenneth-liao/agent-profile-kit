@@ -57,6 +57,10 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function inspectWorkspace(
   path: string,
 ): Promise<"missing" | "empty" | "valid"> {
@@ -144,8 +148,7 @@ async function removeAbandonedStagingDirectories(
         }
       } catch (error) {
         if (hasErrorCode(error, "ENOENT")) return undefined;
-        const message = error instanceof Error ? error.message : String(error);
-        return `Could not remove abandoned staging directory ${path}: ${message}`;
+        return `Could not remove abandoned staging directory ${path}: ${errorMessage(error)}`;
       }
       return undefined;
     }),
@@ -210,40 +213,39 @@ export async function initializeWorkspace(
     ]);
     await rename(stagingDirectory, destination);
   } catch (error) {
-    const cleanupErrors: unknown[] = [];
+    const followUpErrors: unknown[] = [];
     try {
       await rm(stagingDirectory, { recursive: true, force: true });
     } catch (cleanupError) {
-      cleanupErrors.push(cleanupError);
+      followUpErrors.push(cleanupError);
     }
-    if (cleanupErrors.length > 0) {
+
+    if (hasErrorCode(error, "EEXIST") || hasErrorCode(error, "ENOTEMPTY")) {
+      try {
+        if ((await inspectWorkspace(destination)) === "valid") {
+          const cleanupWarnings = followUpErrors.map(
+            (cleanupError) =>
+              `Could not remove unused staging directory ${stagingDirectory}: ${errorMessage(cleanupError)}`,
+          );
+          return {
+            outcome: "unchanged",
+            path: destination,
+            warnings: [...warnings, ...cleanupWarnings],
+          };
+        }
+      } catch (inspectionError) {
+        followUpErrors.push(inspectionError);
+      }
+    }
+
+    if (followUpErrors.length > 0) {
       throw new AggregateError(
-        [error, ...cleanupErrors],
-        `Initialization failed and cleanup was incomplete for ${destination}`,
+        [error, ...followUpErrors],
+        `Initialization failed and follow-up handling was incomplete for ${destination}`,
       );
-    }
-    if (
-      (hasErrorCode(error, "EEXIST") || hasErrorCode(error, "ENOTEMPTY")) &&
-      (await inspectConcurrentDestination(destination, error)) === "valid"
-    ) {
-      return { outcome: "unchanged", path: destination, warnings };
     }
     throw error;
   }
 
   return { outcome: "created", path: destination, warnings };
-}
-
-async function inspectConcurrentDestination(
-  destination: string,
-  publicationError: unknown,
-): Promise<"missing" | "empty" | "valid"> {
-  try {
-    return await inspectWorkspace(destination);
-  } catch (inspectionError) {
-    throw new AggregateError(
-      [publicationError, inspectionError],
-      `Initialization failed and the concurrent Workspace state could not be validated: ${destination}`,
-    );
-  }
 }
