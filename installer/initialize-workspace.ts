@@ -212,7 +212,10 @@ async function stagingOwnerIsAlive(stagingDirectory: string): Promise<boolean> {
       const { stdout } = await execFileAsync(
         "ps",
         ["-p", String(pid), "-o", "lstart="],
-        { encoding: "utf8" },
+        {
+          encoding: "utf8",
+          env: { ...process.env, LC_ALL: "C" },
+        },
       );
       actualProcessStartedAtMs = Date.parse(stdout.trim());
       if (!Number.isFinite(actualProcessStartedAtMs)) return true;
