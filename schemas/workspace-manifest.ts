@@ -29,6 +29,16 @@ export function parseWorkspaceManifest(source: string): WorkspaceManifest {
     );
   }
 
+  if (
+    typeof value.schema_version !== "number" ||
+    !Number.isInteger(value.schema_version) ||
+    value.schema_version <= 0
+  ) {
+    throw new Error(
+      "Workspace Manifest schema_version must be a positive integer",
+    );
+  }
+
   if (value.schema_version !== WORKSPACE_SCHEMA_VERSION) {
     throw new Error(
       `Unsupported Workspace schema version ${String(value.schema_version)}; this Agent Profile Kit version supports version ${WORKSPACE_SCHEMA_VERSION}. Use an explicit Workspace migration before retrying.`,

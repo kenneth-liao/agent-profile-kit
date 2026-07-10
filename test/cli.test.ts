@@ -368,6 +368,22 @@ describe("agent-profile-kit init", () => {
     expect(await snapshotTree(workspace)).toEqual(before);
   });
 
+  test("a non-integer Workspace schema version is reported as malformed", () => {
+    const home = isolatedHome();
+    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    expect(runCli(home, "init").status).toBe(0);
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version:\n");
+
+    const result = runCli(home, "init");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(
+      "Workspace Manifest schema_version must be a positive integer",
+    );
+    expect(result.stderr).not.toContain("migration");
+  });
+
   test("a malformed Workspace Manifest fails with an actionable error", async () => {
     const home = isolatedHome();
     const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
