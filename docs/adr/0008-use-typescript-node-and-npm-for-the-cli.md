@@ -1,0 +1,5 @@
+# Use TypeScript on Node.js and distribute the CLI through npm
+
+Agent Profile Kit implements its CLI and shared engine in strict TypeScript using ECMAScript modules on the supported Node.js LTS line. The repository uses Bun for dependency management and test orchestration, while the published package runs on Node.js so users do not need Bun. The package exposes `agent-profile-kit` through its npm `bin` mapping, supporting temporary execution with `npx agent-profile-kit ...` as well as optional global installation. Workspace YAML is parsed by one maintained YAML library at the schema boundary rather than by command-specific parsing.
+
+This choice gives the first CLI tracer one typed implementation shared by future schemas, the Installer, and Adapters; uses the established JavaScript package distribution channel; and keeps `npx` use free of a permanent installation. It accepts Node.js as a runtime dependency and requires the release process to verify both the packaged executable and direct CLI behavior. The implementation and distribution choice was reviewed and approved by the project owner before implementation of issue #2 began.

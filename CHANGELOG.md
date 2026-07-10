@@ -9,6 +9,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 ### Added
 
 - Initialized the Agent Profile Kit monorepo structure.
+- Added the schema-versioned `agent-profile-kit init` CLI and npm executable contract ([#2](https://github.com/kenneth-liao/agent-profile-kit/issues/2)).
 
 ### Changed
 

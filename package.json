@@ -1,0 +1,27 @@
+{
+  "name": "agent-profile-kit",
+  "version": "0.1.0",
+  "description": "Compose portable agent material into host-native profiles.",
+  "type": "module",
+  "bin": {
+    "agent-profile-kit": "./dist/cli.js"
+  },
+  "files": [
+    "dist/cli.js",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bun run typecheck && bun build cli/index.ts --target=node --outfile=dist/cli.js --silent",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "bun run build"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^7.0.2",
+    "yaml": "^2.9.0"
+  }
+}
