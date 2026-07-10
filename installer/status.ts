@@ -2,10 +2,15 @@ import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { hasErrorCode } from "./fs-error.js";
-import { hashOutputDirectory, hashWorkspaceInputs } from "./hashes.js";
+import { hashOutputDirectory, hashSkillCatalog, hashWorkspaceInputs } from "./hashes.js";
 import { ingestWorkspace } from "./ingest-workspace.js";
 import { installationPath } from "./plan.js";
 import { parseInstallationManifest } from "../schemas/installation-manifest.js";
+import {
+  codexSkillLibraryPath,
+  assertCodexSkillLibraryIntact,
+  readOwnedSkillLibrary,
+} from "./codex-skill-library.js";
 
 export type InstallationStatus =
   | "current"
@@ -14,15 +19,52 @@ export type InstallationStatus =
   | "missing installation"
   | "stale source";
 
+export interface CodexInstallationStatus {
+  readonly profile: readonly InstallationStatus[];
+  readonly skillLibrary: readonly InstallationStatus[];
+}
+
+async function statusCodexSkillLibrary(home: string): Promise<readonly InstallationStatus[]> {
+  const destination = codexSkillLibraryPath(home);
+  try {
+    const entry = await lstat(destination);
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) return ["malformed Manifest"];
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return ["missing installation"];
+    throw error;
+  }
+  let manifest;
+  try {
+    manifest = await readOwnedSkillLibrary(destination);
+  } catch {
+    return ["malformed Manifest"];
+  }
+  const statuses: InstallationStatus[] = [];
+  try {
+    await assertCodexSkillLibraryIntact(destination);
+  } catch {
+    statuses.push("drifted output");
+  }
+  const workspace = await ingestWorkspace(home);
+  if ((await hashSkillCatalog(workspace.skills)) !== manifest.workspaceInputHash) {
+    statuses.unshift("stale source");
+  }
+  return statuses.length > 0 ? statuses : ["current"];
+}
+
 export async function statusContextOnlyCodex(
   home: string,
   profileId: string,
-): Promise<readonly InstallationStatus[]> {
+): Promise<CodexInstallationStatus> {
   const installation = installationPath(home, profileId);
   try {
-    if (!(await lstat(installation)).isDirectory()) return ["malformed Manifest"];
+    if (!(await lstat(installation)).isDirectory()) {
+      return { profile: ["malformed Manifest"], skillLibrary: await statusCodexSkillLibrary(home) };
+    }
   } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return ["missing installation"];
+    if (hasErrorCode(error, "ENOENT")) {
+      return { profile: ["missing installation"], skillLibrary: await statusCodexSkillLibrary(home) };
+    }
     throw error;
   }
 
@@ -32,10 +74,10 @@ export async function statusContextOnlyCodex(
       await readFile(join(installation, "installation.yaml"), "utf8"),
     );
   } catch {
-    return ["malformed Manifest"];
+    return { profile: ["malformed Manifest"], skillLibrary: await statusCodexSkillLibrary(home) };
   }
   if (manifest.profileId !== profileId || manifest.hostId !== "codex") {
-    return ["malformed Manifest"];
+    return { profile: ["malformed Manifest"], skillLibrary: await statusCodexSkillLibrary(home) };
   }
 
   const statuses: InstallationStatus[] = [];
@@ -57,5 +99,8 @@ export async function statusContextOnlyCodex(
     statuses.unshift("stale source");
   }
 
-  return statuses.length > 0 ? statuses : ["current"];
+  return {
+    profile: statuses.length > 0 ? statuses : ["current"],
+    skillLibrary: await statusCodexSkillLibrary(home),
+  };
 }

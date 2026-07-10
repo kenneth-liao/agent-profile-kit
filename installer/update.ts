@@ -10,7 +10,7 @@ function compareNames(left: { readonly name: string }, right: { readonly name: s
   return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
 }
 
-async function installedCodexProfiles(home: string): Promise<readonly string[]> {
+export async function installedCodexProfiles(home: string): Promise<readonly string[]> {
   const root = join(home, ".agents", "agent-profile-kit", "installations");
   let profileEntries;
   try {

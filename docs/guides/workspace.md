@@ -16,7 +16,7 @@ only `schema_version: 1`; the `profiles/`, `context/`, `skills/`, `agents/`,
 `hooks/`, and `tools/` directories identify the canonical homes for portable
 artifacts. Do not treat generated Host output as source material.
 
-The current Codex tracer supports Context Modules. A Context Module is a
+The current Codex tracer supports Context Modules and Skills. A Context Module is a
 Markdown file under `context/` with frontmatter containing one stable,
 lowercase kebab-case `id`; the Markdown body is the Context. A Skill is a
 standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
@@ -25,12 +25,16 @@ hyphenated `name` and a non-empty `description`. Scripts, references, and
 assets remain ordinary standard Skill content. If a Skill needs Agent Profile
 Kit-only metadata, put it in an optional `agent-profile-kit.yaml` sidecar.
 
-Skill packages are validated independently of a Host. Codex does not yet offer
-a supported process-scoped way to discover only the selected Skill packages, so
-planning or installing a Codex Profile that selects Skills fails clearly before
-any Host or installation write. Do not work around this limitation with global
-Skill directories or `CODEX_HOME`; those would violate Profile isolation and
-ordinary Host configuration preservation.
+Codex does not yet offer a supported process-scoped Skill discovery path.
+Agent Profile Kit therefore transactionally mirrors every valid Workspace
+Skill into its dedicated `~/.agents/skills/agent-profile-kit/` Codex Skill
+Library. Standard Skill content is copied unchanged; the Agent Profile Kit
+sidecar is not copied. Managed launches pass a process-only filter that enables
+the Profile's selected library Skills and disables the other Agent Profile
+Kit-managed library Skills. Ordinary Codex launches can discover the complete
+library. Agent Profile Kit never writes Codex configuration or changes existing
+user, project, admin, system, or plugin capabilities, and it refuses unowned
+library destinations or conflicting existing Skill names.
 
 A Profile is a YAML file under `profiles/` with an `id` and explicit `context`,
 `skills`, `agents`, `hooks`, and `tools` arrays. In this tracer, `agents`,
@@ -65,22 +69,27 @@ description: Review a pull request. Use when asked to review code changes.
 # Review a pull request
 ```
 
-Run `agent-profile-kit validate`, then preview the generated Context with
+Run `agent-profile-kit validate`, then preview the generated Context, selected
+Skills, and complete Codex Skill Library changes with
 `agent-profile-kit plan --profile coding --host codex`. Installation is
 explicit: `agent-profile-kit install --profile coding --host codex`. Launch an
 installed Profile from the intended project with
 `agent-profile-kit run --profile coding --host codex -- <native Codex arguments>`.
-The launcher adds only the selected Context using Codex's per-process
-developer-instructions override; ordinary global and project Codex
-configuration remains Host-owned.
+The launcher adds the selected Context using Codex's per-process
+developer-instructions override and filters only Agent Profile Kit-owned Skills
+for that process; ordinary global and project Codex configuration and unrelated
+Skills remain Host-owned.
 
 Use `agent-profile-kit status --profile coding --host codex` to inspect a
-Profile Installation. It distinguishes a missing or malformed Manifest, stale
-Workspace source, and drifted generated output. Regeneration is always
+Profile Installation and shared Codex Skill Library. It reports their freshness
+and drift separately. Regeneration is always
 explicit: `agent-profile-kit update` refreshes every verified installed
 Profile/Host pair and never runs during launch. To delete generated output,
 use `agent-profile-kit uninstall --profile coding --host codex`; it removes
-only a whole installation whose Manifest confirms the requested identity.
+only Manifest-verified output and removes the shared Skill Library only with the
+final installed Codex Profile. Removing that final Profile fails safely while
+a managed Codex run is still using a leased Skill generation; retry after the
+run exits.
 
 Review personal content before publishing this Workspace. Agent Profile Kit
 does not classify private material, and credential values do not belong in a

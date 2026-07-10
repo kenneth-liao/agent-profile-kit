@@ -22,18 +22,20 @@ Use this workflow when helping a person author their Workspace.
    `id` frontmatter, standard Agent Skills rooted at `SKILL.md`, and flat
    Profiles with explicit arrays for every artifact category. A Skill's standard
    `name` is its Artifact ID; keep Agent Profile Kit-only metadata in the
-   optional `agent-profile-kit.yaml` sidecar. Codex cannot currently discover
-   and isolate Profile-selected Skills per process, so a Skills-selected Codex
-   plan fails before Host detection or installation. Run `agent-profile-kit
-   validate`, then `agent-profile-kit plan --profile <id> --host codex`;
-   inspect the selected Context, destination, and capability result before
-   requesting installation. The current Workspace schema version is 1.
+   optional `agent-profile-kit.yaml` sidecar. Codex plans mirror the complete
+   Workspace Skill catalog into the Agent Profile Kit-owned Codex Skill Library
+   and apply the Profile selection through a process-only filter. Run
+   `agent-profile-kit validate`, then `agent-profile-kit plan --profile <id>
+   --host codex`; inspect the selected Context and Skills, library additions,
+   changes and removals, destinations, and capability result before requesting
+   installation. The current Workspace schema version is 1.
 6. Do not install anything without direction. Explain the plan, ask the user
    whether to apply it, and only then run an installation command they
    explicitly requested. Use `status` to inspect an existing installation and
    `update` only when the user explicitly requests regeneration; launch never
    refreshes source implicitly. `uninstall` removes only a Manifest-verified
-   whole installation.
+   Manifest-verified output; the Codex Skill Library remains until the final
+   installed Codex Profile is removed.
 
 If the user plans to publish the Workspace, remind them to review personal
 content. Credentials are invalid in a Workspace regardless of publication

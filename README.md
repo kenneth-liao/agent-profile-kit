@@ -1,6 +1,6 @@
 # Agent Profile Kit
 
-Agent Profile Kit is a user-agnostic CLI and format for composing a user's Skills, Context, Agents, Hooks, and Tools into portable Profiles. Host Adapters generate native Profile Installations for supported agent products without modifying their global configuration.
+Agent Profile Kit is a user-agnostic CLI and format for composing a user's Skills, Context, Agents, Hooks, and Tools into portable Profiles. Host Adapters generate native Profile output for supported agent products without overwriting their existing configuration or capabilities.
 
 ## Quick start
 
@@ -14,12 +14,13 @@ The initial release supports macOS only.
 
 Running the command again against the valid Workspace is safe and reports it unchanged.
 
-## Context-only Codex tracer
+## Codex Context and Skills tracer
 
-The first Profile tracer supports Context Modules and explicit flat Profiles.
-Standard Skill packages are validated in the Workspace, but Codex currently has
-no supported process-scoped Skill discovery and isolation surface, so a Profile
-that selects Skills fails clearly before Host detection or installation.
+The Codex tracer supports Context Modules, standard Skill packages, and explicit
+flat Profiles. It mirrors the complete Workspace Skill catalog into an Agent
+Profile Kit-owned Codex Skill Library and applies Profile selection with a
+process-only filter during managed launches. Existing user, project, admin,
+system, and plugin configuration and capabilities remain untouched.
 
 ```sh
 agent-profile-kit validate
@@ -31,9 +32,10 @@ agent-profile-kit run --profile coding --host codex -- --model o3
 
 After editing the Workspace, run `agent-profile-kit update` to explicitly
 regenerate every verified installed Profile/Host pair. `status` distinguishes
-source changes from edits to generated output. To remove disposable output,
-run `agent-profile-kit uninstall --profile coding --host codex`; it deletes
-only an installation whose Manifest confirms that identity.
+source changes from edits to generated Profile or shared Skill Library output.
+To remove disposable output, run `agent-profile-kit uninstall --profile coding
+--host codex`; it deletes only Manifest-verified Agent Profile Kit output and
+keeps the shared library until no installed Codex Profile depends on it.
 
 See `agent-profile-kit guide` for the Context Module, Skill, and Profile formats.
 
@@ -52,7 +54,7 @@ The existing `commands/`, `context/`, and `skills/` content is legacy migration 
 
 ## User data
 
-Canonical user content lives under `~/.agents/agent-profile-kit/workspace/`. Disposable Host-specific output lives separately under `~/.agents/agent-profile-kit/installations/`.
+Canonical user content lives under `~/.agents/agent-profile-kit/workspace/`. Disposable Host-specific output lives separately under `~/.agents/agent-profile-kit/installations/`; Codex Skills are projected into the dedicated `~/.agents/skills/agent-profile-kit/` subtree.
 
 `agent-profile-kit init` creates an empty Workspace with a schema marker, artifact directories, and short human/agent bootstrap files. Current authoring guidance remains owned by the CLI through `agent-profile-kit guide` and `agent-profile-kit guide --agent`; initialization does not copy personal or opinionated starter content.
 

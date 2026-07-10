@@ -80,6 +80,12 @@ async function main(): Promise<void> {
         "Host: codex\n" +
         `Capability: supported (${plan.capability.version})\n` +
         `Destination: ${plan.destination}\n` +
+        `Selected Skills: ${plan.profile.skills.length === 0 ? "(none)" : plan.profile.skills.join(", ")}\n` +
+        `Codex Skill Library: ${plan.skillLibrary.destination}\n` +
+        `  Projected Skills: ${plan.skillLibrary.skills.size === 0 ? "(none)" : [...plan.skillLibrary.skills.keys()].sort().join(", ")}\n` +
+        `  Add: ${plan.skillLibrary.additions.length === 0 ? "(none)" : plan.skillLibrary.additions.join(", ")}\n` +
+        `  Change: ${plan.skillLibrary.changes.length === 0 ? "(none)" : plan.skillLibrary.changes.join(", ")}\n` +
+        `  Remove: ${plan.skillLibrary.removals.length === 0 ? "(none)" : plan.skillLibrary.removals.join(", ")}\n` +
         "Context output:\n" +
         `${plan.context}\n`,
     );
@@ -103,7 +109,10 @@ async function main(): Promise<void> {
       throw new Error(`Unsupported Agent Host '${host}'`);
     }
     const status = await statusContextOnlyCodex(homedir(), profile);
-    process.stdout.write(`Status: ${status.join(", ")}\n`);
+    process.stdout.write(
+      `Profile Installation: ${status.profile.join(", ")}\n` +
+        `Codex Skill Library: ${status.skillLibrary.join(", ")}\n`,
+    );
     return;
   }
 
