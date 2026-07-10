@@ -7,6 +7,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -178,6 +179,42 @@ describe("agent-profile-kit init", () => {
     expect(result.stdout).toContain("Workspace already initialized");
     expect(result.stdout).toContain("unchanged");
     expect(await snapshotTree(workspace)).toEqual(before);
+  });
+
+  test("a user with an existing empty Workspace directory receives a valid Workspace", () => {
+    const home = isolatedHome();
+    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    mkdirSync(workspace, { recursive: true });
+
+    const result = runCli(home, "init");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Initialized Agent Profile Kit Workspace");
+    expect(readFileSync(join(workspace, "workspace.yaml"), "utf8")).toBe(
+      "schema_version: 1\n",
+    );
+  });
+
+  test("initialization removes abandoned staging output without touching live work", () => {
+    const home = isolatedHome();
+    const applicationRoot = join(home, ".agents", "agent-profile-kit");
+    const abandonedStaging = join(applicationRoot, ".workspace-init-abandoned");
+    const activeStaging = join(applicationRoot, ".workspace-init-active");
+    mkdirSync(abandonedStaging, { recursive: true });
+    mkdirSync(activeStaging);
+    writeFileSync(join(abandonedStaging, "partial"), "incomplete\n");
+    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1_000);
+    utimesSync(abandonedStaging, twoDaysAgo, twoDaysAgo);
+
+    const result = runCli(home, "init");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(existsSync(abandonedStaging)).toBe(false);
+    expect(existsSync(activeStaging)).toBe(true);
+    expect(
+      statSync(join(applicationRoot, "workspace", "workspace.yaml")).isFile(),
+    ).toBe(true);
   });
 
   test("a non-empty unrecognized directory is rejected without modifying any entry", async () => {

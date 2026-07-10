@@ -26,19 +26,23 @@ const ARTIFACT_DIRECTORIES = [
   "tools",
 ] as const;
 
-const README = `# Agent Profile Kit Workspace
+const WORKSPACE_ROOT_FILES = {
+  "workspace.yaml": WORKSPACE_MANIFEST,
+  "README.md": `# Agent Profile Kit Workspace
 
 This Workspace is the canonical source for your Agent Profile Kit material.
 
 Run \`agent-profile-kit guide\` for current authoring guidance.
-`;
-
-const AGENTS = `# Agent Profile Kit Workspace
+`,
+  "AGENTS.md": `# Agent Profile Kit Workspace
 
 Before editing this Workspace, run \`agent-profile-kit guide --agent\` and follow the current agent-oriented authoring guidance.
-`;
+`,
+  ".gitignore": ".DS_Store\n",
+} as const;
 
-const GITIGNORE = ".DS_Store\n";
+const STAGING_DIRECTORY_PREFIX = ".workspace-init-";
+const ABANDONED_STAGING_AGE_MS = 24 * 60 * 60 * 1_000;
 
 export function workspacePath(home: string): string {
   return join(home, ".agents", "agent-profile-kit", "workspace");
@@ -92,10 +96,34 @@ async function validateWorkspace(path: string): Promise<void> {
     ...ARTIFACT_DIRECTORIES.map((directory) =>
       requireWorkspaceEntry(path, directory, "directory"),
     ),
-    ...["README.md", "AGENTS.md", ".gitignore"].map((file) =>
+    ...Object.keys(WORKSPACE_ROOT_FILES).map((file) =>
       requireWorkspaceEntry(path, file, "file"),
     ),
   ]);
+}
+
+async function removeAbandonedStagingDirectories(
+  applicationRoot: string,
+): Promise<void> {
+  const now = Date.now();
+  const entries = await readdir(applicationRoot, { withFileTypes: true });
+
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (
+        !entry.isDirectory() ||
+        !entry.name.startsWith(STAGING_DIRECTORY_PREFIX)
+      ) {
+        return;
+      }
+
+      const path = join(applicationRoot, entry.name);
+      const stats = await stat(path);
+      if (now - stats.mtimeMs >= ABANDONED_STAGING_AGE_MS) {
+        await rm(path, { recursive: true, force: true });
+      }
+    }),
+  );
 }
 
 async function requireWorkspaceEntry(
@@ -136,15 +164,17 @@ export async function initializeWorkspace(
   }
 
   await mkdir(applicationRoot, { recursive: true });
-  const stagingDirectory = await mkdtemp(join(applicationRoot, ".workspace-init-"));
+  await removeAbandonedStagingDirectories(applicationRoot);
+  const stagingDirectory = await mkdtemp(
+    join(applicationRoot, STAGING_DIRECTORY_PREFIX),
+  );
   let removedEmptyDestination = false;
 
   try {
     await Promise.all([
-      writeFile(join(stagingDirectory, "workspace.yaml"), WORKSPACE_MANIFEST),
-      writeFile(join(stagingDirectory, "README.md"), README),
-      writeFile(join(stagingDirectory, "AGENTS.md"), AGENTS),
-      writeFile(join(stagingDirectory, ".gitignore"), GITIGNORE),
+      ...Object.entries(WORKSPACE_ROOT_FILES).map(([file, contents]) =>
+        writeFile(join(stagingDirectory, file), contents),
+      ),
       ...ARTIFACT_DIRECTORIES.map(async (directory) => {
         const path = join(stagingDirectory, directory);
         await mkdir(path);
@@ -158,18 +188,26 @@ export async function initializeWorkspace(
     await rename(stagingDirectory, destination);
     removedEmptyDestination = false;
   } catch (error) {
-    await rm(stagingDirectory, { recursive: true, force: true });
+    const cleanupErrors: unknown[] = [];
+    try {
+      await rm(stagingDirectory, { recursive: true, force: true });
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
     if (removedEmptyDestination) {
       try {
         await mkdir(destination);
       } catch (restorationError) {
         if (!hasErrorCode(restorationError, "EEXIST")) {
-          throw new AggregateError(
-            [error, restorationError],
-            `Initialization failed and the empty Workspace directory could not be restored: ${destination}`,
-          );
+          cleanupErrors.push(restorationError);
         }
       }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        `Initialization failed and cleanup was incomplete for ${destination}`,
+      );
     }
     throw error;
   }
