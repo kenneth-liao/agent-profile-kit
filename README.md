@@ -10,6 +10,8 @@ Initialize the canonical Workspace without a global installation:
 npx agent-profile-kit init
 ```
 
+The initial release supports macOS only.
+
 Running the command again against the valid Workspace is safe and reports it unchanged.
 
 ## Product layout

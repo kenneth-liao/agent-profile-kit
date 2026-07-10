@@ -329,8 +329,13 @@ describe("agent-profile-kit init", () => {
     mkdirSync(abandonedStaging, { recursive: true });
     mkdirSync(activeStaging);
     writeFileSync(join(abandonedStaging, "partial"), "incomplete\n");
+    writeFileSync(
+      join(activeStaging, ".owner.json"),
+      `${JSON.stringify({ pid: process.pid })}\n`,
+    );
     const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1_000);
     utimesSync(abandonedStaging, twoDaysAgo, twoDaysAgo);
+    utimesSync(activeStaging, twoDaysAgo, twoDaysAgo);
 
     const result = runCli(home, "init");
 

@@ -41,6 +41,7 @@ Before editing this Workspace, run \`agent-profile-kit guide --agent\` and follo
 } as const;
 
 const STAGING_DIRECTORY_PREFIX = ".workspace-init-";
+const STAGING_OWNER_FILE = ".owner.json";
 const ABANDONED_STAGING_AGE_MS = 24 * 60 * 60 * 1_000;
 
 export function workspacePath(home: string): string {
@@ -143,7 +144,10 @@ async function removeAbandonedStagingDirectories(
       const path = join(applicationRoot, entry.name);
       try {
         const stats = await stat(path);
-        if (now - stats.mtimeMs >= ABANDONED_STAGING_AGE_MS) {
+        if (
+          now - stats.mtimeMs >= ABANDONED_STAGING_AGE_MS &&
+          !(await stagingOwnerIsAlive(path))
+        ) {
           await rm(path, { recursive: true, force: true });
         }
       } catch (error) {
@@ -155,6 +159,41 @@ async function removeAbandonedStagingDirectories(
   );
 
   return warnings.filter((warning): warning is string => warning !== undefined);
+}
+
+async function stagingOwnerIsAlive(stagingDirectory: string): Promise<boolean> {
+  let ownerSource;
+  try {
+    ownerSource = await readFile(
+      join(stagingDirectory, STAGING_OWNER_FILE),
+      "utf8",
+    );
+  } catch (error) {
+    return !hasErrorCode(error, "ENOENT");
+  }
+
+  let owner: unknown;
+  try {
+    owner = JSON.parse(ownerSource);
+  } catch {
+    return true;
+  }
+  if (
+    typeof owner !== "object" ||
+    owner === null ||
+    !("pid" in owner) ||
+    !Number.isInteger(owner.pid) ||
+    (owner.pid as number) <= 0
+  ) {
+    return true;
+  }
+
+  try {
+    process.kill(owner.pid as number, 0);
+    return true;
+  } catch (error) {
+    return !hasErrorCode(error, "ESRCH");
+  }
 }
 
 async function requireWorkspaceEntry(
@@ -201,6 +240,10 @@ export async function initializeWorkspace(
   );
 
   try {
+    await writeFile(
+      join(stagingDirectory, STAGING_OWNER_FILE),
+      `${JSON.stringify({ pid: process.pid })}\n`,
+    );
     await Promise.all([
       ...Object.entries(WORKSPACE_ROOT_FILES).map(([file, contents]) =>
         writeFile(join(stagingDirectory, file), contents),
@@ -211,6 +254,7 @@ export async function initializeWorkspace(
         await writeFile(join(path, ".gitkeep"), "");
       }),
     ]);
+    await rm(join(stagingDirectory, STAGING_OWNER_FILE));
     await rename(stagingDirectory, destination);
   } catch (error) {
     const followUpErrors: unknown[] = [];
