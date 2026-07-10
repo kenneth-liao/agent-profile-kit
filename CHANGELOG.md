@@ -8,7 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
-- Initialized the Agent Kit monorepo structure.
+- Initialized the Agent Profile Kit monorepo structure.
 
 ### Changed
 
