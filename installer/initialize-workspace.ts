@@ -96,7 +96,7 @@ async function inspectWorkspace(
   if (entries.length === 0) {
     if (pathEntryStats.isSymbolicLink()) {
       throw new Error(
-        `Cannot initialize ${path}: the Workspace symlink target is empty; initialize the target directly first`,
+        `Cannot initialize ${path}: the Workspace symlink target is empty; remove the symlink and run init, or populate its target with a valid Workspace before retrying`,
       );
     }
     return "empty";

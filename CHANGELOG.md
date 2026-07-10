@@ -30,3 +30,4 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Distinguish malformed schema versions from supported-version migration failures ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 - Validate the Workspace Manifest path kind before reading it ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 - Add safe remediation guidance for dangling Workspace symlinks ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
+- Make empty Workspace symlink remediation actionable from the fixed path ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).

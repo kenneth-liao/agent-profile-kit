@@ -264,7 +264,7 @@ describe("agent-profile-kit init", () => {
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("symlink target is empty");
-    expect(result.stderr).toContain("initialize the target directly");
+    expect(result.stderr).toContain("remove the symlink and run init");
     expect(await snapshotTree(target)).toEqual(before);
   });
 
