@@ -162,7 +162,6 @@ export async function initializeWorkspace(
   }
 
   await mkdir(applicationRoot, { recursive: true });
-  const warnings: string[] = [];
   const stagingDirectory = await mkdtemp(
     join(applicationRoot, STAGING_DIRECTORY_PREFIX),
   );
@@ -197,7 +196,7 @@ export async function initializeWorkspace(
           return {
             outcome: "unchanged",
             path: destination,
-            warnings: [...warnings, ...cleanupWarnings],
+            warnings: cleanupWarnings,
           };
         }
       } catch (inspectionError) {
@@ -214,5 +213,5 @@ export async function initializeWorkspace(
     throw error;
   }
 
-  return { outcome: "created", path: destination, warnings };
+  return { outcome: "created", path: destination, warnings: [] };
 }

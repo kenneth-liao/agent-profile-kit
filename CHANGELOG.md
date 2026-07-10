@@ -15,6 +15,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 - Marked the PR review follow-up skills for explicit invocation only.
 - Simplified Workspace staging to clean only output owned by the running initialization process ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
+- Simplified initialization warnings to their single concurrent-cleanup producer ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 
 ### Fixed
 
