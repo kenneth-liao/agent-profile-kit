@@ -2,11 +2,12 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { parseInstallationManifest } from "../schemas/installation-manifest.js";
+import { hasErrorCode } from "./fs-error.js";
 import { updateContextOnlyCodex } from "./install.js";
 import { installationPath, planContextOnlyCodex } from "./plan.js";
 
-function hasErrorCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
+function compareNames(left: { readonly name: string }, right: { readonly name: string }): number {
+  return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
 }
 
 async function installedCodexProfiles(home: string): Promise<readonly string[]> {
@@ -20,12 +21,14 @@ async function installedCodexProfiles(home: string): Promise<readonly string[]> 
   }
 
   const profiles: string[] = [];
-  for (const profileEntry of profileEntries.sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const profileEntry of profileEntries.sort(compareNames)) {
+    if (profileEntry.name.startsWith(".")) continue;
     if (!profileEntry.isDirectory()) {
       throw new Error(`Profile Installation root contains unexpected entry '${profileEntry.name}'`);
     }
     const hosts = await readdir(join(root, profileEntry.name), { withFileTypes: true });
-    for (const hostEntry of hosts.sort((left, right) => left.name.localeCompare(right.name))) {
+    for (const hostEntry of hosts.sort(compareNames)) {
+      if (hostEntry.name.startsWith(".")) continue;
       if (!hostEntry.isDirectory()) {
         throw new Error(
           `Profile Installation '${profileEntry.name}' contains unexpected entry '${hostEntry.name}'`,

@@ -25,6 +25,7 @@ import {
   nodeInstallationFileSystem,
   updateContextOnlyCodex,
 } from "../installer/install.js";
+import { workspaceGitProvenance } from "../installer/git-provenance.js";
 import { type ContextOnlyCodexPlan } from "../installer/plan.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -714,6 +715,100 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       ).rejects.toThrow(`injected ${failure.name === "Manifest writing" ? "Manifest" : failure.name} failure`);
       expect(await snapshotTree(destination)).toEqual(before);
     }
+    expect(await listTree(join(home, "installations", "coding"))).toEqual([
+      "codex/",
+      "codex/context.md",
+      "codex/installation.yaml",
+    ]);
+  });
+
+  test("a successful replacement remains usable when backup cleanup fails", async () => {
+    const home = isolatedHome();
+    const destination = join(home, "installations", "coding", "codex");
+    const profile = {
+      id: "coding",
+      context: ["team-rules"],
+      skills: [],
+      agents: [],
+      hooks: [],
+      tools: [],
+    } as const;
+    const plan = (context: string): ContextOnlyCodexPlan => ({
+      capability: { version: "codex-cli 0.test" },
+      context,
+      destination,
+      engineVersion: "0.test",
+      profile,
+      workspaceInputHash: `sha256:${"a".repeat(64)}`,
+    });
+    await installContextOnlyCodex(plan("Previous Context.\n"));
+    let backupRemovalCount = 0;
+
+    await expect(
+      updateContextOnlyCodex(plan("Replacement Context.\n"), {
+        fileSystem: {
+          ...nodeInstallationFileSystem,
+          rm: async (path, options) => {
+            if (path.includes(".previous-")) {
+              backupRemovalCount += 1;
+              if (backupRemovalCount === 2) {
+                throw new Error("injected backup cleanup failure");
+              }
+            }
+            await nodeInstallationFileSystem.rm(path, options);
+          },
+        },
+      }),
+    ).resolves.toBeUndefined();
+    expect(readFileSync(join(destination, "context.md"), "utf8")).toBe(
+      "Replacement Context.\n",
+    );
+  });
+
+  test("a staging cleanup failure preserves the original failure as an AggregateError", async () => {
+    const home = isolatedHome();
+    const destination = join(home, "installations", "coding", "codex");
+    const plan: ContextOnlyCodexPlan = {
+      capability: { version: "codex-cli 0.test" },
+      context: "Context.\n",
+      destination,
+      engineVersion: "0.test",
+      profile: {
+        id: "coding",
+        context: ["team-rules"],
+        skills: [],
+        agents: [],
+        hooks: [],
+        tools: [],
+      },
+      workspaceInputHash: `sha256:${"a".repeat(64)}`,
+    };
+    await installContextOnlyCodex(plan);
+
+    try {
+      await updateContextOnlyCodex(plan, {
+        fileSystem: {
+          ...nodeInstallationFileSystem,
+          rm: async (path, options) => {
+            if (path.includes(".install-")) {
+              throw new Error("injected staging cleanup failure");
+            }
+            await nodeInstallationFileSystem.rm(path, options);
+          },
+          writeFile: async (path, source) => {
+            if (path.endsWith("context.md")) {
+              throw new Error("injected generation failure");
+            }
+            await nodeInstallationFileSystem.writeFile(path, source);
+          },
+        },
+      });
+      throw new Error("Expected update to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as AggregateError).errors).toHaveLength(2);
+      expect((error as AggregateError).message).toContain("could not clean staging output");
+    }
   });
 
   test("a user cannot uninstall an installation whose Manifest has a different identity", async () => {
@@ -934,6 +1029,15 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       join(workspacePath(home), "context", "team-rules.md"),
       "---\nid: team-rules\n---\nAlways preserve the updated project boundary.\n",
     );
+    const profileInstallations = join(
+      home,
+      ".agents",
+      "agent-profile-kit",
+      "installations",
+      "coding",
+    );
+    mkdirSync(join(profileInstallations, ".install-interrupted"));
+    mkdirSync(join(profileInstallations, ".previous-interrupted"));
 
     const project = join(home, "unrelated-project");
     mkdirSync(project);
@@ -1524,6 +1628,19 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     ).toMatchObject({ git: { commit, dirty: false } });
   });
 
+  test("Git provenance does not inherit a repository that merely contains the Workspace", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeContextOnlyProfile(home);
+    execFileSync("git", ["init"], { cwd: home });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: home });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: home });
+    execFileSync("git", ["add", "."], { cwd: home });
+    execFileSync("git", ["commit", "-m", "Containing repository"], { cwd: home });
+
+    expect(await workspaceGitProvenance(workspacePath(home))).toBeUndefined();
+  });
+
   test("a user receives clear guidance when an installation already exists", async () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
@@ -1573,7 +1690,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain(`Installation already exists at ${installation}`);
-    expect(result.stderr).toContain("remove it before installing again");
+    expect(result.stderr).toContain("agent-profile-kit update");
     expect(result.stderr).not.toContain("EEXIST");
     expect(await snapshotTree(installation)).toEqual(before);
   });

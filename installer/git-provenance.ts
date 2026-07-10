@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 
 const executeFile = promisify(execFile);
@@ -22,6 +23,13 @@ async function git(workspace: string, arguments_: readonly string[]): Promise<st
 export async function workspaceGitProvenance(
   workspace: string,
 ): Promise<GitProvenance | undefined> {
+  const repository = (await git(workspace, ["rev-parse", "--show-toplevel"]))?.trim();
+  if (!repository) return undefined;
+  const [workspacePath, repositoryPath] = await Promise.all([
+    realpath(workspace),
+    realpath(repository),
+  ]);
+  if (workspacePath !== repositoryPath) return undefined;
   const commit = (await git(workspace, ["rev-parse", "--verify", "HEAD"]))?.trim();
   if (!commit) return undefined;
   const status = await git(workspace, ["status", "--porcelain"]);

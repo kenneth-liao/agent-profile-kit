@@ -1,6 +1,7 @@
 import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { hasErrorCode } from "./fs-error.js";
 import { hashOutputDirectory, hashWorkspaceInputs } from "./hashes.js";
 import { ingestWorkspace } from "./ingest-workspace.js";
 import { installationPath } from "./plan.js";
@@ -12,10 +13,6 @@ export type InstallationStatus =
   | "malformed Manifest"
   | "missing installation"
   | "stale source";
-
-function hasErrorCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
-}
 
 export async function statusContextOnlyCodex(
   home: string,

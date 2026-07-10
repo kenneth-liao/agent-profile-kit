@@ -2,11 +2,8 @@ import { lstat, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { parseInstallationManifest } from "../schemas/installation-manifest.js";
+import { hasErrorCode } from "./fs-error.js";
 import { installationPath } from "./plan.js";
-
-function hasErrorCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
-}
 
 export async function uninstallContextOnlyCodex(
   home: string,

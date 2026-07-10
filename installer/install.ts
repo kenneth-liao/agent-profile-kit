@@ -6,6 +6,7 @@ import {
   formatInstallationManifest,
   type InstallationManifest,
 } from "../schemas/installation-manifest.js";
+import { hasErrorCode } from "./fs-error.js";
 import { hashOutputDirectory } from "./hashes.js";
 import { type ContextOnlyCodexPlan } from "./plan.js";
 
@@ -62,13 +63,9 @@ async function installationManifest(
   };
 }
 
-function hasErrorCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
-}
-
 function existingInstallationError(destination: string): Error {
   return new Error(
-    `Installation already exists at ${destination}; remove it before installing again`,
+    `Installation already exists at ${destination}; run agent-profile-kit update to regenerate it or uninstall it before installing again`,
   );
 }
 
@@ -86,17 +83,31 @@ async function ensureInstallationIsMissing(
 }
 
 async function stageInstallation(
-  parent: string,
+  staging: string,
   plan: ContextOnlyCodexPlan,
   fileSystem: InstallationFileSystem,
-): Promise<string> {
-  const staging = await fileSystem.mkdtemp(join(parent, ".install-"));
+): Promise<void> {
   await fileSystem.writeFile(join(staging, "context.md"), plan.context);
   await fileSystem.writeFile(
     join(staging, "installation.yaml"),
     formatInstallationManifest(await installationManifest(staging, plan, fileSystem)),
   );
-  return staging;
+}
+
+async function cleanupStaging(
+  staging: string | undefined,
+  fileSystem: InstallationFileSystem,
+  failure: unknown,
+): Promise<void> {
+  if (!staging) return;
+  try {
+    await fileSystem.rm(staging, { recursive: true, force: true });
+  } catch (cleanupFailure) {
+    throw new AggregateError(
+      [failure, cleanupFailure],
+      `Profile Installation failed and could not clean staging output at ${staging}`,
+    );
+  }
 }
 
 async function replaceInstallation(
@@ -120,7 +131,11 @@ async function replaceInstallation(
     }
     throw error;
   }
-  await fileSystem.rm(backup, { recursive: true, force: true });
+  try {
+    await fileSystem.rm(backup, { recursive: true, force: true });
+  } catch {
+    // The live replacement succeeded. A hidden backup cannot block a later update.
+  }
 }
 
 export async function installContextOnlyCodex(
@@ -133,10 +148,11 @@ export async function installContextOnlyCodex(
   await ensureInstallationIsMissing(plan.destination, fileSystem);
   let staging: string | undefined;
   try {
-    staging = await stageInstallation(parent, plan, fileSystem);
+    staging = await fileSystem.mkdtemp(join(parent, ".install-"));
+    await stageInstallation(staging, plan, fileSystem);
     await fileSystem.rename(staging, plan.destination);
   } catch (error) {
-    if (staging) await fileSystem.rm(staging, { recursive: true, force: true });
+    await cleanupStaging(staging, fileSystem, error);
     if (hasErrorCode(error, "EEXIST") || hasErrorCode(error, "ENOTEMPTY")) {
       throw existingInstallationError(plan.destination);
     }
@@ -152,10 +168,11 @@ export async function updateContextOnlyCodex(
   const parent = dirname(plan.destination);
   let staging: string | undefined;
   try {
-    staging = await stageInstallation(parent, plan, fileSystem);
+    staging = await fileSystem.mkdtemp(join(parent, ".install-"));
+    await stageInstallation(staging, plan, fileSystem);
     await replaceInstallation(staging, plan.destination, fileSystem);
   } catch (error) {
-    if (staging) await fileSystem.rm(staging, { recursive: true, force: true });
+    await cleanupStaging(staging, fileSystem, error);
     throw error;
   }
 }

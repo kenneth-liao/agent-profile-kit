@@ -15,6 +15,13 @@ function writeFrame(hash: ReturnType<typeof createHash>, value: string | Uint8Ar
   hash.update(bytes);
 }
 
+function compareNames(
+  left: { readonly name: string },
+  right: { readonly name: string },
+): number {
+  return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
+}
+
 export function hashWorkspaceInputs(
   profile: Profile,
   contexts: ReadonlyMap<string, ContextModule>,
@@ -47,7 +54,7 @@ export async function hashOutputDirectory(root: string): Promise<string> {
 
   async function visit(directory: string, prefix: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true });
-    entries.sort((left, right) => left.name.localeCompare(right.name));
+    entries.sort(compareNames);
     for (const entry of entries) {
       const relativePath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
       if (relativePath === "installation.yaml") continue;
