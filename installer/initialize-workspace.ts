@@ -6,7 +6,6 @@ import {
   readdir,
   rename,
   rm,
-  rmdir,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -197,7 +196,6 @@ export async function initializeWorkspace(
   const stagingDirectory = await mkdtemp(
     join(applicationRoot, STAGING_DIRECTORY_PREFIX),
   );
-  let removedEmptyDestination = false;
 
   try {
     await Promise.all([
@@ -210,27 +208,13 @@ export async function initializeWorkspace(
         await writeFile(join(path, ".gitkeep"), "");
       }),
     ]);
-    if (workspaceState === "empty") {
-      await rmdir(destination);
-      removedEmptyDestination = true;
-    }
     await rename(stagingDirectory, destination);
-    removedEmptyDestination = false;
   } catch (error) {
     const cleanupErrors: unknown[] = [];
     try {
       await rm(stagingDirectory, { recursive: true, force: true });
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError);
-    }
-    if (removedEmptyDestination) {
-      try {
-        await mkdir(destination);
-      } catch (restorationError) {
-        if (!hasErrorCode(restorationError, "EEXIST")) {
-          cleanupErrors.push(restorationError);
-        }
-      }
     }
     if (cleanupErrors.length > 0) {
       throw new AggregateError(
@@ -239,9 +223,8 @@ export async function initializeWorkspace(
       );
     }
     if (
-      !removedEmptyDestination &&
       (hasErrorCode(error, "EEXIST") || hasErrorCode(error, "ENOTEMPTY")) &&
-      (await inspectWorkspace(destination)) === "valid"
+      (await inspectConcurrentDestination(destination, error)) === "valid"
     ) {
       return { outcome: "unchanged", path: destination, warnings };
     }
@@ -249,4 +232,18 @@ export async function initializeWorkspace(
   }
 
   return { outcome: "created", path: destination, warnings };
+}
+
+async function inspectConcurrentDestination(
+  destination: string,
+  publicationError: unknown,
+): Promise<"missing" | "empty" | "valid"> {
+  try {
+    return await inspectWorkspace(destination);
+  } catch (inspectionError) {
+    throw new AggregateError(
+      [publicationError, inspectionError],
+      `Initialization failed and the concurrent Workspace state could not be validated: ${destination}`,
+    );
+  }
 }

@@ -265,28 +265,41 @@ describe("agent-profile-kit init", () => {
   });
 
   test("concurrent initialization converges on one valid Workspace", async () => {
-    const home = isolatedHome();
+    for (const startsWithEmptyDirectory of [false, true]) {
+      const home = isolatedHome();
+      if (startsWithEmptyDirectory) {
+        mkdirSync(join(home, ".agents", "agent-profile-kit", "workspace"), {
+          recursive: true,
+        });
+      }
 
-    const results = await Promise.all(
-      Array.from({ length: 8 }, () => runCliAsync(home, "init")),
-    );
+      const results = await Promise.all(
+        Array.from({ length: 8 }, () => runCliAsync(home, "init")),
+      );
 
-    expect(results.map(({ status }) => status)).toEqual(Array(8).fill(0));
-    expect(
-      results.filter(({ stdout }) =>
-        stdout.includes("Initialized Agent Profile Kit Workspace"),
-      ),
-    ).toHaveLength(1);
-    expect(
-      results.filter(({ stdout }) =>
-        stdout.includes("Workspace already initialized"),
-      ),
-    ).toHaveLength(7);
-    expect(
-      statSync(
-        join(home, ".agents", "agent-profile-kit", "workspace", "workspace.yaml"),
-      ).isFile(),
-    ).toBe(true);
+      expect(results.map(({ status }) => status)).toEqual(Array(8).fill(0));
+      expect(
+        results.filter(({ stdout }) =>
+          stdout.includes("Initialized Agent Profile Kit Workspace"),
+        ),
+      ).toHaveLength(1);
+      expect(
+        results.filter(({ stdout }) =>
+          stdout.includes("Workspace already initialized"),
+        ),
+      ).toHaveLength(7);
+      expect(
+        statSync(
+          join(
+            home,
+            ".agents",
+            "agent-profile-kit",
+            "workspace",
+            "workspace.yaml",
+          ),
+        ).isFile(),
+      ).toBe(true);
+    }
   });
 
   test("initialization removes abandoned staging output without touching live work", () => {
