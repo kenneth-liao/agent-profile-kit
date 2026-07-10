@@ -2,6 +2,7 @@
 
 import { homedir } from "node:os";
 
+import { agentGuide, humanGuide } from "./guides.js";
 import {
   errorMessage,
   initializeWorkspace,
@@ -24,8 +25,24 @@ function quoteForPosixShell(value: string): string {
 async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
 
+  if (arguments_.length === 1 && arguments_[0] === "guide") {
+    process.stdout.write(await humanGuide());
+    return;
+  }
+
+  if (
+    arguments_.length === 2 &&
+    arguments_[0] === "guide" &&
+    arguments_[1] === "--agent"
+  ) {
+    process.stdout.write(await agentGuide());
+    return;
+  }
+
   if (arguments_.length !== 1 || arguments_[0] !== "init") {
-    process.stderr.write("Usage: agent-profile-kit init\n");
+    process.stderr.write(
+      "Usage: agent-profile-kit init\n       agent-profile-kit guide [--agent]\n",
+    );
     process.exitCode = 1;
     return;
   }

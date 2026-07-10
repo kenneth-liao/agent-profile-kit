@@ -16,6 +16,8 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { WORKSPACE_SCHEMA_VERSION } from "../schemas/workspace-manifest.js";
+
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const cliPath = join(repositoryRoot, "dist", "cli.js");
 const packageManifest = (
@@ -77,6 +79,40 @@ function runCliAsync(home: string, ...arguments_: string[]) {
     },
   );
 }
+
+describe("agent-profile-kit guide", () => {
+  test("a user can read the bundled human authoring guide", () => {
+    const result = runCli(isolatedHome(), "guide");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("# Agent Profile Kit Workspace guide");
+    expect(result.stdout).toContain("Review personal content before publishing");
+    expect(result.stdout).toContain(
+      "~/.agents/agent-profile-kit/workspace/",
+    );
+    expect(result.stdout).toContain(
+      `Workspace schema version is ${WORKSPACE_SCHEMA_VERSION}`,
+    );
+  });
+
+  test("an agent can read the bundled Workspace authoring workflow", () => {
+    const result = runCli(isolatedHome(), "guide", "--agent");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("# Agent Profile Kit agent workflow");
+    expect(result.stdout).toContain(
+      "Read this guide first. Then inspect the Workspace:",
+    );
+    expect(result.stdout).toContain("Elicit the user's needs");
+    expect(result.stdout).toContain("Do not install anything without direction");
+    expect(result.stdout).toContain("workspace.yaml");
+    expect(result.stdout).toContain(
+      `schema version is ${WORKSPACE_SCHEMA_VERSION}`,
+    );
+  });
+});
 
 interface PackageMetadata {
   readonly filename: string;
@@ -158,7 +194,9 @@ describe("agent-profile-kit init", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Initialized Agent Profile Kit Workspace");
     expect(result.stdout).toContain("agent-profile-kit guide");
-    expect(result.stdout).toContain("agent-profile-kit guide --agent");
+    expect(result.stdout).toContain(
+      "Agent prompt: Run agent-profile-kit guide --agent, then help me create the smallest useful Profile.",
+    );
     expect(result.stdout).toContain("git init");
     expect(result.stdout).toContain("Review personal content before publishing");
     expect(statSync(workspace).isDirectory()).toBe(true);
@@ -183,11 +221,14 @@ describe("agent-profile-kit init", () => {
     expect(readFileSync(join(workspace, "workspace.yaml"), "utf8")).toBe(
       "schema_version: 1\n",
     );
-    expect(readFileSync(join(workspace, "README.md"), "utf8")).toContain(
-      "agent-profile-kit guide",
+    expect(readFileSync(join(workspace, "README.md"), "utf8")).toBe(
+      "# Agent Profile Kit Workspace\n\n" +
+        "This Workspace is the canonical source for your Agent Profile Kit material.\n\n" +
+        "Run `agent-profile-kit guide` for current authoring guidance.\n",
     );
-    expect(readFileSync(join(workspace, "AGENTS.md"), "utf8")).toContain(
-      "agent-profile-kit guide --agent",
+    expect(readFileSync(join(workspace, "AGENTS.md"), "utf8")).toBe(
+      "# Agent Profile Kit Workspace\n\n" +
+        "Before editing this Workspace, run `agent-profile-kit guide --agent` and follow the current agent-oriented authoring guidance.\n",
     );
     expect(readFileSync(join(workspace, ".gitignore"), "utf8")).toBe(
       ".DS_Store\n",
@@ -454,6 +495,8 @@ describe("agent-profile-kit init", () => {
     expect(metadata.files.map(({ path }) => path).sort()).toEqual([
       "README.md",
       "dist/cli.js",
+      "docs/guides/agent-workflow.md",
+      "docs/guides/workspace.md",
       "package.json",
     ]);
     expect(metadata.files.find(({ path }) => path === "dist/cli.js")?.mode).toBe(
@@ -488,5 +531,58 @@ describe("agent-profile-kit init", () => {
     expect(
       statSync(join(home, ".agents", "agent-profile-kit", "workspace")).isDirectory(),
     ).toBe(true);
+
+    const humanGuideResult = spawnSync(
+      "npm",
+      [
+        "exec",
+        "--yes",
+        "--offline",
+        `--package=${archive}`,
+        "--",
+        "agent-profile-kit",
+        "guide",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: home,
+          npm_config_cache: join(home, "npm-cache"),
+          npm_config_update_notifier: "false",
+        },
+      },
+    );
+
+    expect(humanGuideResult.status, humanGuideResult.stderr).toBe(0);
+    expect(humanGuideResult.stdout).toContain(
+      "# Agent Profile Kit Workspace guide",
+    );
+
+    const guideResult = spawnSync(
+      "npm",
+      [
+        "exec",
+        "--yes",
+        "--offline",
+        `--package=${archive}`,
+        "--",
+        "agent-profile-kit",
+        "guide",
+        "--agent",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: home,
+          npm_config_cache: join(home, "npm-cache"),
+          npm_config_update_notifier: "false",
+        },
+      },
+    );
+
+    expect(guideResult.status, guideResult.stderr).toBe(0);
+    expect(guideResult.stdout).toContain("# Agent Profile Kit agent workflow");
   });
 });
