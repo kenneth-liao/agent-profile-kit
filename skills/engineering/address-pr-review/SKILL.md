@@ -1,7 +1,7 @@
 ---
 name: address-pr-review
 description: Use TDD to address any issues raised in the PR review. Must address all substantive issues completely and correctly.
-user-invocable: false
+disable-model-invocation: true
 ---
 
 Read the PR and the comments to identify issues raised during the PR review.
