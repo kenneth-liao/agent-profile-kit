@@ -1852,7 +1852,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     expect(await snapshotTree(library)).toEqual(before);
   });
 
-  test("library updates atomically switch immutable generations and retain the prior reader target", async () => {
+  test("library updates atomically switch immutable generations and reclaim unreferenced ones", async () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
     writeProfileWithSkill(home);
@@ -1871,10 +1871,49 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
 
     const currentGeneration = readlinkSync(library);
     expect(currentGeneration).not.toBe(previousGeneration);
-    expect(existsSync(previousGeneration)).toBe(true);
+    expect(existsSync(previousGeneration)).toBe(false);
     expect(existsSync(currentGeneration)).toBe(true);
     expect(readFileSync(join(library, "review-pr", "SKILL.md"), "utf8")).toContain(
       "Updated.",
+    );
+  });
+
+  test("a half-created empty Skill Library state directory is claimable", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const state = join(home, ".agents", "agent-profile-kit", "codex-skill-library");
+    mkdirSync(state, { recursive: true });
+    expect(existsSync(join(state, ".agent-profile-kit-owned"))).toBe(false);
+
+    await syncCodexSkillLibrary(
+      await planCodexSkillLibrary(home, (await ingestWorkspace(home)).skills),
+    );
+
+    expect(readFileSync(join(state, ".agent-profile-kit-owned"), "utf8")).toBe(
+      "agent-profile-kit\n",
+    );
+    expect(existsSync(codexSkillLibraryPath(home))).toBe(true);
+  });
+
+  test("a corrupt unleased generation is restaged on the next sync", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const workspace = await ingestWorkspace(home);
+    const plan = await planCodexSkillLibrary(home, workspace.skills);
+    await syncCodexSkillLibrary(plan);
+    const library = codexSkillLibraryPath(home);
+    const generation = readlinkSync(library);
+    writeFileSync(join(generation, "review-pr", "SKILL.md"), "corrupted\n");
+
+    await syncCodexSkillLibrary(plan);
+
+    expect(readFileSync(join(library, "review-pr", "SKILL.md"), "utf8")).toContain(
+      "Review a pull request",
+    );
+    expect(readFileSync(join(generation, "review-pr", "SKILL.md"), "utf8")).toContain(
+      "Review a pull request",
     );
   });
 

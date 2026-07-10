@@ -6,10 +6,21 @@ function lockPath(home: string): string {
   return join(home, ".agents", "agent-profile-kit", ".codex-lifecycle.lock");
 }
 
+const LOCK_TIMEOUT_SECONDS = 120;
+
 async function acquireLock(path: string): Promise<ReturnType<typeof spawn>> {
   const child = spawn(
     "/usr/bin/lockf",
-    ["-s", "-t", "30", "-k", path, "/bin/sh", "-c", "printf ready; cat >/dev/null"],
+    [
+      "-s",
+      "-t",
+      String(LOCK_TIMEOUT_SECONDS),
+      "-k",
+      path,
+      "/bin/sh",
+      "-c",
+      "printf ready; cat >/dev/null",
+    ],
     { stdio: ["pipe", "pipe", "pipe"] },
   );
   await new Promise<void>((resolve, reject) => {
@@ -26,7 +37,7 @@ async function acquireLock(path: string): Promise<ReturnType<typeof spawn>> {
     child.once("close", (code) => {
       reject(
         new Error(
-          `Timed out waiting for Codex lifecycle lock at ${path}${stderr.trim() ? `: ${stderr.trim()}` : ""} (exit ${code ?? 1})`,
+          `Timed out waiting for Codex lifecycle lock at ${path} after ${LOCK_TIMEOUT_SECONDS}s. Another install, update, or managed run is still holding the lock; retry after that operation finishes${stderr.trim() ? `: ${stderr.trim()}` : ""} (exit ${code ?? 1})`,
         ),
       );
     });

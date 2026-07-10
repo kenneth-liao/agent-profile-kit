@@ -37,7 +37,7 @@ export async function codexSkillRoots(
 ): Promise<readonly string[]> {
   const roots = [
     join(home, ".agents", "skills"),
-    join(process.env.CODEX_HOME ?? join(home, ".codex"), "skills"),
+    join(home, ".codex", "skills"),
     "/etc/codex/skills",
   ];
   const root = await repositoryRoot(workingDirectory);
@@ -206,19 +206,32 @@ export async function startCodexWithLease(
     child.once("close", (exitCode) => resolve(exitCode ?? 1));
   });
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
     const handshake = child.stdio[3];
     if (!handshake || !("once" in handshake)) {
       reject(new Error("Codex lease process did not expose its readiness pipe"));
       return;
     }
+    const onError = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    const onClose = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`Codex lease process exited before launch with status ${code ?? 1}`));
+    };
     handshake.once("data", (chunk: Buffer) => {
+      if (settled) return;
+      settled = true;
+      child.off("error", onError);
+      child.off("close", onClose);
       if (chunk.toString().startsWith("ready")) resolve();
       else reject(new Error("Codex lease process returned an invalid readiness handshake"));
     });
-    child.once("error", reject);
-    child.once("close", (code) => {
-      reject(new Error(`Codex lease process exited before launch with status ${code ?? 1}`));
-    });
+    child.once("error", onError);
+    child.once("close", onClose);
   });
   return { completion };
 }

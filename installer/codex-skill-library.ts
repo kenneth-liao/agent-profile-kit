@@ -7,6 +7,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  readlink,
   realpath,
   rename,
   rm,
@@ -58,38 +59,75 @@ function codexSkillLibraryLeasesPath(home: string): string {
   return join(codexSkillLibraryStatePath(home), "leases");
 }
 
-async function assertOwnedOrMissingLibraryState(home: string): Promise<void> {
+async function libraryStateOwnership(
+  home: string,
+): Promise<"claimable" | "foreign" | "missing" | "owned"> {
   const state = codexSkillLibraryStatePath(home);
   let entry;
   try {
     entry = await lstat(state);
   } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return;
+    if (hasErrorCode(error, "ENOENT")) return "missing";
     throw error;
   }
-  if (!entry.isDirectory()) {
-    throw new Error(`Refusing unowned Codex Skill Library state at ${state}`);
-  }
+  if (!entry.isDirectory()) return "foreign";
   try {
-    if (
-      (await readFile(join(state, SKILL_LIBRARY_STATE_MARKER), "utf8")) !==
-      "agent-profile-kit\n"
-    ) {
-      throw new Error("invalid ownership marker");
-    }
+    const marker = await readFile(join(state, SKILL_LIBRARY_STATE_MARKER), "utf8");
+    return marker === "agent-profile-kit\n" ? "owned" : "foreign";
   } catch (error) {
+    if (!hasErrorCode(error, "ENOENT")) throw error;
+  }
+  // A marker-less empty directory is the half-created crash window; reclaim it.
+  return (await readdir(state)).length === 0 ? "claimable" : "foreign";
+}
+
+async function assertOwnedOrMissingLibraryState(home: string): Promise<void> {
+  const ownership = await libraryStateOwnership(home);
+  if (ownership === "foreign") {
     throw new Error(
-      `Refusing unowned Codex Skill Library state at ${state}: ${error instanceof Error ? error.message : String(error)}`,
+      `Refusing unowned Codex Skill Library state at ${codexSkillLibraryStatePath(home)}`,
     );
   }
 }
 
+async function claimEmptyLibraryState(state: string): Promise<void> {
+  const marker = join(state, SKILL_LIBRARY_STATE_MARKER);
+  const temporary = join(state, `.${SKILL_LIBRARY_STATE_MARKER}.${process.pid}`);
+  await writeFile(temporary, "agent-profile-kit\n", { flag: "wx" });
+  try {
+    await rename(temporary, marker);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
 async function ensureOwnedLibraryState(home: string): Promise<string> {
-  await assertOwnedOrMissingLibraryState(home);
   const state = codexSkillLibraryStatePath(home);
-  if ((await pathKind(state)) === "missing") {
-    await mkdir(state);
-    await writeFile(join(state, SKILL_LIBRARY_STATE_MARKER), "agent-profile-kit\n");
+  const ownership = await libraryStateOwnership(home);
+  if (ownership === "foreign") {
+    throw new Error(`Refusing unowned Codex Skill Library state at ${state}`);
+  }
+  if (ownership === "owned") return state;
+  if (ownership === "claimable") {
+    try {
+      await claimEmptyLibraryState(state);
+    } catch (error) {
+      if ((await libraryStateOwnership(home)) === "owned") return state;
+      throw error;
+    }
+    return state;
+  }
+  const parent = dirname(state);
+  await mkdir(parent, { recursive: true });
+  const staging = await mkdtemp(join(parent, ".codex-skill-library-"));
+  try {
+    await writeFile(join(staging, SKILL_LIBRARY_STATE_MARKER), "agent-profile-kit\n");
+    await rename(staging, state);
+  } catch (error) {
+    await rm(staging, { recursive: true, force: true }).catch(() => undefined);
+    if ((await libraryStateOwnership(home)) === "owned") return state;
+    throw error;
   }
   return state;
 }
@@ -221,29 +259,52 @@ async function leaseIsLocked(path: string): Promise<boolean> {
   throw new Error(`Could not inspect Codex run lease at ${path} (exit ${exitCode})`);
 }
 
-export async function codexSkillLibraryHasLeases(home: string): Promise<boolean> {
+async function activeLeaseGenerations(home: string): Promise<ReadonlySet<string>> {
   const root = codexSkillLibraryLeasesPath(home);
+  const active = new Set<string>();
   try {
     if (!(await lstat(root)).isDirectory()) {
       throw new Error(`Agent Profile Kit lease path must be a directory: ${root}`);
     }
   } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return false;
+    if (hasErrorCode(error, "ENOENT")) return active;
     throw error;
   }
   for (const generation of await readdir(root, { withFileTypes: true })) {
     if (!generation.isDirectory()) continue;
     const generationPath = join(root, generation.name);
+    let locked = false;
     for (const lease of await readdir(generationPath, { withFileTypes: true })) {
       if (!lease.isFile()) {
         throw new Error(`Codex run lease must be a file: ${join(generationPath, lease.name)}`);
       }
       const path = join(generationPath, lease.name);
-      if (await leaseIsLocked(path)) return true;
+      if (await leaseIsLocked(path)) {
+        locked = true;
+        continue;
+      }
       await rm(path, { force: true });
     }
+    if (locked) active.add(generation.name);
   }
-  return false;
+  return active;
+}
+
+export async function codexSkillLibraryHasLeases(home: string): Promise<boolean> {
+  return (await activeLeaseGenerations(home)).size > 0;
+}
+
+async function reclaimUnreferencedGenerations(
+  home: string,
+  keepGeneration: string,
+): Promise<void> {
+  const generations = join(codexSkillLibraryStatePath(home), "generations");
+  if ((await pathKind(generations)) !== "directory") return;
+  const keep = new Set<string>([basename(keepGeneration), ...(await activeLeaseGenerations(home))]);
+  for (const entry of await readdir(generations, { withFileTypes: true })) {
+    if (!entry.isDirectory() || keep.has(entry.name)) continue;
+    await rm(join(generations, entry.name), { recursive: true, force: true });
+  }
 }
 
 async function discoveredSkillFiles(root: string, excludedRoot: string): Promise<readonly string[]> {
@@ -435,15 +496,34 @@ export async function syncCodexSkillLibraryUnderLock(
   }
   const generation = join(generations, plan.workspaceInputHash.slice("sha256:".length));
   if ((await pathKind(generation)) === "directory") {
-    await assertCodexSkillLibraryIntact(generation);
-    await publishGeneration(generation, plan.destination);
-    return;
+    try {
+      await assertCodexSkillLibraryIntact(generation);
+      await publishGeneration(generation, plan.destination);
+      await reclaimUnreferencedGenerations(plan.home, generation);
+      return;
+    } catch (error) {
+      if ((await activeLeaseGenerations(plan.home)).has(basename(generation))) {
+        throw error;
+      }
+      try {
+        if ((await lstat(plan.destination)).isSymbolicLink()) {
+          const target = await readlink(plan.destination);
+          if (resolve(target) === resolve(generation)) {
+            await rm(plan.destination, { force: true });
+          }
+        }
+      } catch (destinationError) {
+        if (!hasErrorCode(destinationError, "ENOENT")) throw destinationError;
+      }
+      await rm(generation, { recursive: true, force: true });
+    }
   }
   const staging = await mkdtemp(join(state, ".generation-"));
   try {
     await stageLibrary(staging, plan);
     await rename(staging, generation);
     await publishGeneration(generation, plan.destination);
+    await reclaimUnreferencedGenerations(plan.home, generation);
   } catch (error) {
     await rm(staging, { recursive: true, force: true }).catch(() => undefined);
     throw error;
