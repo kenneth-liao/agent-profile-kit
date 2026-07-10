@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import {
   lstat,
   mkdir,
@@ -10,6 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import {
   parseWorkspaceManifest,
@@ -43,6 +45,9 @@ Before editing this Workspace, run \`agent-profile-kit guide --agent\` and follo
 const STAGING_DIRECTORY_PREFIX = ".workspace-init-";
 const STAGING_OWNER_FILE = ".owner.json";
 const ABANDONED_STAGING_AGE_MS = 24 * 60 * 60 * 1_000;
+const PROCESS_START_TOLERANCE_MS = 5_000;
+const CURRENT_PROCESS_STARTED_AT_MS = Date.now() - process.uptime() * 1_000;
+const execFileAsync = promisify(execFile);
 
 export function workspacePath(home: string): string {
   return join(home, ".agents", "agent-profile-kit", "workspace");
@@ -176,24 +181,50 @@ async function stagingOwnerIsAlive(stagingDirectory: string): Promise<boolean> {
   try {
     owner = JSON.parse(ownerSource);
   } catch {
-    return true;
+    return false;
   }
   if (
     typeof owner !== "object" ||
     owner === null ||
     !("pid" in owner) ||
+    !("processStartedAtMs" in owner) ||
     !Number.isInteger(owner.pid) ||
-    (owner.pid as number) <= 0
+    (owner.pid as number) <= 0 ||
+    typeof owner.processStartedAtMs !== "number" ||
+    !Number.isFinite(owner.processStartedAtMs)
   ) {
+    return false;
+  }
+
+  const pid = owner.pid as number;
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    if (hasErrorCode(error, "ESRCH")) return false;
     return true;
   }
 
-  try {
-    process.kill(owner.pid as number, 0);
-    return true;
-  } catch (error) {
-    return !hasErrorCode(error, "ESRCH");
+  let actualProcessStartedAtMs: number;
+  if (pid === process.pid) {
+    actualProcessStartedAtMs = CURRENT_PROCESS_STARTED_AT_MS;
+  } else {
+    try {
+      const { stdout } = await execFileAsync(
+        "ps",
+        ["-p", String(pid), "-o", "lstart="],
+        { encoding: "utf8" },
+      );
+      actualProcessStartedAtMs = Date.parse(stdout.trim());
+      if (!Number.isFinite(actualProcessStartedAtMs)) return true;
+    } catch {
+      return true;
+    }
   }
+
+  return (
+    Math.abs(actualProcessStartedAtMs - owner.processStartedAtMs) <=
+    PROCESS_START_TOLERANCE_MS
+  );
 }
 
 async function requireWorkspaceEntry(
@@ -242,7 +273,10 @@ export async function initializeWorkspace(
   try {
     await writeFile(
       join(stagingDirectory, STAGING_OWNER_FILE),
-      `${JSON.stringify({ pid: process.pid })}\n`,
+      `${JSON.stringify({
+        pid: process.pid,
+        processStartedAtMs: CURRENT_PROCESS_STARTED_AT_MS,
+      })}\n`,
     );
     await Promise.all([
       ...Object.entries(WORKSPACE_ROOT_FILES).map(([file, contents]) =>
