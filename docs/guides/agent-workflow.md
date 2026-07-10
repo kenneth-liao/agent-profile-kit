@@ -26,7 +26,10 @@ Use this workflow when helping a person author their Workspace.
    The current Workspace schema version is 1.
 6. Do not install anything without direction. Explain the plan, ask the user
    whether to apply it, and only then run an installation command they
-   explicitly requested.
+   explicitly requested. Use `status` to inspect an existing installation and
+   `update` only when the user explicitly requests regeneration; launch never
+   refreshes source implicitly. `uninstall` removes only a Manifest-verified
+   whole installation.
 
 If the user plans to publish the Workspace, remind them to review personal
 content. Credentials are invalid in a Workspace regardless of publication

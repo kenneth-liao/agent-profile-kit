@@ -11,6 +11,9 @@ import { ingestWorkspace } from "../installer/ingest-workspace.js";
 import { installContextOnlyCodex } from "../installer/install.js";
 import { planContextOnlyCodex } from "../installer/plan.js";
 import { runContextOnlyCodex } from "../installer/run.js";
+import { statusContextOnlyCodex } from "../installer/status.js";
+import { updateInstalledContextOnlyCodex } from "../installer/update.js";
+import { uninstallContextOnlyCodex } from "../installer/uninstall.js";
 import { requireArtifactId } from "../schemas/context-profile.js";
 
 function formatError(error: unknown): string {
@@ -94,6 +97,26 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (arguments_[0] === "status") {
+    const { host, profile } = profileAndHost(arguments_.slice(1));
+    if (host !== "codex") {
+      throw new Error(`Unsupported Agent Host '${host}'`);
+    }
+    const status = await statusContextOnlyCodex(homedir(), profile);
+    process.stdout.write(`Status: ${status.join(", ")}\n`);
+    return;
+  }
+
+  if (arguments_[0] === "uninstall") {
+    const { host, profile } = profileAndHost(arguments_.slice(1));
+    if (host !== "codex") {
+      throw new Error(`Unsupported Agent Host '${host}'`);
+    }
+    const destination = await uninstallContextOnlyCodex(homedir(), profile);
+    process.stdout.write(`Uninstalled Profile at ${destination}\n`);
+    return;
+  }
+
   if (arguments_[0] === "run") {
     const runArguments = arguments_.slice(1);
     if (runArguments.length < 5 || runArguments[4] !== "--") {
@@ -113,9 +136,17 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (arguments_.length === 1 && arguments_[0] === "update") {
+    const count = await updateInstalledContextOnlyCodex(homedir());
+    process.stdout.write(
+      `Updated ${count} Profile Installation${count === 1 ? "" : "s"}\n`,
+    );
+    return;
+  }
+
   if (arguments_.length !== 1 || arguments_[0] !== "init") {
     process.stderr.write(
-      "Usage: agent-profile-kit init\n       agent-profile-kit guide [--agent]\n       agent-profile-kit validate\n       agent-profile-kit plan --profile <id> --host codex\n       agent-profile-kit install --profile <id> --host codex\n       agent-profile-kit run --profile <id> --host codex -- <native Codex arguments>\n",
+      "Usage: agent-profile-kit init\n       agent-profile-kit guide [--agent]\n       agent-profile-kit validate\n       agent-profile-kit plan --profile <id> --host codex\n       agent-profile-kit install --profile <id> --host codex\n       agent-profile-kit status --profile <id> --host codex\n       agent-profile-kit update\n       agent-profile-kit uninstall --profile <id> --host codex\n       agent-profile-kit run --profile <id> --host codex -- <native Codex arguments>\n",
     );
     process.exitCode = 1;
     return;

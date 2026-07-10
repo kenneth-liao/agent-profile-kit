@@ -12,6 +12,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Added the schema-versioned `agent-profile-kit init` CLI and npm executable contract ([#2](https://github.com/kenneth-liao/agent-profile-kit/issues/2)).
 - Added bundled human and agent Workspace authoring guides ([#3](https://github.com/kenneth-liao/agent-profile-kit/issues/3)).
 - Added Context-only Codex Profile validation, planning, installation, and launch ([#4](https://github.com/kenneth-liao/agent-profile-kit/issues/4)).
+- Added transactional Profile Installation status, update, and verified uninstall lifecycle management ([#5](https://github.com/kenneth-liao/agent-profile-kit/issues/5)).
 
 ### Changed
 
