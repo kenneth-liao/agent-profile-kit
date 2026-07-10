@@ -2,7 +2,10 @@
 
 import { homedir } from "node:os";
 
-import { initializeWorkspace } from "../installer/initialize-workspace.js";
+import {
+  errorMessage,
+  initializeWorkspace,
+} from "../installer/initialize-workspace.js";
 
 function formatError(error: unknown): string {
   if (error instanceof AggregateError) {
@@ -11,7 +14,7 @@ function formatError(error: unknown): string {
       "\n",
     );
   }
-  return error instanceof Error ? error.message : String(error);
+  return errorMessage(error);
 }
 
 function quoteForPosixShell(value: string): string {

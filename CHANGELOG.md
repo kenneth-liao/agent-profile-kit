@@ -14,16 +14,14 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 ### Changed
 
 - Marked the PR review follow-up skills for explicit invocation only.
+- Simplified Workspace staging to clean only output owned by the running initialization process ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 
 ### Fixed
 
 - Report incomplete Workspace structure with an actionable error without modifying user-owned source ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
-- Preserve initialization failures during cleanup and safely reap abandoned staging output ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
+- Preserve initialization failures when staging cleanup also fails ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 - Keep staging cleanup non-blocking, expose nested cleanup failures, and recognize valid symlinked Workspaces ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 - Make concurrent initialization converge and report empty Workspace symlink targets clearly ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 - Atomically replace empty Workspace directories and preserve concurrent-state validation failures ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 - Enforce initial macOS support at package installation and keep benign concurrent convergence non-blocking ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 - Quote optional shell commands safely and report unsupported Workspace schema versions with migration guidance ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
-- Protect live staging output from age-based cleanup with process ownership markers ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
-- Make staging ownership falsifiable across corrupt markers and recycled process IDs ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
-- Make process-start identity checks locale-independent ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).

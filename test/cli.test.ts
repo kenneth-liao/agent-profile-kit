@@ -8,7 +8,6 @@ import {
   rmSync,
   statSync,
   symlinkSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -319,40 +318,6 @@ describe("agent-profile-kit init", () => {
         ).isFile(),
       ).toBe(true);
     }
-  });
-
-  test("initialization removes abandoned staging output without touching live work", () => {
-    const home = isolatedHome();
-    const applicationRoot = join(home, ".agents", "agent-profile-kit");
-    const abandonedStaging = join(applicationRoot, ".workspace-init-abandoned");
-    const corruptStaging = join(applicationRoot, ".workspace-init-corrupt");
-    const activeStaging = join(applicationRoot, ".workspace-init-active");
-    mkdirSync(abandonedStaging, { recursive: true });
-    mkdirSync(corruptStaging);
-    mkdirSync(activeStaging);
-    writeFileSync(join(abandonedStaging, "partial"), "incomplete\n");
-    writeFileSync(join(corruptStaging, ".owner.json"), "not json\n");
-    writeFileSync(
-      join(activeStaging, ".owner.json"),
-      `${JSON.stringify({
-        pid: process.pid,
-        processStartedAtMs: Date.now() - process.uptime() * 1_000,
-      })}\n`,
-    );
-    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1_000);
-    utimesSync(abandonedStaging, twoDaysAgo, twoDaysAgo);
-    utimesSync(corruptStaging, twoDaysAgo, twoDaysAgo);
-    utimesSync(activeStaging, twoDaysAgo, twoDaysAgo);
-
-    const result = runCli(home, "init");
-
-    expect(result.status, result.stderr).toBe(0);
-    expect(existsSync(abandonedStaging)).toBe(false);
-    expect(existsSync(corruptStaging)).toBe(false);
-    expect(existsSync(activeStaging)).toBe(true);
-    expect(
-      statSync(join(applicationRoot, "workspace", "workspace.yaml")).isFile(),
-    ).toBe(true);
   });
 
   test("a non-empty unrecognized directory is rejected without modifying any entry", async () => {

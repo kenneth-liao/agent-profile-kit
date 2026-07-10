@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import {
   lstat,
   mkdir,
@@ -11,7 +10,6 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 
 import {
   parseWorkspaceManifest,
@@ -43,11 +41,6 @@ Before editing this Workspace, run \`agent-profile-kit guide --agent\` and follo
 } as const;
 
 const STAGING_DIRECTORY_PREFIX = ".workspace-init-";
-const STAGING_OWNER_FILE = ".owner.json";
-const ABANDONED_STAGING_AGE_MS = 24 * 60 * 60 * 1_000;
-const PROCESS_START_TOLERANCE_MS = 5_000;
-const CURRENT_PROCESS_STARTED_AT_MS = Date.now() - process.uptime() * 1_000;
-const execFileAsync = promisify(execFile);
 
 export function workspacePath(home: string): string {
   return join(home, ".agents", "agent-profile-kit", "workspace");
@@ -63,7 +56,7 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
-function errorMessage(error: unknown): string {
+export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -131,105 +124,6 @@ async function validateWorkspace(path: string): Promise<void> {
   ]);
 }
 
-async function removeAbandonedStagingDirectories(
-  applicationRoot: string,
-): Promise<readonly string[]> {
-  const now = Date.now();
-  const entries = await readdir(applicationRoot, { withFileTypes: true });
-
-  const warnings = await Promise.all(
-    entries.map(async (entry) => {
-      if (
-        !entry.isDirectory() ||
-        !entry.name.startsWith(STAGING_DIRECTORY_PREFIX)
-      ) {
-        return undefined;
-      }
-
-      const path = join(applicationRoot, entry.name);
-      try {
-        const stats = await stat(path);
-        if (
-          now - stats.mtimeMs >= ABANDONED_STAGING_AGE_MS &&
-          !(await stagingOwnerIsAlive(path))
-        ) {
-          await rm(path, { recursive: true, force: true });
-        }
-      } catch (error) {
-        if (hasErrorCode(error, "ENOENT")) return undefined;
-        return `Could not remove abandoned staging directory ${path}: ${errorMessage(error)}`;
-      }
-      return undefined;
-    }),
-  );
-
-  return warnings.filter((warning): warning is string => warning !== undefined);
-}
-
-async function stagingOwnerIsAlive(stagingDirectory: string): Promise<boolean> {
-  let ownerSource;
-  try {
-    ownerSource = await readFile(
-      join(stagingDirectory, STAGING_OWNER_FILE),
-      "utf8",
-    );
-  } catch (error) {
-    return !hasErrorCode(error, "ENOENT");
-  }
-
-  let owner: unknown;
-  try {
-    owner = JSON.parse(ownerSource);
-  } catch {
-    return false;
-  }
-  if (
-    typeof owner !== "object" ||
-    owner === null ||
-    !("pid" in owner) ||
-    !("processStartedAtMs" in owner) ||
-    !Number.isInteger(owner.pid) ||
-    (owner.pid as number) <= 0 ||
-    typeof owner.processStartedAtMs !== "number" ||
-    !Number.isFinite(owner.processStartedAtMs)
-  ) {
-    return false;
-  }
-
-  const pid = owner.pid as number;
-  try {
-    process.kill(pid, 0);
-  } catch (error) {
-    if (hasErrorCode(error, "ESRCH")) return false;
-    return true;
-  }
-
-  let actualProcessStartedAtMs: number;
-  if (pid === process.pid) {
-    actualProcessStartedAtMs = CURRENT_PROCESS_STARTED_AT_MS;
-  } else {
-    try {
-      const { stdout } = await execFileAsync(
-        "ps",
-        ["-p", String(pid), "-o", "lstart="],
-        {
-          encoding: "utf8",
-          env: { ...process.env, LC_ALL: "C" },
-        },
-      );
-      actualProcessStartedAtMs = Date.parse(stdout.trim());
-      if (!Number.isFinite(actualProcessStartedAtMs)) return true;
-    } catch {
-      return true;
-    }
-  }
-
-  return (
-    Math.abs(actualProcessStartedAtMs - owner.processStartedAtMs) <=
-    PROCESS_START_TOLERANCE_MS
-  );
-}
-
 async function requireWorkspaceEntry(
   workspace: string,
   name: string,
@@ -268,19 +162,12 @@ export async function initializeWorkspace(
   }
 
   await mkdir(applicationRoot, { recursive: true });
-  const warnings = await removeAbandonedStagingDirectories(applicationRoot);
+  const warnings: string[] = [];
   const stagingDirectory = await mkdtemp(
     join(applicationRoot, STAGING_DIRECTORY_PREFIX),
   );
 
   try {
-    await writeFile(
-      join(stagingDirectory, STAGING_OWNER_FILE),
-      `${JSON.stringify({
-        pid: process.pid,
-        processStartedAtMs: CURRENT_PROCESS_STARTED_AT_MS,
-      })}\n`,
-    );
     await Promise.all([
       ...Object.entries(WORKSPACE_ROOT_FILES).map(([file, contents]) =>
         writeFile(join(stagingDirectory, file), contents),
@@ -291,7 +178,6 @@ export async function initializeWorkspace(
         await writeFile(join(path, ".gitkeep"), "");
       }),
     ]);
-    await rm(join(stagingDirectory, STAGING_OWNER_FILE));
     await rename(stagingDirectory, destination);
   } catch (error) {
     const followUpErrors: unknown[] = [];
