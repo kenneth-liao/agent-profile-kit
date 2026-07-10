@@ -7,6 +7,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -179,6 +180,29 @@ describe("agent-profile-kit init", () => {
     expect(result.stdout).toContain("Workspace already initialized");
     expect(result.stdout).toContain("unchanged");
     expect(await snapshotTree(workspace)).toEqual(before);
+  });
+
+  test("a valid Workspace reached through the fixed path by symlink is unchanged", async () => {
+    const sourceHome = isolatedHome();
+    expect(runCli(sourceHome, "init").status).toBe(0);
+    const sourceWorkspace = join(
+      sourceHome,
+      ".agents",
+      "agent-profile-kit",
+      "workspace",
+    );
+    const before = await snapshotTree(sourceWorkspace);
+    const home = isolatedHome();
+    const applicationRoot = join(home, ".agents", "agent-profile-kit");
+    mkdirSync(applicationRoot, { recursive: true });
+    symlinkSync(sourceWorkspace, join(applicationRoot, "workspace"));
+
+    const result = runCli(home, "init");
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Workspace already initialized");
+    expect(await snapshotTree(sourceWorkspace)).toEqual(before);
   });
 
   test("a user with an existing empty Workspace directory receives a valid Workspace", () => {

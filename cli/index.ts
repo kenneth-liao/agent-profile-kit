@@ -4,6 +4,16 @@ import { homedir } from "node:os";
 
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 
+function formatError(error: unknown): string {
+  if (error instanceof AggregateError) {
+    const causes = Array.from(error.errors, formatError);
+    return [error.message, ...causes.map((cause) => `caused by: ${cause}`)].join(
+      "\n",
+    );
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
 
@@ -14,6 +24,9 @@ async function main(): Promise<void> {
   }
 
   const result = await initializeWorkspace(homedir());
+  for (const warning of result.warnings) {
+    process.stderr.write(`agent-profile-kit: warning: ${warning}\n`);
+  }
   if (result.outcome === "unchanged") {
     process.stdout.write(
       `Workspace already initialized at ${result.path}; unchanged.\n`,
@@ -31,7 +44,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`agent-profile-kit: ${message}\n`);
+  process.stderr.write(`agent-profile-kit: ${formatError(error)}\n`);
   process.exitCode = 1;
 });

@@ -1,5 +1,4 @@
 import {
-  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -51,6 +50,7 @@ export function workspacePath(home: string): string {
 export interface InitializationResult {
   readonly outcome: "created" | "unchanged";
   readonly path: string;
+  readonly warnings: readonly string[];
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -62,7 +62,7 @@ async function inspectWorkspace(
 ): Promise<"missing" | "empty" | "valid"> {
   let pathStats;
   try {
-    pathStats = await lstat(path);
+    pathStats = await stat(path);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       return "missing";
@@ -104,26 +104,35 @@ async function validateWorkspace(path: string): Promise<void> {
 
 async function removeAbandonedStagingDirectories(
   applicationRoot: string,
-): Promise<void> {
+): Promise<readonly string[]> {
   const now = Date.now();
   const entries = await readdir(applicationRoot, { withFileTypes: true });
 
-  await Promise.all(
+  const warnings = await Promise.all(
     entries.map(async (entry) => {
       if (
         !entry.isDirectory() ||
         !entry.name.startsWith(STAGING_DIRECTORY_PREFIX)
       ) {
-        return;
+        return undefined;
       }
 
       const path = join(applicationRoot, entry.name);
-      const stats = await stat(path);
-      if (now - stats.mtimeMs >= ABANDONED_STAGING_AGE_MS) {
-        await rm(path, { recursive: true, force: true });
+      try {
+        const stats = await stat(path);
+        if (now - stats.mtimeMs >= ABANDONED_STAGING_AGE_MS) {
+          await rm(path, { recursive: true, force: true });
+        }
+      } catch (error) {
+        if (hasErrorCode(error, "ENOENT")) return undefined;
+        const message = error instanceof Error ? error.message : String(error);
+        return `Could not remove abandoned staging directory ${path}: ${message}`;
       }
+      return undefined;
     }),
   );
+
+  return warnings.filter((warning): warning is string => warning !== undefined);
 }
 
 async function requireWorkspaceEntry(
@@ -160,11 +169,11 @@ export async function initializeWorkspace(
   const workspaceState = await inspectWorkspace(destination);
 
   if (workspaceState === "valid") {
-    return { outcome: "unchanged", path: destination };
+    return { outcome: "unchanged", path: destination, warnings: [] };
   }
 
   await mkdir(applicationRoot, { recursive: true });
-  await removeAbandonedStagingDirectories(applicationRoot);
+  const warnings = await removeAbandonedStagingDirectories(applicationRoot);
   const stagingDirectory = await mkdtemp(
     join(applicationRoot, STAGING_DIRECTORY_PREFIX),
   );
@@ -212,5 +221,5 @@ export async function initializeWorkspace(
     throw error;
   }
 
-  return { outcome: "created", path: destination };
+  return { outcome: "created", path: destination, warnings };
 }

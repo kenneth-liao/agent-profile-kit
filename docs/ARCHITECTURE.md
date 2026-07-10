@@ -30,6 +30,8 @@ The default application root separates canonical user content from generated sta
 
 The initial release supports exactly one Workspace per user at the fixed path above. It has no public Workspace path override, registry, or project-specific Workspace selection. The Workspace may be a private or public Git repository version-controlled independently of Agent Profile Kit, but Git is not required. Repository visibility and content review are the user's responsibility; Agent Profile Kit provides only a brief reminder to review personal material before publishing and does not scan, classify, or block Workspace publication. Credential values remain invalid regardless of repository visibility. Backups include `workspace/`; `installations/` can always be regenerated.
 
+The fixed Workspace path may be a symbolic link to a valid Workspace stored elsewhere. The fixed path remains the only public lookup location; the link does not introduce a Workspace registry or alternate selection mechanism.
+
 ### Initialization and guidance
 
 `agent-profile-kit init` creates an empty, structurally valid Workspace. `workspace.yaml` marks the root and schema version; empty artifact directories provide the authoring locations. The command does not install personal material, starter Skills, or a sample Profile.
