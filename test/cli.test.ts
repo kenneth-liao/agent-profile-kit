@@ -368,6 +368,21 @@ describe("agent-profile-kit init", () => {
     expect(await snapshotTree(workspace)).toEqual(before);
   });
 
+  test("a malformed Workspace Manifest fails with an actionable error", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    expect(runCli(home, "init").status).toBe(0);
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: [\n");
+    const before = await snapshotTree(workspace);
+
+    const result = runCli(home, "init");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Workspace Manifest is invalid YAML");
+    expect(await snapshotTree(workspace)).toEqual(before);
+  });
+
   test("unsupported arguments fail before creating a Workspace", () => {
     const home = isolatedHome();
 

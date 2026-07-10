@@ -9,7 +9,14 @@ export interface WorkspaceManifest {
 }
 
 export function parseWorkspaceManifest(source: string): WorkspaceManifest {
-  const value: unknown = parse(source);
+  let value: unknown;
+  try {
+    value = parse(source);
+  } catch {
+    throw new Error(
+      "Workspace Manifest is invalid YAML; correct workspace.yaml before retrying",
+    );
+  }
 
   if (
     typeof value !== "object" ||
