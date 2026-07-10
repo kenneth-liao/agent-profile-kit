@@ -1,4 +1,5 @@
 import {
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -60,12 +61,24 @@ function hasErrorCode(error: unknown, code: string): boolean {
 async function inspectWorkspace(
   path: string,
 ): Promise<"missing" | "empty" | "valid"> {
+  let pathEntryStats;
+  try {
+    pathEntryStats = await lstat(path);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return "missing";
+    }
+    throw error;
+  }
+
   let pathStats;
   try {
     pathStats = await stat(path);
   } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return "missing";
+    if (pathEntryStats.isSymbolicLink() && hasErrorCode(error, "ENOENT")) {
+      throw new Error(
+        `Cannot initialize ${path}: the Workspace symlink target does not exist`,
+      );
     }
     throw error;
   }
@@ -77,7 +90,14 @@ async function inspectWorkspace(
   }
 
   const entries = await readdir(path);
-  if (entries.length === 0) return "empty";
+  if (entries.length === 0) {
+    if (pathEntryStats.isSymbolicLink()) {
+      throw new Error(
+        `Cannot initialize ${path}: the Workspace symlink target is empty; initialize the target directly first`,
+      );
+    }
+    return "empty";
+  }
   if (!entries.includes("workspace.yaml")) {
     throw new Error(
       `Cannot initialize ${path}: directory is non-empty and is not an Agent Profile Kit Workspace`,
@@ -217,6 +237,13 @@ export async function initializeWorkspace(
         [error, ...cleanupErrors],
         `Initialization failed and cleanup was incomplete for ${destination}`,
       );
+    }
+    if (
+      !removedEmptyDestination &&
+      (hasErrorCode(error, "EEXIST") || hasErrorCode(error, "ENOTEMPTY")) &&
+      (await inspectWorkspace(destination)) === "valid"
+    ) {
+      return { outcome: "unchanged", path: destination, warnings };
     }
     throw error;
   }

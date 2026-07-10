@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -49,6 +49,32 @@ function runCli(home: string, ...arguments_: string[]) {
     encoding: "utf8",
     env: { ...process.env, HOME: home },
   });
+}
+
+function runCliAsync(home: string, ...arguments_: string[]) {
+  return new Promise<{ status: number | null; stderr: string; stdout: string }>(
+    (resolvePromise, rejectPromise) => {
+      const child = spawn(
+        process.env.NODE_BINARY ?? "node",
+        [cliPath, ...arguments_],
+        {
+          env: { ...process.env, HOME: home },
+        },
+      );
+      let stdout = "";
+      let stderr = "";
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => {
+        stdout += chunk;
+      });
+      child.stderr.on("data", (chunk: string) => {
+        stderr += chunk;
+      });
+      child.on("error", rejectPromise);
+      child.on("close", (status) => resolvePromise({ status, stderr, stdout }));
+    },
+  );
 }
 
 interface PackageMetadata {
@@ -205,6 +231,24 @@ describe("agent-profile-kit init", () => {
     expect(await snapshotTree(sourceWorkspace)).toEqual(before);
   });
 
+  test("an empty Workspace symlink target is rejected clearly without modification", async () => {
+    const target = mkdtempSync(join(tmpdir(), "agent-profile-kit-target-"));
+    temporaryDirectories.push(target);
+    const before = await snapshotTree(target);
+    const home = isolatedHome();
+    const applicationRoot = join(home, ".agents", "agent-profile-kit");
+    mkdirSync(applicationRoot, { recursive: true });
+    symlinkSync(target, join(applicationRoot, "workspace"));
+
+    const result = runCli(home, "init");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("symlink target is empty");
+    expect(result.stderr).toContain("initialize the target directly");
+    expect(await snapshotTree(target)).toEqual(before);
+  });
+
   test("a user with an existing empty Workspace directory receives a valid Workspace", () => {
     const home = isolatedHome();
     const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
@@ -218,6 +262,31 @@ describe("agent-profile-kit init", () => {
     expect(readFileSync(join(workspace, "workspace.yaml"), "utf8")).toBe(
       "schema_version: 1\n",
     );
+  });
+
+  test("concurrent initialization converges on one valid Workspace", async () => {
+    const home = isolatedHome();
+
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => runCliAsync(home, "init")),
+    );
+
+    expect(results.map(({ status }) => status)).toEqual(Array(8).fill(0));
+    expect(
+      results.filter(({ stdout }) =>
+        stdout.includes("Initialized Agent Profile Kit Workspace"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      results.filter(({ stdout }) =>
+        stdout.includes("Workspace already initialized"),
+      ),
+    ).toHaveLength(7);
+    expect(
+      statSync(
+        join(home, ".agents", "agent-profile-kit", "workspace", "workspace.yaml"),
+      ).isFile(),
+    ).toBe(true);
   });
 
   test("initialization removes abandoned staging output without touching live work", () => {

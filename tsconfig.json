@@ -5,12 +5,17 @@
     "moduleResolution": "NodeNext",
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["node"],
+    "types": ["node", "bun"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["cli/**/*.ts", "installer/**/*.ts", "schemas/**/*.ts"]
+  "include": [
+    "cli/**/*.ts",
+    "installer/**/*.ts",
+    "schemas/**/*.ts",
+    "test/**/*.ts"
+  ]
 }
