@@ -9,7 +9,7 @@ import {
 } from "../installer/initialize-workspace.js";
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
 import { installContextOnlyCodex } from "../installer/install.js";
-import { planContextOnlyCodex } from "../installer/plan.js";
+import { formatExecutionRequirements, planContextOnlyCodex } from "../installer/plan.js";
 import { runContextOnlyCodex } from "../installer/run.js";
 import { statusContextOnlyCodex } from "../installer/status.js";
 import { updateInstalledContextOnlyCodex } from "../installer/update.js";
@@ -90,7 +90,9 @@ async function main(): Promise<void> {
       `Profile: ${plan.profile.id}\n` +
         "Host: codex\n" +
         `Capability: supported (${plan.capability.version})\n` +
-        `Destination: ${plan.destination}\n` +
+      `Destination: ${plan.destination}\n` +
+        `Selected Agents: ${plan.profile.agents.length === 0 ? "(none)" : plan.profile.agents.join(", ")}\n` +
+        `${plan.resolvedProfile.agents.map((agent) => `Agent: ${agent.id} (${formatExecutionRequirements(agent)})`).join("\n")}${plan.resolvedProfile.agents.length === 0 ? "" : "\n"}` +
         `Selected Skills: ${plan.profile.skills.length === 0 ? "(none)" : plan.profile.skills.join(", ")}\n` +
         `Codex Skill Library: ${plan.skillLibrary.destination}\n` +
         `  Projected Skills: ${plan.skillLibrary.skills.size === 0 ? "(none)" : [...plan.skillLibrary.skills.keys()].sort().join(", ")}\n` +

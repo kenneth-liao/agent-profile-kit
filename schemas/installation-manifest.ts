@@ -24,12 +24,17 @@ export interface InstallationManifest {
   readonly outputHash: string;
   readonly outputs: readonly string[];
   readonly profileId: string;
+  readonly renderedAgents?: readonly {
+    readonly description: string;
+    readonly id: string;
+  }[];
   readonly selectedArtifacts: {
+    readonly agents: readonly string[];
     readonly context: readonly string[];
     readonly skills: readonly string[];
   };
   readonly resolvedArtifacts?: readonly ResolvedArtifactManifest[];
-  readonly schemaVersion: 1 | 2;
+  readonly schemaVersion: 1 | 2 | 3;
   readonly workspaceInputHash: string;
 }
 
@@ -146,18 +151,46 @@ function requireSelectedArtifacts(value: unknown): InstallationManifest["selecte
   }
   const selectedArtifacts = value as Record<string, unknown>;
   const unknown = Object.keys(selectedArtifacts).filter(
-    (field) => field !== "context" && field !== "skills",
+    (field) => field !== "agents" && field !== "context" && field !== "skills",
   );
   if (unknown.length > 0 || !("context" in selectedArtifacts)) {
-    throw new Error("Installation Manifest selected_artifacts must contain context and optional skills");
+    throw new Error("Installation Manifest selected_artifacts must contain context and optional skills and agents");
   }
   return {
+    agents:
+      "agents" in selectedArtifacts
+        ? requireArtifactIdArray(selectedArtifacts.agents, "selected_artifacts.agents")
+        : [],
     context: requireStringArray(selectedArtifacts.context, "selected_artifacts.context"),
     skills:
       "skills" in selectedArtifacts
         ? requireArtifactIdArray(selectedArtifacts.skills, "selected_artifacts.skills")
         : [],
   };
+}
+
+function requireRenderedAgents(value: unknown): NonNullable<InstallationManifest["renderedAgents"]> {
+  if (!Array.isArray(value)) {
+    throw new Error("Installation Manifest rendered_agents must be an array");
+  }
+  const agents = value.map((entry, index) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new Error(`Installation Manifest rendered_agents[${index}] must be a YAML mapping`);
+    }
+    const agent = entry as Record<string, unknown>;
+    const fields = Object.keys(agent);
+    if (fields.length !== 2 || !fields.includes("id") || !fields.includes("description")) {
+      throw new Error(`Installation Manifest rendered_agents[${index}] must contain id and description`);
+    }
+    return {
+      description: requireString(agent.description, `rendered_agents[${index}].description`),
+      id: requireArtifactId(agent.id, `Installation Manifest rendered_agents[${index}].id`),
+    };
+  });
+  if (new Set(agents.map((agent) => agent.id)).size !== agents.length) {
+    throw new Error("Installation Manifest rendered_agents must not contain an Agent more than once");
+  }
+  return agents;
 }
 
 function requireGitProvenance(
@@ -191,6 +224,7 @@ export function parseInstallationManifest(source: string): InstallationManifest 
   const fields = [
     "schema_version",
     "profile_id",
+    "rendered_agents",
     "host_id",
     "host_version",
     "adapter_version",
@@ -206,8 +240,8 @@ export function parseInstallationManifest(source: string): InstallationManifest 
   if (unknown.length > 0) {
     throw new Error(`Installation Manifest does not allow fields: ${unknown.join(", ")}`);
   }
-  if (manifest.schema_version !== 1 && manifest.schema_version !== 2) {
-    throw new Error("Installation Manifest schema_version must be 1 or 2");
+  if (manifest.schema_version !== 1 && manifest.schema_version !== 2 && manifest.schema_version !== 3) {
+    throw new Error("Installation Manifest schema_version must be 1, 2, or 3");
   }
   if (manifest.host_id !== "codex") {
     throw new Error("Installation Manifest host_id must be codex");
@@ -219,13 +253,38 @@ export function parseInstallationManifest(source: string): InstallationManifest 
   if (manifest.schema_version === 1 && "resolved_artifacts" in manifest) {
     throw new Error("Installation Manifest schema_version 1 does not allow resolved_artifacts");
   }
-  if (manifest.schema_version === 2 && !("resolved_artifacts" in manifest)) {
-    throw new Error("Installation Manifest schema_version 2 must contain resolved_artifacts");
+  if ((manifest.schema_version === 2 || manifest.schema_version === 3) && !("resolved_artifacts" in manifest)) {
+    throw new Error(`Installation Manifest schema_version ${manifest.schema_version} must contain resolved_artifacts`);
+  }
+  if (
+    manifest.schema_version === 3 &&
+    (typeof manifest.selected_artifacts !== "object" ||
+      manifest.selected_artifacts === null ||
+      Array.isArray(manifest.selected_artifacts) ||
+      !("agents" in manifest.selected_artifacts))
+  ) {
+    throw new Error("Installation Manifest schema_version 3 must contain selected_artifacts.agents");
+  }
+  if (manifest.schema_version === 3 && !("rendered_agents" in manifest)) {
+    throw new Error("Installation Manifest schema_version 3 must contain rendered_agents");
   }
   const git = "git" in manifest ? requireGitProvenance(manifest.git) : undefined;
   const resolvedArtifacts = "resolved_artifacts" in manifest
     ? requireResolvedArtifacts(manifest.resolved_artifacts)
     : undefined;
+  const renderedAgents = "rendered_agents" in manifest
+    ? requireRenderedAgents(manifest.rendered_agents)
+    : undefined;
+  if (manifest.schema_version === 3 && resolvedArtifacts) {
+    const resolvedAgentIds = resolvedArtifacts
+      .filter((artifact) => artifact.reference.type === "agent")
+      .map((artifact) => artifact.reference.id)
+      .sort();
+    const renderedAgentIds = (renderedAgents ?? []).map((agent) => agent.id).sort();
+    if (resolvedAgentIds.join("\n") !== renderedAgentIds.join("\n")) {
+      throw new Error("Installation Manifest rendered_agents must match resolved Agent artifacts");
+    }
+  }
   return {
     adapterVersion: requireString(manifest.adapter_version, "adapter_version"),
     engineVersion: requireString(manifest.engine_version, "engine_version"),
@@ -242,6 +301,7 @@ export function parseInstallationManifest(source: string): InstallationManifest 
     ),
     ...(git ? { git } : {}),
     ...(resolvedArtifacts ? { resolvedArtifacts } : {}),
+    ...(renderedAgents ? { renderedAgents } : {}),
   };
 }
 
@@ -249,11 +309,15 @@ export function formatInstallationManifest(manifest: InstallationManifest): stri
   const value = {
     schema_version: manifest.schemaVersion,
     profile_id: manifest.profileId,
+    ...(manifest.renderedAgents
+      ? { rendered_agents: manifest.renderedAgents.map((agent) => ({ id: agent.id, description: agent.description })) }
+      : {}),
     host_id: manifest.hostId,
     host_version: manifest.hostVersion,
     adapter_version: manifest.adapterVersion,
     engine_version: manifest.engineVersion,
     selected_artifacts: {
+      agents: manifest.selectedArtifacts.agents,
       context: manifest.selectedArtifacts.context,
       skills: manifest.selectedArtifacts.skills,
     },

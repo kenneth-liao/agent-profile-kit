@@ -1,8 +1,9 @@
 import { join, resolve } from "node:path";
 import { realpath } from "node:fs/promises";
 
-import { detectCodexCapability, type CodexCapability } from "../adapters/codex.js";
+import { detectCodexAgentCapability, detectCodexCapability, type CodexCapability } from "../adapters/codex.js";
 import { type Profile, type ContextModule } from "../schemas/context-profile.js";
+import { type Agent } from "../schemas/agent.js";
 import { type GitProvenance, workspaceGitProvenance } from "./git-provenance.js";
 import { hashWorkspaceInputs } from "./hashes.js";
 import { ingestWorkspace } from "./ingest-workspace.js";
@@ -46,6 +47,10 @@ export function composeContext(
     .join("\n\n");
 }
 
+export function formatExecutionRequirements(agent: Agent): string {
+  return `${agent.requirements.filesystem} filesystem, network ${agent.requirements.network}, approval ${agent.requirements.approval}`;
+}
+
 export async function planContextOnlyCodex(
   home: string,
   profileId: string,
@@ -55,10 +60,11 @@ export async function planContextOnlyCodex(
   if (!profile) {
     throw new Error(`Profile '${profileId}' does not exist in the Workspace`);
   }
-  const resolvedProfile = resolveProfileDependencies(profile, workspace.contexts, workspace.skills);
+  const resolvedProfile = resolveProfileDependencies(profile, workspace.agents, workspace.contexts, workspace.skills);
   const context = composeContext(resolvedProfile.contexts);
   const skillLibrary = await planCodexSkillLibrary(home, workspace.skills);
   const capability = await detectCodexCapability();
+  if (resolvedProfile.agents.length > 0) await detectCodexAgentCapability(resolvedProfile.agents);
   let currentGeneration: string | undefined;
   try {
     currentGeneration = await realpath(skillLibrary.destination);

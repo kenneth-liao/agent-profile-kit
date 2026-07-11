@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 
 import {
   codexContextOverride,
+  codexAgentsOverride,
   codexSkillRoots,
   codexSkillsOverride,
   startCodexWithLease,
@@ -64,10 +65,10 @@ export async function runContextOnlyCodex(
 ): Promise<number> {
   const protectedKey = nativeArguments
     .map((_, index) => configKey(configOverride(nativeArguments, index) ?? ""))
-    .find((key) => key === "developer_instructions" || key === "skills.config");
+    .find((key) => key === "developer_instructions" || key === "skills.config" || key?.startsWith("agents."));
   if (protectedKey) {
     throw new Error(
-      `Native Codex arguments may not override ${protectedKey} selected by the Profile`,
+        `Native Codex arguments may not override ${protectedKey} selected by the Profile`,
     );
   }
 
@@ -113,6 +114,11 @@ export async function runContextOnlyCodex(
         codexContextOverride(context),
         "-c",
         codexSkillsOverride(skillConfiguration),
+        ...(codexAgentsOverride((manifest.renderedAgents ?? []).map((agent) => ({
+          configPath: join(installation, "agents", `${agent.id}.config.toml`),
+          description: agent.description,
+          id: agent.id,
+        }))).flatMap((override) => ["-c", override])),
         ...nativeArguments,
       ];
       return await startCodexWithLease(arguments_, pinned.lease.path);

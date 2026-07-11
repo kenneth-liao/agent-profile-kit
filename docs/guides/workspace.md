@@ -16,7 +16,7 @@ only `schema_version: 1`; the `profiles/`, `context/`, `skills/`, `agents/`,
 `hooks/`, and `tools/` directories identify the canonical homes for portable
 artifacts. Do not treat generated Host output as source material.
 
-The current Codex tracer supports Context Modules and Skills. A Context Module is a
+The current Codex tracer supports Context Modules, Skills, and Agents. A Context Module is a
 Markdown file under `context/` with frontmatter containing one stable,
 lowercase kebab-case `id`; the Markdown body is the Context. A Skill is a
 standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
@@ -27,8 +27,9 @@ Kit-only metadata, put it in an optional `agent-profile-kit.yaml` sidecar.
 
 Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each
-Skill's Agent Profile Kit sidecar. Each reference contains `type` (`context` or
-`skill`) and its stable `id`. Dependencies are resolved transitively, so a
+Skill's Agent Profile Kit sidecar, and Agent Dependencies in Agent frontmatter.
+Each reference contains `type` (`agent`, `context`, or `skill`) and its stable
+`id`. Dependencies are resolved transitively, so a
 Profile installs each resolved artifact once; `plan` shows every inclusion
 reason and the Installation Manifest records them.
 
@@ -44,9 +45,19 @@ library. Agent Profile Kit never writes Codex configuration or changes existing
 user, project, admin, system, or plugin capabilities, and it refuses unowned
 library destinations or conflicting existing Skill names.
 
+A portable Agent is a directory under `agents/` rooted at `AGENT.md`. Its
+frontmatter declares a stable `id`, a short `description`, optional typed
+Dependencies, and required `filesystem`, `network`, and `approval` boundaries.
+Its Markdown body is the delegated role. Codex renders each selected or resolved
+Agent inside the Profile Installation and rejects planning if it cannot register
+that role. The supported requirements are `read-only` or `workspace-write`
+filesystem access, `disabled` or `enabled` network access (enabled network
+requires `workspace-write`), and `untrusted`, `on-request`, or `never` approval.
+No model or other Host preference belongs in an Agent.
+
 A Profile is a YAML file under `profiles/` with an `id` and explicit `context`,
-`skills`, `agents`, `hooks`, and `tools` arrays. In this tracer, `agents`,
-`hooks`, and `tools` must be empty. Profiles do not inherit, use wildcards, or
+`skills`, `agents`, `hooks`, and `tools` arrays. Hooks and Tools must be empty
+in this tracer. Profiles do not inherit, use wildcards, or
 carry Host settings.
 
 ```md
@@ -77,6 +88,22 @@ hooks: []
 tools: []
 ```
 
+```markdown
+<!-- agents/security-reviewer/AGENT.md -->
+---
+id: security-reviewer
+description: Review changes for security flaws.
+execution_requirements:
+  filesystem: read-only
+  network: disabled
+  approval: untrusted
+---
+
+# Security reviewer
+
+Inspect proposed changes for security flaws.
+```
+
 ```md
 <!-- skills/review-pr/SKILL.md -->
 ---
@@ -94,7 +121,8 @@ explicit: `agent-profile-kit install --profile coding --host codex`. Launch an
 installed Profile from the intended project with
 `agent-profile-kit run --profile coding --host codex -- <native Codex arguments>`.
 The launcher adds the selected Context using Codex's per-process
-developer-instructions override and filters only Agent Profile Kit-owned Skills
+developer-instructions override, filters only Agent Profile Kit-owned Skills,
+and registers only the Profile's resolved Agents from its Profile Installation.
 for that process; ordinary global and project Codex configuration and unrelated
 Skills remain Host-owned.
 

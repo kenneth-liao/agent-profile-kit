@@ -94,7 +94,7 @@ Commands are host-specific ways to activate Skills and never own workflow instru
 
 ### Agents
 
-Agents are reusable delegated workers authored as portable `AGENT.md` packages. They own host-independent behavioral and safety requirements. Adapters render them into native Agent formats and must enforce required boundaries or reject installation.
+Agents are reusable delegated workers authored as portable `AGENT.md` packages. Their frontmatter declares a stable Artifact ID, a short selection description, optional typed Dependencies, and an Execution Requirement mapping. The initial Codex contract supports read-only or workspace-write filesystem access, disabled or enabled network access (enabled network requires workspace-write), and untrusted, on-request, or never approval behavior. The Markdown body owns the delegated role. Adapters render the role into native Agent formats and must enforce every required boundary or reject installation.
 
 ### Hooks
 
@@ -165,7 +165,7 @@ An update guarantees the new installation for sessions launched afterward. Alrea
 
 The Claude Code Adapter generates composed Context and launches Claude Code with an appended system-prompt file. It exposes Skills by adding a Profile Installation directory containing `.claude/skills/`. Agents, Hooks, and Tools use the smallest supported session input for their category; a generated plugin is optional when it materially improves delivery rather than a required Profile container. These session-scoped native inputs leave Claude's global and project configuration active.
 
-The Codex Adapter stores composed Context within the Profile Installation and passes it through the per-process `developer_instructions` override. Because Codex does not currently expose a supported process-scoped Skill discovery path, the Adapter transactionally mirrors every Workspace Skill into its dedicated standard user Skill subtree at `~/.agents/skills/agent-profile-kit/`. Managed launches pass a process-only `skills.config` value that enables selected library Skills and disables unselected library Skills without mentioning unrelated native Skills. Agent Profile Kit never writes `~/.codex/config.toml`, changes `CODEX_HOME`, or modifies existing user, project, admin, system, or plugin capabilities. Ordinary Codex launches discover the complete library. Agent, Hook, and Tool mappings remain deferred to their dedicated issues.
+The Codex Adapter stores composed Context within the Profile Installation and passes it through the per-process `developer_instructions` override. It renders each resolved Agent as a Profile-local role configuration, then passes only that Profile's role registrations through per-process configuration overrides; a Capability Contract probe must confirm this native surface before a plan can succeed. Because Codex does not currently expose a supported process-scoped Skill discovery path, the Adapter transactionally mirrors every Workspace Skill into its dedicated standard user Skill subtree at `~/.agents/skills/agent-profile-kit/`. Managed launches pass a process-only `skills.config` value that enables selected library Skills and disables unselected library Skills without mentioning unrelated native Skills. Agent Profile Kit never writes `~/.codex/config.toml`, changes `CODEX_HOME`, or modifies existing user, project, admin, system, or plugin capabilities. Ordinary Codex launches discover the complete library. Hook and Tool mappings remain deferred to their dedicated issues.
 
 ## Configuration and Credentials
 

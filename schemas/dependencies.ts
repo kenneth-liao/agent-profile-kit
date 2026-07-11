@@ -1,4 +1,4 @@
-export const ARTIFACT_TYPES = ["context", "skill"] as const;
+export const ARTIFACT_TYPES = ["agent", "context", "skill"] as const;
 
 export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
 

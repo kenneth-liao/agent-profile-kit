@@ -1,12 +1,22 @@
 import { spawn } from "node:child_process";
 import { lstat, realpath } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+
+import { type Agent, type ExecutionRequirements } from "../schemas/agent.js";
 
 const CONTEXT_PROBE = "agent-profile-kit capability probe";
 
 export interface CodexCapability {
   readonly skills?: readonly { readonly name: string; readonly path: string }[];
   readonly version: string;
+}
+
+export interface CodexAgentConfiguration {
+  readonly configPath: string;
+  readonly description: string;
+  readonly id: string;
 }
 
 async function repositoryRoot(workingDirectory: string): Promise<string> {
@@ -167,6 +177,53 @@ export async function detectCodexCapability(): Promise<CodexCapability> {
   return { skills: discoveredFileSkills(probeResult.stdout), version };
 }
 
+export function formatCodexAgentConfig(
+  requirements: ExecutionRequirements,
+  role: string,
+): string {
+  const lines = [
+    `developer_instructions = ${JSON.stringify(role)}`,
+    `sandbox_mode = ${JSON.stringify(requirements.filesystem)}`,
+    `approval_policy = ${JSON.stringify(requirements.approval)}`,
+  ];
+  if (requirements.filesystem === "workspace-write") {
+    lines.push("", "[sandbox_workspace_write]", `network_access = ${requirements.network === "enabled"}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+export async function detectCodexAgentCapability(agents: readonly Agent[]): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), "agent-profile-kit-codex-capability-"));
+  try {
+    for (const agent of agents) {
+      const configPath = join(directory, `${agent.id}.toml`);
+      await writeFile(configPath, formatCodexAgentConfig(agent.requirements, agent.role));
+      let probeResult: CommandResult;
+      try {
+        probeResult = await executeCodex([
+          "debug",
+          "prompt-input",
+          "-c",
+          `agents.agent-profile-kit-capability-probe.description=${JSON.stringify(agent.description)}`,
+          "-c",
+          `agents.agent-profile-kit-capability-probe.config_file=${JSON.stringify(configPath)}`,
+        ]);
+      } catch (error) {
+        throw new Error(
+          `Codex Agent capability detection failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      if (probeResult.exitCode !== 0) {
+        throw new Error(
+          `Codex cannot enforce the Execution Requirements for Agent '${agent.id}'`,
+        );
+      }
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 export const codexContextOverride = (context: string): string =>
   `developer_instructions=${JSON.stringify(context)}`;
 
@@ -176,6 +233,14 @@ export const codexSkillsOverride = (
   `skills.config=[${skillPaths
     .map(({ enabled, path }) => `{path=${JSON.stringify(path)},enabled=${enabled}}`)
     .join(",")}]`;
+
+export const codexAgentsOverride = (
+  agents: readonly CodexAgentConfiguration[],
+): readonly string[] =>
+  agents.flatMap((agent) => [
+    `agents.${agent.id}.description=${JSON.stringify(agent.description)}`,
+    `agents.${agent.id}.config_file=${JSON.stringify(agent.configPath)}`,
+  ]);
 
 export interface RunningCodex {
   readonly completion: Promise<number>;

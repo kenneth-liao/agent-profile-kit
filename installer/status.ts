@@ -96,7 +96,7 @@ export async function statusContextOnlyCodex(
     !profile ||
     (await hashWorkspaceInputs(
       profile,
-      resolveProfileDependencies(profile, workspace.contexts, workspace.skills),
+      resolveProfileDependencies(profile, workspace.agents, workspace.contexts, workspace.skills),
     )) !==
       manifest.workspaceInputHash
   ) {

@@ -131,6 +131,29 @@ function writeProfileWithSkill(home: string): void {
   );
 }
 
+function writeProfileWithAgent(home: string): void {
+  const workspace = workspacePath(home);
+  writeContextOnlyProfile(home);
+  const agent = join(workspace, "agents", "security-reviewer");
+  mkdirSync(agent);
+  writeFileSync(
+    join(agent, "AGENT.md"),
+    "---\n" +
+      "id: security-reviewer\n" +
+      "description: Review changes for security flaws.\n" +
+      "execution_requirements:\n" +
+      "  filesystem: read-only\n" +
+      "  network: disabled\n" +
+      "  approval: untrusted\n" +
+      "---\n\n" +
+      "# Security reviewer\n\nInspect proposed changes for security flaws.\n",
+  );
+  writeFileSync(
+    join(workspace, "profiles", "coding.yaml"),
+    "id: coding\ncontext:\n  - team-rules\nskills: []\nagents:\n  - security-reviewer\nhooks: []\ntools: []\n",
+  );
+}
+
 function emptySkillLibraryPlan(home: string) {
   return {
     additions: [],
@@ -152,6 +175,7 @@ function contextOnlyResolution(
 ): ResolvedProfile {
   const contexts = profile.context.map((id) => ({ content: "", dependencies: [], id }));
   return {
+    agents: [],
     artifacts: contexts.map((context) => ({
       artifact: context,
       inclusionReasons: [{ path: [], profileId: profile.id }],
@@ -1737,9 +1761,9 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         expected: "Dependency references missing Skill 'shared-rules'",
       },
       {
-        name: "unsupported type",
+        name: "missing Agent target",
         context: "---\nid: team-rules\ndependencies:\n  - type: agent\n    id: reviewer\n---\nTeam rules.\n",
-        expected: "type must be one of: context, skill",
+        expected: "Dependency references missing Agent 'reviewer'",
       },
     ];
 
@@ -2754,6 +2778,171 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     ).toBe(false);
   });
 
+  test("a user can plan and install a portable Agent with enforced read-only execution", async () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithAgent(home);
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = { PATH: `${bin}:${process.env.PATH ?? ""}` };
+
+    const plan = runCliWithEnvironment(home, environment, "plan", "--profile", "coding", "--host", "codex");
+    const installed = runCliWithEnvironment(home, environment, "install", "--profile", "coding", "--host", "codex");
+    const installation = join(home, ".agents", "agent-profile-kit", "installations", "coding", "codex");
+
+    expect(plan.status, plan.stderr).toBe(0);
+    expect(plan.stdout).toContain("Selected Agents: security-reviewer");
+    expect(plan.stdout).toContain("Agent: security-reviewer (read-only filesystem, network disabled, approval untrusted)");
+    expect(installed.status, installed.stderr).toBe(0);
+    expect(readFileSync(join(installation, "agents", "security-reviewer.config.toml"), "utf8")).toContain('sandbox_mode = "read-only"');
+    expect(readFileSync(join(installation, "agents", "security-reviewer.config.toml"), "utf8")).toContain('approval_policy = "untrusted"');
+    expect(parse(readFileSync(join(installation, "installation.yaml"), "utf8"))).toMatchObject({
+      selected_artifacts: { agents: ["security-reviewer"] },
+    });
+  });
+
+  test("Workspace validation rejects malformed and duplicate portable Agent definitions", () => {
+    const cases = [
+      {
+        expected: "execution_requirements must contain only filesystem, network, and approval",
+        source: "---\nid: reviewer\ndescription: Review changes.\nexecution_requirements:\n  filesystem: read-only\n  network: disabled\n  approval: untrusted\n  model: gpt-5\n---\n\nReview changes.\n",
+      },
+      {
+        expected: "Agent Artifact ID 'reviewer' is duplicated",
+        source: "---\nid: reviewer\ndescription: Review changes.\nexecution_requirements:\n  filesystem: read-only\n  network: disabled\n  approval: untrusted\n---\n\nReview changes.\n",
+      },
+    ];
+    for (const [index, definition] of cases.entries()) {
+      const home = isolatedHome();
+      expect(runCli(home, "init").status).toBe(0);
+      const agents = join(workspacePath(home), "agents");
+      const first = join(agents, "reviewer");
+      mkdirSync(first);
+      writeFileSync(join(first, "AGENT.md"), definition.source);
+      if (index === 1) {
+        const second = join(agents, "duplicate");
+        mkdirSync(second);
+        writeFileSync(join(second, "AGENT.md"), definition.source);
+      }
+
+      const result = runCli(home, "validate");
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(definition.expected);
+    }
+  });
+
+  test("an Agent Dependency is resolved by typed Artifact ID and rendered once", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithAgent(home);
+    const workspace = workspacePath(home);
+    writeFileSync(
+      join(workspace, "agents", "security-reviewer", "AGENT.md"),
+      "---\nid: security-reviewer\ndescription: Review changes for security flaws.\ndependencies:\n  - type: agent\n    id: compliance-reviewer\nexecution_requirements:\n  filesystem: read-only\n  network: disabled\n  approval: untrusted\n---\n\n# Security reviewer\n\nInspect proposed changes for security flaws.\n",
+    );
+    const dependency = join(workspace, "agents", "compliance-reviewer");
+    mkdirSync(dependency);
+    writeFileSync(
+      join(dependency, "AGENT.md"),
+      "---\nid: compliance-reviewer\ndescription: Review compliance obligations.\nexecution_requirements:\n  filesystem: read-only\n  network: disabled\n  approval: untrusted\n---\n\n# Compliance reviewer\n\nInspect compliance obligations.\n",
+    );
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = { PATH: `${bin}:${process.env.PATH ?? ""}` };
+
+    const plan = runCliWithEnvironment(home, environment, "plan", "--profile", "coding", "--host", "codex");
+    const installed = runCliWithEnvironment(home, environment, "install", "--profile", "coding", "--host", "codex");
+
+    expect(plan.status, plan.stderr).toBe(0);
+    expect(plan.stdout).toContain("agent:compliance-reviewer (required via agent:security-reviewer from profile:coding)");
+    expect(installed.status, installed.stderr).toBe(0);
+    expect(existsSync(join(home, ".agents", "agent-profile-kit", "installations", "coding", "codex", "agents", "compliance-reviewer.config.toml"))).toBe(true);
+  });
+
+  test("a managed Codex run exposes only the Agents resolved for its Profile", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    const workspace = workspacePath(home);
+    writeProfileWithAgent(home);
+    const second = join(workspace, "agents", "release-reviewer");
+    mkdirSync(second);
+    writeFileSync(
+      join(second, "AGENT.md"),
+      "---\nid: release-reviewer\ndescription: Review release readiness.\nexecution_requirements:\n  filesystem: read-only\n  network: disabled\n  approval: untrusted\n---\n\n# Release reviewer\n\nReview releases.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "release.yaml"),
+      "id: release\ncontext:\n  - team-rules\nskills: []\nagents:\n  - release-reviewer\nhooks: []\ntools: []\n",
+    );
+    const bin = join(home, "bin");
+    const argumentsRecord = join(home, "codex-arguments");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = " + '"debug"' + " ] && [ \"$2\" = " + '"prompt-input"' + " ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "printf '%s\\n' \"$@\" > \"$CODEX_ARGUMENTS_RECORD\"\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = {
+      CODEX_ARGUMENTS_RECORD: argumentsRecord,
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+    };
+    for (const profile of ["coding", "release"]) {
+      expect(runCliWithEnvironment(home, environment, "install", "--profile", profile, "--host", "codex").status).toBe(0);
+    }
+
+    const run = runCliWithEnvironment(home, environment, "run", "--profile", "coding", "--host", "codex", "--", "task");
+
+    expect(run.status, run.stderr).toBe(0);
+    const arguments_ = readFileSync(argumentsRecord, "utf8");
+    expect(arguments_).toContain("agents.security-reviewer.description=");
+    expect(arguments_).toContain("Review changes for security flaws.");
+    expect(arguments_).toContain("agents.security-reviewer.config_file=");
+    expect(arguments_).not.toContain("agents.release-reviewer.");
+  });
+
+  test("an unsupported Codex Agent surface stops planning before installation writes", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithAgent(home);
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+        "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli unsupported\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ] && [ \"$3\" = \"-c\" ] && [ \"$4\" = \"developer_instructions=\\\"agent-profile-kit capability probe\\\"\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then config=$(printf '%s' \"$6\" | sed 's/^[^=]*=//; s/^\"//; s/\"$//'); if grep -q 'sandbox_mode = ' \"$config\"; then exit 1; fi; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(home, { PATH: `${bin}:${process.env.PATH ?? ""}` }, "install", "--profile", "coding", "--host", "codex");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("cannot enforce the Execution Requirements for Agent 'security-reviewer'");
+    expect(existsSync(join(home, ".agents", "agent-profile-kit", "installations", "coding", "codex"))).toBe(false);
+  });
+
   test("a user is stopped before installation writes when Codex lacks the required Context surface", () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
@@ -2831,13 +3020,14 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       "<!-- Context Module: team-rules -->",
     );
     expect(parse(readFileSync(join(installation, "installation.yaml"), "utf8"))).toEqual({
-      schema_version: 2,
+      schema_version: 3,
       profile_id: "coding",
       host_id: "codex",
       host_version: "codex-cli 0.test",
       adapter_version: packageManifest.version,
       engine_version: packageManifest.version,
-      selected_artifacts: { context: ["team-rules"], skills: [] },
+      selected_artifacts: { agents: [], context: ["team-rules"], skills: [] },
+      rendered_agents: [],
       resolved_artifacts: [
         {
           type: "context",

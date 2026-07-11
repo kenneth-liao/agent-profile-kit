@@ -19,10 +19,14 @@ Use this workflow when helping a person author their Workspace.
    bindings outside the Workspace. Never copy generated Host files back into
    canonical source.
 5. Validate before planning. The current tracer accepts Context Modules with
-   `id` frontmatter, standard Agent Skills rooted at `SKILL.md`, and flat
+   `id` frontmatter, standard Agent Skills rooted at `SKILL.md`, portable
+   delegated Agents rooted at `AGENT.md`, and flat
    Profiles with explicit arrays for every artifact category. A Skill's standard
    `name` is its Artifact ID; keep Agent Profile Kit-only metadata in the
-   optional `agent-profile-kit.yaml` sidecar. Dependencies use explicit
+   optional `agent-profile-kit.yaml` sidecar. An Agent's frontmatter includes
+   its short description and an `execution_requirements` mapping for filesystem,
+   network, and approval boundaries; do not put model or other Host preferences
+   there. Dependencies use explicit
    `{ type, id }` references: Context Module Dependencies live in frontmatter
    and Skill Dependencies live in the sidecar. Ensure the plan explains every
    direct and transitive inclusion reason. Codex plans mirror the complete

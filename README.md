@@ -38,7 +38,7 @@ To remove disposable output, run `agent-profile-kit uninstall --profile coding
 --host codex`; it deletes only Manifest-verified Agent Profile Kit output and
 keeps the shared library until no installed Codex Profile depends on it.
 
-See `agent-profile-kit guide` for the Context Module, Skill, and Profile formats.
+See `agent-profile-kit guide` for the Context Module, Skill, portable Agent, and Profile formats.
 
 ## Product layout
 

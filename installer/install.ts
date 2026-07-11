@@ -9,6 +9,7 @@ import {
 import { hasErrorCode } from "./fs-error.js";
 import { hashOutputDirectory } from "./hashes.js";
 import { type ContextOnlyCodexPlan } from "./plan.js";
+import { formatCodexAgentConfig } from "../adapters/codex.js";
 import { syncCodexSkillLibraryUnderLock } from "./codex-skill-library.js";
 import { withCodexLifecycleLock } from "./codex-lifecycle-lock.js";
 
@@ -56,9 +57,22 @@ async function installationManifest(
     hostId: "codex",
     hostVersion: plan.capability.version,
     outputHash: await hashOutputDirectory(staging),
-    outputs: ["context.md"],
+    outputs: [
+      ...(plan.resolvedProfile.agents.length > 0
+        ? ["agents", ...plan.resolvedProfile.agents.map((agent) => `agents/${agent.id}.config.toml`)]
+        : []),
+      "context.md",
+    ],
     profileId: plan.profile.id,
-    selectedArtifacts: { context: plan.profile.context, skills: plan.profile.skills },
+    renderedAgents: plan.resolvedProfile.agents.map((agent) => ({
+      description: agent.description,
+      id: agent.id,
+    })),
+    selectedArtifacts: {
+      agents: plan.profile.agents,
+      context: plan.profile.context,
+      skills: plan.profile.skills,
+    },
     resolvedArtifacts: plan.resolvedProfile.artifacts.map((resolved) => ({
       reference: resolved.reference,
       inclusionReasons: resolved.inclusionReasons.map((reason) => ({
@@ -66,7 +80,7 @@ async function installationManifest(
         profile: reason.profileId,
       })),
     })),
-    schemaVersion: 2,
+    schemaVersion: 3,
     workspaceInputHash: plan.workspaceInputHash,
     ...(plan.gitProvenance ? { git: plan.gitProvenance } : {}),
   };
@@ -97,6 +111,12 @@ async function stageInstallation(
   fileSystem: InstallationFileSystem,
 ): Promise<void> {
   await fileSystem.writeFile(join(staging, "context.md"), plan.context);
+  if (plan.resolvedProfile.agents.length > 0) {
+    await fileSystem.mkdir(join(staging, "agents"), { recursive: true });
+    await Promise.all(plan.resolvedProfile.agents.map((agent) =>
+      fileSystem.writeFile(join(staging, "agents", `${agent.id}.config.toml`), formatCodexAgentConfig(agent.requirements, agent.role)),
+    ));
+  }
   await fileSystem.writeFile(
     join(staging, "installation.yaml"),
     formatInstallationManifest(await installationManifest(staging, plan, fileSystem)),

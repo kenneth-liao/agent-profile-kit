@@ -8,12 +8,14 @@ import {
   type Profile,
 } from "../schemas/context-profile.js";
 import { parseSkill, type Skill } from "../schemas/skill.js";
+import { parseAgent, type Agent } from "../schemas/agent.js";
 import { resolveProfileDependencies, validateDependencyCatalog } from "./resolve-dependencies.js";
 import { validateWorkspaceStructure, workspacePath } from "./workspace.js";
 
 export interface Workspace {
   readonly path: string;
   readonly contexts: ReadonlyMap<string, ContextModule>;
+  readonly agents: ReadonlyMap<string, Agent>;
   readonly profiles: ReadonlyMap<string, Profile>;
   readonly skills: ReadonlyMap<string, Skill>;
 }
@@ -28,6 +30,23 @@ async function skillPaths(directory: string, prefix = ""): Promise<readonly stri
       const nested = await skillPaths(source, relativePath);
       const children = await readdir(source, { withFileTypes: true });
       return children.some((child) => child.isFile() && child.name === "SKILL.md")
+        ? [relativePath, ...nested]
+        : nested;
+    }),
+  );
+  return paths.flat().sort();
+}
+
+async function agentPaths(directory: string, prefix = ""): Promise<readonly string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const paths = await Promise.all(
+    entries.map(async (entry) => {
+      if (!entry.isDirectory()) return [];
+      const relativePath = join(prefix, entry.name);
+      const source = join(directory, entry.name);
+      const nested = await agentPaths(source, relativePath);
+      const children = await readdir(source, { withFileTypes: true });
+      return children.some((child) => child.isFile() && child.name === "AGENT.md")
         ? [relativePath, ...nested]
         : nested;
     }),
@@ -68,6 +87,7 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
   const path = workspacePath(home);
   await validateWorkspaceStructure(path);
   const contexts = new Map<string, ContextModule>();
+  const agents = new Map<string, Agent>();
   const profiles = new Map<string, Profile>();
   const skills = new Map<string, Skill>();
 
@@ -77,6 +97,14 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
       contexts,
       parseContextModule(await readFile(sourcePath, "utf8"), `context/${name}`),
       "Context Module",
+    );
+  }
+  for (const name of await agentPaths(join(path, "agents"))) {
+    const sourcePath = join(path, "agents", name, "AGENT.md");
+    addUnique(
+      agents,
+      parseAgent(await readFile(sourcePath, "utf8"), `agents/${name}/AGENT.md`),
+      "Agent",
     );
   }
   for (const name of await sourceFiles(join(path, "profiles"), ".yaml")) {
@@ -109,7 +137,7 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
     );
   }
 
-  validateDependencyCatalog(contexts, skills);
+  validateDependencyCatalog(agents, contexts, skills);
   for (const profile of profiles.values()) {
     if (profile.context.length === 0) {
       throw new Error(
@@ -128,19 +156,20 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
         throw new Error(`Profile '${profile.id}' selects missing Skill '${skillId}'`);
       }
     }
-    for (const [name, selection] of [
-      ["agents", profile.agents],
-      ["hooks", profile.hooks],
-      ["tools", profile.tools],
-    ] as const) {
+    for (const agentId of profile.agents) {
+      if (!agents.has(agentId)) {
+        throw new Error(`Profile '${profile.id}' selects missing Agent '${agentId}'`);
+      }
+    }
+    for (const [name, selection] of [["hooks", profile.hooks], ["tools", profile.tools]] as const) {
       if (selection.length > 0) {
         throw new Error(
           `Profile '${profile.id}' selects ${name}, which this release does not support`,
         );
       }
     }
-    resolveProfileDependencies(profile, contexts, skills);
+    resolveProfileDependencies(profile, agents, contexts, skills);
   }
 
-  return { path, contexts, profiles, skills };
+  return { path, agents, contexts, profiles, skills };
 }

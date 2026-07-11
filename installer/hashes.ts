@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { type ContextModule, type Profile } from "../schemas/context-profile.js";
 import { type Skill } from "../schemas/skill.js";
+import { type Agent } from "../schemas/agent.js";
 import { type ResolvedProfile } from "./resolve-dependencies.js";
 import { WORKSPACE_SCHEMA_VERSION } from "../schemas/workspace-manifest.js";
 
@@ -69,6 +70,17 @@ export async function hashWorkspaceInputs(
       if (resolved.reference.type === "context") {
         const context = resolved.artifact as ContextModule;
         return { content: context.content, id: context.id, type: "context" };
+      }
+      if (resolved.reference.type === "agent") {
+        const agent = resolved.artifact as Agent;
+        return {
+          dependencies: agent.dependencies,
+          description: agent.description,
+          id: agent.id,
+          requirements: agent.requirements,
+          role: agent.role,
+          type: "agent",
+        };
       }
       return { input: await skillInput(resolved.artifact as Skill), type: "skill" };
     }),

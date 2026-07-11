@@ -4,6 +4,7 @@ import {
 } from "../schemas/dependencies.js";
 import { type ContextModule, type Profile } from "../schemas/context-profile.js";
 import { type Skill } from "../schemas/skill.js";
+import { type Agent } from "../schemas/agent.js";
 
 export interface InclusionReason {
   readonly path: readonly ArtifactReference[];
@@ -11,7 +12,7 @@ export interface InclusionReason {
 }
 
 export interface ResolvedArtifact {
-  readonly artifact: ContextModule | Skill;
+  readonly artifact: Agent | ContextModule | Skill;
   readonly inclusionReasons: readonly InclusionReason[];
   readonly reference: ArtifactReference;
 }
@@ -19,30 +20,34 @@ export interface ResolvedArtifact {
 export interface ResolvedProfile {
   readonly artifacts: readonly ResolvedArtifact[];
   readonly contexts: readonly ContextModule[];
+  readonly agents: readonly Agent[];
   readonly profile: Profile;
   readonly skills: readonly Skill[];
 }
 
 interface MutableResolvedArtifact {
-  readonly artifact: ContextModule | Skill;
+  readonly artifact: Agent | ContextModule | Skill;
   readonly inclusionReasons: InclusionReason[];
   readonly reference: ArtifactReference;
 }
 
-type DependencyArtifact = (ContextModule | Skill) & {
+type DependencyArtifact = (Agent | ContextModule | Skill) & {
   readonly dependencies: readonly ArtifactReference[];
 };
 
 function artifactFor(
   reference: ArtifactReference,
+  agents: ReadonlyMap<string, Agent>,
   contexts: ReadonlyMap<string, ContextModule>,
   skills: ReadonlyMap<string, Skill>,
 ): DependencyArtifact {
-  const artifact = reference.type === "context"
-    ? contexts.get(reference.id)
-    : skills.get(reference.id);
+  const artifact = reference.type === "agent"
+    ? agents.get(reference.id)
+    : reference.type === "context"
+      ? contexts.get(reference.id)
+      : skills.get(reference.id);
   if (!artifact) {
-    const label = reference.type === "context" ? "Context Module" : "Skill";
+    const label = reference.type === "agent" ? "Agent" : reference.type === "context" ? "Context Module" : "Skill";
     throw new Error(`Dependency references missing ${label} '${reference.id}'`);
   }
   return artifact;
@@ -54,6 +59,7 @@ function compareReferences(left: ArtifactReference, right: ArtifactReference): n
 
 function rootReferences(profile: Profile): readonly ArtifactReference[] {
   return [
+    ...profile.agents.map((id) => ({ id, type: "agent" as const })),
     ...profile.context.map((id) => ({ id, type: "context" as const })),
     ...profile.skills.map((id) => ({ id, type: "skill" as const })),
   ];
@@ -66,12 +72,14 @@ function validationProfile(reference: ArtifactReference): Profile {
     hooks: [],
     id: "dependency-validation",
     skills: reference.type === "skill" ? [reference.id] : [],
+    ...(reference.type === "agent" ? { agents: [reference.id] } : {}),
     tools: [],
   };
 }
 
 export function resolveProfileDependencies(
   profile: Profile,
+  agents: ReadonlyMap<string, Agent>,
   contexts: ReadonlyMap<string, ContextModule>,
   skills: ReadonlyMap<string, Skill>,
 ): ResolvedProfile {
@@ -105,13 +113,13 @@ export function resolveProfileDependencies(
     }
     if (state === "resolved") {
       addReason(reference, reason);
-      const artifact = artifactFor(reference, contexts, skills);
+      const artifact = artifactFor(reference, agents, contexts, skills);
       for (const dependency of [...artifact.dependencies].sort(compareReferences)) {
         visit(dependency, { profileId: reason.profileId, path: [...reason.path, reference] });
       }
       return;
     }
-    const artifact = artifactFor(reference, contexts, skills);
+    const artifact = artifactFor(reference, agents, contexts, skills);
     states.set(key, "resolving");
     path.push(reference);
     for (const dependency of [...artifact.dependencies].sort(compareReferences)) {
@@ -133,6 +141,9 @@ export function resolveProfileDependencies(
   }
 
   return {
+    agents: ordered
+      .filter((resolved) => resolved.reference.type === "agent")
+      .map((resolved) => resolved.artifact as Agent),
     artifacts: ordered,
     contexts: ordered
       .filter((resolved) => resolved.reference.type === "context")
@@ -145,14 +156,16 @@ export function resolveProfileDependencies(
 }
 
 export function validateDependencyCatalog(
+  agents: ReadonlyMap<string, Agent>,
   contexts: ReadonlyMap<string, ContextModule>,
   skills: ReadonlyMap<string, Skill>,
 ): void {
   const references: ArtifactReference[] = [
+    ...[...agents.keys()].sort().map((id) => ({ id, type: "agent" as const })),
     ...[...contexts.keys()].sort().map((id) => ({ id, type: "context" as const })),
     ...[...skills.keys()].sort().map((id) => ({ id, type: "skill" as const })),
   ];
   for (const reference of references) {
-    resolveProfileDependencies(validationProfile(reference), contexts, skills);
+    resolveProfileDependencies(validationProfile(reference), agents, contexts, skills);
   }
 }

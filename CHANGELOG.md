@@ -8,6 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Added portable delegated Agent packages with enforced Codex execution requirements and Profile-local role configuration ([#8](https://github.com/kenneth-liao/agent-profile-kit/issues/8)).
 - Added typed, transitive cross-artifact Dependency resolution with deterministic plans and auditable Manifest inclusion reasons ([#7](https://github.com/kenneth-liao/agent-profile-kit/issues/7)).
 - Initialized the Agent Profile Kit monorepo structure.
 - Added the schema-versioned `agent-profile-kit init` CLI and npm executable contract ([#2](https://github.com/kenneth-liao/agent-profile-kit/issues/2)).
