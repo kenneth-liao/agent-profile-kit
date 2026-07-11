@@ -22,9 +22,12 @@ Use this workflow when helping a person author their Workspace.
    `id` frontmatter, standard Agent Skills rooted at `SKILL.md`, and flat
    Profiles with explicit arrays for every artifact category. A Skill's standard
    `name` is its Artifact ID; keep Agent Profile Kit-only metadata in the
-   optional `agent-profile-kit.yaml` sidecar. Codex plans mirror the complete
+   optional `agent-profile-kit.yaml` sidecar. Dependencies use explicit
+   `{ type, id }` references: Context Module Dependencies live in frontmatter
+   and Skill Dependencies live in the sidecar. Ensure the plan explains every
+   direct and transitive inclusion reason. Codex plans mirror the complete
    Workspace Skill catalog into the Agent Profile Kit-owned Codex Skill Library
-   and apply the Profile selection through a process-only filter. Run
+   and enable the Profile's resolved Skills through a process-only filter. Run
    `agent-profile-kit validate`, then `agent-profile-kit plan --profile <id>
    --host codex`; inspect the selected Context and Skills, library additions,
    changes and removals, destinations, and capability result before requesting

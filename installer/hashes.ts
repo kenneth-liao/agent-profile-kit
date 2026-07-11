@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { type ContextModule, type Profile } from "../schemas/context-profile.js";
 import { type Skill } from "../schemas/skill.js";
+import { type ResolvedProfile } from "./resolve-dependencies.js";
 import { WORKSPACE_SCHEMA_VERSION } from "../schemas/workspace-manifest.js";
 
 function sha256(source: string | Uint8Array): string {
@@ -61,29 +62,20 @@ export async function hashSkillCatalog(skills: ReadonlyMap<string, Skill>): Prom
 
 export async function hashWorkspaceInputs(
   profile: Profile,
-  contexts: ReadonlyMap<string, ContextModule>,
-  skills: ReadonlyMap<string, Skill>,
+  resolvedProfile: ResolvedProfile,
 ): Promise<string> {
-  const selectedContexts = profile.context.map((id) => {
-    const context = contexts.get(id);
-    if (!context) {
-      throw new Error(`Profile '${profile.id}' selects missing Context Module '${id}'`);
-    }
-    return { content: context.content, id: context.id };
-  });
-  const selectedSkills =
-    profile.skills.length === 0
-      ? undefined
-      : await Promise.all(
-          profile.skills.map((id) => {
-            const skill = skills.get(id);
-            if (!skill) throw new Error(`Profile '${profile.id}' selects missing Skill '${id}'`);
-            return skillInput(skill);
-          }),
-        );
+  const resolvedArtifacts = await Promise.all(
+    resolvedProfile.artifacts.map(async (resolved) => {
+      if (resolved.reference.type === "context") {
+        const context = resolved.artifact as ContextModule;
+        return { content: context.content, id: context.id, type: "context" };
+      }
+      return { input: await skillInput(resolved.artifact as Skill), type: "skill" };
+    }),
+  );
   return sha256(
     JSON.stringify({
-      context_modules: selectedContexts,
+      resolved_artifacts: resolvedArtifacts,
       profile: {
         agents: profile.agents,
         context: profile.context,
@@ -92,7 +84,6 @@ export async function hashWorkspaceInputs(
         skills: profile.skills,
         tools: profile.tools,
       },
-      ...(selectedSkills ? { skills: selectedSkills } : {}),
       workspace_schema_version: WORKSPACE_SCHEMA_VERSION,
     }),
   );

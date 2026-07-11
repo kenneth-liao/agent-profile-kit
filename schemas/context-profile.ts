@@ -1,6 +1,15 @@
 import { parse } from "yaml";
 
+import {
+  parseArtifactDependencies,
+  requireArtifactId,
+  type ArtifactReference,
+} from "./dependencies.js";
+
+export { requireArtifactId } from "./dependencies.js";
+
 export interface ContextModule {
+  readonly dependencies: readonly ArtifactReference[];
   readonly id: string;
   readonly content: string;
 }
@@ -12,17 +21,6 @@ export interface Profile {
   readonly agents: readonly string[];
   readonly hooks: readonly string[];
   readonly tools: readonly string[];
-}
-
-const ARTIFACT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
-export function requireArtifactId(value: unknown, description: string): string {
-  if (typeof value !== "string" || !ARTIFACT_ID.test(value)) {
-    throw new Error(
-      `${description} must be a lowercase kebab-case Artifact ID without wildcards`,
-    );
-  }
-  return value;
 }
 
 function requireExactFields(
@@ -80,13 +78,20 @@ export function parseContextModule(source: string, path: string): ContextModule 
     header,
     `Context Module ${path} frontmatter`,
   );
-  requireExactFields(mapping, ["id"], `Context Module ${path}`);
+  requireExactFields(mapping, ["id", "dependencies"], `Context Module ${path}`);
   const id = requireArtifactId(mapping.id, `Context Module ${path} id`);
   const content = source.slice(closing + delimiter.length);
   if (content.length === 0) {
     throw new Error(`Context Module ${path} must contain Context`);
   }
-  return { id, content };
+  return {
+    content,
+    dependencies: parseArtifactDependencies(
+      mapping.dependencies,
+      `Context Module ${path} dependencies`,
+    ),
+    id,
+  };
 }
 
 export function parseProfile(source: string, path: string): Profile {

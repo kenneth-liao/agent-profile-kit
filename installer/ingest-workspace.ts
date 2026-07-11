@@ -8,6 +8,7 @@ import {
   type Profile,
 } from "../schemas/context-profile.js";
 import { parseSkill, type Skill } from "../schemas/skill.js";
+import { resolveProfileDependencies, validateDependencyCatalog } from "./resolve-dependencies.js";
 import { validateWorkspaceStructure, workspacePath } from "./workspace.js";
 
 export interface Workspace {
@@ -108,6 +109,7 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
     );
   }
 
+  validateDependencyCatalog(contexts, skills);
   for (const profile of profiles.values()) {
     if (profile.context.length === 0) {
       throw new Error(
@@ -137,6 +139,7 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
         );
       }
     }
+    resolveProfileDependencies(profile, contexts, skills);
   }
 
   return { path, contexts, profiles, skills };
