@@ -1,7 +1,6 @@
 import {
   artifactReferenceKey,
   type ArtifactReference,
-  type ArtifactType,
 } from "../schemas/dependencies.js";
 import { type ContextModule, type Profile } from "../schemas/context-profile.js";
 import { type Skill } from "../schemas/skill.js";
@@ -71,10 +70,6 @@ function validationProfile(reference: ArtifactReference): Profile {
   };
 }
 
-function typeOf(artifact: ContextModule | Skill): ArtifactType {
-  return "content" in artifact ? "context" : "skill";
-}
-
 export function resolveProfileDependencies(
   profile: Profile,
   contexts: ReadonlyMap<string, ContextModule>,
@@ -126,7 +121,7 @@ export function resolveProfileDependencies(
     const resolved: MutableResolvedArtifact = {
       artifact,
       inclusionReasons: [reason],
-      reference: { id: artifact.id, type: typeOf(artifact) },
+      reference: { id: artifact.id, type: reference.type },
     };
     states.set(key, "resolved");
     artifacts.set(key, resolved);

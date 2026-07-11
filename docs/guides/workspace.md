@@ -26,8 +26,8 @@ assets remain ordinary standard Skill content. If a Skill needs Agent Profile
 Kit-only metadata, put it in an optional `agent-profile-kit.yaml` sidecar.
 
 Artifacts may declare required Dependencies with explicit typed references. Put
-Context Module Dependencies in their frontmatter and Skill Dependencies in its
-Agent Profile Kit sidecar. Each reference contains `type` (`context` or
+Context Module Dependencies in their frontmatter and Skill Dependencies in each
+Skill's Agent Profile Kit sidecar. Each reference contains `type` (`context` or
 `skill`) and its stable `id`. Dependencies are resolved transitively, so a
 Profile installs each resolved artifact once; `plan` shows every inclusion
 reason and the Installation Manifest records them.
@@ -37,7 +37,8 @@ Agent Profile Kit therefore transactionally mirrors every valid Workspace
 Skill into its dedicated `~/.agents/skills/agent-profile-kit/` Codex Skill
 Library. Standard Skill content is copied unchanged; the Agent Profile Kit
 sidecar is not copied. Managed launches pass a process-only filter that enables
-the Profile's selected library Skills and disables the other Agent Profile
+the Profile's resolved library Skills—its explicit selection plus transitive
+Dependencies—and disables the other Agent Profile
 Kit-managed library Skills. Ordinary Codex launches can discover the complete
 library. Agent Profile Kit never writes Codex configuration or changes existing
 user, project, admin, system, or plugin capabilities, and it refuses unowned

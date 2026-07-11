@@ -18,7 +18,7 @@ export interface ContextOnlyCodexPlan {
   readonly gitProvenance?: GitProvenance;
   readonly skillLibrary: CodexSkillLibraryPlan;
   readonly profile: Profile;
-  readonly resolvedProfile?: ResolvedProfile;
+  readonly resolvedProfile: ResolvedProfile;
   readonly workspaceInputHash: string;
 }
 

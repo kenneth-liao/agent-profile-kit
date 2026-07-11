@@ -27,7 +27,7 @@ Use this workflow when helping a person author their Workspace.
    and Skill Dependencies live in the sidecar. Ensure the plan explains every
    direct and transitive inclusion reason. Codex plans mirror the complete
    Workspace Skill catalog into the Agent Profile Kit-owned Codex Skill Library
-   and apply the Profile selection through a process-only filter. Run
+   and enable the Profile's resolved Skills through a process-only filter. Run
    `agent-profile-kit validate`, then `agent-profile-kit plan --profile <id>
    --host codex`; inspect the selected Context and Skills, library additions,
    changes and removals, destinations, and capability result before requesting

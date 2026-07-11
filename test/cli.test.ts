@@ -38,6 +38,7 @@ import {
   syncCodexSkillLibrary,
 } from "../installer/codex-skill-library.js";
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
+import { type ResolvedProfile } from "../installer/resolve-dependencies.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const cliPath = join(repositoryRoot, "dist", "cli.js");
@@ -144,6 +145,22 @@ function emptySkillLibraryPlan(home: string) {
       )
       .digest("hex")}`,
   } as const;
+}
+
+function contextOnlyResolution(
+  profile: ContextOnlyCodexPlan["profile"],
+): ResolvedProfile {
+  const contexts = profile.context.map((id) => ({ content: "", dependencies: [], id }));
+  return {
+    artifacts: contexts.map((context) => ({
+      artifact: context,
+      inclusionReasons: [{ path: [], profileId: profile.id }],
+      reference: { id: context.id, type: "context" as const },
+    })),
+    contexts,
+    profile,
+    skills: [],
+  };
 }
 
 function runCliAsync(home: string, ...arguments_: string[]) {
@@ -719,6 +736,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       destination,
       engineVersion: "0.test",
       profile,
+      resolvedProfile: contextOnlyResolution(profile),
       skillLibrary: emptySkillLibraryPlan(home),
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
@@ -804,6 +822,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       destination,
       engineVersion: "0.test",
       profile,
+      resolvedProfile: contextOnlyResolution(profile),
       skillLibrary: emptySkillLibraryPlan(home),
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
@@ -847,6 +866,14 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
+      resolvedProfile: contextOnlyResolution({
+        id: "coding",
+        context: ["team-rules"],
+        skills: [],
+        agents: [],
+        hooks: [],
+        tools: [],
+      }),
       skillLibrary: emptySkillLibraryPlan(home),
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     };
@@ -901,6 +928,14 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
+      resolvedProfile: contextOnlyResolution({
+        id: "coding",
+        context: ["team-rules"],
+        skills: [],
+        agents: [],
+        hooks: [],
+        tools: [],
+      }),
       skillLibrary: emptySkillLibraryPlan(home),
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
@@ -941,6 +976,14 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
         hooks: [],
         tools: [],
       },
+      resolvedProfile: contextOnlyResolution({
+        id: "coding",
+        context: ["team-rules"],
+        skills: [],
+        agents: [],
+        hooks: [],
+        tools: [],
+      }),
       skillLibrary: emptySkillLibraryPlan(home),
       workspaceInputHash: `sha256:${"a".repeat(64)}`,
     });
@@ -2298,29 +2341,33 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
 
   test("final uninstall cannot delete the shared library beneath a concurrent Profile install", async () => {
     const home = isolatedHome();
-    const makePlan = (profileId: string): ContextOnlyCodexPlan => ({
-      capability: { version: "codex-cli 0.test" },
-      context: `${profileId} Context.\n`,
-      destination: join(
-        home,
-        ".agents",
-        "agent-profile-kit",
-        "installations",
-        profileId,
-        "codex",
-      ),
-      engineVersion: "0.test",
-      profile: {
+    const makePlan = (profileId: string): ContextOnlyCodexPlan => {
+      const profile = {
         id: profileId,
         context: ["team-rules"],
         skills: [],
         agents: [],
         hooks: [],
         tools: [],
-      },
-      skillLibrary: emptySkillLibraryPlan(home),
-      workspaceInputHash: `sha256:${"a".repeat(64)}`,
-    });
+      };
+      return {
+        capability: { version: "codex-cli 0.test" },
+        context: `${profileId} Context.\n`,
+        destination: join(
+          home,
+          ".agents",
+          "agent-profile-kit",
+          "installations",
+          profileId,
+          "codex",
+        ),
+        engineVersion: "0.test",
+        profile,
+        resolvedProfile: contextOnlyResolution(profile),
+        skillLibrary: emptySkillLibraryPlan(home),
+        workspaceInputHash: `sha256:${"a".repeat(64)}`,
+      };
+    };
     await installContextOnlyCodex(makePlan("coding"));
     const review = makePlan("review");
     let releasePublication!: () => void;
@@ -2935,6 +2982,10 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       join(unselected, "SKILL.md"),
       "---\nname: write-release-notes\ndescription: Write release notes.\n---\n",
     );
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: write-release-notes\n",
+    );
     const nativeSkill = join(home, ".agents", "skills", "native-skill");
     mkdirSync(nativeSkill, { recursive: true });
     writeFileSync(
@@ -3004,7 +3055,7 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     expect(arguments_).toContain("developer_instructions=");
     expect(arguments_).toContain("Always preserve the project boundary.");
     expect(arguments_).toContain("review-pr/SKILL.md\",enabled=true");
-    expect(arguments_).toContain("write-release-notes/SKILL.md\",enabled=false");
+    expect(arguments_).toContain("write-release-notes/SKILL.md\",enabled=true");
     expect(arguments_).toContain("codex-skill-library/generations/");
     expect(arguments_).not.toContain(join(nativeSkill, "SKILL.md"));
     expect(arguments_).toContain('--config\nmodel_reasoning_effort = "high"\n');

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { type Profile } from "../schemas/context-profile.js";
+import { type ContextModule, type Profile } from "../schemas/context-profile.js";
 import { type Skill } from "../schemas/skill.js";
 import { type ResolvedProfile } from "./resolve-dependencies.js";
 import { WORKSPACE_SCHEMA_VERSION } from "../schemas/workspace-manifest.js";
@@ -66,10 +66,11 @@ export async function hashWorkspaceInputs(
 ): Promise<string> {
   const resolvedArtifacts = await Promise.all(
     resolvedProfile.artifacts.map(async (resolved) => {
-      if ("content" in resolved.artifact) {
-        return { content: resolved.artifact.content, id: resolved.artifact.id, type: "context" };
+      if (resolved.reference.type === "context") {
+        const context = resolved.artifact as ContextModule;
+        return { content: context.content, id: context.id, type: "context" };
       }
-      return { input: await skillInput(resolved.artifact), type: "skill" };
+      return { input: await skillInput(resolved.artifact as Skill), type: "skill" };
     }),
   );
   return sha256(
