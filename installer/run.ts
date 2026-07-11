@@ -93,12 +93,17 @@ export async function runContextOnlyCodex(
         libraryPath,
         librarySkills,
       );
-      for (const id of manifest.selectedArtifacts.skills) {
+      const resolvedSkillIds = manifest.resolvedArtifacts
+        ? manifest.resolvedArtifacts
+            .filter((artifact) => artifact.reference.type === "skill")
+            .map((artifact) => artifact.reference.id)
+        : manifest.selectedArtifacts.skills;
+      for (const id of resolvedSkillIds) {
         if (!librarySkills.has(id)) {
           throw new Error(`Installed Profile selects missing Codex Skill Library entry '${id}'`);
         }
       }
-      const selected = new Set(manifest.selectedArtifacts.skills);
+      const selected = new Set(resolvedSkillIds);
       const skillConfiguration = pinned.manifest.skills.map((id) => ({
         enabled: selected.has(id),
         path: join(pinned.lease.generation, id, "SKILL.md"),

@@ -1,8 +1,13 @@
 import { parse } from "yaml";
 
-import { requireArtifactId } from "./context-profile.js";
+import {
+  parseArtifactDependencies,
+  requireArtifactId,
+  type ArtifactReference,
+} from "./dependencies.js";
 
 export interface Skill {
+  readonly dependencies: readonly ArtifactReference[];
   readonly id: string;
   readonly path: string;
   readonly sidecar?: Record<string, unknown>;
@@ -75,11 +80,15 @@ export function parseSkill(
   if ("metadata" in header) requireMapping(header.metadata, `Skill ${path} metadata`);
   if ("allowed-tools" in header) requireString(header["allowed-tools"], `Skill ${path} allowed-tools`);
 
+  const parsedSidecar = sidecar === undefined
+    ? undefined
+    : requireMapping(parseYaml(sidecar, `Skill ${path} sidecar`), `Skill ${path} sidecar`);
   return {
+    dependencies: parseArtifactDependencies(parsedSidecar?.dependencies, `Skill ${path} dependencies`),
     id,
     path: sourcePath,
-    ...(sidecar !== undefined
-      ? { sidecar: requireMapping(parseYaml(sidecar, `Skill ${path} sidecar`), `Skill ${path} sidecar`) }
+    ...(parsedSidecar !== undefined
+      ? { sidecar: parsedSidecar }
       : {}),
   };
 }

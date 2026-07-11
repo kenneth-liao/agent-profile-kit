@@ -15,6 +15,7 @@ import { statusContextOnlyCodex } from "../installer/status.js";
 import { updateInstalledContextOnlyCodex } from "../installer/update.js";
 import { uninstallContextOnlyCodex } from "../installer/uninstall.js";
 import { requireArtifactId } from "../schemas/context-profile.js";
+import { artifactReferenceKey } from "../schemas/dependencies.js";
 
 function formatError(error: unknown): string {
   if (error instanceof AggregateError) {
@@ -75,6 +76,16 @@ async function main(): Promise<void> {
       throw new Error(`Unsupported Agent Host '${host}'`);
     }
     const plan = await planContextOnlyCodex(homedir(), profile);
+    const resolvedArtifacts = (plan.resolvedProfile?.artifacts ?? [])
+      .map((resolved) => {
+        const reasons = resolved.inclusionReasons.map((reason) =>
+          reason.path.length === 0
+            ? `selected by profile:${reason.profileId}`
+            : `required via ${reason.path.map(artifactReferenceKey).join(" -> ")} from profile:${reason.profileId}`,
+        );
+        return `  ${artifactReferenceKey(resolved.reference)} (${reasons.join("; ")})`;
+      })
+      .join("\n");
     process.stdout.write(
       `Profile: ${plan.profile.id}\n` +
         "Host: codex\n" +
@@ -86,6 +97,7 @@ async function main(): Promise<void> {
         `  Add: ${plan.skillLibrary.additions.length === 0 ? "(none)" : plan.skillLibrary.additions.join(", ")}\n` +
         `  Change: ${plan.skillLibrary.changes.length === 0 ? "(none)" : plan.skillLibrary.changes.join(", ")}\n` +
         `  Remove: ${plan.skillLibrary.removals.length === 0 ? "(none)" : plan.skillLibrary.removals.join(", ")}\n` +
+        `Resolved Artifacts:\n${resolvedArtifacts}\n` +
         "Context output:\n" +
         `${plan.context}\n`,
     );

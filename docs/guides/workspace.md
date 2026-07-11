@@ -25,6 +25,13 @@ hyphenated `name` and a non-empty `description`. Scripts, references, and
 assets remain ordinary standard Skill content. If a Skill needs Agent Profile
 Kit-only metadata, put it in an optional `agent-profile-kit.yaml` sidecar.
 
+Artifacts may declare required Dependencies with explicit typed references. Put
+Context Module Dependencies in their frontmatter and Skill Dependencies in its
+Agent Profile Kit sidecar. Each reference contains `type` (`context` or
+`skill`) and its stable `id`. Dependencies are resolved transitively, so a
+Profile installs each resolved artifact once; `plan` shows every inclusion
+reason and the Installation Manifest records them.
+
 Codex does not yet offer a supported process-scoped Skill discovery path.
 Agent Profile Kit therefore transactionally mirrors every valid Workspace
 Skill into its dedicated `~/.agents/skills/agent-profile-kit/` Codex Skill
@@ -44,8 +51,18 @@ carry Host settings.
 ```md
 ---
 id: engineering-rules
+dependencies:
+  - type: context
+    id: security-rules
 ---
 Keep project facts in the project repository.
+```
+
+```yaml
+# skills/review-pr/agent-profile-kit.yaml
+dependencies:
+  - type: skill
+    id: write-release-notes
 ```
 
 ```yaml

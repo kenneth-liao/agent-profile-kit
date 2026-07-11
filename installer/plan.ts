@@ -8,6 +8,7 @@ import { hashWorkspaceInputs } from "./hashes.js";
 import { ingestWorkspace } from "./ingest-workspace.js";
 import { ENGINE_VERSION } from "./version.js";
 import { planCodexSkillLibrary, type CodexSkillLibraryPlan } from "./codex-skill-library.js";
+import { resolveProfileDependencies, type ResolvedProfile } from "./resolve-dependencies.js";
 
 export interface ContextOnlyCodexPlan {
   readonly capability: CodexCapability;
@@ -17,6 +18,7 @@ export interface ContextOnlyCodexPlan {
   readonly gitProvenance?: GitProvenance;
   readonly skillLibrary: CodexSkillLibraryPlan;
   readonly profile: Profile;
+  readonly resolvedProfile?: ResolvedProfile;
   readonly workspaceInputHash: string;
 }
 
@@ -32,15 +34,10 @@ export function installationPath(home: string, profileId: string): string {
 }
 
 export function composeContext(
-  profile: Profile,
-  contexts: ReadonlyMap<string, ContextModule>,
+  contexts: readonly ContextModule[],
 ): string {
-  return profile.context
-    .map((id) => {
-      const context = contexts.get(id);
-      if (!context) {
-        throw new Error(`Profile '${profile.id}' selects missing Context Module '${id}'`);
-      }
+  return contexts
+    .map((context) => {
       const body = context.content.endsWith("\n")
         ? context.content
         : `${context.content}\n`;
@@ -58,7 +55,8 @@ export async function planContextOnlyCodex(
   if (!profile) {
     throw new Error(`Profile '${profileId}' does not exist in the Workspace`);
   }
-  const context = composeContext(profile, workspace.contexts);
+  const resolvedProfile = resolveProfileDependencies(profile, workspace.contexts, workspace.skills);
+  const context = composeContext(resolvedProfile.contexts);
   const skillLibrary = await planCodexSkillLibrary(home, workspace.skills);
   const capability = await detectCodexCapability();
   let currentGeneration: string | undefined;
@@ -86,7 +84,8 @@ export async function planContextOnlyCodex(
     engineVersion: ENGINE_VERSION,
     ...(gitProvenance ? { gitProvenance } : {}),
     profile,
+    resolvedProfile,
     skillLibrary,
-    workspaceInputHash: await hashWorkspaceInputs(profile, workspace.contexts, workspace.skills),
+    workspaceInputHash: await hashWorkspaceInputs(profile, resolvedProfile),
   };
 }

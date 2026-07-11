@@ -16,9 +16,9 @@ Running the command again against the valid Workspace is safe and reports it unc
 
 ## Codex Context and Skills tracer
 
-The Codex tracer supports Context Modules, standard Skill packages, and explicit
-flat Profiles. It mirrors the complete Workspace Skill catalog into an Agent
-Profile Kit-owned Codex Skill Library and applies Profile selection with a
+The Codex tracer supports Context Modules, standard Skill packages, explicit
+flat Profiles, and typed transitive Dependencies. It mirrors the complete
+Workspace Skill catalog into an Agent Profile Kit-owned Codex Skill Library and applies Profile selection with a
 process-only filter during managed launches. Existing user, project, admin,
 system, and plugin configuration and capabilities remain untouched.
 

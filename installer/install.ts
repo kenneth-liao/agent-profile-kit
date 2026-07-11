@@ -59,7 +59,18 @@ async function installationManifest(
     outputs: ["context.md"],
     profileId: plan.profile.id,
     selectedArtifacts: { context: plan.profile.context, skills: plan.profile.skills },
-    schemaVersion: 1,
+    ...(plan.resolvedProfile
+      ? {
+          resolvedArtifacts: plan.resolvedProfile.artifacts.map((resolved) => ({
+            reference: resolved.reference,
+            inclusionReasons: resolved.inclusionReasons.map((reason) => ({
+              path: reason.path,
+              profile: reason.profileId,
+            })),
+          })),
+          schemaVersion: 2 as const,
+        }
+      : { schemaVersion: 1 as const }),
     workspaceInputHash: plan.workspaceInputHash,
     ...(plan.gitProvenance ? { git: plan.gitProvenance } : {}),
   };

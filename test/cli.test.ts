@@ -1570,6 +1570,236 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
     expect(existsSync(codexInvocation)).toBe(false);
   });
 
+  test("a Profile plan includes a Context Module required by a selected Context Module", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    const workspace = workspacePath(home);
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies:\n  - type: context\n    id: security-rules\n---\nAlways preserve the project boundary.\n",
+    );
+    writeFileSync(
+      join(workspace, "context", "security-rules.md"),
+      "---\nid: security-rules\ndependencies:\n  - type: context\n    id: credential-rules\n---\nNever expose credentials.\n",
+    );
+    writeFileSync(
+      join(workspace, "context", "credential-rules.md"),
+      "---\nid: credential-rules\n---\nNever record credentials.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(
+      home,
+      { PATH: `${bin}:${process.env.PATH ?? ""}` },
+      "plan",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Resolved Artifacts:");
+    expect(result.stdout).toContain(
+      "context:credential-rules (required via context:team-rules -> context:security-rules from profile:coding)",
+    );
+    expect(result.stdout).toContain("<!-- Context Module: credential-rules -->");
+  });
+
+  test("a Profile plan explains every inclusion path through a dependency diamond once", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    const workspace = workspacePath(home);
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies:\n  - type: context\n    id: security-rules\n---\nTeam rules.\n",
+    );
+    writeFileSync(
+      join(workspace, "context", "release-rules.md"),
+      "---\nid: release-rules\ndependencies:\n  - type: context\n    id: security-rules\n---\nRelease rules.\n",
+    );
+    writeFileSync(
+      join(workspace, "context", "security-rules.md"),
+      "---\nid: security-rules\ndependencies:\n  - type: context\n    id: credential-rules\n---\nSecurity rules.\n",
+    );
+    writeFileSync(
+      join(workspace, "context", "credential-rules.md"),
+      "---\nid: credential-rules\n---\nCredential rules.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\n  - release-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(
+      home,
+      { PATH: `${bin}:${process.env.PATH ?? ""}` },
+      "plan",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.match(/^  context:security-rules /gm)).toHaveLength(1);
+    expect(result.stdout).toContain(
+      "context:security-rules (required via context:team-rules from profile:coding; required via context:release-rules from profile:coding)",
+    );
+    expect(result.stdout).toContain(
+      "context:credential-rules (required via context:team-rules -> context:security-rules from profile:coding; required via context:release-rules -> context:security-rules from profile:coding)",
+    );
+  });
+
+  test("invalid dependency relationships fail during Host-independent validation", () => {
+    const invalidDependencies = [
+      {
+        name: "cycle",
+        context: "---\nid: team-rules\ndependencies:\n  - type: context\n    id: security-rules\n---\nTeam rules.\n",
+        extraContext: "---\nid: security-rules\ndependencies:\n  - type: context\n    id: team-rules\n---\nSecurity rules.\n",
+        expected: "Dependency cycle:",
+      },
+      {
+        name: "missing target",
+        context: "---\nid: team-rules\ndependencies:\n  - type: context\n    id: missing-rules\n---\nTeam rules.\n",
+        expected: "Dependency references missing Context Module 'missing-rules'",
+      },
+      {
+        name: "cross-type target",
+        context: "---\nid: team-rules\ndependencies:\n  - type: skill\n    id: shared-rules\n---\nTeam rules.\n",
+        extraContext: "---\nid: shared-rules\n---\nContext with the same ID.\n",
+        expected: "Dependency references missing Skill 'shared-rules'",
+      },
+      {
+        name: "unsupported type",
+        context: "---\nid: team-rules\ndependencies:\n  - type: agent\n    id: reviewer\n---\nTeam rules.\n",
+        expected: "type must be one of: context, skill",
+      },
+    ];
+
+    for (const definition of invalidDependencies) {
+      const home = isolatedHome();
+      expect(runCli(home, "init").status).toBe(0);
+      const workspace = workspacePath(home);
+      writeFileSync(join(workspace, "context", "team-rules.md"), definition.context);
+      writeFileSync(
+        join(workspace, "profiles", "coding.yaml"),
+        "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      );
+      if (definition.extraContext) {
+        writeFileSync(join(workspace, "context", "security-rules.md"), definition.extraContext);
+      }
+
+      const result = runCli(home, "validate");
+
+      expect(result.status, `${definition.name}: ${result.stderr}`).toBe(1);
+      expect(result.stderr).toContain(definition.expected);
+    }
+  });
+
+  test("Host-independent validation rejects an invalid unselected Artifact", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeContextOnlyProfile(home);
+    writeFileSync(
+      join(workspacePath(home), "context", "unused-rules.md"),
+      "---\nid: unused-rules\ndependencies:\n  - type: skill\n    id: missing-skill\n---\nUnused rules.\n",
+    );
+
+    const result = runCli(home, "validate");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Dependency references missing Skill 'missing-skill'");
+  });
+
+  test("equivalent dependency declarations produce stable resolution order", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    const workspace = workspacePath(home);
+    const teamRules = (dependencies: string) =>
+      `---\nid: team-rules\ndependencies:\n${dependencies}---\nTeam rules.\n`;
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      teamRules("  - type: context\n    id: release-rules\n  - type: context\n    id: security-rules\n"),
+    );
+    writeFileSync(join(workspace, "context", "release-rules.md"), "---\nid: release-rules\n---\nRelease rules.\n");
+    writeFileSync(join(workspace, "context", "security-rules.md"), "---\nid: security-rules\n---\nSecurity rules.\n");
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+    const environment = { PATH: `${bin}:${process.env.PATH ?? ""}` };
+    const first = runCliWithEnvironment(home, environment, "plan", "--profile", "coding", "--host", "codex");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      teamRules("  - type: context\n    id: security-rules\n  - type: context\n    id: release-rules\n"),
+    );
+    const second = runCliWithEnvironment(home, environment, "plan", "--profile", "coding", "--host", "codex");
+
+    expect(first.status, first.stderr).toBe(0);
+    expect(second.status, second.stderr).toBe(0);
+    expect(second.stdout).toBe(first.stdout);
+  });
+
+  test("a user can resolve same-ID Context Modules and Skills as distinct typed Artifacts", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    const workspace = workspacePath(home);
+    writeFileSync(
+      join(workspace, "context", "shared.md"),
+      "---\nid: shared\n---\nShared Context.\n",
+    );
+    const sharedSkill = join(workspace, "skills", "shared");
+    mkdirSync(sharedSkill);
+    writeFileSync(
+      join(sharedSkill, "SKILL.md"),
+      "---\nname: shared\ndescription: Shared Skill.\n---\n\n# Shared\n",
+    );
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: shared\n",
+    );
+
+    const result = runCli(home, "validate");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Workspace valid");
+  });
+
   test("a user can select a standard Skill by its name without detecting Codex", () => {
     const home = isolatedHome();
     expect(runCli(home, "init").status).toBe(0);
@@ -1654,6 +1884,67 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       ),
     ).toBe(false);
     expect(existsSync(join(home, ".agents", "skills", "agent-profile-kit"))).toBe(false);
+  });
+
+  test("an Installation Manifest records resolved dependencies and their inclusion reasons", () => {
+    const home = isolatedHome();
+    expect(runCli(home, "init").status).toBe(0);
+    writeProfileWithSkill(home);
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: context\n    id: review-rules\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "context", "review-rules.md"),
+      "---\nid: review-rules\n---\nReview every changed line.\n",
+    );
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "codex"),
+      "#!/bin/sh\n" +
+        "if [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.test\\n'; exit 0; fi\n" +
+        "if [ \"$1\" = \"debug\" ] && [ \"$2\" = \"prompt-input\" ]; then printf '[{\\\"role\\\":\\\"developer\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"agent-profile-kit capability probe\\\"}]}]\\n'; exit 0; fi\n" +
+        "exit 1\n",
+    );
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const result = runCliWithEnvironment(
+      home,
+      { PATH: `${bin}:${process.env.PATH ?? ""}` },
+      "install",
+      "--profile",
+      "coding",
+      "--host",
+      "codex",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    const manifest = parse(
+      readFileSync(
+        join(home, ".agents", "agent-profile-kit", "installations", "coding", "codex", "installation.yaml"),
+        "utf8",
+      ),
+    ) as { resolved_artifacts?: unknown };
+    expect(manifest.resolved_artifacts).toEqual([
+      {
+        type: "context",
+        id: "team-rules",
+        inclusion_reasons: [{ profile: "coding", path: [] }],
+      },
+      {
+        type: "context",
+        id: "review-rules",
+        inclusion_reasons: [
+          { profile: "coding", path: [{ type: "skill", id: "review-pr" }] },
+        ],
+      },
+      {
+        type: "skill",
+        id: "review-pr",
+        inclusion_reasons: [{ profile: "coding", path: [] }],
+      },
+    ]);
   });
 
   test("installation mirrors every Workspace Skill byte-for-byte without sidecars or unrelated global changes", async () => {
@@ -2493,13 +2784,20 @@ describe("agent-profile-kit Context-only Codex Profile", () => {
       "<!-- Context Module: team-rules -->",
     );
     expect(parse(readFileSync(join(installation, "installation.yaml"), "utf8"))).toEqual({
-      schema_version: 1,
+      schema_version: 2,
       profile_id: "coding",
       host_id: "codex",
       host_version: "codex-cli 0.test",
       adapter_version: packageManifest.version,
       engine_version: packageManifest.version,
       selected_artifacts: { context: ["team-rules"], skills: [] },
+      resolved_artifacts: [
+        {
+          type: "context",
+          id: "team-rules",
+          inclusion_reasons: [{ profile: "coding", path: [] }],
+        },
+      ],
       outputs: ["context.md"],
       workspace_input_hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
       output_hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),

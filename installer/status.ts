@@ -5,6 +5,7 @@ import { hasErrorCode } from "./fs-error.js";
 import { hashOutputDirectory, hashSkillCatalog, hashWorkspaceInputs } from "./hashes.js";
 import { ingestWorkspace } from "./ingest-workspace.js";
 import { installationPath } from "./plan.js";
+import { resolveProfileDependencies } from "./resolve-dependencies.js";
 import { parseInstallationManifest } from "../schemas/installation-manifest.js";
 import {
   codexSkillLibraryPath,
@@ -93,7 +94,10 @@ export async function statusContextOnlyCodex(
   const profile = workspace.profiles.get(profileId);
   if (
     !profile ||
-    (await hashWorkspaceInputs(profile, workspace.contexts, workspace.skills)) !==
+    (await hashWorkspaceInputs(
+      profile,
+      resolveProfileDependencies(profile, workspace.contexts, workspace.skills),
+    )) !==
       manifest.workspaceInputHash
   ) {
     statuses.unshift("stale source");
