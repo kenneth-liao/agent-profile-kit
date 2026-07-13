@@ -1,195 +1,142 @@
 # Agent Profile Kit Architecture
 
-This document describes the agreed target architecture. The repository is still being migrated toward this model.
+This document describes the agreed target architecture. The repository is being migrated from the superseded per-session overlay implementation.
 
 ## Purpose
 
-Agent Profile Kit is an open-source, user-agnostic tool and format. Each user owns an independent Workspace containing personal, cross-project Skills and related material composed into Profiles. Codex, Claude Code, Gemini, OpenCode, Pi, and other supported Agent Hosts consume derived Profile Installations while project-specific knowledge remains owned by each project repository.
+Agent Profile Kit is an open-source, user-agnostic tool and format for defining portable Profiles once and installing them into local projects for supported Agent Hosts. Hosts load the generated material through their native project discovery; Agent Profile Kit does not participate when a Host session runs.
 
-The tool repository owns the CLI, schemas, Installer, Adapters, and product documentation. It does not own a user's canonical artifacts. The current repository's personal and reusable artifact collection is legacy migration input that must be classified before public release.
+The tool repository owns the CLI, schemas, Installer, Adapters, and product documentation. Each user owns an independent Workspace containing reusable cross-project material. Each project repository remains authoritative for its own facts and configuration.
 
-## Workspace Boundary
-
-The default application root separates canonical user content from generated state:
+## Application Boundary
 
 ```text
 ~/.agents/agent-profile-kit/
-├── workspace/                 # User-owned canonical source
+├── workspace/                 # User-owned canonical Profiles and artifacts
 │   ├── workspace.yaml
-│   ├── README.md
-│   ├── AGENTS.md
 │   ├── profiles/
 │   ├── context/
 │   ├── skills/
 │   ├── agents/
 │   ├── hooks/
 │   └── tools/
-└── installations/             # Agent Profile Kit-owned disposable output
-    └── <profile-id>/<host-id>/
-
-~/.agents/skills/
-└── agent-profile-kit@         # Atomic pointer to the current Codex Skill Library generation
+├── config.yaml                # Machine-local Project Bindings
+└── state/                     # Disposable installation index and staging state
 ```
 
-The initial release supports exactly one Workspace per user at the fixed path above. It has no public Workspace path override, registry, or project-specific Workspace selection. The Workspace may be a private or public Git repository version-controlled independently of Agent Profile Kit, but Git is not required. Repository visibility and content review are the user's responsibility; Agent Profile Kit provides only a brief reminder to review personal material before publishing and does not scan, classify, or block Workspace publication. Credential values remain invalid regardless of repository visibility. Backups include `workspace/`; `installations/` can always be regenerated.
+The initial release supports exactly one Workspace at the fixed path above. The path may itself be a symbolic link to a valid Workspace. Profiles and artifacts may be version-controlled independently of the engine. `config.yaml` is machine-local because checkout paths and installed Hosts vary by machine. Credential values belong in Host authentication, environment references, or operating-system secret storage and are invalid in both the Workspace and installation records.
 
-The fixed Workspace path may be a symbolic link to a valid Workspace stored elsewhere. The fixed path remains the only public lookup location; the link does not introduce a Workspace registry or alternate selection mechanism.
+`agent-profile-kit init` idempotently creates both an empty, structurally valid Workspace and a minimal `config.yaml` containing `schema_version: 1` and `bindings: []`. It creates only missing files and never overwrites an existing Workspace or local configuration. Humans and agents edit Workspace artifacts and Project Bindings directly; the CLI does not duplicate those facts behind CRUD commands.
 
-### Initialization and guidance
+## Runtime Boundary
 
-`agent-profile-kit init` creates an empty, structurally valid Workspace. `workspace.yaml` marks the root and schema version; empty artifact directories provide the authoring locations. The command does not install personal material, starter Skills, or a sample Profile.
-
-The schema version identifies the complete Workspace Manifest shape. Unknown fields are rejected so misspellings cannot silently enter the trusted model; adding a manifest field requires a new schema version and the explicit migration path described below.
-
-The generated `README.md` and `AGENTS.md` are short bootstrap pointers rather than copies of maintained product instructions. Human guidance comes from `agent-profile-kit guide`; agent-oriented authoring guidance comes from `agent-profile-kit guide --agent`. The agent guide combines current schemas and examples with an actionable workflow: inspect the Workspace, elicit the user's session needs one decision at a time, create the smallest useful Profile and artifacts, preserve artifact boundaries, exclude credentials and project facts, validate, produce a Host-specific plan, and obtain direction before an unrequested installation. Both guides are bundled documentation resources printed by the CLI rather than duplicated hardcoded text. The `init` result prints both the manual next step and a ready-to-use prompt telling an agent to run the agent guide. A globally installed management Skill is therefore optional future convenience rather than a bootstrap dependency.
-
-Humans and agents edit Workspace files directly. The initial CLI does not provide a parallel CRUD interface for creating or editing every artifact type; it owns initialization, current guidance, validation, planning, installation lifecycle, status, and launching. A management Skill is out of scope for the initial release because it would duplicate CLI guidance and require Host-specific bootstrapping and version synchronization.
-
-Initialization is non-destructive and idempotent. A missing Workspace is created; an existing valid Workspace is reported unchanged; a non-empty directory without a valid Workspace Manifest is rejected. `init` never overwrites Workspace files or Git state and initially has no force mode. Workspace schema changes use a separate explicit migration operation.
-
-Initialization creates a Git-friendly `.gitignore` and prints optional commands for initializing a repository, but it does not run Git, create commits, configure remotes, or require Git.
-
-## Source and Runtime Boundary
-
-Agent Profile Kit participates when a Profile Installation is created or updated and when its transparent launcher starts an Agent Host. Agent Hosts use generated Profile Installations and explicitly owned Host projections at runtime and never load canonical files from the canonical Workspace.
+Agent Profile Kit participates only during explicit reconciliation:
 
 ```mermaid
 flowchart LR
-    E["Open-source engine"] --> I["Installer"]
-    S["User Workspace"] --> I
-    E --> A["Host Adapter"]
-    I --> A
-    A --> H["Profile Installation"]
-    H --> L["Transparent launcher"]
-    L --> R["Agent Host runtime"]
+    W["Workspace Profiles"] --> I["Installer"]
+    B["Machine-local Project Bindings"] --> I
+    I --> A["Host Adapters"]
+    A --> O["Normalized project output set"]
+    O --> P["Profile Installation"]
+    P --> H["Native Host project loading"]
 ```
 
-Runtime interaction, including Hook event data and Tool calls, stays between the Agent Host and locally installed components.
+There is no Agent Profile Kit launcher, session router, global Skill projection, background watcher, or runtime daemon. A project has at most one bound Profile at a time. All sessions launched in that project receive the same installed Profile, and simultaneous session-specific Profiles in one project are intentionally unsupported.
+
+## Project Bindings
+
+A Project Binding associates exactly one explicit project root with one Profile and a set of Agent Hosts:
+
+```yaml
+schema_version: 1
+bindings:
+  - project: ~/projects/tools/agent-profile-kit
+    profile: engineering
+    hosts:
+      - codex
+      - claude-code
+  - project: ~/projects/business/customer-portal
+    profile: engineering
+    hosts:
+      - codex
+      - claude-code
+```
+
+Every `project` is an explicit existing directory that the user declares to be the project root. Paths must be absolute or begin with `~/`; other relative paths are invalid. Home-relative paths and symbolic links are normalized once at ingestion to a canonical absolute directory, which is used for identity and installation state while the authored spelling remains available for display. Wildcards, directory scans, and implicit parent-root detection are unsupported. A canonical project root may appear in exactly one binding; duplicates are invalid regardless of whether their Profile and Hosts agree.
+
+Git is optional. When a project is not a Git working tree, native Codex discovery can guarantee the installed project Context and Skills only when Codex starts in the exact bound root; starting it in a descendant is unsupported because Codex has no repository boundary to search toward. Claude Code may discover parent configuration, but the cross-Host contract retains the stricter launch-from-root rule. `validate`, `preview`, `status`, and `apply` surface this constraint for non-Git projects.
+
+The initial commands operate on the complete desired state:
+
+- `validate` checks the Workspace and Project Bindings.
+- `preview` shows additions, updates, removals, unchanged installations, and blocking conflicts without writing.
+- `apply` reconciles every binding.
+- `status` reports current, stale, drifted, and missing installations.
+- `uninstall` safely removes all owned Profile Installations without deleting the Workspace or bindings.
+
+There are no per-Profile filters or parallel binding-edit commands in the initial release.
 
 ## Canonical Model
 
-```mermaid
-flowchart TD
-    P["Profile"] --> S["Skills"]
-    P --> C["Context Modules"]
-    P --> A["Agents"]
-    P --> H["Hooks"]
-    P --> T["Tools"]
+Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. They contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
 
-    S --> D["Dependencies"]
-    A --> D
-    H --> D
-    T --> D
+Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
-    D --> V["Validated installation plan"]
-    V --> AD["Host Adapter"]
-    AD --> HI["Transactional Profile Installation"]
-```
+Skills conform to the portable subset of the Agent Skills standard. Standard Skill content is copied unchanged. Agents, Hooks, and Tools retain their portable canonical definitions and are accepted for a Host only when its Adapter can preserve their required semantics.
 
-### Skills
+Dependencies are explicit typed references. The Installer resolves them transitively, installs each Artifact ID once, and records every inclusion reason. A duplicate Host-visible artifact identity outside the owned output is a conflict rather than an implicit precedence rule.
 
-Skills are the canonical reusable workflow unit and conform to the portable subset of the Agent Skills open standard. Standard Skill content is installed unchanged. Agent Profile Kit-only orchestration metadata may live in an optional `agent-profile-kit.yaml` sidecar.
+## Adapter Boundary
 
-Commands are host-specific ways to activate Skills and never own workflow instructions.
+Each supported Agent Host has one Adapter that owns its native paths, formats, discovery behavior, version detection, and Capability Contract. An Adapter is a pure planner: it returns exact proposed files, bytes, modes, and semantic requirements but does not write to the filesystem.
 
-### Agents
+The Installer normalizes all Adapter plans for one project into a single output set:
 
-Agents are reusable delegated workers authored as portable `AGENT.md` packages. They own host-independent behavioral and safety requirements. Adapters render them into native Agent formats and must enforce required boundaries or reject installation.
+- Identical path, type, mode, and bytes are coalesced and record every consuming Host.
+- Any disagreement for the same path fails during `preview`.
+- Paths that escape the project root are invalid.
+- Tracked paths and occupied unowned paths are conflicts.
+- The Installer owns complete generated files and artifact directories, never selected fields inside another owner's file.
 
-### Hooks
+This makes shared Host paths emerge from exact output equality rather than a maintained compatibility table or Adapter-to-Adapter coordination.
 
-Hooks define portable lifecycle intent and a required observational, advisory, enforcing, or transforming effect. Adapters generate native Hook configuration and any minimal glue needed by the target Host. Runtime events interact only with the installed Hook handler.
+An Adapter rejects a Profile when the detected Host version or project surface cannot preserve every selected artifact. Nothing is silently omitted or weakened. Host authentication, project trust, and approval flows remain native concerns; Agent Profile Kit never writes global trust or authentication state.
 
-### Context
+## Initial Adapter Mappings
 
-Context Modules contain small, reusable sets of always-loaded facts, preferences, and standing rules. Profiles compose Context Modules; procedural workflows belong in Skills, and large on-demand knowledge belongs in Skill resources or Tools.
+The first project-bound release supports Codex CLI and Claude Code CLI on macOS with Context and Skills only. Profiles selecting Agents, Hooks, or Tools are rejected until those artifact categories receive dedicated capability work.
 
-Agent Profile Kit composes Context deterministically and preserves module boundaries or source labels, but does not define a semantic precedence system or resolve contradictions. The active Agent Host and user handle contextual conflicts.
+### Codex
 
-### Tools
+The Codex Adapter generates the composed Context snapshot under an owned `.agent-profile-kit/codex/` path and an owned project `.codex/hooks.json`. A native `SessionStart` Hook prints the snapshot for `startup`, `resume`, `clear`, and `compact`, which Codex adds as extra developer Context. In Git projects the command resolves the snapshot from `git rev-parse --show-toplevel`; in non-Git projects it uses a project-relative path under the launch-from-root contract. The command embeds no absolute project path and needs no generated helper script. Repository `AGENTS.md` files and global instructions remain live and untouched. The generated Hook requires Codex's native review and trust, and Context is unsupported when Hooks are disabled or the required whole-file path is occupied.
 
-Agent Tools are model-callable and use focused MCP servers as their default portable interface. Internal Utilities remain ordinary executables or libraries. Single-Skill scripts remain Skill Resources, and host-provided functionality is an External Capability rather than an Agent Profile Kit Tool.
+Portable Skills are copied beneath the native project `.agents/skills/<artifact-id>/` discovery tree. Existing Skills with colliding Artifact IDs are rejected.
 
-### Profiles
+### Claude Code
 
-Profiles are explicit, flat selections of canonical Context, Skills, Agents, Hooks, and Tools for a kind of work, such as coding, research, or personal assistance. Profiles have no inheritance, select stable Artifact IDs, and may coexist across simultaneous Agent Host sessions. They do not abstract general Host settings such as model selection, reasoning level, theme, sandbox mode, telemetry, or session behavior.
+The Claude Code Adapter writes composed Context to the reserved `.claude/rules/agent-profile-kit/profile.md` project-rules subtree. The rule has no path frontmatter, so Claude loads it unconditionally and re-injects it after compaction while leaving `CLAUDE.md`, `CLAUDE.local.md`, other project rules, and user rules untouched.
 
-A Profile is explicitly selected and applied when launching an Agent Host. The initial design has no default Profile. An Adapter chooses the smallest supported native delivery mechanism for each artifact category; the resulting session must still observe exactly the selected Agent Profile Kit material. The Host's ordinary global and project configuration remains in effect and remains user-owned. Agent Profile Kit guarantees that one managed session does not receive Agent Profile Kit material selected only by another Profile; it does not suppress unrelated global or project customization.
+Portable Skills are copied beneath `.claude/skills/<artifact-id>/`. Existing Skills with colliding Artifact IDs are rejected.
 
-Canonical Profiles are flat YAML files under the Workspace's `profiles/`. Each declares its stable Profile ID and explicit Context, Skill, Agent, Hook, and Tool selections. Profiles have no inheritance, inclusions, wildcards, or Host-specific settings.
+## Reconciliation and Ownership
 
-Generated Profile Installations are persistent mutable directories under `~/.agents/agent-profile-kit/installations/<profile-id>/<host-id>/`. They are self-contained by default. A Host Adapter may additionally own a shared disposable projection when the Host cannot discover an artifact category from a Profile Installation. An explicit `install` creates one Host/Profile pair and synchronizes required shared output, while `update` regenerates the already-installed set and shared output recorded by manifests. Launching never installs, updates, or checks the canonical source for staleness.
+`preview` builds and validates the entire desired output for every bound project before `apply` writes anything. A predictable conflict in any project blocks all writes. Once preflight succeeds, each project is updated transactionally. An unexpected filesystem failure may leave later projects unapplied; the command reports the exact completed and pending set, and rerunning `apply` converges safely.
 
-Source-dependent operations such as `install`, `update`, and source comparison always read the fixed canonical Workspace and can run from any directory. `run`, installation-only status checks, and `uninstall` can also run anywhere. Only the Host launched by `run` interprets the current working directory as its project. Uninstall removes a whole Profile Installation only after its Manifest confirms the expected Profile and Host identity.
+One machine-local Installation Manifest records each project's selected Profile, Hosts, Adapter and engine versions, resolved artifacts, deterministic source hash, and every owned output hash. A minimal `.agent-profile-kit/installation.json` marker travels with the project and links it to that record through an opaque installation ID. The Installer creates the marker during the first successful project transaction; it is lifecycle metadata rather than Adapter output. Together the marker and record prove ownership across a project-folder move without becoming a second source of desired state. Bindings remain authoritative.
 
-The launcher preserves the working directory, passes native Host arguments through unchanged, adds only the selected Profile's per-process integration, and then replaces itself with the native Host process. It does not modify shell configuration, intercept native Host commands, manage sessions, or suppress global and project customization. Each Adapter owns both generation and final native command construction for its Host.
+When a configured project moves, its marker lets reconciliation update the recorded path. If a copied project creates the same installation ID at two existing roots, reconciliation fails instead of silently adopting either copy. A missing or modified marker is drift. At the Manifest's recorded path, `apply` may restore a missing marker only when the record and every remaining output hash independently prove the installation; at a different path, the missing identity cannot prove a move and installation fails.
 
-## Installation Pipeline
+When a binding, Host, project, or artifact disappears, `apply` removes the no-longer-desired output only after its Manifest, Installation Marker, and current hashes prove ownership. Modified generated files are reported as drift and are never overwritten or removed silently.
 
-```mermaid
-flowchart LR
-    P["Profile roots"] --> D["Resolve and deduplicate Dependencies"]
-    D --> V["Validate source and requirements"]
-    V --> C["Check Adapter Capability Contract"]
-    C --> PL["Produce read-only plan"]
-    PL --> ST["Generate staged installation"]
-    ST --> AP["Apply with rollback"]
-    AP --> M["Write Installation Manifest last"]
-```
+Generated project paths remain untracked. For Git projects, Agent Profile Kit manages only its marked, exact entries in the repository-local Git exclusion file and never edits shared `.gitignore`. A tracked destination or an occupied unowned path blocks installation. Non-Git directories require no exclusion management and follow the stricter native discovery contract described above.
 
-Each `~/.agents/agent-profile-kit/installations/<profile-id>/<host-id>/` installation root has one Installation Manifest covering that one Profile's generated output. The entire root is Agent Profile Kit-owned and disposable. The Manifest records the Profile ID, Host and Adapter version, Agent Profile Kit version, selected artifacts and resolved dependencies, schema version, a deterministic hash of every resolved Workspace input, and a hash of the complete generated installation. If the Workspace uses Git, its commit SHA and dirty state are recorded as informational provenance only; the input hash determines freshness. Updates stage and validate a complete replacement instead of tracking ownership file by file.
+For a bound Git working tree, all existing worktrees of the same repository are reconciled during `apply` using Git's authoritative worktree list. This is deliberate repository expansion rather than path matching. Untracked generated files do not appear automatically in a later worktree, so a new worktree requires another `apply` before its sessions are guaranteed to receive the Profile. No Git hook, watcher, or Host-specific background integration is installed to hide this limitation.
 
-The Codex Skill Library discovered at `~/.agents/skills/agent-profile-kit/` has a separate whole-tree ownership Manifest because it serves every installed Codex Profile. It is a byte-preserving projection of the complete valid Workspace Skill catalog, excluding Agent Profile Kit sidecars. Synchronization stages and validates an immutable generation under `~/.agents/agent-profile-kit/codex-skill-library/generations/`, then atomically replaces the discovery symlink. Prior generations remain readable until no Profile or active run depends on them, so ordinary Codex readers never observe a partially replaced or temporarily missing library. Each managed run resolves the discovery pointer and passes filter paths for that immutable generation. The native process holds a kernel-backed lease file through `lockf`, so update cannot change its Skills and a killed wrapper cannot orphan a live or permanently stale logical lease. Final uninstall fails while a run is active and prunes lease files whose kernel lock proves the process has ended. A kernel-backed lifecycle lock covers shared synchronization, leases, Profile publication, dependency enumeration, and removal; the operating system releases it automatically on a crash. An existing destination without the expected owned generation pointer, or an existing Codex Skill outside the library with a colliding Artifact ID, is rejected before any write. Conflict checks cover Codex's user, repository (including the native launch directory), admin, and system discovery scopes; plugin Skill names are Host-namespaced and cannot collide with portable Artifact IDs. Uninstall removes the discovery pointer and generations only after the final dependency ends and only when ownership is still provable.
+## Freshness and Versioning
 
-`validate` checks the Workspace independently of a Host. `plan --profile <id> --host <id>` is read-only: it resolves dependencies, checks the Adapter Capability Contract, compares desired output with the existing installation, and reports additions, changes, removals, destinations, and failures. `install` consumes the same plan before applying it so preview and write behavior cannot diverge.
-
-Updates are explicit. Status reporting distinguishes Profile Installation freshness and drift from shared Codex Skill Library freshness and drift.
-
-## Versioning
-
-Agent Profile Kit uses one semantic version for its Installer, schemas, and Adapters. Installation Manifests also record the deterministic Workspace input hash, optional Git provenance, and structured-file schema version. Canonical artifacts are not independently versioned until they need to be published or consumed outside the Workspace.
-
-## Host Boundary
-
-Each supported Agent Host has one Adapter that owns all knowledge of that Host: paths, discovery, schemas, event mappings, native bundle formats, configuration, feature detection, and compatibility behavior.
-
-Adapters are one-way. They generate and launch from Workspace source but do not scan or import existing global Host configuration. Initial Workspace creation is clean, and migration of this repository's existing artifact collection is a one-time project task rather than a permanent reverse-translation feature.
-
-Plugins and extensions are generated Host Bundles. They are disposable outputs rather than canonical sources.
-
-The initial implementation supports the Codex CLI and Claude Code CLI on macOS only. Codex desktop, Codex IDE extensions, non-CLI Claude surfaces, Linux, and Windows remain unsupported until their own Capability Contracts and platform behavior are implemented. Each Adapter must prove, with two concurrent sessions using distinct Profile markers, that each process receives only its selected Profile while retaining ordinary global and project configuration. The test must also verify that shared Host configuration is unchanged and native arguments, authentication, and session handling still work. A Host that cannot pass is unsupported rather than silently receiving weaker isolation. Other Agent Hosts remain intended targets but are unsupported until they have an Adapter and Capability Contract.
-
-An update guarantees the new installation for sessions launched afterward. Already-running sessions follow native Host reload behavior; Agent Profile Kit does not restart sessions, pin old files, or guarantee live reload timing.
-
-### Initial Adapter mappings
-
-The Claude Code Adapter generates composed Context and launches Claude Code with an appended system-prompt file. It exposes Skills by adding a Profile Installation directory containing `.claude/skills/`. Agents, Hooks, and Tools use the smallest supported session input for their category; a generated plugin is optional when it materially improves delivery rather than a required Profile container. These session-scoped native inputs leave Claude's global and project configuration active.
-
-The Codex Adapter stores composed Context within the Profile Installation and passes it through the per-process `developer_instructions` override. Because Codex does not currently expose a supported process-scoped Skill discovery path, the Adapter transactionally mirrors every Workspace Skill into its dedicated standard user Skill subtree at `~/.agents/skills/agent-profile-kit/`. Managed launches pass a process-only `skills.config` value that enables selected library Skills and disables unselected library Skills without mentioning unrelated native Skills. Agent Profile Kit never writes `~/.codex/config.toml`, changes `CODEX_HOME`, or modifies existing user, project, admin, system, or plugin capabilities. Ordinary Codex launches discover the complete library. Agent, Hook, and Tool mappings remain deferred to their dedicated issues.
-
-## Configuration and Credentials
-
-Canonical artifacts own portable parameter definitions and defaults. Untracked Local Configuration owns machine-specific, non-secret bindings. Host authentication, environment references, or operating-system secret storage own credential values.
+Profiles and artifacts are not independently versioned. Deterministic hashes distinguish current installations from source changes and output drift. The engine, schemas, and Adapters share the package's semantic version; structured configuration and Manifest formats carry schema versions.
 
 ## Ownership Scope
 
-The user-owned Workspace contains personal, user-scoped, cross-project material. Each project repository remains the canonical home for its domain facts, conventions, and project-specific configuration. Agent Hosts combine project instructions with the selected Profile at runtime. The open-source repository contains only the engine, schemas, documentation, and minimal non-personal examples or test fixtures.
-
-## Target Repository Map
-
-```text
-agent-profile-kit/
-├── cli/
-├── adapters/
-├── installer/
-├── schemas/
-├── docs/
-│   ├── adr/
-│   ├── runbooks/
-│   └── archive/
-├── CONTEXT.md
-├── AGENTS.md
-└── README.md
-```
-
-User Workspaces, personal artifacts, generated Host Bundles, staging output, Local Configuration, Installation Manifests, and Profile Installations are not source material in the open-source repository.
+The Workspace owns reusable personal cross-project material. Project repositories own domain facts and shared project configuration. Native Agent Host configuration owns global settings and capabilities. Local Configuration owns Project Bindings and other non-secret machine bindings. Generated Profile Installations and installation records are disposable and must never be edited as canonical source.

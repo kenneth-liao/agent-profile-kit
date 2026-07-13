@@ -1,5 +1,7 @@
 # Agent Profile Kit agent workflow
 
+> **Migration status:** This workflow describes the existing per-session Codex tracer. ADR-0010 and `docs/ARCHITECTURE.md` define its accepted project-bound replacement, which is not implemented yet.
+
 Use this workflow when helping a person author their Workspace.
 
 1. Read this guide first. Then inspect the Workspace: `workspace.yaml`, its
