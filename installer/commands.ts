@@ -10,15 +10,18 @@ import {
   stageProvenInstallationRemoval,
   writeInstallationState,
 } from "./installation-state.js";
+import { gitExclusionBlockers, stageGitExclusions } from "./git-exclusions.js";
 
 export async function validateApplication(home: string): Promise<{
   readonly bindings: number;
   readonly profiles: number;
+  readonly warnings: readonly string[];
 }> {
   const desired = await buildDesiredState(home, { checkHostCapability: false });
   return {
-    bindings: desired.installations.length,
+    bindings: desired.bindingCount,
     profiles: desired.workspace.profiles.size,
+    warnings: [...new Set(desired.installations.flatMap((installation) => installation.warnings))].sort(),
   };
 }
 
@@ -76,14 +79,19 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
   );
   return {
     ...report,
-    items: report.items.map((item) =>
-      desired.installations.some((installation) =>
+    items: report.items.map((item) => {
+      const blocked = desired.installations.some((installation) =>
         installation.binding.project === item.project &&
         blockedProjects.has(installation.binding.canonicalProject)
-      ) && item.kind === "addition"
-        ? { ...item, kind: "blocked" as const }
-        : item
-    ),
+      );
+      if (item.kind !== "addition") return item;
+      if (blocked) return { ...item, kind: "blocked" as const };
+      return {
+        ...item,
+        kind: "missing output" as const,
+        reason: "Profile Installation is missing",
+      };
+    }),
   };
 }
 
@@ -99,19 +107,24 @@ export async function uninstallApplication(home: string): Promise<number> {
       );
     }
   }
+  failures.push(...await gitExclusionBlockers(state));
   if (failures.length > 0) {
     throw new Error(
       `Uninstall blocked; generated output was not removed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`,
     );
   }
   const transactions: Awaited<ReturnType<typeof stageProvenInstallationRemoval>>[] = [];
+  let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
   try {
     for (const installation of state.installations) {
       transactions.push(await stageProvenInstallationRemoval(installation));
     }
+    exclusions = await stageGitExclusions(state, { installations: [], schemaVersion: 2 });
     await writeInstallationState(home, { installations: [], schemaVersion: 2 });
     for (const transaction of transactions) await transaction.commit();
+    await exclusions.commit();
   } catch (error) {
+    if (exclusions) await exclusions.rollback();
     for (const transaction of transactions.reverse()) await transaction.rollback();
     throw error;
   }

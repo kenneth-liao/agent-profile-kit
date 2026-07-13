@@ -84,10 +84,13 @@ hooks = true
 
 Run `agent-profile-kit validate`, then review the complete read-only desired
 state with `agent-profile-kit preview`. Apply all configured Project Bindings
-explicitly with `agent-profile-kit apply`. Ordinary Codex launches from a bound
-Git worktree receive the generated Context through its native project
-SessionStart hook. For a non-Git project, launch Codex from the exact bound root.
-Agent Profile Kit does not launch Codex or modify global configuration.
+explicitly with `agent-profile-kit apply`. A Git binding installs the Profile in
+the corresponding project directory of every existing worktree; a later
+worktree is reported missing until the next `apply`. Ordinary Codex launches
+from that directory or its descendants receive the generated Context through
+the native project SessionStart hook. For a non-Git project, launch Codex from
+the exact bound root. Agent Profile Kit does not launch Codex, install a watcher
+or Git hook, or modify global configuration or shared `.gitignore` files.
 
 Use `agent-profile-kit status` to inspect every bound project. It reports
 current, stale source, drifted output, missing output, and malformed ownership.

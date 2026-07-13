@@ -65,6 +65,8 @@ Every `project` is an explicit existing directory that the user declares to be t
 
 Git is optional. When a project is not a Git working tree, native Codex discovery can guarantee the installed project Context only when Codex starts in the exact bound root; starting it in a descendant is unsupported because Codex has no repository boundary to search toward. The project workflow documents this launch-from-root constraint.
 
+For a Git binding, the Installer asks Git for the repository's authoritative existing worktree list and maps the binding's repository-relative directory into each checkout. It does not scan neighboring folders or discover unrelated repositories. Every mapped directory must already exist as a real directory, and roots reached through more than one binding are deduplicated. A later-created worktree remains missing until the next explicit `apply`.
+
 The initial commands operate on the complete desired state:
 
 - `validate` checks the Workspace and Project Bindings.
@@ -123,7 +125,14 @@ When a binding, Host, project, or artifact disappears, `apply` removes the no-lo
 
 Generated project paths are owned whole files. A symlink, occupied parent, or
 occupied unowned path blocks installation; shared repository and Host
-configuration are never edited.
+configuration are never edited. In Git repositories, the Installer keeps its
+generated files untracked through one marked set of exact, root-anchored entries
+in Git's repository-local exclude file. Reconciliation replaces or removes only
+that marked section after proving its exact entries against Installation
+Manifests, preserving every unrelated byte and never changing a shared
+`.gitignore`. Exclusion changes advance with each successfully committed project
+transaction, so a partial apply reflects only actual Installation Manifest
+state.
 
 ## Freshness and Versioning
 
