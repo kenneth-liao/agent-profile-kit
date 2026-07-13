@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Added project-bound Context-only Codex lifecycle with Local Configuration ingestion, preview/apply reconciliation, ownership-aware status, and safe uninstall ([#28](https://github.com/kenneth-liao/agent-profile-kit/issues/28)).
+
 - Added typed, transitive cross-artifact Dependency resolution with deterministic plans and auditable Manifest inclusion reasons ([#7](https://github.com/kenneth-liao/agent-profile-kit/issues/7)).
 - Initialized the Agent Profile Kit monorepo structure.
 - Added the schema-versioned `agent-profile-kit init` CLI and npm executable contract ([#2](https://github.com/kenneth-liao/agent-profile-kit/issues/2)).
@@ -18,6 +20,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Added the owned Codex Skill Library, transactional complete-Workspace projection, process-only Profile filtering, conflict protection, and shared lifecycle reporting ([#6](https://github.com/kenneth-liao/agent-profile-kit/issues/6)).
 
 ### Changed
+
+- Replaced the unreleased per-session launcher and global Skill projection with native project SessionStart output ([#28](https://github.com/kenneth-liao/agent-profile-kit/issues/28)).
 
 - Profiles now define observable artifact selection while Adapters may use different native delivery mechanisms per artifact category; Codex Skills use a shared owned projection without modifying existing Host state ([#6](https://github.com/kenneth-liao/agent-profile-kit/issues/6)).
 - Marked the PR review follow-up skills for explicit invocation only.
@@ -40,3 +44,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Validate the Workspace Manifest path kind before reading it ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 - Add safe remediation guidance for dangling Workspace symlinks ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 - Make empty Workspace symlink remediation actionable from the fixed path ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
+
+### Removed
+
+- Removed the unreleased `plan`, `install`, `update`, and `run` interfaces, launcher, leases, and global Codex Skill projection ([#28](https://github.com/kenneth-liao/agent-profile-kit/issues/28)).

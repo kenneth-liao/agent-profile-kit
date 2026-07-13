@@ -15,6 +15,10 @@ import {
   WORKSPACE_MANIFEST_FILE,
 } from "../schemas/workspace-manifest.js";
 import {
+  EMPTY_LOCAL_CONFIGURATION,
+  LOCAL_CONFIGURATION_FILE,
+} from "../schemas/local-configuration.js";
+import {
   validateWorkspaceStructure,
   WORKSPACE_ARTIFACT_DIRECTORIES,
   workspacePath,
@@ -43,6 +47,23 @@ export interface InitializationResult {
   readonly outcome: "created" | "unchanged";
   readonly path: string;
   readonly warnings: readonly string[];
+}
+
+async function ensureLocalConfiguration(applicationRoot: string): Promise<boolean> {
+  const path = join(applicationRoot, LOCAL_CONFIGURATION_FILE);
+  try {
+    await lstat(path);
+    return false;
+  } catch (error) {
+    if (!hasErrorCode(error, "ENOENT")) throw error;
+  }
+  try {
+    await writeFile(path, EMPTY_LOCAL_CONFIGURATION, { flag: "wx" });
+    return true;
+  } catch (error) {
+    if (hasErrorCode(error, "EEXIST")) return false;
+    throw error;
+  }
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -110,8 +131,15 @@ export async function initializeWorkspace(
   const destination = workspacePath(home);
   const workspaceState = await inspectWorkspace(destination);
 
+  let workspaceCreated = false;
   if (workspaceState === "valid") {
-    return { outcome: "unchanged", path: destination, warnings: [] };
+    await mkdir(applicationRoot, { recursive: true });
+    const configurationCreated = await ensureLocalConfiguration(applicationRoot);
+    return {
+      outcome: configurationCreated ? "created" : "unchanged",
+      path: destination,
+      warnings: [],
+    };
   }
 
   await mkdir(applicationRoot, { recursive: true });
@@ -142,12 +170,13 @@ export async function initializeWorkspace(
     if (hasErrorCode(error, "EEXIST") || hasErrorCode(error, "ENOTEMPTY")) {
       try {
         if ((await inspectWorkspace(destination)) === "valid") {
+          const configurationCreated = await ensureLocalConfiguration(applicationRoot);
           const cleanupWarnings = followUpErrors.map(
             (cleanupError) =>
               `Could not remove unused staging directory ${stagingDirectory}: ${errorMessage(cleanupError)}`,
           );
           return {
-            outcome: "unchanged",
+            outcome: configurationCreated ? "created" : "unchanged",
             path: destination,
             warnings: cleanupWarnings,
           };
@@ -166,5 +195,11 @@ export async function initializeWorkspace(
     throw error;
   }
 
-  return { outcome: "created", path: destination, warnings: [] };
+  workspaceCreated = true;
+  const configurationCreated = await ensureLocalConfiguration(applicationRoot);
+  return {
+    outcome: workspaceCreated || configurationCreated ? "created" : "unchanged",
+    path: destination,
+    warnings: [],
+  };
 }

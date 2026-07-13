@@ -1,7 +1,5 @@
 # Agent Profile Kit Workspace guide
 
-> **Migration status:** This guide describes the existing per-session Codex tracer. ADR-0010 and `docs/ARCHITECTURE.md` define its accepted project-bound replacement, which is not implemented yet.
-
 Agent Profile Kit keeps your reusable, cross-project agent material in one
 Workspace. The Workspace is your canonical source; Profiles select a flat set
 of portable artifacts for a kind of work, and Host-specific installations are
@@ -18,7 +16,7 @@ only `schema_version: 1`; the `profiles/`, `context/`, `skills/`, `agents/`,
 `hooks/`, and `tools/` directories identify the canonical homes for portable
 artifacts. Do not treat generated Host output as source material.
 
-The current Codex tracer supports Context Modules and Skills. A Context Module is a
+The initial Codex project slice supports Context Modules. A Context Module is a
 Markdown file under `context/` with frontmatter containing one stable,
 lowercase kebab-case `id`; the Markdown body is the Context. A Skill is a
 standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
@@ -30,24 +28,12 @@ Kit-only metadata, put it in an optional `agent-profile-kit.yaml` sidecar.
 Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each
 Skill's Agent Profile Kit sidecar. Each reference contains `type` (`context` or
-`skill`) and its stable `id`. Dependencies are resolved transitively, so a
-Profile installs each resolved artifact once; `plan` shows every inclusion
-reason and the Installation Manifest records them.
-
-Codex does not yet offer a supported process-scoped Skill discovery path.
-Agent Profile Kit therefore transactionally mirrors every valid Workspace
-Skill into its dedicated `~/.agents/skills/agent-profile-kit/` Codex Skill
-Library. Standard Skill content is copied unchanged; the Agent Profile Kit
-sidecar is not copied. Managed launches pass a process-only filter that enables
-the Profile's resolved library Skills—its explicit selection plus transitive
-Dependencies—and disables the other Agent Profile
-Kit-managed library Skills. Ordinary Codex launches can discover the complete
-library. Agent Profile Kit never writes Codex configuration or changes existing
-user, project, admin, system, or plugin capabilities, and it refuses unowned
-library destinations or conflicting existing Skill names.
+`skill`) and its stable `id`. Dependencies are resolved transitively and every
+resolved reason is retained in the machine-local Installation Manifest. Profiles
+selecting Skills, Agents, Hooks, or Tools are rejected by this initial slice.
 
 A Profile is a YAML file under `profiles/` with an `id` and explicit `context`,
-`skills`, `agents`, `hooks`, and `tools` arrays. In this tracer, `agents`,
+`skills`, `agents`, `hooks`, and `tools` arrays. In this initial slice, `agents`,
 `hooks`, and `tools` must be empty. Profiles do not inherit, use wildcards, or
 carry Host settings.
 
@@ -72,8 +58,7 @@ dependencies:
 id: coding
 context:
   - engineering-rules
-skills:
-  - review-pr
+skills: []
 agents: []
 hooks: []
 tools: []
@@ -89,27 +74,17 @@ description: Review a pull request. Use when asked to review code changes.
 # Review a pull request
 ```
 
-Run `agent-profile-kit validate`, then preview the generated Context, selected
-Skills, and complete Codex Skill Library changes with
-`agent-profile-kit plan --profile coding --host codex`. Installation is
-explicit: `agent-profile-kit install --profile coding --host codex`. Launch an
-installed Profile from the intended project with
-`agent-profile-kit run --profile coding --host codex -- <native Codex arguments>`.
-The launcher adds the selected Context using Codex's per-process
-developer-instructions override and filters only Agent Profile Kit-owned Skills
-for that process; ordinary global and project Codex configuration and unrelated
-Skills remain Host-owned.
+Run `agent-profile-kit validate`, then review the complete read-only desired
+state with `agent-profile-kit preview`. Apply all configured Project Bindings
+explicitly with `agent-profile-kit apply`. Ordinary Codex launches from a bound
+project receive the generated Context through its native project SessionStart
+hook; Agent Profile Kit does not launch Codex or modify global configuration.
 
-Use `agent-profile-kit status --profile coding --host codex` to inspect a
-Profile Installation and shared Codex Skill Library. It reports their freshness
-and drift separately. Regeneration is always
-explicit: `agent-profile-kit update` refreshes every verified installed
-Profile/Host pair and never runs during launch. To delete generated output,
-use `agent-profile-kit uninstall --profile coding --host codex`; it removes
-only Manifest-verified output and removes the shared Skill Library only with the
-final installed Codex Profile. Removing that final Profile fails safely while
-a managed Codex run is still using a leased Skill generation; retry after the
-run exits.
+Use `agent-profile-kit status` to inspect every bound project. It reports
+current, stale source, drifted output, missing output, and malformed ownership.
+To delete generated output, use `agent-profile-kit uninstall`; it removes only
+Marker- and hash-proven output and preserves the Workspace, Local Configuration,
+global Host configuration, and repository-owned files.
 
 Review personal content before publishing this Workspace. Agent Profile Kit
 does not classify private material, and credential values do not belong in a

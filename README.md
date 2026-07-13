@@ -2,7 +2,7 @@
 
 Agent Profile Kit is a user-agnostic CLI and format for composing a user's Skills, Context, Agents, Hooks, and Tools into portable Profiles. Host Adapters generate native Profile output for supported agent products without overwriting their existing configuration or capabilities.
 
-> **Migration status:** ADR-0010 establishes project-bound Profiles and native Host loading as the target architecture. The commands below describe the existing per-session Codex tracer until that implementation is replaced; see `docs/ARCHITECTURE.md` for the accepted target behavior.
+The initial product slice binds Context-only Profiles to explicit local projects and loads them through Codex's native project SessionStart hook. Global Host configuration and repository-owned instructions remain untouched.
 
 ## Quick start
 
@@ -14,31 +14,28 @@ npx agent-profile-kit init
 
 The initial release supports macOS only.
 
-Running the command again against the valid Workspace is safe and reports it unchanged.
+Running the command again is safe: it creates only missing inputs and never overwrites the Workspace or Local Configuration.
 
-## Codex Context and Skills tracer
+## Project-bound Context
 
-The Codex tracer supports Context Modules, standard Skill packages, explicit
-flat Profiles, and typed transitive Dependencies. It mirrors the complete
-Workspace Skill catalog into an Agent Profile Kit-owned Codex Skill Library and
-enables each Profile's resolved Skills—its explicit selection plus transitive
-Dependencies—with a process-only filter during managed launches. Existing user, project, admin,
-system, and plugin configuration and capabilities remain untouched.
+The first project-bound slice supports Context Modules and explicit flat Profiles
+for Codex. Profiles selecting Skills, Agents, Hooks, or Tools are rejected until
+their native project delivery slices land.
 
 ```sh
 agent-profile-kit validate
-agent-profile-kit plan --profile coding --host codex
-agent-profile-kit install --profile coding --host codex
-agent-profile-kit status --profile coding --host codex
-agent-profile-kit run --profile coding --host codex -- --model o3
+agent-profile-kit preview
+agent-profile-kit apply
+agent-profile-kit status
+agent-profile-kit uninstall
 ```
 
-After editing the Workspace, run `agent-profile-kit update` to explicitly
-regenerate every verified installed Profile/Host pair. `status` distinguishes
-source changes from edits to generated Profile or shared Skill Library output.
-To remove disposable output, run `agent-profile-kit uninstall --profile coding
---host codex`; it deletes only Manifest-verified Agent Profile Kit output and
-keeps the shared library until no installed Codex Profile depends on it.
+Project Bindings live in the machine-local
+`~/.agents/agent-profile-kit/config.yaml`. Each binding names one existing
+absolute or `~/` project root, one Profile, and `codex` as its Host. `preview`
+is read-only; `apply` reconciles every binding; `status` reports current, stale,
+drifted, missing, and malformed ownership states; `uninstall` removes only
+output whose Marker and hashes prove Agent Profile Kit ownership.
 
 See `agent-profile-kit guide` for the Context Module, Skill, and Profile formats.
 
@@ -46,7 +43,7 @@ See `agent-profile-kit guide` for the Context Module, Skill, and Profile formats
 
 - `cli/` - the `agent-profile-kit` command.
 - `adapters/` - all Host-specific generation and launch integration.
-- `installer/` - validation, planning, installation, update, status, uninstall, and launch orchestration.
+- `installer/` - configuration ingestion, desired-state planning, reconciliation, ownership, and lifecycle orchestration.
 - `schemas/` - portable Workspace and artifact schemas.
 - `docs/adr/` - accepted architectural and workflow decisions.
 - `docs/ARCHITECTURE.md` - the living system structure and delivery model.
@@ -57,7 +54,7 @@ The existing `commands/`, `context/`, and `skills/` content is legacy migration 
 
 ## User data
 
-Canonical user content lives under `~/.agents/agent-profile-kit/workspace/`. Disposable Host-specific output lives separately under `~/.agents/agent-profile-kit/installations/`; Codex Skills are projected into the dedicated `~/.agents/skills/agent-profile-kit/` subtree.
+Canonical user content lives under `~/.agents/agent-profile-kit/workspace/`. Machine-local Project Bindings live in `config.yaml`; disposable Installation Manifests live under `state/`. Generated Context and hooks live only in bound project-owned paths.
 
 `agent-profile-kit init` creates an empty Workspace with a schema marker, artifact directories, and short human/agent bootstrap files. Current authoring guidance remains owned by the CLI through `agent-profile-kit guide` and `agent-profile-kit guide --agent`; initialization does not copy personal or opinionated starter content.
 
