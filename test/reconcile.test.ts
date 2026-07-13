@@ -80,18 +80,26 @@ describe("injected project filesystem failures", () => {
     const secondCanonical = desired.installations.find(
       (installation) => installation.binding.project === second,
     )!.binding.canonicalProject;
-    let secondRenames = 0;
+    const secondCanonicalContextPath = join(
+      secondCanonical,
+      ".agent-profile-kit",
+      "codex",
+      "context.md",
+    );
     let injected = false;
 
     await expect(applyReconciliation(home, desired.installations, {
       fileSystem: {
         rename: async (oldPath, newPath) => {
-          if (!injected && (oldPath.toString().startsWith(secondCanonical) || newPath.toString().startsWith(secondCanonical))) {
-            secondRenames += 1;
-            if (secondRenames === 4) {
-              injected = true;
-              throw new Error("injected mid-update failure");
-            }
+          const source = oldPath.toString();
+          const destination = newPath.toString();
+          if (
+            !injected &&
+            source.startsWith(`${secondCanonical}/.agent-profile-kit-stage-`) &&
+            destination === secondCanonicalContextPath
+          ) {
+            injected = true;
+            throw new Error("injected mid-update failure");
           }
           await rename(oldPath, newPath);
         },

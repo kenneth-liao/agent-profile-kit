@@ -382,19 +382,23 @@ export async function previewReconciliation(
     }
     const markerKind = await pathKind(markerPath(installation.binding.canonicalProject));
     const proof = await proveOwnedInstallation(previous);
+    let repairableMissingMarker = false;
     if (markerKind === "missing") {
       const remaining = await proveRemainingOwnedOutputs(previous);
-      if (!remaining.owned) blockers.push({
-        message: ownershipBlocker(installation.binding.project, `Installation Marker is missing and ${remaining.reason ?? "remaining output ownership cannot be proven"}`),
-        project,
-      });
+      repairableMissingMarker = remaining.owned;
+      if (!remaining.owned) {
+        blockers.push({
+          message: ownershipBlocker(installation.binding.project, `Installation Marker is missing and ${remaining.reason ?? "remaining output ownership cannot be proven"}`),
+          project,
+        });
+      }
     } else if (!proof.owned) {
       blockers.push({
         message: ownershipBlocker(installation.binding.project, proof.reason ?? "ownership could not be proven"),
         project,
       });
     }
-    if (!proof.owned) {
+    if (!proof.owned && !repairableMissingMarker) {
       items.push({
         kind: proof.reason?.includes("malformed")
           ? "malformed ownership state"
@@ -421,6 +425,12 @@ export async function previewReconciliation(
       })
     ) {
       items.push({ kind: "update", project: installation.binding.project, reason: "desired output changed" });
+    } else if (repairableMissingMarker) {
+      items.push({
+        kind: "update",
+        project: installation.binding.project,
+        reason: "Installation Marker is missing and repairable",
+      });
     } else {
       items.push({ kind: "current", project: installation.binding.project });
     }
@@ -546,16 +556,23 @@ export async function applyReconciliation(
   options: { readonly fileSystem?: Partial<ReconciliationFileSystem> } = {},
 ): Promise<ReconciliationReport> {
   const fileSystem: ReconciliationFileSystem = { ...nodeFileSystem, ...options.fileSystem };
-  const before = await readInstallationState(home);
+  let before;
+  try {
+    before = await readInstallationState(home);
+  } catch (error) {
+    throw new Error(
+      `Apply blocked before writes:\n- ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   const report = await previewReconciliation(desired, before);
   if (report.blockers.length > 0) {
     throw new Error(`Apply blocked before writes:\n${report.blockers.map((blocker) => `- ${blocker.message}`).join("\n")}`);
   }
 
   const currentProjects = new Set(
-    desired
-      .filter((_, index) => report.items[index]?.kind === "current")
-      .map((installation) => installation.binding.canonicalProject),
+    report.items
+      .filter((item) => item.kind === "current")
+      .map((item) => item.project),
   );
   const byProject = new Map(before.installations.map((installation) => [installation.project, installation]));
   const installationsByProject = new Map(
@@ -567,7 +584,7 @@ export async function applyReconciliation(
     const previous = await previousFor(item, before, byProject);
     const moved = previous && previous.project !== item.binding.canonicalProject;
     if (moved) movedPreviousProjects.add(previous.project);
-    if (currentProjects.has(item.binding.canonicalProject)) continue;
+    if (currentProjects.has(item.binding.project)) continue;
     let transaction: { readonly commit: () => Promise<void>; readonly rollback: () => Promise<void> } | undefined;
     try {
       const installationId = previous?.installationId ?? newInstallationId();

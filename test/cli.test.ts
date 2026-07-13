@@ -534,11 +534,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(statePath(home), stringify(state));
 
     const status = runCli(home, "status");
+    const apply = runCli(home, "apply");
     const uninstall = runCli(home, "uninstall");
 
     expect(status.status, status.stderr).toBe(0);
     expect(status.stdout).toContain("malformed ownership state");
     expect(status.stdout).toContain("schema_version must be 2");
+    expect(apply.status).toBe(1);
+    expect(apply.stderr).toContain("Apply blocked before writes");
+    expect(apply.stderr).toContain("schema_version must be 2");
     expect(uninstall.status).toBe(1);
     expect(uninstall.stderr).toContain("schema_version must be 2");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
@@ -827,6 +831,27 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
+  test("a repairable missing marker preserves the underlying stale-source status", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    rmSync(join(projectPath, ".agent-profile-kit", "installation.json"));
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nChanged while marker is repairable.\n",
+    );
+
+    const status = runCli(home, "status");
+
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain(`${projectPath}: stale source`);
+    expect(status.stdout).not.toContain(`${projectPath}: missing output`);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("a copied installation identity is rejected while the original remains", () => {
