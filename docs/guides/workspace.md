@@ -1,5 +1,7 @@
 # Agent Profile Kit Workspace guide
 
+> **Migration status:** This guide describes the existing per-session Codex tracer. ADR-0010 and `docs/ARCHITECTURE.md` define its accepted project-bound replacement, which is not implemented yet.
+
 Agent Profile Kit keeps your reusable, cross-project agent material in one
 Workspace. The Workspace is your canonical source; Profiles select a flat set
 of portable artifacts for a kind of work, and Host-specific installations are

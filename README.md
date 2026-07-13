@@ -2,6 +2,8 @@
 
 Agent Profile Kit is a user-agnostic CLI and format for composing a user's Skills, Context, Agents, Hooks, and Tools into portable Profiles. Host Adapters generate native Profile output for supported agent products without overwriting their existing configuration or capabilities.
 
+> **Migration status:** ADR-0010 establishes project-bound Profiles and native Host loading as the target architecture. The commands below describe the existing per-session Codex tracer until that implementation is replaced; see `docs/ARCHITECTURE.md` for the accepted target behavior.
+
 ## Quick start
 
 Initialize the canonical Workspace without a global installation:

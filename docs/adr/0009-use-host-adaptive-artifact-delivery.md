@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0010
+---
+
 # Use host-adaptive artifact delivery
 
 Profiles define the Agent Profile Kit material a managed session receives, but an Adapter may deliver each artifact category through a different native Host mechanism. Prefer process-scoped inputs; when a Host cannot discover an artifact per process, an Adapter may maintain an explicitly owned shared projection and apply process-scoped selection over that projection. The projection is disposable output, never canonical source, and must not adopt, overwrite, disable, or remove unrelated Host material.

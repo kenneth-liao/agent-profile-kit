@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0010
+---
+
 # Use disposable Profile Installations
 
 Agent Profile Kit explicitly generates each Host/Profile pair as a self-contained directory at `~/.agents/agent-profile-kit/installations/<profile-id>/<host-id>/`, records the whole output in one Installation Manifest, and launches it through a transparent Adapter-owned command overlay. Updates validate a temporary replacement before swapping the mutable directory, while running sessions follow native Host reload behavior; this accepts duplicated generated artifacts in exchange for avoiding global writes, symlinks, immutable generations, background synchronization, and path-level ownership machinery.
