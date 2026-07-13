@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   formatInstallationState,
+  INSTALLATION_MARKER_PATH,
   parseInstallationMarker,
   parseInstallationState,
   type InstallationMarker,
@@ -31,9 +32,13 @@ function hasErrorCode(error: unknown, code: string): boolean {
 
 export async function readInstallationState(home: string): Promise<InstallationState> {
   try {
-    return parseInstallationState(await readFile(stateManifestPath(home), "utf8"));
+    const state = parseInstallationState(await readFile(stateManifestPath(home), "utf8"));
+    return {
+      ...state,
+      installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
+    };
   } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return { installations: [], schemaVersion: 1 };
+    if (hasErrorCode(error, "ENOENT")) return { installations: [], schemaVersion: 2 };
     throw error;
   }
 }
@@ -46,7 +51,14 @@ export async function writeInstallationState(
   await mkdir(directory, { recursive: true });
   const destination = stateManifestPath(home);
   const temporary = join(directory, `.manifest-${process.pid}-${Date.now()}.tmp`);
-  await writeFile(temporary, formatInstallationState(state), { flag: "wx" });
+  await writeFile(
+    temporary,
+    formatInstallationState({
+      ...state,
+      installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
+    }),
+    { flag: "wx" },
+  );
   try {
     await rename(temporary, destination);
   } finally {
@@ -67,21 +79,56 @@ export function newInstallationId(): string {
   return randomUUID();
 }
 
-const INSTALLATION_MARKER_RELATIVE_PATH = ".agent-profile-kit/installation.json";
+async function unsafeOutputParent(
+  project: string,
+  relativePath: string,
+): Promise<string | undefined> {
+  const parts = relativePath.split("/");
+  let parent = project;
+  for (const part of parts.slice(0, -1)) {
+    let stats;
+    try {
+      stats = await lstat(parent);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) return undefined;
+      if (hasErrorCode(error, "ENOTDIR")) return `${parent} is a non-directory parent`;
+      throw error;
+    }
+    if (stats.isSymbolicLink()) return `${parent} is a symlink parent`;
+    if (!stats.isDirectory()) return `${parent} is a non-directory parent`;
+    parent = join(parent, part);
+  }
+  let stats;
+  try {
+    stats = await lstat(parent);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return undefined;
+    if (hasErrorCode(error, "ENOTDIR")) return `${parent} is a non-directory parent`;
+    throw error;
+  }
+  if (stats.isSymbolicLink()) return `${parent} is a symlink parent`;
+  if (!stats.isDirectory()) return `${parent} is a non-directory parent`;
+  return undefined;
+}
 
 async function proveOutputHashes(
   installation: ProjectInstallationManifest,
   includeMarker: boolean,
 ): Promise<{ readonly reason?: string; readonly owned: boolean }> {
   const outputs = installation.outputs.filter(
-    (output) => includeMarker || output.path !== INSTALLATION_MARKER_RELATIVE_PATH,
+    (output) => includeMarker || output.path !== INSTALLATION_MARKER_PATH,
   );
   if (outputs.length === 0) {
     return { owned: false, reason: "no remaining owned output proves the installation" };
   }
   const missing: string[] = [];
   const drifted: string[] = [];
+  const modeDrifted: string[] = [];
   for (const output of outputs) {
+    const unsafeParent = await unsafeOutputParent(installation.project, output.path);
+    if (unsafeParent) {
+      return { owned: false, reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}` };
+    }
     const path = join(installation.project, output.path);
     try {
       const stats = await lstat(path);
@@ -89,16 +136,18 @@ async function proveOutputHashes(
         missing.push(output.path);
         continue;
       }
+      if ((stats.mode & 0o7777) !== output.mode) modeDrifted.push(output.path);
       const content = await readFile(path, "utf8");
       if (hashBytes(content) !== output.hash) drifted.push(output.path);
     } catch {
       missing.push(output.path);
     }
   }
-  if (missing.length > 0 || drifted.length > 0) {
+  if (missing.length > 0 || drifted.length > 0 || modeDrifted.length > 0) {
     const reasons = [
       ...(missing.length > 0 ? [`missing: ${missing.join(", ")}`] : []),
       ...(drifted.length > 0 ? [`drifted: ${drifted.join(", ")}`] : []),
+      ...(modeDrifted.length > 0 ? [`drifted mode: ${modeDrifted.join(", ")}`] : []),
     ];
     return { owned: false, reason: `owned output ${reasons.join("; ")}` };
   }

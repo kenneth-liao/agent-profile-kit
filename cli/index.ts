@@ -42,8 +42,16 @@ function formatReport(report: ReconciliationReport): string {
         .join("\n");
   const blockers = report.blockers.length === 0
     ? "(none)"
-    : report.blockers.map((blocker) => `- ${blocker}`).join("\n");
-  return `Projects:\n${items}\nDesired State:\n${desired}\nBlockers:\n${blockers}\n`;
+    : report.blockers.map((blocker) => `- ${blocker.message}`).join("\n");
+  const outputs = report.outputs.length === 0
+    ? "(none)"
+    : report.outputs
+        .map((output) => `${output.project}/${output.path}: ${output.kind}`)
+        .join("\n");
+  const warnings = report.warnings.length === 0
+    ? "(none)"
+    : report.warnings.map((warning) => `- ${warning}`).join("\n");
+  return `Projects:\n${items}\nOutputs:\n${outputs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\nBlockers:\n${blockers}\n`;
 }
 
 async function main(): Promise<void> {

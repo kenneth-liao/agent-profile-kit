@@ -1,19 +1,12 @@
 import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 
+import type { AdapterProjectPlan } from "./project-plan.js";
+
 export const CODEX_ADAPTER_VERSION = "codex-project-v1";
 export const CODEX_HOST_VERSION = "native-project-sessionstart-v1";
 
-export interface ProposedProjectOutput {
-  readonly bytes: string;
-  readonly mode: number;
-  readonly path: string;
-}
-
-export interface CodexProjectPlan {
-  readonly hostVersion: string;
-  readonly outputs: readonly ProposedProjectOutput[];
-}
+export type CodexProjectPlan = AdapterProjectPlan;
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
@@ -124,17 +117,22 @@ export function planCodexProject(
 ): CodexProjectPlan {
   const contextPath = options.contextPath ?? DEFAULT_CONTEXT_PATH;
   return {
+    host: "codex",
     hostVersion: CODEX_HOST_VERSION,
     outputs: [
       {
         bytes: contextSnapshot(profileId, modules),
         mode: 0o644,
         path: join(".agent-profile-kit", "codex", "context.md"),
+        requirements: ["Codex SessionStart prints composed Context"],
+        type: "file",
       },
       {
         bytes: hooks(contextPath),
         mode: 0o644,
         path: join(".codex", "hooks.json"),
+        requirements: ["Codex SessionStart runs on startup, resume, clear, and compact"],
+        type: "file",
       },
     ],
   };
