@@ -1,0 +1,113 @@
+import { parse, stringify } from "yaml";
+
+import { requireArtifactId } from "./dependencies.js";
+
+export const LOCAL_CONFIGURATION_SCHEMA_VERSION = 1;
+export const LOCAL_CONFIGURATION_FILE = "config.yaml";
+
+export type SupportedHost = "codex";
+
+export interface ProjectBinding {
+  /** The canonical absolute project root used for identity and output. */
+  readonly canonicalProject: string;
+  /** The authored spelling retained for user-facing diagnostics. */
+  readonly project: string;
+  readonly profile: string;
+  readonly hosts: readonly SupportedHost[];
+}
+
+export interface LocalConfiguration {
+  readonly bindings: readonly ProjectBinding[];
+  readonly path: string;
+  readonly schemaVersion: 1;
+}
+
+export const EMPTY_LOCAL_CONFIGURATION = stringify({
+  schema_version: LOCAL_CONFIGURATION_SCHEMA_VERSION,
+  bindings: [],
+});
+
+function parseYaml(source: string, description: string): unknown {
+  try {
+    return parse(source);
+  } catch {
+    throw new Error(`${description} is invalid YAML`);
+  }
+}
+
+function requireMapping(value: unknown, description: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${description} must be a YAML mapping`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireString(value: unknown, description: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${description} must be a non-empty string`);
+  }
+  return value;
+}
+
+function requireExactFields(
+  value: Record<string, unknown>,
+  fields: readonly string[],
+  description: string,
+): void {
+  const unknown = Object.keys(value).filter((field) => !fields.includes(field));
+  if (unknown.length > 0) {
+    throw new Error(`${description} does not allow fields: ${unknown.join(", ")}`);
+  }
+}
+
+export interface ParsedProjectBinding {
+  readonly hosts: readonly SupportedHost[];
+  readonly profile: string;
+  readonly project: string;
+}
+
+/**
+ * Parse only the portable shape. Filesystem-dependent normalization belongs to
+ * the ingestion boundary in installer/local-configuration.ts.
+ */
+export function parseLocalConfiguration(source: string, path: string): {
+  readonly bindings: readonly ParsedProjectBinding[];
+  readonly schemaVersion: 1;
+} {
+  const value = parseYaml(source, `Local Configuration ${path}`);
+  const mapping = requireMapping(value, `Local Configuration ${path}`);
+  requireExactFields(mapping, ["schema_version", "bindings"], `Local Configuration ${path}`);
+  if (mapping.schema_version !== LOCAL_CONFIGURATION_SCHEMA_VERSION) {
+    throw new Error(
+      `Local Configuration ${path} schema_version must be ${LOCAL_CONFIGURATION_SCHEMA_VERSION}`,
+    );
+  }
+  if (!Array.isArray(mapping.bindings)) {
+    throw new Error(`Local Configuration ${path} bindings must be an array`);
+  }
+
+  const bindings = mapping.bindings.map((entry, index) => {
+    const description = `Local Configuration ${path} bindings[${index}]`;
+    const binding = requireMapping(entry, description);
+    requireExactFields(binding, ["project", "profile", "hosts"], description);
+    const project = requireString(binding.project, `${description} project`);
+    const profile = requireArtifactId(binding.profile, `${description} profile`);
+    if (!Array.isArray(binding.hosts) || binding.hosts.length === 0) {
+      throw new Error(`${description} hosts must be a non-empty array`);
+    }
+    const hosts = binding.hosts.map((host, hostIndex) => {
+      if (host !== "codex") {
+        throw new Error(
+          `${description} hosts[${hostIndex}] unsupported Agent Host '${String(host)}'; supported Hosts: codex`,
+        );
+      }
+      return host;
+    });
+    if (new Set(hosts).size !== hosts.length) {
+      throw new Error(`${description} hosts must not contain a Host more than once`);
+    }
+    return { hosts, profile, project };
+  });
+
+  return { bindings, schemaVersion: LOCAL_CONFIGURATION_SCHEMA_VERSION };
+}

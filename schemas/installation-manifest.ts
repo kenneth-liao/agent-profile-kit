@@ -1,4 +1,5 @@
 import { parse, stringify } from "yaml";
+import { isAbsolute } from "node:path";
 
 import {
   ARTIFACT_TYPES,
@@ -7,7 +8,15 @@ import {
   type ArtifactType,
 } from "./dependencies.js";
 
-export interface ResolvedArtifactManifest {
+export const INSTALLATION_MANIFEST_SCHEMA_VERSION = 1;
+export const INSTALLATION_MARKER_SCHEMA_VERSION = 1;
+
+export interface OwnedOutput {
+  readonly hash: string;
+  readonly path: string;
+}
+
+export interface ResolvedArtifactRecord {
   readonly inclusionReasons: readonly {
     readonly path: readonly ArtifactReference[];
     readonly profile: string;
@@ -15,264 +24,338 @@ export interface ResolvedArtifactManifest {
   readonly reference: ArtifactReference;
 }
 
-export interface InstallationManifest {
+export interface ProjectInstallationManifest {
   readonly adapterVersion: string;
   readonly engineVersion: string;
-  readonly git?: { readonly commit: string; readonly dirty: boolean };
-  readonly hostId: "codex";
-  readonly hostVersion: string;
-  readonly outputHash: string;
-  readonly outputs: readonly string[];
+  readonly hosts: readonly string[];
+  readonly hostVersions: Readonly<Record<string, string>>;
+  readonly installationId: string;
+  readonly outputs: readonly OwnedOutput[];
   readonly profileId: string;
-  readonly selectedArtifacts: {
-    readonly context: readonly string[];
-    readonly skills: readonly string[];
-  };
-  readonly resolvedArtifacts?: readonly ResolvedArtifactManifest[];
-  readonly schemaVersion: 1 | 2;
+  readonly project: string;
+  readonly resolvedArtifacts: readonly ResolvedArtifactRecord[];
+  readonly schemaVersion: 1;
+  readonly selectedContext: readonly string[];
   readonly workspaceInputHash: string;
+}
+
+export interface InstallationMarker {
+  readonly installationId: string;
+  readonly schemaVersion: 1;
+}
+
+export interface InstallationState {
+  readonly installations: readonly ProjectInstallationManifest[];
+  readonly schemaVersion: 1;
+}
+
+function requireMapping(value: unknown, description: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${description} must be a mapping`);
+  }
+  return value as Record<string, unknown>;
 }
 
 function requireString(value: unknown, description: string): string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`Installation Manifest ${description} must be a non-empty string`);
+    throw new Error(`${description} must be a non-empty string`);
   }
   return value;
 }
 
 function requireStringArray(value: unknown, description: string): readonly string[] {
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
-    throw new Error(`Installation Manifest ${description} must be an array of strings`);
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.length === 0)) {
+    throw new Error(`${description} must be an array of non-empty strings`);
+  }
+  if (new Set(value).size !== value.length) {
+    throw new Error(`${description} must not contain a value more than once`);
   }
   return value;
-}
-
-function requireArtifactIdArray(value: unknown, description: string): readonly string[] {
-  const ids = requireStringArray(value, description);
-  if (new Set(ids).size !== ids.length) {
-    throw new Error(`Installation Manifest ${description} must not contain an Artifact ID more than once`);
-  }
-  return ids.map((id) => requireArtifactId(id, `Installation Manifest ${description}`));
 }
 
 function requireHash(value: unknown, description: string): string {
   const hash = requireString(value, description);
   if (!/^sha256:[a-f0-9]{64}$/.test(hash)) {
-    throw new Error(`Installation Manifest ${description} must be a SHA-256 hash`);
+    throw new Error(`${description} must be a SHA-256 hash`);
   }
   return hash;
 }
 
-function requireArtifactType(value: unknown, description: string): ArtifactType {
-  if (typeof value !== "string" || !ARTIFACT_TYPES.includes(value as ArtifactType)) {
-    throw new Error(`Installation Manifest ${description} type must be one of: ${ARTIFACT_TYPES.join(", ")}`);
+function requireExactFields(
+  value: Record<string, unknown>,
+  fields: readonly string[],
+  description: string,
+): void {
+  const unknown = Object.keys(value).filter((field) => !fields.includes(field));
+  if (unknown.length > 0) {
+    throw new Error(`${description} does not allow fields: ${unknown.join(", ")}`);
   }
-  return value as ArtifactType;
+}
+
+function parseYaml(source: string, description: string): unknown {
+  try {
+    return parse(source);
+  } catch {
+    throw new Error(`${description} is invalid YAML`);
+  }
+}
+
+function requireRelativeOutputPath(value: unknown, description: string): string {
+  const path = requireString(value, description);
+  if (
+    path.startsWith("/") ||
+    path.split("/").some((part) => part === ".." || part === "")
+  ) {
+    throw new Error(`${description} must be a safe relative project path`);
+  }
+  return path;
 }
 
 function requireArtifactReference(value: unknown, description: string): ArtifactReference {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`Installation Manifest ${description} must be a typed Artifact reference`);
-  }
-  const reference = value as Record<string, unknown>;
-  const unknown = Object.keys(reference).filter((field) => field !== "type" && field !== "id");
-  if (unknown.length > 0 || !("type" in reference) || !("id" in reference)) {
-    throw new Error(`Installation Manifest ${description} must contain only type and id`);
+  const reference = requireMapping(value, description);
+  requireExactFields(reference, ["type", "id"], description);
+  if (typeof reference.type !== "string" || !ARTIFACT_TYPES.includes(reference.type as ArtifactType)) {
+    throw new Error(`${description} type must be one of: ${ARTIFACT_TYPES.join(", ")}`);
   }
   return {
-    id: requireArtifactId(reference.id, `Installation Manifest ${description} id`),
-    type: requireArtifactType(reference.type, `Installation Manifest ${description}`),
+    id: requireArtifactId(reference.id, `${description} id`),
+    type: reference.type as ArtifactType,
   };
 }
 
-function requireResolvedArtifacts(value: unknown): readonly ResolvedArtifactManifest[] {
+function parseResolvedArtifacts(value: unknown): readonly ResolvedArtifactRecord[] {
   if (!Array.isArray(value)) {
     throw new Error("Installation Manifest resolved_artifacts must be an array");
   }
-  const artifacts = value.map((entry, index) => {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-      throw new Error(`Installation Manifest resolved_artifacts[${index}] must be a YAML mapping`);
-    }
-    const artifact = entry as Record<string, unknown>;
-    const unknown = Object.keys(artifact).filter(
-      (field) => field !== "type" && field !== "id" && field !== "inclusion_reasons",
-    );
-    if (unknown.length > 0 || !("type" in artifact) || !("id" in artifact) || !("inclusion_reasons" in artifact)) {
-      throw new Error(`Installation Manifest resolved_artifacts[${index}] must contain type, id, and inclusion_reasons`);
-    }
+  const records = value.map((entry, index) => {
+    const description = `Installation Manifest resolved_artifacts[${index}]`;
+    const artifact = requireMapping(entry, description);
+    requireExactFields(artifact, ["type", "id", "inclusion_reasons"], description);
     if (!Array.isArray(artifact.inclusion_reasons) || artifact.inclusion_reasons.length === 0) {
-      throw new Error(`Installation Manifest resolved_artifacts[${index}] inclusion_reasons must be a non-empty array`);
+      throw new Error(`${description} inclusion_reasons must be a non-empty array`);
     }
-    const inclusionReasons = artifact.inclusion_reasons.map((reason, reasonIndex) => {
-      if (typeof reason !== "object" || reason === null || Array.isArray(reason)) {
-        throw new Error(`Installation Manifest resolved_artifacts[${index}] inclusion_reasons[${reasonIndex}] must be a YAML mapping`);
-      }
-      const mapping = reason as Record<string, unknown>;
-      const fields = Object.keys(mapping);
-      if (fields.length !== 2 || !fields.includes("profile") || !fields.includes("path")) {
-        throw new Error(`Installation Manifest resolved_artifacts[${index}] inclusion_reasons[${reasonIndex}] must contain profile and path`);
-      }
-      if (!Array.isArray(mapping.path)) {
-        throw new Error(`Installation Manifest resolved_artifacts[${index}] inclusion_reasons[${reasonIndex}] path must be an array`);
+    const inclusionReasons = artifact.inclusion_reasons.map((entry, reasonIndex) => {
+      const reasonDescription = `${description} inclusion_reasons[${reasonIndex}]`;
+      const reason = requireMapping(entry, reasonDescription);
+      requireExactFields(reason, ["profile", "path"], reasonDescription);
+      if (!Array.isArray(reason.path)) {
+        throw new Error(`${reasonDescription} path must be an array`);
       }
       return {
-        path: mapping.path.map((reference, pathIndex) =>
-          requireArtifactReference(
-            reference,
-            `resolved_artifacts[${index}] inclusion_reasons[${reasonIndex}] path[${pathIndex}]`,
-          ),
+        path: reason.path.map((reference, pathIndex) =>
+          requireArtifactReference(reference, `${reasonDescription} path[${pathIndex}]`),
         ),
-        profile: requireArtifactId(mapping.profile, `Installation Manifest resolved_artifacts[${index}] inclusion_reasons[${reasonIndex}] profile`),
+        profile: requireArtifactId(reason.profile, `${reasonDescription} profile`),
       };
     });
     return {
       inclusionReasons,
       reference: requireArtifactReference(
         { id: artifact.id, type: artifact.type },
-        `resolved_artifacts[${index}]`,
+        description,
       ),
     };
   });
-  const identifiers = artifacts.map(({ reference }) => `${reference.type}:${reference.id}`);
-  if (new Set(identifiers).size !== identifiers.length) {
+  const keys = records.map((record) => `${record.reference.type}:${record.reference.id}`);
+  if (new Set(keys).size !== keys.length) {
     throw new Error("Installation Manifest resolved_artifacts must not contain an Artifact more than once");
   }
-  return artifacts;
+  return records;
 }
 
-function requireSelectedArtifacts(value: unknown): InstallationManifest["selectedArtifacts"] {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("Installation Manifest selected_artifacts must be a YAML mapping");
+function parseOutputs(value: unknown): readonly OwnedOutput[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("Installation Manifest outputs must be a non-empty array");
   }
-  const selectedArtifacts = value as Record<string, unknown>;
-  const unknown = Object.keys(selectedArtifacts).filter(
-    (field) => field !== "context" && field !== "skills",
-  );
-  if (unknown.length > 0 || !("context" in selectedArtifacts)) {
-    throw new Error("Installation Manifest selected_artifacts must contain context and optional skills");
+  const outputs = value.map((entry, index) => {
+    const description = `Installation Manifest outputs[${index}]`;
+    const output = requireMapping(entry, description);
+    requireExactFields(output, ["path", "hash"], description);
+    return {
+      hash: requireHash(output.hash, `${description} hash`),
+      path: requireRelativeOutputPath(output.path, `${description} path`),
+    };
+  });
+  const paths = outputs.map((output) => output.path);
+  if (new Set(paths).size !== paths.length) {
+    throw new Error("Installation Manifest outputs must not contain a path more than once");
   }
-  return {
-    context: requireStringArray(selectedArtifacts.context, "selected_artifacts.context"),
-    skills:
-      "skills" in selectedArtifacts
-        ? requireArtifactIdArray(selectedArtifacts.skills, "selected_artifacts.skills")
-        : [],
-  };
+  if (!paths.includes(".agent-profile-kit/installation.json")) {
+    throw new Error("Installation Manifest outputs must include the Installation Marker");
+  }
+  return outputs;
 }
 
-function requireGitProvenance(
-  value: unknown,
-): { readonly commit: string; readonly dirty: boolean } {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("Installation Manifest git must be a YAML mapping");
+function parseHostVersions(value: unknown): Readonly<Record<string, string>> {
+  const mapping = requireMapping(value, "Installation Manifest host_versions");
+  const result: Record<string, string> = {};
+  for (const [host, version] of Object.entries(mapping)) {
+    result[host] = requireString(version, `Installation Manifest host_versions.${host}`);
   }
-  const git = value as Record<string, unknown>;
-  const unknown = Object.keys(git).filter((field) => !["commit", "dirty"].includes(field));
-  if (unknown.length > 0 || !("commit" in git) || !("dirty" in git)) {
-    throw new Error("Installation Manifest git must contain only commit and dirty");
-  }
-  if (typeof git.dirty !== "boolean") {
-    throw new Error("Installation Manifest git.dirty must be a boolean");
-  }
-  return { commit: requireString(git.commit, "git.commit"), dirty: git.dirty };
+  return result;
 }
 
-export function parseInstallationManifest(source: string): InstallationManifest {
-  let value: unknown;
-  try {
-    value = parse(source);
-  } catch {
-    throw new Error("Installation Manifest is invalid YAML");
+function parseHosts(value: unknown): readonly string[] {
+  const hosts = requireStringArray(value, "Installation Manifest hosts");
+  if (hosts.length === 0 || hosts.some((host) => host !== "codex")) {
+    throw new Error("Installation Manifest hosts must contain only supported Host 'codex'");
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("Installation Manifest must be a YAML mapping");
-  }
-  const manifest = value as Record<string, unknown>;
-  const fields = [
-    "schema_version",
-    "profile_id",
-    "host_id",
-    "host_version",
-    "adapter_version",
-    "engine_version",
-    "selected_artifacts",
-    "resolved_artifacts",
-    "outputs",
-    "workspace_input_hash",
-    "output_hash",
-    "git",
-  ];
-  const unknown = Object.keys(manifest).filter((field) => !fields.includes(field));
-  if (unknown.length > 0) {
-    throw new Error(`Installation Manifest does not allow fields: ${unknown.join(", ")}`);
-  }
-  if (manifest.schema_version !== 1 && manifest.schema_version !== 2) {
-    throw new Error("Installation Manifest schema_version must be 1 or 2");
-  }
-  if (manifest.host_id !== "codex") {
-    throw new Error("Installation Manifest host_id must be codex");
-  }
-  const outputs = requireStringArray(manifest.outputs, "outputs");
-  if (outputs.length === 0 || outputs.some((output) => output.startsWith("/") || output.split("/").includes(".."))) {
-    throw new Error("Installation Manifest outputs must contain safe relative paths");
-  }
-  if (manifest.schema_version === 1 && "resolved_artifacts" in manifest) {
-    throw new Error("Installation Manifest schema_version 1 does not allow resolved_artifacts");
-  }
-  if (manifest.schema_version === 2 && !("resolved_artifacts" in manifest)) {
-    throw new Error("Installation Manifest schema_version 2 must contain resolved_artifacts");
-  }
-  const git = "git" in manifest ? requireGitProvenance(manifest.git) : undefined;
-  const resolvedArtifacts = "resolved_artifacts" in manifest
-    ? requireResolvedArtifacts(manifest.resolved_artifacts)
-    : undefined;
-  return {
-    adapterVersion: requireString(manifest.adapter_version, "adapter_version"),
-    engineVersion: requireString(manifest.engine_version, "engine_version"),
-    hostId: "codex",
-    hostVersion: requireString(manifest.host_version, "host_version"),
-    outputHash: requireHash(manifest.output_hash, "output_hash"),
-    outputs,
-    profileId: requireString(manifest.profile_id, "profile_id"),
-    selectedArtifacts: requireSelectedArtifacts(manifest.selected_artifacts),
-    schemaVersion: manifest.schema_version,
-    workspaceInputHash: requireHash(
-      manifest.workspace_input_hash,
+  return hosts;
+}
+
+function parseManifestMapping(value: unknown): ProjectInstallationManifest {
+  const manifest = requireMapping(value, "Installation Manifest");
+  requireExactFields(
+    manifest,
+    [
+      "schema_version",
+      "installation_id",
+      "project",
+      "profile_id",
+      "selected_context",
+      "resolved_artifacts",
+      "hosts",
+      "host_versions",
+      "adapter_version",
+      "engine_version",
       "workspace_input_hash",
-    ),
-    ...(git ? { git } : {}),
-    ...(resolvedArtifacts ? { resolvedArtifacts } : {}),
+      "outputs",
+    ],
+    "Installation Manifest",
+  );
+  if (manifest.schema_version !== INSTALLATION_MANIFEST_SCHEMA_VERSION) {
+    throw new Error(
+      `Installation Manifest schema_version must be ${INSTALLATION_MANIFEST_SCHEMA_VERSION}`,
+    );
+  }
+  const selectedContext = manifest.selected_context;
+  if (!Array.isArray(selectedContext)) {
+    throw new Error("Installation Manifest selected_context must be an array");
+  }
+  const contextIds = selectedContext.map((id, index) =>
+    requireArtifactId(id, `Installation Manifest selected_context[${index}]`),
+  );
+  if (new Set(contextIds).size !== contextIds.length) {
+    throw new Error("Installation Manifest selected_context must not contain an Artifact ID more than once");
+  }
+  const hosts = parseHosts(manifest.hosts);
+  const hostVersions = parseHostVersions(manifest.host_versions);
+  const hostVersionKeys = Object.keys(hostVersions).sort();
+  if (hostVersionKeys.length !== hosts.length || hostVersionKeys.some((host, index) => host !== hosts.slice().sort()[index])) {
+    throw new Error("Installation Manifest host_versions must match hosts exactly");
+  }
+  return {
+    adapterVersion: requireString(manifest.adapter_version, "Installation Manifest adapter_version"),
+    engineVersion: requireString(manifest.engine_version, "Installation Manifest engine_version"),
+    hosts,
+    hostVersions,
+    installationId: requireString(manifest.installation_id, "Installation Manifest installation_id"),
+    outputs: parseOutputs(manifest.outputs),
+    profileId: requireArtifactId(manifest.profile_id, "Installation Manifest profile_id"),
+    project: requireAbsoluteProject(manifest.project),
+    resolvedArtifacts: parseResolvedArtifacts(manifest.resolved_artifacts),
+    schemaVersion: 1,
+    selectedContext: contextIds,
+    workspaceInputHash: requireHash(manifest.workspace_input_hash, "Installation Manifest workspace_input_hash"),
   };
 }
 
-export function formatInstallationManifest(manifest: InstallationManifest): string {
-  const value = {
+function requireAbsoluteProject(value: unknown): string {
+  const project = requireString(value, "Installation Manifest project");
+  if (!isAbsolute(project)) {
+    throw new Error("Installation Manifest project must be an absolute path");
+  }
+  return project;
+}
+
+export function parseInstallationManifest(source: string): ProjectInstallationManifest {
+  return parseManifestMapping(parseYaml(source, "Installation Manifest"));
+}
+
+export function formatInstallationManifest(
+  manifest: ProjectInstallationManifest,
+): string {
+  return stringify(manifestValue(manifest));
+}
+
+function manifestValue(manifest: ProjectInstallationManifest): Record<string, unknown> {
+  return {
     schema_version: manifest.schemaVersion,
+    installation_id: manifest.installationId,
+    project: manifest.project,
     profile_id: manifest.profileId,
-    host_id: manifest.hostId,
-    host_version: manifest.hostVersion,
+    selected_context: manifest.selectedContext,
+    resolved_artifacts: manifest.resolvedArtifacts.map((artifact) => ({
+      type: artifact.reference.type,
+      id: artifact.reference.id,
+      inclusion_reasons: artifact.inclusionReasons.map((reason) => ({
+        profile: reason.profile,
+        path: reason.path,
+      })),
+    })),
+    hosts: manifest.hosts,
+    host_versions: manifest.hostVersions,
     adapter_version: manifest.adapterVersion,
     engine_version: manifest.engineVersion,
-    selected_artifacts: {
-      context: manifest.selectedArtifacts.context,
-      skills: manifest.selectedArtifacts.skills,
-    },
-    ...(manifest.resolvedArtifacts
-      ? {
-          resolved_artifacts: manifest.resolvedArtifacts.map((artifact) => ({
-            type: artifact.reference.type,
-            id: artifact.reference.id,
-            inclusion_reasons: artifact.inclusionReasons.map((reason) => ({
-                profile: reason.profile,
-                path: reason.path.map((reference) => ({ type: reference.type, id: reference.id })),
-              })),
-          })),
-        }
-      : {}),
-    outputs: manifest.outputs,
     workspace_input_hash: manifest.workspaceInputHash,
-    output_hash: manifest.outputHash,
-    ...(manifest.git ? { git: manifest.git } : {}),
+    outputs: manifest.outputs,
   };
-  return stringify(value);
+}
+
+export function parseInstallationState(source: string): InstallationState {
+  const value = parseYaml(source, "Installation State");
+  const state = requireMapping(value, "Installation State");
+  requireExactFields(state, ["schema_version", "installations"], "Installation State");
+  if (state.schema_version !== INSTALLATION_MANIFEST_SCHEMA_VERSION) {
+    throw new Error(`Installation State schema_version must be ${INSTALLATION_MANIFEST_SCHEMA_VERSION}`);
+  }
+  if (!Array.isArray(state.installations)) {
+    throw new Error("Installation State installations must be an array");
+  }
+  const installations = state.installations.map(parseManifestMapping);
+  const ids = installations.map((installation) => installation.installationId);
+  if (new Set(ids).size !== ids.length) {
+    throw new Error("Installation State must not contain an installation more than once");
+  }
+  const projects = installations.map((installation) => installation.project);
+  if (new Set(projects).size !== projects.length) {
+    throw new Error("Installation State must not contain a project more than once");
+  }
+  return { installations, schemaVersion: 1 };
+}
+
+export function formatInstallationState(state: InstallationState): string {
+  return stringify({
+    schema_version: state.schemaVersion,
+    installations: state.installations.map(manifestValue),
+  });
+}
+
+export function parseInstallationMarker(source: string): InstallationMarker {
+  let value: unknown;
+  try {
+    value = JSON.parse(source);
+  } catch {
+    throw new Error("Installation Marker is invalid JSON");
+  }
+  const marker = requireMapping(value, "Installation Marker");
+  requireExactFields(marker, ["schema_version", "installation_id"], "Installation Marker");
+  if (marker.schema_version !== INSTALLATION_MARKER_SCHEMA_VERSION) {
+    throw new Error(`Installation Marker schema_version must be ${INSTALLATION_MARKER_SCHEMA_VERSION}`);
+  }
+  return {
+    installationId: requireString(marker.installation_id, "Installation Marker installation_id"),
+    schemaVersion: 1,
+  };
+}
+
+export function formatInstallationMarker(marker: InstallationMarker): string {
+  return `${JSON.stringify(
+    {
+      schema_version: marker.schemaVersion,
+      installation_id: marker.installationId,
+    },
+    null,
+    2,
+  )}\n`;
 }

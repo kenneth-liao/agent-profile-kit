@@ -1,7 +1,5 @@
 # Agent Profile Kit agent workflow
 
-> **Migration status:** This workflow describes the existing per-session Codex tracer. ADR-0010 and `docs/ARCHITECTURE.md` define its accepted project-bound replacement, which is not implemented yet.
-
 Use this workflow when helping a person author their Workspace.
 
 1. Read this guide first. Then inspect the Workspace: `workspace.yaml`, its
@@ -20,27 +18,17 @@ Use this workflow when helping a person author their Workspace.
    Host preferences, authentication, credential values, and machine-specific
    bindings outside the Workspace. Never copy generated Host files back into
    canonical source.
-5. Validate before planning. The current tracer accepts Context Modules with
-   `id` frontmatter, standard Agent Skills rooted at `SKILL.md`, and flat
-   Profiles with explicit arrays for every artifact category. A Skill's standard
-   `name` is its Artifact ID; keep Agent Profile Kit-only metadata in the
-   optional `agent-profile-kit.yaml` sidecar. Dependencies use explicit
-   `{ type, id }` references: Context Module Dependencies live in frontmatter
-   and Skill Dependencies live in the sidecar. Ensure the plan explains every
-   direct and transitive inclusion reason. Codex plans mirror the complete
-   Workspace Skill catalog into the Agent Profile Kit-owned Codex Skill Library
-   and enable the Profile's resolved Skills through a process-only filter. Run
-   `agent-profile-kit validate`, then `agent-profile-kit plan --profile <id>
-   --host codex`; inspect the selected Context and Skills, library additions,
-   changes and removals, destinations, and capability result before requesting
-   installation. The current Workspace schema version is 1.
-6. Do not install anything without direction. Explain the plan, ask the user
-   whether to apply it, and only then run an installation command they
-   explicitly requested. Use `status` to inspect an existing installation and
-   `update` only when the user explicitly requests regeneration; launch never
-   refreshes source implicitly. `uninstall` removes only a Manifest-verified
-   Manifest-verified output; the Codex Skill Library remains until the final
-   installed Codex Profile is removed.
+5. Validate before applying. Context Modules use `id` frontmatter and flat
+   Profiles contain explicit arrays for every artifact category. Dependencies
+   use explicit `{ type, id }` references. The Context-only Codex slice rejects
+   Profiles selecting Skills, Agents, Hooks, or Tools. Run
+   `agent-profile-kit validate`, review `agent-profile-kit preview`, and ask
+   before applying all configured Project Bindings with `agent-profile-kit
+   apply`. The current Workspace schema version is 1.
+6. Use `status` to distinguish current source from stale or drifted generated
+   output. `uninstall` removes only output whose Installation Marker and hashes
+   prove Agent Profile Kit ownership; it preserves the Workspace, Local
+   Configuration, global Host configuration, and repository-owned files.
 
 If the user plans to publish the Workspace, remind them to review personal
 content. Credentials are invalid in a Workspace regardless of publication

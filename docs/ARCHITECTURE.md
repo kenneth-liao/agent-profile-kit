@@ -1,6 +1,6 @@
 # Agent Profile Kit Architecture
 
-This document describes the agreed target architecture. The repository is being migrated from the superseded per-session overlay implementation.
+This document describes the implemented project-bound architecture for the initial Context-only Codex slice. The former per-session overlay implementation is removed.
 
 ## Purpose
 
@@ -55,17 +55,15 @@ bindings:
     profile: engineering
     hosts:
       - codex
-      - claude-code
   - project: ~/projects/business/customer-portal
     profile: engineering
     hosts:
       - codex
-      - claude-code
 ```
 
 Every `project` is an explicit existing directory that the user declares to be the project root. Paths must be absolute or begin with `~/`; other relative paths are invalid. Home-relative paths and symbolic links are normalized once at ingestion to a canonical absolute directory, which is used for identity and installation state while the authored spelling remains available for display. Wildcards, directory scans, and implicit parent-root detection are unsupported. A canonical project root may appear in exactly one binding; duplicates are invalid regardless of whether their Profile and Hosts agree.
 
-Git is optional. When a project is not a Git working tree, native Codex discovery can guarantee the installed project Context and Skills only when Codex starts in the exact bound root; starting it in a descendant is unsupported because Codex has no repository boundary to search toward. Claude Code may discover parent configuration, but the cross-Host contract retains the stricter launch-from-root rule. `validate`, `preview`, `status`, and `apply` surface this constraint for non-Git projects.
+Git is optional. When a project is not a Git working tree, native Codex discovery can guarantee the installed project Context only when Codex starts in the exact bound root; starting it in a descendant is unsupported because Codex has no repository boundary to search toward. The project workflow documents this launch-from-root constraint.
 
 The initial commands operate on the complete desired state:
 
@@ -79,7 +77,7 @@ There are no per-Profile filters or parallel binding-edit commands in the initia
 
 ## Canonical Model
 
-Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. They contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
+Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts only Context selections for Codex; unsupported categories fail at ingestion before writes. Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
 
 Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
@@ -105,19 +103,13 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The first project-bound release supports Codex CLI and Claude Code CLI on macOS with Context and Skills only. Profiles selecting Agents, Hooks, or Tools are rejected until those artifact categories receive dedicated capability work.
+The first project-bound release supports Codex CLI on macOS with Context only. Skills, Agents, portable Hooks, Tools, and other Agent Hosts remain explicit future slices.
 
 ### Codex
 
-The Codex Adapter generates the composed Context snapshot under an owned `.agent-profile-kit/codex/` path and an owned project `.codex/hooks.json`. A native `SessionStart` Hook prints the snapshot for `startup`, `resume`, `clear`, and `compact`, which Codex adds as extra developer Context. In Git projects the command resolves the snapshot from `git rev-parse --show-toplevel`; in non-Git projects it uses a project-relative path under the launch-from-root contract. The command embeds no absolute project path and needs no generated helper script. Repository `AGENTS.md` files and global instructions remain live and untouched. The generated Hook requires Codex's native review and trust, and Context is unsupported when Hooks are disabled or the required whole-file path is occupied.
+The Codex Adapter generates the composed Context snapshot under an owned `.agent-profile-kit/codex/` path and an owned project `.codex/hooks.json`. A native `SessionStart` Hook prints the snapshot for `startup`, `resume`, `clear`, and `compact`, which Codex adds as extra developer Context. In Git projects the command resolves the snapshot from the Git worktree root plus the binding-relative path; in non-Git projects it uses a project-relative path under the launch-from-root contract. The command embeds no absolute project path and needs no generated helper script. Repository `AGENTS.md` files and global instructions remain live and untouched. The generated Hook requires Codex's native review and trust. Lifecycle Hooks must be explicitly enabled in global or project Codex configuration; Context is unsupported when they are disabled, unset, or the required whole-file path is occupied.
 
-Portable Skills are copied beneath the native project `.agents/skills/<artifact-id>/` discovery tree. Existing Skills with colliding Artifact IDs are rejected.
-
-### Claude Code
-
-The Claude Code Adapter writes composed Context to the reserved `.claude/rules/agent-profile-kit/profile.md` project-rules subtree. The rule has no path frontmatter, so Claude loads it unconditionally and re-injects it after compaction while leaving `CLAUDE.md`, `CLAUDE.local.md`, other project rules, and user rules untouched.
-
-Portable Skills are copied beneath `.claude/skills/<artifact-id>/`. Existing Skills with colliding Artifact IDs are rejected.
+Skills are not emitted by this Context-only Adapter. A later project-native Skill slice will add its own exact output planner and ownership rules.
 
 ## Reconciliation and Ownership
 
@@ -129,9 +121,9 @@ When a configured project moves, its marker lets reconciliation update the recor
 
 When a binding, Host, project, or artifact disappears, `apply` removes the no-longer-desired output only after its Manifest, Installation Marker, and current hashes prove ownership. Modified generated files are reported as drift and are never overwritten or removed silently.
 
-Generated project paths remain untracked. For Git projects, Agent Profile Kit manages only its marked, exact entries in the repository-local Git exclusion file and never edits shared `.gitignore`. A tracked destination or an occupied unowned path blocks installation. Non-Git directories require no exclusion management and follow the stricter native discovery contract described above.
-
-For a bound Git working tree, all existing worktrees of the same repository are reconciled during `apply` using Git's authoritative worktree list. This is deliberate repository expansion rather than path matching. Untracked generated files do not appear automatically in a later worktree, so a new worktree requires another `apply` before its sessions are guaranteed to receive the Profile. No Git hook, watcher, or Host-specific background integration is installed to hide this limitation.
+Generated project paths are owned whole files. A symlink, occupied parent, or
+occupied unowned path blocks installation; shared repository and Host
+configuration are never edited.
 
 ## Freshness and Versioning
 
