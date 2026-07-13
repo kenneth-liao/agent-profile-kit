@@ -22,6 +22,17 @@ The first project-bound slice supports Context Modules and explicit flat Profile
 for Codex. Profiles selecting Skills, Agents, Hooks, or Tools are rejected until
 their native project delivery slices land.
 
+Codex must trust each bound project and have lifecycle hooks explicitly enabled
+in its global or project configuration:
+
+```toml
+[features]
+hooks = true
+```
+
+Launch Codex from the bound project. For a non-Git project, use the exact bound
+root so Codex can discover the generated project hook and Context.
+
 ```sh
 agent-profile-kit validate
 agent-profile-kit preview

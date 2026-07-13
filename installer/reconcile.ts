@@ -391,6 +391,11 @@ export async function applyReconciliation(
     throw new Error(`Apply blocked before writes:\n${report.blockers.map((blocker) => `- ${blocker}`).join("\n")}`);
   }
 
+  const currentProjects = new Set(
+    desired
+      .filter((_, index) => report.items[index]?.kind === "current")
+      .map((installation) => installation.binding.canonicalProject),
+  );
   const byProject = new Map(before.installations.map((installation) => [installation.project, installation]));
   const installationsByProject = new Map(
     before.installations.map((installation) => [installation.project, installation]),
@@ -401,6 +406,7 @@ export async function applyReconciliation(
     const previous = await previousFor(item, before, byProject);
     const moved = previous && previous.project !== item.binding.canonicalProject;
     if (moved) movedPreviousProjects.add(previous.project);
+    if (currentProjects.has(item.binding.canonicalProject)) continue;
     let transaction: { readonly commit: () => Promise<void>; readonly rollback: () => Promise<void> } | undefined;
     try {
       const installationId = previous?.installationId ?? newInstallationId();
@@ -447,9 +453,5 @@ export async function applyReconciliation(
       );
     }
   }
-  await writeInstallationState(home, {
-    installations: [...installationsByProject.values()],
-    schemaVersion: 1,
-  });
   return report;
 }

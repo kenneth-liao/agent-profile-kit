@@ -19,25 +19,25 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
-function hooksDisabled(source: string): boolean {
-  if (/^\s*features\.(?:hooks|codex_hooks)\s*=\s*false\s*(?:#.*)?$/m.test(source)) {
-    return true;
-  }
+function hookFeatureSetting(source: string): boolean | undefined {
+  const settings = new Map<string, boolean>();
   let section = "";
   for (const line of source.split(/\r?\n/)) {
-    const header = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    const header = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/);
     if (header) {
-      section = header[1] ?? "";
+      section = (header[1] ?? "").toLowerCase();
       continue;
     }
-    if (
-      section === "features" &&
-      /^\s*(?:hooks|codex_hooks)\s*=\s*false\s*(?:#.*)?$/i.test(line)
-    ) {
-      return true;
-    }
+    const dotted = section === ""
+      ? line.match(/^\s*features\.(hooks|codex_hooks)\s*=\s*(true|false)\s*(?:#.*)?$/i)
+      : undefined;
+    const nested = section === "features"
+      ? line.match(/^\s*(hooks|codex_hooks)\s*=\s*(true|false)\s*(?:#.*)?$/i)
+      : undefined;
+    const setting = dotted ?? nested;
+    if (setting) settings.set((setting[1] ?? "").toLowerCase(), setting[2]?.toLowerCase() === "true");
   }
-  return false;
+  return settings.get("hooks") ?? settings.get("codex_hooks");
 }
 
 async function readOptional(path: string): Promise<string> {
@@ -57,14 +57,19 @@ export async function assertCodexProjectCapability(
     readOptional(join(home, ".codex", "config.toml")),
     readOptional(join(project, ".codex", "config.toml")),
   ]);
-  const disabledBy = globalConfig && hooksDisabled(globalConfig)
-    ? join(home, ".codex", "config.toml")
-    : projectConfig && hooksDisabled(projectConfig)
-      ? join(project, ".codex", "config.toml")
-      : undefined;
-  if (disabledBy) {
+  const globalPath = join(home, ".codex", "config.toml");
+  const projectPath = join(project, ".codex", "config.toml");
+  const globalSetting = hookFeatureSetting(globalConfig);
+  const projectSetting = hookFeatureSetting(projectConfig);
+  const effectiveSetting = projectSetting ?? globalSetting;
+  if (effectiveSetting !== true) {
+    const configuredBy = projectSetting !== undefined
+      ? projectPath
+      : globalSetting !== undefined
+        ? globalPath
+        : undefined;
     throw new Error(
-      `Codex SessionStart hooks are disabled by ${disabledBy}; enable [features].hooks before applying the Profile`,
+      `Codex SessionStart hooks are not enabled${configuredBy ? ` by ${configuredBy}` : ""}; set [features].hooks = true in ${projectPath} or ${globalPath} before previewing or applying the Profile`,
     );
   }
 }

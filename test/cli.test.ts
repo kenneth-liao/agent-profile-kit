@@ -8,6 +8,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -81,6 +82,8 @@ function bind(home: string, projectPath: string, profile = "coding"): void {
 function initialize(home: string): void {
   const result = runCli(home, "init");
   expect(result.status, result.stderr).toBe(0);
+  mkdirSync(join(home, ".codex"), { recursive: true });
+  writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
 }
 
 describe("agent-profile-kit project-bound lifecycle", () => {
@@ -128,12 +131,39 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     initialize(home);
     writeContextProfile(home);
     const first = project();
-    writeFileSync(configPath(home), `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex, codex]\n`);
-    expect(runCli(home, "validate").stderr).toContain("must not contain a Host more than once");
-    writeFileSync(configPath(home), "schema_version: 1\nbindings:\n  - project: ./relative\n    profile: coding\n    hosts: [codex]\n");
-    const result = runCli(home, "validate");
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("absolute path or home-relative");
+    const invalidBindings = [
+      {
+        source: `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex, codex]\n`,
+        message: "must not contain a Host more than once",
+      },
+      {
+        source: "schema_version: 1\nbindings:\n  - project: ./relative\n    profile: coding\n    hosts: [codex]\n",
+        message: "absolute path or home-relative",
+      },
+      {
+        source: "schema_version: 1\nbindings:\n  - project: ~/projects/*\n    profile: coding\n    hosts: [codex]\n",
+        message: "without wildcards",
+      },
+      {
+        source: `schema_version: 1\nbindings:\n  - project: ${join(home, "missing")}\n    profile: coding\n    hosts: [codex]\n`,
+        message: "must be an existing directory",
+      },
+      {
+        source: `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: missing\n    hosts: [codex]\n`,
+        message: "does not exist in Workspace",
+      },
+      {
+        source: `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [claude]\n`,
+        message: "unsupported Agent Host 'claude'",
+      },
+    ];
+
+    for (const invalid of invalidBindings) {
+      writeFileSync(configPath(home), invalid.source);
+      const result = runCli(home, "validate");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(invalid.message);
+    }
   });
 
   test("validate rejects symlink aliases that normalize to one canonical project root", () => {
@@ -174,21 +204,31 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
   });
 
-  test("preview blocks when Codex SessionStart hooks are disabled", () => {
+  test("preview requires Codex SessionStart hooks to be explicitly enabled", () => {
     const home = isolatedHome();
     initialize(home);
     const projectPath = project();
-    mkdirSync(join(home, ".codex"), { recursive: true });
-    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
     writeContextProfile(home);
     bind(home, projectPath);
 
-    const result = runCli(home, "preview");
+    writeFileSync(join(home, ".codex", "config.toml"), "");
+    const missing = runCli(home, "preview");
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain("SessionStart hooks are not enabled");
+    expect(missing.stderr).toContain("[features].hooks = true");
 
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("SessionStart hooks are disabled");
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
+    const disabled = runCli(home, "preview");
+    expect(disabled.status).toBe(1);
+    expect(disabled.stderr).toContain("SessionStart hooks are not enabled");
+
+    writeFileSync(join(home, ".codex", "config.toml"), "");
+    mkdirSync(join(projectPath, ".codex"));
+    writeFileSync(join(projectPath, ".codex", "config.toml"), "[features]\ncodex_hooks = true\n");
+    const projectEnabled = runCli(home, "preview");
+    expect(projectEnabled.status, projectEnabled.stderr).toBe(0);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
-    expect(existsSync(join(projectPath, ".codex"))).toBe(false);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
   });
 
   test("apply creates the marker, manifest, composed Context, and native SessionStart hook", () => {
@@ -211,9 +251,31 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(hook.hooks.SessionStart[0]?.matcher).toBe("startup|resume|clear|compact");
     expect(hook.hooks.SessionStart[0]?.hooks[0]?.command).toContain("git rev-parse --show-toplevel");
     expect(hook.hooks.SessionStart[0]?.hooks[0]?.command).not.toContain(projectPath);
-    expect(parse(readFileSync(markerPath, "utf8"))).toHaveProperty("installation_id");
+    expect(JSON.parse(readFileSync(markerPath, "utf8"))).toHaveProperty("installation_id");
     expect(parse(readFileSync(statePath(home), "utf8")).installations).toHaveLength(1);
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
+  });
+
+  test("apply leaves current installation outputs and state untouched", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const paths = [
+      join(projectPath, ".agent-profile-kit", "codex", "context.md"),
+      join(projectPath, ".agent-profile-kit", "installation.json"),
+      join(projectPath, ".codex", "hooks.json"),
+      statePath(home),
+    ];
+    const before = paths.map((path) => statSync(path).mtimeMs);
+
+    const result = runCli(home, "apply");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`${projectPath}: current`);
+    expect(paths.map((path) => statSync(path).mtimeMs)).toEqual(before);
   });
 
   test("nested Git project bindings emit a Git-root-relative Context hook", () => {
@@ -278,7 +340,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "preview");
 
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status, result.stderr).toBe(1);
     expect(result.stdout).toContain("tracked");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
@@ -300,7 +362,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(runCli(home, "status").stdout).toContain(`${projectPath}: drifted output`);
     rmSync(join(projectPath, ".codex", "hooks.json"));
     expect(runCli(home, "status").stdout).toContain(`${projectPath}: missing output`);
-    writeFileSync(join(projectPath, ".agent-profile-kit", "installation.json"), "not yaml");
+    writeFileSync(join(projectPath, ".agent-profile-kit", "installation.json"), "not json");
     expect(runCli(home, "status").stdout).toContain(`${projectPath}: malformed ownership state`);
   });
 
@@ -362,10 +424,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     initialize(home);
     const projectPath = project();
     const globalCodex = join(home, ".codex");
-    mkdirSync(globalCodex);
+    mkdirSync(globalCodex, { recursive: true });
     mkdirSync(join(projectPath, ".codex"));
     mkdirSync(join(projectPath, ".agent-profile-kit"));
-    writeFileSync(join(globalCodex, "config.toml"), "global = true\n");
+    writeFileSync(join(globalCodex, "config.toml"), "[features]\nhooks = true\n# global setting\n");
     writeFileSync(join(projectPath, "AGENTS.md"), "repository-owned\n");
     writeContextProfile(home);
     bind(home, projectPath);
@@ -378,7 +440,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
     expect(readFileSync(configPath(home), "utf8")).toContain(projectPath);
-    expect(readFileSync(join(globalCodex, "config.toml"), "utf8")).toBe("global = true\n");
+    expect(readFileSync(join(globalCodex, "config.toml"), "utf8")).toBe("[features]\nhooks = true\n# global setting\n");
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
   });
 

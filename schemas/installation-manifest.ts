@@ -51,7 +51,7 @@ export interface InstallationState {
 
 function requireMapping(value: unknown, description: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${description} must be a YAML mapping`);
+    throw new Error(`${description} must be a mapping`);
   }
   return value as Record<string, unknown>;
 }
@@ -332,7 +332,12 @@ export function formatInstallationState(state: InstallationState): string {
 }
 
 export function parseInstallationMarker(source: string): InstallationMarker {
-  const value = parseYaml(source, "Installation Marker");
+  let value: unknown;
+  try {
+    value = JSON.parse(source);
+  } catch {
+    throw new Error("Installation Marker is invalid JSON");
+  }
   const marker = requireMapping(value, "Installation Marker");
   requireExactFields(marker, ["schema_version", "installation_id"], "Installation Marker");
   if (marker.schema_version !== INSTALLATION_MARKER_SCHEMA_VERSION) {
@@ -345,8 +350,12 @@ export function parseInstallationMarker(source: string): InstallationMarker {
 }
 
 export function formatInstallationMarker(marker: InstallationMarker): string {
-  return stringify({
-    schema_version: marker.schemaVersion,
-    installation_id: marker.installationId,
-  });
+  return `${JSON.stringify(
+    {
+      schema_version: marker.schemaVersion,
+      installation_id: marker.installationId,
+    },
+    null,
+    2,
+  )}\n`;
 }

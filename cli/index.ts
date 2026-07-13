@@ -77,7 +77,9 @@ async function main(): Promise<void> {
     return;
   }
   if (arguments_.length === 1 && arguments_[0] === "preview") {
-    process.stdout.write(formatReport(await previewApplication(home)));
+    const report = await previewApplication(home);
+    process.stdout.write(formatReport(report));
+    if (report.blockers.length > 0) process.exitCode = 1;
     return;
   }
   if (arguments_.length === 1 && arguments_[0] === "apply") {

@@ -74,11 +74,20 @@ description: Review a pull request. Use when asked to review code changes.
 # Review a pull request
 ```
 
+Before previewing or applying, trust each bound project in Codex and explicitly
+enable lifecycle hooks in global or project Codex configuration:
+
+```toml
+[features]
+hooks = true
+```
+
 Run `agent-profile-kit validate`, then review the complete read-only desired
 state with `agent-profile-kit preview`. Apply all configured Project Bindings
 explicitly with `agent-profile-kit apply`. Ordinary Codex launches from a bound
-project receive the generated Context through its native project SessionStart
-hook; Agent Profile Kit does not launch Codex or modify global configuration.
+Git worktree receive the generated Context through its native project
+SessionStart hook. For a non-Git project, launch Codex from the exact bound root.
+Agent Profile Kit does not launch Codex or modify global configuration.
 
 Use `agent-profile-kit status` to inspect every bound project. It reports
 current, stale source, drifted output, missing output, and malformed ownership.
