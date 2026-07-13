@@ -1,5 +1,5 @@
 import { parse, stringify } from "yaml";
-import { isAbsolute } from "node:path";
+import { isAbsolute, normalize, win32 } from "node:path";
 
 import {
   ARTIFACT_TYPES,
@@ -8,12 +8,15 @@ import {
   type ArtifactType,
 } from "./dependencies.js";
 
-export const INSTALLATION_MANIFEST_SCHEMA_VERSION = 1;
+export const INSTALLATION_MANIFEST_SCHEMA_VERSION = 2;
 export const INSTALLATION_MARKER_SCHEMA_VERSION = 1;
+export const INSTALLATION_MARKER_PATH = ".agent-profile-kit/installation.json";
 
 export interface OwnedOutput {
   readonly hash: string;
+  readonly mode: number;
   readonly path: string;
+  readonly type: "file";
 }
 
 export interface ResolvedArtifactRecord {
@@ -34,7 +37,7 @@ export interface ProjectInstallationManifest {
   readonly profileId: string;
   readonly project: string;
   readonly resolvedArtifacts: readonly ResolvedArtifactRecord[];
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly selectedContext: readonly string[];
   readonly workspaceInputHash: string;
 }
@@ -46,7 +49,7 @@ export interface InstallationMarker {
 
 export interface InstallationState {
   readonly installations: readonly ProjectInstallationManifest[];
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
 }
 
 function requireMapping(value: unknown, description: string): Record<string, unknown> {
@@ -81,6 +84,13 @@ function requireHash(value: unknown, description: string): string {
   return hash;
 }
 
+export function parseFileMode(value: unknown, description: string): number {
+  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 0o777) {
+    throw new Error(`${description} must be an integer permission mode between 0 and 0777`);
+  }
+  return value as number;
+}
+
 function requireExactFields(
   value: Record<string, unknown>,
   fields: readonly string[],
@@ -104,9 +114,12 @@ function requireRelativeOutputPath(value: unknown, description: string): string 
   const path = requireString(value, description);
   if (
     path.startsWith("/") ||
-    path.split("/").some((part) => part === ".." || part === "")
+    isAbsolute(path) ||
+    win32.isAbsolute(path) ||
+    path.includes("\\") ||
+    path.split("/").some((part) => part === "." || part === ".." || part === "")
   ) {
-    throw new Error(`${description} must be a safe relative project path`);
+    throw new Error(`${description} must be a normalized safe relative project path`);
   }
   return path;
 }
@@ -170,17 +183,22 @@ function parseOutputs(value: unknown): readonly OwnedOutput[] {
   const outputs = value.map((entry, index) => {
     const description = `Installation Manifest outputs[${index}]`;
     const output = requireMapping(entry, description);
-    requireExactFields(output, ["path", "hash"], description);
+    requireExactFields(output, ["path", "type", "mode", "hash"], description);
+    if (output.type !== "file") {
+      throw new Error(`${description} type must be 'file'`);
+    }
     return {
       hash: requireHash(output.hash, `${description} hash`),
+      mode: parseFileMode(output.mode, `${description} mode`),
       path: requireRelativeOutputPath(output.path, `${description} path`),
+      type: "file" as const,
     };
   });
   const paths = outputs.map((output) => output.path);
   if (new Set(paths).size !== paths.length) {
     throw new Error("Installation Manifest outputs must not contain a path more than once");
   }
-  if (!paths.includes(".agent-profile-kit/installation.json")) {
+  if (!paths.includes(INSTALLATION_MARKER_PATH)) {
     throw new Error("Installation Manifest outputs must include the Installation Marker");
   }
   return outputs;
@@ -254,7 +272,7 @@ function parseManifestMapping(value: unknown): ProjectInstallationManifest {
     profileId: requireArtifactId(manifest.profile_id, "Installation Manifest profile_id"),
     project: requireAbsoluteProject(manifest.project),
     resolvedArtifacts: parseResolvedArtifacts(manifest.resolved_artifacts),
-    schemaVersion: 1,
+    schemaVersion: 2,
     selectedContext: contextIds,
     workspaceInputHash: requireHash(manifest.workspace_input_hash, "Installation Manifest workspace_input_hash"),
   };
@@ -262,8 +280,8 @@ function parseManifestMapping(value: unknown): ProjectInstallationManifest {
 
 function requireAbsoluteProject(value: unknown): string {
   const project = requireString(value, "Installation Manifest project");
-  if (!isAbsolute(project)) {
-    throw new Error("Installation Manifest project must be an absolute path");
+  if (!isAbsolute(project) || normalize(project) !== project) {
+    throw new Error("Installation Manifest project must be a normalized absolute path");
   }
   return project;
 }
@@ -321,7 +339,7 @@ export function parseInstallationState(source: string): InstallationState {
   if (new Set(projects).size !== projects.length) {
     throw new Error("Installation State must not contain a project more than once");
   }
-  return { installations, schemaVersion: 1 };
+  return { installations, schemaVersion: 2 };
 }
 
 export function formatInstallationState(state: InstallationState): string {

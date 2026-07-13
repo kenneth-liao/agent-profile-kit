@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Added deterministic global reconciliation with normalized multi-Adapter output plans, complete preflight reporting, independently transactional project updates, and ownership-proven removals ([#29](https://github.com/kenneth-liao/agent-profile-kit/issues/29)).
+
 - Added project-bound Context-only Codex lifecycle with Local Configuration ingestion, preview/apply reconciliation, ownership-aware status, and safe uninstall ([#28](https://github.com/kenneth-liao/agent-profile-kit/issues/28)).
 
 - Added typed, transitive cross-artifact Dependency resolution with deterministic plans and auditable Manifest inclusion reasons ([#7](https://github.com/kenneth-liao/agent-profile-kit/issues/7)).
@@ -29,6 +31,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Simplified initialization warnings to their single concurrent-cleanup producer ([#18](https://github.com/kenneth-liao/agent-profile-kit/pull/18)).
 
 ### Fixed
+
+- Made repairable-marker status and malformed-state apply errors precise, and decoupled reconciliation from report ordering ([#37](https://github.com/kenneth-liao/agent-profile-kit/pull/37)).
 
 - Recover from interrupted Profile Installation replacement without blocking later updates ([#21](https://github.com/kenneth-liao/agent-profile-kit/pull/21)).
 - Report an existing Profile Installation without modifying it ([#20](https://github.com/kenneth-liao/agent-profile-kit/pull/20)).

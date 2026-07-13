@@ -1,12 +1,16 @@
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { isAbsolute, join, posix } from "node:path";
 
 import {
   assertCodexProjectCapability,
   planCodexProject,
-  type ProposedProjectOutput,
 } from "../adapters/codex.js";
+import type { AdapterProjectPlan, ProjectOutputEntryType } from "../adapters/project-plan.js";
 import { type ProjectBinding } from "../schemas/local-configuration.js";
+import {
+  INSTALLATION_MARKER_PATH,
+  parseFileMode,
+} from "../schemas/installation-manifest.js";
 import { hashWorkspaceInputs } from "./hashes.js";
 import { ingestApplication } from "./local-configuration.js";
 import { resolveProfileDependencies, type ResolvedProfile } from "./resolve-dependencies.js";
@@ -15,18 +19,26 @@ import { findGitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
 
-export interface DesiredProjectOutput extends ProposedProjectOutput {
+export interface DesiredProjectOutput {
+  readonly bytes: string;
+  readonly consumingHosts: readonly string[];
   readonly hash: string;
+  readonly mode: number;
+  readonly path: string;
+  readonly requirements: readonly string[];
+  readonly type: ProjectOutputEntryType;
 }
 
 export interface DesiredInstallation {
   readonly binding: ProjectBinding;
+  readonly blockers: readonly string[];
   readonly engineVersion: string;
   readonly hostVersion: string;
   readonly outputs: readonly DesiredProjectOutput[];
   readonly profile: Profile;
   readonly resolvedProfile: ResolvedProfile;
   readonly sourceHash: string;
+  readonly warnings: readonly string[];
 }
 
 export interface DesiredState {
@@ -38,15 +50,125 @@ export function hashBytes(source: string): string {
   return `sha256:${createHash("sha256").update(source).digest("hex")}`;
 }
 
+function normalizedOutputPath(path: string): string {
+  const slashPath = path.replaceAll("\\", "/");
+  if (
+    path.length === 0 ||
+    isAbsolute(path) ||
+    /^[A-Za-z]:\//.test(slashPath) ||
+    slashPath.startsWith("/") ||
+    slashPath.split("/").some((part) => part === "" || part === "." || part === "..") ||
+    posix.normalize(slashPath) !== slashPath
+  ) {
+    throw new Error(`Adapter output path '${path}' must be a normalized project-relative path`);
+  }
+  return slashPath;
+}
+
+function outputDifference(
+  left: DesiredProjectOutput,
+  right: Omit<DesiredProjectOutput, "consumingHosts">,
+): string | undefined {
+  if (left.type !== right.type) return "entry type";
+  if (left.mode !== right.mode) return "mode";
+  if (left.bytes !== right.bytes) return "bytes";
+  if (left.requirements.join("\n") !== right.requirements.join("\n")) return "semantic requirements";
+  return undefined;
+}
+
+function assertNoFileAncestorCollisions(outputs: readonly DesiredProjectOutput[]): void {
+  const files = outputs
+    .filter((output) => output.type === "file")
+    .sort((left, right) => left.path.localeCompare(right.path));
+  for (const [index, output] of files.entries()) {
+    for (const nested of files.slice(index + 1)) {
+      if (nested.path.startsWith(`${output.path}/`)) {
+        throw new Error(
+          `Adapter output structural collision: file '${output.path}' is an ancestor of '${nested.path}'`,
+        );
+      }
+    }
+    if (INSTALLATION_MARKER_PATH.startsWith(`${output.path}/`)) {
+      throw new Error(
+        `Adapter output structural collision: file '${output.path}' is an ancestor of Installer-owned '${INSTALLATION_MARKER_PATH}'`,
+      );
+    }
+    if (output.path.startsWith(`${INSTALLATION_MARKER_PATH}/`)) {
+      throw new Error(
+        `Adapter output structural collision: Installer-owned file '${INSTALLATION_MARKER_PATH}' is an ancestor of '${output.path}'`,
+      );
+    }
+  }
+}
+
+/** Normalize all Host plans once at the Installer boundary. */
+export function normalizeAdapterPlans(
+  plans: readonly AdapterProjectPlan[],
+): readonly DesiredProjectOutput[] {
+  const outputs = new Map<string, DesiredProjectOutput>();
+  for (const plan of [...plans].sort((left, right) => left.host.localeCompare(right.host))) {
+    for (const proposed of plan.outputs) {
+      const path = normalizedOutputPath(proposed.path);
+      if (path === INSTALLATION_MARKER_PATH) {
+        throw new Error(
+          `Adapter output path '${path}' is reserved for the Installer-owned Installation Marker`,
+        );
+      }
+      const requirements = [...new Set(proposed.requirements)].sort();
+      const normalized = {
+        bytes: proposed.bytes,
+        hash: hashBytes(proposed.bytes),
+        mode: parseFileMode(proposed.mode, `Adapter output '${path}' mode`),
+        path,
+        requirements,
+        type: proposed.type,
+      } as const;
+      const existing = outputs.get(path);
+      if (!existing) {
+        outputs.set(path, { ...normalized, consumingHosts: [plan.host] });
+        continue;
+      }
+      const difference = outputDifference(existing, normalized);
+      if (difference) {
+        throw new Error(
+          `Adapter output collision at '${path}': ${difference} disagrees between consuming Hosts ${[...existing.consumingHosts, plan.host].sort().join(", ")}`,
+        );
+      }
+      outputs.set(path, {
+        ...existing,
+        consumingHosts: [...new Set([...existing.consumingHosts, plan.host])].sort(),
+      });
+    }
+  }
+  const normalized = [...outputs.values()].sort((left, right) => left.path.localeCompare(right.path));
+  assertNoFileAncestorCollisions(normalized);
+  const unsupported = normalized.find((output) => output.type !== "file");
+  if (unsupported) {
+    throw new Error(
+      `Adapter output '${unsupported.path}' has unsupported entry type '${unsupported.type}'`,
+    );
+  }
+  return normalized;
+}
+
 export async function buildDesiredState(
   home: string,
   options: { readonly checkHostCapability?: boolean } = {},
 ): Promise<DesiredState> {
   const { configuration, workspace } = await ingestApplication(home);
   const installations: DesiredInstallation[] = [];
-  for (const binding of configuration.bindings) {
+  for (const binding of [...configuration.bindings].sort((left, right) =>
+    left.canonicalProject.localeCompare(right.canonicalProject)
+  )) {
+    const blockers: string[] = [];
     if (options.checkHostCapability !== false) {
-      await assertCodexProjectCapability(home, binding.canonicalProject);
+      try {
+        await assertCodexProjectCapability(home, binding.canonicalProject);
+      } catch (error) {
+        blockers.push(
+          `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
     const profile = workspace.profiles.get(binding.profile);
     if (!profile) {
@@ -81,15 +203,16 @@ export async function buildDesiredState(
     const sourceHash = await hashWorkspaceInputs(profile, resolvedProfile);
     installations.push({
       binding,
+      blockers,
       engineVersion: ENGINE_VERSION,
       hostVersion: adapterPlan.hostVersion,
-      outputs: adapterPlan.outputs.map((output) => ({
-        ...output,
-        hash: hashBytes(output.bytes),
-      })),
+      outputs: normalizeAdapterPlans([adapterPlan]),
       profile,
       resolvedProfile,
       sourceHash,
+      warnings: gitProject
+        ? []
+        : [`${binding.project} is not a Git worktree; Codex must start at the exact bound project root for native Context discovery`],
     });
   }
   return { installations, workspace };

@@ -30,11 +30,14 @@ export async function previewApplication(home: string): Promise<ReconciliationRe
   } catch (error) {
     const desiredReport = await previewReconciliation(desired.installations, {
       installations: [],
-      schemaVersion: 1,
+      schemaVersion: 2,
     });
     return {
       ...desiredReport,
-      blockers: [error instanceof Error ? error.message : String(error), ...desiredReport.blockers],
+      blockers: [
+        { message: error instanceof Error ? error.message : String(error) },
+        ...desiredReport.blockers,
+      ],
     };
   }
   return previewReconciliation(desired.installations, state);
@@ -53,7 +56,7 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
   } catch (error) {
     const desiredReport = await previewReconciliation(desired.installations, {
       installations: [],
-      schemaVersion: 1,
+      schemaVersion: 2,
     });
     return {
       ...desiredReport,
@@ -67,7 +70,21 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
       ],
     };
   }
-  return previewReconciliation(desired.installations, state);
+  const report = await previewReconciliation(desired.installations, state);
+  const blockedProjects = new Set(
+    report.blockers.flatMap((blocker) => blocker.project ? [blocker.project] : []),
+  );
+  return {
+    ...report,
+    items: report.items.map((item) =>
+      desired.installations.some((installation) =>
+        installation.binding.project === item.project &&
+        blockedProjects.has(installation.binding.canonicalProject)
+      ) && item.kind === "addition"
+        ? { ...item, kind: "blocked" as const }
+        : item
+    ),
+  };
 }
 
 export async function uninstallApplication(home: string): Promise<number> {
@@ -92,7 +109,7 @@ export async function uninstallApplication(home: string): Promise<number> {
     for (const installation of state.installations) {
       transactions.push(await stageProvenInstallationRemoval(installation));
     }
-    await writeInstallationState(home, { installations: [], schemaVersion: 1 });
+    await writeInstallationState(home, { installations: [], schemaVersion: 2 });
     for (const transaction of transactions) await transaction.commit();
   } catch (error) {
     for (const transaction of transactions.reverse()) await transaction.rollback();

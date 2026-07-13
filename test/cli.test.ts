@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   chmodSync,
@@ -18,11 +19,22 @@ import { fileURLToPath } from "node:url";
 import { parse, stringify } from "yaml";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const cliPath = join(repositoryRoot, "dist", "cli.js");
 const temporaryDirectories: string[] = [];
+let cliPath = join(repositoryRoot, "dist", "cli.js");
 
 beforeAll(() => {
   execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
+  const packageDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-suite-pack-"));
+  const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-suite-packed-"));
+  temporaryDirectories.push(packageDirectory, extracted);
+  const packOutput = execFileSync(
+    "npm",
+    ["pack", "--silent", "--json", "--pack-destination", packageDirectory],
+    { cwd: repositoryRoot, encoding: "utf8" },
+  );
+  const metadata = JSON.parse(packOutput.slice(packOutput.lastIndexOf("\n[") + 1)) as readonly [{ readonly filename: string }];
+  execFileSync("tar", ["-xzf", join(packageDirectory, metadata[0]!.filename), "-C", extracted]);
+  cliPath = join(extracted, "package", "dist", "cli.js");
 });
 
 afterAll(() => {
@@ -198,6 +210,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("Profile coding");
     expect(result.stdout).toContain("Context Module: team-rules");
     expect(result.stdout).toContain(".codex/hooks.json");
+    expect(result.stdout).toContain("Codex must start at the exact bound project root");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex"))).toBe(false);
     expect(existsSync(statePath(home))).toBe(false);
@@ -214,13 +227,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(home, ".codex", "config.toml"), "");
     const missing = runCli(home, "preview");
     expect(missing.status).toBe(1);
-    expect(missing.stderr).toContain("SessionStart hooks are not enabled");
-    expect(missing.stderr).toContain("[features].hooks = true");
+    expect(missing.stdout).toContain("SessionStart hooks are not enabled");
+    expect(missing.stdout).toContain("[features].hooks = true");
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
     const disabled = runCli(home, "preview");
     expect(disabled.status).toBe(1);
-    expect(disabled.stderr).toContain("SessionStart hooks are not enabled");
+    expect(disabled.stdout).toContain("SessionStart hooks are not enabled");
 
     writeFileSync(join(home, ".codex", "config.toml"), "");
     mkdirSync(join(projectPath, ".codex"));
@@ -229,6 +242,29 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(projectEnabled.status, projectEnabled.stderr).toBe(0);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+  });
+
+  test("preview reports blockers from every project in one complete preflight", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const first = project("agent-profile-kit-preflight-a-");
+    const second = project("agent-profile-kit-preflight-b-");
+    writeContextProfile(home);
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
+    mkdirSync(join(second, ".codex"));
+    writeFileSync(join(second, ".codex", "hooks.json"), "occupied\n");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const result = runCli(home, "preview");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout.match(/SessionStart hooks are not enabled/g)).toHaveLength(2);
+    expect(result.stdout).toContain(`${second}/.codex/hooks.json is occupied`);
+    expect(existsSync(join(first, ".agent-profile-kit"))).toBe(false);
+    expect(existsSync(join(second, ".agent-profile-kit"))).toBe(false);
   });
 
   test("apply creates the marker, manifest, composed Context, and native SessionStart hook", () => {
@@ -252,7 +288,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(hook.hooks.SessionStart[0]?.hooks[0]?.command).toContain("git rev-parse --show-toplevel");
     expect(hook.hooks.SessionStart[0]?.hooks[0]?.command).not.toContain(projectPath);
     expect(JSON.parse(readFileSync(markerPath, "utf8"))).toHaveProperty("installation_id");
-    expect(parse(readFileSync(statePath(home), "utf8")).installations).toHaveLength(1);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      schema_version: number;
+      installations: Array<{ outputs: Array<{ mode: number; type: string }> }>;
+    };
+    expect(state.schema_version).toBe(2);
+    expect(state.installations).toHaveLength(1);
+    expect(state.installations[0]!.outputs.every((output) =>
+      output.type === "file" && output.mode === 0o644
+    )).toBe(true);
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
   });
 
@@ -276,6 +320,33 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain(`${projectPath}: current`);
     expect(paths.map((path) => statSync(path).mtimeMs)).toEqual(before);
+  });
+
+  test("preview classifies output additions, updates, removals, and unchanged output without writing", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
+    const before = readFileSync(contextPath, "utf8");
+
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated canonical Context.\n",
+    );
+    const changed = runCli(home, "preview");
+    expect(changed.status, changed.stderr).toBe(0);
+    expect(changed.stdout).toContain(`${projectPath}/.agent-profile-kit/codex/context.md: update`);
+    expect(changed.stdout).toContain(`${projectPath}/.codex/hooks.json: unchanged`);
+    expect(readFileSync(contextPath, "utf8")).toBe(before);
+
+    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+    const removed = runCli(home, "preview");
+    expect(removed.status, removed.stderr).toBe(0);
+    expect(removed.stdout).toContain(`${projectPath}/.agent-profile-kit/codex/context.md: removal`);
+    expect(existsSync(contextPath)).toBe(true);
   });
 
   test("nested Git project bindings emit a Git-root-relative Context hook", () => {
@@ -326,6 +397,51 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(first, ".codex", "hooks.json"), "utf8")).toBe("repository-owned hook\n");
   });
 
+  test("preview output is deterministic regardless of Project Binding order", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const first = project("agent-profile-kit-order-a-");
+    const second = project("agent-profile-kit-order-b-");
+    writeContextProfile(home);
+    const configuration = (projects: readonly string[]) =>
+      `schema_version: 1\nbindings:\n${projects.map((projectPath) => `  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`).join("")}`;
+    writeFileSync(configPath(home), configuration([first, second]));
+    const forward = runCli(home, "preview");
+    writeFileSync(configPath(home), configuration([second, first]));
+    const reverse = runCli(home, "preview");
+
+    expect(forward.status, forward.stderr).toBe(0);
+    expect(reverse.status, reverse.stderr).toBe(0);
+    expect(reverse.stdout).toBe(forward.stdout);
+  });
+
+  test("changing a Profile updates every project bound to its current Workspace form", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const first = project("agent-profile-kit-profile-a-");
+    const second = project("agent-profile-kit-profile-b-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nOne current Workspace form.\n",
+    );
+
+    const result = runCli(home, "apply");
+
+    expect(result.status, result.stderr).toBe(0);
+    for (const projectPath of [first, second]) {
+      expect(readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"))
+        .toContain("One current Workspace form.");
+    }
+    const state = parse(readFileSync(statePath(home), "utf8")) as { installations: readonly { profile_id: string }[] };
+    expect(state.installations.map((installation) => installation.profile_id)).toEqual(["coding", "coding"]);
+  });
+
   test("tracked destinations block even when the tracked file is currently absent", () => {
     const home = isolatedHome();
     initialize(home);
@@ -366,6 +482,26 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(runCli(home, "status").stdout).toContain(`${projectPath}: malformed ownership state`);
   });
 
+  test("status reports output permission drift and apply preserves it", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const context = join(projectPath, ".agent-profile-kit", "codex", "context.md");
+    chmodSync(context, 0o600);
+
+    const status = runCli(home, "status");
+    const applied = runCli(home, "apply");
+
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain(`${projectPath}: drifted output`);
+    expect(status.stdout).toContain("mode");
+    expect(applied.status).toBe(1);
+    expect(statSync(context).mode & 0o777).toBe(0o600);
+  });
+
   test("status reports a malformed machine-local Installation Manifest without writing", () => {
     const home = isolatedHome();
     initialize(home);
@@ -380,6 +516,78 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("malformed ownership state");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+  });
+
+  test("schema-v1 ownership state fails closed without adopting or removing output", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      schema_version: number;
+      installations: Array<{ schema_version: number }>;
+    };
+    state.schema_version = 1;
+    for (const installation of state.installations) installation.schema_version = 1;
+    writeFileSync(statePath(home), stringify(state));
+
+    const status = runCli(home, "status");
+    const apply = runCli(home, "apply");
+    const uninstall = runCli(home, "uninstall");
+
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain("malformed ownership state");
+    expect(status.stdout).toContain("schema_version must be 2");
+    expect(apply.status).toBe(1);
+    expect(apply.stderr).toContain("Apply blocked before writes");
+    expect(apply.stderr).toContain("schema_version must be 2");
+    expect(uninstall.status).toBe(1);
+    expect(uninstall.stderr).toContain("schema_version must be 2");
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
+  });
+
+  test("status reports a blocked installation deterministically without writing", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    mkdirSync(join(projectPath, ".codex"));
+    writeFileSync(join(projectPath, ".codex", "hooks.json"), "repository owned\n");
+    writeContextProfile(home);
+    bind(home, projectPath);
+
+    const result = runCli(home, "status");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`${projectPath}: blocked`);
+    expect(result.stdout).toContain("occupied by unowned or drifted output");
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("status attributes blockers by canonical project identity instead of path prefix", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const parent = project("agent-profile-kit-prefix-");
+    const first = join(parent, "project");
+    const second = join(parent, "project-extra");
+    mkdirSync(first);
+    mkdirSync(second);
+    mkdirSync(join(second, ".codex"));
+    writeFileSync(join(second, ".codex", "hooks.json"), "occupied\n");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const result = runCli(home, "status");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`${first}: addition`);
+    expect(result.stdout).not.toContain(`${first}: blocked`);
+    expect(result.stdout).toContain(`${second}: blocked`);
   });
 
   test("status rejects a Manifest that omits its Installation Marker output", () => {
@@ -417,6 +625,48 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Uninstall blocked");
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
+  });
+
+  test("uninstall rejects a symlinked output parent and preserves matching external data", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    const external = project("agent-profile-kit-external-hooks-");
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const hook = readFileSync(join(projectPath, ".codex", "hooks.json"), "utf8");
+    rmSync(join(projectPath, ".codex"), { recursive: true });
+    writeFileSync(join(external, "hooks.json"), hook);
+    symlinkSync(external, join(projectPath, ".codex"));
+
+    const result = runCli(home, "uninstall");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("symlink parent");
+    expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
+  test("uninstall preflights every project before removal and preserves Workspace and Project Bindings", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const first = project("agent-profile-kit-uninstall-a-");
+    const second = project("agent-profile-kit-uninstall-b-");
+    writeContextProfile(home);
+    const configuration = `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`;
+    writeFileSync(configPath(home), configuration);
+    expect(runCli(home, "apply").status).toBe(0);
+    writeFileSync(join(second, ".codex", "hooks.json"), "drifted\n");
+
+    const result = runCli(home, "uninstall");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Uninstall blocked");
+    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
+    expect(existsSync(join(workspacePath(home), "profiles", "coding.yaml"))).toBe(true);
   });
 
   test("uninstall removes only proven output and preserves canonical and unrelated project state", () => {
@@ -462,6 +712,112 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".codex"))).toBe(false);
   });
 
+  test("apply removes a no-longer-bound installation only when ownership is proven", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const retained = project("agent-profile-kit-retained-");
+    const removed = project("agent-profile-kit-removed-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${retained}\n    profile: coding\n    hosts: [codex]\n  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+    bind(home, retained);
+
+    const result = runCli(home, "apply");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`${removed}: removal`);
+    expect(existsSync(join(removed, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(removed, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(retained, ".agent-profile-kit", "installation.json"))).toBe(true);
+    const state = parse(readFileSync(statePath(home), "utf8")) as { installations: readonly unknown[] };
+    expect(state.installations).toHaveLength(1);
+  });
+
+  test("apply removes a no-longer-desired Adapter output whose recorded hash still proves ownership", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const obsoleteRelative = ".agent-profile-kit/codex/obsolete.txt";
+    const obsolete = join(projectPath, obsoleteRelative);
+    const bytes = "obsolete owned output\n";
+    writeFileSync(obsolete, bytes);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: Array<{ outputs: Array<{ hash: string; mode: number; path: string; type: "file" }> }>;
+    };
+    state.installations[0]!.outputs.push({
+      hash: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+      mode: 0o644,
+      path: obsoleteRelative,
+      type: "file",
+    });
+    writeFileSync(statePath(home), stringify(state));
+
+    const preview = runCli(home, "preview");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(`${obsolete}: removal`);
+    expect(existsSync(obsolete)).toBe(true);
+
+    const applied = runCli(home, "apply");
+    expect(applied.status, applied.stderr).toBe(0);
+    expect(existsSync(obsolete)).toBe(false);
+  });
+
+  test("drift in a stale installation blocks all desired updates and preserves every project", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const retained = project("agent-profile-kit-drift-retained-");
+    const removed = project("agent-profile-kit-drift-removed-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${retained}\n    profile: coding\n    hosts: [codex]\n  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+    const retainedContext = join(retained, ".agent-profile-kit", "codex", "context.md");
+    const before = readFileSync(retainedContext, "utf8");
+    writeFileSync(join(removed, ".codex", "hooks.json"), "user drift\n");
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nWould update retained.\n",
+    );
+    bind(home, retained);
+
+    const result = runCli(home, "apply");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Cannot remove stale Profile Installation");
+    expect(readFileSync(retainedContext, "utf8")).toBe(before);
+    expect(readFileSync(join(removed, ".codex", "hooks.json"), "utf8")).toBe("user drift\n");
+  });
+
+  test("stale reconciliation rejects a symlinked output parent and preserves matching external data", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    const external = project("agent-profile-kit-external-stale-");
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const hook = readFileSync(join(projectPath, ".codex", "hooks.json"), "utf8");
+    rmSync(join(projectPath, ".codex"), { recursive: true });
+    writeFileSync(join(external, "hooks.json"), hook);
+    symlinkSync(external, join(projectPath, ".codex"));
+    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+
+    const result = runCli(home, "apply");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("symlink parent");
+    expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
   test("apply repairs only a missing marker when remaining outputs prove ownership", () => {
     const home = isolatedHome();
     initialize(home);
@@ -475,6 +831,27 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
+  test("a repairable missing marker preserves the underlying stale-source status", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    rmSync(join(projectPath, ".agent-profile-kit", "installation.json"));
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nChanged while marker is repairable.\n",
+    );
+
+    const status = runCli(home, "status");
+
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain(`${projectPath}: stale source`);
+    expect(status.stdout).not.toContain(`${projectPath}: missing output`);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("a copied installation identity is rejected while the original remains", () => {
@@ -516,6 +893,34 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
     expect(runCli(home, "apply").status).toBe(0);
+  });
+
+  test("a later project failure reports completed, failed, and pending projects and reruns safely", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const first = project("agent-profile-kit-partial-a-");
+    const second = project("agent-profile-kit-partial-b-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    chmodSync(second, 0o555);
+
+    const failed = runCli(home, "apply");
+
+    chmodSync(second, 0o755);
+    expect(failed.status).toBe(1);
+    expect(failed.stderr).toContain(`completed projects: ${first}`);
+    expect(failed.stderr).toContain(`failed project: ${second}`);
+    expect(failed.stderr).toContain("pending projects: (none)");
+    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
+
+    const rerun = runCli(home, "apply");
+    expect(rerun.status, rerun.stderr).toBe(0);
+    expect(runCli(home, "status").stdout).toContain(`${first}: current`);
+    expect(runCli(home, "status").stdout).toContain(`${second}: current`);
   });
 
   test("a moved project carries its marker identity to the new binding", () => {
