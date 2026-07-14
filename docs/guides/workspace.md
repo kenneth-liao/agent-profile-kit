@@ -16,10 +16,10 @@ only `schema_version: 1`; the `profiles/`, `context/`, `skills/`, `agents/`,
 `hooks/`, and `tools/` directories identify the canonical homes for portable
 artifacts. Do not treat generated Host output as source material.
 
-The initial Codex project slice supports Context Modules. A Context Module is a
-Markdown file under `context/` with frontmatter containing one stable,
-lowercase kebab-case `id`; the Markdown body is the Context. A Skill is a
-standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
+The Codex project slice supports Context Modules and portable Skills. A Context
+Module is a Markdown file under `context/` with frontmatter containing one
+stable, lowercase kebab-case `id`; the Markdown body is the Context. A Skill is
+a standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
 standard `name` is its stable Artifact ID. The frontmatter needs a lowercase
 hyphenated `name` and a non-empty `description`. Scripts, references, and
 assets remain ordinary standard Skill content. If a Skill needs Agent Profile
@@ -29,8 +29,11 @@ Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each
 Skill's Agent Profile Kit sidecar. Each reference contains `type` (`context` or
 `skill`) and its stable `id`. Dependencies are resolved transitively and every
-resolved reason is retained in the machine-local Installation Manifest. Profiles
-selecting Skills, Agents, Hooks, or Tools are rejected by this initial slice.
+resolved reason is retained in preview and the machine-local Installation
+Manifest. Selected Skills install into each bound project's
+`.agents/skills/<Artifact ID>/` tree for native Codex discovery; the sidecar is
+not copied. Profiles selecting Agents, Hooks, or Tools are rejected by this
+initial slice.
 
 A Profile is a YAML file under `profiles/` with an `id` and explicit `context`,
 `skills`, `agents`, `hooks`, and `tools` arrays. In this initial slice, `agents`,
@@ -58,7 +61,8 @@ dependencies:
 id: coding
 context:
   - engineering-rules
-skills: []
+skills:
+  - review-pr
 agents: []
 hooks: []
 tools: []
@@ -88,9 +92,10 @@ explicitly with `agent-profile-kit apply`. A Git binding installs the Profile in
 the corresponding project directory of every existing worktree; a later
 worktree is reported missing until the next `apply`. Ordinary Codex launches
 from that directory or its descendants receive the generated Context through
-the native project SessionStart hook. For a non-Git project, launch Codex from
-the exact bound root. Agent Profile Kit does not launch Codex, install a watcher
-or Git hook, or modify global configuration or shared `.gitignore` files.
+the native project SessionStart hook and discover selected Skills under
+`.agents/skills/`. For a non-Git project, launch Codex from the exact bound
+root. Agent Profile Kit does not launch Codex, install a watcher or Git hook,
+or modify global configuration or shared `.gitignore` files.
 
 Use `agent-profile-kit status` to inspect every bound project. It reports
 current, stale source, drifted output, missing output, and malformed ownership.

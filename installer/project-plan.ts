@@ -26,7 +26,7 @@ import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
 
 export interface DesiredDirectoryFileMember {
-  readonly bytes: string;
+  readonly bytes: string | Uint8Array;
   readonly hash: string;
   readonly mode: number;
   readonly path: string;
@@ -44,7 +44,7 @@ export type DesiredDirectoryMember =
   | DesiredDirectoryFileMember;
 
 export interface DesiredProjectFileOutput {
-  readonly bytes: string;
+  readonly bytes: string | Uint8Array;
   readonly consumingHosts: readonly string[];
   readonly hash: string;
   readonly mode: number;
@@ -86,7 +86,7 @@ export interface DesiredState {
   readonly workspace: Workspace;
 }
 
-export function hashBytes(source: string): string {
+export function hashBytes(source: string | Uint8Array): string {
   return `sha256:${createHash("sha256").update(source).digest("hex")}`;
 }
 
@@ -96,10 +96,15 @@ function writeFrame(hash: ReturnType<typeof createHash>, value: string | Uint8Ar
   hash.update(bytes);
 }
 
+function exactBytesEqual(left: string | Uint8Array, right: string | Uint8Array): boolean {
+  if (typeof left === "string" && typeof right === "string") return left === right;
+  return Buffer.from(left).equals(Buffer.from(right));
+}
+
 /** Deterministic content hash for one complete artifact directory. */
 export function hashDirectoryMembers(
   members: readonly {
-    readonly bytes?: string;
+    readonly bytes?: string | Uint8Array;
     readonly mode: number;
     readonly path: string;
     readonly type: ProjectOutputEntryType;
@@ -113,7 +118,7 @@ export function hashDirectoryMembers(
       writeFrame(hash, String(member.mode));
       continue;
     }
-    if (typeof member.bytes !== "string") {
+    if (member.bytes === undefined) {
       throw new Error(`Directory member '${member.path}' must provide exact regular-file bytes`);
     }
     writeFrame(hash, "file");
@@ -168,7 +173,7 @@ function membersEqual(
     if (!other || member.type !== other.type || member.path !== other.path || member.mode !== other.mode) {
       return false;
     }
-    if (member.type === "file" && other.type === "file" && member.bytes !== other.bytes) {
+    if (member.type === "file" && other.type === "file" && !exactBytesEqual(member.bytes, other.bytes)) {
       return false;
     }
   }
@@ -183,7 +188,7 @@ function outputDifference(
   if (left.mode !== right.mode) return "mode";
   if (left.requirements.join("\n") !== right.requirements.join("\n")) return "semantic requirements";
   if (left.type === "file" && right.type === "file") {
-    if (left.bytes !== right.bytes) return "bytes";
+    if (!exactBytesEqual(left.bytes, right.bytes)) return "bytes";
     return undefined;
   }
   if (left.type === "directory" && right.type === "directory") {
@@ -244,7 +249,7 @@ function normalizeDirectoryMembers(
       `Adapter output '${directoryPath}' member path`,
     );
     if (proposed.type === "file") {
-      if (typeof proposed.bytes !== "string") {
+      if (typeof proposed.bytes !== "string" && !(proposed.bytes instanceof Uint8Array)) {
         throw new Error(
           `Adapter output '${directoryPath}' member '${path}' must provide exact regular-file bytes`,
         );
@@ -318,7 +323,7 @@ function normalizeProposedOutput(
   const requirements = [...new Set(proposed.requirements)].sort();
   const mode = parseFileMode(proposed.mode, `Adapter output '${path}' mode`);
   if (proposed.type === "file") {
-    if (typeof proposed.bytes !== "string") {
+    if (typeof proposed.bytes !== "string" && !(proposed.bytes instanceof Uint8Array)) {
       throw new Error(`Adapter output '${path}' must provide exact regular-file bytes`);
     }
     return {
@@ -402,14 +407,9 @@ export async function buildDesiredState(
       workspace.contexts,
       workspace.skills,
     );
-    if (resolvedProfile.skills.length > 0) {
-      throw new Error(
-        `Profile '${profile.id}' selects Skills, which the Context-only Codex project slice does not support; remove Skills from the Profile before applying`,
-      );
-    }
     if (profile.agents.length > 0 || profile.hooks.length > 0 || profile.tools.length > 0) {
       throw new Error(
-        `Profile '${profile.id}' selects unsupported artifact categories; Agents, Hooks, and Tools are not supported in the Context-only Codex project slice`,
+        `Profile '${profile.id}' selects unsupported artifact categories; Agents, Hooks, and Tools are not supported in the Codex project slice`,
       );
     }
     const gitProject = await findGitProject(binding.canonicalProject);
@@ -450,7 +450,12 @@ export async function buildDesiredState(
         "codex",
         "context.md",
       ].filter((part) => part.length > 0).join("/");
-      const adapterPlan = planCodexProject(profile.id, resolvedProfile.contexts, { contextPath });
+      const adapterPlan = await planCodexProject(
+        profile.id,
+        resolvedProfile.contexts,
+        resolvedProfile.skills,
+        { contextPath },
+      );
       installations.push({
         binding: target.binding,
         blockers,

@@ -20,9 +20,9 @@ Use this workflow when helping a person author their Workspace.
    canonical source.
 5. Validate before applying. Context Modules use `id` frontmatter and flat
    Profiles contain explicit arrays for every artifact category. Dependencies
-   use explicit `{ type, id }` references. The Context-only Codex slice rejects
-   Profiles selecting Skills, Agents, Hooks, or Tools. Run
-   `agent-profile-kit validate`, review `agent-profile-kit preview`, and ask
+   use explicit `{ type, id }` references. The Codex project slice accepts
+   Context and Skills and rejects Profiles selecting Agents, Hooks, or Tools.
+   Run `agent-profile-kit validate`, review `agent-profile-kit preview`, and ask
    before applying all configured Project Bindings with `agent-profile-kit
    apply`. The current Workspace schema version is 1.
 6. Use `status` to distinguish current source from stale or drifted generated

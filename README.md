@@ -2,7 +2,7 @@
 
 Agent Profile Kit is a user-agnostic CLI and format for composing a user's Skills, Context, Agents, Hooks, and Tools into portable Profiles. Host Adapters generate native Profile output for supported agent products without overwriting their existing configuration or capabilities.
 
-The initial product slice binds Context-only Profiles to explicit local projects and loads them through Codex's native project SessionStart hook. Global Host configuration and repository-owned instructions remain untouched.
+The initial product slice binds Context and portable Skills to explicit local projects. Codex loads Context through a native project SessionStart hook and discovers selected Skills under `.agents/skills/`. Global Host configuration and repository-owned instructions remain untouched.
 
 ## Quick start
 
@@ -16,11 +16,11 @@ The initial release supports macOS only.
 
 Running the command again is safe: it creates only missing inputs and never overwrites the Workspace or Local Configuration.
 
-## Project-bound Context
+## Project-bound Context and Skills
 
-The first project-bound slice supports Context Modules and explicit flat Profiles
-for Codex. Profiles selecting Skills, Agents, Hooks, or Tools are rejected until
-their native project delivery slices land.
+The first project-bound slice supports Context Modules, portable Skills, and
+explicit flat Profiles for Codex. Profiles selecting Agents, Hooks, or Tools are
+rejected until their native project delivery slices land.
 
 Codex must trust each bound project and have lifecycle hooks explicitly enabled
 in its global or project configuration:
@@ -31,7 +31,7 @@ hooks = true
 ```
 
 Launch Codex from the bound project. For a non-Git project, use the exact bound
-root so Codex can discover the generated project hook and Context.
+root so Codex can discover the generated project hook, Context, and Skills.
 
 ```sh
 agent-profile-kit validate

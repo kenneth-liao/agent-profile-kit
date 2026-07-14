@@ -1,10 +1,19 @@
-import { join } from "node:path";
-import { readFile } from "node:fs/promises";
+import { join, posix } from "node:path";
+import { lstat, readdir, readFile } from "node:fs/promises";
 
-import type { AdapterProjectPlan } from "./project-plan.js";
+import type { Skill } from "../schemas/skill.js";
+import type {
+  AdapterProjectPlan,
+  ProposedDirectoryMember,
+  ProposedProjectDirectoryOutput,
+  ProposedProjectOutput,
+} from "./project-plan.js";
 
 export const CODEX_ADAPTER_VERSION = "codex-project-v1";
 export const CODEX_HOST_VERSION = "native-project-sessionstart-v1";
+
+/** Agent Profile Kit-only Skill sidecars are never projected into Host discovery. */
+export const CODEX_SKILL_SIDECAR = "agent-profile-kit.yaml";
 
 export type CodexProjectPlan = AdapterProjectPlan;
 
@@ -110,31 +119,87 @@ function hooks(contextPath: string): string {
   )}\n`;
 }
 
-export function planCodexProject(
+async function skillPackageMembers(skill: Skill): Promise<readonly ProposedDirectoryMember[]> {
+  const members: ProposedDirectoryMember[] = [];
+
+  async function visit(directory: string, prefix: string): Promise<void> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const relativePath = prefix.length === 0 ? entry.name : posix.join(prefix, entry.name);
+      if (relativePath === CODEX_SKILL_SIDECAR || relativePath.startsWith(`${CODEX_SKILL_SIDECAR}/`)) {
+        continue;
+      }
+      const absolutePath = join(directory, entry.name);
+      const mode = (await lstat(absolutePath)).mode & 0o7777;
+      if (entry.isDirectory()) {
+        members.push({ mode, path: relativePath, type: "directory" });
+        await visit(absolutePath, relativePath);
+        continue;
+      }
+      if (entry.isFile()) {
+        members.push({
+          // Exact package bytes — keep binary assets lossless through install.
+          bytes: await readFile(absolutePath),
+          mode,
+          path: relativePath,
+          type: "file",
+        });
+        continue;
+      }
+      throw new Error(
+        `Skill '${skill.id}' contains unsupported entry '${relativePath}'; only regular files and directories are installable`,
+      );
+    }
+  }
+
+  await visit(skill.path, "");
+  return members.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function planSkillPackage(skill: Skill): Promise<ProposedProjectDirectoryOutput> {
+  return {
+    members: await skillPackageMembers(skill),
+    mode: 0o755,
+    path: posix.join(".agents", "skills", skill.id),
+    requirements: ["Codex discovers Skill package through native project .agents/skills"],
+    type: "directory",
+  };
+}
+
+export async function planCodexProject(
   profileId: string,
   modules: readonly { readonly id: string; readonly content: string }[],
+  skills: readonly Skill[] = [],
   options: { readonly contextPath?: string } = {},
-): CodexProjectPlan {
+): Promise<CodexProjectPlan> {
   const contextPath = options.contextPath ?? DEFAULT_CONTEXT_PATH;
+  const skillOutputs = await Promise.all(
+    [...skills]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((skill) => planSkillPackage(skill)),
+  );
+  const outputs: ProposedProjectOutput[] = [
+    {
+      bytes: contextSnapshot(profileId, modules),
+      mode: 0o644,
+      path: join(".agent-profile-kit", "codex", "context.md"),
+      requirements: ["Codex SessionStart prints composed Context"],
+      type: "file",
+    },
+    {
+      bytes: hooks(contextPath),
+      mode: 0o644,
+      path: join(".codex", "hooks.json"),
+      requirements: ["Codex SessionStart runs on startup, resume, clear, and compact"],
+      type: "file",
+    },
+    ...skillOutputs,
+  ];
   return {
     host: "codex",
     hostVersion: CODEX_HOST_VERSION,
-    outputs: [
-      {
-        bytes: contextSnapshot(profileId, modules),
-        mode: 0o644,
-        path: join(".agent-profile-kit", "codex", "context.md"),
-        requirements: ["Codex SessionStart prints composed Context"],
-        type: "file",
-      },
-      {
-        bytes: hooks(contextPath),
-        mode: 0o644,
-        path: join(".codex", "hooks.json"),
-        requirements: ["Codex SessionStart runs on startup, resume, clear, and compact"],
-        type: "file",
-      },
-    ],
+    outputs,
   };
 }
 

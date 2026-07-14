@@ -1,6 +1,6 @@
 # Agent Profile Kit Architecture
 
-This document describes the implemented project-bound architecture for the initial Context-only Codex slice. The former per-session overlay implementation is removed.
+This document describes the implemented project-bound architecture for the initial Codex Context and Skills slice. The former per-session overlay implementation is removed.
 
 ## Purpose
 
@@ -79,7 +79,7 @@ There are no per-Profile filters or parallel binding-edit commands in the initia
 
 ## Canonical Model
 
-Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts only Context selections for Codex; unsupported categories fail at ingestion before writes. Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
+Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Context and Skill selections for Codex; Agents, Hooks, and Tools fail at ingestion before writes. Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
 
 Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
@@ -105,13 +105,13 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The first project-bound release supports Codex CLI on macOS with Context only. Skills, Agents, portable Hooks, Tools, and other Agent Hosts remain explicit future slices.
+The first project-bound release supports Codex CLI on macOS with Context and portable Skills. Agents, portable Hooks, Tools, and other Agent Hosts remain explicit future slices.
 
 ### Codex
 
 The Codex Adapter generates the composed Context snapshot under an owned `.agent-profile-kit/codex/` path and an owned project `.codex/hooks.json`. A native `SessionStart` Hook prints the snapshot for `startup`, `resume`, `clear`, and `compact`, which Codex adds as extra developer Context. In Git projects the command resolves the snapshot from the Git worktree root plus the binding-relative path; in non-Git projects it uses a project-relative path under the launch-from-root contract. The command embeds no absolute project path and needs no generated helper script. Repository `AGENTS.md` files and global instructions remain live and untouched. The generated Hook requires Codex's native review and trust. Lifecycle Hooks must be explicitly enabled in global or project Codex configuration; Context is unsupported when they are disabled, unset, or the required whole-file path is occupied.
 
-Skills are not emitted by this Context-only Adapter. A later project-native Skill slice will add its own exact output planner and ownership rules.
+Resolved standard Skill packages are planned as owned artifact directories under the project-relative `.agents/skills/<Artifact ID>/` tree that Codex discovers natively. Source file bytes and modes are preserved; Agent Profile Kit-only sidecars such as `agent-profile-kit.yaml` are omitted. Unselected Workspace Skills are not installed. There is no global Skill library, process filter, or launcher.
 
 ## Reconciliation and Ownership
 

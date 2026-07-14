@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Installed resolved portable Codex Skills at project scope under native `.agents/skills/<Artifact ID>/` discovery, with transitive dependency selection, inclusion reasons in preview and the Installation Manifest, sidecar omission, and shared Context lifecycle ownership ([#31](https://github.com/kenneth-liao/agent-profile-kit/issues/31)).
+
 - Extended Adapter plans and Installer reconciliation to own complete artifact directories as one ownership boundary, with member-level preflight, preview, transactional apply, and proven removal ([#39](https://github.com/kenneth-liao/agent-profile-kit/issues/39)).
 
 - Added Git worktree expansion and repository-local generated-path exclusions while preserving safe project move, copy, and uninstall ownership ([#30](https://github.com/kenneth-liao/agent-profile-kit/issues/30)).
