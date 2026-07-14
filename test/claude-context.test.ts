@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -12,10 +13,13 @@ import { join } from "node:path";
 import { parse } from "yaml";
 
 import {
+  assertClaudeCliVersionSupported,
   assertClaudeProjectCapability,
   CLAUDE_ADAPTER_VERSION,
   CLAUDE_CONTEXT_RULE_PATH,
   CLAUDE_HOST_VERSION,
+  CLAUDE_MINIMUM_CLI_VERSION,
+  parseClaudeCliVersion,
   planClaudeProject,
 } from "../adapters/claude.js";
 import { composeContextEnvelope } from "../adapters/context-envelope.js";
@@ -87,6 +91,8 @@ async function writeContextWorkspace(
   );
 }
 
+const supportedClaudeVersion = async () => "2.1.0";
+
 describe("Claude Context Local Configuration", () => {
   test("accepts Claude-only and combined Codex/Claude Host selections and rejects duplicates and unknowns", () => {
     const claudeOnly = parseLocalConfiguration(
@@ -99,7 +105,14 @@ describe("Claude Context Local Configuration", () => {
       "schema_version: 1\nbindings:\n  - project: /tmp/project\n    profile: coding\n    hosts: [codex, claude]\n",
       "config.yaml",
     );
-    expect(combined.bindings[0]?.hosts).toEqual(["codex", "claude"]);
+    // Hosts are a set: authored order is normalized at ingestion.
+    expect(combined.bindings[0]?.hosts).toEqual(["claude", "codex"]);
+
+    const reversed = parseLocalConfiguration(
+      "schema_version: 1\nbindings:\n  - project: /tmp/project\n    profile: coding\n    hosts: [claude, codex]\n",
+      "config.yaml",
+    );
+    expect(reversed.bindings[0]?.hosts).toEqual(combined.bindings[0]?.hosts);
 
     expect(() =>
       parseLocalConfiguration(
@@ -146,16 +159,45 @@ describe("Claude Adapter planner", () => {
   test("rejects non-directory .claude or .claude/rules project surfaces", async () => {
     const project = temporaryDirectory("apk-claude-surface-");
     writeFileSync(join(project, ".claude"), "not a directory\n");
-    await expect(assertClaudeProjectCapability(project)).rejects.toThrow(
-      "is a file, not a directory",
-    );
+    await expect(
+      assertClaudeProjectCapability(project, { resolveVersion: supportedClaudeVersion }),
+    ).rejects.toThrow("is a file, not a directory");
 
     const project2 = temporaryDirectory("apk-claude-rules-file-");
     mkdirSync(join(project2, ".claude"));
     writeFileSync(join(project2, ".claude", "rules"), "not a directory\n");
-    await expect(assertClaudeProjectCapability(project2)).rejects.toThrow(
+    await expect(
+      assertClaudeProjectCapability(project2, { resolveVersion: supportedClaudeVersion }),
+    ).rejects.toThrow(
       `${join(project2, ".claude", "rules")} is a file, not a directory`,
     );
+  });
+
+  test("rejects missing, unreadable, and unsupported Claude CLI versions before writes", async () => {
+    const project = temporaryDirectory("apk-claude-version-");
+    expect(parseClaudeCliVersion("2.1.209 (Claude Code)")).toBe("2.1.209");
+    expect(() => parseClaudeCliVersion("not-a-version")).toThrow("unreadable");
+    expect(() => assertClaudeCliVersionSupported("0.9.0")).toThrow(
+      `requires ${CLAUDE_MINIMUM_CLI_VERSION}+`,
+    );
+    assertClaudeCliVersionSupported(CLAUDE_MINIMUM_CLI_VERSION);
+    assertClaudeCliVersionSupported("2.1.0");
+
+    await expect(
+      assertClaudeProjectCapability(project, {
+        env: { ...process.env, PATH: temporaryDirectory("apk-empty-path-") },
+      }),
+    ).rejects.toThrow("Claude Code CLI was not found on PATH");
+
+    await expect(
+      assertClaudeProjectCapability(project, {
+        resolveVersion: async () => "0.5.0",
+      }),
+    ).rejects.toThrow("does not support unscoped project rules");
+
+    await expect(
+      assertClaudeProjectCapability(project, { resolveVersion: supportedClaudeVersion }),
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -169,7 +211,8 @@ describe("Claude-only Profile Installation lifecycle", () => {
     writeFileSync(join(project, ".claude", "settings.json"), '{"permissions":{}}\n');
     await writeContextWorkspace(home, project, ["claude"]);
 
-    const desired = await buildDesiredState(home);
+    // Capability version probing is covered separately; lifecycle uses the pure plan path.
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
     expect(desired.installations).toHaveLength(1);
     const installation = desired.installations[0]!;
     expect(installation.binding.hosts).toEqual(["claude"]);
@@ -216,7 +259,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
       CLAUDE_CONTEXT_RULE_PATH,
     ].sort());
 
-    const current = await buildDesiredState(home);
+    const current = await buildDesiredState(home, { checkHostCapability: false });
     const status = await previewReconciliation(current.installations, state);
     expect(status.items).toContainEqual({ kind: "current", project });
 
@@ -234,31 +277,40 @@ describe("Claude-only Profile Installation lifecycle", () => {
     writeFileSync(join(project, ".claude"), "occupied\n");
     await writeContextWorkspace(home, project, ["claude"]);
 
-    const desired = await buildDesiredState(home);
-    expect(desired.installations[0]?.blockers.some((blocker) =>
-      blocker.includes("is a file, not a directory")
-    )).toBe(true);
+    const previousPath = process.env.PATH ?? "";
+    const bin = temporaryDirectory("apk-claude-bin-");
+    writeFileSync(join(bin, "claude"), "#!/bin/sh\necho '2.1.0 (Claude Code)'\n");
+    chmodSync(join(bin, "claude"), 0o755);
+    process.env.PATH = `${bin}:${previousPath}`;
+    try {
+      const desired = await buildDesiredState(home);
+      expect(desired.installations[0]?.blockers.some((blocker) =>
+        blocker.includes("is a file, not a directory")
+      )).toBe(true);
 
-    const report = await previewReconciliation(desired.installations, {
-      installations: [],
-      schemaVersion: 2,
-    });
-    expect(report.blockers.some((blocker) => blocker.message.includes("is a file, not a directory"))).toBe(true);
-    expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
-    expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
+      const report = await previewReconciliation(desired.installations, {
+        installations: [],
+        schemaVersion: 2,
+      });
+      expect(report.blockers.some((blocker) => blocker.message.includes("is a file, not a directory"))).toBe(true);
+      expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
+      expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
+    } finally {
+      process.env.PATH = previousPath;
+    }
   });
 
   test("reports drift when the owned Claude rule is modified", async () => {
     const home = temporaryDirectory("apk-claude-drift-home-");
     const project = temporaryDirectory("apk-claude-drift-project-");
     await writeContextWorkspace(home, project, ["claude"]);
-    const desired = await buildDesiredState(home);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, desired.installations);
 
     writeFileSync(join(project, CLAUDE_CONTEXT_RULE_PATH), "tampered\n");
     const state = await readInstallationState(home);
     const status = await previewReconciliation(
-      (await buildDesiredState(home)).installations,
+      (await buildDesiredState(home, { checkHostCapability: false })).installations,
       state,
     );
     expect(status.items.some((item) => item.kind === "drifted output")).toBe(true);
@@ -273,9 +325,10 @@ describe("Combined Codex and Claude Profile Installation", () => {
     writeFileSync(join(project, "AGENTS.md"), "repository-owned\n");
     await writeContextWorkspace(home, project, ["codex", "claude"]);
 
-    const desired = await buildDesiredState(home);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0]!;
-    expect(installation.binding.hosts).toEqual(["codex", "claude"]);
+    // Hosts normalized at ingestion regardless of authored order [codex, claude].
+    expect(installation.binding.hosts).toEqual(["claude", "codex"]);
     expect(installation.hostVersions).toEqual({
       claude: CLAUDE_HOST_VERSION,
       codex: CODEX_HOST_VERSION,
@@ -309,7 +362,7 @@ describe("Combined Codex and Claude Profile Installation", () => {
 
     const state = await readInstallationState(home);
     const manifest = state.installations[0]!;
-    expect(manifest.hosts).toEqual(["codex", "claude"]);
+    expect(manifest.hosts).toEqual(["claude", "codex"]);
     expect(manifest.hostVersions).toEqual({
       claude: CLAUDE_HOST_VERSION,
       codex: CODEX_HOST_VERSION,
@@ -335,7 +388,7 @@ describe("Combined Codex and Claude Profile Installation", () => {
         host_versions: Record<string, string>;
       }>;
     };
-    expect(raw.installations[0]?.hosts).toEqual(["codex", "claude"]);
+    expect(raw.installations[0]?.hosts).toEqual(["claude", "codex"]);
     expect(raw.installations[0]?.host_versions).toEqual({
       claude: CLAUDE_HOST_VERSION,
       codex: CODEX_HOST_VERSION,

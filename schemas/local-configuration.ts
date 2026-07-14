@@ -112,7 +112,9 @@ export function parseLocalConfiguration(source: string, path: string): {
     if (new Set(hosts).size !== hosts.length) {
       throw new Error(`${description} hosts must not contain a Host more than once`);
     }
-    return { hosts, profile, project };
+    // hosts is a set: normalize order once so authored permutations are identical.
+    const orderedHosts = SUPPORTED_HOSTS.filter((host) => hosts.includes(host));
+    return { hosts: orderedHosts, profile, project };
   });
 
   return { bindings, schemaVersion: LOCAL_CONFIGURATION_SCHEMA_VERSION };

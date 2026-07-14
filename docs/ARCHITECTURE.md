@@ -1,6 +1,6 @@
 # Agent Profile Kit Architecture
 
-This document describes the implemented project-bound architecture for the initial Codex Context and Skills slice. The former per-session overlay implementation is removed.
+This document describes the implemented project-bound architecture for Profile Context on Codex CLI and Claude Code, plus portable Skills on Codex. The former per-session overlay implementation is removed.
 
 ## Purpose
 
@@ -55,6 +55,7 @@ bindings:
     profile: engineering
     hosts:
       - codex
+      - claude
   - project: ~/projects/business/customer-portal
     profile: engineering
     hosts:
@@ -63,7 +64,7 @@ bindings:
 
 Every `project` is an explicit existing directory that the user declares to be the project root. Paths must be absolute or begin with `~/`; other relative paths are invalid. Home-relative paths and symbolic links are normalized once at ingestion to a canonical absolute directory, which is used for identity and installation state while the authored spelling remains available for display. Wildcards, directory scans, and implicit parent-root detection are unsupported. A canonical project root may appear in exactly one binding; duplicates are invalid regardless of whether their Profile and Hosts agree.
 
-Git is optional. When a project is not a Git working tree, native Codex discovery can guarantee the installed project Context only when Codex starts in the exact bound root; starting it in a descendant is unsupported because Codex has no repository boundary to search toward. The project workflow documents this launch-from-root constraint.
+Git is optional. When a project is not a Git working tree, native Codex discovery can guarantee the installed project Context only when Codex starts in the exact bound root; starting it in a descendant is unsupported because Codex has no repository boundary to search toward. Claude project rules load from the project root independently of Git. The project workflow documents the Codex launch-from-root constraint.
 
 For a Git binding, the Installer asks Git for the repository's authoritative existing worktree list and maps the binding's repository-relative directory into each checkout. It does not scan neighboring folders or discover unrelated repositories. Every mapped directory must already exist as a real directory, and roots reached through more than one binding are deduplicated. A later-created worktree remains missing until the next explicit `apply`.
 
@@ -79,7 +80,7 @@ There are no per-Profile filters or parallel binding-edit commands in the initia
 
 ## Canonical Model
 
-Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Context and Skill selections for Codex; Agents, Hooks, and Tools fail at ingestion before writes. Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
+Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Context for Codex and Claude, and Skill selections for Codex; Claude Skill delivery, Agents, Hooks, and Tools fail at ingestion before writes when selected for a Host that cannot preserve them. Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
 
 Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
@@ -115,7 +116,7 @@ Resolved standard Skill packages are planned as owned artifact directories under
 
 ### Claude Code
 
-The Claude Adapter generates the same canonical Context envelope as an unscoped owned project rule at `.claude/rules/agent-profile-kit.md`. The rule has no `paths` frontmatter so Claude loads it project-wide and re-injects it after compaction alongside existing project, local, user, and managed instructions. `CLAUDE.md`, other rules, settings, trust, authentication, plugins, and sessions remain Host-owned and are never modified. When `.claude` or `.claude/rules` exists and is not a directory, the Adapter fails before writes. Profiles that select Skills while Claude is among the bound Hosts fail closed until Claude Skill delivery ships; Codex-only Skill installation is unchanged.
+The Claude Adapter generates the same canonical Context envelope as an unscoped owned project rule at `.claude/rules/agent-profile-kit.md`. The rule has no `paths` frontmatter so Claude loads it project-wide and re-injects it after compaction alongside existing project, local, user, and managed instructions. `CLAUDE.md`, other rules, settings, trust, authentication, plugins, and sessions remain Host-owned and are never modified. Capability preflight requires a Claude Code CLI on `PATH` whose version supports unscoped project rules (`claude --version` ≥ the Adapter minimum) and rejects non-directory `.claude` or `.claude/rules` surfaces before writes. Profiles that select Skills while Claude is among the bound Hosts fail closed until Claude Skill delivery ships; Codex-only Skill installation is unchanged. After a successful check the Installation Manifest records the Claude capability-contract version, not raw CLI marketing numbers.
 
 ## Reconciliation and Ownership
 
