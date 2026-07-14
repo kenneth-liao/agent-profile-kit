@@ -16,7 +16,8 @@ only `schema_version: 1`; the `profiles/`, `context/`, `skills/`, `agents/`,
 `hooks/`, and `tools/` directories identify the canonical homes for portable
 artifacts. Do not treat generated Host output as source material.
 
-The Codex project slice supports Context Modules and portable Skills. A Context
+The project-bound slice supports Context Modules and portable Skills for Codex
+and Claude. A Context
 Module is a Markdown file under `context/` with frontmatter containing one
 stable, lowercase kebab-case `id`; the Markdown body is the Context. A Skill is
 a standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
@@ -30,10 +31,10 @@ Context Module Dependencies in their frontmatter and Skill Dependencies in each
 Skill's Agent Profile Kit sidecar. Each reference contains `type` (`context` or
 `skill`) and its stable `id`. Dependencies are resolved transitively and every
 resolved reason is retained in preview and the machine-local Installation
-Manifest. Selected Skills install into each bound project's
-`.agents/skills/<Artifact ID>/` tree for native Codex discovery; the sidecar is
-not copied. Profiles selecting Agents, Hooks, or Tools are rejected by this
-initial slice.
+Manifest. Selected Skills install into each bound project's Host-native discovery tree by
+stable Artifact ID: `.agents/skills/<Artifact ID>/` for Codex and
+`.claude/skills/<Artifact ID>/` for Claude. The sidecar is not copied. Profiles
+selecting Agents, Hooks, or Tools are rejected by this initial slice.
 
 A Profile is a YAML file under `profiles/` with an `id` and explicit `context`,
 `skills`, `agents`, `hooks`, and `tools` arrays. In this initial slice, `agents`,

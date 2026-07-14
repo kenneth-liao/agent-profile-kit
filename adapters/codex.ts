@@ -1,20 +1,16 @@
-import { join, posix } from "node:path";
-import { lstat, readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 
 import type { Skill } from "../schemas/skill.js";
 import { composeContextEnvelope } from "./context-envelope.js";
 import type {
   AdapterProjectPlan,
-  ProposedDirectoryMember,
-  ProposedProjectDirectoryOutput,
   ProposedProjectOutput,
 } from "./project-plan.js";
+import { planSkillPackageDirectory } from "./skill-package.js";
 
 export const CODEX_ADAPTER_VERSION = "codex-project-v1";
 export const CODEX_HOST_VERSION = "native-project-sessionstart-v1";
-
-/** Agent Profile Kit-only Skill sidecars are never projected into Host discovery. */
-export const CODEX_SKILL_SIDECAR = "agent-profile-kit.yaml";
 
 export type CodexProjectPlan = AdapterProjectPlan;
 
@@ -104,54 +100,6 @@ function hooks(contextPath: string): string {
   )}\n`;
 }
 
-async function skillPackageMembers(skill: Skill): Promise<readonly ProposedDirectoryMember[]> {
-  const members: ProposedDirectoryMember[] = [];
-
-  async function visit(directory: string, prefix: string): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true });
-    entries.sort((left, right) => left.name.localeCompare(right.name));
-    for (const entry of entries) {
-      const relativePath = prefix.length === 0 ? entry.name : posix.join(prefix, entry.name);
-      if (relativePath === CODEX_SKILL_SIDECAR || relativePath.startsWith(`${CODEX_SKILL_SIDECAR}/`)) {
-        continue;
-      }
-      const absolutePath = join(directory, entry.name);
-      const mode = (await lstat(absolutePath)).mode & 0o7777;
-      if (entry.isDirectory()) {
-        members.push({ mode, path: relativePath, type: "directory" });
-        await visit(absolutePath, relativePath);
-        continue;
-      }
-      if (entry.isFile()) {
-        members.push({
-          // Exact package bytes — keep binary assets lossless through install.
-          bytes: await readFile(absolutePath),
-          mode,
-          path: relativePath,
-          type: "file",
-        });
-        continue;
-      }
-      throw new Error(
-        `Skill '${skill.id}' contains unsupported entry '${relativePath}'; only regular files and directories are installable`,
-      );
-    }
-  }
-
-  await visit(skill.path, "");
-  return members.sort((left, right) => left.path.localeCompare(right.path));
-}
-
-async function planSkillPackage(skill: Skill): Promise<ProposedProjectDirectoryOutput> {
-  return {
-    members: await skillPackageMembers(skill),
-    mode: 0o755,
-    path: posix.join(".agents", "skills", skill.id),
-    requirements: ["Codex discovers Skill package through native project .agents/skills"],
-    type: "directory",
-  };
-}
-
 export async function planCodexProject(
   profileId: string,
   modules: readonly { readonly id: string; readonly content: string }[],
@@ -162,7 +110,11 @@ export async function planCodexProject(
   const skillOutputs = await Promise.all(
     [...skills]
       .sort((left, right) => left.id.localeCompare(right.id))
-      .map((skill) => planSkillPackage(skill)),
+      .map((skill) =>
+        planSkillPackageDirectory(skill, ".agents/skills", [
+          "Codex discovers Skill package through native project .agents/skills",
+        ]),
+      ),
   );
   const outputs: ProposedProjectOutput[] = [
     {

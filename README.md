@@ -2,7 +2,7 @@
 
 Agent Profile Kit is a user-agnostic CLI and format for composing a user's Skills, Context, Agents, Hooks, and Tools into portable Profiles. Host Adapters generate native Profile output for supported agent products without overwriting their existing configuration or capabilities.
 
-The initial product slice binds Context and portable Skills to explicit local projects. Codex loads Context through a native project SessionStart hook and discovers selected Skills under `.agents/skills/`. Global Host configuration and repository-owned instructions remain untouched.
+The initial product slice binds Context and portable Skills to explicit local projects. Codex loads Context through a native project SessionStart hook and discovers selected Skills under `.agents/skills/`. Claude Code loads Context as an unscoped project rule and discovers selected Skills under `.claude/skills/`. Global Host configuration and repository-owned instructions remain untouched.
 
 ## Quick start
 
@@ -19,8 +19,8 @@ Running the command again is safe: it creates only missing inputs and never over
 ## Project-bound Context and Skills
 
 The first project-bound slice supports Context Modules, portable Skills, and
-explicit flat Profiles for Codex. Profiles selecting Agents, Hooks, or Tools are
-rejected until their native project delivery slices land.
+explicit flat Profiles for Codex and Claude. Profiles selecting Agents, Hooks, or
+Tools are rejected until their native project delivery slices land.
 
 Codex must trust each bound project and have lifecycle hooks explicitly enabled
 in its global or project configuration:
@@ -30,8 +30,9 @@ in its global or project configuration:
 hooks = true
 ```
 
-Launch Codex from the bound project. For a non-Git project, use the exact bound
-root so Codex can discover the generated project hook, Context, and Skills.
+Launch Codex or Claude from the bound project. For a non-Git project, use the
+exact bound root so Codex can discover the generated project hook, Context, and
+Skills.
 
 ```sh
 agent-profile-kit validate
@@ -43,10 +44,11 @@ agent-profile-kit uninstall
 
 Project Bindings live in the machine-local
 `~/.agents/agent-profile-kit/config.yaml`. Each binding names one existing
-absolute or `~/` project root, one Profile, and `codex` as its Host. `preview`
-is read-only; `apply` reconciles every binding; `status` reports current, stale,
-drifted, missing, and malformed ownership states; `uninstall` removes only
-output whose Marker and hashes prove Agent Profile Kit ownership.
+absolute or `~/` project root, one Profile, and one or more Hosts (`codex`,
+`claude`). `preview` is read-only; `apply` reconciles every binding; `status`
+reports current, stale, drifted, missing, and malformed ownership states;
+`uninstall` removes only output whose Marker and hashes prove Agent Profile Kit
+ownership.
 
 See `agent-profile-kit guide` for the Context Module, Skill, and Profile formats.
 

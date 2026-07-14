@@ -3,8 +3,14 @@ import { lstat } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { promisify } from "node:util";
 
+import type { Skill } from "../schemas/skill.js";
 import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
-import type { AdapterProjectPlan, ProposedProjectFileOutput } from "./project-plan.js";
+import type {
+  AdapterProjectPlan,
+  ProposedProjectFileOutput,
+  ProposedProjectOutput,
+} from "./project-plan.js";
+import { planSkillPackageDirectory } from "./skill-package.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,6 +34,9 @@ export const CLAUDE_CONTEXT_RULE_PATH = posix.join(
   "rules",
   "agent-profile-kit.md",
 );
+
+/** Claude native project Skill discovery root. */
+export const CLAUDE_SKILLS_DISCOVERY_ROOT = posix.join(".claude", "skills");
 
 export type ClaudeProjectPlan = AdapterProjectPlan;
 
@@ -168,22 +177,30 @@ function contextRule(
 }
 
 /**
- * Pure Claude Adapter planner for Profile Context.
+ * Pure Claude Adapter planner for Profile Context and portable Skills.
  * Does not write filesystem state or coordinate with other Adapters.
  */
 export async function planClaudeProject(
   profileId: string,
   modules: readonly ContextModuleSource[],
-  options: { readonly skillCount?: number } = {},
+  skills: readonly Skill[] = [],
 ): Promise<ClaudeProjectPlan> {
-  if ((options.skillCount ?? 0) > 0) {
-    throw new Error(
-      "Claude Skill delivery is not supported yet; remove Skills from the Profile or omit the claude Host until Skill installation is available",
-    );
-  }
+  const skillOutputs = await Promise.all(
+    [...skills]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((skill) =>
+        planSkillPackageDirectory(skill, CLAUDE_SKILLS_DISCOVERY_ROOT, [
+          "Claude discovers Skill package through native project .claude/skills",
+        ]),
+      ),
+  );
+  const outputs: ProposedProjectOutput[] = [
+    contextRule(profileId, modules),
+    ...skillOutputs,
+  ];
   return {
     host: "claude",
     hostVersion: CLAUDE_HOST_VERSION,
-    outputs: [contextRule(profileId, modules)],
+    outputs,
   };
 }

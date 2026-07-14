@@ -1612,6 +1612,128 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(boundary.stdout).toContain(".claude/rules/agent-profile-kit.md");
   });
 
+  test("Profiles selecting Skills install portable packages into Claude project discovery", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeFileSync(join(projectPath, "CLAUDE.md"), "project-owned instructions\n");
+    mkdirSync(join(projectPath, ".claude", "rules"), { recursive: true });
+    writeFileSync(join(projectPath, ".claude", "rules", "team.md"), "existing team rule\n");
+    mkdirSync(join(projectPath, ".claude", "skills", "foreign-skill"), { recursive: true });
+    writeFileSync(join(projectPath, ".claude", "skills", "foreign-skill", "SKILL.md"), "leave me\n");
+    writeContextProfile(home);
+    mkdirSync(join(workspacePath(home), "skills", "base-skill"));
+    writeFileSync(
+      join(workspacePath(home), "skills", "base-skill", "SKILL.md"),
+      "---\nname: base-skill\ndescription: Shared base skill.\n---\n\nBase.\n",
+    );
+    mkdirSync(join(workspacePath(home), "skills", "review-pr", "scripts"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
+    );
+    writeFileSync(join(workspacePath(home), "skills", "review-pr", "scripts", "run.sh"), "#!/bin/sh\necho review\n");
+    chmodSync(join(workspacePath(home), "skills", "review-pr", "scripts", "run.sh"), 0o755);
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: base-skill\n",
+    );
+    mkdirSync(join(workspacePath(home), "skills", "unselected-skill"));
+    writeFileSync(
+      join(workspacePath(home), "skills", "unselected-skill", "SKILL.md"),
+      "---\nname: unselected-skill\ndescription: Not selected.\n---\n\nSkip.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude]\n`,
+    );
+    const bin = installFakeClaude(home);
+    const pathWithClaude = `${bin}:${process.env.PATH ?? ""}`;
+
+    const preview = runCliWithPath(home, pathWithClaude, "preview");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(`${projectPath}: addition`);
+    expect(preview.stdout).toContain(".claude/skills/review-pr");
+    expect(preview.stdout).toContain(".claude/skills/base-skill");
+    expect(preview.stdout).toContain(".claude/rules/agent-profile-kit.md");
+    expect(preview.stdout).toContain("skill:review-pr");
+    expect(preview.stdout).toContain("skill:base-skill");
+    expect(preview.stdout).toContain("via skill:review-pr");
+    expect(preview.stdout).not.toContain("unselected-skill");
+    expect(existsSync(join(projectPath, ".claude", "skills", "review-pr"))).toBe(false);
+
+    const apply = runCliWithPath(home, pathWithClaude, "apply");
+    expect(apply.status, apply.stderr).toBe(0);
+    expect(readFileSync(join(projectPath, ".claude", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
+      "Review.",
+    );
+    expect(existsSync(join(projectPath, ".claude", "skills", "review-pr", "agent-profile-kit.yaml"))).toBe(
+      false,
+    );
+    expect(statSync(join(projectPath, ".claude", "skills", "review-pr", "scripts", "run.sh")).mode & 0o777)
+      .toBe(0o755);
+    expect(existsSync(join(projectPath, ".claude", "skills", "base-skill", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(projectPath, ".claude", "skills", "unselected-skill"))).toBe(false);
+    expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(readFileSync(join(projectPath, ".claude", "skills", "foreign-skill", "SKILL.md"), "utf8")).toBe(
+      "leave me\n",
+    );
+    expect(readFileSync(join(projectPath, "CLAUDE.md"), "utf8")).toBe("project-owned instructions\n");
+    expect(readFileSync(join(projectPath, ".claude", "rules", "team.md"), "utf8")).toBe(
+      "existing team rule\n",
+    );
+
+    const status = runCliWithPath(home, pathWithClaude, "status");
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain(`${projectPath}: current`);
+
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly {
+        hosts: string[];
+        resolved_artifacts: readonly { type: string; id: string; inclusion_reasons: readonly unknown[] }[];
+      }[];
+    };
+    expect(state.installations[0]?.hosts).toEqual(["claude"]);
+    const resolved = state.installations[0]?.resolved_artifacts ?? [];
+    expect(resolved.map((artifact) => `${artifact.type}:${artifact.id}`).sort()).toEqual([
+      "context:team-rules",
+      "skill:base-skill",
+      "skill:review-pr",
+    ]);
+    expect(
+      resolved.find((artifact) => artifact.id === "base-skill")?.inclusion_reasons.length,
+    ).toBeGreaterThanOrEqual(1);
+
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const deselectPreview = runCliWithPath(home, pathWithClaude, "preview");
+    expect(deselectPreview.status, deselectPreview.stderr).toBe(0);
+    expect(deselectPreview.stdout).toMatch(/removal|\.claude\/skills\/review-pr/);
+    const deselect = runCliWithPath(home, pathWithClaude, "apply");
+    expect(deselect.status, deselect.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".claude", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(projectPath, ".claude", "skills", "base-skill"))).toBe(false);
+    expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(readFileSync(join(projectPath, ".claude", "skills", "foreign-skill", "SKILL.md"), "utf8")).toBe(
+      "leave me\n",
+    );
+
+    const uninstall = runCliWithPath(home, pathWithClaude, "uninstall");
+    expect(uninstall.status, uninstall.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
+    expect(readFileSync(join(projectPath, ".claude", "skills", "foreign-skill", "SKILL.md"), "utf8")).toBe(
+      "leave me\n",
+    );
+    expect(readFileSync(join(projectPath, "CLAUDE.md"), "utf8")).toBe("project-owned instructions\n");
+  });
+
   test("legacy plan, install, update, and run interfaces are removed", () => {
     const home = isolatedHome();
     for (const command of ["plan", "install", "update", "run"]) {

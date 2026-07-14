@@ -1,6 +1,6 @@
 # Agent Profile Kit Architecture
 
-This document describes the implemented project-bound architecture for Profile Context on Codex CLI and Claude Code, plus portable Skills on Codex. The former per-session overlay implementation is removed.
+This document describes the implemented project-bound architecture for Profile Context and portable Skills on Codex CLI and Claude Code. The former per-session overlay implementation is removed.
 
 ## Purpose
 
@@ -80,7 +80,7 @@ There are no per-Profile filters or parallel binding-edit commands in the initia
 
 ## Canonical Model
 
-Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Context for Codex and Claude, and Skill selections for Codex; Claude Skill delivery, Agents, Hooks, and Tools fail at ingestion before writes when selected for a Host that cannot preserve them. Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
+Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Context and portable Skills for Codex and Claude; Agents, Hooks, and Tools fail at ingestion before writes when selected for a Host that cannot preserve them. Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
 
 Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
@@ -106,7 +106,7 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The project-bound release supports Codex CLI and Claude Code on macOS for Profile Context. Codex also delivers portable Skills. Agents, portable Hooks, Tools, Claude Skill delivery, and additional Agent Hosts remain explicit future slices. Both Adapters emit the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
+The project-bound release supports Codex CLI and Claude Code on macOS for Profile Context and portable Skills. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Both Adapters emit the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
 
 ### Codex
 
@@ -116,7 +116,7 @@ Resolved standard Skill packages are planned as owned artifact directories under
 
 ### Claude Code
 
-The Claude Adapter generates the same canonical Context envelope as an unscoped owned project rule at `.claude/rules/agent-profile-kit.md`. The rule has no `paths` frontmatter so Claude loads it project-wide and re-injects it after compaction alongside existing project, local, user, and managed instructions. `CLAUDE.md`, other rules, settings, trust, authentication, plugins, and sessions remain Host-owned and are never modified. Capability preflight requires a Claude Code CLI on `PATH` at or above the Adapter minimum that first shipped recursive `.claude/rules/` support (`2.0.64`) and rejects non-directory `.claude` or `.claude/rules` surfaces before writes. Profiles that select Skills while Claude is among the bound Hosts fail closed until Claude Skill delivery ships; Codex-only Skill installation is unchanged. After a successful check the Installation Manifest records the Claude capability-contract version, not raw CLI marketing numbers.
+The Claude Adapter generates the same canonical Context envelope as an unscoped owned project rule at `.claude/rules/agent-profile-kit.md`. The rule has no `paths` frontmatter so Claude loads it project-wide and re-injects it after compaction alongside existing project, local, user, and managed instructions. Resolved standard Skill packages are planned as owned artifact directories under the project-relative `.claude/skills/<Artifact ID>/` tree that Claude discovers natively. Source file bytes and modes are preserved; Agent Profile Kit-only sidecars such as `agent-profile-kit.yaml` are omitted. Unselected Workspace Skills are not installed. `CLAUDE.md`, other rules, settings, trust, authentication, plugins, and sessions remain Host-owned and are never modified. Capability preflight requires a Claude Code CLI on `PATH` at or above the Adapter minimum that first shipped recursive `.claude/rules/` support (`2.0.64`) and rejects non-directory `.claude` or `.claude/rules` surfaces before writes. After a successful check the Installation Manifest records the Claude capability-contract version, not raw CLI marketing numbers. When both Codex and Claude are bound, each Adapter plans its own Host-native Skill tree; exact shared output coalesces only when path, type, mode, and bytes agree.
 
 ## Reconciliation and Ownership
 

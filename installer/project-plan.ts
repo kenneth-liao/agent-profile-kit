@@ -455,14 +455,6 @@ export async function buildDesiredState(
         continue;
       }
       expandedRoots.set(target.binding.canonicalProject, target.binding);
-      if (
-        target.binding.hosts.includes("claude") &&
-        resolvedProfile.skills.length > 0
-      ) {
-        throw new Error(
-          "Claude Skill delivery is not supported yet; remove Skills from the Profile or omit the claude Host until Skill installation is available",
-        );
-      }
       const blockers: string[] = [];
       const plans: AdapterProjectPlan[] = [];
       const hostVersions: Record<string, string> = {};
@@ -507,7 +499,7 @@ export async function buildDesiredState(
           const adapterPlan = await planClaudeProject(
             profile.id,
             resolvedProfile.contexts,
-            { skillCount: resolvedProfile.skills.length },
+            resolvedProfile.skills,
           );
           plans.push(adapterPlan);
           hostVersions.claude = adapterPlan.hostVersion;
