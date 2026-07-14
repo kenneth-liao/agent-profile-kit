@@ -46,9 +46,14 @@ const temporaryDirectories: string[] = [];
 afterAll(() => {
   for (const directory of temporaryDirectories) {
     try {
-      execFileSync("chmod", ["-R", "u+w", directory]);
+      // Mode 0000 trees are not traversable by chmod -R until parents gain +x.
+      execFileSync("chmod", ["-R", "u+rwx", directory]);
     } catch {
-      // Best-effort: read-only fixtures must still be removable.
+      try {
+        execFileSync("find", [directory, "-exec", "chmod", "u+rwx", "{}", "+"]);
+      } catch {
+        // Best-effort: restrictive fixtures must still be removable when possible.
+      }
     }
     rmSync(directory, { recursive: true, force: true });
   }
@@ -488,6 +493,68 @@ describe("Installer-owned artifact-directory outputs", () => {
       blocker.message.includes("tracked project path")
     )).toBe(true);
     expect(existsSync(join(project, directory.path))).toBe(false);
+  });
+
+  test("machine-state write failure rolls back a restrictive-mode artifact directory", async () => {
+    const home = temporaryDirectory("agent-profile-kit-dir-state-fail-home-");
+    const project = temporaryDirectory("agent-profile-kit-dir-state-fail-project-");
+    const base = await contextInstallation(home, project);
+    const directory = normalizeAdapterPlans([{
+      host: "codex",
+      hostVersion: "codex-v1",
+      outputs: [{
+        members: [
+          {
+            bytes: "# Restrictive skill\n",
+            mode: 0o644,
+            path: "SKILL.md",
+            type: "file",
+          },
+          {
+            mode: 0o000,
+            path: "scripts",
+            type: "directory",
+          },
+          {
+            bytes: "#!/bin/sh\necho demo\n",
+            mode: 0o000,
+            path: "scripts/run.sh",
+            type: "file",
+          },
+        ],
+        mode: 0o000,
+        path: ".agents/skills/restrictive-skill",
+        requirements: ["Host discovers Skill package"],
+        type: "directory",
+      }],
+    }])[0]!;
+    const stateDirectory = join(home, ".agents", "agent-profile-kit", "state");
+    mkdirSync(stateDirectory, { recursive: true });
+    chmodSync(stateDirectory, 0o555);
+
+    await expect(applyReconciliation(home, [withDirectoryOutput(base, directory)]))
+      .rejects.toThrow("completed projects");
+
+    chmodSync(stateDirectory, 0o755);
+    expect(existsSync(join(project, directory.path))).toBe(false);
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
+    expect((await readInstallationState(home)).installations).toEqual([]);
+
+    // Rerun converges once machine-local state is writable again.
+    await expect(applyReconciliation(home, [withDirectoryOutput(base, directory)]))
+      .resolves.toBeDefined();
+    const state = await readInstallationState(home);
+    expect(state.installations).toHaveLength(1);
+    expect(state.installations[0]!.outputs.some((output) =>
+      output.type === "directory" && output.path === directory.path && output.mode === 0o000
+    )).toBe(true);
+    // Mode 0000 roots are not searchable; restore owner access before content checks.
+    chmodSync(join(project, directory.path), 0o755);
+    chmodSync(join(project, directory.path, "scripts"), 0o755);
+    expect(readFileSync(join(project, directory.path, "SKILL.md"), "utf8")).toBe("# Restrictive skill\n");
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
   test("hasTrackedGitDescendants fails closed when Git inspection errors", async () => {

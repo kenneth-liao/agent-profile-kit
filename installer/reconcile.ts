@@ -600,14 +600,31 @@ async function stageProjectOutputs(
   ];
   const moved: string[] = [];
   const installed: string[] = [];
+  /** Published directory trees whose exact modes may block recursive removal on rollback. */
+  const installedDirectoryTrees: {
+    readonly memberDirectories: readonly string[];
+    readonly path: string;
+  }[] = [];
   let settled = false;
   const cleanup = async (): Promise<void> => {
     await fileSystem.rm(stage, { recursive: true, force: true }).catch(() => undefined);
   };
+  const makeDirectoryTreeWritable = async (
+    tree: { readonly memberDirectories: readonly string[]; readonly path: string },
+  ): Promise<void> => {
+    // Top-down: parent must be writable before children can be removed or entered.
+    await fileSystem.chmod(tree.path, 0o755).catch(() => undefined);
+    for (const relative of tree.memberDirectories) {
+      await fileSystem.chmod(join(tree.path, relative), 0o755).catch(() => undefined);
+    }
+  };
   const rollback = async (): Promise<void> => {
     if (settled) return;
     settled = true;
+    const treesByPath = new Map(installedDirectoryTrees.map((tree) => [tree.path, tree]));
     for (const path of installed.reverse()) {
+      const tree = treesByPath.get(path);
+      if (tree) await makeDirectoryTreeWritable(tree);
       await fileSystem.rm(path, { recursive: true, force: true }).catch(() => undefined);
     }
     for (const path of moved.reverse()) {
@@ -672,11 +689,17 @@ async function stageProjectOutputs(
       await fileSystem.rename(staged, destination);
       installed.push(destination);
       if (output.type === "directory") {
+        const directoryMembers = output.members.filter((member) => member.type === "directory");
+        const memberDirectories = directoryMembers
+          .map((member) => member.path)
+          .sort((left, right) => {
+            const depth = left.split("/").filter(Boolean).length - right.split("/").filter(Boolean).length;
+            return depth !== 0 ? depth : left.localeCompare(right);
+          });
+        installedDirectoryTrees.push({ memberDirectories, path: destination });
         // Apply exact directory modes deepest-first only after the tree is in place.
         const directoryModes = [
-          ...output.members
-            .filter((member) => member.type === "directory")
-            .map((member) => ({ mode: member.mode, path: member.path })),
+          ...directoryMembers.map((member) => ({ mode: member.mode, path: member.path })),
           { mode: output.mode, path: "" },
         ].sort((left, right) => {
           const depth =
