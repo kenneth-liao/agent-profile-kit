@@ -183,8 +183,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         message: "does not exist in Workspace",
       },
       {
-        source: `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [claude]\n`,
-        message: "unsupported Agent Host 'claude'",
+        source: `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [cursor]\n`,
+        message: "unsupported Agent Host 'cursor'",
       },
     ];
 

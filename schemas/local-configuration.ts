@@ -5,7 +5,13 @@ import { requireArtifactId } from "./dependencies.js";
 export const LOCAL_CONFIGURATION_SCHEMA_VERSION = 1;
 export const LOCAL_CONFIGURATION_FILE = "config.yaml";
 
-export type SupportedHost = "codex";
+/** Agent Hosts the engine can plan project output for. */
+export const SUPPORTED_HOSTS = ["claude", "codex"] as const;
+export type SupportedHost = (typeof SUPPORTED_HOSTS)[number];
+
+export function isSupportedHost(value: unknown): value is SupportedHost {
+  return typeof value === "string" && (SUPPORTED_HOSTS as readonly string[]).includes(value);
+}
 
 export interface ProjectBinding {
   /** The canonical absolute project root used for identity and output. */
@@ -96,9 +102,9 @@ export function parseLocalConfiguration(source: string, path: string): {
       throw new Error(`${description} hosts must be a non-empty array`);
     }
     const hosts = binding.hosts.map((host, hostIndex) => {
-      if (host !== "codex") {
+      if (!isSupportedHost(host)) {
         throw new Error(
-          `${description} hosts[${hostIndex}] unsupported Agent Host '${String(host)}'; supported Hosts: codex`,
+          `${description} hosts[${hostIndex}] unsupported Agent Host '${String(host)}'; supported Hosts: ${SUPPORTED_HOSTS.join(", ")}`,
         );
       }
       return host;

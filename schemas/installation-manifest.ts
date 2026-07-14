@@ -7,6 +7,7 @@ import {
   type ArtifactReference,
   type ArtifactType,
 } from "./dependencies.js";
+import { isSupportedHost, SUPPORTED_HOSTS } from "./local-configuration.js";
 
 export const INSTALLATION_MANIFEST_SCHEMA_VERSION = 2;
 export const INSTALLATION_MARKER_SCHEMA_VERSION = 1;
@@ -297,8 +298,10 @@ function parseHostVersions(value: unknown): Readonly<Record<string, string>> {
 
 function parseHosts(value: unknown): readonly string[] {
   const hosts = requireStringArray(value, "Installation Manifest hosts");
-  if (hosts.length === 0 || hosts.some((host) => host !== "codex")) {
-    throw new Error("Installation Manifest hosts must contain only supported Host 'codex'");
+  if (hosts.length === 0 || hosts.some((host) => !isSupportedHost(host))) {
+    throw new Error(
+      `Installation Manifest hosts must contain only supported Hosts: ${SUPPORTED_HOSTS.join(", ")}`,
+    );
   }
   return hosts;
 }

@@ -105,13 +105,17 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The first project-bound release supports Codex CLI on macOS with Context and portable Skills. Agents, portable Hooks, Tools, and other Agent Hosts remain explicit future slices.
+The project-bound release supports Codex CLI and Claude Code on macOS for Profile Context. Codex also delivers portable Skills. Agents, portable Hooks, Tools, Claude Skill delivery, and additional Agent Hosts remain explicit future slices. Both Adapters emit the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
 
 ### Codex
 
 The Codex Adapter generates the composed Context snapshot under an owned `.agent-profile-kit/codex/` path and an owned project `.codex/hooks.json`. A native `SessionStart` Hook prints the snapshot for `startup`, `resume`, `clear`, and `compact`, which Codex adds as extra developer Context. In Git projects the command resolves the snapshot from the Git worktree root plus the binding-relative path; in non-Git projects it uses a project-relative path under the launch-from-root contract. The command embeds no absolute project path and needs no generated helper script. Repository `AGENTS.md` files and global instructions remain live and untouched. The generated Hook requires Codex's native review and trust. Lifecycle Hooks must be explicitly enabled in global or project Codex configuration; Context is unsupported when they are disabled, unset, or the required whole-file path is occupied.
 
 Resolved standard Skill packages are planned as owned artifact directories under the project-relative `.agents/skills/<Artifact ID>/` tree that Codex discovers natively. Source file bytes and modes are preserved; Agent Profile Kit-only sidecars such as `agent-profile-kit.yaml` are omitted. Unselected Workspace Skills are not installed. There is no global Skill library, process filter, or launcher.
+
+### Claude Code
+
+The Claude Adapter generates the same canonical Context envelope as an unscoped owned project rule at `.claude/rules/agent-profile-kit.md`. The rule has no `paths` frontmatter so Claude loads it project-wide and re-injects it after compaction alongside existing project, local, user, and managed instructions. `CLAUDE.md`, other rules, settings, trust, authentication, plugins, and sessions remain Host-owned and are never modified. When `.claude` or `.claude/rules` exists and is not a directory, the Adapter fails before writes. Profiles that select Skills while Claude is among the bound Hosts fail closed until Claude Skill delivery ships; Codex-only Skill installation is unchanged.
 
 ## Reconciliation and Ownership
 
