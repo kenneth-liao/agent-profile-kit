@@ -34,6 +34,11 @@ import {
   writeInstallationState,
 } from "./installation-state.js";
 import { isGitTrackedPath } from "./git.js";
+import {
+  gitExclusionBlockers,
+  gitExclusionWarnings,
+  stageGitExclusions,
+} from "./git-exclusions.js";
 
 export interface ReconciliationFileSystem {
   readonly chmod: typeof chmod;
@@ -273,7 +278,7 @@ async function identityBlockers(
     return [`${marker} copies Installation Marker identity owned by ${owner.project}`];
   }
   if (!owner && markerValue.installationId !== installationId) {
-    return [`${marker} contains an unknown Installation Marker identity`];
+    return [`${marker} contains an unknown Installation Marker identity; restore the Marker linked to this project's Manifest or remove the unowned generated paths before retrying`];
   }
   return [];
 }
@@ -316,6 +321,8 @@ export async function previewReconciliation(
       project: installation.binding.canonicalProject,
     }))
   );
+  blockers.push(...(await gitExclusionBlockers(state, desired)).map((message) => ({ message })));
+  const exclusionWarnings = await gitExclusionWarnings(state, desired);
   const desiredReport = desired.map((installation) => ({
     context:
       installation.outputs.find((output) => output.path === ".agent-profile-kit/codex/context.md")?.bytes ?? "",
@@ -439,8 +446,11 @@ export async function previewReconciliation(
     if (desiredProjects.has(installation.project) || movedPreviousProjects.has(installation.project)) continue;
     const proof = await proveOwnedInstallation(installation);
     if (!proof.owned) {
+      const remediation = proof.reason?.includes("Installation Marker")
+        ? "; if this project moved, restore its Manifest-linked Installation Marker at the new root before retrying"
+        : "";
       blockers.push({
-        message: `Cannot remove stale Profile Installation at ${installation.project}: ${proof.reason ?? "ownership could not be proven"}`,
+        message: `Cannot remove stale Profile Installation at ${installation.project}: ${proof.reason ?? "ownership could not be proven"}${remediation}`,
         project: installation.project,
       });
     }
@@ -464,7 +474,10 @@ export async function previewReconciliation(
     outputs: outputItems.sort((left, right) =>
       left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
     ),
-    warnings: [...new Set(desired.flatMap((installation) => installation.warnings))].sort(),
+    warnings: [...new Set([
+      ...desired.flatMap((installation) => installation.warnings),
+      ...exclusionWarnings,
+    ])].sort(),
   };
 }
 
@@ -568,6 +581,8 @@ export async function applyReconciliation(
   if (report.blockers.length > 0) {
     throw new Error(`Apply blocked before writes:\n${report.blockers.map((blocker) => `- ${blocker.message}`).join("\n")}`);
   }
+  const repairedExclusions = await stageGitExclusions(before, before);
+  await repairedExclusions.commit();
 
   const currentProjects = new Set(
     report.items
@@ -586,19 +601,29 @@ export async function applyReconciliation(
     if (moved) movedPreviousProjects.add(previous.project);
     if (currentProjects.has(item.binding.project)) continue;
     let transaction: { readonly commit: () => Promise<void>; readonly rollback: () => Promise<void> } | undefined;
+    let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
     try {
       const installationId = previous?.installationId ?? newInstallationId();
       const manifest = manifestFor(item, installationId);
       transaction = await stageProjectOutputs(item, manifest, previous, fileSystem);
       if (moved) installationsByProject.delete(previous.project);
       installationsByProject.set(manifest.project, manifest);
-      await writeInstallationState(home, {
+      const nextState: InstallationState = {
         installations: [...installationsByProject.values()],
         schemaVersion: 2,
-      });
+      };
+      exclusions = await stageGitExclusions(
+        { installations: [...byProject.values()], schemaVersion: 2 },
+        nextState,
+      );
+      await writeInstallationState(home, nextState);
       await transaction.commit();
+      await exclusions.commit();
+      byProject.clear();
+      for (const installation of nextState.installations) byProject.set(installation.project, installation);
       completed.push(item.binding.project);
     } catch (error) {
+      if (exclusions) await exclusions.rollback();
       if (transaction) await transaction.rollback();
       const pending = desired.slice(index + 1).map((entry) => entry.binding.project);
       throw new Error(
@@ -614,16 +639,25 @@ export async function applyReconciliation(
   );
   for (const [index, previous] of stale.entries()) {
     let transaction: Awaited<ReturnType<typeof stageProvenInstallationRemoval>> | undefined;
+    let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
     try {
       transaction = await stageProvenInstallationRemoval(previous);
       installationsByProject.delete(previous.project);
-      await writeInstallationState(home, {
+      const nextState: InstallationState = {
         installations: [...installationsByProject.values()],
         schemaVersion: 2,
-      });
+      };
+      exclusions = await stageGitExclusions(
+        { installations: [...byProject.values()], schemaVersion: 2 },
+        nextState,
+      );
+      await writeInstallationState(home, nextState);
       await transaction.commit();
+      await exclusions.commit();
+      byProject.delete(previous.project);
       completed.push(`removal ${previous.project}`);
     } catch (error) {
+      if (exclusions) await exclusions.rollback();
       if (transaction) await transaction.rollback();
       const pending = stale.slice(index + 1).map((entry) => `removal ${entry.project}`);
       throw new Error(

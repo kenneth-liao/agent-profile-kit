@@ -81,7 +81,10 @@ async function main(): Promise<void> {
   }
   if (arguments_.length === 1 && arguments_[0] === "validate") {
     const result = await validateApplication(home);
-    process.stdout.write(`Workspace and Local Configuration valid (${result.profiles} Profiles, ${result.bindings} Project Bindings)\n`);
+    process.stdout.write(
+      `Workspace and Local Configuration valid (${result.profiles} Profiles, ${result.bindings} Project Bindings)\n` +
+      result.warnings.map((warning) => `Warning: ${warning}\n`).join(""),
+    );
     return;
   }
   if (arguments_.length === 1 && arguments_[0] === "preview") {

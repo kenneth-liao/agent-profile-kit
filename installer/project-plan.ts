@@ -15,7 +15,7 @@ import { hashWorkspaceInputs } from "./hashes.js";
 import { ingestApplication } from "./local-configuration.js";
 import { resolveProfileDependencies, type ResolvedProfile } from "./resolve-dependencies.js";
 import { ENGINE_VERSION } from "./version.js";
-import { findGitProject } from "./git.js";
+import { findGitProject, listGitProjectCheckouts, type GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
 
@@ -34,6 +34,7 @@ export interface DesiredInstallation {
   readonly blockers: readonly string[];
   readonly engineVersion: string;
   readonly hostVersion: string;
+  readonly gitProject: GitProject | undefined;
   readonly outputs: readonly DesiredProjectOutput[];
   readonly profile: Profile;
   readonly resolvedProfile: ResolvedProfile;
@@ -42,6 +43,7 @@ export interface DesiredInstallation {
 }
 
 export interface DesiredState {
+  readonly bindingCount: number;
   readonly installations: readonly DesiredInstallation[];
   readonly workspace: Workspace;
 }
@@ -157,19 +159,10 @@ export async function buildDesiredState(
 ): Promise<DesiredState> {
   const { configuration, workspace } = await ingestApplication(home);
   const installations: DesiredInstallation[] = [];
+  const expandedRoots = new Map<string, ProjectBinding>();
   for (const binding of [...configuration.bindings].sort((left, right) =>
     left.canonicalProject.localeCompare(right.canonicalProject)
   )) {
-    const blockers: string[] = [];
-    if (options.checkHostCapability !== false) {
-      try {
-        await assertCodexProjectCapability(home, binding.canonicalProject);
-      } catch (error) {
-        blockers.push(
-          `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    }
     const profile = workspace.profiles.get(binding.profile);
     if (!profile) {
       throw new Error(
@@ -191,31 +184,68 @@ export async function buildDesiredState(
         `Profile '${profile.id}' selects unsupported artifact categories; Agents, Hooks, and Tools are not supported in the Context-only Codex project slice`,
       );
     }
-    const contextModules = resolvedProfile.contexts;
     const gitProject = await findGitProject(binding.canonicalProject);
-    const contextPath = [
-      gitProject?.relativeProject ?? "",
-      ".agent-profile-kit",
-      "codex",
-      "context.md",
-    ].filter((part) => part.length > 0).join("/");
-    const adapterPlan = planCodexProject(profile.id, contextModules, { contextPath });
     const sourceHash = await hashWorkspaceInputs(profile, resolvedProfile);
-    installations.push({
-      binding,
-      blockers,
-      engineVersion: ENGINE_VERSION,
-      hostVersion: adapterPlan.hostVersion,
-      outputs: normalizeAdapterPlans([adapterPlan]),
-      profile,
-      resolvedProfile,
-      sourceHash,
-      warnings: gitProject
-        ? []
-        : [`${binding.project} is not a Git worktree; Codex must start at the exact bound project root for native Context discovery`],
-    });
+    const expanded = gitProject
+      ? (await listGitProjectCheckouts(gitProject)).map((checkout) => ({
+          binding: { ...binding, canonicalProject: checkout.project, project: checkout.project },
+          gitProject: checkout,
+        }))
+      : [{ binding, gitProject: undefined }];
+    for (const target of expanded) {
+      const existing = expandedRoots.get(target.binding.canonicalProject);
+      if (existing) {
+        if (
+          existing.profile !== target.binding.profile ||
+          existing.hosts.join("\n") !== target.binding.hosts.join("\n")
+        ) {
+          throw new Error(
+            `Git worktree expansion maps conflicting Project Bindings to '${target.binding.canonicalProject}'`,
+          );
+        }
+        continue;
+      }
+      expandedRoots.set(target.binding.canonicalProject, target.binding);
+      const blockers: string[] = [];
+      if (options.checkHostCapability !== false) {
+        try {
+          await assertCodexProjectCapability(home, target.binding.canonicalProject);
+        } catch (error) {
+          blockers.push(
+            `${target.binding.project}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      const contextPath = [
+        target.gitProject?.relativeProject ?? "",
+        ".agent-profile-kit",
+        "codex",
+        "context.md",
+      ].filter((part) => part.length > 0).join("/");
+      const adapterPlan = planCodexProject(profile.id, resolvedProfile.contexts, { contextPath });
+      installations.push({
+        binding: target.binding,
+        blockers,
+        engineVersion: ENGINE_VERSION,
+        gitProject: target.gitProject,
+        hostVersion: adapterPlan.hostVersion,
+        outputs: normalizeAdapterPlans([adapterPlan]),
+        profile,
+        resolvedProfile,
+        sourceHash,
+        warnings: target.gitProject
+          ? []
+          : [`${target.binding.project} is not a Git worktree; Codex must start at the exact bound project root for native Context discovery`],
+      });
+    }
   }
-  return { installations, workspace };
+  return {
+    bindingCount: configuration.bindings.length,
+    installations: installations.sort((left, right) =>
+      left.binding.canonicalProject.localeCompare(right.binding.canonicalProject)
+    ),
+    workspace,
+  };
 }
 
 export function stateDirectory(home: string): string {
