@@ -17,10 +17,10 @@ export const CLAUDE_ADAPTER_VERSION = "claude-project-v1";
 export const CLAUDE_HOST_VERSION = "native-project-unscoped-rules-v1";
 
 /**
- * Minimum Claude Code CLI version known to load recursive `.claude/rules`
- * and re-inject unscoped rules after compaction.
+ * Minimum Claude Code CLI version that loads recursive `.claude/rules`.
+ * Evidence: Anthropic Claude Code changelog — `.claude/rules/` added in 2.0.64.
  */
-export const CLAUDE_MINIMUM_CLI_VERSION = "1.0.0";
+export const CLAUDE_MINIMUM_CLI_VERSION = "2.0.64";
 
 /** Owned unscoped Claude project rule path (no paths frontmatter). */
 export const CLAUDE_CONTEXT_RULE_PATH = posix.join(

@@ -177,10 +177,15 @@ describe("Claude Adapter planner", () => {
     const project = temporaryDirectory("apk-claude-version-");
     expect(parseClaudeCliVersion("2.1.209 (Claude Code)")).toBe("2.1.209");
     expect(() => parseClaudeCliVersion("not-a-version")).toThrow("unreadable");
-    expect(() => assertClaudeCliVersionSupported("0.9.0")).toThrow(
+    // Evidence-backed boundary: .claude/rules landed in Claude Code 2.0.64.
+    expect(CLAUDE_MINIMUM_CLI_VERSION).toBe("2.0.64");
+    expect(() => assertClaudeCliVersionSupported("2.0.63")).toThrow(
       `requires ${CLAUDE_MINIMUM_CLI_VERSION}+`,
     );
-    assertClaudeCliVersionSupported(CLAUDE_MINIMUM_CLI_VERSION);
+    expect(() => assertClaudeCliVersionSupported("1.0.0")).toThrow(
+      "does not support unscoped project rules",
+    );
+    assertClaudeCliVersionSupported("2.0.64");
     assertClaudeCliVersionSupported("2.1.0");
 
     await expect(
@@ -191,9 +196,15 @@ describe("Claude Adapter planner", () => {
 
     await expect(
       assertClaudeProjectCapability(project, {
-        resolveVersion: async () => "0.5.0",
+        resolveVersion: async () => "2.0.63",
       }),
     ).rejects.toThrow("does not support unscoped project rules");
+
+    await expect(
+      assertClaudeProjectCapability(project, {
+        resolveVersion: async () => "2.0.64",
+      }),
+    ).resolves.toBeUndefined();
 
     await expect(
       assertClaudeProjectCapability(project, { resolveVersion: supportedClaudeVersion }),

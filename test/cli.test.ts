@@ -1599,11 +1599,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(missing.status).toBe(1);
     expect(`${missing.stdout}${missing.stderr}`).toContain("Claude Code CLI was not found");
 
-    const oldBin = installFakeClaude(home, "0.5.0");
+    const oldBin = installFakeClaude(home, "2.0.63");
     const old = runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
     expect(old.status).toBe(1);
     expect(`${old.stdout}${old.stderr}`).toContain("does not support unscoped project rules");
+    expect(`${old.stdout}${old.stderr}`).toContain("2.0.63");
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
+
+    const boundaryBin = installFakeClaude(home, "2.0.64");
+    const boundary = runCliWithPath(home, `${boundaryBin}:${process.env.PATH ?? ""}`, "preview");
+    expect(boundary.status, boundary.stderr).toBe(0);
+    expect(boundary.stdout).toContain(".claude/rules/agent-profile-kit.md");
   });
 
   test("legacy plan, install, update, and run interfaces are removed", () => {
