@@ -116,6 +116,27 @@ function initialize(home: string): void {
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
 }
 
+/** Put a controlled Claude Code stub first on PATH for Host capability preflight. */
+function installFakeClaude(home: string, version = "2.1.0"): string {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "claude"), `#!/bin/sh\necho "${version} (Claude Code)"\n`);
+  execFileSync("chmod", ["+x", join(bin, "claude")]);
+  return bin;
+}
+
+function runCliWithPath(
+  home: string,
+  pathValue: string,
+  ...arguments_: string[]
+) {
+  // Use an absolute Node path so PATH can be restricted for Host capability probes.
+  return spawnSync(process.env.NODE_BINARY ?? process.execPath, [cliPath, ...arguments_], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: home, PATH: pathValue },
+  });
+}
+
 describe("agent-profile-kit project-bound lifecycle", () => {
   test("init creates both canonical inputs and never overwrites either", () => {
     const home = isolatedHome();
@@ -183,8 +204,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         message: "does not exist in Workspace",
       },
       {
-        source: `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [claude]\n`,
-        message: "unsupported Agent Host 'claude'",
+        source: `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [cursor]\n`,
+        message: "unsupported Agent Host 'cursor'",
       },
     ];
 
@@ -1503,6 +1524,92 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toBe(
       "tracked\n",
     );
+  });
+
+  test("packed CLI Claude-only preview → apply → status → uninstall installs unscoped Context", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeFileSync(join(projectPath, "CLAUDE.md"), "project-owned instructions\n");
+    mkdirSync(join(projectPath, ".claude", "rules"), { recursive: true });
+    writeFileSync(join(projectPath, ".claude", "rules", "team.md"), "existing team rule\n");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude]\n`,
+    );
+    const bin = installFakeClaude(home);
+    // Prefer the stub, keep the rest of PATH for node/git/etc.
+    const pathWithClaude = `${bin}:${process.env.PATH ?? ""}`;
+
+    const preview = runCliWithPath(home, pathWithClaude, "preview");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(`${projectPath}: addition`);
+    expect(preview.stdout).toContain("Profile coding");
+    expect(preview.stdout).toContain("Context Module: team-rules");
+    expect(preview.stdout).toContain("# Agent Profile Kit Context");
+    expect(preview.stdout).toContain(".claude/rules/agent-profile-kit.md");
+    expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
+
+    const apply = runCliWithPath(home, pathWithClaude, "apply");
+    expect(apply.status, apply.stderr).toBe(0);
+    const rule = readFileSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"), "utf8");
+    expect(rule).toContain("Profile: coding");
+    expect(rule).toContain("Context Module: team-rules");
+    expect(rule).not.toMatch(/^---\n/);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+    expect(readFileSync(join(projectPath, "CLAUDE.md"), "utf8")).toBe("project-owned instructions\n");
+    expect(readFileSync(join(projectPath, ".claude", "rules", "team.md"), "utf8")).toBe(
+      "existing team rule\n",
+    );
+
+    const status = runCliWithPath(home, pathWithClaude, "status");
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain(`${projectPath}: current`);
+
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: Array<{ hosts: string[]; host_versions: Record<string, string> }>;
+    };
+    expect(state.installations[0]?.hosts).toEqual(["claude"]);
+    expect(state.installations[0]?.host_versions.claude).toBe("native-project-unscoped-rules-v1");
+
+    const uninstall = runCliWithPath(home, pathWithClaude, "uninstall");
+    expect(uninstall.status, uninstall.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(readFileSync(join(projectPath, "CLAUDE.md"), "utf8")).toBe("project-owned instructions\n");
+    expect(readFileSync(join(projectPath, ".claude", "rules", "team.md"), "utf8")).toBe(
+      "existing team rule\n",
+    );
+  });
+
+  test("packed CLI Claude preview fails closed when Claude CLI is missing or too old", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude]\n`,
+    );
+    const emptyBin = join(home, "empty-bin");
+    mkdirSync(emptyBin, { recursive: true });
+    // PATH with only empty-bin so the real Claude is not discoverable.
+    const missing = runCliWithPath(home, emptyBin, "preview");
+    expect(missing.status).toBe(1);
+    expect(`${missing.stdout}${missing.stderr}`).toContain("Claude Code CLI was not found");
+
+    const oldBin = installFakeClaude(home, "2.0.63");
+    const old = runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
+    expect(old.status).toBe(1);
+    expect(`${old.stdout}${old.stderr}`).toContain("does not support unscoped project rules");
+    expect(`${old.stdout}${old.stderr}`).toContain("2.0.63");
+    expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
+
+    const boundaryBin = installFakeClaude(home, "2.0.64");
+    const boundary = runCliWithPath(home, `${boundaryBin}:${process.env.PATH ?? ""}`, "preview");
+    expect(boundary.status, boundary.stderr).toBe(0);
+    expect(boundary.stdout).toContain(".claude/rules/agent-profile-kit.md");
   });
 
   test("legacy plan, install, update, and run interfaces are removed", () => {

@@ -2,6 +2,7 @@ import { join, posix } from "node:path";
 import { lstat, readdir, readFile } from "node:fs/promises";
 
 import type { Skill } from "../schemas/skill.js";
+import { composeContextEnvelope } from "./context-envelope.js";
 import type {
   AdapterProjectPlan,
   ProposedDirectoryMember,
@@ -86,22 +87,6 @@ function sessionStartCommandFor(contextPath: string): string {
   return `root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; cat "$root/${shellDoubleQuote(contextPath)}"`;
 }
 
-function contextSnapshot(profileId: string, modules: readonly { readonly id: string; readonly content: string }[]): string {
-  const sections = modules.map((module) => {
-    const body = module.content.endsWith("\n") ? module.content : `${module.content}\n`;
-    return `<!-- Context Module: ${module.id} -->\n${body}<!-- End Context Module: ${module.id} -->`;
-  });
-  return [
-    "# Agent Profile Kit Context",
-    "",
-    `Profile: ${profileId}`,
-    "",
-    "This Context is reusable Profile material. Repository-owned project instructions, including AGENTS.md, take precedence when they conflict with this material.",
-    "",
-    ...sections,
-  ].join("\n").replace(/\n?$/, "\n");
-}
-
 function hooks(contextPath: string): string {
   return `${JSON.stringify(
     {
@@ -181,7 +166,7 @@ export async function planCodexProject(
   );
   const outputs: ProposedProjectOutput[] = [
     {
-      bytes: contextSnapshot(profileId, modules),
+      bytes: composeContextEnvelope(profileId, modules),
       mode: 0o644,
       path: join(".agent-profile-kit", "codex", "context.md"),
       requirements: ["Codex SessionStart prints composed Context"],

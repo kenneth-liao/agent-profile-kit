@@ -10,7 +10,6 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { CODEX_ADAPTER_VERSION } from "../adapters/codex.js";
 import {
   INSTALLATION_MARKER_PATH,
   type InstallationState,
@@ -198,10 +197,10 @@ function manifestFor(
     { hash: hashMarker(marker), mode: 0o644, path: markerRelativePath(), type: "file" as const },
   ].sort((left, right) => left.path.localeCompare(right.path));
   return {
-    adapterVersion: CODEX_ADAPTER_VERSION,
+    adapterVersion: desired.adapterVersion,
     engineVersion: desired.engineVersion,
     hosts: desired.binding.hosts,
-    hostVersions: { codex: desired.hostVersion },
+    hostVersions: desired.hostVersions,
     installationId,
     outputs,
     profileId: desired.profile.id,
@@ -217,6 +216,16 @@ function manifestFor(
     selectedContext: desired.profile.context,
     workspaceInputHash: desired.sourceHash,
   };
+}
+
+function hostVersionsEqual(
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
 }
 
 async function pathKind(path: string): Promise<"missing" | "file" | "directory" | "symlink" | "other"> {
@@ -393,6 +402,18 @@ function ownershipBlocker(project: string, reason: string): string {
   return `Cannot reconcile Profile Installation at ${project}: ${reason}`;
 }
 
+/** Host-agnostic: any Adapter file carrying the canonical Context envelope. */
+function composedContextFromOutputs(outputs: readonly DesiredProjectOutput[]): string {
+  for (const output of outputs) {
+    if (output.type !== "file") continue;
+    const bytes = typeof output.bytes === "string"
+      ? output.bytes
+      : Buffer.from(output.bytes).toString("utf8");
+    if (bytes.startsWith("# Agent Profile Kit Context\n")) return bytes;
+  }
+  return "";
+}
+
 function pushDirectoryMemberItems(
   outputItems: OutputReconciliationItem[],
   project: string,
@@ -424,15 +445,8 @@ export async function previewReconciliation(
   blockers.push(...(await gitExclusionBlockers(state, desired)).map((message) => ({ message })));
   const exclusionWarnings = await gitExclusionWarnings(state, desired);
   const desiredReport = desired.map((installation) => {
-    const contextOutput = installation.outputs.find(
-      (output) => output.path === ".agent-profile-kit/codex/context.md" && output.type === "file",
-    );
     return {
-      context: contextOutput?.type === "file"
-        ? typeof contextOutput.bytes === "string"
-          ? contextOutput.bytes
-          : Buffer.from(contextOutput.bytes).toString("utf8")
-        : "",
+      context: composedContextFromOutputs(installation.outputs),
       outputs: [
         ...installation.outputs.map((output) => output.path),
         ".agent-profile-kit/installation.json",
@@ -545,8 +559,8 @@ export async function previewReconciliation(
       items.push({ kind: "stale source", project: installation.binding.project });
     } else if (
       previous.engineVersion !== installation.engineVersion ||
-      previous.adapterVersion !== CODEX_ADAPTER_VERSION ||
-      previous.hostVersions.codex !== installation.hostVersion ||
+      previous.adapterVersion !== installation.adapterVersion ||
+      !hostVersionsEqual(previous.hostVersions, installation.hostVersions) ||
       previous.hosts.join("\n") !== installation.binding.hosts.join("\n") ||
       previous.profileId !== installation.profile.id ||
       previous.outputs.length !== proposedOutputs.length ||

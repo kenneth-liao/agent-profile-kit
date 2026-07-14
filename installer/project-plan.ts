@@ -2,7 +2,13 @@ import { createHash } from "node:crypto";
 import { isAbsolute, join, posix } from "node:path";
 
 import {
+  assertClaudeProjectCapability,
+  CLAUDE_ADAPTER_VERSION,
+  planClaudeProject,
+} from "../adapters/claude.js";
+import {
   assertCodexProjectCapability,
+  CODEX_ADAPTER_VERSION,
   planCodexProject,
 } from "../adapters/codex.js";
 import type {
@@ -11,7 +17,10 @@ import type {
   ProposedProjectOutput,
   ProjectOutputEntryType,
 } from "../adapters/project-plan.js";
-import { type ProjectBinding } from "../schemas/local-configuration.js";
+import {
+  type ProjectBinding,
+  type SupportedHost,
+} from "../schemas/local-configuration.js";
 import {
   INSTALLATION_MARKER_PATH,
   parseFileMode,
@@ -68,16 +77,28 @@ export type DesiredProjectOutput =
   | DesiredProjectFileOutput;
 
 export interface DesiredInstallation {
+  readonly adapterVersion: string;
   readonly binding: ProjectBinding;
   readonly blockers: readonly string[];
   readonly engineVersion: string;
-  readonly hostVersion: string;
   readonly gitProject: GitProject | undefined;
+  readonly hostVersions: Readonly<Record<string, string>>;
   readonly outputs: readonly DesiredProjectOutput[];
   readonly profile: Profile;
   readonly resolvedProfile: ResolvedProfile;
   readonly sourceHash: string;
   readonly warnings: readonly string[];
+}
+
+/** Deterministic multi-Adapter version token recorded on the Installation Manifest. */
+export function adapterVersionFor(hosts: readonly SupportedHost[]): string {
+  const versions = hosts.map((host) => {
+    if (host === "claude") return CLAUDE_ADAPTER_VERSION;
+    if (host === "codex") return CODEX_ADAPTER_VERSION;
+    const exhaustive: never = host;
+    throw new Error(`Unsupported Agent Host '${String(exhaustive)}'`);
+  });
+  return [...new Set(versions)].sort().join("+");
 }
 
 export interface DesiredState {
@@ -409,7 +430,7 @@ export async function buildDesiredState(
     );
     if (profile.agents.length > 0 || profile.hooks.length > 0 || profile.tools.length > 0) {
       throw new Error(
-        `Profile '${profile.id}' selects unsupported artifact categories; Agents, Hooks, and Tools are not supported in the Codex project slice`,
+        `Profile '${profile.id}' selects unsupported artifact categories; Agents, Hooks, and Tools are not supported in the project-bound slice`,
       );
     }
     const gitProject = await findGitProject(binding.canonicalProject);
@@ -434,41 +455,79 @@ export async function buildDesiredState(
         continue;
       }
       expandedRoots.set(target.binding.canonicalProject, target.binding);
-      const blockers: string[] = [];
-      if (options.checkHostCapability !== false) {
-        try {
-          await assertCodexProjectCapability(home, target.binding.canonicalProject);
-        } catch (error) {
-          blockers.push(
-            `${target.binding.project}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
+      if (
+        target.binding.hosts.includes("claude") &&
+        resolvedProfile.skills.length > 0
+      ) {
+        throw new Error(
+          "Claude Skill delivery is not supported yet; remove Skills from the Profile or omit the claude Host until Skill installation is available",
+        );
       }
-      const contextPath = [
-        target.gitProject?.relativeProject ?? "",
-        ".agent-profile-kit",
-        "codex",
-        "context.md",
-      ].filter((part) => part.length > 0).join("/");
-      const adapterPlan = await planCodexProject(
-        profile.id,
-        resolvedProfile.contexts,
-        resolvedProfile.skills,
-        { contextPath },
-      );
+      const blockers: string[] = [];
+      const plans: AdapterProjectPlan[] = [];
+      const hostVersions: Record<string, string> = {};
+      const warnings: string[] = [];
+      for (const host of target.binding.hosts) {
+        if (options.checkHostCapability !== false) {
+          try {
+            if (host === "codex") {
+              await assertCodexProjectCapability(home, target.binding.canonicalProject);
+            } else if (host === "claude") {
+              await assertClaudeProjectCapability(target.binding.canonicalProject);
+            }
+          } catch (error) {
+            blockers.push(
+              `${target.binding.project}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+        if (host === "codex") {
+          const contextPath = [
+            target.gitProject?.relativeProject ?? "",
+            ".agent-profile-kit",
+            "codex",
+            "context.md",
+          ].filter((part) => part.length > 0).join("/");
+          const adapterPlan = await planCodexProject(
+            profile.id,
+            resolvedProfile.contexts,
+            resolvedProfile.skills,
+            { contextPath },
+          );
+          plans.push(adapterPlan);
+          hostVersions.codex = adapterPlan.hostVersion;
+          if (!target.gitProject) {
+            warnings.push(
+              `${target.binding.project} is not a Git worktree; Codex must start at the exact bound project root for native Context discovery`,
+            );
+          }
+          continue;
+        }
+        if (host === "claude") {
+          const adapterPlan = await planClaudeProject(
+            profile.id,
+            resolvedProfile.contexts,
+            { skillCount: resolvedProfile.skills.length },
+          );
+          plans.push(adapterPlan);
+          hostVersions.claude = adapterPlan.hostVersion;
+          continue;
+        }
+        const exhaustive: never = host;
+        throw new Error(`Unsupported Agent Host '${String(exhaustive)}'`);
+      }
       installations.push({
+        adapterVersion: adapterVersionFor(target.binding.hosts),
         binding: target.binding,
         blockers,
         engineVersion: ENGINE_VERSION,
         gitProject: target.gitProject,
-        hostVersion: adapterPlan.hostVersion,
-        outputs: normalizeAdapterPlans([adapterPlan]),
+        hostVersions,
+        outputs: normalizeAdapterPlans(plans),
         profile,
         resolvedProfile,
         sourceHash,
-        warnings: target.gitProject
-          ? []
-          : [`${target.binding.project} is not a Git worktree; Codex must start at the exact bound project root for native Context discovery`],
+        warnings,
       });
     }
   }
