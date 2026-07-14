@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -14,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AdapterProjectPlan } from "../adapters/project-plan.js";
+import { hasTrackedGitDescendants } from "../installer/git.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
   buildDesiredState,
@@ -42,7 +44,14 @@ import {
 const temporaryDirectories: string[] = [];
 
 afterAll(() => {
-  for (const directory of temporaryDirectories) rmSync(directory, { recursive: true, force: true });
+  for (const directory of temporaryDirectories) {
+    try {
+      execFileSync("chmod", ["-R", "u+w", directory]);
+    } catch {
+      // Best-effort: read-only fixtures must still be removable.
+    }
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 function temporaryDirectory(prefix: string): string {
@@ -415,5 +424,98 @@ describe("Installer-owned artifact-directory outputs", () => {
       .toContain("Directory ownership context.");
     const state = await readInstallationState(home);
     expect(state.installations[0]!.outputs.every((output) => output.type === "file")).toBe(true);
+  });
+
+  test("apply stages read-only directory roots and nested directories successfully", async () => {
+    const home = temporaryDirectory("agent-profile-kit-dir-readonly-home-");
+    const project = temporaryDirectory("agent-profile-kit-dir-readonly-project-");
+    const base = await contextInstallation(home, project);
+    const directory = normalizeAdapterPlans([{
+      host: "codex",
+      hostVersion: "codex-v1",
+      outputs: [{
+        members: [
+          {
+            bytes: "# Read-only skill\n",
+            mode: 0o644,
+            path: "SKILL.md",
+            type: "file",
+          },
+          {
+            mode: 0o555,
+            path: "scripts",
+            type: "directory",
+          },
+          {
+            bytes: "#!/bin/sh\necho demo\n",
+            mode: 0o755,
+            path: "scripts/run.sh",
+            type: "file",
+          },
+        ],
+        mode: 0o555,
+        path: ".agents/skills/readonly-skill",
+        requirements: ["Host discovers Skill package"],
+        type: "directory",
+      }],
+    }])[0]!;
+
+    await applyReconciliation(home, [withDirectoryOutput(base, directory)]);
+
+    expect(statSync(join(project, directory.path)).mode & 0o777).toBe(0o555);
+    expect(statSync(join(project, directory.path, "scripts")).mode & 0o777).toBe(0o555);
+    expect(readFileSync(join(project, directory.path, "SKILL.md"), "utf8")).toBe("# Read-only skill\n");
+    expect(readFileSync(join(project, directory.path, "scripts", "run.sh"), "utf8"))
+      .toBe("#!/bin/sh\necho demo\n");
+  });
+
+  test("preflight rejects tracked descendants under an artifact-directory destination", async () => {
+    const home = temporaryDirectory("agent-profile-kit-dir-tracked-home-");
+    const project = temporaryDirectory("agent-profile-kit-dir-tracked-project-");
+    execFileSync("git", ["init", "-q", project]);
+    mkdirSync(join(project, ".agents", "skills", "demo-skill"), { recursive: true });
+    writeFileSync(join(project, ".agents", "skills", "demo-skill", "SKILL.md"), "tracked\n");
+    execFileSync("git", ["-C", project, "add", ".agents/skills/demo-skill/SKILL.md"]);
+    rmSync(join(project, ".agents"), { recursive: true, force: true });
+    const base = await contextInstallation(home, project);
+    const directory = normalizedDirectory();
+
+    const report = await previewReconciliation(
+      [withDirectoryOutput(base, directory)],
+      { installations: [], schemaVersion: 2 },
+    );
+    expect(report.blockers.some((blocker) =>
+      blocker.message.includes("tracked project path")
+    )).toBe(true);
+    expect(existsSync(join(project, directory.path))).toBe(false);
+  });
+
+  test("hasTrackedGitDescendants fails closed when Git inspection errors", async () => {
+    const { realpathSync } = await import("node:fs");
+    const project = realpathSync(temporaryDirectory("agent-profile-kit-dir-git-fail-"));
+    execFileSync("git", ["init", "-q", project]);
+    writeFileSync(join(project, "README.md"), "fixture\n");
+    execFileSync("git", ["-C", project, "add", "README.md"]);
+    execFileSync("git", ["-C", project, "commit", "-qm", "fixture"]);
+    mkdirSync(join(project, "owned"), { recursive: true });
+    writeFileSync(join(project, "owned", "member.txt"), "tracked\n");
+    execFileSync("git", ["-C", project, "add", "owned/member.txt"]);
+
+    const bin = temporaryDirectory("agent-profile-kit-dir-fake-git-");
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    writeFileSync(
+      join(bin, "git"),
+      `#!/bin/sh\nif printf '%s' "$*" | grep -q 'ls-files'; then\n  echo "injected ls-files failure" >&2\n  exit 128\nfi\nexec "${realGit}" "$@"\n`,
+    );
+    chmodSync(join(bin, "git"), 0o755);
+    const previousPath = process.env.PATH ?? "";
+    process.env.PATH = `${bin}:${previousPath}`;
+    try {
+      await expect(hasTrackedGitDescendants(project, "owned")).rejects.toThrow(
+        "Cannot inspect tracked Git descendants under 'owned'",
+      );
+    } finally {
+      process.env.PATH = previousPath;
+    }
   });
 });

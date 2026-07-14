@@ -37,16 +37,12 @@ import {
   stageProvenInstallationRemoval,
   writeInstallationState,
 } from "./installation-state.js";
-import { findGitProject, isGitTrackedPath } from "./git.js";
+import { hasTrackedGitDescendants } from "./git.js";
 import {
   gitExclusionBlockers,
   gitExclusionWarnings,
   stageGitExclusions,
 } from "./git-exclusions.js";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 
 export interface ReconciliationFileSystem {
   readonly chmod: typeof chmod;
@@ -278,21 +274,8 @@ async function ownedOutputMatches(
 }
 
 async function pathIsTrackedDestination(project: string, relativePath: string): Promise<boolean> {
-  if (await isGitTrackedPath(project, relativePath)) return true;
-  // A tracked file under an artifact-directory destination also blocks adoption.
-  const git = await findGitProject(project);
-  if (!git) return false;
-  try {
-    const relative = [git.relativeProject, relativePath].filter(Boolean).join("/");
-    const result = await execFileAsync(
-      "git",
-      ["-C", git.root, "ls-files", "-z", "--", relative],
-      { encoding: "buffer" },
-    );
-    return result.stdout.length > 0;
-  } catch {
-    return false;
-  }
+  // Fail closed: Git inspection errors propagate rather than looking untracked.
+  return hasTrackedGitDescendants(project, relativePath);
 }
 
 async function desiredOutputConflicts(
@@ -642,13 +625,14 @@ async function stageProjectOutputs(
         await fileSystem.chmod(staged, output.mode);
         continue;
       }
+      // Keep directories writable in the stage so members and later rename work.
+      // Exact directory modes are applied after publication (see below).
       await fileSystem.mkdir(staged, { recursive: true });
-      await fileSystem.chmod(staged, output.mode);
-      for (const member of [...output.members].sort((left, right) => left.path.localeCompare(right.path))) {
+      const members = [...output.members].sort((left, right) => left.path.localeCompare(right.path));
+      for (const member of members) {
         const memberPath = join(staged, member.path);
         if (member.type === "directory") {
           await fileSystem.mkdir(memberPath, { recursive: true });
-          await fileSystem.chmod(memberPath, member.mode);
           continue;
         }
         await fileSystem.mkdir(dirname(memberPath), { recursive: true });
@@ -687,6 +671,23 @@ async function stageProjectOutputs(
       await fileSystem.mkdir(dirname(destination), { recursive: true });
       await fileSystem.rename(staged, destination);
       installed.push(destination);
+      if (output.type === "directory") {
+        // Apply exact directory modes deepest-first only after the tree is in place.
+        const directoryModes = [
+          ...output.members
+            .filter((member) => member.type === "directory")
+            .map((member) => ({ mode: member.mode, path: member.path })),
+          { mode: output.mode, path: "" },
+        ].sort((left, right) => {
+          const depth =
+            right.path.split("/").filter(Boolean).length - left.path.split("/").filter(Boolean).length;
+          return depth !== 0 ? depth : right.path.localeCompare(left.path);
+        });
+        for (const directory of directoryModes) {
+          const path = directory.path.length === 0 ? destination : join(destination, directory.path);
+          await fileSystem.chmod(path, directory.mode);
+        }
+      }
     }
     return {
       rollback,
