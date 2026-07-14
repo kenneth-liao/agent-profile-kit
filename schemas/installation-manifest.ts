@@ -12,12 +12,45 @@ export const INSTALLATION_MANIFEST_SCHEMA_VERSION = 2;
 export const INSTALLATION_MARKER_SCHEMA_VERSION = 1;
 export const INSTALLATION_MARKER_PATH = ".agent-profile-kit/installation.json";
 
-export interface OwnedOutput {
+/** A regular file recorded under an owned artifact directory. Paths are relative to the directory root. */
+export interface OwnedDirectoryFileMember {
   readonly hash: string;
   readonly mode: number;
   readonly path: string;
   readonly type: "file";
 }
+
+/** A subdirectory recorded under an owned artifact directory. Paths are relative to the directory root. */
+export interface OwnedDirectoryDirectoryMember {
+  readonly mode: number;
+  readonly path: string;
+  readonly type: "directory";
+}
+
+export type OwnedDirectoryMember =
+  | OwnedDirectoryDirectoryMember
+  | OwnedDirectoryFileMember;
+
+export interface OwnedFileOutput {
+  readonly hash: string;
+  readonly mode: number;
+  readonly path: string;
+  readonly type: "file";
+}
+
+/**
+ * One complete Installer-owned artifact directory. The directory hash covers every
+ * recorded member so ownership can be proven from the Manifest plus on-disk contents.
+ */
+export interface OwnedDirectoryOutput {
+  readonly hash: string;
+  readonly members: readonly OwnedDirectoryMember[];
+  readonly mode: number;
+  readonly path: string;
+  readonly type: "directory";
+}
+
+export type OwnedOutput = OwnedDirectoryOutput | OwnedFileOutput;
 
 export interface ResolvedArtifactRecord {
   readonly inclusionReasons: readonly {
@@ -176,24 +209,73 @@ function parseResolvedArtifacts(value: unknown): readonly ResolvedArtifactRecord
   return records;
 }
 
-function parseOutputs(value: unknown): readonly OwnedOutput[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error("Installation Manifest outputs must be a non-empty array");
+function parseOwnedDirectoryMembers(
+  value: unknown,
+  description: string,
+): readonly OwnedDirectoryMember[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${description} members must be an array`);
   }
-  const outputs = value.map((entry, index) => {
-    const description = `Installation Manifest outputs[${index}]`;
-    const output = requireMapping(entry, description);
-    requireExactFields(output, ["path", "type", "mode", "hash"], description);
-    if (output.type !== "file") {
-      throw new Error(`${description} type must be 'file'`);
+  const members = value.map((entry, index) => {
+    const memberDescription = `${description} members[${index}]`;
+    const member = requireMapping(entry, memberDescription);
+    if (member.type === "file") {
+      requireExactFields(member, ["path", "type", "mode", "hash"], memberDescription);
+      return {
+        hash: requireHash(member.hash, `${memberDescription} hash`),
+        mode: parseFileMode(member.mode, `${memberDescription} mode`),
+        path: requireRelativeOutputPath(member.path, `${memberDescription} path`),
+        type: "file" as const,
+      };
     }
+    if (member.type === "directory") {
+      requireExactFields(member, ["path", "type", "mode"], memberDescription);
+      return {
+        mode: parseFileMode(member.mode, `${memberDescription} mode`),
+        path: requireRelativeOutputPath(member.path, `${memberDescription} path`),
+        type: "directory" as const,
+      };
+    }
+    throw new Error(`${memberDescription} type must be 'file' or 'directory'`);
+  });
+  const paths = members.map((member) => member.path);
+  if (new Set(paths).size !== paths.length) {
+    throw new Error(`${description} members must not contain a path more than once`);
+  }
+  return [...members].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function parseOwnedOutput(entry: unknown, description: string): OwnedOutput {
+  const output = requireMapping(entry, description);
+  if (output.type === "file") {
+    requireExactFields(output, ["path", "type", "mode", "hash"], description);
     return {
       hash: requireHash(output.hash, `${description} hash`),
       mode: parseFileMode(output.mode, `${description} mode`),
       path: requireRelativeOutputPath(output.path, `${description} path`),
       type: "file" as const,
     };
-  });
+  }
+  if (output.type === "directory") {
+    requireExactFields(output, ["path", "type", "mode", "hash", "members"], description);
+    return {
+      hash: requireHash(output.hash, `${description} hash`),
+      members: parseOwnedDirectoryMembers(output.members, description),
+      mode: parseFileMode(output.mode, `${description} mode`),
+      path: requireRelativeOutputPath(output.path, `${description} path`),
+      type: "directory" as const,
+    };
+  }
+  throw new Error(`${description} type must be 'file' or 'directory'`);
+}
+
+function parseOutputs(value: unknown): readonly OwnedOutput[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("Installation Manifest outputs must be a non-empty array");
+  }
+  const outputs = value.map((entry, index) =>
+    parseOwnedOutput(entry, `Installation Manifest outputs[${index}]`),
+  );
   const paths = outputs.map((output) => output.path);
   if (new Set(paths).size !== paths.length) {
     throw new Error("Installation Manifest outputs must not contain a path more than once");
@@ -316,7 +398,35 @@ function manifestValue(manifest: ProjectInstallationManifest): Record<string, un
     adapter_version: manifest.adapterVersion,
     engine_version: manifest.engineVersion,
     workspace_input_hash: manifest.workspaceInputHash,
-    outputs: manifest.outputs,
+    outputs: manifest.outputs.map((output) =>
+      output.type === "file"
+        ? {
+            path: output.path,
+            type: output.type,
+            mode: output.mode,
+            hash: output.hash,
+          }
+        : {
+            path: output.path,
+            type: output.type,
+            mode: output.mode,
+            hash: output.hash,
+            members: output.members.map((member) =>
+              member.type === "file"
+                ? {
+                    path: member.path,
+                    type: member.type,
+                    mode: member.mode,
+                    hash: member.hash,
+                  }
+                : {
+                    path: member.path,
+                    type: member.type,
+                    mode: member.mode,
+                  },
+            ),
+          },
+    ),
   };
 }
 

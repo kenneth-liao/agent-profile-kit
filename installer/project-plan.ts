@@ -5,11 +5,17 @@ import {
   assertCodexProjectCapability,
   planCodexProject,
 } from "../adapters/codex.js";
-import type { AdapterProjectPlan, ProjectOutputEntryType } from "../adapters/project-plan.js";
+import type {
+  AdapterProjectPlan,
+  ProposedDirectoryMember,
+  ProposedProjectOutput,
+  ProjectOutputEntryType,
+} from "../adapters/project-plan.js";
 import { type ProjectBinding } from "../schemas/local-configuration.js";
 import {
   INSTALLATION_MARKER_PATH,
   parseFileMode,
+  type OwnedDirectoryMember,
 } from "../schemas/installation-manifest.js";
 import { hashWorkspaceInputs } from "./hashes.js";
 import { ingestApplication } from "./local-configuration.js";
@@ -19,15 +25,47 @@ import { findGitProject, listGitProjectCheckouts, type GitProject } from "./git.
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
 
-export interface DesiredProjectOutput {
+export interface DesiredDirectoryFileMember {
+  readonly bytes: string;
+  readonly hash: string;
+  readonly mode: number;
+  readonly path: string;
+  readonly type: "file";
+}
+
+export interface DesiredDirectoryDirectoryMember {
+  readonly mode: number;
+  readonly path: string;
+  readonly type: "directory";
+}
+
+export type DesiredDirectoryMember =
+  | DesiredDirectoryDirectoryMember
+  | DesiredDirectoryFileMember;
+
+export interface DesiredProjectFileOutput {
   readonly bytes: string;
   readonly consumingHosts: readonly string[];
   readonly hash: string;
   readonly mode: number;
   readonly path: string;
   readonly requirements: readonly string[];
-  readonly type: ProjectOutputEntryType;
+  readonly type: "file";
 }
+
+export interface DesiredProjectDirectoryOutput {
+  readonly consumingHosts: readonly string[];
+  readonly hash: string;
+  readonly members: readonly DesiredDirectoryMember[];
+  readonly mode: number;
+  readonly path: string;
+  readonly requirements: readonly string[];
+  readonly type: "directory";
+}
+
+export type DesiredProjectOutput =
+  | DesiredProjectDirectoryOutput
+  | DesiredProjectFileOutput;
 
 export interface DesiredInstallation {
   readonly binding: ProjectBinding;
@@ -52,7 +90,60 @@ export function hashBytes(source: string): string {
   return `sha256:${createHash("sha256").update(source).digest("hex")}`;
 }
 
-function normalizedOutputPath(path: string): string {
+function writeFrame(hash: ReturnType<typeof createHash>, value: string | Uint8Array): void {
+  const bytes = typeof value === "string" ? Buffer.from(value) : Buffer.from(value);
+  hash.update(`${bytes.byteLength}:`);
+  hash.update(bytes);
+}
+
+/** Deterministic content hash for one complete artifact directory. */
+export function hashDirectoryMembers(
+  members: readonly {
+    readonly bytes?: string;
+    readonly mode: number;
+    readonly path: string;
+    readonly type: ProjectOutputEntryType;
+  }[],
+): string {
+  const hash = createHash("sha256");
+  for (const member of [...members].sort((left, right) => left.path.localeCompare(right.path))) {
+    if (member.type === "directory") {
+      writeFrame(hash, "directory");
+      writeFrame(hash, member.path);
+      writeFrame(hash, String(member.mode));
+      continue;
+    }
+    if (typeof member.bytes !== "string") {
+      throw new Error(`Directory member '${member.path}' must provide exact regular-file bytes`);
+    }
+    writeFrame(hash, "file");
+    writeFrame(hash, member.path);
+    writeFrame(hash, String(member.mode));
+    writeFrame(hash, member.bytes);
+  }
+  return `sha256:${hash.digest("hex")}`;
+}
+
+export function ownedMembersFromDesired(
+  members: readonly DesiredDirectoryMember[],
+): readonly OwnedDirectoryMember[] {
+  return members.map((member) =>
+    member.type === "file"
+      ? {
+          hash: member.hash,
+          mode: member.mode,
+          path: member.path,
+          type: "file" as const,
+        }
+      : {
+          mode: member.mode,
+          path: member.path,
+          type: "directory" as const,
+        },
+  );
+}
+
+function normalizedOutputPath(path: string, description = "Adapter output path"): string {
   const slashPath = path.replaceAll("\\", "/");
   if (
     path.length === 0 ||
@@ -62,37 +153,59 @@ function normalizedOutputPath(path: string): string {
     slashPath.split("/").some((part) => part === "" || part === "." || part === "..") ||
     posix.normalize(slashPath) !== slashPath
   ) {
-    throw new Error(`Adapter output path '${path}' must be a normalized project-relative path`);
+    throw new Error(`${description} '${path}' must be a normalized project-relative path`);
   }
   return slashPath;
 }
 
+function membersEqual(
+  left: readonly DesiredDirectoryMember[],
+  right: readonly DesiredDirectoryMember[],
+): boolean {
+  if (left.length !== right.length) return false;
+  for (const [index, member] of left.entries()) {
+    const other = right[index];
+    if (!other || member.type !== other.type || member.path !== other.path || member.mode !== other.mode) {
+      return false;
+    }
+    if (member.type === "file" && other.type === "file" && member.bytes !== other.bytes) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function outputDifference(
   left: DesiredProjectOutput,
-  right: Omit<DesiredProjectOutput, "consumingHosts">,
+  right: DesiredProjectOutput,
 ): string | undefined {
   if (left.type !== right.type) return "entry type";
   if (left.mode !== right.mode) return "mode";
-  if (left.bytes !== right.bytes) return "bytes";
   if (left.requirements.join("\n") !== right.requirements.join("\n")) return "semantic requirements";
-  return undefined;
+  if (left.type === "file" && right.type === "file") {
+    if (left.bytes !== right.bytes) return "bytes";
+    return undefined;
+  }
+  if (left.type === "directory" && right.type === "directory") {
+    if (!membersEqual(left.members, right.members)) return "directory members";
+    return undefined;
+  }
+  return "entry type";
 }
 
-function assertNoFileAncestorCollisions(outputs: readonly DesiredProjectOutput[]): void {
-  const files = outputs
-    .filter((output) => output.type === "file")
-    .sort((left, right) => left.path.localeCompare(right.path));
-  for (const [index, output] of files.entries()) {
-    for (const nested of files.slice(index + 1)) {
+function assertNoAncestorCollisions(outputs: readonly DesiredProjectOutput[]): void {
+  const sorted = [...outputs].sort((left, right) => left.path.localeCompare(right.path));
+  for (const [index, output] of sorted.entries()) {
+    for (const nested of sorted.slice(index + 1)) {
       if (nested.path.startsWith(`${output.path}/`)) {
         throw new Error(
-          `Adapter output structural collision: file '${output.path}' is an ancestor of '${nested.path}'`,
+          `Adapter output structural collision: ${output.type} '${output.path}' is an ancestor of '${nested.path}'`,
         );
       }
     }
     if (INSTALLATION_MARKER_PATH.startsWith(`${output.path}/`)) {
       throw new Error(
-        `Adapter output structural collision: file '${output.path}' is an ancestor of Installer-owned '${INSTALLATION_MARKER_PATH}'`,
+        `Adapter output structural collision: ${output.type} '${output.path}' is an ancestor of Installer-owned '${INSTALLATION_MARKER_PATH}'`,
       );
     }
     if (output.path.startsWith(`${INSTALLATION_MARKER_PATH}/`)) {
@@ -103,6 +216,143 @@ function assertNoFileAncestorCollisions(outputs: readonly DesiredProjectOutput[]
   }
 }
 
+function assertNoMemberAncestorCollisions(
+  members: readonly DesiredDirectoryMember[],
+  directoryPath: string,
+): void {
+  const sorted = [...members].sort((left, right) => left.path.localeCompare(right.path));
+  for (const [index, member] of sorted.entries()) {
+    if (member.type !== "file") continue;
+    for (const nested of sorted.slice(index + 1)) {
+      if (nested.path.startsWith(`${member.path}/`)) {
+        throw new Error(
+          `Adapter output '${directoryPath}' member structural collision: file '${member.path}' is an ancestor of '${nested.path}'`,
+        );
+      }
+    }
+  }
+}
+
+function normalizeDirectoryMembers(
+  members: readonly ProposedDirectoryMember[],
+  directoryPath: string,
+): readonly DesiredDirectoryMember[] {
+  const normalized = new Map<string, DesiredDirectoryMember>();
+  for (const proposed of members) {
+    const path = normalizedOutputPath(
+      proposed.path,
+      `Adapter output '${directoryPath}' member path`,
+    );
+    if (proposed.type === "file") {
+      if (typeof proposed.bytes !== "string") {
+        throw new Error(
+          `Adapter output '${directoryPath}' member '${path}' must provide exact regular-file bytes`,
+        );
+      }
+      const member: DesiredDirectoryFileMember = {
+        bytes: proposed.bytes,
+        hash: hashBytes(proposed.bytes),
+        mode: parseFileMode(proposed.mode, `Adapter output '${directoryPath}' member '${path}' mode`),
+        path,
+        type: "file",
+      };
+      if (normalized.has(path)) {
+        throw new Error(
+          `Adapter output '${directoryPath}' contains duplicate member path '${path}'`,
+        );
+      }
+      normalized.set(path, member);
+      continue;
+    }
+    if (proposed.type === "directory") {
+      const member: DesiredDirectoryDirectoryMember = {
+        mode: parseFileMode(proposed.mode, `Adapter output '${directoryPath}' member '${path}' mode`),
+        path,
+        type: "directory",
+      };
+      if (normalized.has(path)) {
+        throw new Error(
+          `Adapter output '${directoryPath}' contains duplicate member path '${path}'`,
+        );
+      }
+      normalized.set(path, member);
+      continue;
+    }
+    throw new Error(
+      `Adapter output '${directoryPath}' member '${path}' has unsupported entry type '${(proposed as { type: string }).type}'`,
+    );
+  }
+  // Infer intermediate directories so ownership records the complete tree without
+  // requiring Adapters to restate parents that only exist to hold nested files.
+  for (const member of [...normalized.values()]) {
+    const parts = member.path.split("/");
+    for (let index = 1; index < parts.length; index += 1) {
+      const parent = parts.slice(0, index).join("/");
+      const existing = normalized.get(parent);
+      if (!existing) {
+        normalized.set(parent, { mode: 0o755, path: parent, type: "directory" });
+        continue;
+      }
+      if (existing.type === "file") {
+        throw new Error(
+          `Adapter output '${directoryPath}' member structural collision: file '${parent}' is an ancestor of '${member.path}'`,
+        );
+      }
+    }
+  }
+  const list = [...normalized.values()].sort((left, right) => left.path.localeCompare(right.path));
+  assertNoMemberAncestorCollisions(list, directoryPath);
+  return list;
+}
+
+function normalizeProposedOutput(
+  proposed: ProposedProjectOutput,
+  host: string,
+): DesiredProjectOutput {
+  const path = normalizedOutputPath(proposed.path);
+  if (path === INSTALLATION_MARKER_PATH) {
+    throw new Error(
+      `Adapter output path '${path}' is reserved for the Installer-owned Installation Marker`,
+    );
+  }
+  const requirements = [...new Set(proposed.requirements)].sort();
+  const mode = parseFileMode(proposed.mode, `Adapter output '${path}' mode`);
+  if (proposed.type === "file") {
+    if (typeof proposed.bytes !== "string") {
+      throw new Error(`Adapter output '${path}' must provide exact regular-file bytes`);
+    }
+    return {
+      bytes: proposed.bytes,
+      consumingHosts: [host],
+      hash: hashBytes(proposed.bytes),
+      mode,
+      path,
+      requirements,
+      type: "file",
+    };
+  }
+  if (proposed.type === "directory") {
+    if (!Array.isArray(proposed.members)) {
+      throw new Error(
+        `Adapter output '${path}' directory must provide a complete members list`,
+      );
+    }
+    const members = normalizeDirectoryMembers(proposed.members, path);
+    return {
+      consumingHosts: [host],
+      hash: hashDirectoryMembers(members),
+      members,
+      mode,
+      path,
+      requirements,
+      type: "directory",
+    };
+  }
+  throw new Error(
+    `Adapter output '${path}' has unsupported entry type '${(proposed as { type: string }).type}'`,
+  );
+}
+
 /** Normalize all Host plans once at the Installer boundary. */
 export function normalizeAdapterPlans(
   plans: readonly AdapterProjectPlan[],
@@ -110,46 +360,24 @@ export function normalizeAdapterPlans(
   const outputs = new Map<string, DesiredProjectOutput>();
   for (const plan of [...plans].sort((left, right) => left.host.localeCompare(right.host))) {
     for (const proposed of plan.outputs) {
-      const path = normalizedOutputPath(proposed.path);
-      if (path === INSTALLATION_MARKER_PATH) {
-        throw new Error(
-          `Adapter output path '${path}' is reserved for the Installer-owned Installation Marker`,
-        );
-      }
-      const requirements = [...new Set(proposed.requirements)].sort();
-      const normalized = {
-        bytes: proposed.bytes,
-        hash: hashBytes(proposed.bytes),
-        mode: parseFileMode(proposed.mode, `Adapter output '${path}' mode`),
-        path,
-        requirements,
-        type: proposed.type,
-      } as const;
-      const existing = outputs.get(path);
+      const normalized = normalizeProposedOutput(proposed, plan.host);
+      const existing = outputs.get(normalized.path);
       if (!existing) {
-        outputs.set(path, { ...normalized, consumingHosts: [plan.host] });
+        outputs.set(normalized.path, normalized);
         continue;
       }
       const difference = outputDifference(existing, normalized);
       if (difference) {
         throw new Error(
-          `Adapter output collision at '${path}': ${difference} disagrees between consuming Hosts ${[...existing.consumingHosts, plan.host].sort().join(", ")}`,
+          `Adapter output collision at '${normalized.path}': ${difference} disagrees between consuming Hosts ${[...existing.consumingHosts, plan.host].sort().join(", ")}`,
         );
       }
-      outputs.set(path, {
-        ...existing,
-        consumingHosts: [...new Set([...existing.consumingHosts, plan.host])].sort(),
-      });
+      const hosts = [...new Set([...existing.consumingHosts, plan.host])].sort();
+      outputs.set(normalized.path, { ...existing, consumingHosts: hosts });
     }
   }
   const normalized = [...outputs.values()].sort((left, right) => left.path.localeCompare(right.path));
-  assertNoFileAncestorCollisions(normalized);
-  const unsupported = normalized.find((output) => output.type !== "file");
-  if (unsupported) {
-    throw new Error(
-      `Adapter output '${unsupported.path}' has unsupported entry type '${unsupported.type}'`,
-    );
-  }
+  assertNoAncestorCollisions(normalized);
   return normalized;
 }
 
