@@ -34,7 +34,11 @@ import {
   writeInstallationState,
 } from "./installation-state.js";
 import { isGitTrackedPath } from "./git.js";
-import { gitExclusionBlockers, stageGitExclusions } from "./git-exclusions.js";
+import {
+  gitExclusionBlockers,
+  gitExclusionWarnings,
+  stageGitExclusions,
+} from "./git-exclusions.js";
 
 export interface ReconciliationFileSystem {
   readonly chmod: typeof chmod;
@@ -318,6 +322,7 @@ export async function previewReconciliation(
     }))
   );
   blockers.push(...(await gitExclusionBlockers(state, desired)).map((message) => ({ message })));
+  const exclusionWarnings = await gitExclusionWarnings(state, desired);
   const desiredReport = desired.map((installation) => ({
     context:
       installation.outputs.find((output) => output.path === ".agent-profile-kit/codex/context.md")?.bytes ?? "",
@@ -469,7 +474,10 @@ export async function previewReconciliation(
     outputs: outputItems.sort((left, right) =>
       left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
     ),
-    warnings: [...new Set(desired.flatMap((installation) => installation.warnings))].sort(),
+    warnings: [...new Set([
+      ...desired.flatMap((installation) => installation.warnings),
+      ...exclusionWarnings,
+    ])].sort(),
   };
 }
 

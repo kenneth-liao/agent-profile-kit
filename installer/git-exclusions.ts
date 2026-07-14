@@ -291,17 +291,15 @@ async function targetsFor(current: InstallationState, next: InstallationState): 
   }));
 }
 
-export async function gitExclusionBlockers(
+async function inspectionTargets(
   state: InstallationState,
-  desired: readonly DesiredInstallation[] = [],
-): Promise<readonly string[]> {
-  const blockers: string[] = [];
+  desired: readonly DesiredInstallation[],
+): Promise<readonly Target[]> {
   const targets = [...await targetsFor(state, state)];
   const known = new Set(targets.map((target) => target.git.excludeFile));
   for (const installation of desired) {
     const git = installation.gitProject;
-    if (!git) continue;
-    if (known.has(git.excludeFile)) continue;
+    if (!git || known.has(git.excludeFile)) continue;
     known.add(git.excludeFile);
     const marker = await readMarker(installation.binding.canonicalProject).catch(() => undefined);
     const owner = marker
@@ -310,7 +308,15 @@ export async function gitExclusionBlockers(
     const current = owner?.outputs.map((output) => gitExcludeEntry(git, output.path)) ?? [];
     targets.push({ current, git, next: current });
   }
-  for (const target of targets) {
+  return targets;
+}
+
+export async function gitExclusionBlockers(
+  state: InstallationState,
+  desired: readonly DesiredInstallation[] = [],
+): Promise<readonly string[]> {
+  const blockers: string[] = [];
+  for (const target of await inspectionTargets(state, desired)) {
     try {
       const snapshot = await readSnapshot(target.git);
       reconcileGitExcludeBytes(snapshot.bytes, target.git.excludeFile, target.current, target.current);
@@ -319,6 +325,27 @@ export async function gitExclusionBlockers(
     }
   }
   return blockers.sort();
+}
+
+export async function gitExclusionWarnings(
+  state: InstallationState,
+  desired: readonly DesiredInstallation[] = [],
+): Promise<readonly string[]> {
+  const warnings: string[] = [];
+  for (const target of await inspectionTargets(state, desired)) {
+    try {
+      const snapshot = await readSnapshot(target.git);
+      const expected = new Set(target.current);
+      if (expected.size > 0 && !parseOwnedSection(snapshot.bytes, target.git.excludeFile)) {
+        warnings.push(
+          `${target.git.excludeFile} is missing its Agent Profile Kit exclusion section; apply will restore Manifest-proven exact entries`,
+        );
+      }
+    } catch {
+      // The blocker path owns malformed or unsafe exclusion diagnostics.
+    }
+  }
+  return warnings.sort();
 }
 
 async function replace(git: GitProject, source: Buffer, mode: number): Promise<boolean> {
@@ -350,6 +377,21 @@ export async function stageGitExclusions(
   current: InstallationState,
   next: InstallationState,
 ): Promise<GitExclusionTransaction> {
+  const plans: Array<{
+    readonly git: GitProject;
+    readonly snapshot: ExcludeSnapshot;
+    readonly updated: Buffer;
+  }> = [];
+  for (const target of await targetsFor(current, next)) {
+    const snapshot = await readSnapshot(target.git);
+    const updated = reconcileGitExcludeBytes(
+      snapshot.bytes,
+      target.git.excludeFile,
+      target.current,
+      target.next,
+    );
+    if (!updated.equals(snapshot.bytes)) plans.push({ git: target.git, snapshot, updated });
+  }
   const originals = new Map<string, { createdInfo: boolean; git: GitProject; snapshot: ExcludeSnapshot }>();
   const rollbackChanges = async (): Promise<void> => {
     for (const { createdInfo, git, snapshot } of [...originals.values()].reverse()) {
@@ -363,30 +405,35 @@ export async function stageGitExclusions(
       });
     }
   };
-  try {
-    for (const target of await targetsFor(current, next)) {
-      const snapshot = await readSnapshot(target.git);
-      const updated = reconcileGitExcludeBytes(
-        snapshot.bytes,
-        target.git.excludeFile,
-        target.current,
-        target.next,
-      );
-      if (updated.equals(snapshot.bytes)) continue;
-      const createdInfo = await replace(target.git, updated, snapshot.mode);
-      originals.set(target.git.excludeFile, { createdInfo, git: target.git, snapshot });
-    }
-  } catch (error) {
-    await rollbackChanges().catch(() => undefined);
-    throw error;
-  }
   let settled = false;
   return {
-    commit: async () => { settled = true; },
+    commit: async () => {
+      if (settled) return;
+      try {
+        for (const plan of plans) {
+          const currentSnapshot = await readSnapshot(plan.git);
+          if (
+            currentSnapshot.exists !== plan.snapshot.exists ||
+            currentSnapshot.mode !== plan.snapshot.mode ||
+            !currentSnapshot.bytes.equals(plan.snapshot.bytes)
+          ) {
+            throw new Error(
+              `${plan.git.excludeFile} changed after exclusion preflight; retry without modifying repository-local exclusions concurrently`,
+            );
+          }
+          const createdInfo = await replace(plan.git, plan.updated, plan.snapshot.mode);
+          originals.set(plan.git.excludeFile, { createdInfo, git: plan.git, snapshot: plan.snapshot });
+        }
+        settled = true;
+      } catch (error) {
+        await rollbackChanges().catch(() => undefined);
+        settled = true;
+        throw error;
+      }
+    },
     rollback: async () => {
       if (settled) return;
       settled = true;
-      await rollbackChanges();
     },
   };
 }

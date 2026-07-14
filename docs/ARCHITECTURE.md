@@ -132,7 +132,10 @@ that marked section after proving its exact entries against Installation
 Manifests, preserving every unrelated byte and never changing a shared
 `.gitignore`. Exclusion changes advance with each successfully committed project
 transaction, so a partial apply reflects only actual Installation Manifest
-state.
+state. The Installer treats the common directory reported by Git as the
+repository-local metadata authority only after proving every path component is
+a real directory; it then stages exclusion bytes read-only and publishes them
+after the corresponding machine-local Manifest state is durable.
 
 ## Freshness and Versioning
 

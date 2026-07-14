@@ -34,6 +34,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Report missing repository-local exclusion ownership before repair and publish exclusion changes only after Manifest durability ([#38](https://github.com/kenneth-liao/agent-profile-kit/pull/38)).
+
 - Made repairable-marker status and malformed-state apply errors precise, and decoupled reconciliation from report ordering ([#37](https://github.com/kenneth-liao/agent-profile-kit/pull/37)).
 
 - Recover from interrupted Profile Installation replacement without blocking later updates ([#21](https://github.com/kenneth-liao/agent-profile-kit/pull/21)).

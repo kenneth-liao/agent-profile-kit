@@ -657,6 +657,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
+  test("preview and status warn before apply repairs a missing Git exclusion section", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-missing-exclude-");
+    const exclude = join(repository, ".git", "info", "exclude");
+    writeContextProfile(home);
+    bind(home, repository);
+    expect(runCli(home, "apply").status).toBe(0);
+    writeFileSync(exclude, "# unrelated local exclusion\n");
+
+    for (const command of ["preview", "status"]) {
+      const result = runCli(home, command);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("is missing its Agent Profile Kit exclusion section");
+    }
+
+    const repaired = runCli(home, "apply");
+    expect(repaired.status, repaired.stderr).toBe(0);
+    expect(readFileSync(exclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(runCli(home, "status").stdout).not.toContain("is missing its Agent Profile Kit exclusion section");
+  });
+
   test("a later Git project failure leaves exclusions only for completed Manifest state", () => {
     const home = isolatedHome();
     initialize(home);
