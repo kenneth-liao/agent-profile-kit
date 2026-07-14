@@ -2,7 +2,8 @@ export type ProjectOutputEntryType = "directory" | "file";
 
 /** A regular file inside an owned artifact directory. Paths are relative to the directory root. */
 export interface ProposedDirectoryFileMember {
-  readonly bytes: string;
+  /** Exact file contents. Prefer Uint8Array for non-UTF-8 package members. */
+  readonly bytes: string | Uint8Array;
   readonly mode: number;
   readonly path: string;
   readonly type: "file";
@@ -21,7 +22,8 @@ export type ProposedDirectoryMember =
 
 /** A single owned regular file at a project-relative path. */
 export interface ProposedProjectFileOutput {
-  readonly bytes: string;
+  /** Exact file contents. Prefer Uint8Array for non-UTF-8 package members. */
+  readonly bytes: string | Uint8Array;
   readonly mode: number;
   readonly path: string;
   readonly requirements: readonly string[];

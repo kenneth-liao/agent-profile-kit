@@ -205,7 +205,7 @@ export async function inspectOwnedDirectory(
         continue;
       }
       if ((stats.mode & 0o7777) !== member.mode) modeDriftedMembers.push(label);
-      const content = await readFile(absolute, "utf8");
+      const content = await readFile(absolute);
       if (hashBytes(content) !== member.hash) driftedMembers.push(label);
     } catch {
       missingMembers.push(label);

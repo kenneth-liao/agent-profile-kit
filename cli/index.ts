@@ -34,11 +34,25 @@ function formatReport(report: ReconciliationReport): string {
   const desired = report.desired.length === 0
     ? "(none)"
     : report.desired
-        .map((installation) =>
-          `${installation.project}: Profile ${installation.profile}\n` +
-          `  Outputs: ${installation.outputs.join(", ")}\n` +
-          `  Context:\n${installation.context}`,
-        )
+        .map((installation) => {
+          const resolved = installation.resolvedArtifacts.length === 0
+            ? "  Resolved artifacts: (none)"
+            : `  Resolved artifacts:\n${installation.resolvedArtifacts.map((artifact) => {
+                const reasons = artifact.inclusionReasons.map((reason) => {
+                  const path = reason.path.length === 0
+                    ? "selected by profile"
+                    : `via ${reason.path.join(" -> ")}`;
+                  return `${reason.profile}: ${path}`;
+                }).join("; ");
+                return `    - ${artifact.type}:${artifact.id} (${reasons})`;
+              }).join("\n")}`;
+          return (
+            `${installation.project}: Profile ${installation.profile}\n` +
+            `  Outputs: ${installation.outputs.join(", ")}\n` +
+            `${resolved}\n` +
+            `  Context:\n${installation.context}`
+          );
+        })
         .join("\n");
   const blockers = report.blockers.length === 0
     ? "(none)"

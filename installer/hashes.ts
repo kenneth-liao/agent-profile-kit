@@ -70,7 +70,10 @@ export async function hashWorkspaceInputs(
         const context = resolved.artifact as ContextModule;
         return { content: context.content, id: context.id, type: "context" };
       }
-      return { input: await skillInput(resolved.artifact as Skill), type: "skill" };
+      return {
+        input: await skillInput(resolved.artifact as Skill, ["agent-profile-kit.yaml"]),
+        type: "skill",
+      };
     }),
   );
   return sha256(

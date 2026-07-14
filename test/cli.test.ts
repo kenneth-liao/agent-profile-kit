@@ -1391,21 +1391,118 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(moved, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("Profiles selecting Skills fail before project writes", () => {
+  test("Profiles selecting Skills install portable packages into Codex project discovery", () => {
     const home = isolatedHome();
     initialize(home);
     const projectPath = project();
     writeContextProfile(home);
-    mkdirSync(join(workspacePath(home), "skills", "review-pr"));
-    writeFileSync(join(workspacePath(home), "skills", "review-pr", "SKILL.md"), "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n");
-    writeFileSync(join(workspacePath(home), "profiles", "coding.yaml"), "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n");
+    mkdirSync(join(workspacePath(home), "skills", "base-skill"));
+    writeFileSync(
+      join(workspacePath(home), "skills", "base-skill", "SKILL.md"),
+      "---\nname: base-skill\ndescription: Shared base skill.\n---\n\nBase.\n",
+    );
+    mkdirSync(join(workspacePath(home), "skills", "review-pr", "scripts"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
+    );
+    writeFileSync(join(workspacePath(home), "skills", "review-pr", "scripts", "run.sh"), "#!/bin/sh\necho review\n");
+    chmodSync(join(workspacePath(home), "skills", "review-pr", "scripts", "run.sh"), 0o755);
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: base-skill\n",
+    );
+    mkdirSync(join(workspacePath(home), "skills", "unselected-skill"));
+    writeFileSync(
+      join(workspacePath(home), "skills", "unselected-skill", "SKILL.md"),
+      "---\nname: unselected-skill\ndescription: Not selected.\n---\n\nSkip.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
     bind(home, projectPath);
-    const result = runCli(home, "apply");
 
+    const preview = runCli(home, "preview");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(".agents/skills/review-pr");
+    expect(preview.stdout).toContain(".agents/skills/base-skill");
+    expect(preview.stdout).toContain("skill:review-pr");
+    expect(preview.stdout).toContain("skill:base-skill");
+    expect(preview.stdout).toContain("via skill:review-pr");
+    expect(preview.stdout).not.toContain("unselected-skill");
+
+    const apply = runCli(home, "apply");
+    expect(apply.status, apply.stderr).toBe(0);
+    expect(readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
+      "Review.",
+    );
+    expect(existsSync(join(projectPath, ".agents", "skills", "review-pr", "agent-profile-kit.yaml"))).toBe(
+      false,
+    );
+    expect(statSync(join(projectPath, ".agents", "skills", "review-pr", "scripts", "run.sh")).mode & 0o777)
+      .toBe(0o755);
+    expect(existsSync(join(projectPath, ".agents", "skills", "base-skill", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(projectPath, ".agents", "skills", "unselected-skill"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly {
+        resolved_artifacts: readonly { type: string; id: string; inclusion_reasons: readonly unknown[] }[];
+      }[];
+    };
+    const resolved = state.installations[0]?.resolved_artifacts ?? [];
+    expect(resolved.map((artifact) => `${artifact.type}:${artifact.id}`).sort()).toEqual([
+      "context:team-rules",
+      "skill:base-skill",
+      "skill:review-pr",
+    ]);
+    expect(
+      resolved.find((artifact) => artifact.id === "base-skill")?.inclusion_reasons.length,
+    ).toBeGreaterThanOrEqual(1);
+
+    mkdirSync(join(projectPath, ".agents", "skills", "foreign-skill"), { recursive: true });
+    writeFileSync(join(projectPath, ".agents", "skills", "foreign-skill", "SKILL.md"), "leave me\n");
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const deselect = runCli(home, "apply");
+    expect(deselect.status, deselect.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agents", "skills", "base-skill"))).toBe(false);
+    expect(readFileSync(join(projectPath, ".agents", "skills", "foreign-skill", "SKILL.md"), "utf8")).toBe(
+      "leave me\n",
+    );
+  });
+
+  test("tracked colliding Codex Skill packages block global preflight", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = gitRepository();
+    writeContextProfile(home);
+    mkdirSync(join(workspacePath(home), "skills", "review-pr"));
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    mkdirSync(join(projectPath, ".agents", "skills", "review-pr"), { recursive: true });
+    writeFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "tracked\n");
+    execFileSync("git", ["-C", projectPath, "add", ".agents/skills/review-pr/SKILL.md"]);
+    execFileSync("git", ["-C", projectPath, "commit", "-qm", "track skill"]);
+    bind(home, projectPath);
+
+    const result = runCli(home, "apply");
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("selects Skills");
-    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
-    expect(existsSync(join(projectPath, ".codex"))).toBe(false);
+    expect(result.stderr).toContain("Apply blocked before writes");
+    expect(result.stderr).toMatch(/tracked|unowned/i);
+    expect(readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toBe(
+      "tracked\n",
+    );
   });
 
   test("legacy plan, install, update, and run interfaces are removed", () => {

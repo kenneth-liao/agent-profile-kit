@@ -100,6 +100,15 @@ export interface ReconciliationBlocker {
   readonly project?: string;
 }
 
+export interface DesiredResolvedArtifactPreview {
+  readonly id: string;
+  readonly inclusionReasons: readonly {
+    readonly path: readonly string[];
+    readonly profile: string;
+  }[];
+  readonly type: string;
+}
+
 export interface ReconciliationReport {
   readonly blockers: readonly ReconciliationBlocker[];
   readonly desired: readonly {
@@ -107,6 +116,7 @@ export interface ReconciliationReport {
     readonly outputs: readonly string[];
     readonly profile: string;
     readonly project: string;
+    readonly resolvedArtifacts: readonly DesiredResolvedArtifactPreview[];
   }[];
   readonly items: readonly ReconciliationItem[];
   readonly outputs: readonly OutputReconciliationItem[];
@@ -126,7 +136,7 @@ function markerRelativePath(): string {
 }
 
 interface StagedFileOutput {
-  readonly bytes: string;
+  readonly bytes: string | Uint8Array;
   readonly hash: string;
   readonly mode: number;
   readonly path: string;
@@ -154,7 +164,7 @@ function markerOutput(installationId: string): StagedFileOutput {
   };
 }
 
-function hashMarker(bytes: string): string {
+function hashMarker(bytes: string | Uint8Array): string {
   // Keep this helper local so the marker participates in the same output hash
   // set without making the canonical manifest a second source of content.
   return hashBytes(bytes);
@@ -245,7 +255,7 @@ async function fileOutputMatches(
   try {
     const stats = await lstat(path);
     if (stats.isSymbolicLink() || !stats.isFile() || (stats.mode & 0o7777) !== output.mode) return false;
-    const bytes = await readFile(path, "utf8");
+    const bytes = await readFile(path);
     return hashMarker(bytes) === output.hash;
   } catch {
     return false;
@@ -418,13 +428,25 @@ export async function previewReconciliation(
       (output) => output.path === ".agent-profile-kit/codex/context.md" && output.type === "file",
     );
     return {
-      context: contextOutput?.type === "file" ? contextOutput.bytes : "",
+      context: contextOutput?.type === "file"
+        ? typeof contextOutput.bytes === "string"
+          ? contextOutput.bytes
+          : Buffer.from(contextOutput.bytes).toString("utf8")
+        : "",
       outputs: [
         ...installation.outputs.map((output) => output.path),
         ".agent-profile-kit/installation.json",
       ],
       profile: installation.profile.id,
       project: installation.binding.project,
+      resolvedArtifacts: installation.resolvedProfile.artifacts.map((artifact) => ({
+        id: artifact.reference.id,
+        inclusionReasons: artifact.inclusionReasons.map((reason) => ({
+          path: reason.path.map((reference) => `${reference.type}:${reference.id}`),
+          profile: reason.profileId,
+        })),
+        type: artifact.reference.type,
+      })),
     };
   });
   const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
