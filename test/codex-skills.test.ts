@@ -300,6 +300,45 @@ describe("Codex project Skill packages", () => {
     expect(existsSync(join(project, ".agents", "skills", "other-user-skill", "SKILL.md"))).toBe(true);
   });
 
+  test("changing only a Skill dependency edge refreshes Manifest inclusion reasons", async () => {
+    const home = temporaryDirectory("apk-skill-dep-hash-home-");
+    const project = temporaryDirectory("apk-skill-dep-hash-project-");
+    await workspaceWithSkills(
+      home,
+      project,
+      [
+        { id: "shared-base" },
+        { id: "mid-skill", dependencies: ["shared-base"] },
+        { id: "top-skill", dependencies: ["mid-skill"] },
+      ],
+      ["top-skill"],
+    );
+    const first = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, first.installations);
+    const before = await readInstallationState(home);
+    const beforeShared = before.installations[0]?.resolvedArtifacts.find(
+      (artifact) => artifact.reference.id === "shared-base",
+    );
+    expect(beforeShared?.inclusionReasons).toHaveLength(1);
+
+    // Redundant direct edge: package bytes and resolved Artifact IDs stay the same,
+    // but shared-base gains a second inclusion reason path.
+    writeFileSync(
+      join(home, ".agents", "agent-profile-kit", "workspace", "skills", "top-skill", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: mid-skill\n  - type: skill\n    id: shared-base\n",
+    );
+    const second = await buildDesiredState(home, { checkHostCapability: false });
+    expect(second.installations[0]?.sourceHash).not.toBe(first.installations[0]?.sourceHash);
+    const preview = await previewReconciliation(second.installations, before);
+    expect(preview.items.some((item) => item.kind === "stale source")).toBe(true);
+    await applyReconciliation(home, second.installations);
+    const after = await readInstallationState(home);
+    const afterShared = after.installations[0]?.resolvedArtifacts.find(
+      (artifact) => artifact.reference.id === "shared-base",
+    );
+    expect(afterShared?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
+  });
+
   test("Context and Skills share one installation lifecycle; deselection removes only proven packages", async () => {
     const home = temporaryDirectory("apk-skill-lifecycle-home-");
     const project = temporaryDirectory("apk-skill-lifecycle-project-");

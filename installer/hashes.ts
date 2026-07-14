@@ -60,19 +60,61 @@ export async function hashSkillCatalog(skills: ReadonlyMap<string, Skill>): Prom
   return sha256(JSON.stringify({ skills: entries, workspace_schema_version: WORKSPACE_SCHEMA_VERSION }));
 }
 
+function normalizedInclusionReasons(
+  inclusionReasons: ResolvedProfile["artifacts"][number]["inclusionReasons"],
+): readonly {
+  readonly path: readonly { readonly id: string; readonly type: string }[];
+  readonly profile: string;
+}[] {
+  return inclusionReasons
+    .map((reason) => ({
+      path: reason.path.map((reference) => ({ id: reference.id, type: reference.type })),
+      profile: reason.profileId,
+    }))
+    .sort((left, right) => {
+      const profileOrder = left.profile.localeCompare(right.profile);
+      if (profileOrder !== 0) return profileOrder;
+      return JSON.stringify(left.path).localeCompare(JSON.stringify(right.path));
+    });
+}
+
+function normalizedDependencies(
+  dependencies: readonly { readonly id: string; readonly type: string }[],
+): readonly { readonly id: string; readonly type: string }[] {
+  return [...dependencies]
+    .map((dependency) => ({ id: dependency.id, type: dependency.type }))
+    .sort((left, right) =>
+      left.type.localeCompare(right.type) || left.id.localeCompare(right.id)
+    );
+}
+
 export async function hashWorkspaceInputs(
   profile: Profile,
   resolvedProfile: ResolvedProfile,
 ): Promise<string> {
+  // Hash Host package contents separately from dependency/inclusion semantics.
+  // Sidecar file bytes are omitted so formatting noise does not force reinstalls,
+  // but normalized dependencies and inclusion reasons must participate so Manifest
+  // reasons stay fresh when only a redundant dependency edge changes.
   const resolvedArtifacts = await Promise.all(
     resolvedProfile.artifacts.map(async (resolved) => {
       if (resolved.reference.type === "context") {
         const context = resolved.artifact as ContextModule;
-        return { content: context.content, id: context.id, type: "context" };
+        return {
+          content: context.content,
+          dependencies: normalizedDependencies(context.dependencies),
+          id: context.id,
+          inclusion_reasons: normalizedInclusionReasons(resolved.inclusionReasons),
+          type: "context" as const,
+        };
       }
+      const skill = resolved.artifact as Skill;
       return {
-        input: await skillInput(resolved.artifact as Skill, ["agent-profile-kit.yaml"]),
-        type: "skill",
+        dependencies: normalizedDependencies(skill.dependencies),
+        id: skill.id,
+        inclusion_reasons: normalizedInclusionReasons(resolved.inclusionReasons),
+        input: await skillInput(skill, ["agent-profile-kit.yaml"]),
+        type: "skill" as const,
       };
     }),
   );
