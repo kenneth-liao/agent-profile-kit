@@ -2,6 +2,7 @@ import {
   mkdir,
   lstat,
   mkdtemp,
+  readdir,
   readFile,
   rename,
   rm,
@@ -17,6 +18,8 @@ import {
   parseInstallationState,
   type InstallationMarker,
   type InstallationState,
+  type OwnedDirectoryOutput,
+  type OwnedOutput,
   type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
 import {
@@ -111,6 +114,138 @@ async function unsafeOutputParent(
   return undefined;
 }
 
+export interface DirectoryOwnershipInspection {
+  readonly driftedMembers: readonly string[];
+  readonly missingMembers: readonly string[];
+  readonly modeDriftedMembers: readonly string[];
+  readonly unexpectedMembers: readonly string[];
+}
+
+async function listRelativeEntries(
+  root: string,
+  prefix = "",
+): Promise<readonly { readonly kind: "directory" | "file" | "other"; readonly path: string }[]> {
+  const entries = await readdir(root, { withFileTypes: true });
+  const result: { kind: "directory" | "file" | "other"; path: string }[] = [];
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const relativePath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
+    const absolute = join(root, entry.name);
+    const stats = await lstat(absolute);
+    if (stats.isSymbolicLink()) {
+      result.push({ kind: "other", path: relativePath });
+      continue;
+    }
+    if (entry.isDirectory()) {
+      result.push({ kind: "directory", path: relativePath });
+      result.push(...await listRelativeEntries(absolute, relativePath));
+      continue;
+    }
+    if (entry.isFile()) {
+      result.push({ kind: "file", path: relativePath });
+      continue;
+    }
+    result.push({ kind: "other", path: relativePath });
+  }
+  return result;
+}
+
+/** Inspect one owned artifact directory for missing, drifted, and unexpected members. */
+export async function inspectOwnedDirectory(
+  project: string,
+  output: OwnedDirectoryOutput,
+): Promise<DirectoryOwnershipInspection> {
+  const root = join(project, output.path);
+  const missingMembers: string[] = [];
+  const driftedMembers: string[] = [];
+  const modeDriftedMembers: string[] = [];
+  const expected = new Map(output.members.map((member) => [member.path, member]));
+  let onDisk: readonly { readonly kind: "directory" | "file" | "other"; readonly path: string }[] = [];
+  try {
+    const stats = await lstat(root);
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
+      return {
+        driftedMembers: [],
+        missingMembers: output.members.map((member) => `${output.path}/${member.path}`),
+        modeDriftedMembers: [],
+        unexpectedMembers: [],
+      };
+    }
+    if ((stats.mode & 0o7777) !== output.mode) {
+      modeDriftedMembers.push(output.path);
+    }
+    onDisk = await listRelativeEntries(root);
+  } catch {
+    return {
+      driftedMembers: [],
+      missingMembers: [output.path, ...output.members.map((member) => `${output.path}/${member.path}`)],
+      modeDriftedMembers: [],
+      unexpectedMembers: [],
+    };
+  }
+
+  for (const member of output.members) {
+    const absolute = join(root, member.path);
+    const label = `${output.path}/${member.path}`;
+    try {
+      const stats = await lstat(absolute);
+      if (stats.isSymbolicLink()) {
+        missingMembers.push(label);
+        continue;
+      }
+      if (member.type === "directory") {
+        if (!stats.isDirectory()) {
+          missingMembers.push(label);
+          continue;
+        }
+        if ((stats.mode & 0o7777) !== member.mode) modeDriftedMembers.push(label);
+        continue;
+      }
+      if (!stats.isFile()) {
+        missingMembers.push(label);
+        continue;
+      }
+      if ((stats.mode & 0o7777) !== member.mode) modeDriftedMembers.push(label);
+      const content = await readFile(absolute, "utf8");
+      if (hashBytes(content) !== member.hash) driftedMembers.push(label);
+    } catch {
+      missingMembers.push(label);
+    }
+  }
+
+  const unexpectedMembers = onDisk
+    .filter((entry) => !expected.has(entry.path) || entry.kind === "other")
+    .map((entry) => `${output.path}/${entry.path}`);
+
+  return {
+    driftedMembers,
+    missingMembers,
+    modeDriftedMembers,
+    unexpectedMembers,
+  };
+}
+
+async function proveFileOutput(
+  project: string,
+  output: Extract<OwnedOutput, { type: "file" }>,
+): Promise<{ readonly drifted: boolean; readonly missing: boolean; readonly modeDrifted: boolean }> {
+  const path = join(project, output.path);
+  try {
+    const stats = await lstat(path);
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      return { drifted: false, missing: true, modeDrifted: false };
+    }
+    const modeDrifted = (stats.mode & 0o7777) !== output.mode;
+    const content = await readFile(path, "utf8");
+    return {
+      drifted: hashBytes(content) !== output.hash,
+      missing: false,
+      modeDrifted,
+    };
+  } catch {
+    return { drifted: false, missing: true, modeDrifted: false };
+  }
+}
+
 async function proveOutputHashes(
   installation: ProjectInstallationManifest,
   includeMarker: boolean,
@@ -124,30 +259,31 @@ async function proveOutputHashes(
   const missing: string[] = [];
   const drifted: string[] = [];
   const modeDrifted: string[] = [];
+  const unexpected: string[] = [];
   for (const output of outputs) {
     const unsafeParent = await unsafeOutputParent(installation.project, output.path);
     if (unsafeParent) {
       return { owned: false, reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}` };
     }
-    const path = join(installation.project, output.path);
-    try {
-      const stats = await lstat(path);
-      if (stats.isSymbolicLink() || !stats.isFile()) {
-        missing.push(output.path);
-        continue;
-      }
-      if ((stats.mode & 0o7777) !== output.mode) modeDrifted.push(output.path);
-      const content = await readFile(path, "utf8");
-      if (hashBytes(content) !== output.hash) drifted.push(output.path);
-    } catch {
-      missing.push(output.path);
+    if (output.type === "file") {
+      const proof = await proveFileOutput(installation.project, output);
+      if (proof.missing) missing.push(output.path);
+      if (proof.drifted) drifted.push(output.path);
+      if (proof.modeDrifted) modeDrifted.push(output.path);
+      continue;
     }
+    const inspection = await inspectOwnedDirectory(installation.project, output);
+    missing.push(...inspection.missingMembers);
+    drifted.push(...inspection.driftedMembers);
+    modeDrifted.push(...inspection.modeDriftedMembers);
+    unexpected.push(...inspection.unexpectedMembers);
   }
-  if (missing.length > 0 || drifted.length > 0 || modeDrifted.length > 0) {
+  if (missing.length > 0 || drifted.length > 0 || modeDrifted.length > 0 || unexpected.length > 0) {
     const reasons = [
       ...(missing.length > 0 ? [`missing: ${missing.join(", ")}`] : []),
       ...(drifted.length > 0 ? [`drifted: ${drifted.join(", ")}`] : []),
       ...(modeDrifted.length > 0 ? [`drifted mode: ${modeDrifted.join(", ")}`] : []),
+      ...(unexpected.length > 0 ? [`unexpected: ${unexpected.join(", ")}`] : []),
     ];
     return { owned: false, reason: `owned output ${reasons.join("; ")}` };
   }

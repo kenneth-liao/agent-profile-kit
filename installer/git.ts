@@ -184,3 +184,31 @@ export async function isGitTrackedPath(
     throw new Error(`Cannot inspect tracked Git path '${relativePath}': ${failure.message}`);
   }
 }
+
+/**
+ * True when Git tracks the path itself or any path under it (including deleted
+ * working-tree files that remain in the index). Real inspection failures fail closed.
+ */
+export async function hasTrackedGitDescendants(
+  project: string,
+  path: string,
+): Promise<boolean> {
+  const gitProject = await findGitProject(project);
+  if (!gitProject) return false;
+  const relativePath = slashPath(
+    [gitProject.relativeProject, path].filter((part) => part.length > 0).join("/"),
+  );
+  try {
+    const result = await execFileAsync(
+      "git",
+      ["-C", gitProject.root, "ls-files", "-z", "--", relativePath],
+      { encoding: "buffer" },
+    );
+    return result.stdout.length > 0;
+  } catch (error) {
+    const failure = commandFailure(error);
+    throw new Error(
+      `Cannot inspect tracked Git descendants under '${relativePath}': ${failure.message}`,
+    );
+  }
+}

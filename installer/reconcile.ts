@@ -14,6 +14,7 @@ import { CODEX_ADAPTER_VERSION } from "../adapters/codex.js";
 import {
   INSTALLATION_MARKER_PATH,
   type InstallationState,
+  type OwnedOutput,
   type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
 import { formatInstallationMarker as markerText } from "../schemas/installation-manifest.js";
@@ -21,10 +22,13 @@ import {
   hashBytes,
   markerPath,
   outputPath,
+  ownedMembersFromDesired,
   type DesiredInstallation,
+  type DesiredProjectDirectoryOutput,
   type DesiredProjectOutput,
 } from "./project-plan.js";
 import {
+  inspectOwnedDirectory,
   newInstallationId,
   proveOwnedInstallation,
   proveRemainingOwnedOutputs,
@@ -33,7 +37,7 @@ import {
   stageProvenInstallationRemoval,
   writeInstallationState,
 } from "./installation-state.js";
-import { isGitTrackedPath } from "./git.js";
+import { hasTrackedGitDescendants } from "./git.js";
 import {
   gitExclusionBlockers,
   gitExclusionWarnings,
@@ -75,8 +79,17 @@ export interface ReconciliationItem {
   readonly reason?: string;
 }
 
+export type OutputReconciliationKind =
+  | "addition"
+  | "drifted member"
+  | "missing member"
+  | "removal"
+  | "unchanged"
+  | "unexpected member"
+  | "update";
+
 export interface OutputReconciliationItem {
-  readonly kind: "addition" | "removal" | "unchanged" | "update";
+  readonly kind: OutputReconciliationKind;
   readonly path: string;
   readonly project: string;
 }
@@ -112,20 +125,32 @@ function markerRelativePath(): string {
   return INSTALLATION_MARKER_PATH;
 }
 
-interface StagedProjectOutput {
+interface StagedFileOutput {
   readonly bytes: string;
   readonly hash: string;
   readonly mode: number;
   readonly path: string;
+  readonly type: "file";
 }
 
-function markerOutput(installationId: string): StagedProjectOutput {
+interface StagedDirectoryOutput {
+  readonly hash: string;
+  readonly members: DesiredProjectDirectoryOutput["members"];
+  readonly mode: number;
+  readonly path: string;
+  readonly type: "directory";
+}
+
+type StagedProjectOutput = StagedDirectoryOutput | StagedFileOutput;
+
+function markerOutput(installationId: string): StagedFileOutput {
   const bytes = markerText({ installationId, schemaVersion: 1 });
   return {
     bytes,
     hash: hashMarker(bytes),
     mode: 0o644,
     path: markerRelativePath(),
+    type: "file",
   };
 }
 
@@ -135,18 +160,31 @@ function hashMarker(bytes: string): string {
   return hashBytes(bytes);
 }
 
+function ownedOutputFromDesired(output: DesiredProjectOutput): OwnedOutput {
+  if (output.type === "file") {
+    return {
+      hash: output.hash,
+      mode: output.mode,
+      path: outputRelativePath(output),
+      type: "file",
+    };
+  }
+  return {
+    hash: output.hash,
+    members: ownedMembersFromDesired(output.members),
+    mode: output.mode,
+    path: outputRelativePath(output),
+    type: "directory",
+  };
+}
+
 function manifestFor(
   desired: DesiredInstallation,
   installationId: string,
 ): ProjectInstallationManifest {
   const marker = markerText({ installationId, schemaVersion: 1 });
-  const outputs = [
-    ...desired.outputs.map((output) => ({
-      hash: output.hash,
-      mode: output.mode,
-      path: outputRelativePath(output),
-      type: "file" as const,
-    })),
+  const outputs: OwnedOutput[] = [
+    ...desired.outputs.map(ownedOutputFromDesired),
     { hash: hashMarker(marker), mode: 0o644, path: markerRelativePath(), type: "file" as const },
   ].sort((left, right) => left.path.localeCompare(right.path));
   return {
@@ -199,9 +237,9 @@ async function parentConflicts(project: string, path: string): Promise<readonly 
   return blockers;
 }
 
-async function outputMatches(
+async function fileOutputMatches(
   project: string,
-  output: { readonly hash: string; readonly mode: number; readonly path: string; readonly type: "file" },
+  output: Extract<OwnedOutput, { type: "file" }>,
 ): Promise<boolean> {
   const path = join(project, output.path);
   try {
@@ -214,6 +252,32 @@ async function outputMatches(
   }
 }
 
+async function directoryOutputMatches(
+  project: string,
+  output: Extract<OwnedOutput, { type: "directory" }>,
+): Promise<boolean> {
+  const inspection = await inspectOwnedDirectory(project, output);
+  return (
+    inspection.missingMembers.length === 0 &&
+    inspection.driftedMembers.length === 0 &&
+    inspection.modeDriftedMembers.length === 0 &&
+    inspection.unexpectedMembers.length === 0
+  );
+}
+
+async function ownedOutputMatches(
+  project: string,
+  output: OwnedOutput,
+): Promise<boolean> {
+  if (output.type === "file") return fileOutputMatches(project, output);
+  return directoryOutputMatches(project, output);
+}
+
+async function pathIsTrackedDestination(project: string, relativePath: string): Promise<boolean> {
+  // Fail closed: Git inspection errors propagate rather than looking untracked.
+  return hasTrackedGitDescendants(project, relativePath);
+}
+
 async function desiredOutputConflicts(
   desired: DesiredInstallation,
   previous: ProjectInstallationManifest | undefined,
@@ -221,13 +285,8 @@ async function desiredOutputConflicts(
 ): Promise<readonly string[]> {
   const blockers: string[] = [];
   const previousOutputs = new Map(previous?.outputs.map((output) => [output.path, output]) ?? []);
-  const outputs = [
-    ...desired.outputs.map((output) => ({
-      hash: output.hash,
-      mode: output.mode,
-      path: output.path,
-      type: output.type,
-    })),
+  const outputs: OwnedOutput[] = [
+    ...desired.outputs.map(ownedOutputFromDesired),
     {
       hash: hashMarker(markerText({ installationId, schemaVersion: 1 })),
       mode: 0o644,
@@ -238,19 +297,34 @@ async function desiredOutputConflicts(
   for (const output of outputs) {
     const absolute = outputPath(desired.binding.canonicalProject, output);
     blockers.push(...await parentConflicts(desired.binding.canonicalProject, absolute));
-    if (await isGitTrackedPath(desired.binding.canonicalProject, output.path)) {
+    if (await pathIsTrackedDestination(desired.binding.canonicalProject, output.path)) {
       blockers.push(`${absolute} is a tracked project path`);
       continue;
     }
     const kind = await pathKind(absolute);
     if (kind === "missing") continue;
-    if (kind !== "file") {
+    if (output.type === "file") {
+      if (kind !== "file") {
+        blockers.push(`${absolute} is an occupied ${kind} path`);
+        continue;
+      }
+      const old = previousOutputs.get(output.path);
+      if (!old || old.type !== "file" || !(await ownedOutputMatches(desired.binding.canonicalProject, old))) {
+        blockers.push(`${absolute} is occupied by unowned or drifted output`);
+      }
+      continue;
+    }
+    if (kind !== "directory") {
       blockers.push(`${absolute} is an occupied ${kind} path`);
       continue;
     }
     const old = previousOutputs.get(output.path);
-    if (!old || !(await outputMatches(desired.binding.canonicalProject, old))) {
-      blockers.push(`${absolute} is occupied by unowned or drifted output`);
+    if (!old || old.type !== "directory") {
+      blockers.push(`${absolute} is an occupied unowned artifact directory`);
+      continue;
+    }
+    if (!(await ownedOutputMatches(desired.binding.canonicalProject, old))) {
+      blockers.push(`${absolute} is occupied by an unowned or drifted artifact directory`);
     }
   }
   return blockers;
@@ -309,6 +383,22 @@ function ownershipBlocker(project: string, reason: string): string {
   return `Cannot reconcile Profile Installation at ${project}: ${reason}`;
 }
 
+function pushDirectoryMemberItems(
+  outputItems: OutputReconciliationItem[],
+  project: string,
+  inspection: Awaited<ReturnType<typeof inspectOwnedDirectory>>,
+): void {
+  for (const path of inspection.missingMembers) {
+    outputItems.push({ kind: "missing member", path, project });
+  }
+  for (const path of [...inspection.driftedMembers, ...inspection.modeDriftedMembers]) {
+    outputItems.push({ kind: "drifted member", path, project });
+  }
+  for (const path of inspection.unexpectedMembers) {
+    outputItems.push({ kind: "unexpected member", path, project });
+  }
+}
+
 export async function previewReconciliation(
   desired: readonly DesiredInstallation[],
   state: InstallationState,
@@ -323,16 +413,20 @@ export async function previewReconciliation(
   );
   blockers.push(...(await gitExclusionBlockers(state, desired)).map((message) => ({ message })));
   const exclusionWarnings = await gitExclusionWarnings(state, desired);
-  const desiredReport = desired.map((installation) => ({
-    context:
-      installation.outputs.find((output) => output.path === ".agent-profile-kit/codex/context.md")?.bytes ?? "",
-    outputs: [
-      ...installation.outputs.map((output) => output.path),
-      ".agent-profile-kit/installation.json",
-    ],
-    profile: installation.profile.id,
-    project: installation.binding.project,
-  }));
+  const desiredReport = desired.map((installation) => {
+    const contextOutput = installation.outputs.find(
+      (output) => output.path === ".agent-profile-kit/codex/context.md" && output.type === "file",
+    );
+    return {
+      context: contextOutput?.type === "file" ? contextOutput.bytes : "",
+      outputs: [
+        ...installation.outputs.map((output) => output.path),
+        ".agent-profile-kit/installation.json",
+      ],
+      profile: installation.profile.id,
+      project: installation.binding.project,
+    };
+  });
   const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
   const movedPreviousProjects = new Set<string>();
@@ -341,13 +435,8 @@ export async function previewReconciliation(
     const moved = previous && previous.project !== installation.binding.canonicalProject;
     if (moved) movedPreviousProjects.add(previous.project);
     const id = previous?.installationId ?? newInstallationId();
-    const proposedOutputs = [
-      ...installation.outputs.map((output) => ({
-        hash: output.hash,
-        mode: output.mode,
-        path: output.path,
-        type: output.type,
-      })),
+    const proposedOutputs: OwnedOutput[] = [
+      ...installation.outputs.map(ownedOutputFromDesired),
       {
         hash: hashMarker(markerText({ installationId: id, schemaVersion: 1 })),
         mode: 0o644,
@@ -358,21 +447,36 @@ export async function previewReconciliation(
     const previousOutputs = new Map(previous?.outputs.map((output) => [output.path, output]) ?? []);
     for (const output of proposedOutputs) {
       const previousOutput = previousOutputs.get(output.path);
+      const kind: OutputReconciliationKind = previousOutput === undefined
+        ? "addition"
+        : previousOutput.hash === output.hash &&
+            previousOutput.mode === output.mode &&
+            previousOutput.type === output.type
+          ? "unchanged"
+          : "update";
       outputItems.push({
-        kind: previousOutput === undefined
-          ? "addition"
-          : previousOutput.hash === output.hash &&
-              previousOutput.mode === output.mode &&
-              previousOutput.type === output.type
-            ? "unchanged"
-            : "update",
+        kind,
         path: output.path,
         project: installation.binding.project,
       });
+      if (previousOutput?.type === "directory" && previous) {
+        pushDirectoryMemberItems(
+          outputItems,
+          installation.binding.project,
+          await inspectOwnedDirectory(installation.binding.canonicalProject, previousOutput),
+        );
+      }
       previousOutputs.delete(output.path);
     }
-    for (const path of previousOutputs.keys()) {
+    for (const [path, previousOutput] of previousOutputs) {
       outputItems.push({ kind: "removal", path, project: installation.binding.project });
+      if (previousOutput.type === "directory" && previous) {
+        pushDirectoryMemberItems(
+          outputItems,
+          installation.binding.project,
+          await inspectOwnedDirectory(installation.binding.canonicalProject, previousOutput),
+        );
+      }
     }
     const project = installation.binding.canonicalProject;
     blockers.push(
@@ -496,14 +600,33 @@ async function stageProjectOutputs(
   ];
   const moved: string[] = [];
   const installed: string[] = [];
+  /** Published directory trees whose exact modes may block recursive removal on rollback. */
+  const installedDirectoryTrees: {
+    readonly memberDirectories: readonly string[];
+    readonly path: string;
+  }[] = [];
   let settled = false;
   const cleanup = async (): Promise<void> => {
     await fileSystem.rm(stage, { recursive: true, force: true }).catch(() => undefined);
   };
+  const makeDirectoryTreeWritable = async (
+    tree: { readonly memberDirectories: readonly string[]; readonly path: string },
+  ): Promise<void> => {
+    // Top-down: parent must be writable before children can be removed or entered.
+    await fileSystem.chmod(tree.path, 0o755).catch(() => undefined);
+    for (const relative of tree.memberDirectories) {
+      await fileSystem.chmod(join(tree.path, relative), 0o755).catch(() => undefined);
+    }
+  };
   const rollback = async (): Promise<void> => {
     if (settled) return;
     settled = true;
-    for (const path of installed.reverse()) await fileSystem.rm(path, { force: true }).catch(() => undefined);
+    const treesByPath = new Map(installedDirectoryTrees.map((tree) => [tree.path, tree]));
+    for (const path of installed.reverse()) {
+      const tree = treesByPath.get(path);
+      if (tree) await makeDirectoryTreeWritable(tree);
+      await fileSystem.rm(path, { recursive: true, force: true }).catch(() => undefined);
+    }
     for (const path of moved.reverse()) {
       const previous = join(backup, path.slice(project.length + 1));
       await fileSystem.rename(previous, path).catch(() => undefined);
@@ -513,9 +636,26 @@ async function stageProjectOutputs(
   try {
     for (const output of outputs) {
       const staged = join(stage, output.path);
-      await fileSystem.mkdir(dirname(staged), { recursive: true });
-      await fileSystem.writeFile(staged, output.bytes, { mode: output.mode });
-      await fileSystem.chmod(staged, output.mode);
+      if (output.type === "file") {
+        await fileSystem.mkdir(dirname(staged), { recursive: true });
+        await fileSystem.writeFile(staged, output.bytes, { mode: output.mode });
+        await fileSystem.chmod(staged, output.mode);
+        continue;
+      }
+      // Keep directories writable in the stage so members and later rename work.
+      // Exact directory modes are applied after publication (see below).
+      await fileSystem.mkdir(staged, { recursive: true });
+      const members = [...output.members].sort((left, right) => left.path.localeCompare(right.path));
+      for (const member of members) {
+        const memberPath = join(staged, member.path);
+        if (member.type === "directory") {
+          await fileSystem.mkdir(memberPath, { recursive: true });
+          continue;
+        }
+        await fileSystem.mkdir(dirname(memberPath), { recursive: true });
+        await fileSystem.writeFile(memberPath, member.bytes, { mode: member.mode });
+        await fileSystem.chmod(memberPath, member.mode);
+      }
     }
     // The marker is the usability/ownership guard. Remove the old marker
     // before changing any generated output and publish the replacement last.
@@ -540,14 +680,37 @@ async function stageProjectOutputs(
       const staged = join(stage, output.path);
       const existing = await pathKind(destination);
       if (existing !== "missing") {
-        const previous = join(backup, output.path);
-        await fileSystem.mkdir(dirname(previous), { recursive: true });
-        await fileSystem.rename(destination, previous);
+        const previousPath = join(backup, output.path);
+        await fileSystem.mkdir(dirname(previousPath), { recursive: true });
+        await fileSystem.rename(destination, previousPath);
         moved.push(destination);
       }
       await fileSystem.mkdir(dirname(destination), { recursive: true });
       await fileSystem.rename(staged, destination);
       installed.push(destination);
+      if (output.type === "directory") {
+        const directoryMembers = output.members.filter((member) => member.type === "directory");
+        const memberDirectories = directoryMembers
+          .map((member) => member.path)
+          .sort((left, right) => {
+            const depth = left.split("/").filter(Boolean).length - right.split("/").filter(Boolean).length;
+            return depth !== 0 ? depth : left.localeCompare(right);
+          });
+        installedDirectoryTrees.push({ memberDirectories, path: destination });
+        // Apply exact directory modes deepest-first only after the tree is in place.
+        const directoryModes = [
+          ...directoryMembers.map((member) => ({ mode: member.mode, path: member.path })),
+          { mode: output.mode, path: "" },
+        ].sort((left, right) => {
+          const depth =
+            right.path.split("/").filter(Boolean).length - left.path.split("/").filter(Boolean).length;
+          return depth !== 0 ? depth : right.path.localeCompare(left.path);
+        });
+        for (const directory of directoryModes) {
+          const path = directory.path.length === 0 ? destination : join(destination, directory.path);
+          await fileSystem.chmod(path, directory.mode);
+        }
+      }
     }
     return {
       rollback,
