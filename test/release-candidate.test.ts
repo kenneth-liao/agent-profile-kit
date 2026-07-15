@@ -17,15 +17,36 @@ import { parse } from "yaml";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
-/** Minimum major matching package.json engines.node for the published CLI. */
-const MINIMUM_NODE_MAJOR = 22;
+
+/**
+ * Parse the minimum Node major from package.json engines.node.
+ * package.json is the sole supported-runtime home; this gate must not hardcode a major.
+ * Supported forms: ">=MAJOR", ">=MAJOR.MINOR", ">=MAJOR.MINOR.PATCH" (optional whitespace after >=).
+ */
+function minimumNodeMajorFromEngines(enginesNode: unknown): { major: number; range: string } {
+  if (typeof enginesNode !== "string" || enginesNode.trim() === "") {
+    throw new Error("package.json engines.node must be a non-empty string");
+  }
+  const range = enginesNode.trim();
+  const match = /^(?:>=\s*)(\d+)(?:\.\d+)?(?:\.\d+)?$/.exec(range);
+  if (!match?.[1]) {
+    throw new Error(
+      `package.json engines.node '${range}' cannot be interpreted by the release-candidate Node probe; use '>=MAJOR' (optionally with .MINOR or .MINOR.PATCH)`,
+    );
+  }
+  const major = Number(match[1]);
+  if (!Number.isInteger(major) || major < 1) {
+    throw new Error(`package.json engines.node '${range}' has an invalid major version`);
+  }
+  return { major, range };
+}
 
 /**
  * Resolve a real Node.js executable for packed-CLI execution.
  * Never fall back to process.execPath under bun test — that would exercise Bun, not the declared runtime (ADR-0008).
  * Override with NODE_BINARY when the supported Node is not first on PATH.
  */
-function resolveNodeBinary(): string {
+function resolveNodeBinary(minimumMajor: number, enginesRange: string): string {
   const candidates = process.env.NODE_BINARY ? [process.env.NODE_BINARY] : ["node"];
 
   for (const candidate of candidates) {
@@ -47,16 +68,16 @@ function resolveNodeBinary(): string {
     // Bun can shadow `node` on PATH; the published package must run on Node.js.
     if (identity.bun !== null) continue;
     const major = Number(identity.node.split(".")[0]);
-    if (!Number.isFinite(major) || major < MINIMUM_NODE_MAJOR) {
+    if (!Number.isFinite(major) || major < minimumMajor) {
       throw new Error(
-        `Resolved Node ${identity.node} at ${identity.execPath} is below engines.node (>=${MINIMUM_NODE_MAJOR}); set NODE_BINARY to a supported Node executable`,
+        `Resolved Node ${identity.node} at ${identity.execPath} is below package engines.node '${enginesRange}'; set NODE_BINARY to a supported Node executable`,
       );
     }
     return identity.execPath;
   }
 
   throw new Error(
-    `No supported Node.js >=${MINIMUM_NODE_MAJOR} executable found for packed-CLI release-candidate gates; install Node or set NODE_BINARY`,
+    `No Node.js executable satisfying package engines.node '${enginesRange}' found for packed-CLI release-candidate gates; install Node or set NODE_BINARY`,
   );
 }
 
@@ -65,9 +86,18 @@ let packageArchive = "";
 let cliPath = "";
 let packageVersion = "";
 let nodeBinary = "";
+let minimumNodeMajor = 0;
+let enginesNodeRange = "";
 
 beforeAll(() => {
-  nodeBinary = resolveNodeBinary();
+  const rootManifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
+    engines?: { node?: unknown };
+  };
+  const requirement = minimumNodeMajorFromEngines(rootManifest.engines?.node);
+  minimumNodeMajor = requirement.major;
+  enginesNodeRange = requirement.range;
+  nodeBinary = resolveNodeBinary(minimumNodeMajor, enginesNodeRange);
+
   execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
   const packageDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-rc-pack-"));
   const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-rc-packed-"));
@@ -84,10 +114,19 @@ beforeAll(() => {
   packageArchive = join(packageDirectory, metadata[0]!.filename);
   execFileSync("tar", ["-xzf", packageArchive, "-C", extracted]);
   packageRoot = join(extracted, "package");
+  const packedManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
+    version: string;
+    engines?: { node?: unknown };
+  };
+  packageVersion = packedManifest.version;
+  // Packed engines must match the repository source of truth used for the Node probe.
+  const packedRequirement = minimumNodeMajorFromEngines(packedManifest.engines?.node);
+  if (packedRequirement.major !== minimumNodeMajor || packedRequirement.range !== enginesNodeRange) {
+    throw new Error(
+      `Packed package engines.node '${packedRequirement.range}' does not match repository engines.node '${enginesNodeRange}'`,
+    );
+  }
   cliPath = join(packageRoot, "dist", "cli.js");
-  packageVersion = (
-    JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as { version: string }
-  ).version;
 });
 
 afterAll(() => {
@@ -208,6 +247,14 @@ function filesUnder(root: string): readonly string[] {
 
 describe("project-bound release candidate", () => {
   test("packed CLI execution uses a supported Node.js runtime, not Bun", () => {
+    expect(enginesNodeRange).toBe(
+      (
+        JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
+          engines: { node: string };
+        }
+      ).engines.node,
+    );
+    expect(minimumNodeMajor).toBeGreaterThanOrEqual(1);
     expect(nodeBinary.length).toBeGreaterThan(0);
     expect(nodeBinary).not.toBe(process.execPath);
     const probe = spawnSync(
@@ -218,7 +265,7 @@ describe("project-bound release candidate", () => {
     expect(probe.status, probe.stderr).toBe(0);
     const identity = JSON.parse(probe.stdout) as { node: string; bun: string | null };
     expect(identity.bun).toBeNull();
-    expect(Number(identity.node.split(".")[0])).toBeGreaterThanOrEqual(MINIMUM_NODE_MAJOR);
+    expect(Number(identity.node.split(".")[0])).toBeGreaterThanOrEqual(minimumNodeMajor);
   });
 
   test("package manifest is the sole engine version and packed provenance matches it", () => {
