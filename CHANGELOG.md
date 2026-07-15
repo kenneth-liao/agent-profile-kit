@@ -8,7 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
-- Added packed-CLI release-candidate acceptance gates for the project-bound engine (single package-manifest version provenance, multi-Host lifecycle, install-inert package install, fail-closed unsupported surfaces). Blockers complete via content boundary [#16](https://github.com/kenneth-liao/agent-profile-kit/issues/16) and final guidance [#34](https://github.com/kenneth-liao/agent-profile-kit/issues/34); Host qualification evidence on Codex [#33](https://github.com/kenneth-liao/agent-profile-kit/issues/33) and Claude [#43](https://github.com/kenneth-liao/agent-profile-kit/issues/43). Parent PRD [#27](https://github.com/kenneth-liao/agent-profile-kit/issues/27) ([#35](https://github.com/kenneth-liao/agent-profile-kit/issues/35)).
+- Added packed-CLI release-candidate acceptance gates for the project-bound engine (single package-manifest version provenance, multi-Host lifecycle on Node.js, install-inert package install, fail-closed unsupported surfaces). Content boundary product work from [#16](https://github.com/kenneth-liao/agent-profile-kit/issues/16) is treated complete for this verification (tracker closure of the remaining admin step is owner-owned and does not block the RC gate); final guidance [#34](https://github.com/kenneth-liao/agent-profile-kit/issues/34) is complete. Host qualification evidence on Codex [#33](https://github.com/kenneth-liao/agent-profile-kit/issues/33) and Claude [#43](https://github.com/kenneth-liao/agent-profile-kit/issues/43). Parent PRD [#27](https://github.com/kenneth-liao/agent-profile-kit/issues/27) ([#35](https://github.com/kenneth-liao/agent-profile-kit/issues/35)).
 
 ### Changed
 

@@ -17,13 +17,57 @@ import { parse } from "yaml";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
+/** Minimum major matching package.json engines.node for the published CLI. */
+const MINIMUM_NODE_MAJOR = 22;
+
+/**
+ * Resolve a real Node.js executable for packed-CLI execution.
+ * Never fall back to process.execPath under bun test — that would exercise Bun, not the declared runtime (ADR-0008).
+ * Override with NODE_BINARY when the supported Node is not first on PATH.
+ */
+function resolveNodeBinary(): string {
+  const candidates = process.env.NODE_BINARY ? [process.env.NODE_BINARY] : ["node"];
+
+  for (const candidate of candidates) {
+    const probe = spawnSync(
+      candidate,
+      [
+        "-e",
+        "process.stdout.write(JSON.stringify({execPath:process.execPath,node:process.versions.node,bun:process.versions.bun??null}))",
+      ],
+      { encoding: "utf8" },
+    );
+    if (probe.status !== 0 || !probe.stdout.trim()) continue;
+    let identity: { execPath: string; node: string; bun: string | null };
+    try {
+      identity = JSON.parse(probe.stdout.trim()) as typeof identity;
+    } catch {
+      continue;
+    }
+    // Bun can shadow `node` on PATH; the published package must run on Node.js.
+    if (identity.bun !== null) continue;
+    const major = Number(identity.node.split(".")[0]);
+    if (!Number.isFinite(major) || major < MINIMUM_NODE_MAJOR) {
+      throw new Error(
+        `Resolved Node ${identity.node} at ${identity.execPath} is below engines.node (>=${MINIMUM_NODE_MAJOR}); set NODE_BINARY to a supported Node executable`,
+      );
+    }
+    return identity.execPath;
+  }
+
+  throw new Error(
+    `No supported Node.js >=${MINIMUM_NODE_MAJOR} executable found for packed-CLI release-candidate gates; install Node or set NODE_BINARY`,
+  );
+}
 
 let packageRoot = "";
 let packageArchive = "";
 let cliPath = "";
 let packageVersion = "";
+let nodeBinary = "";
 
 beforeAll(() => {
+  nodeBinary = resolveNodeBinary();
   execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
   const packageDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-rc-pack-"));
   const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-rc-packed-"));
@@ -97,7 +141,7 @@ function runCli(
   arguments_: readonly string[],
   options: { readonly path?: string } = {},
 ) {
-  return spawnSync(process.env.NODE_BINARY ?? process.execPath, [cliPath, ...arguments_], {
+  return spawnSync(nodeBinary, [cliPath, ...arguments_], {
     encoding: "utf8",
     env: {
       ...process.env,
@@ -163,6 +207,20 @@ function filesUnder(root: string): readonly string[] {
 }
 
 describe("project-bound release candidate", () => {
+  test("packed CLI execution uses a supported Node.js runtime, not Bun", () => {
+    expect(nodeBinary.length).toBeGreaterThan(0);
+    expect(nodeBinary).not.toBe(process.execPath);
+    const probe = spawnSync(
+      nodeBinary,
+      ["-e", "process.stdout.write(JSON.stringify({node:process.versions.node,bun:process.versions.bun??null}))"],
+      { encoding: "utf8" },
+    );
+    expect(probe.status, probe.stderr).toBe(0);
+    const identity = JSON.parse(probe.stdout) as { node: string; bun: string | null };
+    expect(identity.bun).toBeNull();
+    expect(Number(identity.node.split(".")[0])).toBeGreaterThanOrEqual(MINIMUM_NODE_MAJOR);
+  });
+
   test("package manifest is the sole engine version and packed provenance matches it", () => {
     const rootManifest = JSON.parse(
       readFileSync(join(repositoryRoot, "package.json"), "utf8"),
@@ -236,7 +294,7 @@ describe("project-bound release candidate", () => {
       .toBe(true);
 
     const installedCli = join(installPrefix, "node_modules", "agent-profile-kit", "dist", "cli.js");
-    const guide = spawnSync(process.env.NODE_BINARY ?? process.execPath, [installedCli, "guide"], {
+    const guide = spawnSync(nodeBinary, [installedCli, "guide"], {
       encoding: "utf8",
       env: { ...process.env, HOME: home },
     });
