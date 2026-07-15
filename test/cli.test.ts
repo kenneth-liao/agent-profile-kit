@@ -1571,7 +1571,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       installations: Array<{ hosts: string[]; host_versions: Record<string, string> }>;
     };
     expect(state.installations[0]?.hosts).toEqual(["claude"]);
-    expect(state.installations[0]?.host_versions.claude).toBe("native-project-unscoped-rules-v1");
+    expect(state.installations[0]?.host_versions.claude).toBe(
+      "native-project-unscoped-rules-skills-v1",
+    );
 
     const uninstall = runCliWithPath(home, pathWithClaude, "uninstall");
     expect(uninstall.status, uninstall.stderr).toBe(0);
@@ -1695,10 +1697,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly {
         hosts: string[];
+        host_versions: Record<string, string>;
         resolved_artifacts: readonly { type: string; id: string; inclusion_reasons: readonly unknown[] }[];
       }[];
     };
     expect(state.installations[0]?.hosts).toEqual(["claude"]);
+    expect(state.installations[0]?.host_versions.claude).toBe(
+      "native-project-unscoped-rules-skills-v1",
+    );
     const resolved = state.installations[0]?.resolved_artifacts ?? [];
     expect(resolved.map((artifact) => `${artifact.type}:${artifact.id}`).sort()).toEqual([
       "context:team-rules",

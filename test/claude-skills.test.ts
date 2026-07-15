@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CLAUDE_CONTEXT_RULE_PATH,
+  CLAUDE_HOST_VERSION,
   CLAUDE_SKILLS_DISCOVERY_ROOT,
   planClaudeProject,
 } from "../adapters/claude.js";
@@ -139,6 +140,8 @@ describe("Claude project Skill packages", () => {
       skill("review-pr", source),
     ]);
 
+    expect(plan.hostVersion).toBe(CLAUDE_HOST_VERSION);
+    expect(plan.hostVersion).toBe("native-project-unscoped-rules-skills-v1");
     expect(plan.outputs.some((output) => output.path === CLAUDE_CONTEXT_RULE_PATH)).toBe(true);
     const packageOutput = plan.outputs.find(
       (output) =>
@@ -250,6 +253,8 @@ describe("Claude project Skill packages", () => {
 
     const state = await readInstallationState(home);
     const manifest = state.installations[0];
+    expect(manifest?.hostVersions).toEqual({ claude: CLAUDE_HOST_VERSION });
+    expect(manifest?.hostVersions.claude).toBe("native-project-unscoped-rules-skills-v1");
     expect(manifest?.resolvedArtifacts.map((artifact) => artifact.reference.id).sort()).toEqual([
       "left-skill",
       "right-skill",

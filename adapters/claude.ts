@@ -18,13 +18,19 @@ export const CLAUDE_ADAPTER_VERSION = "claude-project-v1";
 
 /**
  * Capability-contract token recorded in Installation Manifest host_versions after
- * the installed Claude CLI is proven to support unscoped project rules.
+ * the installed Claude CLI is proven to support unscoped project rules and native
+ * project Skill discovery under `.claude/skills/`.
+ *
+ * Evidence: Claude Code 2.0.64+ loads recursive `.claude/rules/`; project Skills
+ * under `.claude/skills/` are available on that same floor and earlier. Preflight
+ * therefore records one contract for both Claude project outputs.
  */
-export const CLAUDE_HOST_VERSION = "native-project-unscoped-rules-v1";
+export const CLAUDE_HOST_VERSION = "native-project-unscoped-rules-skills-v1";
 
 /**
- * Minimum Claude Code CLI version that loads recursive `.claude/rules`.
- * Evidence: Anthropic Claude Code changelog — `.claude/rules/` added in 2.0.64.
+ * Minimum Claude Code CLI version that preserves the Claude project Capability Contract.
+ * Evidence: Anthropic Claude Code changelog — `.claude/rules/` added in 2.0.64;
+ * that floor already includes native project Skill package discovery.
  */
 export const CLAUDE_MINIMUM_CLI_VERSION = "2.0.64";
 
