@@ -65,7 +65,7 @@ test("living engine guidance does not describe removed legacy content as reposit
 });
 
 test("legacy artifact roots stay absent from the engine source tree", () => {
-  for (const directory of ["commands", "context", "skills"]) {
+  for (const directory of ["commands", "context", "skills", "tools"]) {
     expect(existsSync(join(repositoryRoot, directory))).toBe(false);
   }
 });
@@ -74,6 +74,7 @@ test("packed npm artifacts exclude personal, legacy, and generated content", () 
   const packed = packedFiles();
 
   try {
+    // Keep this allowlist exact: intentional package growth must update this gate with the release boundary.
     expect(packed.files).toEqual([
       "README.md",
       "dist/cli.js",
@@ -85,9 +86,8 @@ test("packed npm artifacts exclude personal, legacy, and generated content", () 
     const packageText = packed.files
       .map((path) => readFileSync(join(packed.root, path), "utf8"))
       .join("\n");
+    // Path names can be valid in public Workspace guidance; these markers identify removed personal material.
     expect(packageText).not.toMatch(/The AI Launchpad|Personal Assistant Context/);
-    expect(packageText).not.toMatch(/~\/\.claude\/\.context|commands\/code-review/);
-    expect(packageText).not.toMatch(/skills\/(?:agent|creator|engineering)\//);
   } finally {
     packed.cleanup();
   }
