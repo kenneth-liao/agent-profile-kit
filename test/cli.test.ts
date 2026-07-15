@@ -1770,4 +1770,91 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(existsSync(configPath(home))).toBe(true);
   });
+
+  test("packed package ships both maintained guides and the public overview", () => {
+    const packageRoot = resolve(cliPath, "..", "..");
+    expect(existsSync(join(packageRoot, "docs", "guides", "workspace.md"))).toBe(true);
+    expect(existsSync(join(packageRoot, "docs", "guides", "agent-workflow.md"))).toBe(true);
+    expect(existsSync(join(packageRoot, "README.md"))).toBe(true);
+  });
+
+  test("packed CLI serves the final project-bound human guide", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "guide");
+    expect(result.status, result.stderr).toBe(0);
+
+    for (const command of ["init", "validate", "preview", "apply", "status", "uninstall"]) {
+      expect(result.stdout).toContain(`agent-profile-kit ${command}`);
+    }
+    expect(result.stdout).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
+
+    expect(result.stdout).toMatch(/project:\s*(~\/|\/)/);
+    expect(result.stdout).toMatch(/profile:\s+\S+/);
+    expect(result.stdout).toMatch(/hosts:\s*\n\s*-\s*(codex|claude)/);
+
+    expect(result.stdout).toContain("SessionStart");
+    expect(result.stdout).toContain(".agents/skills/");
+    expect(result.stdout).toContain(".claude/rules/");
+    expect(result.stdout).toContain(".claude/skills/");
+    expect(result.stdout).toMatch(/exact bound root/);
+    expect(result.stdout).toMatch(/worktree/i);
+    expect(result.stdout).toMatch(/repositor(?:y|ies)[- ]owned project instructions|project instructions take precedence/i);
+    expect(result.stdout).toMatch(
+      /does not (?:launch Hosts or )?manage\s+(?:their\s+)?(?:authentication|trust|approvals|plugins|sessions)/i,
+    );
+    expect(result.stdout).not.toMatch(
+      /Agent Profile Kit manages\s+(?:native\s+)?(?:authentication|trust|approvals|plugins|sessions)/i,
+    );
+  });
+
+  test("packed CLI serves the final project-bound agent workflow", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "guide", "--agent");
+    expect(result.status, result.stderr).toBe(0);
+
+    expect(result.stdout).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
+    expect(result.stdout).toMatch(/Local\s+Configuration/);
+    expect(result.stdout).toMatch(/Agents, Hooks, or Tools|Agents, Hooks, and Tools/);
+    expect(result.stdout).toMatch(/reject/i);
+    expect(result.stdout).toMatch(/do not invent|Ask instead of inventing/i);
+    expect(result.stdout).toMatch(/credential/i);
+    expect(result.stdout).toMatch(/machine[- ](path|specific)|Host preference/i);
+    expect(result.stdout).toMatch(/exact bound root/);
+    expect(result.stdout).toMatch(/does not claim that Agent Profile Kit manages|Do not claim that Agent Profile Kit manages/i);
+    for (const command of ["validate", "preview", "apply", "status", "uninstall"]) {
+      expect(result.stdout).toContain(
+        command === "status" || command === "uninstall"
+          ? command
+          : `agent-profile-kit ${command}`,
+      );
+    }
+  });
+
+  test("init bootstrap pointers stay short and name current guide commands", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const readme = readFileSync(join(workspacePath(home), "README.md"), "utf8");
+    const agents = readFileSync(join(workspacePath(home), "AGENTS.md"), "utf8");
+
+    expect(readme).toContain("agent-profile-kit guide");
+    expect(agents).toContain("agent-profile-kit guide --agent");
+    expect(readme).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
+    expect(agents).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
+    expect(readme.trim().split("\n").length).toBeLessThan(12);
+    expect(agents.trim().split("\n").length).toBeLessThan(12);
+  });
+
+  test("public overview describes project-bound Profiles without migration-era lifecycle terms", () => {
+    const packageRoot = resolve(cliPath, "..", "..");
+    const readme = readFileSync(join(packageRoot, "README.md"), "utf8");
+
+    expect(readme).toMatch(/Profile/i);
+    expect(readme).toMatch(/bound project|Project Binding/i);
+    expect(readme).toContain("Codex");
+    expect(readme).toContain("Claude");
+    expect(readme).toContain("agent-profile-kit apply");
+    expect(readme).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
+    expect(readme).not.toMatch(/per-session launcher|global Skill projection|process[- ]overlay/i);
+    expect(readme).not.toMatch(/legacy migration input/i);
+  });
 });

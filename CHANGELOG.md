@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Published the final project-bound public overview, Workspace guide, and agent workflow for init through native Host use, with packed CLI coverage of both bundled guides ([#34](https://github.com/kenneth-liao/agent-profile-kit/issues/34)).
+
 ### Fixed
 
 - Record Claude Capability Contract `native-project-unscoped-rules-skills-v1` for installations that prove unscoped project rules and native Skill discovery ([#42](https://github.com/kenneth-liao/agent-profile-kit/issues/42)).
