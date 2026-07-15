@@ -6,7 +6,13 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Fixed
+
+- Record Claude Capability Contract `native-project-unscoped-rules-skills-v1` for installations that prove unscoped project rules and native Skill discovery ([#42](https://github.com/kenneth-liao/agent-profile-kit/issues/42)).
+
 ### Added
+
+- Installed resolved portable Claude Skills at project scope under native `.claude/skills/<Artifact ID>/` discovery, with transitive dependency selection, inclusion reasons in preview and the Installation Manifest, sidecar omission, combined Codex/Claude Host ownership, and shared Context lifecycle ([#42](https://github.com/kenneth-liao/agent-profile-kit/issues/42)).
 
 - Installed Profile Context for Claude Code as an unscoped owned `.claude/rules/agent-profile-kit.md` rule, with Claude-only and combined Codex/Claude bindings through the shared preview/apply/status/uninstall lifecycle and fail-closed Skills until Claude Skill delivery ([#32](https://github.com/kenneth-liao/agent-profile-kit/issues/32)).
 

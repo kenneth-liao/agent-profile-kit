@@ -150,10 +150,12 @@ describe("Claude Adapter planner", () => {
     expect(String(output.bytes)).toContain("<!-- Context Module: team-rules -->");
   });
 
-  test("rejects Skills until Claude Skill delivery is supported", async () => {
-    await expect(planClaudeProject("coding", [], { skillCount: 1 })).rejects.toThrow(
-      "Claude Skill delivery is not supported yet",
-    );
+  test("plans Context without Skills when the Profile selects none", async () => {
+    const plan = await planClaudeProject("coding", [
+      { id: "team-rules", content: "Always preserve the project boundary.\n" },
+    ]);
+    expect(plan.outputs).toHaveLength(1);
+    expect(plan.outputs[0]?.path).toBe(CLAUDE_CONTEXT_RULE_PATH);
   });
 
   test("rejects non-directory .claude or .claude/rules project surfaces", async () => {
@@ -414,28 +416,28 @@ describe("Combined Codex and Claude Profile Installation", () => {
     expect(readFileSync(join(project, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
   });
 
-  test("fails before writes when Claude is selected and the Profile includes Skills", async () => {
+  test("Claude-only Profile with Skills plans Context and .claude/skills packages together", async () => {
     const home = temporaryDirectory("apk-claude-skills-home-");
     const project = temporaryDirectory("apk-claude-skills-project-");
     await writeContextWorkspace(home, project, ["claude"], { skills: ["review-pr"] });
 
-    await expect(buildDesiredState(home, { checkHostCapability: false })).rejects.toThrow(
-      "Claude Skill delivery is not supported yet",
-    );
-    expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
-    expect(existsSync(join(project, ".agents", "skills"))).toBe(false);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const paths = desired.installations[0]?.outputs.map((output) => output.path).sort() ?? [];
+    expect(paths).toContain(CLAUDE_CONTEXT_RULE_PATH);
+    expect(paths).toContain(".claude/skills/review-pr");
+    expect(paths.some((path) => path.startsWith(".agents/skills/"))).toBe(false);
   });
 
-  test("fails before writes when combined Hosts select Skills until Claude Skill delivery exists", async () => {
+  test("combined Hosts with Skills plan both Host-native Skill trees without fail-closed rejection", async () => {
     const home = temporaryDirectory("apk-combined-skills-home-");
     const project = temporaryDirectory("apk-combined-skills-project-");
     await writeContextWorkspace(home, project, ["codex", "claude"], { skills: ["review-pr"] });
 
-    await expect(buildDesiredState(home, { checkHostCapability: false })).rejects.toThrow(
-      "Claude Skill delivery is not supported yet",
-    );
-    expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
-    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
-    expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const paths = desired.installations[0]?.outputs.map((output) => output.path) ?? [];
+    expect(paths).toContain(CLAUDE_CONTEXT_RULE_PATH);
+    expect(paths).toContain(".claude/skills/review-pr");
+    expect(paths).toContain(".agents/skills/review-pr");
+    expect(paths).toContain(".codex/hooks.json");
   });
 });

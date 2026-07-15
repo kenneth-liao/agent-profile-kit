@@ -3,8 +3,14 @@ import { lstat } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { promisify } from "node:util";
 
+import type { Skill } from "../schemas/skill.js";
 import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
-import type { AdapterProjectPlan, ProposedProjectFileOutput } from "./project-plan.js";
+import type {
+  AdapterProjectPlan,
+  ProposedProjectFileOutput,
+  ProposedProjectOutput,
+} from "./project-plan.js";
+import { planSkillPackageDirectory } from "./skill-package.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -12,13 +18,19 @@ export const CLAUDE_ADAPTER_VERSION = "claude-project-v1";
 
 /**
  * Capability-contract token recorded in Installation Manifest host_versions after
- * the installed Claude CLI is proven to support unscoped project rules.
+ * the installed Claude CLI is proven to support unscoped project rules and native
+ * project Skill discovery under `.claude/skills/`.
+ *
+ * Evidence: Claude Code 2.0.64+ loads recursive `.claude/rules/`; project Skills
+ * under `.claude/skills/` are available on that same floor and earlier. Preflight
+ * therefore records one contract for both Claude project outputs.
  */
-export const CLAUDE_HOST_VERSION = "native-project-unscoped-rules-v1";
+export const CLAUDE_HOST_VERSION = "native-project-unscoped-rules-skills-v1";
 
 /**
- * Minimum Claude Code CLI version that loads recursive `.claude/rules`.
- * Evidence: Anthropic Claude Code changelog — `.claude/rules/` added in 2.0.64.
+ * Minimum Claude Code CLI version that preserves the Claude project Capability Contract.
+ * Evidence: Anthropic Claude Code changelog — `.claude/rules/` added in 2.0.64;
+ * that floor already includes native project Skill package discovery.
  */
 export const CLAUDE_MINIMUM_CLI_VERSION = "2.0.64";
 
@@ -28,6 +40,9 @@ export const CLAUDE_CONTEXT_RULE_PATH = posix.join(
   "rules",
   "agent-profile-kit.md",
 );
+
+/** Claude native project Skill discovery root. */
+export const CLAUDE_SKILLS_DISCOVERY_ROOT = posix.join(".claude", "skills");
 
 export type ClaudeProjectPlan = AdapterProjectPlan;
 
@@ -168,22 +183,30 @@ function contextRule(
 }
 
 /**
- * Pure Claude Adapter planner for Profile Context.
+ * Pure Claude Adapter planner for Profile Context and portable Skills.
  * Does not write filesystem state or coordinate with other Adapters.
  */
 export async function planClaudeProject(
   profileId: string,
   modules: readonly ContextModuleSource[],
-  options: { readonly skillCount?: number } = {},
+  skills: readonly Skill[] = [],
 ): Promise<ClaudeProjectPlan> {
-  if ((options.skillCount ?? 0) > 0) {
-    throw new Error(
-      "Claude Skill delivery is not supported yet; remove Skills from the Profile or omit the claude Host until Skill installation is available",
-    );
-  }
+  const skillOutputs = await Promise.all(
+    [...skills]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((skill) =>
+        planSkillPackageDirectory(skill, CLAUDE_SKILLS_DISCOVERY_ROOT, [
+          "Claude discovers Skill package through native project .claude/skills",
+        ]),
+      ),
+  );
+  const outputs: ProposedProjectOutput[] = [
+    contextRule(profileId, modules),
+    ...skillOutputs,
+  ];
   return {
     host: "claude",
     hostVersion: CLAUDE_HOST_VERSION,
-    outputs: [contextRule(profileId, modules)],
+    outputs,
   };
 }
