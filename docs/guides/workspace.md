@@ -111,6 +111,15 @@ bindings:
 
 ## Validate, preview, and apply
 
+For Codex bindings, explicitly enable lifecycle hooks in global or project Codex
+configuration before `preview` or `apply`. Agent Profile Kit checks this during
+preflight and rejects reconciliation when hooks are disabled or unset:
+
+```toml
+[features]
+hooks = true
+```
+
 Run `agent-profile-kit validate` to check the Workspace and every Project Binding.
 Review the complete read-only desired state with `agent-profile-kit preview`.
 Apply all configured Project Bindings with `agent-profile-kit apply`. These
@@ -136,19 +145,13 @@ authentication, trust, approvals, plugins, or sessions.
 
 ### Codex
 
-Before previewing or applying a Codex binding, trust each bound project in Codex
-and explicitly enable lifecycle hooks in global or project Codex configuration:
-
-```toml
-[features]
-hooks = true
-```
-
 Codex receives Profile Context through a native project SessionStart hook and
-discovers selected Skills under `.agents/skills/<Artifact ID>/`. Ordinary launches
-from a Git project's bound directory or its descendants receive that material. For
-a non-Git project, launch Codex from the exact bound root; launching from a
-descendant is outside the support guarantee.
+discovers selected Skills under `.agents/skills/<Artifact ID>/`. Before launching
+Codex, trust each bound project in Codex — project trust is Host-owned and is not
+configured by Agent Profile Kit. Ordinary launches from a Git project's bound
+directory or its descendants receive that material. For a non-Git project, launch
+Codex from the exact bound root; launching from a descendant is outside the
+support guarantee.
 
 ### Claude Code
 

@@ -1805,6 +1805,22 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toMatch(
       /Agent Profile Kit manages\s+(?:native\s+)?(?:authentication|trust|approvals|plugins|sessions)/i,
     );
+
+    // Hook enablement is a preflight precondition; project trust is Host-owned launch prep.
+    const hooksIndex = result.stdout.indexOf("hooks = true");
+    const previewIndex = result.stdout.indexOf("agent-profile-kit preview");
+    const applyIndex = result.stdout.indexOf("agent-profile-kit apply");
+    const trustIndex = result.stdout.search(/trust each bound project/i);
+    const launchIndex = result.stdout.search(/Before launching\s+Codex/i);
+    expect(hooksIndex).toBeGreaterThan(-1);
+    expect(previewIndex).toBeGreaterThan(-1);
+    expect(applyIndex).toBeGreaterThan(-1);
+    expect(trustIndex).toBeGreaterThan(-1);
+    expect(launchIndex).toBeGreaterThan(-1);
+    expect(hooksIndex).toBeLessThan(previewIndex);
+    expect(hooksIndex).toBeLessThan(applyIndex);
+    expect(trustIndex).toBeGreaterThan(applyIndex);
+    expect(Math.abs(trustIndex - launchIndex)).toBeLessThan(120);
   });
 
   test("packed CLI serves the final project-bound agent workflow", () => {
