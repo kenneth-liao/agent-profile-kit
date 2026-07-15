@@ -12,6 +12,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Kept personal Workspace and generated migration content outside the public package and added packed-artifact boundary checks ([#16](https://github.com/kenneth-liao/agent-profile-kit/issues/16)).
+
 - Record Claude Capability Contract `native-project-unscoped-rules-skills-v1` for installations that prove unscoped project rules and native Skill discovery ([#42](https://github.com/kenneth-liao/agent-profile-kit/issues/42)).
 
 ### Added

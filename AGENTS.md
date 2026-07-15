@@ -1,6 +1,6 @@
 # Agent Profile Kit Operating Manual
 
-This repository is the open-source Agent Profile Kit engine. Its current personal and reusable artifact content is legacy migration input and is not part of the target public product boundary.
+This repository is the open-source Agent Profile Kit engine. It contains product code, schemas, adapters, installer behavior, documentation, and neutral fixtures—not user-owned Workspace material.
 
 ## Repository Rules
 
@@ -21,7 +21,7 @@ This repository is the open-source Agent Profile Kit engine. Its current persona
 - `docs/runbooks/` owns operational playbooks.
 - `docs/archive/` owns shipped plans and spent research only.
 
-`commands/`, `context/`, and `skills/` are legacy migration input. Do not add new personal content to the open-source engine. A maintained user workflow belongs in the user's Workspace; an Adapter may generate Host-native project files from it.
+Personal material belongs in the user's Workspace, not in this repository. A maintained user workflow belongs there as well; an Adapter may generate Host-native project files from it.
 
 When a new category of fact does not fit these locations, record the placement decision in `docs/adr/` before spreading it across the repo.
 
