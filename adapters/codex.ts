@@ -40,13 +40,13 @@ export const CODEX_HOST_VERSION_WITH_INVOCATION =
 
 /**
  * Minimum Codex CLI version that enforces `policy.allow_implicit_invocation: false`.
- * Evidence: OpenAI Codex documents agents/openai.yaml invocation policy for Skill
- * packages; earlier releases discover Skills under `.agents/skills/` but treat
- * implicit invocation as always allowed, silently weakening explicit-only Skills.
- * Floor: first documented public SkillPolicy series supporting the field (0.72.0+).
- * Raise if field-level support evidence requires a higher version.
+ * Evidence: OpenAI added SkillPolicy / allow_implicit_invocation in
+ * openai/codex#11244 (2026-02-10). Official tag rust-v0.98.0 has no support;
+ * rust-v0.99.0 is the first stable release that contains the field in
+ * codex-rs/core/src/skills/model.rs. Earlier CLIs may discover Skills under
+ * `.agents/skills/` but treat implicit invocation as always allowed.
  */
-export const CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION = "0.72.0";
+export const CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION = "0.99.0";
 
 /** Codex Skill metadata path for Host-native invocation policy. */
 export const CODEX_SKILL_OPENAI_YAML = "agents/openai.yaml";

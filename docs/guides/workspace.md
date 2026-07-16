@@ -69,9 +69,10 @@ invocation policy coalesces; a conflicting policy fails before any project
 write. When any selected Skill disables model invocation, capability preflight
 proves each selected Host can enforce it before writes: Claude Code CLI
 `2.0.64+` (same floor as unscoped rules and native Skill discovery, which
-honors `disable-model-invocation`), and Codex CLI `0.72.0+` (honors
-`agents/openai.yaml` `policy.allow_implicit_invocation`). Unsupported versions
-fail closed rather than silently weakening the policy.
+honors `disable-model-invocation`), and Codex CLI `0.99.0+` (first stable
+release with `agents/openai.yaml` `policy.allow_implicit_invocation`; see
+openai/codex#11244 / rust-v0.99.0). Unsupported versions fail closed rather
+than silently weakening the policy.
 
 Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each

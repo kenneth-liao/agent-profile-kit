@@ -364,7 +364,7 @@ describe("Skill model-invocation policy", () => {
       requireDisabledModelInvocation: true,
     })).not.toThrow();
 
-    expect(() => assertCodexCliVersionSupportsDisabledModelInvocation("0.71.0")).toThrow(
+    expect(() => assertCodexCliVersionSupportsDisabledModelInvocation("0.98.0")).toThrow(
       "cannot enforce disabled model invocation",
     );
     expect(() =>
@@ -372,6 +372,7 @@ describe("Skill model-invocation policy", () => {
         CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION,
       ),
     ).not.toThrow();
+    expect(CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION).toBe("0.99.0");
 
     const home = temporaryDirectory("apk-mi-cap-home-");
     const project = temporaryDirectory("apk-mi-cap-project-");
