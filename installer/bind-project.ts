@@ -1,4 +1,5 @@
 import {
+  link as defaultLink,
   mkdir as defaultMkdir,
   open as defaultOpen,
   readFile as defaultReadFile,
@@ -27,6 +28,7 @@ import {
 
 /** Optional filesystem hooks used to prove concurrent-edit and lock safety in tests. */
 export interface BindProjectFileSystem {
+  readonly link: typeof defaultLink;
   readonly mkdir: typeof defaultMkdir;
   readonly open: typeof defaultOpen;
   readonly readFile: typeof defaultReadFile;
@@ -38,6 +40,7 @@ export interface BindProjectFileSystem {
 }
 
 const defaultFileSystem: BindProjectFileSystem = {
+  link: defaultLink,
   mkdir: defaultMkdir,
   open: defaultOpen,
   readFile: defaultReadFile,
@@ -92,10 +95,32 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function processIsAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function pathExists(
+  fileSystem: BindProjectFileSystem,
+  path: string,
+): Promise<boolean> {
+  try {
+    await fileSystem.stat(path);
+    return true;
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return false;
+    throw error;
+  }
+}
+
 /**
- * Serialize Local Configuration mutations. Cooperating writers take an exclusive
- * lockfile for the entire read→validate→publish window so two binds cannot both
- * pass a final check and rename over each other.
+ * Exclusive bind lock with crash-safe ownership: lock contents are the owner PID.
+ * A lock whose owner is not alive is removed so a crashed bind cannot block forever.
  */
 async function withConfigurationLock<T>(
   configurationPath: string,
@@ -109,9 +134,22 @@ async function withConfigurationLock<T>(
   while (handle === undefined) {
     try {
       handle = await fileSystem.open(lockPath, "wx");
+      await handle.writeFile(`${process.pid}\n`);
     } catch (error) {
       if (!hasErrorCode(error, "EEXIST")) throw error;
-      if (Date.now() >= deadline) {
+      let recovered = false;
+      try {
+        const ownerRaw = (await fileSystem.readFile(lockPath, "utf8")).trim();
+        const ownerPid = Number.parseInt(ownerRaw, 10);
+        if (!processIsAlive(ownerPid)) {
+          await fileSystem.unlink(lockPath);
+          recovered = true;
+        }
+      } catch (recoveryError) {
+        if (!hasErrorCode(recoveryError, "ENOENT")) throw recoveryError;
+        recovered = true;
+      }
+      if (!recovered && Date.now() >= deadline) {
         throw new Error(
           `Local Configuration ${configurationPath} is busy; another bind holds the lock — retry`,
         );
@@ -125,6 +163,62 @@ async function withConfigurationLock<T>(
   } finally {
     await handle.close().catch(() => undefined);
     await fileSystem.unlink(lockPath).catch(() => undefined);
+  }
+}
+
+/**
+ * Publish nextSource without an unchecked overwrite window:
+ * 1. Atomically move the current config aside (claim).
+ * 2. Refuse if the claimed bytes are not the validated snapshot.
+ * 3. Create the destination only if the path is still free (`link` fails on EEXIST),
+ *    so an external writer that recreated config.yaml is never erased.
+ */
+async function publishConfigurationReplacement(
+  configurationPath: string,
+  source: string,
+  nextSource: string,
+  mode: number,
+  fileSystem: BindProjectFileSystem,
+  description: string,
+): Promise<void> {
+  const directory = dirname(configurationPath);
+  const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const heldPath = join(directory, `.config-held-${token}`);
+  const temporary = join(directory, `.config-${token}.tmp`);
+
+  await fileSystem.rename(configurationPath, heldPath);
+  let published = false;
+  try {
+    const claimed = await fileSystem.readFile(heldPath, "utf8");
+    if (claimed !== source) {
+      throw new Error(
+        `${description} changed during bind; retry so concurrent edits are not lost`,
+      );
+    }
+
+    await fileSystem.writeFile(temporary, nextSource, { flag: "wx", mode });
+    try {
+      // link fails with EEXIST when the destination already exists — never overwrites.
+      await fileSystem.link(temporary, configurationPath);
+      published = true;
+    } catch (error) {
+      if (hasErrorCode(error, "EEXIST")) {
+        throw new Error(
+          `${description} changed during bind; retry so concurrent edits are not lost`,
+        );
+      }
+      throw error;
+    }
+  } finally {
+    await fileSystem.rm(temporary, { force: true }).catch(() => undefined);
+    if (published) {
+      await fileSystem.unlink(heldPath).catch(() => undefined);
+    } else if (!(await pathExists(fileSystem, configurationPath))) {
+      // Restore the claimed snapshot only when no external writer recreated the path.
+      await fileSystem.rename(heldPath, configurationPath).catch(() => undefined);
+    } else {
+      await fileSystem.unlink(heldPath).catch(() => undefined);
+    }
   }
 }
 
@@ -182,6 +276,18 @@ export async function bindProject(
   // Prefer absolute canonical root for cwd bindings; preserve authored spelling otherwise.
   const storedProject =
     options.project === undefined ? canonicalProject : options.project;
+
+  // Friendly missing-config diagnostic before lock acquisition (avoids raw ENOENT on .lock).
+  try {
+    await fileSystem.stat(configurationPath);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      throw new Error(
+        `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
+      );
+    }
+    throw error;
+  }
 
   return withConfigurationLock(configurationPath, fileSystem, async () => {
     let source: string;
@@ -253,26 +359,14 @@ export async function bindProject(
     const sourceStats = await fileSystem.stat(configurationPath);
     const mode = sourceStats.mode & 0o777;
 
-    const directory = dirname(configurationPath);
-    await fileSystem.mkdir(directory, { recursive: true });
-    const temporary = join(
-      directory,
-      `.config-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
+    await publishConfigurationReplacement(
+      configurationPath,
+      source,
+      nextSource,
+      mode,
+      fileSystem,
+      description,
     );
-    await fileSystem.writeFile(temporary, nextSource, { flag: "wx", mode });
-    try {
-      // Under the exclusive lock, refuse to publish if the snapshot drifted (external
-      // non-cooperating writer). Cooperating binds cannot interleave this check→rename.
-      const stillCurrent = await fileSystem.readFile(configurationPath, "utf8");
-      if (stillCurrent !== source) {
-        throw new Error(
-          `${description} changed during bind; retry so concurrent edits are not lost`,
-        );
-      }
-      await fileSystem.rename(temporary, configurationPath);
-    } finally {
-      await fileSystem.rm(temporary, { force: true }).catch(() => undefined);
-    }
 
     return {
       outcome: "created" as const,
