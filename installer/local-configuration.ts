@@ -49,7 +49,7 @@ export function expandConfiguredPath(
   return value;
 }
 
-async function requireExistingDirectory(
+export async function requireExistingDirectory(
   expanded: string,
   authored: string,
   description: string,
@@ -91,7 +91,8 @@ async function requireExistingDirectory(
   return realpath(expanded);
 }
 
-async function normalizeProject(
+/** Canonical absolute directory for a Project Binding root (authored spelling separate). */
+export async function normalizeProject(
   project: string,
   home: string,
   description: string,
@@ -175,6 +176,34 @@ async function buildLocalConfiguration(
 }
 
 /**
+ * Trusted Local Configuration + Workspace model from an exact source snapshot.
+ * Callers that edit the file must pass the same bytes they will mutate so
+ * conflict detection cannot diverge from the editable document.
+ */
+export async function ingestApplicationFromSource(
+  home: string,
+  source: string,
+  path: string = localConfigurationPath(home),
+): Promise<{
+  readonly configuration: LocalConfiguration;
+  readonly workspace: Workspace;
+}> {
+  const parsed = parseLocalConfiguration(source, path);
+  const resolved = await resolveWorkspaceRoot(home, parsed.workspace, path);
+
+  let workspaceRoot = resolved.path;
+  if (parsed.workspace === undefined) {
+    // Default path: validate structure and normalize to realpath for identity.
+    await validateWorkspaceStructure(workspaceRoot);
+    workspaceRoot = await realpath(workspaceRoot);
+  }
+
+  const workspace = await ingestWorkspace(workspaceRoot);
+  const configuration = await buildLocalConfiguration(parsed, path, home, workspace);
+  return { configuration, workspace };
+}
+
+/**
  * Shared desired-state ingestion boundary: resolve Local Configuration first so
  * validate/preview/apply/status select the same configured Workspace (or the
  * fixed default). `init` reuses `resolveWorkspaceRoot` separately; `uninstall`
@@ -195,17 +224,5 @@ export async function ingestApplication(home: string): Promise<{
     throw error;
   }
 
-  const parsed = parseLocalConfiguration(source, path);
-  const resolved = await resolveWorkspaceRoot(home, parsed.workspace, path);
-
-  let workspaceRoot = resolved.path;
-  if (parsed.workspace === undefined) {
-    // Default path: validate structure and normalize to realpath for identity.
-    await validateWorkspaceStructure(workspaceRoot);
-    workspaceRoot = await realpath(workspaceRoot);
-  }
-
-  const workspace = await ingestWorkspace(workspaceRoot);
-  const configuration = await buildLocalConfiguration(parsed, path, home, workspace);
-  return { configuration, workspace };
+  return ingestApplicationFromSource(home, source, path);
 }

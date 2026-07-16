@@ -51,6 +51,8 @@ Context, use the exact bound root so Codex can discover the generated project
 hook and Context.
 
 ```sh
+agent-profile-kit bind engineering --host codex
+agent-profile-kit bind engineering ~/projects/x --host codex --host claude
 agent-profile-kit validate
 agent-profile-kit preview
 agent-profile-kit apply
@@ -62,11 +64,12 @@ Project Bindings and an optional Workspace path live in the machine-local
 `~/.agents/agent-profile-kit/config.yaml`. Each binding names one existing
 absolute or home-relative (`~/…`) project root, one Profile, and one or more
 Hosts (`codex`, `claude`). Omitting `workspace` retains the fixed default
-Workspace at `~/.agents/agent-profile-kit/workspace/`. `preview` is read-only;
-`apply` reconciles every binding; `status` reports current, stale source,
-drifted output, missing output, and malformed ownership states; `uninstall`
-removes only output whose Installation Marker and hashes prove Agent Profile Kit
-ownership.
+Workspace at `~/.agents/agent-profile-kit/workspace/`. Use `bind` to append one
+validated binding without reconciling output, or edit `config.yaml` directly.
+`preview` is read-only; `apply` reconciles every binding; `status` reports
+current, stale source, drifted output, missing output, and malformed ownership
+states; `uninstall` removes only output whose Installation Marker and hashes
+prove Agent Profile Kit ownership.
 
 See `agent-profile-kit guide` for the Context Module, Skill, Profile, and binding
 formats, and `agent-profile-kit guide --agent` for agent-facing authoring

@@ -36,7 +36,7 @@ A valid Workspace requires only a supported `workspace.yaml`. Artifact directori
 
 Desired-state commands (`validate`, `preview`, `apply`, and `status`) resolve the Workspace through the shared Local Configuration ingestion boundary (`ingestApplication`) before reading artifacts or Project Bindings. `init` separately parses Local Configuration and reuses the configured-path resolver (`resolveWorkspaceRoot`) so a custom path is validated without creating or repairing it. `uninstall` intentionally operates from installation ownership state only and does not resolve a Workspace, keeping recovery independent of valid source or configuration. Invalid configured targets (relative paths, wildcards, missing paths, files, dangling symlinks, empty directories, or directories without a valid `workspace.yaml`) fail before any Workspace, configuration, project, Host, or state write.
 
-`agent-profile-kit init` idempotently creates a fully scaffolded empty Workspace at the fixed default and a minimal `config.yaml` containing `schema_version: 1` and `bindings: []` when Local Configuration is absent. When configuration already selects a custom Workspace path, `init` validates that existing target and does not create, move, copy, adopt, or repair it. It never overwrites an existing Workspace or local configuration, and it does not recreate optional scaffolding inside an already valid Workspace (including a Manifest-only tree). Humans and agents edit Workspace artifacts and Project Bindings directly; the CLI does not duplicate those facts behind CRUD commands.
+`agent-profile-kit init` idempotently creates a fully scaffolded empty Workspace at the fixed default and a minimal `config.yaml` containing `schema_version: 1` and `bindings: []` when Local Configuration is absent. When configuration already selects a custom Workspace path, `init` validates that existing target and does not create, move, copy, adopt, or repair it. It never overwrites an existing Workspace or local configuration, and it does not recreate optional scaffolding inside an already valid Workspace (including a Manifest-only tree). Humans and agents edit Workspace artifacts directly. Project Bindings may be hand-edited in Local Configuration or recorded with the authoring-only `bind` command; Local Configuration remains the sole canonical home either way.
 
 ## Runtime Boundary
 
@@ -79,15 +79,16 @@ Git is optional. When a project is not a Git working tree, native Codex discover
 
 For a Git binding, the Installer asks Git for the repository's authoritative existing worktree list and maps the binding's repository-relative directory into each checkout. It does not scan neighboring folders or discover unrelated repositories. Every mapped directory must already exist as a real directory, and roots reached through more than one binding are deduplicated. A later-created worktree remains missing until the next explicit `apply`.
 
-The initial commands operate on the complete desired state:
+Commands separate binding authoring from global reconciliation:
 
+- `bind` appends one validated Project Binding to Local Configuration only. It serializes other `bind` processes with a sidecar lock, rechecks the exact source snapshot, and publishes with an atomic replacement. It does not preview, apply, or touch Host, Workspace, project, or installation state.
 - `validate` checks the Workspace and Project Bindings.
 - `preview` shows additions, updates, removals, unchanged installations, and blocking conflicts without writing.
 - `apply` reconciles every binding.
 - `status` reports current, stale, drifted, and missing installations.
 - `uninstall` safely removes all owned Profile Installations without deleting the Workspace or bindings.
 
-There are no per-Profile filters or parallel binding-edit commands in the initial release.
+There are no per-project filters on reconciliation commands. `bind` is recording-only; hand-editing Local Configuration remains valid, and `bind` does not replace or remove an existing binding.
 
 ## Canonical Model
 

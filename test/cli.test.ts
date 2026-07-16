@@ -73,8 +73,13 @@ function addWorktree(repository: string, name: string): string {
 }
 
 function runCli(home: string, ...arguments_: string[]) {
+  return runCliAt(home, undefined, ...arguments_);
+}
+
+function runCliAt(home: string, cwd: string | undefined, ...arguments_: string[]) {
   return spawnSync(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
-    encoding: "utf8",
+    encoding: "utf8" as const,
+    cwd,
     env: { ...process.env, HOME: home },
   });
 }
@@ -2493,3 +2498,531 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readme).not.toMatch(/legacy migration input/i);
   });
 });
+
+describe("agent-profile-kit bind (recording-only Project Binding authoring)", () => {
+  test("bind records the canonical cwd when no project argument is supplied", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const before = readFileSync(configPath(home), "utf8");
+
+    const result = runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Recorded Project Binding");
+    expect(result.stdout).toContain(realpathSync(projectPath));
+    expect(result.stdout).toContain("Profile: coding");
+    expect(result.stdout).toContain("Hosts: codex");
+    expect(result.stdout).toContain(configPath(home));
+    expect(result.stdout).toContain("agent-profile-kit preview");
+    expect(result.stdout).toContain("agent-profile-kit apply");
+    expect(readFileSync(configPath(home), "utf8")).not.toBe(before);
+    expect(readFileSync(configPath(home), "utf8")).toContain(realpathSync(projectPath));
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("bind accepts an explicit absolute project path and multi-Host set in canonical order", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+
+    const result = runCli(
+      home,
+      "bind",
+      "coding",
+      projectPath,
+      "--host",
+      "codex",
+      "--host",
+      "claude",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Hosts: claude, codex");
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toContain(`project: ${projectPath}`);
+    // Hosts are stored in canonical SUPPORTED_HOSTS order (claude before codex).
+    expect(source).toMatch(/hosts:\n\s+- claude\n\s+- codex/);
+
+    const validate = runCli(home, "validate");
+    expect(validate.status, validate.stderr).toBe(0);
+    expect(validate.stdout).toContain("1 Project Bindings");
+  });
+
+  test("bind accepts a home-relative project path and preserves authored spelling", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = join(home, "projects", "sample");
+    mkdirSync(projectPath, { recursive: true });
+    const relative = "~/projects/sample";
+
+    const result = runCli(home, "bind", "coding", relative, "--host", "codex");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(configPath(home), "utf8")).toContain(`project: ${relative}`);
+  });
+
+  test("identical bind is idempotent and does not rewrite Local Configuration", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const first = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expect(first.status, first.stderr).toBe(0);
+    const afterFirst = readFileSync(configPath(home), "utf8");
+
+    const second = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expect(second.status, second.stderr).toBe(0);
+    expect(second.stdout).toContain("unchanged");
+    expect(readFileSync(configPath(home), "utf8")).toBe(afterFirst);
+  });
+
+  test("conflicting bind for an already-bound canonical root fails without mutation", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home, "coding");
+    writeContextProfile(home, "ops");
+    const projectPath = project();
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\n# keep comment\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n`,
+    );
+    const before = readFileSync(configPath(home), "utf8");
+
+    const result = runCli(home, "bind", "ops", projectPath, "--host", "codex");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/already binds|replace is not supported/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
+  });
+
+  test("successful bind preserves unrelated configuration, comments, and bindings", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const existing = project();
+    const next = project();
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${existing}\n    profile: coding\n    hosts:\n      - codex\n`,
+    );
+
+    const result = runCli(home, "bind", "coding", next, "--host", "claude");
+    expect(result.status, result.stderr).toBe(0);
+
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toContain("# keep this comment");
+    expect(source).toContain(`workspace: ${workspacePath(home)}`);
+    expect(source).toContain(`project: ${existing}`);
+    expect(source).toContain(`project: ${next}`);
+    expect(source).toMatch(/hosts:\n\s+- claude/);
+  });
+
+  test("bind rejects unknown Profile, unsupported Host, missing project, and missing --host", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const before = readFileSync(configPath(home), "utf8");
+
+    const unknownProfile = runCli(home, "bind", "missing", projectPath, "--host", "codex");
+    expect(unknownProfile.status).toBe(1);
+    expect(unknownProfile.stderr).toMatch(/does not exist|profile/i);
+
+    const badHost = runCli(home, "bind", "coding", projectPath, "--host", "gemini");
+    expect(badHost.status).toBe(1);
+    expect(badHost.stderr).toMatch(/unsupported Agent Host/i);
+
+    const missingProject = runCli(
+      home,
+      "bind",
+      "coding",
+      join(home, "no-such-project"),
+      "--host",
+      "codex",
+    );
+    expect(missingProject.status).toBe(1);
+    expect(missingProject.stderr).toMatch(/existing directory/i);
+
+    const noHost = runCli(home, "bind", "coding", projectPath);
+    expect(noHost.status).toBe(1);
+    expect(noHost.stderr).toMatch(/--host/i);
+
+    const relative = runCli(home, "bind", "coding", "relative/path", "--host", "codex");
+    expect(relative.status).toBe(1);
+    expect(relative.stderr).toMatch(/absolute path or home-relative/i);
+
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
+  });
+
+  test("bind never touches project output, Installation Manifests, or Host configuration", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const hostConfig = join(home, ".codex", "config.toml");
+    const hostBefore = readFileSync(hostConfig, "utf8");
+    const workspaceBefore = readdirSync(workspacePath(home)).sort().join("\n");
+
+    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expect(result.status, result.stderr).toBe(0);
+
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+    expect(existsSync(join(projectPath, ".codex"))).toBe(false);
+    expect(existsSync(statePath(home))).toBe(false);
+    expect(readFileSync(hostConfig, "utf8")).toBe(hostBefore);
+    expect(readdirSync(workspacePath(home)).sort().join("\n")).toBe(workspaceBefore);
+  });
+
+  test("bind refuses a direct edit observed by the final source recheck", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const configuration = configPath(home);
+    const before = readFileSync(configuration, "utf8");
+
+    const { bindProject } = await import("../installer/bind-project.js");
+    const {
+      mkdir,
+      readdir,
+      readFile,
+      rename,
+      rm,
+      stat,
+      unlink,
+      writeFile,
+    } = await import("node:fs/promises");
+
+    // Adversarial: after the replacement is staged, an external editor mutates
+    // config.yaml before the pre-rename re-check — publish must fail closed.
+    let staged = false;
+    await expect(
+      bindProject({
+        home,
+        profile: "coding",
+        project: projectPath,
+        hosts: ["codex"],
+        fileSystem: {
+          mkdir,
+          readdir,
+          rename,
+          rm,
+          stat,
+          unlink,
+          writeFile: async (path, data, options) => {
+            const result = await writeFile(path, data, options);
+            if (typeof path === "string" && path.includes(".config-") && path.endsWith(".tmp")) {
+              staged = true;
+            }
+            return result;
+          },
+          readFile: (async (path: string, encoding?: BufferEncoding) => {
+            if (path === configuration && staged) {
+              await writeFile(
+                configuration,
+                `${before.trimEnd()}\n# external edit before replace\n`,
+              );
+            }
+            return readFile(path, encoding ?? "utf8");
+          }) as typeof readFile,
+        },
+      }),
+    ).rejects.toThrow(/changed before bind publication/i);
+
+    expect(readFileSync(configuration, "utf8")).toContain("# external edit before replace");
+    expect(readFileSync(configuration, "utf8")).not.toContain(projectPath);
+  });
+
+  test("bind validates the pre-replace snapshot so a mid-flight rewrite cannot diverge from the edit model", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    writeContextProfile(home, "ops");
+    const projectPath = project();
+    const configuration = configPath(home);
+    const empty = "schema_version: 1\nbindings: []\n";
+    writeFileSync(configuration, empty);
+
+    const { bindProject } = await import("../installer/bind-project.js");
+    const {
+      mkdir,
+      readdir,
+      readFile,
+      rename,
+      rm,
+      stat,
+      unlink,
+      writeFile,
+    } = await import("node:fs/promises");
+
+    // Lie on the first config read (empty model) while the real file already has a
+    // conflicting binding; the pre-replace re-check must detect bytes ≠ snapshot.
+    const conflicting =
+      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: ops\n    hosts:\n      - codex\n`;
+    writeFileSync(configuration, conflicting);
+
+    let configReads = 0;
+    await expect(
+      bindProject({
+        home,
+        profile: "coding",
+        project: projectPath,
+        hosts: ["codex"],
+        fileSystem: {
+          mkdir,
+          readdir,
+          rename,
+          rm,
+          stat,
+          unlink,
+          writeFile,
+          readFile: (async (path: string, encoding?: BufferEncoding) => {
+            if (path === configuration) {
+              configReads += 1;
+              if (configReads === 1) return empty;
+            }
+            return readFile(path, encoding ?? "utf8");
+          }) as typeof readFile,
+        },
+      }),
+    ).rejects.toThrow(/changed before bind publication/i);
+
+    expect(readFileSync(configuration, "utf8")).toContain("profile: ops");
+    expect(readFileSync(configuration, "utf8")).not.toContain("profile: coding");
+  });
+
+  test("concurrent binds retain both Project Bindings when one pauses mid-publish", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const first = project();
+    const second = project();
+    const configuration = configPath(home);
+
+    const { bindProject } = await import("../installer/bind-project.js");
+    const {
+      mkdir,
+      readdir,
+      readFile,
+      rename,
+      rm,
+      stat,
+      unlink,
+      writeFile,
+    } = await import("node:fs/promises");
+
+    // Bind A pauses after staging the replacement, while still holding the lock —
+    // the canonical path must remain readable and Bind B must wait, not steal.
+    let releasePublish: (() => void) | undefined;
+    const publishGate = new Promise<void>((resolve) => {
+      releasePublish = resolve;
+    });
+    let aReachedPublish = false;
+
+    const bindA = bindProject({
+      home,
+      profile: "coding",
+      project: first,
+      hosts: ["codex"],
+      fileSystem: {
+        mkdir,
+        readdir,
+        readFile,
+        rm,
+        stat,
+        unlink,
+        writeFile,
+        rename: async (from, to) => {
+          if (to === configuration && !aReachedPublish) {
+            aReachedPublish = true;
+            await publishGate;
+          }
+          return rename(from, to);
+        },
+      },
+    });
+
+    // Wait until A has entered publication under the exclusive lock.
+    for (let i = 0; i < 200 && !aReachedPublish; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(aReachedPublish).toBe(true);
+    // Canonical Local Configuration remains continuously readable mid-publish.
+    expect(existsSync(configuration)).toBe(true);
+    expect(readFileSync(configuration, "utf8")).toContain("bindings:");
+
+    const bindB = bindProject({
+      home,
+      profile: "coding",
+      project: second,
+      hosts: ["claude"],
+    });
+
+    // B is waiting on the lock; release A's publish so both can finish.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    releasePublish?.();
+
+    const [resultA, resultB] = await Promise.all([bindA, bindB]);
+    expect(resultA.outcome).toBe("created");
+    expect(resultB.outcome).toBe("created");
+
+    const source = readFileSync(configuration, "utf8");
+    expect(source).toContain(first);
+    expect(source).toContain(second);
+    expect(source).toContain("codex");
+    expect(source).toContain("claude");
+
+    const validate = runCli(home, "validate");
+    expect(validate.status, validate.stderr).toBe(0);
+    expect(validate.stdout).toContain("2 Project Bindings");
+  });
+
+  test("bind recovers legacy held residue only under exclusive lock ownership", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const configuration = configPath(home);
+    const kitDir = join(home, ".agents", "agent-profile-kit");
+    const heldPath = join(kitDir, ".config-held-legacy");
+    const original = readFileSync(configuration, "utf8");
+    writeFileSync(heldPath, original);
+    rmSync(configuration);
+
+    const { bindProject } = await import("../installer/bind-project.js");
+    // Pre-lock recovery would steal/restore without ownership. Under-lock recovery
+    // restores the residue only after exclusive acquisition, then publishes.
+    const result = await bindProject({
+      home,
+      profile: "coding",
+      project: projectPath,
+      hosts: ["codex"],
+    });
+    expect(result.outcome).toBe("created");
+    expect(existsSync(configuration)).toBe(true);
+    expect(readFileSync(configuration, "utf8")).toContain(projectPath);
+    expect(existsSync(heldPath)).toBe(false);
+  });
+
+  test("bind does not steal a freshly empty lock while ownership is still initializing", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const configuration = configPath(home);
+    const lockPath = `${configuration}.lock`;
+    // Simulate the pre-fix window: exclusive create without PID body yet.
+    writeFileSync(lockPath, "");
+
+    const { bindProject } = await import("../installer/bind-project.js");
+    const started = Date.now();
+    // Empty locks are live until their age exceeds the timeout. Instant steal
+    // (treating empty as dead NaN PID) would finish in a few ms; waiting is required.
+    await bindProject({
+      home,
+      profile: "coding",
+      project: projectPath,
+      hosts: ["codex"],
+      lockTimeoutMs: 150,
+    });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(120);
+    expect(readFileSync(configuration, "utf8")).toContain(projectPath);
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  test("concurrent binds serialize under the lock so both Project Bindings are retained", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const first = project();
+    const second = project();
+
+    const { bindProject } = await import("../installer/bind-project.js");
+    const results = await Promise.all([
+      bindProject({ home, profile: "coding", project: first, hosts: ["codex"] }),
+      bindProject({ home, profile: "coding", project: second, hosts: ["claude"] }),
+    ]);
+
+    expect(results.map((result) => result.outcome).sort()).toEqual(["created", "created"]);
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toContain(first);
+    expect(source).toContain(second);
+    expect(source).toContain("codex");
+    expect(source).toContain("claude");
+
+    const validate = runCli(home, "validate");
+    expect(validate.status, validate.stderr).toBe(0);
+    expect(validate.stdout).toContain("2 Project Bindings");
+  });
+
+  test("bind recovers from a stale lock left by a dead owner process", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const lockPath = `${configPath(home)}.lock`;
+    // PID 1 is not a reliable "dead" process on all systems; use a high unused pid.
+    writeFileSync(lockPath, "2147483646\n");
+
+    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Recorded Project Binding");
+    expect(existsSync(lockPath)).toBe(false);
+    expect(readFileSync(configPath(home), "utf8")).toContain(projectPath);
+  });
+
+  test("bind reports missing Local Configuration before lock acquisition", () => {
+    const home = isolatedHome();
+    const projectPath = project();
+    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/Local Configuration is missing/);
+    expect(result.stderr).toMatch(/agent-profile-kit init/);
+    expect(result.stderr).not.toMatch(/config\.yaml\.lock/);
+  });
+
+  test("bind preserves CRLF line endings in Local Configuration", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    writeFileSync(configPath(home), "schema_version: 1\r\n# keep\r\nbindings: []\r\n");
+
+    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expect(result.status, result.stderr).toBe(0);
+
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toContain("\r\n");
+    expect(source).toContain("# keep");
+    expect(source.split("\n").every((line) => line.endsWith("\r") || line === "")).toBe(true);
+  });
+
+  test("bind preserves a hardened Local Configuration file mode", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const configuration = configPath(home);
+    chmodSync(configuration, 0o600);
+
+    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expect(result.status, result.stderr).toBe(0);
+    expect(statSync(configuration).mode & 0o777).toBe(0o600);
+  });
+
+  test("CLI help lists bind as a recording-only authoring command", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "bind");
+    expect(result.status).toBe(1);
+    // Missing profile fails; usage path for unknown command:
+    const usage = runCli(home, "unknown-command");
+    expect(usage.status).toBe(1);
+    expect(usage.stderr).toContain("bind <profile>");
+  });
+});
+
