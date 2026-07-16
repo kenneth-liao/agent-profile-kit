@@ -42,6 +42,28 @@ directories or bootstrap docs if you prefer a minimal tree; validation, preview,
 status, apply, and uninstall keep working. Do not treat generated Host output as
 source material.
 
+### CLI compatibility for minimal Workspaces
+
+Optional scaffolding is a **CLI** behavior change, not a change to the Workspace
+Manifest schema (`schema_version` remains `1`). Agent Profile Kit **0.16.0 and
+later** accept Manifest-only and partial category layouts. **0.15.x and earlier**
+still require every artifact directory plus `README.md`, `AGENTS.md`, and
+`.gitignore`.
+
+Before rolling a machine back to a CLI older than 0.16.0, restore a full layout
+so the older tool can validate the Workspace:
+
+1. Ensure `workspace.yaml` still contains `schema_version: 1`.
+2. Recreate any missing category directories: `profiles/`, `context/`,
+   `skills/`, `agents/`, `hooks/`, and `tools/` (empty directories are enough;
+   `.gitkeep` is optional).
+3. Restore any missing bootstrap files the older release required:
+   `README.md`, `AGENTS.md`, and `.gitignore`.
+
+A mixed-version environment (some machines on 0.16+, others on 0.15 or older)
+is safe only when every shared Workspace still includes that full layout, or
+when every consumer has upgraded to 0.16.0+.
+
 ## Author the Workspace
 
 This release supports Context Modules and portable Skills for Codex and Claude

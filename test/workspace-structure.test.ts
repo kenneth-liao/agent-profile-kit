@@ -101,6 +101,26 @@ describe("optional Workspace scaffolding after initialization", () => {
     );
   });
 
+  test("a dangling category symlink is a structural error, not an empty category", async () => {
+    const home = isolatedHome();
+    const path = writeManifestOnlyWorkspace(home);
+    symlinkSync(join(path, "does-not-exist"), join(path, "skills"));
+
+    await expect(validateWorkspaceStructure(path)).rejects.toThrow(
+      /'skills'.*(dangling|broken|symlink|directory)/i,
+    );
+  });
+
+  test("a category symlink that resolves to a directory remains valid", async () => {
+    const home = isolatedHome();
+    const path = writeManifestOnlyWorkspace(home);
+    const realSkills = join(home, "real-skills");
+    mkdirSync(realSkills);
+    symlinkSync(realSkills, join(path, "skills"));
+
+    await expect(validateWorkspaceStructure(path)).resolves.toBeUndefined();
+  });
+
   test("a malformed, missing, or unsupported workspace.yaml fails fast", async () => {
     const home = isolatedHome();
     const path = workspacePath(home);

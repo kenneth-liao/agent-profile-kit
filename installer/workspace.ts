@@ -1,4 +1,4 @@
-import { stat, readFile } from "node:fs/promises";
+import { lstat, stat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -39,14 +39,18 @@ export async function validateWorkspaceStructure(path: string): Promise<void> {
   );
 }
 
-/** When the named path exists, require it to be a directory; absence is valid (empty). */
+/**
+ * When the named path is absent, the category is empty. When a directory entry
+ * is present (including a symlink), it must resolve to a directory — dangling
+ * symlinks are structural errors, not empty categories.
+ */
 async function requirePresentDirectory(
   workspace: string,
   name: string,
 ): Promise<void> {
-  let entryStats;
+  const entryPath = join(workspace, name);
   try {
-    entryStats = await stat(join(workspace, name));
+    await lstat(entryPath);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       return;
@@ -54,7 +58,19 @@ async function requirePresentDirectory(
     throw error;
   }
 
-  if (!entryStats.isDirectory()) {
+  let targetStats;
+  try {
+    targetStats = await stat(entryPath);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      throw new Error(
+        `Workspace is invalid at ${workspace}: '${name}' is a dangling symlink; remove it or restore its target directory`,
+      );
+    }
+    throw error;
+  }
+
+  if (!targetStats.isDirectory()) {
     throw new Error(
       `Workspace is invalid at ${workspace}: '${name}' must be a directory`,
     );
