@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Verified the project-bound initial release candidate: permanent packed-CLI gates on real Node.js (version provenance, multi-Host lifecycle, install-inert package install, distribution boundary, fail-closed unsupported surfaces) plus neutral fixtures for model-invocation policy, Skills-only Profiles, global Skill identity collisions, and optional Workspace scaffolding. Blockers [#49](https://github.com/kenneth-liao/agent-profile-kit/issues/49), [#50](https://github.com/kenneth-liao/agent-profile-kit/issues/50), [#52](https://github.com/kenneth-liao/agent-profile-kit/issues/52), [#53](https://github.com/kenneth-liao/agent-profile-kit/issues/53), and [#55](https://github.com/kenneth-liao/agent-profile-kit/issues/55) are complete; Host qualification remains Codex [#33](https://github.com/kenneth-liao/agent-profile-kit/issues/33) and Claude [#43](https://github.com/kenneth-liao/agent-profile-kit/issues/43). Parent PRD [#27](https://github.com/kenneth-liao/agent-profile-kit/issues/27) ([#35](https://github.com/kenneth-liao/agent-profile-kit/issues/35)).
+
 - Support Skills-only Profiles without Context machinery: a Profile must select at least one supported artifact overall (Context and/or Skills), but no category is mandatory; Skills-only bindings install only selected Skill packages and skip Context outputs and Context-related Host capability requirements; document CLI 0.17.0+ vs older Context-required ingestion for safe downgrade ([#55](https://github.com/kenneth-liao/agent-profile-kit/issues/55)).
 
 ### Changed
