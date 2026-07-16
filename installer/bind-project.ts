@@ -1,5 +1,4 @@
 import {
-  link as defaultLink,
   mkdir as defaultMkdir,
   readdir as defaultReaddir,
   readFile as defaultReadFile,
@@ -27,7 +26,6 @@ import {
 
 /** Optional filesystem hooks used to prove concurrent-edit and lock safety in tests. */
 export interface BindProjectFileSystem {
-  readonly link: typeof defaultLink;
   readonly mkdir: typeof defaultMkdir;
   readonly readdir: typeof defaultReaddir;
   readonly readFile: typeof defaultReadFile;
@@ -39,7 +37,6 @@ export interface BindProjectFileSystem {
 }
 
 const defaultFileSystem: BindProjectFileSystem = {
-  link: defaultLink,
   mkdir: defaultMkdir,
   readdir: defaultReaddir,
   readFile: defaultReadFile,
@@ -118,13 +115,28 @@ async function pathExists(
   }
 }
 
-/**
- * If a previous bind claimed config aside and crashed before exclusive create,
- * restore the newest held snapshot so Local Configuration is not permanently lost.
- */
-export async function recoverHeldConfiguration(
+async function hasHeldResidue(
   configurationPath: string,
-  fileSystem: BindProjectFileSystem = defaultFileSystem,
+  fileSystem: BindProjectFileSystem,
+): Promise<boolean> {
+  const directory = dirname(configurationPath);
+  try {
+    const names = await fileSystem.readdir(directory);
+    return names.some((name) => name.startsWith(HELD_PREFIX));
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return false;
+    throw error;
+  }
+}
+
+/**
+ * Restore the newest legacy claim-aside residue under exclusive lock ownership only.
+ * Current publication never moves the canonical path aside; this recovers residue left
+ * by older claim-aside builds or interrupted experiments.
+ */
+async function recoverHeldConfiguration(
+  configurationPath: string,
+  fileSystem: BindProjectFileSystem,
 ): Promise<boolean> {
   if (await pathExists(fileSystem, configurationPath)) return false;
 
@@ -232,14 +244,15 @@ async function withConfigurationLock<T>(
 }
 
 /**
- * Publish nextSource without an unchecked overwrite window:
- * 1. Atomically move the current config aside (claim).
- * 2. Refuse if the claimed bytes are not the validated snapshot.
- * 3. Create the destination only if the path is still free (`link` fails on EEXIST),
- *    so an external writer that recreated config.yaml is never erased.
+ * Publish nextSource without leaving the canonical path missing:
+ * 1. Stage the replacement beside the live file.
+ * 2. Re-read the live path and refuse if bytes differ from the validated snapshot.
+ * 3. Atomically rename the stage onto the canonical path (POSIX replace never
+ *    observes a missing destination — readers always see previous or next bytes).
  *
- * Crash between claim and link leaves `.config-held-*`; the next bind restores it
- * via {@link recoverHeldConfiguration} before treating config as missing.
+ * Cooperating binds are serialized by the exclusive lock. Non-cooperating writers
+ * that mutate the file after the re-check and before rename are outside the
+ * cooperative contract; the re-check fails closed for any change observed before rename.
  */
 async function publishConfigurationReplacement(
   configurationPath: string,
@@ -251,42 +264,21 @@ async function publishConfigurationReplacement(
 ): Promise<void> {
   const directory = dirname(configurationPath);
   const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const heldPath = join(directory, `${HELD_PREFIX}${token}`);
   const temporary = join(directory, `.config-${token}.tmp`);
 
-  await fileSystem.rename(configurationPath, heldPath);
-  let published = false;
+  await fileSystem.writeFile(temporary, nextSource, { flag: "wx", mode });
   try {
-    const claimed = await fileSystem.readFile(heldPath, "utf8");
-    if (claimed !== source) {
+    const stillCurrent = await fileSystem.readFile(configurationPath, "utf8");
+    if (stillCurrent !== source) {
       throw new Error(
         `${description} changed during bind; retry so concurrent edits are not lost`,
       );
     }
-
-    await fileSystem.writeFile(temporary, nextSource, { flag: "wx", mode });
-    try {
-      // link fails with EEXIST when the destination already exists — never overwrites.
-      await fileSystem.link(temporary, configurationPath);
-      published = true;
-    } catch (error) {
-      if (hasErrorCode(error, "EEXIST")) {
-        throw new Error(
-          `${description} changed during bind; retry so concurrent edits are not lost`,
-        );
-      }
-      throw error;
-    }
-  } finally {
+    // Atomic replace: destination stays continuously readable.
+    await fileSystem.rename(temporary, configurationPath);
+  } catch (error) {
     await fileSystem.rm(temporary, { force: true }).catch(() => undefined);
-    if (published) {
-      await fileSystem.unlink(heldPath).catch(() => undefined);
-    } else if (!(await pathExists(fileSystem, configurationPath))) {
-      // Restore the claimed snapshot only when no external writer recreated the path.
-      await fileSystem.rename(heldPath, configurationPath).catch(() => undefined);
-    } else {
-      await fileSystem.unlink(heldPath).catch(() => undefined);
-    }
+    throw error;
   }
 }
 
@@ -348,19 +340,15 @@ export async function bindProject(
   const storedProject =
     options.project === undefined ? canonicalProject : options.project;
 
-  // Restore any claim-aside left by a crashed prior bind before treating config as missing.
-  await recoverHeldConfiguration(configurationPath, fileSystem);
-
   // Friendly missing-config diagnostic before lock acquisition (avoids raw ENOENT on .lock).
-  try {
-    await fileSystem.stat(configurationPath);
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
+  // Do not restore held residue here — recovery requires exclusive lock ownership so it
+  // cannot interfere with another live bind transaction.
+  if (!(await pathExists(fileSystem, configurationPath))) {
+    if (!(await hasHeldResidue(configurationPath, fileSystem))) {
       throw new Error(
         `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
       );
     }
-    throw error;
   }
 
   return withConfigurationLock(
@@ -368,7 +356,7 @@ export async function bindProject(
     fileSystem,
     lockTimeoutMs,
     async () => {
-      // Another bind may have recovered/published while we waited for the lock.
+      // Legacy claim-aside residue is restored only under proven exclusive ownership.
       await recoverHeldConfiguration(configurationPath, fileSystem);
 
       let source: string;
