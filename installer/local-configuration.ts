@@ -139,46 +139,132 @@ export async function resolveWorkspaceRoot(
   return { authored, path: canonical };
 }
 
-async function buildLocalConfiguration(
-  parsed: {
-    readonly bindings: readonly ParsedProjectBinding[];
-    readonly schemaVersion: 1;
-    readonly workspace?: string;
-  },
-  path: string,
-  home: string,
-  workspace: Workspace,
-): Promise<LocalConfiguration> {
-  const bindings: ProjectBinding[] = [];
-  const roots = new Set<string>();
-  for (const [index, binding] of parsed.bindings.entries()) {
-    const description = `Local Configuration ${path} bindings[${index}]`;
-    const canonicalProject = await normalizeProject(binding.project, home, description);
-    if (roots.has(canonicalProject)) {
-      throw new Error(
-        `${description} project resolves to duplicate canonical root '${canonicalProject}'`,
-      );
-    }
-    roots.add(canonicalProject);
-    if (!workspace.profiles.has(binding.profile)) {
-      throw new Error(
-        `${description} profile '${binding.profile}' does not exist in Workspace ${workspace.path}`,
-      );
-    }
-    bindings.push({ ...binding, canonicalProject });
+export interface IngestedProjectBinding {
+  readonly index: number;
+  readonly project: string;
+  readonly profile: string;
+  readonly hosts: ParsedProjectBinding["hosts"];
+  readonly canonicalProject?: string;
+  readonly missing: boolean;
+}
+
+export interface IngestedApplicationSource {
+  readonly bindings: readonly IngestedProjectBinding[];
+  readonly schemaVersion: 1;
+  readonly workspace?: string;
+  readonly workspaceModel: Workspace;
+}
+
+async function isMissingPath(expanded: string): Promise<boolean> {
+  try {
+    await lstat(expanded);
+    return false;
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return true;
+    throw error;
   }
-  return {
-    bindings,
-    path,
-    schemaVersion: parsed.schemaVersion,
-    ...(parsed.workspace === undefined ? {} : { workspace: parsed.workspace }),
-  };
+}
+
+async function ingestWorkspaceFromConfiguration(
+  home: string,
+  authored: string | undefined,
+  path: string,
+): Promise<Workspace> {
+  const resolved = await resolveWorkspaceRoot(home, authored, path);
+  let workspaceRoot = resolved.path;
+  if (authored === undefined) {
+    // Default path: validate structure and normalize to realpath for identity.
+    await validateWorkspaceStructure(workspaceRoot);
+    workspaceRoot = await realpath(workspacePath(home));
+  }
+  return ingestWorkspace(workspaceRoot);
 }
 
 /**
  * Trusted Local Configuration + Workspace model from an exact source snapshot.
- * Callers that edit the file must pass the same bytes they will mutate so
- * conflict detection cannot diverge from the editable document.
+ * Missing project roots can be retained as explicit recovery candidates for
+ * recording commands; all other path, Profile, and duplicate-root invariants
+ * remain shared with desired-state ingestion.
+ */
+export async function ingestApplicationModelFromSource(
+  home: string,
+  source: string,
+  path: string = localConfigurationPath(home),
+  options: { readonly allowMissingProjects?: boolean } = {},
+): Promise<IngestedApplicationSource> {
+  const parsed = parseLocalConfiguration(source, path);
+  const workspaceModel = await ingestWorkspaceFromConfiguration(
+    home,
+    parsed.workspace,
+    path,
+  );
+  const allowMissingProjects = options.allowMissingProjects ?? false;
+  const roots = new Set<string>();
+  const missingProjects = new Set<string>();
+  const bindings: IngestedProjectBinding[] = [];
+
+  for (const [index, binding] of parsed.bindings.entries()) {
+    const description = `Local Configuration ${path} bindings[${index}]`;
+    const expanded = expandConfiguredPath(binding.project, home, description, "project");
+    let canonicalProject: string | undefined;
+    let missing = false;
+    try {
+      canonicalProject = await requireExistingDirectory(
+        expanded,
+        binding.project,
+        description,
+        "project",
+      );
+    } catch (error) {
+      if (!allowMissingProjects || !(await isMissingPath(expanded))) throw error;
+      missing = true;
+    }
+
+    if (missing) {
+      if (missingProjects.has(binding.project)) {
+        throw new Error(
+          `${description} duplicates missing project path '${binding.project}'`,
+        );
+      }
+      missingProjects.add(binding.project);
+    } else {
+      if (canonicalProject === undefined) {
+        throw new Error(`${description} project could not be normalized`);
+      }
+      if (roots.has(canonicalProject)) {
+        throw new Error(
+          `${description} project resolves to duplicate canonical root '${canonicalProject}'`,
+        );
+      }
+      roots.add(canonicalProject);
+    }
+
+    if (!workspaceModel.profiles.has(binding.profile)) {
+      throw new Error(
+        `${description} profile '${binding.profile}' does not exist in Workspace ${workspaceModel.path}`,
+      );
+    }
+    bindings.push({
+      index,
+      project: binding.project,
+      profile: binding.profile,
+      hosts: binding.hosts,
+      ...(canonicalProject === undefined ? {} : { canonicalProject }),
+      missing,
+    });
+  }
+
+  return {
+    bindings,
+    schemaVersion: parsed.schemaVersion,
+    ...(parsed.workspace === undefined ? {} : { workspace: parsed.workspace }),
+    workspaceModel,
+  };
+}
+
+/**
+ * Strict desired-state ingestion. Recording commands may opt into the shared
+ * missing-path model above, but normal reconciliation still rejects stale roots.
  */
 export async function ingestApplicationFromSource(
   home: string,
@@ -188,19 +274,21 @@ export async function ingestApplicationFromSource(
   readonly configuration: LocalConfiguration;
   readonly workspace: Workspace;
 }> {
-  const parsed = parseLocalConfiguration(source, path);
-  const resolved = await resolveWorkspaceRoot(home, parsed.workspace, path);
-
-  let workspaceRoot = resolved.path;
-  if (parsed.workspace === undefined) {
-    // Default path: validate structure and normalize to realpath for identity.
-    await validateWorkspaceStructure(workspaceRoot);
-    workspaceRoot = await realpath(workspaceRoot);
-  }
-
-  const workspace = await ingestWorkspace(workspaceRoot);
-  const configuration = await buildLocalConfiguration(parsed, path, home, workspace);
-  return { configuration, workspace };
+  const model = await ingestApplicationModelFromSource(home, source, path);
+  return {
+    configuration: {
+      bindings: model.bindings.map((binding) => ({
+        canonicalProject: binding.canonicalProject!,
+        project: binding.project,
+        profile: binding.profile,
+        hosts: binding.hosts,
+      })),
+      path,
+      schemaVersion: model.schemaVersion,
+      ...(model.workspace === undefined ? {} : { workspace: model.workspace }),
+    },
+    workspace: model.workspaceModel,
+  };
 }
 
 /**

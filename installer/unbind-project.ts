@@ -1,4 +1,4 @@
-import { lstat, realpath } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { isSeq, parseDocument } from "yaml";
 
 import {
@@ -13,14 +13,11 @@ import {
 } from "./bind-project.js";
 import {
   expandConfiguredPath,
+  ingestApplicationModelFromSource,
   localConfigurationPath,
   normalizeProject,
   requireExistingDirectory,
-  resolveWorkspaceRoot,
 } from "./local-configuration.js";
-import { parseLocalConfiguration } from "../schemas/local-configuration.js";
-import { ingestWorkspace } from "./ingest-workspace.js";
-import { validateWorkspaceStructure, workspacePath } from "./workspace.js";
 
 interface UnbindTarget {
   readonly requested: string;
@@ -28,22 +25,41 @@ interface UnbindTarget {
   readonly missing: boolean;
 }
 
-interface UnbindMatch {
-  readonly index: number;
-  readonly project: string;
-  readonly canonicalProject?: string;
-  readonly profile: string;
-  readonly hosts: readonly string[];
-  readonly recovery: "canonical" | "authored-path";
-}
+type UnbindMatch =
+  | {
+      readonly index: number;
+      readonly project: string;
+      readonly canonicalProject: string;
+      readonly profile: string;
+      readonly hosts: readonly string[];
+      readonly recovery: "canonical";
+    }
+  | {
+      readonly index: number;
+      readonly project: string;
+      readonly profile: string;
+      readonly hosts: readonly string[];
+      readonly recovery: "authored-path";
+    };
 
 interface RangedYamlNode {
   readonly range?: readonly [number, number, number];
+  readonly commentBefore?: string | null;
 }
 
+/**
+ * Remove only the selected source range. YAML Document serialization normalizes
+ * untouched flow/inline formatting, so byte-range removal is the deliberate
+ * preservation path for unbind; its flow, block, CRLF, and mode cases are packed
+ * CLI tested below.
+ */
 function removeBindingSource(
   source: string,
-  bindingsNode: { readonly flow?: boolean; readonly items: readonly unknown[] },
+  bindingsNode: {
+    readonly flow?: boolean;
+    readonly items: readonly unknown[];
+    readonly commentBefore?: string | null;
+  },
   index: number,
 ): string {
   const item = bindingsNode.items[index] as RangedYamlNode | undefined;
@@ -64,7 +80,19 @@ function removeBindingSource(
     return source.slice(0, previous.range[1]) + source.slice(range[1]);
   }
 
-  const lineStart = source.lastIndexOf("\n", range[0] - 1) + 1;
+  let lineStart = source.lastIndexOf("\n", range[0] - 1) + 1;
+  const commentBefore = item.commentBefore ?? (index === 0 ? bindingsNode.commentBefore : undefined);
+  if (commentBefore) {
+    for (const comment of commentBefore.split(/\r?\n/).reverse()) {
+      const previousStart = source.lastIndexOf("\n", lineStart - 2) + 1;
+      const previousLine = source
+        .slice(previousStart, lineStart)
+        .replace(/\r?\n$/, "")
+        .trim();
+      if (previousLine !== `#${comment}`) break;
+      lineStart = previousStart;
+    }
+  }
   const prefix = source.slice(0, lineStart);
   if (bindingsNode.items.length === 1) {
     // Keep the original indentation while restoring an empty sequence value.
@@ -115,20 +143,6 @@ async function resolveUnbindTarget(
   };
 }
 
-async function ingestWorkspaceForUnbind(
-  home: string,
-  parsedWorkspace: string | undefined,
-  configurationPath: string,
-) {
-  const resolved = await resolveWorkspaceRoot(home, parsedWorkspace, configurationPath);
-  let root = resolved.path;
-  if (parsedWorkspace === undefined) {
-    await validateWorkspaceStructure(root);
-    root = await realpath(workspacePath(home));
-  }
-  return ingestWorkspace(root);
-}
-
 export interface UnbindProjectOptions {
   readonly home: string;
   /** Authored project path; omit to use cwd. */
@@ -141,16 +155,32 @@ export interface UnbindProjectOptions {
   readonly lockTimeoutMs?: number;
 }
 
-export interface UnbindProjectResult {
-  readonly outcome: "removed" | "unchanged";
-  readonly configurationPath: string;
-  readonly requestedProject: string;
-  readonly project?: string;
-  readonly canonicalProject?: string;
-  readonly profile?: string;
-  readonly hosts?: readonly string[];
-  readonly recovery?: "canonical" | "authored-path";
-}
+export type UnbindProjectResult =
+  | {
+      readonly outcome: "removed";
+      readonly configurationPath: string;
+      readonly requestedProject: string;
+      readonly project: string;
+      readonly canonicalProject: string;
+      readonly profile: string;
+      readonly hosts: readonly string[];
+      readonly recovery: "canonical";
+    }
+  | {
+      readonly outcome: "removed";
+      readonly configurationPath: string;
+      readonly requestedProject: string;
+      readonly project: string;
+      readonly profile: string;
+      readonly hosts: readonly string[];
+      readonly recovery: "authored-path";
+    }
+  | {
+      readonly outcome: "unchanged";
+      readonly configurationPath: string;
+      readonly requestedProject: string;
+      readonly canonicalProject?: string;
+    };
 
 /**
  * Remove one Project Binding from Local Configuration without reconciling output.
@@ -194,40 +224,27 @@ export async function unbindProject(
         throw error;
       }
 
-      const parsed = parseLocalConfiguration(source, configurationPath);
-      const workspace = await ingestWorkspaceForUnbind(
-        options.home,
-        parsed.workspace,
-        configurationPath,
-      );
-      const roots = new Set<string>();
-      const missingProjects = new Set<string>();
-      let match: UnbindMatch | undefined;
-
-      for (const [index, binding] of parsed.bindings.entries()) {
-        const bindingDescription = `${description} bindings[${index}]`;
-        if (!workspace.profiles.has(binding.profile)) {
-          throw new Error(
-            `${bindingDescription} profile '${binding.profile}' does not exist in Workspace ${workspace.path}`,
-          );
-        }
-        // Validate path syntax even for the missing-path recovery case.
-        const expanded = expandConfiguredPath(
-          binding.project,
+      let model;
+      try {
+        model = await ingestApplicationModelFromSource(
           options.home,
-          bindingDescription,
-          "project",
+          source,
+          configurationPath,
+          { allowMissingProjects: true },
         );
-        if (await isMissingPath(expanded)) {
-          if (missingProjects.has(binding.project)) {
-            throw new Error(
-              `${description} has ambiguous exact authored-path matches for '${binding.project}'`,
-            );
-          }
-          missingProjects.add(binding.project);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `${detail}; edit Local Configuration directly if this stale or malformed binding must be removed`,
+        );
+      }
+
+      let match: UnbindMatch | undefined;
+      for (const binding of model.bindings) {
+        if (binding.missing) {
           if (target.missing && binding.project === options.project) {
             match = {
-              index,
+              index: binding.index,
               project: binding.project,
               profile: binding.profile,
               hosts: binding.hosts,
@@ -236,28 +253,14 @@ export async function unbindProject(
           }
           continue;
         }
-
-        const canonicalProject = await normalizeProject(
-          binding.project,
-          options.home,
-          bindingDescription,
-        );
-        if (roots.has(canonicalProject)) {
-          throw new Error(
-            `${bindingDescription} project resolves to duplicate canonical root '${canonicalProject}'`,
-          );
-        }
-        roots.add(canonicalProject);
-        if (target.canonical === canonicalProject) {
-          if (match) {
-            throw new Error(
-              `${description} has ambiguous canonical matches for '${canonicalProject}'`,
-            );
-          }
+        if (
+          target.canonical !== undefined &&
+          binding.canonicalProject === target.canonical
+        ) {
           match = {
-            index,
+            index: binding.index,
             project: binding.project,
-            canonicalProject,
+            canonicalProject: binding.canonicalProject,
             profile: binding.profile,
             hosts: binding.hosts,
             recovery: "canonical",
@@ -292,17 +295,26 @@ export async function unbindProject(
         "unbind",
       );
 
+      if (match.recovery === "canonical") {
+        return {
+          outcome: "removed",
+          configurationPath,
+          requestedProject: target.requested,
+          project: match.project,
+          canonicalProject: match.canonicalProject,
+          profile: match.profile,
+          hosts: match.hosts,
+          recovery: "canonical",
+        };
+      }
       return {
         outcome: "removed",
         configurationPath,
         requestedProject: target.requested,
         project: match.project,
-        ...(match.canonicalProject === undefined
-          ? {}
-          : { canonicalProject: match.canonicalProject }),
         profile: match.profile,
         hosts: match.hosts,
-        recovery: match.recovery,
+        recovery: "authored-path",
       };
     },
   );

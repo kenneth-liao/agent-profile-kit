@@ -2585,8 +2585,25 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const ambiguousResult = runCli(home, "unbind", missing);
 
     expect(ambiguousResult.status).toBe(1);
-    expect(ambiguousResult.stderr).toMatch(/ambiguous/i);
+    expect(ambiguousResult.stderr).toMatch(/duplicates missing project path/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(ambiguous);
+  });
+
+  test("unbind fails closed with a hand-edit fallback when a Profile is missing", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const source =
+      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`;
+    writeFileSync(configPath(home), source);
+
+    const result = runCli(home, "unbind", projectPath);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/does not exist in Workspace/i);
+    expect(result.stderr).toMatch(/edit Local Configuration directly/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(source);
   });
 
   test("unbind refuses a direct edit observed before atomic publication", async () => {
@@ -2795,8 +2812,8 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const retained = project();
     const original =
       `schema_version: 1\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n` +
-      `  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n` +
-      `  - project: ${retained}\n    profile: coding\n    hosts: [claude]\n`;
+      `  # remove this binding note\n  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n` +
+      `  # retain this binding note\n  - project: ${retained}\n    profile: coding\n    hosts: [claude]\n`;
     writeFileSync(configPath(home), original);
 
     const result = runCli(home, "unbind", removed);
@@ -2809,7 +2826,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const source = readFileSync(configPath(home), "utf8");
     expect(source).toBe(
       `schema_version: 1\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n` +
-        `  - project: ${retained}\n    profile: coding\n    hosts: [claude]\n`,
+        `  # retain this binding note\n  - project: ${retained}\n    profile: coding\n    hosts: [claude]\n`,
     );
   });
 });

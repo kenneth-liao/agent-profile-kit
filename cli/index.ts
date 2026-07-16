@@ -197,7 +197,7 @@ async function main(): Promise<void> {
       `Removed Project Binding for ${result.project}\n` +
         recovery +
         `  Profile: ${result.profile}\n` +
-        `  Hosts: ${result.hosts?.join(", ")}\n` +
+        `  Hosts: ${result.hosts.join(", ")}\n` +
         `  Local Configuration: ${result.configurationPath}\n` +
         "Next: agent-profile-kit preview && agent-profile-kit apply\n",
     );
