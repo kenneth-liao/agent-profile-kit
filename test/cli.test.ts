@@ -314,32 +314,58 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(relativeHome.stdout).toContain("1 Profiles");
   });
 
-  test("symlinked configured Workspace resolves to canonical target; aliases validate identically", () => {
+  test("symlinked configured Workspace aliases keep installation identity across apply and status", () => {
     const home = isolatedHome();
     const realWorkspace = join(home, "real-custom");
-    mkdirSync(realWorkspace, { recursive: true });
+    mkdirSync(join(realWorkspace, "context"), { recursive: true });
+    mkdirSync(join(realWorkspace, "profiles"), { recursive: true });
     writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(
+      join(realWorkspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    );
+    writeFileSync(
+      join(realWorkspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
     const link = join(home, "link-custom");
     symlinkSync(realWorkspace, link);
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+    const projectPath = project();
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nworkspace: ${link}\nbindings: []\n`,
+      `schema_version: 1\nworkspace: ${link}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const viaLink = runCli(home, "validate");
-    expect(viaLink.status, viaLink.stderr).toBe(0);
-    expect(viaLink.stdout).toContain("Workspace and Local Configuration valid");
     expect(realpathSync(link)).toBe(realpathSync(realWorkspace));
 
-    // Same canonical tree under a different authored spelling.
+    const applyViaLink = runCli(home, "apply");
+    expect(applyViaLink.status, applyViaLink.stderr).toBe(0);
+    const stateAfterApply = readFileSync(statePath(home), "utf8");
+
+    const statusViaLink = runCli(home, "status");
+    expect(statusViaLink.status, statusViaLink.stderr).toBe(0);
+    expect(statusViaLink.stdout).toContain(`${projectPath}: current`);
+
+    // Change only the authored alias to the realpath spelling of the same tree.
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nworkspace: ${realWorkspace}\nbindings: []\n`,
+      `schema_version: 1\nworkspace: ${realWorkspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    const viaReal = runCli(home, "validate");
-    expect(viaReal.status, viaReal.stderr).toBe(0);
-    expect(viaReal.stdout).toBe(viaLink.stdout);
+
+    const statusViaReal = runCli(home, "status");
+    expect(statusViaReal.status, statusViaReal.stderr).toBe(0);
+    expect(statusViaReal.stdout).toContain(`${projectPath}: current`);
+    expect(statusViaReal.stdout).not.toContain("stale");
+
+    const applyViaReal = runCli(home, "apply");
+    expect(applyViaReal.status, applyViaReal.stderr).toBe(0);
+    expect(applyViaReal.stdout).toContain(`${projectPath}: current`);
+    expect(applyViaReal.stdout).not.toMatch(/: (addition|update|removal)\b/);
+    // Installation identity/state must not rewrite solely because the authored alias changed.
+    expect(readFileSync(statePath(home), "utf8")).toBe(stateAfterApply);
 
     // Authored spelling appears in failure diagnostics when the target is invalid.
     writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 99\n");

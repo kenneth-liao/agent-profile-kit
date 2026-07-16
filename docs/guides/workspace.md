@@ -76,6 +76,36 @@ The current Workspace schema version is 1. Its root `workspace.yaml` contains
 only `schema_version: 1`. Local Configuration schema version remains 1 with the
 optional `workspace` field.
 
+### CLI compatibility for configurable Workspace path
+
+The optional Local Configuration `workspace` field remains under
+`schema_version: 1`, but is understood only by Agent Profile Kit **0.18.0 and
+later**. **0.17.x and earlier** reject the unknown field and refuse to load
+configuration that uses it.
+
+Removing the field before a downgrade redirects desired-state commands to the
+fixed default path (`~/.agents/agent-profile-kit/workspace/`). That can strand
+management of Host output that was installed from the custom Workspace while
+leaving the custom tree unselected.
+
+Before rolling a machine back to a CLI older than 0.18.0:
+
+1. On **0.18.0+**, reconcile or uninstall with the current configuration so owned
+   installations sourced from the custom Workspace are updated or removed while
+   the newer CLI still understands the field.
+2. If the older CLI must keep managing the same source tree, expose that tree at
+   the fixed default path (for example, replace the fixed default with a symlink
+   to the custom Workspace—older CLIs already support a symlink there).
+3. Remove the `workspace` field from Local Configuration.
+4. Confirm `agent-profile-kit validate` succeeds under 0.18+ with the field
+   removed (and the fixed default pointing at the intended tree).
+5. Only then install the older CLI binary.
+
+Mixed-version consumers cannot share a `config.yaml` that uses the optional
+`workspace` field: older engines reject the unknown key. Keep the field only on
+machines that have upgraded to 0.18.0+, or use the fixed default (optionally via
+symlink) on every machine.
+
 ### Required structure vs initialization scaffolding
 
 A valid Workspace needs only a supported `workspace.yaml`. That Manifest is the

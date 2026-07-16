@@ -175,8 +175,10 @@ async function buildLocalConfiguration(
 }
 
 /**
- * Shared application ingestion boundary: resolve Local Configuration first so
- * every command selects the same configured Workspace (or the fixed default).
+ * Shared desired-state ingestion boundary: resolve Local Configuration first so
+ * validate/preview/apply/status select the same configured Workspace (or the
+ * fixed default). `init` reuses `resolveWorkspaceRoot` separately; `uninstall`
+ * does not call this path.
  */
 export async function ingestApplication(home: string): Promise<{
   readonly configuration: LocalConfiguration;
