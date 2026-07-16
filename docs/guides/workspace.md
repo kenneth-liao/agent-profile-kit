@@ -66,9 +66,12 @@ Adapters translate the trusted policy only in generated Host output:
 
 Existing source `agents/openai.yaml` content is preserved. An equivalent
 invocation policy coalesces; a conflicting policy fails before any project
-write. Claude and Codex Capability Contracts for this release both preserve
-disabled model invocation; a future Host that cannot must reject installation
-before writes rather than weaken the policy.
+write. When any selected Skill disables model invocation, capability preflight
+proves each selected Host can enforce it before writes: Claude Code CLI
+`2.0.64+` (same floor as unscoped rules and native Skill discovery, which
+honors `disable-model-invocation`), and Codex CLI `0.72.0+` (honors
+`agents/openai.yaml` `policy.allow_implicit_invocation`). Unsupported versions
+fail closed rather than silently weakening the policy.
 
 Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each

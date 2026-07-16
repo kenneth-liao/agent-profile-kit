@@ -18,7 +18,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
-- Optional portable Skill model-invocation policy via `metadata.agent-profile-kit.model-invocation`, with Host-native enforcement for Claude and Codex generated output ([#49](https://github.com/kenneth-liao/agent-profile-kit/issues/49)).
+- Optional portable Skill model-invocation policy via `metadata.agent-profile-kit.model-invocation`, with Adapter-owned Host projection and capability preflight that rejects Host versions unable to enforce disabled implicit invocation ([#49](https://github.com/kenneth-liao/agent-profile-kit/issues/49)).
 
 - Installed resolved portable Claude Skills at project scope under native `.claude/skills/<Artifact ID>/` discovery, with transitive dependency selection, inclusion reasons in preview and the Installation Manifest, sidecar omission, combined Codex/Claude Host ownership, and shared Context lifecycle ([#42](https://github.com/kenneth-liao/agent-profile-kit/issues/42)).
 

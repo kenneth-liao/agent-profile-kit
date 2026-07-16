@@ -11,12 +11,24 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { planClaudeProject } from "../adapters/claude.js";
-import { planCodexProject } from "../adapters/codex.js";
 import {
-  coalesceCodexInvocationPolicy,
+  assertClaudeCliVersionSupported,
+  assertClaudeProjectCapability,
   emitClaudeSkillMarkdown,
-} from "../adapters/skill-package.js";
+  planClaudeProject,
+  CLAUDE_HOST_VERSION,
+  CLAUDE_HOST_VERSION_WITH_INVOCATION,
+  CLAUDE_MINIMUM_CLI_VERSION,
+} from "../adapters/claude.js";
+import {
+  assertCodexCliVersionSupportsDisabledModelInvocation,
+  assertCodexProjectCapability,
+  coalesceCodexInvocationPolicy,
+  planCodexProject,
+  CODEX_HOST_VERSION,
+  CODEX_HOST_VERSION_WITH_INVOCATION,
+  CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION,
+} from "../adapters/codex.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
   applyReconciliation,
@@ -303,6 +315,10 @@ describe("Skill model-invocation policy", () => {
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
+    expect(desired.installations[0]?.hostVersions).toEqual({
+      claude: CLAUDE_HOST_VERSION_WITH_INVOCATION,
+      codex: CODEX_HOST_VERSION_WITH_INVOCATION,
+    });
     const preview = await previewReconciliation(desired.installations, {
       installations: [],
       schemaVersion: 2,
@@ -320,5 +336,126 @@ describe("Skill model-invocation policy", () => {
     // Canonical Workspace source remains unchanged.
     expect(readFileSync(join(skillRoot, "SKILL.md"), "utf8")).toBe(DISABLED_BODY);
     expect(existsSync(join(skillRoot, "agents", "openai.yaml"))).toBe(false);
+  });
+
+  test("allowed Skills keep base Host capability contract tokens", async () => {
+    const source = temporaryDirectory("apk-mi-allowed-version-");
+    writeSkillPackage(source, {
+      "SKILL.md": {
+        bytes:
+          "---\nname: to-spec\ndescription: Turn conversation into a spec.\n---\n\n# To spec\n",
+      },
+    });
+    const claude = await planClaudeProject("coding", [{ id: "team-rules", content: "rules\n" }], [
+      skillAt(source, "allowed"),
+    ]);
+    const codex = await planCodexProject("coding", [{ id: "team-rules", content: "rules\n" }], [
+      skillAt(source, "allowed"),
+    ]);
+    expect(claude.hostVersion).toBe(CLAUDE_HOST_VERSION);
+    expect(codex.hostVersion).toBe(CODEX_HOST_VERSION);
+  });
+
+  test("capability preflight rejects Host versions that cannot enforce disabled model invocation before writes", async () => {
+    expect(() =>
+      assertClaudeCliVersionSupported("2.0.63", { requireDisabledModelInvocation: true }),
+    ).toThrow("cannot enforce disabled model invocation");
+    expect(() => assertClaudeCliVersionSupported(CLAUDE_MINIMUM_CLI_VERSION, {
+      requireDisabledModelInvocation: true,
+    })).not.toThrow();
+
+    expect(() => assertCodexCliVersionSupportsDisabledModelInvocation("0.71.0")).toThrow(
+      "cannot enforce disabled model invocation",
+    );
+    expect(() =>
+      assertCodexCliVersionSupportsDisabledModelInvocation(
+        CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION,
+      ),
+    ).not.toThrow();
+
+    const home = temporaryDirectory("apk-mi-cap-home-");
+    const project = temporaryDirectory("apk-mi-cap-project-");
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+
+    await expect(
+      assertCodexProjectCapability(home, project, {
+        requireDisabledModelInvocation: true,
+        resolveVersion: async () => "0.10.0",
+      }),
+    ).rejects.toThrow("cannot enforce disabled model invocation");
+    await expect(
+      assertCodexProjectCapability(home, project, {
+        requireDisabledModelInvocation: true,
+        resolveVersion: async () => "0.144.0",
+      }),
+    ).resolves.toBeUndefined();
+    // Without disabled Skills, Codex does not require a CLI version probe.
+    await expect(assertCodexProjectCapability(home, project)).resolves.toBeUndefined();
+
+    await expect(
+      assertClaudeProjectCapability(project, {
+        requireDisabledModelInvocation: true,
+        resolveVersion: async () => "2.0.63",
+      }),
+    ).rejects.toThrow("cannot enforce disabled model invocation");
+    await expect(
+      assertClaudeProjectCapability(project, {
+        requireDisabledModelInvocation: true,
+        resolveVersion: async () => "2.1.0",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  test("end-to-end: unsupported Codex CLI blocks preview and apply before project or state writes", async () => {
+    const home = temporaryDirectory("apk-mi-e2e-home-");
+    const project = temporaryDirectory("apk-mi-e2e-project-");
+    await initializeWorkspace(home);
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+    // Old Codex stub that would discover Skills but ignore invocation policy.
+    const bin = join(home, "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "codex"), "#!/bin/sh\necho 'codex-cli 0.10.0'\n");
+    writeFileSync(join(bin, "claude"), "#!/bin/sh\necho '2.1.0 (Claude Code)'\n");
+    chmodSync(join(bin, "codex"), 0o755);
+    chmodSync(join(bin, "claude"), 0o755);
+
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    );
+    mkdirSync(join(workspace, "skills", "to-spec"), { recursive: true });
+    writeFileSync(join(workspace, "skills", "to-spec", "SKILL.md"), DISABLED_BODY);
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [to-spec]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 1\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${bin}:${previousPath ?? ""}`;
+    try {
+      const desired = await buildDesiredState(home);
+      expect(desired.installations[0]?.blockers.some((blocker) =>
+        blocker.includes("cannot enforce disabled model invocation"),
+      )).toBe(true);
+      const preview = await previewReconciliation(desired.installations, {
+        installations: [],
+        schemaVersion: 2,
+      });
+      expect(preview.blockers.length).toBeGreaterThan(0);
+      expect(existsSync(join(project, ".agents", "skills", "to-spec"))).toBe(false);
+      expect(existsSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml"))).toBe(
+        false,
+      );
+    } finally {
+      process.env.PATH = previousPath;
+    }
   });
 });
