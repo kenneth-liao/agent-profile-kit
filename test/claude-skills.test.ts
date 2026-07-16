@@ -53,7 +53,7 @@ function writeSkillPackage(
 }
 
 function skill(id: string, path: string): Skill {
-  return { dependencies: [], id, path };
+  return { dependencies: [], id, modelInvocation: "allowed", path };
 }
 
 function enableCodexHooks(home: string): void {

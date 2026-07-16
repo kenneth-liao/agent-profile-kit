@@ -195,9 +195,12 @@ export async function planClaudeProject(
     [...skills]
       .sort((left, right) => left.id.localeCompare(right.id))
       .map((skill) =>
-        planSkillPackageDirectory(skill, CLAUDE_SKILLS_DISCOVERY_ROOT, [
-          "Claude discovers Skill package through native project .claude/skills",
-        ]),
+        planSkillPackageDirectory(
+          skill,
+          CLAUDE_SKILLS_DISCOVERY_ROOT,
+          ["Claude discovers Skill package through native project .claude/skills"],
+          "claude",
+        ),
       ),
   );
   const outputs: ProposedProjectOutput[] = [

@@ -1497,6 +1497,132 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
+  test("packed CLI preserves model-invocation policy across Codex and Claude Hosts", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const claudeBin = installFakeClaude(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    // Absent policy: ordinary name+description Skill still validates and installs as allowed.
+    mkdirSync(join(workspacePath(home), "skills", "plain-skill"));
+    writeFileSync(
+      join(workspacePath(home), "skills", "plain-skill", "SKILL.md"),
+      "---\nname: plain-skill\ndescription: Ordinary skill with no model-invocation metadata.\n---\n\n# Plain\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [plain-skill]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n      - claude\n`,
+    );
+    const pathValue = `${claudeBin}:${process.env.PATH ?? ""}`;
+    const absentValidate = runCliWithPath(home, pathValue, "validate");
+    expect(absentValidate.status, absentValidate.stderr).toBe(0);
+    const absentApply = runCliWithPath(home, pathValue, "apply");
+    expect(absentApply.status, absentApply.stderr).toBe(0);
+    expect(
+      readFileSync(join(projectPath, ".claude", "skills", "plain-skill", "SKILL.md"), "utf8"),
+    ).not.toContain("disable-model-invocation");
+    expect(
+      existsSync(join(projectPath, ".agents", "skills", "plain-skill", "agents", "openai.yaml")),
+    ).toBe(false);
+
+    mkdirSync(join(workspacePath(home), "skills", "to-spec"));
+    const sourceBody =
+      "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n  author: maintainer\n---\n\n# To spec\n";
+    writeFileSync(join(workspacePath(home), "skills", "to-spec", "SKILL.md"), sourceBody);
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [to-spec]\nagents: []\nhooks: []\ntools: []\n",
+    );
+
+    const validate = runCliWithPath(home, pathValue, "validate");
+    expect(validate.status, validate.stderr).toBe(0);
+
+    const malformedHome = isolatedHome();
+    initialize(malformedHome);
+    writeContextProfile(malformedHome);
+    mkdirSync(join(workspacePath(malformedHome), "skills", "bad-skill"));
+    writeFileSync(
+      join(workspacePath(malformedHome), "skills", "bad-skill", "SKILL.md"),
+      "---\nname: bad-skill\ndescription: Bad policy.\nmetadata:\n  agent-profile-kit.model-invocation: maybe\n---\n\n# Bad\n",
+    );
+    writeFileSync(
+      join(workspacePath(malformedHome), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [bad-skill]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      configPath(malformedHome),
+      `schema_version: 1\nbindings:\n  - project: ${project()}\n    profile: coding\n    hosts:\n      - codex\n`,
+    );
+    const malformed = runCli(malformedHome, "validate");
+    expect(malformed.status).toBe(1);
+    expect(malformed.stderr).toContain("allowed' or 'disabled");
+
+    const conflictHome = isolatedHome();
+    initialize(conflictHome);
+    writeContextProfile(conflictHome);
+    mkdirSync(join(workspacePath(conflictHome), "skills", "to-spec", "agents"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(conflictHome), "skills", "to-spec", "SKILL.md"),
+      sourceBody,
+    );
+    writeFileSync(
+      join(workspacePath(conflictHome), "skills", "to-spec", "agents", "openai.yaml"),
+      "policy:\n  allow_implicit_invocation: true\n",
+    );
+    writeFileSync(
+      join(workspacePath(conflictHome), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [to-spec]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const conflictProject = project();
+    writeFileSync(
+      configPath(conflictHome),
+      `schema_version: 1\nbindings:\n  - project: ${conflictProject}\n    profile: coding\n    hosts:\n      - codex\n`,
+    );
+    const conflict = runCli(conflictHome, "preview");
+    expect(conflict.status).toBe(1);
+    expect(conflict.stderr).toContain("conflicting model-invocation authorities");
+    expect(existsSync(join(conflictProject, ".agents", "skills", "to-spec"))).toBe(false);
+
+    const preview = runCliWithPath(home, pathValue, "preview");
+    expect(preview.status, preview.stderr).toBe(0);
+    const apply = runCliWithPath(home, pathValue, "apply");
+    expect(apply.status, apply.stderr).toBe(0);
+
+    const claudeSkill = readFileSync(
+      join(projectPath, ".claude", "skills", "to-spec", "SKILL.md"),
+      "utf8",
+    );
+    expect(claudeSkill).toContain("disable-model-invocation: true");
+    const codexPolicy = parse(
+      readFileSync(
+        join(projectPath, ".agents", "skills", "to-spec", "agents", "openai.yaml"),
+        "utf8",
+      ),
+    ) as { policy: { allow_implicit_invocation: boolean } };
+    expect(codexPolicy.policy.allow_implicit_invocation).toBe(false);
+    expect(readFileSync(join(workspacePath(home), "skills", "to-spec", "SKILL.md"), "utf8")).toBe(
+      sourceBody,
+    );
+
+    // Allowed skill: no Host restriction fields.
+    writeFileSync(
+      join(workspacePath(home), "skills", "to-spec", "SKILL.md"),
+      "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: allowed\n---\n\n# To spec\n",
+    );
+    const allowedApply = runCliWithPath(home, pathValue, "apply");
+    expect(allowedApply.status, allowedApply.stderr).toBe(0);
+    expect(
+      readFileSync(join(projectPath, ".claude", "skills", "to-spec", "SKILL.md"), "utf8"),
+    ).not.toContain("disable-model-invocation");
+    expect(existsSync(join(projectPath, ".agents", "skills", "to-spec", "agents", "openai.yaml"))).toBe(
+      false,
+    );
+  });
+
   test("tracked colliding Codex Skill packages block global preflight", () => {
     const home = isolatedHome();
     initialize(home);

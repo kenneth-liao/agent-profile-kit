@@ -111,9 +111,12 @@ export async function planCodexProject(
     [...skills]
       .sort((left, right) => left.id.localeCompare(right.id))
       .map((skill) =>
-        planSkillPackageDirectory(skill, ".agents/skills", [
-          "Codex discovers Skill package through native project .agents/skills",
-        ]),
+        planSkillPackageDirectory(
+          skill,
+          ".agents/skills",
+          ["Codex discovers Skill package through native project .agents/skills"],
+          "codex",
+        ),
       ),
   );
   const outputs: ProposedProjectOutput[] = [

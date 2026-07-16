@@ -6,9 +6,17 @@ import {
   type ArtifactReference,
 } from "./dependencies.js";
 
+/** Host-neutral model-invocation policy for a Skill. */
+export type ModelInvocationPolicy = "allowed" | "disabled";
+
+/** Namespaced standard metadata key for model-invocation policy. */
+export const MODEL_INVOCATION_METADATA_KEY = "agent-profile-kit.model-invocation";
+
 export interface Skill {
   readonly dependencies: readonly ArtifactReference[];
   readonly id: string;
+  /** Normalized model-invocation policy; absence of metadata defaults to allowed. */
+  readonly modelInvocation: ModelInvocationPolicy;
   readonly path: string;
   readonly sidecar?: Record<string, unknown>;
 }
@@ -21,6 +29,22 @@ const STANDARD_FIELDS = [
   "metadata",
   "allowed-tools",
 ] as const;
+
+function parseModelInvocation(
+  metadata: Record<string, unknown> | undefined,
+  path: string,
+): ModelInvocationPolicy {
+  if (metadata === undefined || !(MODEL_INVOCATION_METADATA_KEY in metadata)) {
+    return "allowed";
+  }
+  const value = metadata[MODEL_INVOCATION_METADATA_KEY];
+  if (value !== "allowed" && value !== "disabled") {
+    throw new Error(
+      `Skill ${path} metadata.${MODEL_INVOCATION_METADATA_KEY} must be the string 'allowed' or 'disabled'`,
+    );
+  }
+  return value;
+}
 
 function parseYaml(source: string, description: string): unknown {
   try {
@@ -77,8 +101,11 @@ export function parseSkill(
   requireString(header.description, `Skill ${path} description`, 1024);
   if ("license" in header) requireString(header.license, `Skill ${path} license`);
   if ("compatibility" in header) requireString(header.compatibility, `Skill ${path} compatibility`, 500);
-  if ("metadata" in header) requireMapping(header.metadata, `Skill ${path} metadata`);
+  const metadata = "metadata" in header
+    ? requireMapping(header.metadata, `Skill ${path} metadata`)
+    : undefined;
   if ("allowed-tools" in header) requireString(header["allowed-tools"], `Skill ${path} allowed-tools`);
+  const modelInvocation = parseModelInvocation(metadata, path);
 
   const parsedSidecar = sidecar === undefined
     ? undefined
@@ -86,6 +113,7 @@ export function parseSkill(
   return {
     dependencies: parseArtifactDependencies(parsedSidecar?.dependencies, `Skill ${path} dependencies`),
     id,
+    modelInvocation,
     path: sourcePath,
     ...(parsedSidecar !== undefined
       ? { sidecar: parsedSidecar }
