@@ -11,9 +11,10 @@ Claude Code on macOS then load that material through ordinary native project
 discovery. Global Host configuration and repository-owned instructions remain
 untouched.
 
-This release installs Context Modules and portable Skills. Profiles selecting
-Agents, Hooks, or Tools are rejected until those artifact categories have native
-project delivery.
+This release installs Context Modules and portable Skills. A Profile needs at
+least one supported artifact (Context, Skills, or both); Context is not
+mandatory. Profiles selecting Agents, Hooks, or Tools are rejected until those
+artifact categories have native project delivery.
 
 ## Quick start
 
@@ -32,19 +33,22 @@ overwrites the Workspace or Local Configuration.
 
 Codex loads Context through a native project SessionStart hook and discovers
 selected Skills under `.agents/skills/`. Claude Code loads Context as an unscoped
-project rule and discovers selected Skills under `.claude/skills/`.
+project rule and discovers selected Skills under `.claude/skills/`. Skills-only
+Profiles install only Skill packages—no Context snapshot, Codex hooks, or Claude
+Context rule—and do not require Context-related Host capability.
 
-Codex must trust each bound project and have lifecycle hooks explicitly enabled
-in its global or project configuration:
+When a Profile includes Context for Codex, Codex must trust each bound project
+and have lifecycle hooks explicitly enabled in its global or project
+configuration:
 
 ```toml
 [features]
 hooks = true
 ```
 
-Launch Codex or Claude from the bound project. For a non-Git project, use the
-exact bound root so Codex can discover the generated project hook, Context, and
-Skills.
+Launch Codex or Claude from the bound project. For a non-Git project with
+Context, use the exact bound root so Codex can discover the generated project
+hook and Context.
 
 ```sh
 agent-profile-kit validate

@@ -465,16 +465,20 @@ export async function buildDesiredState(
       const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
         resolvedProfile.skills,
       );
+      // Capability and planning follow selected categories: Context machinery is optional.
+      const requireContext = resolvedProfile.contexts.length > 0;
       const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
       for (const host of target.binding.hosts) {
         if (options.checkHostCapability !== false) {
           try {
             if (host === "codex") {
               await assertCodexProjectCapability(home, target.binding.canonicalProject, {
+                requireContext,
                 requireDisabledModelInvocation,
               });
             } else if (host === "claude") {
               await assertClaudeProjectCapability(target.binding.canonicalProject, {
+                requireContext,
                 requireDisabledModelInvocation,
               });
             }
@@ -514,7 +518,8 @@ export async function buildDesiredState(
           );
           plans.push(adapterPlan);
           hostVersions.codex = adapterPlan.hostVersion;
-          if (!target.gitProject) {
+          // Context snapshot path is Git-root-relative; Skills-only installs need no launch warning.
+          if (!target.gitProject && requireContext) {
             warnings.push(
               `${target.binding.project} is not a Git worktree; Codex must start at the exact bound project root for native Context discovery`,
             );

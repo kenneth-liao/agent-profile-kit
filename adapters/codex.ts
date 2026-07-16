@@ -67,6 +67,11 @@ export type CodexProjectPlan = AdapterProjectPlan;
 
 export interface CodexCapabilityOptions {
   readonly env?: NodeJS.ProcessEnv;
+  /**
+   * When false, skip SessionStart-hooks preflight (Skills-only Profiles that
+   * plan no Context snapshot or hooks.json). Defaults to true.
+   */
+  readonly requireContext?: boolean;
   /** When true, prove Host can enforce disabled model invocation. */
   readonly requireDisabledModelInvocation?: boolean;
   /** Injectable version probe for tests; defaults to `codex --version`. */
@@ -199,24 +204,27 @@ export async function assertCodexProjectCapability(
   project: string,
   options: CodexCapabilityOptions = {},
 ): Promise<void> {
-  const [globalConfig, projectConfig] = await Promise.all([
-    readOptional(join(home, ".codex", "config.toml")),
-    readOptional(join(project, ".codex", "config.toml")),
-  ]);
-  const globalPath = join(home, ".codex", "config.toml");
-  const projectPath = join(project, ".codex", "config.toml");
-  const globalSetting = hookFeatureSetting(globalConfig);
-  const projectSetting = hookFeatureSetting(projectConfig);
-  const effectiveSetting = projectSetting ?? globalSetting;
-  if (effectiveSetting !== true) {
-    const configuredBy = projectSetting !== undefined
-      ? projectPath
-      : globalSetting !== undefined
-        ? globalPath
-        : undefined;
-    throw new Error(
-      `Codex SessionStart hooks are not enabled${configuredBy ? ` by ${configuredBy}` : ""}; set [features].hooks = true in ${projectPath} or ${globalPath} before previewing or applying the Profile`,
-    );
+  // Context delivery uses SessionStart hooks; Skills-only Profiles omit that machinery.
+  if (options.requireContext !== false) {
+    const [globalConfig, projectConfig] = await Promise.all([
+      readOptional(join(home, ".codex", "config.toml")),
+      readOptional(join(project, ".codex", "config.toml")),
+    ]);
+    const globalPath = join(home, ".codex", "config.toml");
+    const projectPath = join(project, ".codex", "config.toml");
+    const globalSetting = hookFeatureSetting(globalConfig);
+    const projectSetting = hookFeatureSetting(projectConfig);
+    const effectiveSetting = projectSetting ?? globalSetting;
+    if (effectiveSetting !== true) {
+      const configuredBy = projectSetting !== undefined
+        ? projectPath
+        : globalSetting !== undefined
+          ? globalPath
+          : undefined;
+      throw new Error(
+        `Codex SessionStart hooks are not enabled${configuredBy ? ` by ${configuredBy}` : ""}; set [features].hooks = true in ${projectPath} or ${globalPath} before previewing or applying the Profile`,
+      );
+    }
   }
 
   if (options.requireDisabledModelInvocation) {
@@ -548,7 +556,6 @@ export async function planCodexProject(
   skills: readonly Skill[] = [],
   options: { readonly contextPath?: string } = {},
 ): Promise<CodexProjectPlan> {
-  const contextPath = options.contextPath ?? DEFAULT_CONTEXT_PATH;
   const skillOutputs = await Promise.all(
     [...skills]
       .sort((left, right) => left.id.localeCompare(right.id))
@@ -561,23 +568,28 @@ export async function planCodexProject(
         ),
       ),
   );
-  const outputs: ProposedProjectOutput[] = [
-    {
-      bytes: composeContextEnvelope(profileId, modules),
-      mode: 0o644,
-      path: join(".agent-profile-kit", "codex", "context.md"),
-      requirements: ["Codex SessionStart prints composed Context"],
-      type: "file",
-    },
-    {
-      bytes: hooks(contextPath),
-      mode: 0o644,
-      path: join(".codex", "hooks.json"),
-      requirements: ["Codex SessionStart runs on startup, resume, clear, and compact"],
-      type: "file",
-    },
-    ...skillOutputs,
-  ];
+  const outputs: ProposedProjectOutput[] = [...skillOutputs];
+  // Omit Context machinery entirely when the Profile selects no Context Modules.
+  // Do not invent an empty Context snapshot or hooks.json.
+  if (modules.length > 0) {
+    const contextPath = options.contextPath ?? DEFAULT_CONTEXT_PATH;
+    outputs.unshift(
+      {
+        bytes: composeContextEnvelope(profileId, modules),
+        mode: 0o644,
+        path: join(".agent-profile-kit", "codex", "context.md"),
+        requirements: ["Codex SessionStart prints composed Context"],
+        type: "file",
+      },
+      {
+        bytes: hooks(contextPath),
+        mode: 0o644,
+        path: join(".codex", "hooks.json"),
+        requirements: ["Codex SessionStart runs on startup, resume, clear, and compact"],
+        type: "file",
+      },
+    );
+  }
   return {
     host: "codex",
     hostVersion: skillsRequireDisabledModelInvocation(skills)

@@ -127,9 +127,22 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
 
   validateDependencyCatalog(contexts, skills);
   for (const profile of profiles.values()) {
-    if (profile.context.length === 0) {
+    for (const [name, selection] of [
+      ["agents", profile.agents],
+      ["hooks", profile.hooks],
+      ["tools", profile.tools],
+    ] as const) {
+      if (selection.length > 0) {
+        throw new Error(
+          `Profile '${profile.id}' selects ${name}, which this release does not support`,
+        );
+      }
+    }
+    // At least one currently supported artifact category must be selected. No single
+    // category (including Context) is mandatory; empty Profiles fail at ingestion.
+    if (profile.context.length === 0 && profile.skills.length === 0) {
       throw new Error(
-        `Profile '${profile.id}' must select at least one Context Module`,
+        `Profile '${profile.id}' must select at least one supported artifact (Context Module or Skill)`,
       );
     }
     for (const contextId of profile.context) {
@@ -142,17 +155,6 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
     for (const skillId of profile.skills) {
       if (!skills.has(skillId)) {
         throw new Error(`Profile '${profile.id}' selects missing Skill '${skillId}'`);
-      }
-    }
-    for (const [name, selection] of [
-      ["agents", profile.agents],
-      ["hooks", profile.hooks],
-      ["tools", profile.tools],
-    ] as const) {
-      if (selection.length > 0) {
-        throw new Error(
-          `Profile '${profile.id}' selects ${name}, which this release does not support`,
-        );
       }
     }
     resolveProfileDependencies(profile, contexts, skills);
