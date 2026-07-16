@@ -58,13 +58,15 @@ agent-profile-kit status
 agent-profile-kit uninstall
 ```
 
-Project Bindings live in the machine-local
+Project Bindings and an optional Workspace path live in the machine-local
 `~/.agents/agent-profile-kit/config.yaml`. Each binding names one existing
 absolute or home-relative (`~/…`) project root, one Profile, and one or more
-Hosts (`codex`, `claude`). `preview` is read-only; `apply` reconciles every
-binding; `status` reports current, stale source, drifted output, missing output,
-and malformed ownership states; `uninstall` removes only output whose
-Installation Marker and hashes prove Agent Profile Kit ownership.
+Hosts (`codex`, `claude`). Omitting `workspace` retains the fixed default
+Workspace at `~/.agents/agent-profile-kit/workspace/`. `preview` is read-only;
+`apply` reconciles every binding; `status` reports current, stale source,
+drifted output, missing output, and malformed ownership states; `uninstall`
+removes only output whose Installation Marker and hashes prove Agent Profile Kit
+ownership.
 
 See `agent-profile-kit guide` for the Context Module, Skill, Profile, and binding
 formats, and `agent-profile-kit guide --agent` for agent-facing authoring
@@ -87,14 +89,18 @@ product code, schemas, and documentation rather than a personal Workspace.
 
 ## User data
 
-Canonical user content lives under `~/.agents/agent-profile-kit/workspace/`.
-Machine-local Project Bindings live in `config.yaml`; disposable Installation
+Canonical user content lives in one selected Workspace. The fixed default is
+`~/.agents/agent-profile-kit/workspace/`; Local Configuration may point at
+another existing absolute or home-relative Workspace path. Machine-local Project
+Bindings and that optional path live in `config.yaml`; disposable Installation
 Manifests live under `state/`. Generated Context, hooks, rules, and Skills live
 only in bound project-owned paths.
 
-`agent-profile-kit init` creates an empty Workspace with a schema marker, artifact
-directories, and short human/agent bootstrap files. Current authoring guidance
-remains owned by the CLI through `agent-profile-kit guide` and
+`agent-profile-kit init` creates an empty default Workspace with a schema marker,
+artifact directories, and short human/agent bootstrap files when configuration is
+absent. When configuration already selects a custom Workspace, `init` validates
+it and does not create or migrate source. Current authoring guidance remains
+owned by the CLI through `agent-profile-kit guide` and
 `agent-profile-kit guide --agent`; initialization does not copy personal or
 opinionated starter content.
 

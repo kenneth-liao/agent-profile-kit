@@ -12,6 +12,7 @@ import { resolveProfileDependencies, validateDependencyCatalog } from "./resolve
 import { validateWorkspaceStructure, workspacePath } from "./workspace.js";
 
 export interface Workspace {
+  /** Canonical (realpath) Workspace root used for identity and artifact reads. */
   readonly path: string;
   readonly contexts: ReadonlyMap<string, ContextModule>;
   readonly profiles: ReadonlyMap<string, Profile>;
@@ -80,8 +81,12 @@ function addUnique<T extends { readonly id: string }>(
   entries.set(entry.id, entry);
 }
 
-export async function ingestWorkspace(home: string): Promise<Workspace> {
-  const path = workspacePath(home);
+/**
+ * Ingest a Workspace at an already-resolved path (typically the canonical
+ * realpath from Local Configuration resolution). When given a home directory
+ * path that still needs the fixed default layout, pass `workspacePath(home)`.
+ */
+export async function ingestWorkspace(path: string): Promise<Workspace> {
   await validateWorkspaceStructure(path);
   const contexts = new Map<string, ContextModule>();
   const profiles = new Map<string, Profile>();
@@ -161,4 +166,9 @@ export async function ingestWorkspace(home: string): Promise<Workspace> {
   }
 
   return { path, contexts, profiles, skills };
+}
+
+/** Ingest the fixed-default Workspace for a home directory (tests and init helpers). */
+export async function ingestDefaultWorkspace(home: string): Promise<Workspace> {
+  return ingestWorkspace(workspacePath(home));
 }

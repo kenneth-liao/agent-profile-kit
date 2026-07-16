@@ -50,15 +50,31 @@ feature on the backlog.
 
 ## Initialize
 
-`agent-profile-kit init` creates an empty, schema-versioned Workspace at
-`~/.agents/agent-profile-kit/workspace/` and an empty machine-local Local
-Configuration at `~/.agents/agent-profile-kit/config.yaml` when either is missing.
-Rerunning is safe: it never overwrites existing Workspace or configuration
-content, and it does not restore optional scaffolding that you removed from a
-valid Workspace.
+`agent-profile-kit init` creates an empty, schema-versioned Workspace at the
+fixed default path `~/.agents/agent-profile-kit/workspace/` and an empty
+machine-local Local Configuration at `~/.agents/agent-profile-kit/config.yaml`
+when Local Configuration is absent. Rerunning is safe: it never overwrites
+existing Workspace or configuration content, and it does not restore optional
+scaffolding that you removed from a valid Workspace.
+
+To keep the Workspace as an independent Git repository elsewhere, set an optional
+`workspace` field in Local Configuration to one existing absolute or
+home-relative path that already contains a valid `workspace.yaml`:
+
+```yaml
+schema_version: 1
+workspace: ~/projects/agent-profile-workspace
+bindings: []
+```
+
+Omitting `workspace` retains the fixed default. Symlinks are supported; relative
+paths and wildcards are not. When configuration already selects a custom path,
+`init` validates that target and does not create, move, copy, adopt, or repair
+it. Changing the path never migrates source automatically.
 
 The current Workspace schema version is 1. Its root `workspace.yaml` contains
-only `schema_version: 1`.
+only `schema_version: 1`. Local Configuration schema version remains 1 with the
+optional `workspace` field.
 
 ### Required structure vs initialization scaffolding
 

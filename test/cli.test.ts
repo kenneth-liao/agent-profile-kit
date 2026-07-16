@@ -264,6 +264,227 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
+  test("omitting workspace retains the fixed default Workspace path", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+
+    const result = runCli(home, "validate");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("1 Profiles");
+    expect(existsSync(workspacePath(home))).toBe(true);
+    expect(readFileSync(configPath(home), "utf8")).not.toMatch(/^\s*workspace:/m);
+  });
+
+  test("absolute and home-relative configured Workspace paths resolve for validate", () => {
+    const home = isolatedHome();
+    const custom = join(home, "custom-workspace");
+    mkdirSync(join(custom, "context"), { recursive: true });
+    mkdirSync(join(custom, "profiles"), { recursive: true });
+    writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(
+      join(custom, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nCustom workspace rules.\n",
+    );
+    writeFileSync(
+      join(custom, "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const projectPath = project();
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nworkspace: ${custom}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const absolute = runCli(home, "validate");
+    expect(absolute.status, absolute.stderr).toBe(0);
+    expect(absolute.stdout).toContain("1 Profiles");
+    expect(existsSync(workspacePath(home))).toBe(false);
+
+    const homeRelative = `~/${custom.slice(home.length + 1)}`;
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nworkspace: ${homeRelative}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const relativeHome = runCli(home, "validate");
+    expect(relativeHome.status, relativeHome.stderr).toBe(0);
+    expect(relativeHome.stdout).toContain("1 Profiles");
+  });
+
+  test("symlinked configured Workspace resolves to canonical target; aliases validate identically", () => {
+    const home = isolatedHome();
+    const realWorkspace = join(home, "real-custom");
+    mkdirSync(realWorkspace, { recursive: true });
+    writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 1\n");
+    const link = join(home, "link-custom");
+    symlinkSync(realWorkspace, link);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nworkspace: ${link}\nbindings: []\n`,
+    );
+
+    const viaLink = runCli(home, "validate");
+    expect(viaLink.status, viaLink.stderr).toBe(0);
+    expect(viaLink.stdout).toContain("Workspace and Local Configuration valid");
+    expect(realpathSync(link)).toBe(realpathSync(realWorkspace));
+
+    // Same canonical tree under a different authored spelling.
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nworkspace: ${realWorkspace}\nbindings: []\n`,
+    );
+    const viaReal = runCli(home, "validate");
+    expect(viaReal.status, viaReal.stderr).toBe(0);
+    expect(viaReal.stdout).toBe(viaLink.stdout);
+
+    // Authored spelling appears in failure diagnostics when the target is invalid.
+    writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 99\n");
+    const bad = runCli(home, "validate");
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toContain(realWorkspace);
+  });
+
+  test("invalid configured Workspace paths fail before any writes", () => {
+    const home = isolatedHome();
+    const applicationRoot = join(home, ".agents", "agent-profile-kit");
+    mkdirSync(applicationRoot, { recursive: true });
+    const projectPath = project();
+    const marker = join(projectPath, "must-not-write");
+    mkdirSync(projectPath, { recursive: true });
+
+    const cases: { workspace: string; setup?: () => void; pattern: RegExp }[] = [
+      { workspace: "./relative-ws", pattern: /absolute path or home-relative/i },
+      { workspace: "~/projects/*", pattern: /without wildcards/i },
+      { workspace: join(home, "missing-ws"), pattern: /must be an existing directory/i },
+      {
+        workspace: join(home, "as-file"),
+        setup: () => writeFileSync(join(home, "as-file"), "not a directory\n"),
+        pattern: /must be an existing directory/i,
+      },
+      {
+        workspace: join(home, "dangling"),
+        setup: () => symlinkSync(join(home, "gone"), join(home, "dangling")),
+        pattern: /dangling symlink/i,
+      },
+      {
+        workspace: join(home, "empty-ws"),
+        setup: () => mkdirSync(join(home, "empty-ws")),
+        pattern: /not a valid Agent Profile Kit Workspace|missing required file/i,
+      },
+      {
+        workspace: join(home, "non-ws"),
+        setup: () => {
+          mkdirSync(join(home, "non-ws"));
+          writeFileSync(join(home, "non-ws", "README.md"), "no marker\n");
+        },
+        pattern: /not a valid Agent Profile Kit Workspace|missing required file/i,
+      },
+    ];
+
+    for (const example of cases) {
+      example.setup?.();
+      writeFileSync(
+        configPath(home),
+        `schema_version: 1\nworkspace: ${example.workspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
+      );
+      const beforeState = existsSync(statePath(home));
+      const result = runCli(home, "apply");
+      expect(result.status, `${example.workspace}: ${result.stderr}`).toBe(1);
+      expect(result.stderr).toMatch(example.pattern);
+      expect(existsSync(marker)).toBe(false);
+      expect(existsSync(statePath(home))).toBe(beforeState);
+      expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+    }
+  });
+
+  test("init with no Local Configuration still bootstraps the default Workspace", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "init");
+    expect(result.status, result.stderr).toBe(0);
+    expect(existsSync(workspacePath(home))).toBe(true);
+    expect(existsSync(configPath(home))).toBe(true);
+    expect(readFileSync(configPath(home), "utf8")).toMatch(/schema_version:\s*1/);
+    expect(readFileSync(configPath(home), "utf8")).not.toMatch(/^\s*workspace:/m);
+  });
+
+  test("init with a valid custom Workspace reports unchanged and does not mutate it", () => {
+    const home = isolatedHome();
+    const custom = join(home, "preexisting-workspace");
+    mkdirSync(custom, { recursive: true });
+    writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(custom, "NOTES.md"), "user owned\n");
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nworkspace: ${custom}\nbindings: []\n`,
+    );
+
+    const result = runCli(home, "init");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/already initialized|unchanged/i);
+    expect(readdirSync(custom).sort()).toEqual(["NOTES.md", "workspace.yaml"]);
+    for (const entry of ["README.md", "profiles", "skills", "context"]) {
+      expect(existsSync(join(custom, entry))).toBe(false);
+    }
+    expect(existsSync(workspacePath(home))).toBe(false);
+  });
+
+  test("init with an invalid custom Workspace fails without creating or repairing source", () => {
+    const home = isolatedHome();
+    const custom = join(home, "broken-custom");
+    mkdirSync(custom);
+    writeFileSync(join(custom, "stray.txt"), "not a workspace\n");
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nworkspace: ${custom}\nbindings: []\n`,
+    );
+
+    const result = runCli(home, "init");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/not a valid Agent Profile Kit Workspace|missing required file/i);
+    expect(readdirSync(custom).sort()).toEqual(["stray.txt"]);
+    expect(existsSync(workspacePath(home))).toBe(false);
+  });
+
+  test("bindings resolve Profiles from the configured Workspace", () => {
+    const home = isolatedHome();
+    const custom = join(home, "bound-workspace");
+    mkdirSync(join(custom, "profiles"), { recursive: true });
+    mkdirSync(join(custom, "context"), { recursive: true });
+    writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(
+      join(custom, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nFrom custom Workspace.\n",
+    );
+    writeFileSync(
+      join(custom, "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    // Default path has a different Profile set (or is absent).
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const projectPath = project();
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nworkspace: ${custom}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+
+    const validate = runCli(home, "validate");
+    expect(validate.status, validate.stderr).toBe(0);
+    expect(validate.stdout).toContain("1 Profiles");
+    expect(validate.stdout).toContain("1 Project Bindings");
+
+    const apply = runCli(home, "apply");
+    expect(apply.status, apply.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".codex", "AGENTS.md")) || existsSync(join(projectPath, "AGENTS.md")) || existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
+  });
+
   test("validate normalizes home-relative project roots and does not invoke Codex", () => {
     const home = isolatedHome();
     initialize(home);

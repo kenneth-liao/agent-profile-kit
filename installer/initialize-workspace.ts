@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  readFile,
   rename,
   rm,
   stat,
@@ -17,7 +18,9 @@ import {
 import {
   EMPTY_LOCAL_CONFIGURATION,
   LOCAL_CONFIGURATION_FILE,
+  parseLocalConfiguration,
 } from "../schemas/local-configuration.js";
+import { localConfigurationPath, resolveWorkspaceRoot } from "./local-configuration.js";
 import {
   validateWorkspaceStructure,
   WORKSPACE_ARTIFACT_DIRECTORIES,
@@ -124,10 +127,44 @@ async function inspectWorkspace(
   return "valid";
 }
 
+/**
+ * When Local Configuration already selects a custom Workspace path, validate
+ * that target only. Never create, move, copy, adopt, or repair user-owned source.
+ */
+async function initializeConfiguredWorkspace(
+  home: string,
+  authored: string,
+  configPath: string,
+): Promise<InitializationResult> {
+  const resolved = await resolveWorkspaceRoot(home, authored, configPath);
+  return {
+    outcome: "unchanged",
+    path: resolved.path,
+    warnings: [],
+  };
+}
+
 export async function initializeWorkspace(
   home: string,
 ): Promise<InitializationResult> {
   const applicationRoot = join(home, ".agents", "agent-profile-kit");
+  const configPath = localConfigurationPath(home);
+
+  let authoredWorkspace: string | undefined;
+  try {
+    const source = await readFile(configPath, "utf8");
+    const parsed = parseLocalConfiguration(source, configPath);
+    authoredWorkspace = parsed.workspace;
+  } catch (error) {
+    if (!hasErrorCode(error, "ENOENT")) {
+      throw error;
+    }
+  }
+
+  if (authoredWorkspace !== undefined) {
+    return initializeConfiguredWorkspace(home, authoredWorkspace, configPath);
+  }
+
   const destination = workspacePath(home);
   const workspaceState = await inspectWorkspace(destination);
 

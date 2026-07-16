@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
-import { ingestWorkspace } from "../installer/ingest-workspace.js";
+import { ingestDefaultWorkspace } from "../installer/ingest-workspace.js";
 import {
   validateWorkspaceStructure,
   WORKSPACE_ARTIFACT_DIRECTORIES,
@@ -54,7 +54,7 @@ describe("optional Workspace scaffolding after initialization", () => {
     const home = isolatedHome();
     writeManifestOnlyWorkspace(home);
 
-    const workspace = await ingestWorkspace(home);
+    const workspace = await ingestDefaultWorkspace(home);
 
     expect(workspace.contexts.size).toBe(0);
     expect(workspace.profiles.size).toBe(0);
@@ -75,7 +75,7 @@ describe("optional Workspace scaffolding after initialization", () => {
       "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
     );
 
-    const workspace = await ingestWorkspace(home);
+    const workspace = await ingestDefaultWorkspace(home);
 
     expect(workspace.contexts.has("team-rules")).toBe(true);
     expect(workspace.profiles.has("coding")).toBe(true);
@@ -88,7 +88,7 @@ describe("optional Workspace scaffolding after initialization", () => {
     mkdirSync(join(path, "context"));
     writeFileSync(join(path, "context", "broken.md"), "no frontmatter\n");
 
-    await expect(ingestWorkspace(home)).rejects.toThrow(/Context Module|frontmatter|id/i);
+    await expect(ingestDefaultWorkspace(home)).rejects.toThrow(/Context Module|frontmatter|id/i);
   });
 
   test("a present artifact path that is not a directory is a structural error", async () => {

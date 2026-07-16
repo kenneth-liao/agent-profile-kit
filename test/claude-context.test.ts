@@ -128,6 +128,35 @@ describe("Claude Context Local Configuration", () => {
       ),
     ).toThrow("unsupported Agent Host 'cursor'");
   });
+
+  test("accepts optional workspace path and retains existing version-1 files without it", () => {
+    const without = parseLocalConfiguration(
+      "schema_version: 1\nbindings: []\n",
+      "config.yaml",
+    );
+    expect(without.workspace).toBeUndefined();
+    expect(without.schemaVersion).toBe(1);
+
+    const withWorkspace = parseLocalConfiguration(
+      "schema_version: 1\nworkspace: ~/projects/agent-profile-workspace\nbindings: []\n",
+      "config.yaml",
+    );
+    expect(withWorkspace.workspace).toBe("~/projects/agent-profile-workspace");
+
+    expect(() =>
+      parseLocalConfiguration(
+        "schema_version: 1\nworkspace: ''\nbindings: []\n",
+        "config.yaml",
+      ),
+    ).toThrow(/workspace must be a non-empty string/);
+
+    expect(() =>
+      parseLocalConfiguration(
+        "schema_version: 1\nworkspace: ~/projects/agent-profile-workspace\nbindings: []\nextra: true\n",
+        "config.yaml",
+      ),
+    ).toThrow(/does not allow fields: extra/);
+  });
 });
 
 describe("Claude Adapter planner", () => {
