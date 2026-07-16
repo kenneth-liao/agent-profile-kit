@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- Support Skills-only Profiles without Context machinery: a Profile must select at least one supported artifact overall (Context and/or Skills), but no category is mandatory; Skills-only bindings install only selected Skill packages and skip Context outputs and Context-related Host capability requirements ([#55](https://github.com/kenneth-liao/agent-profile-kit/issues/55)).
+
 ### Changed
 
 - Treat Workspace scaffolding as optional after initialization: only a supported `workspace.yaml` is required; missing artifact directories ingest as empty categories; bootstrap docs are never format requirements; document CLI 0.16.1+ vs older full-scaffold expectations for rollback ([#50](https://github.com/kenneth-liao/agent-profile-kit/issues/50)).

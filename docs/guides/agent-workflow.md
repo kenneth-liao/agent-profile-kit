@@ -15,9 +15,11 @@ Use this workflow when helping a person author their Workspace and bind projects
    project facts, Host preferences, credentials, or machine paths.
 3. Create the smallest useful artifact set. This release accepts Context Modules
    and portable Skills for Codex and Claude Code. Put standing facts in Context
-   Modules and reusable procedures in Skills. For Skills that must not fire
-   implicitly, use `metadata.agent-profile-kit.model-invocation: disabled` (default
-   is `allowed`); do not leave Claude-native `disable-model-invocation` in
+   Modules and reusable procedures in Skills. A Profile needs at least one
+   supported artifact (Context, Skills, or both); Context is not mandatory—a
+   Skills-only Profile is valid. For Skills that must not fire implicitly, use
+   `metadata.agent-profile-kit.model-invocation: disabled` (default is
+   `allowed`); do not leave Claude-native `disable-model-invocation` in
    Workspace source. Profiles selecting Agents, Hooks, or Tools are rejected. Do
    not create a new artifact merely because a directory exists, and do not invent
    Agents, Hooks, or Tools for this release.

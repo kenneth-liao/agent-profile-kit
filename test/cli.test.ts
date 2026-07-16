@@ -1733,6 +1733,68 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
+  test("packed CLI Skills-only Profile validates, applies, and uninstalls without Context machinery", () => {
+    const home = isolatedHome();
+    // Init still enables hooks for other suites sharing helpers; Skills-only must not require them.
+    const result = runCli(home, "init");
+    expect(result.status, result.stderr).toBe(0);
+    const claudeBin = installFakeClaude(home);
+    const pathValue = `${claudeBin}:${process.env.PATH ?? ""}`;
+    const projectPath = project();
+    const workspace = workspacePath(home);
+    mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: engineering\n    hosts:\n      - codex\n      - claude\n`,
+    );
+
+    const emptyHome = isolatedHome();
+    expect(runCli(emptyHome, "init").status).toBe(0);
+    writeFileSync(
+      join(workspacePath(emptyHome), "profiles", "empty.yaml"),
+      "id: empty\ncontext: []\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const emptyValidate = runCli(emptyHome, "validate");
+    expect(emptyValidate.status).toBe(1);
+    expect(emptyValidate.stderr).toMatch(/at least one supported artifact/i);
+
+    const validate = runCliWithPath(home, pathValue, "validate");
+    expect(validate.status, validate.stderr).toBe(0);
+
+    const preview = runCliWithPath(home, pathValue, "preview");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(".agents/skills/review-pr");
+    expect(preview.stdout).toContain(".claude/skills/review-pr");
+    expect(preview.stdout).not.toContain(".agent-profile-kit/codex/context.md");
+    expect(preview.stdout).not.toContain(".codex/hooks.json");
+    expect(preview.stdout).not.toContain(".claude/rules/agent-profile-kit.md");
+
+    const apply = runCliWithPath(home, pathValue, "apply");
+    expect(apply.status, apply.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(projectPath, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+    expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
+
+    const status = runCliWithPath(home, pathValue, "status");
+    expect(status.status, status.stderr).toBe(0);
+
+    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+    const uninstall = runCliWithPath(home, pathValue, "apply");
+    expect(uninstall.status, uninstall.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(projectPath, ".claude", "skills", "review-pr"))).toBe(false);
+  });
+
   test("tracked colliding Codex Skill packages block global preflight", () => {
     const home = isolatedHome();
     initialize(home);
@@ -2075,6 +2137,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/does not claim that Agent Profile Kit manages|Do not claim that Agent Profile Kit manages/i);
     expect(result.stdout).toMatch(/optional scaffolding|empty categor/i);
     expect(result.stdout).toMatch(/workspace\.yaml/);
+    expect(result.stdout).toMatch(/at least one supported artifact|Context is not mandatory|Skills-only/i);
     for (const command of ["validate", "preview", "apply", "status", "uninstall"]) {
       expect(result.stdout).toContain(
         command === "status" || command === "uninstall"
@@ -2096,6 +2159,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/0\.16\.1/);
     expect(result.stdout).toMatch(/roll(?:ing|ed)?\s+(?:a\s+)?(?:machine\s+)?back|downgrade|older than 0\.16\.1/i);
     expect(result.stdout).toMatch(/profiles\//);
+    expect(result.stdout).toMatch(/at least one supported artifact|Skills-only Profile|no individual category is mandatory/i);
   });
 
   test("init bootstrap pointers stay short and name current guide commands", () => {

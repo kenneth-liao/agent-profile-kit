@@ -76,6 +76,12 @@ export type ClaudeProjectPlan = AdapterProjectPlan;
 
 export interface ClaudeCapabilityOptions {
   readonly env?: NodeJS.ProcessEnv;
+  /**
+   * When false, skip unscoped project-rule surface preflight (Skills-only Profiles
+   * that plan no Context rule). Defaults to true. CLI floor still applies when
+   * disabled model invocation or Context is required.
+   */
+  readonly requireContext?: boolean;
   /** When true, prove Host can enforce disabled model invocation. */
   readonly requireDisabledModelInvocation?: boolean;
   /** Injectable version probe for tests; defaults to `claude --version`. */
@@ -148,16 +154,26 @@ function compareSemver(left: string, right: string): number {
 }
 
 /**
- * Reject Claude Code CLI releases that cannot preserve unscoped project-rule Context.
+ * Reject Claude Code CLI releases that cannot preserve required Claude surfaces.
+ * The same CLI floor covers unscoped project-rule Context, native Skill discovery,
+ * and disable-model-invocation; messaging reflects which surface is required.
  */
 export function assertClaudeCliVersionSupported(
   version: string,
-  options: { readonly requireDisabledModelInvocation?: boolean } = {},
+  options: {
+    readonly requireContext?: boolean;
+    readonly requireDisabledModelInvocation?: boolean;
+  } = {},
 ): void {
   if (compareSemver(version, CLAUDE_MINIMUM_CLI_VERSION) < 0) {
     if (options.requireDisabledModelInvocation) {
       throw new Error(
         `Claude CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${CLAUDE_MINIMUM_CLI_VERSION}+); upgrade Claude Code before previewing or applying the Profile`,
+      );
+    }
+    if (options.requireContext === false) {
+      throw new Error(
+        `Claude CLI ${version} does not support native project Skills (requires ${CLAUDE_MINIMUM_CLI_VERSION}+); upgrade Claude Code before previewing or applying the Profile`,
       );
     }
     throw new Error(
@@ -202,6 +218,7 @@ async function resolveClaudeCliVersion(
 
 /**
  * Reject project surfaces or Host installs that cannot host Claude project outputs.
+ * Context preflight (unscoped rule surface) runs only when Context is selected.
  * When selected Skills require disabled model invocation, proves the CLI floor that
  * honors `disable-model-invocation` before any project or state write.
  * Authentication, trust, approvals, plugins, and sessions are never inspected or written.
@@ -210,13 +227,20 @@ export async function assertClaudeProjectCapability(
   project: string,
   options: ClaudeCapabilityOptions = {},
 ): Promise<void> {
+  const requireContext = options.requireContext !== false;
   const version = await resolveClaudeCliVersion(options);
-  assertClaudeCliVersionSupported(
-    version,
-    options.requireDisabledModelInvocation
+  assertClaudeCliVersionSupported(version, {
+    requireContext,
+    ...(options.requireDisabledModelInvocation
       ? { requireDisabledModelInvocation: true }
-      : {},
-  );
+      : {}),
+  });
+
+  // Skills-only Profiles do not write unscoped rules; only prove the rules surface
+  // when Context machinery will be planned.
+  if (!requireContext) {
+    return;
+  }
 
   const claudePath = join(project, ".claude");
   const rulesPath = join(project, ".claude", "rules");
@@ -459,10 +483,12 @@ export async function planClaudeProject(
         ),
       ),
   );
-  const outputs: ProposedProjectOutput[] = [
-    contextRule(profileId, modules),
-    ...skillOutputs,
-  ];
+  // Omit the unscoped Context rule when the Profile selects no Context Modules.
+  // Do not invent an empty Context artifact.
+  const outputs: ProposedProjectOutput[] =
+    modules.length > 0
+      ? [contextRule(profileId, modules), ...skillOutputs]
+      : [...skillOutputs];
   return {
     host: "claude",
     hostVersion: skillsRequireDisabledModelInvocation(skills)

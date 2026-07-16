@@ -68,7 +68,10 @@ when every consumer has upgraded to 0.16.1+.
 ## Author the Workspace
 
 This release supports Context Modules and portable Skills for Codex and Claude
-Code. Profiles that select Agents, Hooks, or Tools are rejected.
+Code. Profiles that select Agents, Hooks, or Tools are rejected. A Profile must
+select at least one supported artifact overall (Context Module, Skill, or both);
+no individual category is mandatory. Context-only, Skills-only, and combined
+Profiles are valid.
 
 A Context Module is a Markdown file under `context/` with frontmatter containing
 one stable, lowercase kebab-case `id`; the Markdown body is the Context. A Skill
@@ -125,8 +128,12 @@ Manifest.
 
 A Profile is a YAML file under `profiles/` with an `id` and explicit `context`,
 `skills`, `agents`, `hooks`, and `tools` arrays. In this release `agents`,
-`hooks`, and `tools` must be empty. Profiles do not inherit, use wildcards, or
-carry Host settings.
+`hooks`, and `tools` must be empty. At least one of `context` or `skills` must
+be non-empty. A Skills-only Profile installs only selected Skill packages and
+Installer lifecycle metadata—no Context snapshot, Codex SessionStart hooks, or
+Claude Context rule. Host capability preflight follows the selected categories
+(Skills-only does not require Context machinery). Profiles do not inherit, use
+wildcards, or carry Host settings.
 
 ```md
 ---
@@ -203,9 +210,10 @@ bindings:
 
 ## Validate, preview, and apply
 
-For Codex bindings, explicitly enable lifecycle hooks in global or project Codex
-configuration before `preview` or `apply`. Agent Profile Kit checks this during
-preflight and rejects reconciliation when hooks are disabled or unset:
+For Codex bindings that select Context, explicitly enable lifecycle hooks in
+global or project Codex configuration before `preview` or `apply`. Agent Profile
+Kit checks this during preflight and rejects reconciliation when hooks are
+disabled or unset. Skills-only Codex bindings do not require hooks:
 
 ```toml
 [features]
