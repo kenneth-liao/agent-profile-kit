@@ -259,10 +259,40 @@ conflict. Agent Profile Kit does not detect or resolve contradictions in prose;
 conflicting guidance remains visible to you and the Host. Global Host
 configuration and repository-owned files stay live and unchanged.
 
+### Global Skills vs project-bound Profiles
+
+Agent Profile Kit installs selected Skills only into the bound **project**
+(`.agents/skills/<Artifact ID>/` for Codex, `.claude/skills/<Artifact ID>/` for
+Claude). It never installs into, adopts, disables, or removes personal/global
+Host Skill folders.
+
+Those global folders remain Host-owned:
+
+- Codex: `~/.agents/skills/` and `~/.codex/skills/`
+- Claude Code: `~/.claude/skills/`
+
+If a selected Skill’s Host-visible identity already exists in a selected Host’s
+global folder, `preview` and `apply` fail closed before any project write. The
+blocker names the Host, Artifact ID, global path, and proposed project path, and
+asks you to remove or relocate the unmanaged global copy first. Missing global
+roots are fine. Unrelated global Skills are fine. Identical bytes and symlinks
+from a global folder into the Workspace still block, because the Host would see
+global delivery in addition to or instead of the managed project snapshot.
+
+This matters when migrating from temporary global symlinks: move reusable
+material into the Workspace as canonical source, remove the unmanaged global
+delivery, then `apply` so only the project-bound Profile Installation remains.
+
+Claude personal Skills override project Skills by name. Codex can expose both
+global and project Skills with the same name. Agent Profile Kit therefore treats
+any selected global/project identity collision as a conflict rather than an
+implicit precedence rule.
+
 ## Status and uninstall
 
 Use `agent-profile-kit status` to inspect every bound project. It reports current,
-stale source, drifted output, missing output, and malformed ownership.
+stale source, drifted output, missing output, blocked (including later global
+Skill identity collisions), and malformed ownership.
 
 To delete generated output, use `agent-profile-kit uninstall`. It removes only
 Installation Marker- and hash-proven output and preserves the Workspace, Local

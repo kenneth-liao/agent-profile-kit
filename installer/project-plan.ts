@@ -11,6 +11,10 @@ import {
   CODEX_ADAPTER_VERSION,
   planCodexProject,
 } from "../adapters/codex.js";
+import {
+  detectClaudeGlobalSkillOverlaps,
+  detectCodexGlobalSkillOverlaps,
+} from "../adapters/global-skill-overlap.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
   AdapterProjectPlan,
@@ -463,6 +467,7 @@ export async function buildDesiredState(
       const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
         resolvedProfile.skills,
       );
+      const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
       for (const host of target.binding.hosts) {
         if (options.checkHostCapability !== false) {
           try {
@@ -480,6 +485,21 @@ export async function buildDesiredState(
               `${target.binding.project}: ${error instanceof Error ? error.message : String(error)}`,
             );
           }
+        }
+        // Global Skill identity overlap is independent of CLI capability probes and must
+        // run for status as well as preview/apply so later global delivery is reported.
+        if (host === "codex") {
+          blockers.push(
+            ...(await detectCodexGlobalSkillOverlaps(home, selectedSkillIds, {
+              project: target.binding.canonicalProject,
+            })).map((message) => `${target.binding.project}: ${message}`),
+          );
+        } else if (host === "claude") {
+          blockers.push(
+            ...(await detectClaudeGlobalSkillOverlaps(home, selectedSkillIds, {
+              project: target.binding.canonicalProject,
+            })).map((message) => `${target.binding.project}: ${message}`),
+          );
         }
         if (host === "codex") {
           const contextPath = [

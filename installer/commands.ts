@@ -80,12 +80,17 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
   return {
     ...report,
     items: report.items.map((item) => {
-      const blocked = desired.installations.some((installation) =>
-        installation.binding.project === item.project &&
-        blockedProjects.has(installation.binding.canonicalProject)
+      const installation = desired.installations.find(
+        (candidate) => candidate.binding.project === item.project,
       );
+      const blocked = installation !== undefined &&
+        blockedProjects.has(installation.binding.canonicalProject);
+      // Only remap otherwise-healthy states. Drift, ownership, and malformed kinds
+      // already diagnose the problem and must keep their precise status labels.
+      if (blocked && (item.kind === "addition" || item.kind === "current")) {
+        return { ...item, kind: "blocked" as const };
+      }
       if (item.kind !== "addition") return item;
-      if (blocked) return { ...item, kind: "blocked" as const };
       return {
         ...item,
         kind: "missing output" as const,

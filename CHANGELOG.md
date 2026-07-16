@@ -14,6 +14,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Fail closed when a selected project-bound Skill collides with a selected Host's personal/global Skill identity (Codex `~/.agents/skills` and `~/.codex/skills`, Claude `~/.claude/skills`), including identical bytes and Workspace symlinks; `status` reports later overlaps as blocked without mutating global material ([#53](https://github.com/kenneth-liao/agent-profile-kit/issues/53)).
+
 - Reject dangling Workspace category symlinks as structural errors instead of treating them as empty categories ([#50](https://github.com/kenneth-liao/agent-profile-kit/issues/50)).
 
 - Kept personal Workspace and generated migration content outside the public package and added packed-artifact boundary checks ([#16](https://github.com/kenneth-liao/agent-profile-kit/issues/16)).
