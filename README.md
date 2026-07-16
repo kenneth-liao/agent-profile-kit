@@ -53,6 +53,7 @@ hook and Context.
 ```sh
 agent-profile-kit bind engineering --host codex
 agent-profile-kit bind engineering ~/projects/x --host codex --host claude
+agent-profile-kit unbind ~/projects/x
 agent-profile-kit validate
 agent-profile-kit preview
 agent-profile-kit apply
@@ -65,11 +66,13 @@ Project Bindings and an optional Workspace path live in the machine-local
 absolute or home-relative (`~/…`) project root, one Profile, and one or more
 Hosts (`codex`, `claude`). Omitting `workspace` retains the fixed default
 Workspace at `~/.agents/agent-profile-kit/workspace/`. Use `bind` to append one
-validated binding without reconciling output, or edit `config.yaml` directly.
-`preview` is read-only; `apply` reconciles every binding; `status` reports
-current, stale source, drifted output, missing output, and malformed ownership
-states; `uninstall` removes only output whose Installation Marker and hashes
-prove Agent Profile Kit ownership.
+validated binding, or `unbind` to remove one binding, without reconciling output;
+hand-editing `config.yaml` remains supported. `unbind` defaults to the current
+working directory and only uses exact authored-path recovery when a requested
+project no longer exists. `preview` is read-only; `apply` reconciles every
+binding; `status` reports current, stale source, drifted output, missing output,
+and malformed ownership states. `uninstall` is different: it removes proven
+generated Profile Installation output while preserving bindings.
 
 See `agent-profile-kit guide` for the Context Module, Skill, Profile, and binding
 formats, and `agent-profile-kit guide --agent` for agent-facing authoring

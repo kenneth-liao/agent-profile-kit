@@ -2333,9 +2333,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "guide");
     expect(result.status, result.stderr).toBe(0);
 
-    for (const command of ["init", "validate", "preview", "apply", "status", "uninstall"]) {
+    for (const command of ["init", "validate", "preview", "apply", "status", "unbind", "uninstall"]) {
       expect(result.stdout).toContain(`agent-profile-kit ${command}`);
     }
+    expect(result.stdout).toMatch(/unbind.*(?:desired|Project Binding).*uninstall|uninstall.*unbind/is);
     expect(result.stdout).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
 
     expect(result.stdout).toMatch(/project:\s*(~\/|\/)/);
@@ -2395,7 +2396,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       /(?:does not manage|not Agent Profile Kit[-–]owned).{0,80}global|user-managed native global/i,
     );
     expect(result.stdout).toMatch(/#53|fail closed|fail-closed|status.{0,40}blocked/i);
-    for (const command of ["validate", "preview", "apply", "status", "uninstall"]) {
+    for (const command of ["validate", "preview", "apply", "status", "unbind", "uninstall"]) {
       expect(result.stdout).toContain(
         command === "status" || command === "uninstall"
           ? command
@@ -2496,6 +2497,337 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readme).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
     expect(readme).not.toMatch(/per-session launcher|global Skill projection|process[- ]overlay/i);
     expect(readme).not.toMatch(/legacy migration input/i);
+  });
+});
+
+describe("agent-profile-kit unbind (recording-only Project Binding removal)", () => {
+  test("unbind without a project argument removes the canonical current working directory binding", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+
+    const result = runCliAt(home, projectPath, "unbind");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Removed Project Binding");
+    expect(result.stdout).toContain(realpathSync(projectPath));
+    expect(result.stdout).toContain("Profile: coding");
+    expect(result.stdout).toContain("Hosts: codex");
+    expect(result.stdout).toContain(configPath(home));
+    expect(result.stdout).toContain("agent-profile-kit preview");
+    expect(result.stdout).toContain("agent-profile-kit apply");
+    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("unbind removes a missing project only by exact authored path", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const authored = "~/projects/agent-profile-kit-unbind-missing";
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const result = runCli(home, "unbind", authored);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Removed Project Binding");
+    expect(result.stdout).toContain("canonical project identity could not be proven");
+    expect(result.stdout).toContain(`Local Configuration: ${configPath(home)}`);
+    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
+  });
+
+  test("unbind does not infer an alias for a missing authored project path", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const authored = "~/projects/agent-profile-kit-unbind-authored";
+    const alias = "~/projects/agent-profile-kit-unbind-alias";
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const before = readFileSync(configPath(home), "utf8");
+
+    const result = runCli(home, "unbind", alias);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Project Binding unchanged");
+    expect(result.stdout).toContain(alias);
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
+  });
+
+  test("unbind rejects malformed or ambiguous Local Configuration without mutation", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const malformed = "schema_version: 1\nbindings: not-an-array\n";
+    writeFileSync(configPath(home), malformed);
+
+    const malformedResult = runCli(home, "unbind", projectPath);
+
+    expect(malformedResult.status).toBe(1);
+    expect(malformedResult.stderr).toMatch(/bindings must be an array/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(malformed);
+
+    const missing = "~/projects/agent-profile-kit-unbind-ambiguous";
+    const ambiguous =
+      `schema_version: 1\nbindings:\n` +
+      `  - project: ${missing}\n    profile: coding\n    hosts: [codex]\n` +
+      `  - project: ${missing}\n    profile: coding\n    hosts: [codex]\n`;
+    writeFileSync(configPath(home), ambiguous);
+
+    const ambiguousResult = runCli(home, "unbind", missing);
+
+    expect(ambiguousResult.status).toBe(1);
+    expect(ambiguousResult.stderr).toMatch(/duplicates missing project path/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(ambiguous);
+  });
+
+  test("unbind fails closed with a hand-edit fallback when a Profile is missing", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const source =
+      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`;
+    writeFileSync(configPath(home), source);
+
+    const result = runCli(home, "unbind", projectPath);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/does not exist in Workspace/i);
+    expect(result.stderr).toMatch(/edit Local Configuration directly/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(source);
+  });
+
+  test("unbind refuses a direct edit observed before atomic publication", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+    const configuration = configPath(home);
+    const before = readFileSync(configuration, "utf8");
+
+    const { unbindProject } = await import("../installer/unbind-project.js");
+    const {
+      mkdir,
+      readdir,
+      readFile,
+      rename,
+      rm,
+      stat,
+      unlink,
+      writeFile,
+    } = await import("node:fs/promises");
+    let staged = false;
+    await expect(
+      unbindProject({
+        home,
+        project: projectPath,
+        fileSystem: {
+          mkdir,
+          readdir,
+          rename,
+          rm,
+          stat,
+          unlink,
+          writeFile: async (path, data, options) => {
+            const result = await writeFile(path, data, options);
+            if (typeof path === "string" && path.includes(".config-") && path.endsWith(".tmp")) {
+              staged = true;
+            }
+            return result;
+          },
+          readFile: (async (path: string, encoding?: BufferEncoding) => {
+            if (path === configuration && staged) {
+              await writeFile(configuration, `${before.trimEnd()}\n# external edit before replace\n`);
+            }
+            return readFile(path, encoding ?? "utf8");
+          }) as typeof readFile,
+        },
+      }),
+    ).rejects.toThrow(/changed before unbind publication/i);
+
+    expect(readFileSync(configuration, "utf8")).toContain("# external edit before replace");
+    expect(readFileSync(configuration, "utf8")).toContain(projectPath);
+  });
+
+  test("unbind leaves Workspace, project output, state, and Host configuration untouched", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+    const projectOutput = join(projectPath, ".agent-profile-kit");
+    mkdirSync(projectOutput, { recursive: true });
+    writeFileSync(join(projectOutput, "sentinel"), "project output\n");
+    const state = join(home, ".agents", "agent-profile-kit", "state");
+    mkdirSync(state, { recursive: true });
+    writeFileSync(join(state, "sentinel"), "machine state\n");
+    const hostConfig = join(home, ".codex", "config.toml");
+    const hostBefore = readFileSync(hostConfig, "utf8");
+    const workspaceBefore = readdirSync(workspacePath(home)).sort();
+
+    const result = runCli(home, "unbind", projectPath);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(join(projectOutput, "sentinel"), "utf8")).toBe("project output\n");
+    expect(readFileSync(join(state, "sentinel"), "utf8")).toBe("machine state\n");
+    expect(readFileSync(hostConfig, "utf8")).toBe(hostBefore);
+    expect(readdirSync(workspacePath(home)).sort()).toEqual(workspaceBefore);
+  });
+
+  test("unbind reports no match without rewriting Local Configuration", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const bound = project();
+    const other = project();
+    bind(home, bound);
+    const before = readFileSync(configPath(home), "utf8");
+
+    const result = runCli(home, "unbind", other);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Project Binding unchanged");
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
+  });
+
+  test("unbind leaves reconciliation of former output to global preview and apply", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+
+    const applied = runCli(home, "apply");
+    expect(applied.status, applied.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
+
+    const removed = runCli(home, "unbind", projectPath);
+    expect(removed.status, removed.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
+
+    const preview = runCli(home, "preview");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(projectPath);
+    expect(preview.stdout).toMatch(/removal/i);
+
+    const reconciled = runCli(home, "apply");
+    expect(reconciled.status, reconciled.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+  });
+
+  test("unbind preserves Local Configuration line endings and file mode", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\r\n# keep\r\nbindings:\r\n  - project: ${projectPath}\r\n    profile: coding\r\n    hosts: [codex]\r\n`,
+    );
+    chmodSync(configPath(home), 0o600);
+
+    const result = runCli(home, "unbind", projectPath);
+
+    expect(result.status, result.stderr).toBe(0);
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toContain("\r\n");
+    expect(source).toContain("# keep");
+    expect(source.split("\n").every((line) => line.endsWith("\r") || line === "")).toBe(true);
+    expect(statSync(configPath(home)).mode & 0o777).toBe(0o600);
+  });
+
+  test("unbind accepts an explicit symlink alias and removes its canonical binding", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const alias = join(home, "project-alias");
+    symlinkSync(projectPath, alias, "dir");
+    bind(home, projectPath);
+
+    const result = runCli(home, "unbind", alias);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Removed Project Binding for ${projectPath}`);
+    expect(result.stdout).toContain("Canonical project:");
+    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
+    expect(existsSync(alias)).toBe(true);
+  });
+
+  test("unbind preserves flow-style unrelated binding text", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const removed = project();
+    const retained = project();
+    const source =
+      `schema_version: 1\nbindings: [{project: ${removed}, profile: coding, hosts: [codex]}, ` +
+      `{project: ${retained}, profile: coding, hosts: [claude]}]\n`;
+    writeFileSync(configPath(home), source);
+
+    const result = runCli(home, "unbind", removed);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(configPath(home), "utf8")).toBe(
+      `schema_version: 1\nbindings: [{project: ${retained}, profile: coding, hosts: [claude]}]\n`,
+    );
+  });
+
+  test("unbind resolves an existing home-relative project path", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = join(home, "projects", "home-relative");
+    mkdirSync(projectPath, { recursive: true });
+    const authored = "~/projects/home-relative";
+    writeFileSync(
+      configPath(home),
+      `schema_version: 1\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const result = runCli(home, "unbind", authored);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Removed Project Binding");
+    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
+  });
+
+  test("unbind removes one explicit existing binding and preserves unrelated configuration", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const removed = project();
+    const retained = project();
+    const original =
+      `schema_version: 1\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+      `  # remove this binding note\n  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n` +
+      `  # retain this binding note\n  - project: ${retained}\n    profile: coding\n    hosts: [claude]\n`;
+    writeFileSync(configPath(home), original);
+
+    const result = runCli(home, "unbind", removed);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Removed Project Binding for ${removed}`);
+    expect(result.stdout).toContain("Canonical project:");
+    expect(result.stdout).toContain("Profile: coding");
+    expect(result.stdout).toContain("Hosts: codex");
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toBe(
+      `schema_version: 1\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  # retain this binding note\n  - project: ${retained}\n    profile: coding\n    hosts: [claude]\n`,
+    );
   });
 });
 
@@ -3023,6 +3355,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const usage = runCli(home, "unknown-command");
     expect(usage.status).toBe(1);
     expect(usage.stderr).toContain("bind <profile>");
+    expect(usage.stderr).toContain("unbind [project]");
   });
 });
 

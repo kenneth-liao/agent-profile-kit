@@ -55,7 +55,10 @@ Use this workflow when helping a person author their Workspace and bind projects
    invent project roots or Host lists. Use only explicit paths the user confirms.
    Reject wildcards, recursive scans, Host auto-detection, all-Hosts defaults,
    per-session selection, and Profile version pins. `bind` never applies output;
-   after recording, continue with validate/preview/apply.
+   after recording, continue with validate/preview/apply. To remove desired
+   state, use `agent-profile-kit unbind [project]`; it defaults to cwd, matches
+   existing paths canonically, and permits missing-path recovery only by exact
+   authored spelling. `unbind` never removes generated output.
 6. Validate before applying. Context Modules use `id` frontmatter and flat
    Profiles contain explicit arrays for every artifact category. Dependencies use
    explicit `{ type, id }` references. Run `agent-profile-kit validate`, review
@@ -67,10 +70,13 @@ Use this workflow when helping a person author their Workspace and bind projects
    approvals, plugins, or sessions. For non-Git projects, remind the user that
    Codex must launch from the exact bound root.
 8. Use `status` to distinguish current, stale, drifted, missing, and blocked
-   installations (including later global Skill identity collisions). `uninstall`
-   removes only output whose Installation Marker and hashes prove Agent Profile
-   Kit ownership; it preserves the Workspace, Local Configuration, global Host
-   configuration, and repository-owned files.
+   installations (including later global Skill identity collisions). `unbind`
+   removes desired Project Binding state but leaves generated output for global
+   `preview` and `apply`. `uninstall` instead removes only output whose
+   Installation Marker and hashes prove Agent Profile Kit ownership; it preserves
+   the Workspace, Local Configuration, global Host configuration, and
+   repository-owned files. Never use `uninstall` as a substitute for removing a
+   binding, or `unbind` as a substitute for output cleanup.
 
 If the user plans to publish the Workspace, remind them to review personal
 content. Credentials are invalid in a Workspace regardless of publication
