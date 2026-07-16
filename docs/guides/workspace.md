@@ -298,8 +298,21 @@ Project Bindings live only in machine-local
 `~/.agents/agent-profile-kit/config.yaml`. Each binding names exactly one
 existing absolute or home-relative project root, one Profile, and a non-empty set
 of supported Hosts (`codex`, `claude`). There are no wildcards, recursive scans,
-hidden default projects, per-session Profile selection, or Profile version pins.
-A project root may appear in only one binding.
+hidden default projects, Host auto-detection, per-session Profile selection, or
+Profile version pins. A project root may appear in only one binding.
+
+Hand-edit `config.yaml`, or record one binding with the authoring-only command
+(does not install or reconcile project output):
+
+```sh
+agent-profile-kit bind coding --host codex
+agent-profile-kit bind coding ~/projects/tools/agent-profile-kit --host codex --host claude
+```
+
+Omit the project argument to use the current working directory. At least one
+`--host` flag is required. An identical binding is left unchanged; a different
+Profile or Host set for the same project fails instead of overwriting. After
+binding, run `validate`, then `preview` and `apply` separately.
 
 ```yaml
 schema_version: 1

@@ -49,10 +49,13 @@ Use this workflow when helping a person author their Workspace and bind projects
    - Do not select a Skill into a bound Profile while the same Host-visible
      identity is also globally delivered; preview/apply fail closed, and later
      overlap appears as status blocked (#53).
-5. Author bindings directly in Local Configuration. Do not invent project roots
-   or Host lists. Use only explicit paths the user confirms. Reject wildcards,
-   recursive scans, hidden defaults, per-session selection, and Profile version
-   pins.
+5. Author bindings in Local Configuration—either hand-edit `config.yaml` or run
+   recording-only `agent-profile-kit bind <profile> [project] --host <host>…`
+   (cwd when project is omitted; at least one explicit `--host` required). Do not
+   invent project roots or Host lists. Use only explicit paths the user confirms.
+   Reject wildcards, recursive scans, Host auto-detection, all-Hosts defaults,
+   per-session selection, and Profile version pins. `bind` never applies output;
+   after recording, continue with validate/preview/apply.
 6. Validate before applying. Context Modules use `id` frontmatter and flat
    Profiles contain explicit arrays for every artifact category. Dependencies use
    explicit `{ type, id }` references. Run `agent-profile-kit validate`, review

@@ -49,7 +49,7 @@ export function expandConfiguredPath(
   return value;
 }
 
-async function requireExistingDirectory(
+export async function requireExistingDirectory(
   expanded: string,
   authored: string,
   description: string,
@@ -91,7 +91,8 @@ async function requireExistingDirectory(
   return realpath(expanded);
 }
 
-async function normalizeProject(
+/** Canonical absolute directory for a Project Binding root (authored spelling separate). */
+export async function normalizeProject(
   project: string,
   home: string,
   description: string,

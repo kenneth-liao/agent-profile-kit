@@ -3,6 +3,7 @@
 import { homedir } from "node:os";
 
 import { agentGuide, humanGuide } from "./guides.js";
+import { bindProject } from "../installer/bind-project.js";
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
   applyApplication,
@@ -22,7 +23,54 @@ function formatError(error: unknown): string {
 }
 
 function usage(): string {
-  return "Usage: agent-profile-kit init\n       agent-profile-kit guide [--agent]\n       agent-profile-kit validate\n       agent-profile-kit preview\n       agent-profile-kit apply\n       agent-profile-kit status\n       agent-profile-kit uninstall\n";
+  return (
+    "Usage: agent-profile-kit init\n" +
+    "       agent-profile-kit guide [--agent]\n" +
+    "       agent-profile-kit bind <profile> [project] --host <host> [--host <host> ...]\n" +
+    "       agent-profile-kit validate\n" +
+    "       agent-profile-kit preview\n" +
+    "       agent-profile-kit apply\n" +
+    "       agent-profile-kit status\n" +
+    "       agent-profile-kit uninstall\n"
+  );
+}
+
+/**
+ * Parse `bind <profile> [project] --host <host> ...`.
+ * At least one --host is required. Host detection/defaults are intentionally absent.
+ */
+function parseBindArguments(arguments_: readonly string[]): {
+  readonly profile: string;
+  readonly project?: string;
+  readonly hosts: readonly string[];
+} {
+  if (arguments_.length === 0) {
+    throw new Error("bind requires a Profile Artifact ID");
+  }
+  const profile = arguments_[0]!;
+  let index = 1;
+  let project: string | undefined;
+  if (index < arguments_.length && !arguments_[index]!.startsWith("-")) {
+    project = arguments_[index]!;
+    index += 1;
+  }
+
+  const hosts: string[] = [];
+  while (index < arguments_.length) {
+    const flag = arguments_[index]!;
+    if (flag === "--host") {
+      const value = arguments_[index + 1];
+      if (value === undefined || value.startsWith("-")) {
+        throw new Error("bind --host requires an Agent Host name");
+      }
+      hosts.push(value);
+      index += 2;
+      continue;
+    }
+    throw new Error(`bind does not accept argument '${flag}'`);
+  }
+
+  return project === undefined ? { profile, hosts } : { profile, project, hosts };
 }
 
 function formatReport(report: ReconciliationReport): string {
@@ -89,7 +137,34 @@ async function main(): Promise<void> {
     }
     process.stdout.write(
       `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}\n` +
-        "Next: edit config.yaml and run agent-profile-kit validate\n",
+        "Next: bind a project or edit config.yaml, then run agent-profile-kit validate\n",
+    );
+    return;
+  }
+  if (arguments_.length >= 1 && arguments_[0] === "bind") {
+    const parsed = parseBindArguments(arguments_.slice(1));
+    const result = await bindProject({
+      home,
+      profile: parsed.profile,
+      hosts: parsed.hosts,
+      ...(parsed.project === undefined ? {} : { project: parsed.project }),
+    });
+    if (result.outcome === "unchanged") {
+      process.stdout.write(
+        `Project Binding unchanged for ${result.project}\n` +
+          `  Profile: ${result.profile}\n` +
+          `  Hosts: ${result.hosts.join(", ")}\n` +
+          `  Local Configuration: ${result.configurationPath}\n` +
+          "Next: agent-profile-kit preview && agent-profile-kit apply\n",
+      );
+      return;
+    }
+    process.stdout.write(
+      `Recorded Project Binding for ${result.project}\n` +
+        `  Profile: ${result.profile}\n` +
+        `  Hosts: ${result.hosts.join(", ")}\n` +
+        `  Local Configuration: ${result.configurationPath}\n` +
+        "Next: agent-profile-kit preview && agent-profile-kit apply\n",
     );
     return;
   }
