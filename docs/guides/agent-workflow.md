@@ -26,15 +26,23 @@ Use this workflow when helping a person author their Workspace and bind projects
    not create a new artifact merely because a directory exists, and do not invent
    Agents, Hooks, or Tools for this release.
 4. Preserve boundaries.
-   - **Workspace** owns reusable cross-project Profiles and artifacts.
+   - **Workspace** owns reusable cross-project Profiles and artifacts as the
+     single canonical source. That includes Profile-selected material and
+     unselected universal artifacts (useful across every directory or kind of
+     work). Unselected does not mean “belongs in Host config.”
    - **Local Configuration** (`~/.agents/agent-profile-kit/config.yaml`) owns
      machine-local Project Bindings: one existing absolute or home-relative
      project root, one Profile, and a supported Host set per binding.
    - **Project repositories** own project facts and repository-owned instructions.
    - **Hosts** own authentication, trust, approvals, plugins, sessions, and
-     Host preferences.
+     Host preferences. User-managed native global Skill delivery (including
+     Host-root symlinks into Workspace source) is Host configuration, not
+     Agent Profile Kit state—outside Project Bindings, Installation Manifests,
+     status, apply, and uninstall. v1 does not manage global Host delivery.
    - **Generated output** is disposable Installer-owned material inside bound
      projects. Never copy it back into the Workspace as source.
+   - Do not select a Skill into a bound Profile while the same Host-visible
+     identity is also globally delivered; preview/apply fail closed (#53).
 5. Author bindings directly in Local Configuration. Do not invent project roots
    or Host lists. Use only explicit paths the user confirms. Reject wildcards,
    recursive scans, hidden defaults, per-session selection, and Profile version
