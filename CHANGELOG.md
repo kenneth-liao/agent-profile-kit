@@ -12,6 +12,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Document that universal artifacts may remain canonical Workspace source while Profile selection drives only project-bound delivery; v1 does not own or mutate global Host paths, `status` may still report selected↔global Skill collisions as blocked (#53), and dual delivery fails closed ([#52](https://github.com/kenneth-liao/agent-profile-kit/issues/52)).
+
 - Treat Workspace scaffolding as optional after initialization: only a supported `workspace.yaml` is required; missing artifact directories ingest as empty categories; bootstrap docs are never format requirements; document CLI 0.16.1+ vs older full-scaffold expectations for rollback ([#50](https://github.com/kenneth-liao/agent-profile-kit/issues/50)).
 
 - Published the final project-bound public overview, Workspace guide, and agent workflow for init through native Host use, with packed CLI coverage of both bundled guides ([#34](https://github.com/kenneth-liao/agent-profile-kit/issues/34)).

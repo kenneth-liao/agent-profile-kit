@@ -9,8 +9,8 @@ The open-source tool and format that composes reusable agent material into Profi
 _Avoid_: Monorepo, universal agent runtime
 
 **Agent Profile Kit Workspace**:
-The user's single canonical source of Profiles, Context, Skills, Agents, Hooks, and Tools consumed by Agent Profile Kit. The initial release uses the fixed path `~/.agents/agent-profile-kit/workspace/`; it may be a Git repository version-controlled independently of the tool.
-_Avoid_: Open-source tool repository, Profile Installation
+The user's single canonical source of Profiles, Context, Skills, Agents, Hooks, and Tools consumed by Agent Profile Kit. It may own both Profile-selected artifacts and unselected universal artifacts; selection controls managed project delivery, not whether material is valid Workspace source. The initial release uses the fixed path `~/.agents/agent-profile-kit/workspace/`; it may be a Git repository version-controlled independently of the tool.
+_Avoid_: Open-source tool repository, Profile Installation, Host-global second source
 
 **Workspace Manifest**:
 The `workspace.yaml` file that marks a Workspace root and declares the Workspace schema version without listing or duplicating artifact content.

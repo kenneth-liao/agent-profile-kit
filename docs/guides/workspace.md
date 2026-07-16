@@ -1,14 +1,52 @@
 # Agent Profile Kit Workspace guide
 
 Agent Profile Kit keeps your reusable, cross-project agent material in one
-Workspace. The Workspace is the canonical source. Profiles select a flat set of
-portable artifacts for a kind of work. The Installer installs each bound Profile
-into explicitly bound projects as disposable, Host-native output. Supported Hosts
-then load that material through ordinary project discovery.
+Workspace. The Workspace is the single canonical source. Profiles select a flat
+set of portable artifacts for a kind of work. The Installer installs each bound
+Profile into explicitly bound projects as disposable, Host-native output.
+Supported Hosts then load that material through ordinary project discovery.
 
 Keep project facts in the relevant project repository. Keep Host preferences,
 authentication, credentials, and machine-specific values outside the Workspace.
 Edit Workspace files and Local Configuration directly.
+
+## Universal Workspace material
+
+Source ownership and managed delivery are separate:
+
+- The **Workspace** may canonically own both Profile-selected artifacts and
+  **unselected universal** artifacts (material useful across every directory or
+  kind of work, not only one Profile’s selection). Leaving an artifact unselected
+  by every Profile does not make it invalid and does not move its canonical
+  source into Host configuration.
+- **Profiles** select the artifacts scoped to a kind of work for Agent Profile
+  Kit–managed project-bound delivery. A Project Binding selects a project root,
+  one Profile, and Hosts; only selected (and Dependency-resolved) artifacts from
+  that Profile enter Installation Manifests and the managed lifecycle
+  (`preview`, `apply`, `status`, and `uninstall`).
+- Agent Profile Kit v1 does not install, project, synchronize, or remove material in
+  personal/global Host roots. Global Host delivery is not APK-owned state: it is
+  outside Project Bindings and Installation Manifests, and `apply` / `uninstall`
+  never adopt, record as managed output, or mutate those paths. `status` does not
+  treat global roots as managed output, but it may still report a project
+  installation as blocked when a selected Skill’s Host-visible identity collides
+  with personal or global delivery (see
+  [#53](https://github.com/kenneth-liao/agent-profile-kit/issues/53)).
+- You may still manage native global delivery yourself—for example by symlinking
+  a Host Skill root entry to canonical Workspace source—but that delivery is
+  user-managed Host configuration, not Agent Profile Kit–owned state. Agent
+  Profile Kit never adopts, tracks, or uninstalls those global paths.
+- A Skill must not be both universally delivered in a Host global root and
+  selected into a bound Profile for that Host. When a selected Skill’s
+  Host-visible identity already exists in a selected Host’s personal/global Skill
+  root, `preview` and `apply` fail closed (see
+  [#53](https://github.com/kenneth-liao/agent-profile-kit/issues/53)). Prefer one
+  delivery path: either project-bound Profile selection or user-managed global
+  delivery, not both.
+
+Future Agent Profile Kit–managed global delivery would need an explicit ADR that
+revisits the no-global-output boundary. Closing this guidance does not put that
+feature on the backlog.
 
 ## Initialize
 
@@ -292,10 +330,14 @@ configuration and repository-owned files stay live and unchanged.
 
 ### Global Skills vs project-bound Profiles
 
+This section is the Host-path detail for the
+[Universal Workspace material](#universal-workspace-material) boundary.
+
 Agent Profile Kit installs selected Skills only into the bound **project**
 (`.agents/skills/<Artifact ID>/` for Codex, `.claude/skills/<Artifact ID>/` for
 Claude). It never installs into, adopts, disables, or removes personal/global
-Host Skill folders.
+Host Skill folders. Unselected Workspace Skills are not installed into projects
+either; they may remain valid Workspace source without any APK-managed delivery.
 
 Those global folders remain Host-owned:
 
@@ -303,16 +345,21 @@ Those global folders remain Host-owned:
 - Claude Code: `~/.claude/skills/`
 
 If a selected Skill’s Host-visible identity already exists in a selected Host’s
-global folder, `preview` and `apply` fail closed before any project write. The
-blocker names the Host, Artifact ID, global path, and proposed project path, and
-asks you to remove or relocate the unmanaged global copy first. Missing global
-roots are fine. Unrelated global Skills are fine. Identical bytes and symlinks
-from a global folder into the Workspace still block, because the Host would see
-global delivery in addition to or instead of the managed project snapshot.
+global folder, `preview` and `apply` fail closed before any project write
+([#53](https://github.com/kenneth-liao/agent-profile-kit/issues/53)). The blocker
+names the Host, Artifact ID, global path, and proposed project path, and asks you
+to remove or relocate the unmanaged global copy first (or deselect the Skill
+from the Profile). Missing global roots are fine. Unrelated global Skills are
+fine. Identical bytes and symlinks from a global folder into the Workspace still
+block, because the Host would see global delivery in addition to or instead of
+the managed project snapshot.
 
-This matters when migrating from temporary global symlinks: move reusable
-material into the Workspace as canonical source, remove the unmanaged global
-delivery, then `apply` so only the project-bound Profile Installation remains.
+When migrating from temporary global symlinks into project-bound delivery: keep
+the reusable material in the Workspace as its single canonical source, remove the
+unmanaged global delivery for Skills you will select into a Profile, then
+`apply` so only the project-bound Profile Installation remains. If you prefer
+user-managed global delivery for a Skill instead, leave it unselected by every
+bound Profile so APK never attempts a project snapshot for that identity.
 
 Claude personal Skills override project Skills by name. Codex can expose both
 global and project Skills with the same name. Agent Profile Kit therefore treats

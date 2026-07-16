@@ -2138,6 +2138,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/optional scaffolding|empty categor/i);
     expect(result.stdout).toMatch(/workspace\.yaml/);
     expect(result.stdout).toMatch(/at least one supported artifact|Context is not mandatory|Skills-only/i);
+    expect(result.stdout).toMatch(/unselected universal|universal artifact/i);
+    expect(result.stdout).toMatch(
+      /(?:does not manage|not Agent Profile Kit[-–]owned).{0,80}global|user-managed native global/i,
+    );
+    expect(result.stdout).toMatch(/#53|fail closed|fail-closed|status.{0,40}blocked/i);
     for (const command of ["validate", "preview", "apply", "status", "uninstall"]) {
       expect(result.stdout).toContain(
         command === "status" || command === "uninstall"
@@ -2164,6 +2169,53 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(
       /Skills-only|before rolling a machine back to a CLI older than 0\.17|convert each Skills-only|stranded/i,
     );
+  });
+
+  test("packed human guide separates universal Workspace source ownership from managed delivery", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "guide");
+    expect(result.status, result.stderr).toBe(0);
+
+    // Workspace may own Profile-selected and unselected universal artifacts as one canonical source.
+    expect(result.stdout).toMatch(/universal/i);
+    expect(result.stdout).toMatch(/unselected/i);
+    expect(result.stdout).toMatch(
+      /canonical source|single canonical source|Workspace (?:is|remains|may (?:own|canonically own))/i,
+    );
+    expect(result.stdout).toMatch(/source ownership and managed delivery/i);
+
+    // v1 does not manage global Host delivery as owned APK state.
+    expect(result.stdout).toMatch(
+      /does not install, project, synchronize, or remove material in\s+personal\/global/i,
+    );
+    expect(result.stdout).toMatch(
+      /(?:not APK-owned|outside Project Bindings).{0,80}Installation Manifest/is,
+    );
+    expect(result.stdout).toMatch(
+      /never adopt, record as managed output, or mutate those paths/i,
+    );
+    // Ownership vs observation: status may still report blocked on dual delivery.
+    expect(result.stdout).toMatch(
+      /status.{0,80}(?:report|blocked)|(?:report|blocked).{0,80}status/is,
+    );
+
+    // Bindings select Profile/Hosts; artifacts enter Manifests / managed lifecycle.
+    expect(result.stdout).toMatch(
+      /Project Binding selects|Bindings select|binding selects/i,
+    );
+    expect(result.stdout).toMatch(/Installation Manifests and the managed lifecycle/i);
+
+    // User-managed global delivery is permitted without becoming APK-owned state.
+    expect(result.stdout).toMatch(/manage native global delivery yourself/i);
+    expect(result.stdout).toMatch(/symlinking/i);
+    expect(result.stdout).not.toMatch(
+      /Agent Profile Kit (?:owns|manages|tracks) (?:your )?global (?:Host )?(?:Skill |delivery)/i,
+    );
+
+    // Dual delivery (global + Profile-selected) is prohibited; #53 fail-closed.
+    expect(result.stdout).toMatch(/must not be both/i);
+    expect(result.stdout).toMatch(/#53/);
+    expect(result.stdout).toMatch(/fail closed/i);
   });
 
   test("init bootstrap pointers stay short and name current guide commands", () => {
