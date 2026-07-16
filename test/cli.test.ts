@@ -6,6 +6,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -152,6 +153,115 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(readFileSync(config, "utf8")).toBe(originalConfig);
     expect(readFileSync(join(workspace, "README.md"), "utf8")).toBe("# authored\n");
+  });
+
+  test("manifest-only and partial Workspaces validate; re-init does not restore optional scaffolding", () => {
+    const home = isolatedHome();
+    const workspace = workspacePath(home);
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+
+    const minimalValidate = runCli(home, "validate");
+    expect(minimalValidate.status, minimalValidate.stderr).toBe(0);
+    expect(minimalValidate.stdout).toContain("Workspace and Local Configuration valid");
+
+    mkdirSync(join(workspace, "context"));
+    mkdirSync(join(workspace, "profiles"));
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+
+    const partialValidate = runCli(home, "validate");
+    expect(partialValidate.status, partialValidate.stderr).toBe(0);
+    expect(partialValidate.stdout).toContain("1 Profiles");
+
+    for (const entry of ["README.md", "AGENTS.md", ".gitignore", "skills", "agents", "hooks", "tools"]) {
+      expect(existsSync(join(workspace, entry))).toBe(false);
+    }
+
+    const reinit = runCli(home, "init");
+    expect(reinit.status, reinit.stderr).toBe(0);
+    expect(reinit.stdout).toMatch(/already initialized|unchanged/i);
+    for (const entry of ["README.md", "AGENTS.md", ".gitignore", "skills", "agents", "hooks", "tools"]) {
+      expect(existsSync(join(workspace, entry))).toBe(false);
+    }
+  });
+
+  test("missing bootstrap files do not affect validate, preview, status, apply, or uninstall", () => {
+    const home = isolatedHome();
+    const workspace = workspacePath(home);
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
+    mkdirSync(join(workspace, "context"));
+    mkdirSync(join(workspace, "profiles"));
+    writeContextProfile(home);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const projectPath = project();
+    bind(home, projectPath);
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+
+    for (const entry of ["README.md", "AGENTS.md", ".gitignore"]) {
+      expect(existsSync(join(workspace, entry))).toBe(false);
+    }
+
+    for (const command of ["validate", "preview", "status"] as const) {
+      const result = runCli(home, command);
+      expect(result.status, `${command}: ${result.stderr}`).toBe(0);
+    }
+
+    const apply = runCli(home, "apply");
+    expect(apply.status, apply.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
+
+    const uninstall = runCli(home, "uninstall");
+    expect(uninstall.status, uninstall.stderr).toBe(0);
+    expect(uninstall.stdout).toMatch(/Uninstalled/);
+  });
+
+  test("malformed workspace.yaml still fails validate with actionable guidance", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeFileSync(join(workspacePath(home), "workspace.yaml"), "schema_version: 99\n");
+
+    const result = runCli(home, "validate");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Unsupported Workspace schema version 99");
+
+    writeFileSync(join(workspacePath(home), "workspace.yaml"), "not: valid: yaml: [\n");
+    const invalidYaml = runCli(home, "validate");
+    expect(invalidYaml.status).toBe(1);
+    expect(invalidYaml.stderr).toMatch(/invalid YAML|correct workspace\.yaml/i);
+
+    rmSync(join(workspacePath(home), "workspace.yaml"));
+    const missing = runCli(home, "validate");
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toMatch(/missing required file 'workspace\.yaml'/);
+  });
+
+  test("symlinked minimal Workspace validates and re-init does not restore scaffolding", () => {
+    const home = isolatedHome();
+    const realWorkspace = join(home, "real-workspace");
+    mkdirSync(realWorkspace, { recursive: true });
+    writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 1\n");
+    const applicationRoot = join(home, ".agents", "agent-profile-kit");
+    mkdirSync(applicationRoot, { recursive: true });
+    symlinkSync(realWorkspace, join(applicationRoot, "workspace"));
+    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+
+    const validate = runCli(home, "validate");
+    expect(validate.status, validate.stderr).toBe(0);
+    expect(validate.stdout).toContain("Workspace and Local Configuration valid");
+
+    const reinit = runCli(home, "init");
+    expect(reinit.status, reinit.stderr).toBe(0);
+    expect(reinit.stdout).toMatch(/already initialized|unchanged/i);
+    expect(readdirSync(realWorkspace).sort()).toEqual(["workspace.yaml"]);
+    for (const entry of ["README.md", "profiles", "skills"]) {
+      expect(existsSync(join(realWorkspace, entry))).toBe(false);
+    }
   });
 
   test("validate normalizes home-relative project roots and does not invoke Codex", () => {
@@ -1963,6 +2073,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/machine[- ](path|specific)|Host preference/i);
     expect(result.stdout).toMatch(/exact bound root/);
     expect(result.stdout).toMatch(/does not claim that Agent Profile Kit manages|Do not claim that Agent Profile Kit manages/i);
+    expect(result.stdout).toMatch(/optional scaffolding|empty categor/i);
+    expect(result.stdout).toMatch(/workspace\.yaml/);
     for (const command of ["validate", "preview", "apply", "status", "uninstall"]) {
       expect(result.stdout).toContain(
         command === "status" || command === "uninstall"
@@ -1970,6 +2082,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
           : `agent-profile-kit ${command}`,
       );
     }
+  });
+
+  test("packed human guide distinguishes required Manifest from init scaffolding", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "guide");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/Required structure vs initialization scaffolding|valid Workspace needs only/i);
+    expect(result.stdout).toMatch(/workspace\.yaml/);
+    expect(result.stdout).toMatch(/empty categor/i);
+    expect(result.stdout).toMatch(/README\.md/);
+    expect(result.stdout).toMatch(/optional/i);
   });
 
   test("init bootstrap pointers stay short and name current guide commands", () => {

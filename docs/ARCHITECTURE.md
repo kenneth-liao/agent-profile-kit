@@ -13,8 +13,8 @@ The tool repository owns the CLI, schemas, Installer, Adapters, and product docu
 ```text
 ~/.agents/agent-profile-kit/
 ├── workspace/                 # User-owned canonical Profiles and artifacts
-│   ├── workspace.yaml
-│   ├── profiles/
+│   ├── workspace.yaml         # Required Workspace Manifest (schema marker)
+│   ├── profiles/              # Optional category; missing means empty
 │   ├── context/
 │   ├── skills/
 │   ├── agents/
@@ -26,7 +26,9 @@ The tool repository owns the CLI, schemas, Installer, Adapters, and product docu
 
 The initial release supports exactly one Workspace at the fixed path above. The path may itself be a symbolic link to a valid Workspace. Profiles and artifacts may be version-controlled independently of the engine. `config.yaml` is machine-local because checkout paths and installed Hosts vary by machine. Credential values belong in Host authentication, environment references, or operating-system secret storage and are invalid in both the Workspace and installation records.
 
-`agent-profile-kit init` idempotently creates both an empty, structurally valid Workspace and a minimal `config.yaml` containing `schema_version: 1` and `bindings: []`. It creates only missing files and never overwrites an existing Workspace or local configuration. Humans and agents edit Workspace artifacts and Project Bindings directly; the CLI does not duplicate those facts behind CRUD commands.
+A valid Workspace requires only a supported `workspace.yaml`. Artifact directories and bootstrap docs (`README.md`, `AGENTS.md`, `.gitignore`) are initialization scaffolding for discoverability, not permanent format requirements: missing categories ingest as empty, and present artifacts remain fully validated.
+
+`agent-profile-kit init` idempotently creates a fully scaffolded empty Workspace and a minimal `config.yaml` containing `schema_version: 1` and `bindings: []` when the Workspace path is missing or empty. It never overwrites an existing Workspace or local configuration, and it does not recreate optional scaffolding inside an already valid Workspace (including a Manifest-only tree). Humans and agents edit Workspace artifacts and Project Bindings directly; the CLI does not duplicate those facts behind CRUD commands.
 
 ## Runtime Boundary
 

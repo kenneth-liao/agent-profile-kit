@@ -2,10 +2,13 @@
 
 Use this workflow when helping a person author their Workspace and bind projects.
 
-1. Read this guide first. Then inspect the Workspace: `workspace.yaml`, its
-   schema version, and the existing artifact directories. Treat the Workspace
-   as the canonical source; do not infer reusable material from generated Host
-   output.
+1. Read this guide first. Then inspect the Workspace: start with `workspace.yaml`
+   and its schema version. A valid Workspace needs only that Manifest; missing
+   artifact directories are empty categories, and bootstrap files such as
+   `README.md`, `AGENTS.md`, and `.gitignore` are optional scaffolding from
+   `init`, not format requirements. Inspect any present artifact directories next.
+   Treat the Workspace as the canonical source; do not infer reusable material
+   from generated Host output.
 2. Elicit the user's needs one decision at a time. Establish the kind of work,
    the reusable facts or workflow they want, and whether existing material
    already satisfies the need. Ask instead of inventing personal preferences,
