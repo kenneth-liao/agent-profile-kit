@@ -2690,7 +2690,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const {
       link,
       mkdir,
-      open,
+      readdir,
       readFile,
       rename,
       rm,
@@ -2709,7 +2709,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
         hosts: ["codex"],
         fileSystem: {
           mkdir,
-          open,
+          readdir,
           readFile,
           rename,
           rm,
@@ -2747,7 +2747,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const {
       link,
       mkdir,
-      open,
+      readdir,
       readFile,
       rename,
       rm,
@@ -2772,7 +2772,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
         fileSystem: {
           link,
           mkdir,
-          open,
+          readdir,
           rename,
           rm,
           stat,
@@ -2791,6 +2791,105 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     expect(readFileSync(configuration, "utf8")).toContain("profile: ops");
     expect(readFileSync(configuration, "utf8")).not.toContain("profile: coding");
+  });
+
+  test("bind recovers a held snapshot after interruption immediately after claim-aside", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const configuration = configPath(home);
+    const original = readFileSync(configuration, "utf8");
+
+    const { bindProject } = await import("../installer/bind-project.js");
+    const {
+      link,
+      mkdir,
+      readdir,
+      readFile,
+      rename,
+      rm,
+      stat,
+      unlink,
+      writeFile,
+    } = await import("node:fs/promises");
+
+    let claimed = false;
+    await expect(
+      bindProject({
+        home,
+        profile: "coding",
+        project: projectPath,
+        hosts: ["codex"],
+        fileSystem: {
+          link,
+          mkdir,
+          readdir,
+          readFile,
+          rm,
+          stat,
+          unlink,
+          writeFile,
+          rename: async (from, to) => {
+            if (!claimed && from === configuration) {
+              claimed = true;
+              await rename(from, to);
+              throw new Error("injected crash after claim-aside");
+            }
+            return rename(from, to);
+          },
+        },
+      }),
+    ).rejects.toThrow(/injected crash after claim-aside/);
+
+    expect(existsSync(configuration)).toBe(false);
+    const held = readdirSync(join(home, ".agents", "agent-profile-kit")).filter((name) =>
+      name.startsWith(".config-held-"),
+    );
+    expect(held.length).toBeGreaterThan(0);
+
+    // Next bind restores the held snapshot deterministically, then records the binding.
+    const recovered = await bindProject({
+      home,
+      profile: "coding",
+      project: projectPath,
+      hosts: ["codex"],
+    });
+    expect(recovered.outcome).toBe("created");
+    expect(existsSync(configuration)).toBe(true);
+    expect(readFileSync(configuration, "utf8")).toContain(projectPath);
+    expect(readFileSync(configuration, "utf8")).not.toBe(original);
+    expect(
+      readdirSync(join(home, ".agents", "agent-profile-kit")).some((name) =>
+        name.startsWith(".config-held-"),
+      ),
+    ).toBe(false);
+  });
+
+  test("bind does not steal a freshly empty lock while ownership is still initializing", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const configuration = configPath(home);
+    const lockPath = `${configuration}.lock`;
+    // Simulate the pre-fix window: exclusive create without PID body yet.
+    writeFileSync(lockPath, "");
+
+    const { bindProject } = await import("../installer/bind-project.js");
+    const started = Date.now();
+    // Empty locks are live until their age exceeds the timeout. Instant steal
+    // (treating empty as dead NaN PID) would finish in a few ms; waiting is required.
+    await bindProject({
+      home,
+      profile: "coding",
+      project: projectPath,
+      hosts: ["codex"],
+      lockTimeoutMs: 150,
+    });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(120);
+    expect(readFileSync(configuration, "utf8")).toContain(projectPath);
+    expect(existsSync(lockPath)).toBe(false);
   });
 
   test("concurrent binds serialize under the lock so both Project Bindings are retained", async () => {

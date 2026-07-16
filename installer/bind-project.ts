@@ -1,14 +1,13 @@
 import {
   link as defaultLink,
   mkdir as defaultMkdir,
-  open as defaultOpen,
+  readdir as defaultReaddir,
   readFile as defaultReadFile,
   rename as defaultRename,
   rm as defaultRm,
   stat as defaultStat,
   unlink as defaultUnlink,
   writeFile as defaultWriteFile,
-  type FileHandle,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isMap, isSeq, parseDocument } from "yaml";
@@ -30,7 +29,7 @@ import {
 export interface BindProjectFileSystem {
   readonly link: typeof defaultLink;
   readonly mkdir: typeof defaultMkdir;
-  readonly open: typeof defaultOpen;
+  readonly readdir: typeof defaultReaddir;
   readonly readFile: typeof defaultReadFile;
   readonly rename: typeof defaultRename;
   readonly rm: typeof defaultRm;
@@ -42,7 +41,7 @@ export interface BindProjectFileSystem {
 const defaultFileSystem: BindProjectFileSystem = {
   link: defaultLink,
   mkdir: defaultMkdir,
-  open: defaultOpen,
+  readdir: defaultReaddir,
   readFile: defaultReadFile,
   rename: defaultRename,
   rm: defaultRm,
@@ -52,7 +51,8 @@ const defaultFileSystem: BindProjectFileSystem = {
 };
 
 const LOCK_RETRY_MS = 20;
-const LOCK_TIMEOUT_MS = 5_000;
+const DEFAULT_LOCK_TIMEOUT_MS = 5_000;
+const HELD_PREFIX = ".config-held-";
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
@@ -119,37 +119,103 @@ async function pathExists(
 }
 
 /**
- * Exclusive bind lock with crash-safe ownership: lock contents are the owner PID.
- * A lock whose owner is not alive is removed so a crashed bind cannot block forever.
+ * If a previous bind claimed config aside and crashed before exclusive create,
+ * restore the newest held snapshot so Local Configuration is not permanently lost.
+ */
+export async function recoverHeldConfiguration(
+  configurationPath: string,
+  fileSystem: BindProjectFileSystem = defaultFileSystem,
+): Promise<boolean> {
+  if (await pathExists(fileSystem, configurationPath)) return false;
+
+  const directory = dirname(configurationPath);
+  let names: string[];
+  try {
+    names = await fileSystem.readdir(directory);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return false;
+    throw error;
+  }
+
+  const heldNames = names.filter((name) => name.startsWith(HELD_PREFIX));
+  if (heldNames.length === 0) return false;
+
+  let newest: { readonly path: string; readonly mtimeMs: number } | undefined;
+  for (const name of heldNames) {
+    const path = join(directory, name);
+    const stats = await fileSystem.stat(path);
+    if (!newest || stats.mtimeMs > newest.mtimeMs) {
+      newest = { path, mtimeMs: stats.mtimeMs };
+    }
+  }
+  if (!newest) return false;
+
+  await fileSystem.rename(newest.path, configurationPath);
+  for (const name of heldNames) {
+    const path = join(directory, name);
+    if (path !== newest.path) {
+      await fileSystem.unlink(path).catch(() => undefined);
+    }
+  }
+  return true;
+}
+
+/**
+ * A lock is stale only when ownership is safely proven abandoned:
+ * - valid owner PID that is not alive, or
+ * - empty/unparseable ownership whose mtime is older than the lock timeout
+ *   (crashed during acquisition — never treat a fresh empty lock as free).
+ */
+async function lockIsSafelyStale(
+  lockPath: string,
+  fileSystem: BindProjectFileSystem,
+  lockTimeoutMs: number,
+): Promise<boolean> {
+  try {
+    const [ownerRaw, stats] = await Promise.all([
+      fileSystem.readFile(lockPath, "utf8"),
+      fileSystem.stat(lockPath),
+    ]);
+    const owner = ownerRaw.trim();
+    const ownerPid = Number.parseInt(owner, 10);
+    const ageMs = Date.now() - stats.mtimeMs;
+    if (owner === "" || !Number.isFinite(ownerPid) || ownerPid <= 0) {
+      return ageMs >= lockTimeoutMs;
+    }
+    return !processIsAlive(ownerPid);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return true;
+    throw error;
+  }
+}
+
+/**
+ * Exclusive bind lock. Ownership is written in the same exclusive create as the
+ * lock file (`writeFile` + `wx` with PID body) so contenders never see an empty
+ * live lock as dead.
  */
 async function withConfigurationLock<T>(
   configurationPath: string,
   fileSystem: BindProjectFileSystem,
+  lockTimeoutMs: number,
   body: () => Promise<T>,
 ): Promise<T> {
   const lockPath = `${configurationPath}.lock`;
-  const deadline = Date.now() + LOCK_TIMEOUT_MS;
-  let handle: FileHandle | undefined;
+  const deadline = Date.now() + lockTimeoutMs;
+  let acquired = false;
 
-  while (handle === undefined) {
+  while (!acquired) {
     try {
-      handle = await fileSystem.open(lockPath, "wx");
-      await handle.writeFile(`${process.pid}\n`);
+      // Atomic create+own: PID is present as soon as the exclusive file exists.
+      await fileSystem.writeFile(lockPath, `${process.pid}\n`, { flag: "wx" });
+      acquired = true;
     } catch (error) {
       if (!hasErrorCode(error, "EEXIST")) throw error;
-      let recovered = false;
-      try {
-        const ownerRaw = (await fileSystem.readFile(lockPath, "utf8")).trim();
-        const ownerPid = Number.parseInt(ownerRaw, 10);
-        if (!processIsAlive(ownerPid)) {
-          await fileSystem.unlink(lockPath);
-          recovered = true;
-        }
-      } catch (recoveryError) {
-        if (!hasErrorCode(recoveryError, "ENOENT")) throw recoveryError;
-        recovered = true;
+      if (await lockIsSafelyStale(lockPath, fileSystem, lockTimeoutMs)) {
+        await fileSystem.unlink(lockPath).catch(() => undefined);
+        continue;
       }
-      if (!recovered && Date.now() >= deadline) {
+      if (Date.now() >= deadline) {
         throw new Error(
           `Local Configuration ${configurationPath} is busy; another bind holds the lock — retry`,
         );
@@ -161,7 +227,6 @@ async function withConfigurationLock<T>(
   try {
     return await body();
   } finally {
-    await handle.close().catch(() => undefined);
     await fileSystem.unlink(lockPath).catch(() => undefined);
   }
 }
@@ -172,6 +237,9 @@ async function withConfigurationLock<T>(
  * 2. Refuse if the claimed bytes are not the validated snapshot.
  * 3. Create the destination only if the path is still free (`link` fails on EEXIST),
  *    so an external writer that recreated config.yaml is never erased.
+ *
+ * Crash between claim and link leaves `.config-held-*`; the next bind restores it
+ * via {@link recoverHeldConfiguration} before treating config as missing.
  */
 async function publishConfigurationReplacement(
   configurationPath: string,
@@ -183,7 +251,7 @@ async function publishConfigurationReplacement(
 ): Promise<void> {
   const directory = dirname(configurationPath);
   const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const heldPath = join(directory, `.config-held-${token}`);
+  const heldPath = join(directory, `${HELD_PREFIX}${token}`);
   const temporary = join(directory, `.config-${token}.tmp`);
 
   await fileSystem.rename(configurationPath, heldPath);
@@ -232,6 +300,8 @@ export interface BindProjectOptions {
   readonly cwd?: string;
   /** Test-only filesystem override for concurrent-edit proofs. */
   readonly fileSystem?: BindProjectFileSystem;
+  /** Test-only lock wait/stale-empty timeout (ms). */
+  readonly lockTimeoutMs?: number;
 }
 
 export interface BindProjectResult {
@@ -251,6 +321,7 @@ export async function bindProject(
   options: BindProjectOptions,
 ): Promise<BindProjectResult> {
   const fileSystem = options.fileSystem ?? defaultFileSystem;
+  const lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
   const configurationPath = localConfigurationPath(options.home);
   const profile = requireArtifactId(options.profile, "bind profile");
   const hosts = normalizeHosts(options.hosts);
@@ -277,6 +348,9 @@ export async function bindProject(
   const storedProject =
     options.project === undefined ? canonicalProject : options.project;
 
+  // Restore any claim-aside left by a crashed prior bind before treating config as missing.
+  await recoverHeldConfiguration(configurationPath, fileSystem);
+
   // Friendly missing-config diagnostic before lock acquisition (avoids raw ENOENT on .lock).
   try {
     await fileSystem.stat(configurationPath);
@@ -289,92 +363,100 @@ export async function bindProject(
     throw error;
   }
 
-  return withConfigurationLock(configurationPath, fileSystem, async () => {
-    let source: string;
-    try {
-      source = await fileSystem.readFile(configurationPath, "utf8");
-    } catch (error) {
-      if (hasErrorCode(error, "ENOENT")) {
+  return withConfigurationLock(
+    configurationPath,
+    fileSystem,
+    lockTimeoutMs,
+    async () => {
+      // Another bind may have recovered/published while we waited for the lock.
+      await recoverHeldConfiguration(configurationPath, fileSystem);
+
+      let source: string;
+      try {
+        source = await fileSystem.readFile(configurationPath, "utf8");
+      } catch (error) {
+        if (hasErrorCode(error, "ENOENT")) {
+          throw new Error(
+            `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
+          );
+        }
+        throw error;
+      }
+
+      // Exact snapshot being edited is the sole input to the trusted semantic boundary.
+      const { configuration, workspace } = await ingestApplicationFromSource(
+        options.home,
+        source,
+        configurationPath,
+      );
+      if (!workspace.profiles.has(profile)) {
         throw new Error(
-          `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
+          `${description} profile '${profile}' does not exist in Workspace ${workspace.path}`,
         );
       }
-      throw error;
-    }
 
-    // Exact snapshot being edited is the sole input to the trusted semantic boundary.
-    const { configuration, workspace } = await ingestApplicationFromSource(
-      options.home,
-      source,
-      configurationPath,
-    );
-    if (!workspace.profiles.has(profile)) {
-      throw new Error(
-        `${description} profile '${profile}' does not exist in Workspace ${workspace.path}`,
+      const existing = configuration.bindings.find(
+        (binding) => binding.canonicalProject === canonicalProject,
       );
-    }
-
-    const existing = configuration.bindings.find(
-      (binding) => binding.canonicalProject === canonicalProject,
-    );
-    if (existing) {
-      if (existing.profile === profile && hostsEqual(existing.hosts, hosts)) {
-        return {
-          outcome: "unchanged" as const,
-          configurationPath,
-          project: existing.project,
-          canonicalProject,
-          profile,
-          hosts,
-        };
+      if (existing) {
+        if (existing.profile === profile && hostsEqual(existing.hosts, hosts)) {
+          return {
+            outcome: "unchanged" as const,
+            configurationPath,
+            project: existing.project,
+            canonicalProject,
+            profile,
+            hosts,
+          };
+        }
+        throw new Error(
+          `${description} already binds canonical project '${canonicalProject}' to profile '${existing.profile}' hosts [${existing.hosts.join(", ")}]; replace is not supported by bind`,
+        );
       }
-      throw new Error(
-        `${description} already binds canonical project '${canonicalProject}' to profile '${existing.profile}' hosts [${existing.hosts.join(", ")}]; replace is not supported by bind`,
+
+      const document = parseDocument(source);
+      const bindingsNode = document.get("bindings");
+      if (!isSeq(bindingsNode)) {
+        throw new Error(`${description} bindings must be an array`);
+      }
+      // Prefer block style when starting from an empty flow sequence (init default).
+      if (bindingsNode.items.length === 0) {
+        bindingsNode.flow = false;
+      }
+
+      const entry = document.createNode({
+        project: storedProject,
+        profile,
+        hosts: [...hosts],
+      });
+      if (isMap(entry)) {
+        entry.flow = false;
+        const hostsNode = entry.get("hosts");
+        if (isSeq(hostsNode)) hostsNode.flow = false;
+      }
+      bindingsNode.add(entry);
+
+      const nextSource = preserveSourceNewlines(source, document.toString());
+      const sourceStats = await fileSystem.stat(configurationPath);
+      const mode = sourceStats.mode & 0o777;
+
+      await publishConfigurationReplacement(
+        configurationPath,
+        source,
+        nextSource,
+        mode,
+        fileSystem,
+        description,
       );
-    }
 
-    const document = parseDocument(source);
-    const bindingsNode = document.get("bindings");
-    if (!isSeq(bindingsNode)) {
-      throw new Error(`${description} bindings must be an array`);
-    }
-    // Prefer block style when starting from an empty flow sequence (init default).
-    if (bindingsNode.items.length === 0) {
-      bindingsNode.flow = false;
-    }
-
-    const entry = document.createNode({
-      project: storedProject,
-      profile,
-      hosts: [...hosts],
-    });
-    if (isMap(entry)) {
-      entry.flow = false;
-      const hostsNode = entry.get("hosts");
-      if (isSeq(hostsNode)) hostsNode.flow = false;
-    }
-    bindingsNode.add(entry);
-
-    const nextSource = preserveSourceNewlines(source, document.toString());
-    const sourceStats = await fileSystem.stat(configurationPath);
-    const mode = sourceStats.mode & 0o777;
-
-    await publishConfigurationReplacement(
-      configurationPath,
-      source,
-      nextSource,
-      mode,
-      fileSystem,
-      description,
-    );
-
-    return {
-      outcome: "created" as const,
-      configurationPath,
-      project: storedProject,
-      canonicalProject,
-      profile,
-      hosts,
-    };
-  });
+      return {
+        outcome: "created" as const,
+        configurationPath,
+        project: storedProject,
+        canonicalProject,
+        profile,
+        hosts,
+      };
+    },
+  );
 }
