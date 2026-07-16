@@ -26,6 +26,11 @@ export interface LocalConfiguration {
   readonly bindings: readonly ProjectBinding[];
   readonly path: string;
   readonly schemaVersion: 1;
+  /**
+   * Authored Workspace path from Local Configuration when present.
+   * Absence means the fixed default Workspace path was selected.
+   */
+  readonly workspace?: string;
 }
 
 export const EMPTY_LOCAL_CONFIGURATION = stringify({
@@ -79,10 +84,15 @@ export interface ParsedProjectBinding {
 export function parseLocalConfiguration(source: string, path: string): {
   readonly bindings: readonly ParsedProjectBinding[];
   readonly schemaVersion: 1;
+  readonly workspace?: string;
 } {
   const value = parseYaml(source, `Local Configuration ${path}`);
   const mapping = requireMapping(value, `Local Configuration ${path}`);
-  requireExactFields(mapping, ["schema_version", "bindings"], `Local Configuration ${path}`);
+  requireExactFields(
+    mapping,
+    ["schema_version", "bindings", "workspace"],
+    `Local Configuration ${path}`,
+  );
   if (mapping.schema_version !== LOCAL_CONFIGURATION_SCHEMA_VERSION) {
     throw new Error(
       `Local Configuration ${path} schema_version must be ${LOCAL_CONFIGURATION_SCHEMA_VERSION}`,
@@ -91,6 +101,11 @@ export function parseLocalConfiguration(source: string, path: string): {
   if (!Array.isArray(mapping.bindings)) {
     throw new Error(`Local Configuration ${path} bindings must be an array`);
   }
+
+  const workspace =
+    mapping.workspace === undefined
+      ? undefined
+      : requireString(mapping.workspace, `Local Configuration ${path} workspace`);
 
   const bindings = mapping.bindings.map((entry, index) => {
     const description = `Local Configuration ${path} bindings[${index}]`;
@@ -117,5 +132,9 @@ export function parseLocalConfiguration(source: string, path: string): {
     return { hosts: orderedHosts, profile, project };
   });
 
-  return { bindings, schemaVersion: LOCAL_CONFIGURATION_SCHEMA_VERSION };
+  return {
+    bindings,
+    schemaVersion: LOCAL_CONFIGURATION_SCHEMA_VERSION,
+    ...(workspace === undefined ? {} : { workspace }),
+  };
 }

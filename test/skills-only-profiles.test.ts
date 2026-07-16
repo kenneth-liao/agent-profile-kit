@@ -19,7 +19,7 @@ import {
   planCodexProject,
 } from "../adapters/codex.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
-import { ingestWorkspace } from "../installer/ingest-workspace.js";
+import { ingestDefaultWorkspace } from "../installer/ingest-workspace.js";
 import {
   applyReconciliation,
   previewReconciliation,
@@ -94,7 +94,7 @@ describe("Skills-only Profiles", () => {
       "id: engineering\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
     );
 
-    const ingested = await ingestWorkspace(home);
+    const ingested = await ingestDefaultWorkspace(home);
 
     expect(ingested.profiles.get("engineering")?.context).toEqual([]);
     expect(ingested.profiles.get("engineering")?.skills).toEqual(["review-pr"]);
@@ -109,7 +109,7 @@ describe("Skills-only Profiles", () => {
       "id: empty\ncontext: []\nskills: []\nagents: []\nhooks: []\ntools: []\n",
     );
 
-    await expect(ingestWorkspace(home)).rejects.toThrow(
+    await expect(ingestDefaultWorkspace(home)).rejects.toThrow(
       /Profile 'empty' must select at least one supported artifact/i,
     );
   });

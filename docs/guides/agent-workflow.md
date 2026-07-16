@@ -31,8 +31,10 @@ Use this workflow when helping a person author their Workspace and bind projects
      unselected universal artifacts (useful across every directory or kind of
      work). Unselected does not mean “belongs in Host config.”
    - **Local Configuration** (`~/.agents/agent-profile-kit/config.yaml`) owns
-     machine-local Project Bindings: one existing absolute or home-relative
-     project root, one Profile, and a supported Host set per binding.
+     machine-local Project Bindings and an optional Workspace path. Each binding
+     names one existing absolute or home-relative project root, one Profile, and
+     a supported Host set. Omitting `workspace` retains the fixed default
+     Workspace at `~/.agents/agent-profile-kit/workspace/`.
    - **Project repositories** own project facts and repository-owned instructions.
    - **Hosts** own authentication, trust, approvals, plugins, sessions, and
      Host preferences. User-managed native global Skill delivery (including
