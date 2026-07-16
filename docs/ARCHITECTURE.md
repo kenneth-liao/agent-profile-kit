@@ -82,13 +82,19 @@ For a Git binding, the Installer asks Git for the repository's authoritative exi
 Commands separate binding authoring from global reconciliation:
 
 - `bind` appends one validated Project Binding to Local Configuration only. It serializes other `bind` processes with a sidecar lock, rechecks the exact source snapshot, and publishes with an atomic replacement. It does not preview, apply, or touch Host, Workspace, project, or installation state.
+- `unbind` removes one Project Binding from Local Configuration only. Existing paths match by canonical identity; a missing path may match only its exact authored spelling. It uses the same lock, snapshot recheck, and atomic publication boundary as `bind`, and never removes generated output.
 - `validate` checks the Workspace and Project Bindings.
 - `preview` shows additions, updates, removals, unchanged installations, and blocking conflicts without writing.
 - `apply` reconciles every binding.
 - `status` reports current, stale, drifted, and missing installations.
 - `uninstall` safely removes all owned Profile Installations without deleting the Workspace or bindings.
 
-There are no per-project filters on reconciliation commands. `bind` is recording-only; hand-editing Local Configuration remains valid, and `bind` does not replace or remove an existing binding.
+`unbind` changes desired Project Binding state and directs the user to global
+`preview`/`apply` for output removal. `uninstall` is the separate output-cleanup
+lifecycle: it removes only ownership-proven generated output and preserves
+bindings. There are no per-project filters on reconciliation commands. `bind`
+and `unbind` are recording-only; hand-editing Local Configuration remains valid,
+and `bind` does not replace or remove an existing binding.
 
 ## Canonical Model
 

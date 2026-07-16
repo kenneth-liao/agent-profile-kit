@@ -316,6 +316,21 @@ hand-edit `config.yaml` while `bind` is running: `bind` commands serialize with
 each other, but a text editor does not participate in that lock. After binding,
 run `validate`, then `preview` and `apply` separately.
 
+Remove desired state with the recording-only command:
+
+```sh
+agent-profile-kit unbind
+agent-profile-kit unbind ~/projects/tools/agent-profile-kit
+```
+
+Omitting the project targets the canonical current working directory. Existing
+paths use the same canonical-root rules as bindings, including symlink aliases.
+When a project no longer exists, `unbind` can remove a binding only when the
+argument exactly matches its authored `project` spelling; it never guesses an
+alias. `unbind` edits Local Configuration only and leaves generated output for
+the next global `preview` and `apply`. Cooperating `bind` and `unbind` commands
+serialize and publish atomically; do not hand-edit the file concurrently.
+
 ```yaml
 schema_version: 1
 bindings:
@@ -427,15 +442,21 @@ global and project Skills with the same name. Agent Profile Kit therefore treats
 any selected global/project identity collision as a conflict rather than an
 implicit precedence rule.
 
-## Status and uninstall
+## Status, unbind, and uninstall
 
 Use `agent-profile-kit status` to inspect every bound project. It reports current,
 stale source, drifted output, missing output, blocked (including later global
 Skill identity collisions), and malformed ownership.
 
-To delete generated output, use `agent-profile-kit uninstall`. It removes only
-Installation Marker- and hash-proven output and preserves the Workspace, Local
-Configuration, global Host configuration, and repository-owned files.
+Use `agent-profile-kit unbind [project]` to remove desired Project Binding state.
+It does not delete generated output. Run the global `preview` and `apply` to
+review and reconcile the former installation.
+
+To delete generated output directly, use `agent-profile-kit uninstall`. It
+removes only Installation Marker- and hash-proven output and preserves the
+Workspace and Local Configuration, including Project Bindings. `unbind` changes
+desired state; `uninstall` removes proven output. Neither command modifies
+personal/global Host configuration or repository-owned files.
 
 Review personal content before publishing this Workspace. Agent Profile Kit does
 not classify private material, and credential values do not belong in a Workspace

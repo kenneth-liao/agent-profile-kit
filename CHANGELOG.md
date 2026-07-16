@@ -9,6 +9,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 ### Added
 
 - Recording-only `agent-profile-kit bind <profile> [project] --host <host>…` appends one validated Project Binding to Local Configuration (cwd or explicit path, required Hosts, idempotent identical records, fail-closed conflicts, atomic concurrent-safe publish) without reconciling project or Host state; ADR-0010 amended, architecture and guides distinguish authoring from global reconciliation ([#54](https://github.com/kenneth-liao/agent-profile-kit/issues/54)).
+- Recording-only `agent-profile-kit unbind [project]` removes one Project Binding by canonical existing-path identity or exact authored spelling for a missing path, preserving Local Configuration safety and leaving generated output for global `preview`/`apply`; ADR-0010, architecture, README, and guides distinguish `unbind` from `uninstall` ([#56](https://github.com/kenneth-liao/agent-profile-kit/issues/56)).
 
 - Optional Local Configuration `workspace` path selects one existing absolute or home-relative Workspace (symlinks resolved once at ingestion); omission retains `~/.agents/agent-profile-kit/workspace/`; `init` never creates or migrates a configured custom target; ADR-0007, glossary, architecture, and guides updated ([#51](https://github.com/kenneth-liao/agent-profile-kit/issues/51)).
 

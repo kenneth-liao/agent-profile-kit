@@ -36,7 +36,7 @@ export interface BindProjectFileSystem {
   readonly writeFile: typeof defaultWriteFile;
 }
 
-const defaultFileSystem: BindProjectFileSystem = {
+export const defaultFileSystem: BindProjectFileSystem = {
   mkdir: defaultMkdir,
   readdir: defaultReaddir,
   readFile: defaultReadFile,
@@ -48,7 +48,7 @@ const defaultFileSystem: BindProjectFileSystem = {
 };
 
 const LOCK_RETRY_MS = 20;
-const DEFAULT_LOCK_TIMEOUT_MS = 5_000;
+export const DEFAULT_LOCK_TIMEOUT_MS = 5_000;
 const HELD_PREFIX = ".config-held-";
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -102,7 +102,7 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
-async function pathExists(
+export async function pathExists(
   fileSystem: BindProjectFileSystem,
   path: string,
 ): Promise<boolean> {
@@ -115,7 +115,7 @@ async function pathExists(
   }
 }
 
-async function hasHeldResidue(
+export async function hasHeldResidue(
   configurationPath: string,
   fileSystem: BindProjectFileSystem,
 ): Promise<boolean> {
@@ -134,7 +134,7 @@ async function hasHeldResidue(
  * Current publication never moves the canonical path aside; this recovers residue left
  * by older claim-aside builds or interrupted experiments.
  */
-async function recoverHeldConfiguration(
+export async function recoverHeldConfiguration(
   configurationPath: string,
   fileSystem: BindProjectFileSystem,
 ): Promise<boolean> {
@@ -206,10 +206,11 @@ async function lockIsSafelyStale(
  * lock file (`writeFile` + `wx` with PID body) so contenders never see an empty
  * live lock as dead.
  */
-async function withConfigurationLock<T>(
+export async function withConfigurationLock<T>(
   configurationPath: string,
   fileSystem: BindProjectFileSystem,
   lockTimeoutMs: number,
+  operation: string,
   body: () => Promise<T>,
 ): Promise<T> {
   const lockPath = `${configurationPath}.lock`;
@@ -229,7 +230,7 @@ async function withConfigurationLock<T>(
       }
       if (Date.now() >= deadline) {
         throw new Error(
-          `Local Configuration ${configurationPath} is busy; another bind holds the lock — retry`,
+          `Local Configuration ${configurationPath} is busy; another ${operation} holds the lock — retry`,
         );
       }
       await sleep(LOCK_RETRY_MS);
@@ -255,13 +256,14 @@ async function withConfigurationLock<T>(
  * direct editors must not write concurrently with bind: an edit in the final
  * re-check-to-rename syscall window cannot be detected portably.
  */
-async function publishConfigurationReplacement(
+export async function publishConfigurationReplacement(
   configurationPath: string,
   source: string,
   nextSource: string,
   mode: number,
   fileSystem: BindProjectFileSystem,
   description: string,
+  operation: string,
 ): Promise<void> {
   const directory = dirname(configurationPath);
   const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -272,7 +274,7 @@ async function publishConfigurationReplacement(
     const stillCurrent = await fileSystem.readFile(configurationPath, "utf8");
     if (stillCurrent !== source) {
       throw new Error(
-        `${description} changed before bind publication; retry after the other edit completes`,
+        `${description} changed before ${operation} publication; retry after the other edit completes`,
       );
     }
     // Atomic replace: destination stays continuously readable.
@@ -356,6 +358,7 @@ export async function bindProject(
     configurationPath,
     fileSystem,
     lockTimeoutMs,
+    "bind",
     async () => {
       // Legacy claim-aside residue is restored only under proven exclusive ownership.
       await recoverHeldConfiguration(configurationPath, fileSystem);
@@ -436,6 +439,7 @@ export async function bindProject(
         mode,
         fileSystem,
         description,
+        "bind",
       );
 
       return {

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 
 import { agentGuide, humanGuide } from "./guides.js";
 import { bindProject } from "../installer/bind-project.js";
+import { unbindProject } from "../installer/unbind-project.js";
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
   applyApplication,
@@ -27,6 +28,7 @@ function usage(): string {
     "Usage: agent-profile-kit init\n" +
     "       agent-profile-kit guide [--agent]\n" +
     "       agent-profile-kit bind <profile> [project] --host <host> [--host <host> ...]\n" +
+    "       agent-profile-kit unbind [project]\n" +
     "       agent-profile-kit validate\n" +
     "       agent-profile-kit preview\n" +
     "       agent-profile-kit apply\n" +
@@ -71,6 +73,13 @@ function parseBindArguments(arguments_: readonly string[]): {
   }
 
   return project === undefined ? { profile, hosts } : { profile, project, hosts };
+}
+
+function parseUnbindArguments(arguments_: readonly string[]): { readonly project?: string } {
+  if (arguments_.length > 1) {
+    throw new Error("unbind accepts at most one project path");
+  }
+  return arguments_.length === 0 ? {} : { project: arguments_[0]! };
 }
 
 function formatReport(report: ReconciliationReport): string {
@@ -163,6 +172,32 @@ async function main(): Promise<void> {
       `Recorded Project Binding for ${result.project}\n` +
         `  Profile: ${result.profile}\n` +
         `  Hosts: ${result.hosts.join(", ")}\n` +
+        `  Local Configuration: ${result.configurationPath}\n` +
+        "Next: agent-profile-kit preview && agent-profile-kit apply\n",
+    );
+    return;
+  }
+  if (arguments_.length >= 1 && arguments_[0] === "unbind") {
+    const parsed = parseUnbindArguments(arguments_.slice(1));
+    const result = await unbindProject({
+      home,
+      ...(parsed.project === undefined ? {} : { project: parsed.project }),
+    });
+    if (result.outcome === "unchanged") {
+      process.stdout.write(
+        `Project Binding unchanged; no binding matched ${result.requestedProject}\n` +
+          `  Local Configuration: ${result.configurationPath}\n`,
+      );
+      return;
+    }
+    const recovery = result.recovery === "authored-path"
+      ? "  Recovery: exact authored path match; canonical project identity could not be proven\n"
+      : `  Canonical project: ${result.canonicalProject}\n`;
+    process.stdout.write(
+      `Removed Project Binding for ${result.project}\n` +
+        recovery +
+        `  Profile: ${result.profile}\n` +
+        `  Hosts: ${result.hosts?.join(", ")}\n` +
         `  Local Configuration: ${result.configurationPath}\n` +
         "Next: agent-profile-kit preview && agent-profile-kit apply\n",
     );
