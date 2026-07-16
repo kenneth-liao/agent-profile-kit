@@ -45,12 +45,13 @@ source material.
 ### CLI compatibility for minimal Workspaces
 
 Optional scaffolding is a **CLI** behavior change, not a change to the Workspace
-Manifest schema (`schema_version` remains `1`). Agent Profile Kit **0.16.0 and
-later** accept Manifest-only and partial category layouts. **0.15.x and earlier**
-still require every artifact directory plus `README.md`, `AGENTS.md`, and
-`.gitignore`.
+Manifest schema (`schema_version` remains `1`). Agent Profile Kit **0.16.1 and
+later** accept Manifest-only and partial category layouts (with present category
+paths, including symlinks, required to resolve to directories). **0.15.x and
+earlier** still require every artifact directory plus `README.md`, `AGENTS.md`,
+and `.gitignore`.
 
-Before rolling a machine back to a CLI older than 0.16.0, restore a full layout
+Before rolling a machine back to a CLI older than 0.16.1, restore a full layout
 so the older tool can validate the Workspace:
 
 1. Ensure `workspace.yaml` still contains `schema_version: 1`.
@@ -60,9 +61,9 @@ so the older tool can validate the Workspace:
 3. Restore any missing bootstrap files the older release required:
    `README.md`, `AGENTS.md`, and `.gitignore`.
 
-A mixed-version environment (some machines on 0.16+, others on 0.15 or older)
+A mixed-version environment (some machines on 0.16.1+, others on 0.15 or older)
 is safe only when every shared Workspace still includes that full layout, or
-when every consumer has upgraded to 0.16.0+.
+when every consumer has upgraded to 0.16.1+.
 
 ## Author the Workspace
 

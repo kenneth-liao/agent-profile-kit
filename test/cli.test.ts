@@ -2093,8 +2093,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/empty categor/i);
     expect(result.stdout).toMatch(/README\.md/);
     expect(result.stdout).toMatch(/optional/i);
-    expect(result.stdout).toMatch(/0\.16/);
-    expect(result.stdout).toMatch(/roll(?:ing|ed)?\s+(?:a\s+)?(?:machine\s+)?back|downgrade|older than 0\.16/i);
+    expect(result.stdout).toMatch(/0\.16\.1/);
+    expect(result.stdout).toMatch(/roll(?:ing|ed)?\s+(?:a\s+)?(?:machine\s+)?back|downgrade|older than 0\.16\.1/i);
     expect(result.stdout).toMatch(/profiles\//);
   });
 
