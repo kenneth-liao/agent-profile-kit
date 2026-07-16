@@ -10,6 +10,25 @@ import type {
 /** Agent Profile Kit-only Skill sidecars are never projected into Host discovery. */
 export const SKILL_PACKAGE_SIDECAR = "agent-profile-kit.yaml";
 
+/**
+ * Semantic requirement attached when a Skill disables implicit model invocation.
+ * Selected Hosts must preserve this effect via Adapter capability preflight or reject.
+ */
+export const DISABLED_MODEL_INVOCATION_REQUIREMENT =
+  "Host prevents implicit model invocation while retaining explicit user invocation";
+
+/** Adapter-owned projection of one portable Skill package into Host-native members and requirements. */
+export interface SkillPackageProjection {
+  readonly projectMembers: (
+    skill: Skill,
+    members: readonly ProposedDirectoryMember[],
+  ) => readonly ProposedDirectoryMember[];
+  readonly requirements: (
+    skill: Skill,
+    base: readonly string[],
+  ) => readonly string[];
+}
+
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
@@ -17,6 +36,7 @@ function hasErrorCode(error: unknown, code: string): boolean {
 /**
  * Enumerate portable Skill package members for Host installation.
  * Preserves source file bytes and modes; omits Agent Profile Kit sidecars.
+ * Host-native translation of model-invocation policy is Adapter-owned.
  */
 export async function skillPackageMembers(
   skill: Skill,
@@ -68,17 +88,26 @@ export async function skillPackageMembers(
   return members.sort((left, right) => left.path.localeCompare(right.path));
 }
 
+/** True when any resolved Skill requires disabled implicit model invocation. */
+export function skillsRequireDisabledModelInvocation(
+  skills: readonly Skill[],
+): boolean {
+  return skills.some((skill) => skill.modelInvocation === "disabled");
+}
+
 /** Plan one complete owned Skill package directory under a Host discovery root. */
 export async function planSkillPackageDirectory(
   skill: Skill,
   discoveryRoot: string,
-  requirements: readonly string[],
+  baseRequirements: readonly string[],
+  projection: SkillPackageProjection,
 ): Promise<ProposedProjectDirectoryOutput> {
+  const sourceMembers = await skillPackageMembers(skill);
   return {
-    members: await skillPackageMembers(skill),
+    members: projection.projectMembers(skill, sourceMembers),
     mode: 0o755,
     path: posix.join(discoveryRoot, skill.id),
-    requirements,
+    requirements: projection.requirements(skill, baseRequirements),
     type: "directory",
   };
 }

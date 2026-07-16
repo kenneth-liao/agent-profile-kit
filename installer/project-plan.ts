@@ -11,6 +11,7 @@ import {
   CODEX_ADAPTER_VERSION,
   planCodexProject,
 } from "../adapters/codex.js";
+import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
   AdapterProjectPlan,
   ProposedDirectoryMember,
@@ -459,13 +460,20 @@ export async function buildDesiredState(
       const plans: AdapterProjectPlan[] = [];
       const hostVersions: Record<string, string> = {};
       const warnings: string[] = [];
+      const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
+        resolvedProfile.skills,
+      );
       for (const host of target.binding.hosts) {
         if (options.checkHostCapability !== false) {
           try {
             if (host === "codex") {
-              await assertCodexProjectCapability(home, target.binding.canonicalProject);
+              await assertCodexProjectCapability(home, target.binding.canonicalProject, {
+                requireDisabledModelInvocation,
+              });
             } else if (host === "claude") {
-              await assertClaudeProjectCapability(target.binding.canonicalProject);
+              await assertClaudeProjectCapability(target.binding.canonicalProject, {
+                requireDisabledModelInvocation,
+              });
             }
           } catch (error) {
             blockers.push(

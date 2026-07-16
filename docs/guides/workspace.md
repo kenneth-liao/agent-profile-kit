@@ -34,7 +34,45 @@ is a standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
 standard `name` is its stable Artifact ID. The frontmatter needs a lowercase
 hyphenated `name` and a non-empty `description`. Scripts, references, and assets
 remain ordinary standard Skill content. If a Skill needs Agent Profile Kit-only
-metadata, put it in an optional `agent-profile-kit.yaml` sidecar.
+dependency metadata, put it in an optional `agent-profile-kit.yaml` sidecar.
+
+### Skill model-invocation policy
+
+By default, Hosts may invoke a Skill implicitly when the model matches its
+description. To require explicit user invocation while keeping the Skill
+available on request, set optional standard namespaced metadata:
+
+```yaml
+metadata:
+  agent-profile-kit.model-invocation: disabled
+```
+
+Accepted values are the strings `allowed` and `disabled`. Absence normalizes to
+`allowed`. Invalid types or values fail at Workspace ingestion.
+
+This is the only portable spelling. Claude-native top-level
+`disable-model-invocation` and Codex-only `agents/openai.yaml` policy are not
+canonical source fields for Agent Profile Kit: migrate Claude-shaped Skills to
+the namespaced metadata key above rather than relying on Host-specific
+frontmatter. The Installer never rewrites Workspace `SKILL.md` during
+validate, preview, or apply.
+
+Adapters translate the trusted policy only in generated Host output:
+
+| Canonical policy | Claude generated output | Codex generated output |
+| --- | --- | --- |
+| `allowed` (default) | No Host restriction field | No Host restriction field |
+| `disabled` | `disable-model-invocation: true` in generated `SKILL.md` | `policy.allow_implicit_invocation: false` in generated `agents/openai.yaml` |
+
+Existing source `agents/openai.yaml` content is preserved. An equivalent
+invocation policy coalesces; a conflicting policy fails before any project
+write. When any selected Skill disables model invocation, capability preflight
+proves each selected Host can enforce it before writes: Claude Code CLI
+`2.0.64+` (same floor as unscoped rules and native Skill discovery, which
+honors `disable-model-invocation`), and Codex CLI `0.99.0+` (first stable
+release with `agents/openai.yaml` `policy.allow_implicit_invocation`; see
+openai/codex#11244 / rust-v0.99.0). Unsupported versions fail closed rather
+than silently weakening the policy.
 
 Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each
@@ -84,6 +122,18 @@ description: Review a pull request. Use when asked to review code changes.
 ---
 
 # Review a pull request
+```
+
+```md
+<!-- skills/to-spec/SKILL.md — explicit-only invocation -->
+---
+name: to-spec
+description: Turn the current conversation into a spec.
+metadata:
+  agent-profile-kit.model-invocation: disabled
+---
+
+# To spec
 ```
 
 ## Bind projects in Local Configuration

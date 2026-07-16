@@ -2,15 +2,23 @@ import { execFile } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { promisify } from "node:util";
+import { parse, stringify } from "yaml";
 
-import type { Skill } from "../schemas/skill.js";
+import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
 import type {
   AdapterProjectPlan,
+  ProposedDirectoryFileMember,
+  ProposedDirectoryMember,
   ProposedProjectFileOutput,
   ProposedProjectOutput,
 } from "./project-plan.js";
-import { planSkillPackageDirectory } from "./skill-package.js";
+import {
+  DISABLED_MODEL_INVOCATION_REQUIREMENT,
+  planSkillPackageDirectory,
+  skillsRequireDisabledModelInvocation,
+  type SkillPackageProjection,
+} from "./skill-package.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,14 +31,28 @@ export const CLAUDE_ADAPTER_VERSION = "claude-project-v1";
  *
  * Evidence: Claude Code 2.0.64+ loads recursive `.claude/rules/`; project Skills
  * under `.claude/skills/` are available on that same floor and earlier. Preflight
- * therefore records one contract for both Claude project outputs.
+ * therefore records one contract for both Claude project outputs when no Skill
+ * requires disabled model invocation.
  */
 export const CLAUDE_HOST_VERSION = "native-project-unscoped-rules-skills-v1";
 
 /**
+ * Capability-contract token when a selected Skill requires disabled model invocation.
+ * Proven by the same Claude CLI floor as native Skill discovery, which honors
+ * `disable-model-invocation` in project Skill frontmatter.
+ *
+ * Evidence: Claude Code project Skills (floor 2.0.64+) read standard Skill packages
+ * including top-level `disable-model-invocation`; without that Host field the
+ * explicit-only policy would be silently ignored.
+ */
+export const CLAUDE_HOST_VERSION_WITH_INVOCATION =
+  "native-project-unscoped-rules-skills-invocation-v1";
+
+/**
  * Minimum Claude Code CLI version that preserves the Claude project Capability Contract.
  * Evidence: Anthropic Claude Code changelog — `.claude/rules/` added in 2.0.64;
- * that floor already includes native project Skill package discovery.
+ * that floor already includes native project Skill package discovery and
+ * `disable-model-invocation` enforcement for installed Skills.
  */
 export const CLAUDE_MINIMUM_CLI_VERSION = "2.0.64";
 
@@ -48,12 +70,33 @@ export type ClaudeProjectPlan = AdapterProjectPlan;
 
 export interface ClaudeCapabilityOptions {
   readonly env?: NodeJS.ProcessEnv;
+  /** When true, prove Host can enforce disabled model invocation. */
+  readonly requireDisabledModelInvocation?: boolean;
   /** Injectable version probe for tests; defaults to `claude --version`. */
   readonly resolveVersion?: () => Promise<string>;
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
+}
+
+function parseYaml(source: string, description: string): unknown {
+  try {
+    return parse(source);
+  } catch {
+    throw new Error(`${description} is invalid YAML`);
+  }
+}
+
+function requireMapping(value: unknown, description: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${description} must be a YAML mapping`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function memberBytesAsString(bytes: string | Uint8Array): string {
+  return typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8");
 }
 
 async function pathKind(
@@ -96,8 +139,16 @@ function compareSemver(left: string, right: string): number {
 /**
  * Reject Claude Code CLI releases that cannot preserve unscoped project-rule Context.
  */
-export function assertClaudeCliVersionSupported(version: string): void {
+export function assertClaudeCliVersionSupported(
+  version: string,
+  options: { readonly requireDisabledModelInvocation?: boolean } = {},
+): void {
   if (compareSemver(version, CLAUDE_MINIMUM_CLI_VERSION) < 0) {
+    if (options.requireDisabledModelInvocation) {
+      throw new Error(
+        `Claude CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${CLAUDE_MINIMUM_CLI_VERSION}+); upgrade Claude Code before previewing or applying the Profile`,
+      );
+    }
     throw new Error(
       `Claude CLI ${version} does not support unscoped project rules (requires ${CLAUDE_MINIMUM_CLI_VERSION}+); upgrade Claude Code before previewing or applying the Profile`,
     );
@@ -139,7 +190,9 @@ async function resolveClaudeCliVersion(
 }
 
 /**
- * Reject project surfaces or Host installs that cannot host an unscoped `.claude/rules` rule.
+ * Reject project surfaces or Host installs that cannot host Claude project outputs.
+ * When selected Skills require disabled model invocation, proves the CLI floor that
+ * honors `disable-model-invocation` before any project or state write.
  * Authentication, trust, approvals, plugins, and sessions are never inspected or written.
  */
 export async function assertClaudeProjectCapability(
@@ -147,7 +200,12 @@ export async function assertClaudeProjectCapability(
   options: ClaudeCapabilityOptions = {},
 ): Promise<void> {
   const version = await resolveClaudeCliVersion(options);
-  assertClaudeCliVersionSupported(version);
+  assertClaudeCliVersionSupported(
+    version,
+    options.requireDisabledModelInvocation
+      ? { requireDisabledModelInvocation: true }
+      : {},
+  );
 
   const claudePath = join(project, ".claude");
   const rulesPath = join(project, ".claude", "rules");
@@ -164,6 +222,70 @@ export async function assertClaudeProjectCapability(
     );
   }
 }
+
+/** Emit Claude Host SKILL.md with disable-model-invocation when policy is disabled. */
+export function emitClaudeSkillMarkdown(
+  skillId: string,
+  source: string,
+  modelInvocation: ModelInvocationPolicy,
+): string {
+  if (modelInvocation === "allowed") return source;
+
+  const delimiter = "---\n";
+  if (!source.startsWith(delimiter)) {
+    throw new Error(`Skill '${skillId}' SKILL.md must start with YAML frontmatter`);
+  }
+  const closing = source.indexOf(delimiter, delimiter.length);
+  if (closing === -1) {
+    throw new Error(`Skill '${skillId}' SKILL.md must close its YAML frontmatter`);
+  }
+  const header = requireMapping(
+    parseYaml(
+      source.slice(delimiter.length, closing),
+      `Skill '${skillId}' SKILL.md frontmatter`,
+    ),
+    `Skill '${skillId}' SKILL.md frontmatter`,
+  );
+  header["disable-model-invocation"] = true;
+  const body = source.slice(closing + delimiter.length);
+  return `${delimiter}${stringify(header).trimEnd()}\n---\n${body}`;
+}
+
+/** Claude-owned Skill package projection (Host-native model-invocation mapping). */
+export function projectClaudeSkillMembers(
+  skill: Skill,
+  members: readonly ProposedDirectoryMember[],
+): readonly ProposedDirectoryMember[] {
+  return members.map((member) => {
+    if (member.type !== "file" || member.path !== "SKILL.md") return member;
+    const projected: ProposedDirectoryFileMember = {
+      ...member,
+      bytes: emitClaudeSkillMarkdown(
+        skill.id,
+        memberBytesAsString(member.bytes),
+        skill.modelInvocation,
+      ),
+    };
+    return projected;
+  });
+}
+
+export function claudeSkillRequirements(
+  skill: Skill,
+  base: readonly string[],
+): readonly string[] {
+  if (skill.modelInvocation !== "disabled") return base;
+  return [
+    ...base,
+    DISABLED_MODEL_INVOCATION_REQUIREMENT,
+    "Claude disable-model-invocation frontmatter enforces disabled model invocation",
+  ];
+}
+
+const CLAUDE_SKILL_PROJECTION: SkillPackageProjection = {
+  projectMembers: projectClaudeSkillMembers,
+  requirements: claudeSkillRequirements,
+};
 
 function contextRule(
   profileId: string,
@@ -195,9 +317,12 @@ export async function planClaudeProject(
     [...skills]
       .sort((left, right) => left.id.localeCompare(right.id))
       .map((skill) =>
-        planSkillPackageDirectory(skill, CLAUDE_SKILLS_DISCOVERY_ROOT, [
-          "Claude discovers Skill package through native project .claude/skills",
-        ]),
+        planSkillPackageDirectory(
+          skill,
+          CLAUDE_SKILLS_DISCOVERY_ROOT,
+          ["Claude discovers Skill package through native project .claude/skills"],
+          CLAUDE_SKILL_PROJECTION,
+        ),
       ),
   );
   const outputs: ProposedProjectOutput[] = [
@@ -206,7 +331,9 @@ export async function planClaudeProject(
   ];
   return {
     host: "claude",
-    hostVersion: CLAUDE_HOST_VERSION,
+    hostVersion: skillsRequireDisabledModelInvocation(skills)
+      ? CLAUDE_HOST_VERSION_WITH_INVOCATION
+      : CLAUDE_HOST_VERSION,
     outputs,
   };
 }
