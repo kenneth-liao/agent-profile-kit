@@ -135,6 +135,29 @@ Claude Context rule. Host capability preflight follows the selected categories
 (Skills-only does not require Context machinery). Profiles do not inherit, use
 wildcards, or carry Host settings.
 
+### CLI compatibility for Skills-only Profiles
+
+Skills-only Profiles remain under Workspace `schema_version: 1`, but the shape is
+accepted only by Agent Profile Kit **0.17.0 and later**. **0.16.x and earlier**
+still require every Profile to select at least one Context Module and reject
+Skills-only Profiles at Workspace ingestion. A binary rollback onto a Workspace
+that still contains Skills-only Profiles makes normal validate/preview/apply/
+status fail at ingestion and can leave previously installed Host-native Skills
+stranded until source is converted or the install is cleaned with a 0.17+ CLI.
+
+Before rolling a machine back to a CLI older than 0.17.0:
+
+1. On **0.17.0+**, either convert each Skills-only Profile so `context` selects
+   at least one Context Module, or temporarily remove Project Bindings that use
+   those Profiles and run `apply` / `uninstall` so owned Skill packages and
+   installation metadata are removed while the newer CLI still understands them.
+2. Confirm `agent-profile-kit validate` succeeds after the conversion or cleanup.
+3. Only then install the older CLI binary.
+
+A mixed-version environment is safe only when every shared Workspace Profile
+still selects at least one Context Module, or when every consumer has upgraded
+to 0.17.0+.
+
 ```md
 ---
 id: engineering-rules

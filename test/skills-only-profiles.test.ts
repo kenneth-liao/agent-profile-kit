@@ -163,27 +163,36 @@ describe("Skills-only Profiles", () => {
     );
   });
 
-  test("Skills-only Claude does not require the unscoped-rule project surface", async () => {
-    const project = temporaryDirectory("apk-skills-only-claude-cap-");
-    // Occupy .claude as a file so unscoped-rule surface would fail.
-    writeFileSync(join(project, ".claude"), "not a directory\n");
-
+  test("Skills-only Claude validates .claude root but not the unscoped-rule surface", async () => {
+    // Skills-only still needs a usable .claude root for .claude/skills/.
+    const occupiedRoot = temporaryDirectory("apk-skills-only-claude-root-");
+    writeFileSync(join(occupiedRoot, ".claude"), "not a directory\n");
     await expect(
-      assertClaudeProjectCapability(project, {
+      assertClaudeProjectCapability(occupiedRoot, {
+        requireContext: false,
+        resolveVersion: async () => "2.0.64",
+      }),
+    ).rejects.toThrow(/is a file, not a directory/i);
+
+    // Occupied rules path only blocks when Context machinery is required.
+    const rulesOccupied = temporaryDirectory("apk-skills-only-claude-rules-");
+    mkdirSync(join(rulesOccupied, ".claude"));
+    writeFileSync(join(rulesOccupied, ".claude", "rules"), "not a directory\n");
+    await expect(
+      assertClaudeProjectCapability(rulesOccupied, {
         requireContext: false,
         resolveVersion: async () => "2.0.64",
       }),
     ).resolves.toBeUndefined();
-
     await expect(
-      assertClaudeProjectCapability(project, {
+      assertClaudeProjectCapability(rulesOccupied, {
         resolveVersion: async () => "2.0.64",
       }),
-    ).rejects.toThrow(/cannot host unscoped rules/i);
+    ).rejects.toThrow(/is a file, not a directory/i);
 
     // Skills-only still enforces the native Skill CLI floor.
     await expect(
-      assertClaudeProjectCapability(project, {
+      assertClaudeProjectCapability(rulesOccupied, {
         requireContext: false,
         resolveVersion: async () => "2.0.63",
       }),
@@ -313,6 +322,78 @@ describe("Skills-only Profiles", () => {
     if (context?.type === "file") {
       expect(String(context.bytes)).toContain("<!-- Context Module: team-rules -->");
     }
+  });
+
+  test("Context+Skills dual-Host install drops owned Context outputs when the Profile becomes Skills-only", async () => {
+    const home = temporaryDirectory("apk-skills-only-transition-");
+    const project = temporaryDirectory("apk-skills-only-transition-proj-");
+    await skillsOnlyWorkspace(home, project, ["claude", "codex"], { includeContext: true });
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+
+    let desired = await buildDesiredState(home, { checkHostCapability: false });
+    let applied = await applyReconciliation(home, desired.installations);
+    expect(applied.blockers).toEqual([]);
+    expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(project, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
+
+    // Drop Context from the same Profile; Skills remain selected.
+    writeFileSync(
+      join(workspacePath(home), "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+
+    desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations[0];
+    if (!installation) throw new Error("expected installation");
+    expect(installation.outputs.map((output) => output.path).sort()).toEqual([
+      ".agents/skills/review-pr",
+      ".claude/skills/review-pr",
+    ]);
+    expect(installation.profile.context).toEqual([]);
+
+    const preview = await previewReconciliation(
+      desired.installations,
+      await readInstallationState(home),
+    );
+    expect(
+      preview.outputs.some(
+        (item) =>
+          item.path === ".agent-profile-kit/codex/context.md" && item.kind === "removal",
+      ),
+    ).toBe(true);
+    expect(
+      preview.outputs.some(
+        (item) => item.path === ".codex/hooks.json" && item.kind === "removal",
+      ),
+    ).toBe(true);
+    expect(
+      preview.outputs.some(
+        (item) =>
+          item.path === ".claude/rules/agent-profile-kit.md" && item.kind === "removal",
+      ),
+    ).toBe(true);
+
+    applied = await applyReconciliation(home, desired.installations);
+    expect(applied.blockers).toEqual([]);
+    expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
+    expect(existsSync(join(project, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
+
+    const manifest = (await readInstallationState(home)).installations[0];
+    if (!manifest) throw new Error("expected installation manifest");
+    expect(manifest.selectedContext).toEqual([]);
+    expect(
+      manifest.outputs
+        .map((entry) => entry.path)
+        .filter((path) => path !== ".agent-profile-kit/installation.json")
+        .sort(),
+    ).toEqual([".agents/skills/review-pr", ".claude/skills/review-pr"]);
   });
 
   test("Skills-only installations support source Skill updates and uninstall", async () => {

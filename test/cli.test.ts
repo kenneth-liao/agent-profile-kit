@@ -2160,6 +2160,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/roll(?:ing|ed)?\s+(?:a\s+)?(?:machine\s+)?back|downgrade|older than 0\.16\.1/i);
     expect(result.stdout).toMatch(/profiles\//);
     expect(result.stdout).toMatch(/at least one supported artifact|Skills-only Profile|no individual category is mandatory/i);
+    expect(result.stdout).toMatch(/0\.17\.0/);
+    expect(result.stdout).toMatch(
+      /Skills-only|before rolling a machine back to a CLI older than 0\.17|convert each Skills-only|stranded/i,
+    );
   });
 
   test("init bootstrap pointers stay short and name current guide commands", () => {

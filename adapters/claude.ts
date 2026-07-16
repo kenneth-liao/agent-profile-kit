@@ -218,7 +218,8 @@ async function resolveClaudeCliVersion(
 
 /**
  * Reject project surfaces or Host installs that cannot host Claude project outputs.
- * Context preflight (unscoped rule surface) runs only when Context is selected.
+ * Every Claude plan shares the `.claude` root (Skills and/or Context). Unscoped-rule
+ * surface preflight (`.claude/rules`) runs only when Context is selected.
  * When selected Skills require disabled model invocation, proves the CLI floor that
  * honors `disable-model-invocation` before any project or state write.
  * Authentication, trust, approvals, plugins, and sessions are never inspected or written.
@@ -236,20 +237,21 @@ export async function assertClaudeProjectCapability(
       : {}),
   });
 
-  // Skills-only Profiles do not write unscoped rules; only prove the rules surface
-  // when Context machinery will be planned.
+  // Skills-only and Context-bearing plans both write under `.claude/`.
+  const claudePath = join(project, ".claude");
+  const claudeKind = await pathKind(claudePath);
+  if (claudeKind !== "missing" && claudeKind !== "directory") {
+    throw new Error(
+      `Claude project surface cannot host outputs: ${claudePath} is a ${claudeKind}, not a directory`,
+    );
+  }
+
+  // Skills-only Profiles do not write unscoped rules; skip the rules surface then.
   if (!requireContext) {
     return;
   }
 
-  const claudePath = join(project, ".claude");
   const rulesPath = join(project, ".claude", "rules");
-  const claudeKind = await pathKind(claudePath);
-  if (claudeKind !== "missing" && claudeKind !== "directory") {
-    throw new Error(
-      `Claude project surface cannot host unscoped rules: ${claudePath} is a ${claudeKind}, not a directory`,
-    );
-  }
   const rulesKind = await pathKind(rulesPath);
   if (rulesKind !== "missing" && rulesKind !== "directory") {
     throw new Error(

@@ -8,7 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
-- Support Skills-only Profiles without Context machinery: a Profile must select at least one supported artifact overall (Context and/or Skills), but no category is mandatory; Skills-only bindings install only selected Skill packages and skip Context outputs and Context-related Host capability requirements ([#55](https://github.com/kenneth-liao/agent-profile-kit/issues/55)).
+- Support Skills-only Profiles without Context machinery: a Profile must select at least one supported artifact overall (Context and/or Skills), but no category is mandatory; Skills-only bindings install only selected Skill packages and skip Context outputs and Context-related Host capability requirements; document CLI 0.17.0+ vs older Context-required ingestion for safe downgrade ([#55](https://github.com/kenneth-liao/agent-profile-kit/issues/55)).
 
 ### Changed
 
