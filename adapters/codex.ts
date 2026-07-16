@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { join } from "node:path";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { join, posix } from "node:path";
 import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 
@@ -51,6 +51,18 @@ export const CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION = "0.99.0";
 /** Codex Skill metadata path for Host-native invocation policy. */
 export const CODEX_SKILL_OPENAI_YAML = "agents/openai.yaml";
 
+/** Codex native project Skill discovery root (project-relative). */
+export const CODEX_SKILLS_DISCOVERY_ROOT = posix.join(".agents", "skills");
+
+/**
+ * Adapter-supported personal/global Codex Skill roots relative to the user home.
+ * Includes both the documented USER root and the still-scanned CODEX_HOME root.
+ */
+export const CODEX_GLOBAL_SKILL_ROOTS = [
+  CODEX_SKILLS_DISCOVERY_ROOT,
+  posix.join(".codex", "skills"),
+] as const;
+
 export type CodexProjectPlan = AdapterProjectPlan;
 
 export interface CodexCapabilityOptions {
@@ -59,6 +71,11 @@ export interface CodexCapabilityOptions {
   readonly requireDisabledModelInvocation?: boolean;
   /** Injectable version probe for tests; defaults to `codex --version`. */
   readonly resolveVersion?: () => Promise<string>;
+}
+
+export interface CodexGlobalSkillOverlapOptions {
+  /** Absolute project root used only in actionable blocker paths. */
+  readonly project: string;
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -358,6 +375,173 @@ function hooks(contextPath: string): string {
   )}\n`;
 }
 
+/** Project-relative managed Skill package path for a selected Artifact ID. */
+export function codexProjectSkillPath(skillId: string): string {
+  return posix.join(CODEX_SKILLS_DISCOVERY_ROOT, skillId);
+}
+
+function codexPathKind(path: string): Promise<"directory" | "file" | "missing" | "other"> {
+  return stat(path).then(
+    (info) => (info.isDirectory() ? "directory" : info.isFile() ? "file" : "other"),
+    (error: unknown) => {
+      if (hasErrorCode(error, "ENOENT")) return "missing" as const;
+      throw error;
+    },
+  );
+}
+
+function parseCodexSkillFrontmatterName(source: string): string | undefined {
+  // Readable package without a Host-visible name is not an identity collision.
+  const normalized = source.replace(/^\uFEFF/, "");
+  if (!normalized.startsWith("---\n") && !normalized.startsWith("---\r\n")) {
+    return undefined;
+  }
+  const open = normalized.startsWith("---\r\n") ? "---\r\n" : "---\n";
+  const close = normalized.startsWith("---\r\n") ? "\r\n---" : "\n---";
+  const closing = normalized.indexOf(close, open.length);
+  if (closing === -1) return undefined;
+  let document: unknown;
+  try {
+    document = parse(normalized.slice(open.length, closing));
+  } catch {
+    return undefined;
+  }
+  if (typeof document !== "object" || document === null || Array.isArray(document)) {
+    return undefined;
+  }
+  const name = (document as Record<string, unknown>).name;
+  return typeof name === "string" && name.length > 0 ? name : undefined;
+}
+
+function codexGlobalOverlapBlocker(input: {
+  readonly artifactId: string;
+  readonly globalPath: string;
+  readonly proposedProjectPath: string;
+}): string {
+  return (
+    `Codex personal/global Skill '${input.artifactId}' collides with selected Profile Skill: ` +
+    `unmanaged global delivery at ${input.globalPath} would conflict with project snapshot at ` +
+    `${input.proposedProjectPath}; remove or relocate the unmanaged global Skill before applying`
+  );
+}
+
+function codexGlobalInspectBlocker(path: string, detail: string): string {
+  return (
+    `Codex personal/global Skill root at ${path} cannot be inspected sufficiently to prove absence ` +
+    `of selected Skills (${detail}); remove the obstruction or make the path readable before applying`
+  );
+}
+
+/**
+ * Read-only Codex overlap detection for selected Skill Artifact IDs against every
+ * Adapter-supported personal/global Codex Skill root. Missing roots are empty.
+ * Uninspectable roots fail closed. Host-visible identity is the SKILL.md frontmatter name.
+ */
+export async function detectCodexGlobalSkillOverlaps(
+  home: string,
+  skillIds: readonly string[],
+  options: CodexGlobalSkillOverlapOptions,
+): Promise<readonly string[]> {
+  if (skillIds.length === 0) return [];
+  const selected = new Set(skillIds);
+  const blockers: string[] = [];
+
+  for (const relativeRoot of CODEX_GLOBAL_SKILL_ROOTS) {
+    const root = join(home, ...relativeRoot.split("/"));
+    let kind: Awaited<ReturnType<typeof codexPathKind>>;
+    try {
+      kind = await codexPathKind(root);
+    } catch (error) {
+      blockers.push(
+        codexGlobalInspectBlocker(root, error instanceof Error ? error.message : String(error)),
+      );
+      continue;
+    }
+    if (kind === "missing") continue;
+    if (kind !== "directory") {
+      blockers.push(codexGlobalInspectBlocker(root, `path is a ${kind}, not a directory`));
+      continue;
+    }
+
+    let entries: string[];
+    try {
+      entries = await readdir(root);
+    } catch (error) {
+      blockers.push(
+        codexGlobalInspectBlocker(root, error instanceof Error ? error.message : String(error)),
+      );
+      continue;
+    }
+
+    for (const entry of entries.sort((left, right) => left.localeCompare(right))) {
+      // Codex system bundles live under .system and are not personal/global user delivery.
+      if (entry.startsWith(".")) continue;
+      const packagePath = join(root, entry);
+      let packageKind: Awaited<ReturnType<typeof codexPathKind>>;
+      try {
+        packageKind = await codexPathKind(packagePath);
+      } catch (error) {
+        blockers.push(
+          codexGlobalInspectBlocker(
+            packagePath,
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+        continue;
+      }
+      if (packageKind !== "directory") continue;
+
+      const skillMd = join(packagePath, "SKILL.md");
+      let skillKind: Awaited<ReturnType<typeof codexPathKind>>;
+      try {
+        skillKind = await codexPathKind(skillMd);
+      } catch (error) {
+        blockers.push(
+          codexGlobalInspectBlocker(skillMd, error instanceof Error ? error.message : String(error)),
+        );
+        continue;
+      }
+      if (skillKind === "missing") continue;
+      if (skillKind !== "file") {
+        blockers.push(codexGlobalInspectBlocker(skillMd, `SKILL.md is a ${skillKind}, not a file`));
+        continue;
+      }
+
+      let source: string;
+      try {
+        source = await readFile(skillMd, "utf8");
+      } catch (error) {
+        blockers.push(
+          codexGlobalInspectBlocker(skillMd, error instanceof Error ? error.message : String(error)),
+        );
+        continue;
+      }
+      // No frontmatter name ⇒ no Host-visible identity that can collide with a
+      // selected Artifact ID. Unrelated/junk packages stay quiet; unreadable I/O
+      // already failed closed above.
+      const identity = parseCodexSkillFrontmatterName(source);
+      if (identity === undefined || !selected.has(identity)) continue;
+
+      // Resolve for reporting only; symlinks and identical bytes still block.
+      let evidencePath = packagePath;
+      try {
+        evidencePath = await realpath(packagePath);
+      } catch {
+        evidencePath = packagePath;
+      }
+      blockers.push(
+        codexGlobalOverlapBlocker({
+          artifactId: identity,
+          globalPath: evidencePath === packagePath ? packagePath : `${packagePath} -> ${evidencePath}`,
+          proposedProjectPath: join(options.project, ...codexProjectSkillPath(identity).split("/")),
+        }),
+      );
+    }
+  }
+
+  return [...new Set(blockers)].sort();
+}
+
 export async function planCodexProject(
   profileId: string,
   modules: readonly { readonly id: string; readonly content: string }[],
@@ -371,7 +555,7 @@ export async function planCodexProject(
       .map((skill) =>
         planSkillPackageDirectory(
           skill,
-          ".agents/skills",
+          CODEX_SKILLS_DISCOVERY_ROOT,
           ["Codex discovers Skill package through native project .agents/skills"],
           CODEX_SKILL_PROJECTION,
         ),

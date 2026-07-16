@@ -12,10 +12,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  detectClaudeGlobalSkillOverlaps,
-  detectCodexGlobalSkillOverlaps,
-} from "../adapters/global-skill-overlap.js";
+import { detectClaudeGlobalSkillOverlaps } from "../adapters/claude.js";
+import { detectCodexGlobalSkillOverlaps } from "../adapters/codex.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { statusApplication } from "../installer/commands.js";
 import { applyReconciliation, previewReconciliation } from "../installer/reconcile.js";

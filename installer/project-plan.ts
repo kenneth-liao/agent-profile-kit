@@ -4,17 +4,15 @@ import { isAbsolute, join, posix } from "node:path";
 import {
   assertClaudeProjectCapability,
   CLAUDE_ADAPTER_VERSION,
+  detectClaudeGlobalSkillOverlaps,
   planClaudeProject,
 } from "../adapters/claude.js";
 import {
   assertCodexProjectCapability,
   CODEX_ADAPTER_VERSION,
+  detectCodexGlobalSkillOverlaps,
   planCodexProject,
 } from "../adapters/codex.js";
-import {
-  detectClaudeGlobalSkillOverlaps,
-  detectCodexGlobalSkillOverlaps,
-} from "../adapters/global-skill-overlap.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
   AdapterProjectPlan,

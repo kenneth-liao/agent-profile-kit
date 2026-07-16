@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { lstat } from "node:fs/promises";
+import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
@@ -66,6 +66,12 @@ export const CLAUDE_CONTEXT_RULE_PATH = posix.join(
 /** Claude native project Skill discovery root. */
 export const CLAUDE_SKILLS_DISCOVERY_ROOT = posix.join(".claude", "skills");
 
+/**
+ * Claude personal Skill discovery root relative to the user home.
+ * Same Host path shape as project discovery; personal scope overrides project scope.
+ */
+export const CLAUDE_GLOBAL_SKILL_ROOT = CLAUDE_SKILLS_DISCOVERY_ROOT;
+
 export type ClaudeProjectPlan = AdapterProjectPlan;
 
 export interface ClaudeCapabilityOptions {
@@ -74,6 +80,11 @@ export interface ClaudeCapabilityOptions {
   readonly requireDisabledModelInvocation?: boolean;
   /** Injectable version probe for tests; defaults to `claude --version`. */
   readonly resolveVersion?: () => Promise<string>;
+}
+
+export interface ClaudeGlobalSkillOverlapOptions {
+  /** Absolute project root used only in actionable blocker paths. */
+  readonly project: string;
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -302,6 +313,129 @@ function contextRule(
     ],
     type: "file",
   };
+}
+
+/** Project-relative managed Skill package path for a selected Artifact ID. */
+export function claudeProjectSkillPath(skillId: string): string {
+  return posix.join(CLAUDE_SKILLS_DISCOVERY_ROOT, skillId);
+}
+
+function claudePathKind(path: string): Promise<"directory" | "file" | "missing" | "other"> {
+  return stat(path).then(
+    (info) => (info.isDirectory() ? "directory" : info.isFile() ? "file" : "other"),
+    (error: unknown) => {
+      if (hasErrorCode(error, "ENOENT")) return "missing" as const;
+      throw error;
+    },
+  );
+}
+
+function claudeGlobalOverlapBlocker(input: {
+  readonly artifactId: string;
+  readonly globalPath: string;
+  readonly proposedProjectPath: string;
+}): string {
+  return (
+    `Claude personal/global Skill '${input.artifactId}' collides with selected Profile Skill: ` +
+    `unmanaged global delivery at ${input.globalPath} would conflict with project snapshot at ` +
+    `${input.proposedProjectPath}; remove or relocate the unmanaged global Skill before applying`
+  );
+}
+
+function claudeGlobalInspectBlocker(path: string, detail: string): string {
+  return (
+    `Claude personal/global Skill root at ${path} cannot be inspected sufficiently to prove absence ` +
+    `of selected Skills (${detail}); remove the obstruction or make the path readable before applying`
+  );
+}
+
+/**
+ * Read-only Claude overlap detection for selected Skill Artifact IDs against the
+ * personal Claude Skill root. Host-visible identity is the package directory name
+ * (command name); a directory without SKILL.md is not a Skill.
+ */
+export async function detectClaudeGlobalSkillOverlaps(
+  home: string,
+  skillIds: readonly string[],
+  options: ClaudeGlobalSkillOverlapOptions,
+): Promise<readonly string[]> {
+  if (skillIds.length === 0) return [];
+  const selected = new Set(skillIds);
+  const blockers: string[] = [];
+  const root = join(home, ...CLAUDE_GLOBAL_SKILL_ROOT.split("/"));
+
+  let kind: Awaited<ReturnType<typeof claudePathKind>>;
+  try {
+    kind = await claudePathKind(root);
+  } catch (error) {
+    return [
+      claudeGlobalInspectBlocker(root, error instanceof Error ? error.message : String(error)),
+    ];
+  }
+  if (kind === "missing") return [];
+  if (kind !== "directory") {
+    return [claudeGlobalInspectBlocker(root, `path is a ${kind}, not a directory`)];
+  }
+
+  let entries: string[];
+  try {
+    entries = await readdir(root);
+  } catch (error) {
+    return [
+      claudeGlobalInspectBlocker(root, error instanceof Error ? error.message : String(error)),
+    ];
+  }
+
+  for (const entry of entries.sort((left, right) => left.localeCompare(right))) {
+    if (entry.startsWith(".")) continue;
+    if (!selected.has(entry)) continue;
+    const packagePath = join(root, entry);
+    let packageKind: Awaited<ReturnType<typeof claudePathKind>>;
+    try {
+      packageKind = await claudePathKind(packagePath);
+    } catch (error) {
+      blockers.push(
+        claudeGlobalInspectBlocker(
+          packagePath,
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+      continue;
+    }
+    if (packageKind !== "directory") continue;
+
+    const skillMd = join(packagePath, "SKILL.md");
+    let skillKind: Awaited<ReturnType<typeof claudePathKind>>;
+    try {
+      skillKind = await claudePathKind(skillMd);
+    } catch (error) {
+      blockers.push(
+        claudeGlobalInspectBlocker(skillMd, error instanceof Error ? error.message : String(error)),
+      );
+      continue;
+    }
+    if (skillKind === "missing") continue;
+    if (skillKind !== "file") {
+      blockers.push(claudeGlobalInspectBlocker(skillMd, `SKILL.md is a ${skillKind}, not a file`));
+      continue;
+    }
+
+    let evidencePath = packagePath;
+    try {
+      evidencePath = await realpath(packagePath);
+    } catch {
+      evidencePath = packagePath;
+    }
+    blockers.push(
+      claudeGlobalOverlapBlocker({
+        artifactId: entry,
+        globalPath: evidencePath === packagePath ? packagePath : `${packagePath} -> ${evidencePath}`,
+        proposedProjectPath: join(options.project, ...claudeProjectSkillPath(entry).split("/")),
+      }),
+    );
+  }
+
+  return [...new Set(blockers)].sort();
 }
 
 /**
