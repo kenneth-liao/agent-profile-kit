@@ -2192,7 +2192,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       /(?:not APK-owned|outside Project Bindings).{0,80}Installation Manifest/is,
     );
     expect(result.stdout).toMatch(
-      /(?:apply|uninstall).{0,60}(?:never|do not|does not).{0,40}(?:inventory|adopt|mutate|uninstall|remove).{0,40}(?:global|those paths)/is,
+      /never adopt, record as managed output, or mutate those paths/i,
     );
     // Ownership vs observation: status may still report blocked on dual delivery.
     expect(result.stdout).toMatch(
