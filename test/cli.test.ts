@@ -2678,7 +2678,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(readdirSync(workspacePath(home)).sort().join("\n")).toBe(workspaceBefore);
   });
 
-  test("bind fails when Local Configuration changes concurrently before publish", async () => {
+  test("bind fails when Local Configuration changes after the locked snapshot and before publish", async () => {
     const home = isolatedHome();
     initialize(home);
     writeContextProfile(home);
@@ -2689,9 +2689,12 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const { bindProject } = await import("../installer/bind-project.js");
     const {
       mkdir,
+      open,
       readFile,
       rename,
       rm,
+      stat,
+      unlink,
       writeFile,
     } = await import("node:fs/promises");
 
@@ -2704,22 +2707,26 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
         hosts: ["codex"],
         fileSystem: {
           mkdir,
+          open,
           rename,
           rm,
+          stat,
+          unlink,
           writeFile,
           readFile: (async (path: string, encoding?: BufferEncoding) => {
-            const value = await readFile(path, encoding ?? "utf8");
             if (path === configuration) {
               configReads += 1;
-              // After the initial snapshot, a concurrent editor rewrites the file.
+              // First read is the locked semantic+edit snapshot. Before the
+              // pre-publish re-read, an external non-cooperating writer mutates.
               if (configReads === 2) {
                 await writeFile(
                   configuration,
                   `${before.trimEnd()}\n# concurrent external edit\n`,
                 );
+                return readFile(path, encoding ?? "utf8");
               }
             }
-            return value;
+            return readFile(path, encoding ?? "utf8");
           }) as typeof readFile,
         },
       }),
@@ -2727,6 +2734,122 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     expect(readFileSync(configuration, "utf8")).toContain("# concurrent external edit");
     expect(readFileSync(configuration, "utf8")).not.toContain(projectPath);
+  });
+
+  test("bind validates the exact locked snapshot so a mid-flight rewrite cannot be ingested separately from the edit", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    writeContextProfile(home, "ops");
+    const projectPath = project();
+    const configuration = configPath(home);
+    const empty = "schema_version: 1\nbindings: []\n";
+    writeFileSync(configuration, empty);
+
+    const { bindProject } = await import("../installer/bind-project.js");
+    const {
+      mkdir,
+      open,
+      readFile,
+      rename,
+      rm,
+      stat,
+      unlink,
+      writeFile,
+    } = await import("node:fs/promises");
+
+    // Simulate the old race: after the editable snapshot is taken as empty,
+    // the on-disk file gains a conflicting binding. Publish must refuse the
+    // empty-based append rather than trusting a later re-ingest.
+    let configReads = 0;
+    await expect(
+      bindProject({
+        home,
+        profile: "coding",
+        project: projectPath,
+        hosts: ["codex"],
+        fileSystem: {
+          mkdir,
+          open,
+          rename,
+          rm,
+          stat,
+          unlink,
+          writeFile,
+          readFile: (async (path: string, encoding?: BufferEncoding) => {
+            if (path === configuration) {
+              configReads += 1;
+              if (configReads === 1) {
+                return empty;
+              }
+              // On-disk diverged: different Profile for the same root.
+              const conflicting =
+                `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: ops\n    hosts:\n      - codex\n`;
+              await writeFile(configuration, conflicting);
+              return conflicting;
+            }
+            return readFile(path, encoding ?? "utf8");
+          }) as typeof readFile,
+        },
+      }),
+    ).rejects.toThrow(/changed during bind/i);
+
+    expect(readFileSync(configuration, "utf8")).toContain("profile: ops");
+    expect(readFileSync(configuration, "utf8")).not.toContain("profile: coding");
+  });
+
+  test("concurrent binds serialize under the lock so both Project Bindings are retained", async () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const first = project();
+    const second = project();
+
+    const { bindProject } = await import("../installer/bind-project.js");
+    const results = await Promise.all([
+      bindProject({ home, profile: "coding", project: first, hosts: ["codex"] }),
+      bindProject({ home, profile: "coding", project: second, hosts: ["claude"] }),
+    ]);
+
+    expect(results.map((result) => result.outcome).sort()).toEqual(["created", "created"]);
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toContain(first);
+    expect(source).toContain(second);
+    expect(source).toContain("codex");
+    expect(source).toContain("claude");
+
+    const validate = runCli(home, "validate");
+    expect(validate.status, validate.stderr).toBe(0);
+    expect(validate.stdout).toContain("2 Project Bindings");
+  });
+
+  test("bind preserves CRLF line endings in Local Configuration", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    writeFileSync(configPath(home), "schema_version: 1\r\n# keep\r\nbindings: []\r\n");
+
+    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expect(result.status, result.stderr).toBe(0);
+
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toContain("\r\n");
+    expect(source).toContain("# keep");
+    expect(source.split("\n").every((line) => line.endsWith("\r") || line === "")).toBe(true);
+  });
+
+  test("bind preserves a hardened Local Configuration file mode", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const configuration = configPath(home);
+    chmodSync(configuration, 0o600);
+
+    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expect(result.status, result.stderr).toBe(0);
+    expect(statSync(configuration).mode & 0o777).toBe(0o600);
   });
 
   test("CLI help lists bind as a recording-only authoring command", () => {

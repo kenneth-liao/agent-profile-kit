@@ -1,9 +1,13 @@
 import {
   mkdir as defaultMkdir,
+  open as defaultOpen,
   readFile as defaultReadFile,
   rename as defaultRename,
   rm as defaultRm,
+  stat as defaultStat,
+  unlink as defaultUnlink,
   writeFile as defaultWriteFile,
+  type FileHandle,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isMap, isSeq, parseDocument } from "yaml";
@@ -15,28 +19,37 @@ import {
   type SupportedHost,
 } from "../schemas/local-configuration.js";
 import {
+  ingestApplicationFromSource,
   localConfigurationPath,
   normalizeProject,
   requireExistingDirectory,
-  ingestApplication,
 } from "./local-configuration.js";
 
-/** Optional filesystem hooks used only to prove concurrent-edit safety in tests. */
+/** Optional filesystem hooks used to prove concurrent-edit and lock safety in tests. */
 export interface BindProjectFileSystem {
   readonly mkdir: typeof defaultMkdir;
+  readonly open: typeof defaultOpen;
   readonly readFile: typeof defaultReadFile;
   readonly rename: typeof defaultRename;
   readonly rm: typeof defaultRm;
+  readonly stat: typeof defaultStat;
+  readonly unlink: typeof defaultUnlink;
   readonly writeFile: typeof defaultWriteFile;
 }
 
 const defaultFileSystem: BindProjectFileSystem = {
   mkdir: defaultMkdir,
+  open: defaultOpen,
   readFile: defaultReadFile,
   rename: defaultRename,
   rm: defaultRm,
+  stat: defaultStat,
+  unlink: defaultUnlink,
   writeFile: defaultWriteFile,
 };
+
+const LOCK_RETRY_MS = 20;
+const LOCK_TIMEOUT_MS = 5_000;
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
@@ -67,6 +80,52 @@ function hostsEqual(
   right: readonly SupportedHost[],
 ): boolean {
   return left.length === right.length && left.every((host, index) => host === right[index]);
+}
+
+/** Restore the source newline convention after YAML Document serialization (LF-only). */
+export function preserveSourceNewlines(source: string, serialized: string): string {
+  if (!source.includes("\r\n")) return serialized;
+  return serialized.replace(/\r?\n/g, "\r\n");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Serialize Local Configuration mutations. Cooperating writers take an exclusive
+ * lockfile for the entire read→validate→publish window so two binds cannot both
+ * pass a final check and rename over each other.
+ */
+async function withConfigurationLock<T>(
+  configurationPath: string,
+  fileSystem: BindProjectFileSystem,
+  body: () => Promise<T>,
+): Promise<T> {
+  const lockPath = `${configurationPath}.lock`;
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  let handle: FileHandle | undefined;
+
+  while (handle === undefined) {
+    try {
+      handle = await fileSystem.open(lockPath, "wx");
+    } catch (error) {
+      if (!hasErrorCode(error, "EEXIST")) throw error;
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Local Configuration ${configurationPath} is busy; another bind holds the lock — retry`,
+        );
+      }
+      await sleep(LOCK_RETRY_MS);
+    }
+  }
+
+  try {
+    return await body();
+  } finally {
+    await handle.close().catch(() => undefined);
+    await fileSystem.unlink(lockPath).catch(() => undefined);
+  }
 }
 
 export interface BindProjectOptions {
@@ -124,106 +183,104 @@ export async function bindProject(
   const storedProject =
     options.project === undefined ? canonicalProject : options.project;
 
-  // Shared desired-state ingestion is the sole trusted semantic boundary for
-  // existing bindings, Workspace selection, and Profile existence.
-  const { configuration, workspace } = await ingestApplication(options.home);
-  if (!workspace.profiles.has(profile)) {
-    throw new Error(
-      `${description} profile '${profile}' does not exist in Workspace ${workspace.path}`,
-    );
-  }
-
-  const existing = configuration.bindings.find(
-    (binding) => binding.canonicalProject === canonicalProject,
-  );
-  if (existing) {
-    if (existing.profile === profile && hostsEqual(existing.hosts, hosts)) {
-      return {
-        outcome: "unchanged",
-        configurationPath,
-        project: existing.project,
-        canonicalProject,
-        profile,
-        hosts,
-      };
+  return withConfigurationLock(configurationPath, fileSystem, async () => {
+    let source: string;
+    try {
+      source = await fileSystem.readFile(configurationPath, "utf8");
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) {
+        throw new Error(
+          `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
+        );
+      }
+      throw error;
     }
-    throw new Error(
-      `${description} already binds canonical project '${canonicalProject}' to profile '${existing.profile}' hosts [${existing.hosts.join(", ")}]; replace is not supported by bind`,
-    );
-  }
 
-  let source: string;
-  try {
-    source = await fileSystem.readFile(configurationPath, "utf8");
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
+    // Exact snapshot being edited is the sole input to the trusted semantic boundary.
+    const { configuration, workspace } = await ingestApplicationFromSource(
+      options.home,
+      source,
+      configurationPath,
+    );
+    if (!workspace.profiles.has(profile)) {
       throw new Error(
-        `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
+        `${description} profile '${profile}' does not exist in Workspace ${workspace.path}`,
       );
     }
-    throw error;
-  }
 
-  // Re-validate the bytes we will edit still match the ingested configuration path.
-  // Concurrent writers that mutated after ingest are caught by the publish re-read.
-  const document = parseDocument(source);
-  const bindingsNode = document.get("bindings");
-  if (!isSeq(bindingsNode)) {
-    throw new Error(`${description} bindings must be an array`);
-  }
-  // Prefer block style when starting from an empty flow sequence (init default).
-  if (bindingsNode.items.length === 0) {
-    bindingsNode.flow = false;
-  }
+    const existing = configuration.bindings.find(
+      (binding) => binding.canonicalProject === canonicalProject,
+    );
+    if (existing) {
+      if (existing.profile === profile && hostsEqual(existing.hosts, hosts)) {
+        return {
+          outcome: "unchanged" as const,
+          configurationPath,
+          project: existing.project,
+          canonicalProject,
+          profile,
+          hosts,
+        };
+      }
+      throw new Error(
+        `${description} already binds canonical project '${canonicalProject}' to profile '${existing.profile}' hosts [${existing.hosts.join(", ")}]; replace is not supported by bind`,
+      );
+    }
 
-  const entry = document.createNode({
-    project: storedProject,
-    profile,
-    hosts: [...hosts],
+    const document = parseDocument(source);
+    const bindingsNode = document.get("bindings");
+    if (!isSeq(bindingsNode)) {
+      throw new Error(`${description} bindings must be an array`);
+    }
+    // Prefer block style when starting from an empty flow sequence (init default).
+    if (bindingsNode.items.length === 0) {
+      bindingsNode.flow = false;
+    }
+
+    const entry = document.createNode({
+      project: storedProject,
+      profile,
+      hosts: [...hosts],
+    });
+    if (isMap(entry)) {
+      entry.flow = false;
+      const hostsNode = entry.get("hosts");
+      if (isSeq(hostsNode)) hostsNode.flow = false;
+    }
+    bindingsNode.add(entry);
+
+    const nextSource = preserveSourceNewlines(source, document.toString());
+    const sourceStats = await fileSystem.stat(configurationPath);
+    const mode = sourceStats.mode & 0o777;
+
+    const directory = dirname(configurationPath);
+    await fileSystem.mkdir(directory, { recursive: true });
+    const temporary = join(
+      directory,
+      `.config-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
+    );
+    await fileSystem.writeFile(temporary, nextSource, { flag: "wx", mode });
+    try {
+      // Under the exclusive lock, refuse to publish if the snapshot drifted (external
+      // non-cooperating writer). Cooperating binds cannot interleave this check→rename.
+      const stillCurrent = await fileSystem.readFile(configurationPath, "utf8");
+      if (stillCurrent !== source) {
+        throw new Error(
+          `${description} changed during bind; retry so concurrent edits are not lost`,
+        );
+      }
+      await fileSystem.rename(temporary, configurationPath);
+    } finally {
+      await fileSystem.rm(temporary, { force: true }).catch(() => undefined);
+    }
+
+    return {
+      outcome: "created" as const,
+      configurationPath,
+      project: storedProject,
+      canonicalProject,
+      profile,
+      hosts,
+    };
   });
-  if (isMap(entry)) {
-    entry.flow = false;
-    const hostsNode = entry.get("hosts");
-    if (isSeq(hostsNode)) hostsNode.flow = false;
-  }
-  bindingsNode.add(entry);
-
-  const nextSource = document.toString();
-
-  // Concurrent-edit guard: re-read immediately before publishing the replacement.
-  const current = await fileSystem.readFile(configurationPath, "utf8");
-  if (current !== source) {
-    throw new Error(
-      `${description} changed during bind; retry so concurrent edits are not lost`,
-    );
-  }
-
-  const directory = dirname(configurationPath);
-  await fileSystem.mkdir(directory, { recursive: true });
-  const temporary = join(
-    directory,
-    `.config-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
-  );
-  await fileSystem.writeFile(temporary, nextSource, { flag: "wx" });
-  try {
-    // Prove the source is still unchanged immediately before the atomic replace.
-    const stillCurrent = await fileSystem.readFile(configurationPath, "utf8");
-    if (stillCurrent !== source) {
-      throw new Error(
-        `${description} changed during bind; retry so concurrent edits are not lost`,
-      );
-    }
-    await fileSystem.rename(temporary, configurationPath);
-  } finally {
-    await fileSystem.rm(temporary, { force: true }).catch(() => undefined);
-  }
-
-  return {
-    outcome: "created",
-    configurationPath,
-    project: storedProject,
-    canonicalProject,
-    profile,
-    hosts,
-  };
 }
