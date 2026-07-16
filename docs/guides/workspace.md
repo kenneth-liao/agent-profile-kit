@@ -311,8 +311,10 @@ agent-profile-kit bind coding ~/projects/tools/agent-profile-kit --host codex --
 
 Omit the project argument to use the current working directory. At least one
 `--host` flag is required. An identical binding is left unchanged; a different
-Profile or Host set for the same project fails instead of overwriting. After
-binding, run `validate`, then `preview` and `apply` separately.
+Profile or Host set for the same project fails instead of overwriting. Do not
+hand-edit `config.yaml` while `bind` is running: `bind` commands serialize with
+each other, but a text editor does not participate in that lock. After binding,
+run `validate`, then `preview` and `apply` separately.
 
 ```yaml
 schema_version: 1

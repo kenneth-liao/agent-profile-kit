@@ -81,7 +81,7 @@ For a Git binding, the Installer asks Git for the repository's authoritative exi
 
 Commands separate binding authoring from global reconciliation:
 
-- `bind` appends one validated Project Binding to Local Configuration only. It does not preview, apply, or touch Host, Workspace, project, or installation state.
+- `bind` appends one validated Project Binding to Local Configuration only. It serializes other `bind` processes with a sidecar lock, rechecks the exact source snapshot, and publishes with an atomic replacement. It does not preview, apply, or touch Host, Workspace, project, or installation state.
 - `validate` checks the Workspace and Project Bindings.
 - `preview` shows additions, updates, removals, unchanged installations, and blocking conflicts without writing.
 - `apply` reconciles every binding.

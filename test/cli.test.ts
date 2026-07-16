@@ -2678,7 +2678,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(readdirSync(workspacePath(home)).sort().join("\n")).toBe(workspaceBefore);
   });
 
-  test("bind refuses publish when an external writer changes config before the final replace", async () => {
+  test("bind refuses a direct edit observed by the final source recheck", async () => {
     const home = isolatedHome();
     initialize(home);
     writeContextProfile(home);
@@ -2732,7 +2732,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
           }) as typeof readFile,
         },
       }),
-    ).rejects.toThrow(/changed during bind/i);
+    ).rejects.toThrow(/changed before bind publication/i);
 
     expect(readFileSync(configuration, "utf8")).toContain("# external edit before replace");
     expect(readFileSync(configuration, "utf8")).not.toContain(projectPath);
@@ -2790,7 +2790,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
           }) as typeof readFile,
         },
       }),
-    ).rejects.toThrow(/changed during bind/i);
+    ).rejects.toThrow(/changed before bind publication/i);
 
     expect(readFileSync(configuration, "utf8")).toContain("profile: ops");
     expect(readFileSync(configuration, "utf8")).not.toContain("profile: coding");

@@ -24,7 +24,7 @@ import {
   requireExistingDirectory,
 } from "./local-configuration.js";
 
-/** Optional filesystem hooks used to prove concurrent-edit and lock safety in tests. */
+/** Optional filesystem hooks used to prove snapshot checks and lock safety in tests. */
 export interface BindProjectFileSystem {
   readonly mkdir: typeof defaultMkdir;
   readonly readdir: typeof defaultReaddir;
@@ -250,9 +250,10 @@ async function withConfigurationLock<T>(
  * 3. Atomically rename the stage onto the canonical path (POSIX replace never
  *    observes a missing destination — readers always see previous or next bytes).
  *
- * Cooperating binds are serialized by the exclusive lock. Non-cooperating writers
- * that mutate the file after the re-check and before rename are outside the
- * cooperative contract; the re-check fails closed for any change observed before rename.
+ * Cooperating binds are serialized by the exclusive lock. The byte re-check rejects
+ * direct edits observed before publication. POSIX rename is not compare-and-swap, so
+ * direct editors must not write concurrently with bind: an edit in the final
+ * re-check-to-rename syscall window cannot be detected portably.
  */
 async function publishConfigurationReplacement(
   configurationPath: string,
@@ -271,7 +272,7 @@ async function publishConfigurationReplacement(
     const stillCurrent = await fileSystem.readFile(configurationPath, "utf8");
     if (stillCurrent !== source) {
       throw new Error(
-        `${description} changed during bind; retry so concurrent edits are not lost`,
+        `${description} changed before bind publication; retry after the other edit completes`,
       );
     }
     // Atomic replace: destination stays continuously readable.
@@ -290,7 +291,7 @@ export interface BindProjectOptions {
   readonly hosts: readonly string[];
   /** Working directory used when project is omitted. Defaults to process.cwd(). */
   readonly cwd?: string;
-  /** Test-only filesystem override for concurrent-edit proofs. */
+  /** Test-only filesystem override for snapshot and publication proofs. */
   readonly fileSystem?: BindProjectFileSystem;
   /** Test-only lock wait/stale-empty timeout (ms). */
   readonly lockTimeoutMs?: number;
