@@ -37,12 +37,16 @@ Use this workflow when helping a person author their Workspace and bind projects
    - **Hosts** own authentication, trust, approvals, plugins, sessions, and
      Host preferences. User-managed native global Skill delivery (including
      Host-root symlinks into Workspace source) is Host configuration, not
-     Agent Profile Kit state—outside Project Bindings, Installation Manifests,
-     status, apply, and uninstall. v1 does not manage global Host delivery.
+     Agent Profile Kit–owned state: outside Project Bindings and Installation
+     Manifests; `apply` / `uninstall` never adopt or remove those paths. v1 does
+     not manage global Host delivery. `status` may still report a project
+     installation as blocked when a selected Skill collides with global delivery
+     (#53).
    - **Generated output** is disposable Installer-owned material inside bound
      projects. Never copy it back into the Workspace as source.
    - Do not select a Skill into a bound Profile while the same Host-visible
-     identity is also globally delivered; preview/apply fail closed (#53).
+     identity is also globally delivered; preview/apply fail closed, and later
+     overlap appears as status blocked (#53).
 5. Author bindings directly in Local Configuration. Do not invent project roots
    or Host lists. Use only explicit paths the user confirms. Reject wildcards,
    recursive scans, hidden defaults, per-session selection, and Profile version
@@ -57,10 +61,11 @@ Use this workflow when helping a person author their Workspace and bind projects
    Do not claim that Agent Profile Kit manages Host authentication, trust,
    approvals, plugins, or sessions. For non-Git projects, remind the user that
    Codex must launch from the exact bound root.
-8. Use `status` to distinguish current source from stale or drifted generated
-   output. `uninstall` removes only output whose Installation Marker and hashes
-   prove Agent Profile Kit ownership; it preserves the Workspace, Local
-   Configuration, global Host configuration, and repository-owned files.
+8. Use `status` to distinguish current, stale, drifted, missing, and blocked
+   installations (including later global Skill identity collisions). `uninstall`
+   removes only output whose Installation Marker and hashes prove Agent Profile
+   Kit ownership; it preserves the Workspace, Local Configuration, global Host
+   configuration, and repository-owned files.
 
 If the user plans to publish the Workspace, remind them to review personal
 content. Credentials are invalid in a Workspace regardless of publication

@@ -20,12 +20,17 @@ Source ownership and managed delivery are separate:
   by every Profile does not make it invalid and does not move its canonical
   source into Host configuration.
 - **Profiles** select the artifacts scoped to a kind of work for Agent Profile
-  Kit–managed project-bound delivery. Only selected (and Dependency-resolved)
-  artifacts enter Project Bindings, Installation Manifests, `preview`, `apply`,
-  `status`, and `uninstall`.
+  Kit–managed project-bound delivery. A Project Binding selects a project root,
+  one Profile, and Hosts; only selected (and Dependency-resolved) artifacts from
+  that Profile enter Installation Manifests and the managed lifecycle
+  (`preview`, `apply`, `status`, and `uninstall`).
 - Agent Profile Kit v1 does not install, project, synchronize, or remove material in
-  personal/global Host roots. Global Host delivery is outside Project Bindings,
-  installation state, status, apply, and uninstall.
+  personal/global Host roots. Global Host delivery is not APK-owned state: it is
+  outside Project Bindings and Installation Manifests, and `apply` / `uninstall`
+  never inventory, adopt, or mutate those paths. `status` does not treat global
+  roots as managed output, but it may still report a project installation as
+  blocked when a selected Skill’s Host-visible identity collides with personal
+  or global delivery (see [#53](https://github.com/kenneth-liao/agent-profile-kit/issues/53)).
 - You may still manage native global delivery yourself—for example by symlinking
   a Host Skill root entry to canonical Workspace source—but that delivery is
   user-managed Host configuration, not Agent Profile Kit–owned state. Agent

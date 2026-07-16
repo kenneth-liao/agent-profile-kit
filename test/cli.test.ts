@@ -2140,9 +2140,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/at least one supported artifact|Context is not mandatory|Skills-only/i);
     expect(result.stdout).toMatch(/unselected universal|universal artifact/i);
     expect(result.stdout).toMatch(
-      /(?:does not manage|outside).{0,60}global|user-managed native global/i,
+      /(?:does not manage|not Agent Profile Kit[-–]owned).{0,80}global|user-managed native global/i,
     );
-    expect(result.stdout).toMatch(/#53|fail closed|fail-closed/i);
+    expect(result.stdout).toMatch(/#53|fail closed|fail-closed|status.{0,40}blocked/i);
     for (const command of ["validate", "preview", "apply", "status", "uninstall"]) {
       expect(result.stdout).toContain(
         command === "status" || command === "uninstall"
@@ -2184,13 +2184,26 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     expect(result.stdout).toMatch(/source ownership and managed delivery/i);
 
-    // v1 does not manage global Host delivery or track it as APK state.
+    // v1 does not manage global Host delivery as owned APK state.
     expect(result.stdout).toMatch(
       /does not install, project, synchronize, or remove material in\s+personal\/global/i,
     );
     expect(result.stdout).toMatch(
-      /outside Project Bindings,\s*installation state, status, apply, and uninstall/i,
+      /(?:not APK-owned|outside Project Bindings).{0,80}Installation Manifest/is,
     );
+    expect(result.stdout).toMatch(
+      /(?:apply|uninstall).{0,60}(?:never|do not|does not).{0,40}(?:inventory|adopt|mutate|uninstall|remove).{0,40}(?:global|those paths)/is,
+    );
+    // Ownership vs observation: status may still report blocked on dual delivery.
+    expect(result.stdout).toMatch(
+      /status.{0,80}(?:report|blocked)|(?:report|blocked).{0,80}status/is,
+    );
+
+    // Bindings select Profile/Hosts; artifacts enter Manifests / managed lifecycle.
+    expect(result.stdout).toMatch(
+      /Project Binding selects|Bindings select|binding selects/i,
+    );
+    expect(result.stdout).toMatch(/Installation Manifests and the managed lifecycle/i);
 
     // User-managed global delivery is permitted without becoming APK-owned state.
     expect(result.stdout).toMatch(/manage native global delivery yourself/i);
