@@ -8,9 +8,13 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Treat Workspace scaffolding as optional after initialization: only a supported `workspace.yaml` is required; missing artifact directories ingest as empty categories; bootstrap docs are never format requirements; document CLI 0.16.1+ vs older full-scaffold expectations for rollback ([#50](https://github.com/kenneth-liao/agent-profile-kit/issues/50)).
+
 - Published the final project-bound public overview, Workspace guide, and agent workflow for init through native Host use, with packed CLI coverage of both bundled guides ([#34](https://github.com/kenneth-liao/agent-profile-kit/issues/34)).
 
 ### Fixed
+
+- Reject dangling Workspace category symlinks as structural errors instead of treating them as empty categories ([#50](https://github.com/kenneth-liao/agent-profile-kit/issues/50)).
 
 - Kept personal Workspace and generated migration content outside the public package and added packed-artifact boundary checks ([#16](https://github.com/kenneth-liao/agent-profile-kit/issues/16)).
 

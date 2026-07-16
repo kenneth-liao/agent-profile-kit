@@ -18,8 +18,24 @@ export interface Workspace {
   readonly skills: ReadonlyMap<string, Skill>;
 }
 
+function hasErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
+/** Read directory entries; a missing category directory is an empty collection. */
+async function readCategoryEntries(directory: string) {
+  try {
+    return await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function skillPaths(directory: string, prefix = ""): Promise<readonly string[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
+  const entries = await readCategoryEntries(directory);
   const paths = await Promise.all(
     entries.map(async (entry) => {
       const relativePath = join(prefix, entry.name);
@@ -40,7 +56,7 @@ async function sourceFiles(
   extension: string,
   prefix = "",
 ): Promise<readonly string[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
+  const entries = await readCategoryEntries(directory);
   const files = await Promise.all(
     entries.map(async (entry) => {
       const relativePath = join(prefix, entry.name);

@@ -16,12 +16,54 @@ Edit Workspace files and Local Configuration directly.
 `~/.agents/agent-profile-kit/workspace/` and an empty machine-local Local
 Configuration at `~/.agents/agent-profile-kit/config.yaml` when either is missing.
 Rerunning is safe: it never overwrites existing Workspace or configuration
-content.
+content, and it does not restore optional scaffolding that you removed from a
+valid Workspace.
 
 The current Workspace schema version is 1. Its root `workspace.yaml` contains
-only `schema_version: 1`. The `profiles/`, `context/`, `skills/`, `agents/`,
-`hooks/`, and `tools/` directories are the canonical homes for portable artifacts.
-Do not treat generated Host output as source material.
+only `schema_version: 1`.
+
+### Required structure vs initialization scaffolding
+
+A valid Workspace needs only a supported `workspace.yaml`. That Manifest is the
+Workspace marker. Missing artifact directories are treated as empty categories;
+present ones are validated and ingested normally. `README.md`, `AGENTS.md`, and
+`.gitignore` are optional user-owned files that the engine never requires.
+
+When creating a **new** Workspace, `init` still scaffolds a friendly layout so
+you can discover where material belongs:
+
+- artifact directories `profiles/`, `context/`, `skills/`, `agents/`, `hooks/`,
+  and `tools/` (with `.gitkeep` placeholders)
+- short bootstrap `README.md` and `AGENTS.md` pointers to the current guides
+- a starter `.gitignore`
+
+Those scaffolded entries are for discoverability only. Delete unused empty
+directories or bootstrap docs if you prefer a minimal tree; validation, preview,
+status, apply, and uninstall keep working. Do not treat generated Host output as
+source material.
+
+### CLI compatibility for minimal Workspaces
+
+Optional scaffolding is a **CLI** behavior change, not a change to the Workspace
+Manifest schema (`schema_version` remains `1`). Agent Profile Kit **0.16.1 and
+later** accept Manifest-only and partial category layouts (with present category
+paths, including symlinks, required to resolve to directories). **0.15.x and
+earlier** still require every artifact directory plus `README.md`, `AGENTS.md`,
+and `.gitignore`.
+
+Before rolling a machine back to a CLI older than 0.16.1, restore a full layout
+so the older tool can validate the Workspace:
+
+1. Ensure `workspace.yaml` still contains `schema_version: 1`.
+2. Recreate any missing category directories: `profiles/`, `context/`,
+   `skills/`, `agents/`, `hooks/`, and `tools/` (empty directories are enough;
+   `.gitkeep` is optional).
+3. Restore any missing bootstrap files the older release required:
+   `README.md`, `AGENTS.md`, and `.gitignore`.
+
+A mixed-version environment (some machines on 0.16.1+, others on 0.15 or older)
+is safe only when every shared Workspace still includes that full layout, or
+when every consumer has upgraded to 0.16.1+.
 
 ## Author the Workspace
 
