@@ -131,6 +131,15 @@ function installFakeClaude(home: string, version = "2.1.0"): string {
   return bin;
 }
 
+/** Put a controlled Codex CLI stub first on PATH for version capability preflight. */
+function installFakeCodex(home: string, version = "0.99.0"): string {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "codex-cli ${version}"\n`);
+  execFileSync("chmod", ["+x", join(bin, "codex")]);
+  return bin;
+}
+
 function runCliWithPath(
   home: string,
   pathValue: string,
@@ -1863,6 +1872,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const home = isolatedHome();
     initialize(home);
     const claudeBin = installFakeClaude(home);
+    installFakeCodex(home);
     const projectPath = project();
     writeContextProfile(home);
     // Absent policy: ordinary name+description Skill still validates and installs as allowed.
@@ -3358,4 +3368,3 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(usage.stderr).toContain("unbind [project]");
   });
 });
-

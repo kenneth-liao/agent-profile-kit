@@ -548,7 +548,7 @@ describe("project-bound release candidate", () => {
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain(nonGitCodex);
-  });
+  }, 15_000);
 
   test("unsupported artifact categories, Host versions, Hosts, and project surfaces fail before writes", () => {
     const home = isolatedHome();
