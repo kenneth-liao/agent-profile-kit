@@ -2,7 +2,8 @@ import { parse, stringify } from "yaml";
 
 import { requireArtifactId } from "./dependencies.js";
 
-export const LOCAL_CONFIGURATION_SCHEMA_VERSION = 1;
+export const LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION = 1;
+export const LOCAL_CONFIGURATION_SCHEMA_VERSION = 2;
 export const LOCAL_CONFIGURATION_FILE = "config.yaml";
 
 /** Agent Hosts the engine can plan project output for. */
@@ -25,18 +26,18 @@ export interface ProjectBinding {
 export interface LocalConfiguration {
   readonly bindings: readonly ProjectBinding[];
   readonly path: string;
-  readonly schemaVersion: 1;
-  /**
-   * Authored Workspace path from Local Configuration when present.
-   * Absence means the fixed default Workspace path was selected.
-   */
-  readonly workspace?: string;
+  readonly schemaVersion: 2;
+  /** The one explicit authored Workspace path selected on this machine. */
+  readonly workspace: string;
 }
 
-export const EMPTY_LOCAL_CONFIGURATION = stringify({
-  schema_version: LOCAL_CONFIGURATION_SCHEMA_VERSION,
-  bindings: [],
-});
+export function createEmptyLocalConfiguration(workspace: string): string {
+  return stringify({
+    schema_version: LOCAL_CONFIGURATION_SCHEMA_VERSION,
+    workspace,
+    bindings: [],
+  });
+}
 
 function parseYaml(source: string, description: string): unknown {
   try {
@@ -77,15 +78,23 @@ export interface ParsedProjectBinding {
   readonly project: string;
 }
 
+export interface ParsedLocalConfiguration {
+  readonly bindings: readonly ParsedProjectBinding[];
+  readonly schemaVersion: 1 | 2;
+  readonly workspace?: string;
+}
+
+export interface ParsedCurrentLocalConfiguration {
+  readonly bindings: readonly ParsedProjectBinding[];
+  readonly schemaVersion: 2;
+  readonly workspace: string;
+}
+
 /**
  * Parse only the portable shape. Filesystem-dependent normalization belongs to
  * the ingestion boundary in installer/local-configuration.ts.
  */
-export function parseLocalConfiguration(source: string, path: string): {
-  readonly bindings: readonly ParsedProjectBinding[];
-  readonly schemaVersion: 1;
-  readonly workspace?: string;
-} {
+export function parseLocalConfiguration(source: string, path: string): ParsedLocalConfiguration {
   const value = parseYaml(source, `Local Configuration ${path}`);
   const mapping = requireMapping(value, `Local Configuration ${path}`);
   requireExactFields(
@@ -93,7 +102,11 @@ export function parseLocalConfiguration(source: string, path: string): {
     ["schema_version", "bindings", "workspace"],
     `Local Configuration ${path}`,
   );
-  if (mapping.schema_version !== LOCAL_CONFIGURATION_SCHEMA_VERSION) {
+  const schemaVersion = mapping.schema_version;
+  if (
+    schemaVersion !== LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION &&
+    schemaVersion !== LOCAL_CONFIGURATION_SCHEMA_VERSION
+  ) {
     throw new Error(
       `Local Configuration ${path} schema_version must be ${LOCAL_CONFIGURATION_SCHEMA_VERSION}`,
     );
@@ -106,6 +119,11 @@ export function parseLocalConfiguration(source: string, path: string): {
     mapping.workspace === undefined
       ? undefined
       : requireString(mapping.workspace, `Local Configuration ${path} workspace`);
+  if (schemaVersion === LOCAL_CONFIGURATION_SCHEMA_VERSION && workspace === undefined) {
+    throw new Error(
+      `Local Configuration ${path} workspace is required for schema_version ${LOCAL_CONFIGURATION_SCHEMA_VERSION}; add an explicit Workspace path and retry`,
+    );
+  }
 
   const bindings = mapping.bindings.map((entry, index) => {
     const description = `Local Configuration ${path} bindings[${index}]`;
@@ -134,7 +152,28 @@ export function parseLocalConfiguration(source: string, path: string): {
 
   return {
     bindings,
-    schemaVersion: LOCAL_CONFIGURATION_SCHEMA_VERSION,
+    schemaVersion,
     ...(workspace === undefined ? {} : { workspace }),
+  };
+}
+
+export function requireCurrentLocalConfiguration(
+  parsed: ParsedLocalConfiguration,
+  path: string,
+): ParsedCurrentLocalConfiguration {
+  if (parsed.schemaVersion !== LOCAL_CONFIGURATION_SCHEMA_VERSION) {
+    throw new Error(
+      `Local Configuration ${path} uses legacy schema_version ${parsed.schemaVersion}; run agent-profile-kit init to migrate it`,
+    );
+  }
+  if (parsed.workspace === undefined) {
+    throw new Error(
+      `Local Configuration ${path} workspace is required for schema_version ${LOCAL_CONFIGURATION_SCHEMA_VERSION}; add an explicit Workspace path and retry`,
+    );
+  }
+  return {
+    bindings: parsed.bindings,
+    schemaVersion: LOCAL_CONFIGURATION_SCHEMA_VERSION,
+    workspace: parsed.workspace,
   };
 }

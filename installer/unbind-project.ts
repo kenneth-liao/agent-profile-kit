@@ -8,9 +8,9 @@ import {
   pathExists,
   publishConfigurationReplacement,
   recoverHeldConfiguration,
-  type BindProjectFileSystem,
+  type LocalConfigurationFileSystem,
   withConfigurationLock,
-} from "./bind-project.js";
+} from "./local-configuration-publication.js";
 import {
   expandConfiguredPath,
   ingestApplicationModelFromSource,
@@ -150,7 +150,7 @@ export interface UnbindProjectOptions {
   /** Working directory used when project is omitted. Defaults to process.cwd(). */
   readonly cwd?: string;
   /** Test-only filesystem override for snapshot and publication proofs. */
-  readonly fileSystem?: BindProjectFileSystem;
+  readonly fileSystem?: LocalConfigurationFileSystem;
   /** Test-only lock wait/stale-empty timeout (ms). */
   readonly lockTimeoutMs?: number;
 }

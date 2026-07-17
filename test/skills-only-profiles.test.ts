@@ -79,7 +79,7 @@ async function skillsOnlyWorkspace(
   );
   writeFileSync(
     join(application, "config.yaml"),
-    `schema_version: 1\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [${hosts.join(", ")}]\n`,
+    `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [${hosts.join(", ")}]\n`,
   );
 }
 
@@ -433,7 +433,7 @@ describe("Skills-only Profiles", () => {
     // Binding removal: empty bindings and reconcile to uninstall.
     writeFileSync(
       join(home, ".agents", "agent-profile-kit", "config.yaml"),
-      "schema_version: 1\nbindings: []\n",
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`,
     );
     desired = await buildDesiredState(home, { checkHostCapability: false });
     const afterRemoval = await applyReconciliation(home, desired.installations);

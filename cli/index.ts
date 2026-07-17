@@ -140,6 +140,13 @@ async function main(): Promise<void> {
   if (arguments_.length === 1 && arguments_[0] === "init") {
     const result = await initializeWorkspace(home);
     for (const warning of result.warnings) process.stderr.write(`agent-profile-kit: warning: ${warning}\n`);
+    if (result.outcome === "migrated") {
+      process.stdout.write(
+        `Migrated Local Configuration and validated the Agent Profile Kit Workspace at ${result.path}\n` +
+          "Next: run agent-profile-kit validate, then preview and apply as needed\n",
+      );
+      return;
+    }
     if (result.outcome === "unchanged") {
       process.stdout.write(`Workspace and Local Configuration already initialized at ${result.path}; unchanged.\n`);
       return;

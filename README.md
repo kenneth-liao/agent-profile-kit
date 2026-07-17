@@ -27,7 +27,8 @@ npx agent-profile-kit init
 The initial release supports macOS only.
 
 Running the command again is safe: it creates only missing inputs and never
-overwrites the Workspace or Local Configuration.
+overwrites the Workspace or current Local Configuration. Supported legacy
+configuration is upgraded only by this explicit `init` command.
 
 ## Project-bound Context and Skills
 
@@ -61,18 +62,32 @@ agent-profile-kit status
 agent-profile-kit uninstall
 ```
 
-Project Bindings and an optional Workspace path live in the machine-local
-`~/.agents/agent-profile-kit/config.yaml`. Each binding names one existing
-absolute or home-relative (`~/…`) project root, one Profile, and one or more
-Hosts (`codex`, `claude`). Omitting `workspace` retains the fixed default
-Workspace at `~/.agents/agent-profile-kit/workspace/`. Use `bind` to append one
-validated binding, or `unbind` to remove one binding, without reconciling output;
-hand-editing `config.yaml` remains supported. `unbind` defaults to the current
-working directory and only uses exact authored-path recovery when a requested
-project no longer exists. `preview` is read-only; `apply` reconciles every
-binding; `status` reports current, stale source, drifted output, missing output,
-and malformed ownership states. `uninstall` is different: it removes proven
-generated Profile Installation output while preserving bindings.
+Project Bindings and the explicit Workspace selection live in the machine-local
+`~/.agents/agent-profile-kit/config.yaml`. Current Local Configuration uses
+`schema_version: 2` and requires one existing absolute or home-relative (`~/…`)
+`workspace` path plus Project Bindings:
+
+```yaml
+schema_version: 2
+workspace: ~/.agents/agent-profile-kit/workspace
+bindings: []
+```
+
+Each binding names one existing absolute or home-relative project root, one
+Profile, and one or more Hosts (`codex`, `claude`). Use `bind` to append one
+validated binding, or `unbind` to remove one binding, without reconciling
+output; hand-editing `config.yaml` remains supported. `unbind` defaults to the
+current working directory and only uses exact authored-path recovery when a
+requested project no longer exists. `preview` is read-only; `apply` reconciles
+every binding; `status` reports current, stale source, drifted output, missing
+output, and malformed ownership states. `uninstall` is different: it removes
+proven generated Profile Installation output while preserving bindings.
+
+Older version-1 configuration without `workspace` is migration input only. Run
+`agent-profile-kit init` to record the effective Workspace and upgrade it;
+`validate`, `preview`, `apply`, `status`, `bind`, and `unbind` fail closed with
+that guidance until migration completes. `init` never moves or rewrites the
+Workspace source, and a custom authored Workspace path is preserved.
 
 See `agent-profile-kit guide` for the Context Module, Skill, Profile, and binding
 formats, and `agent-profile-kit guide --agent` for agent-facing authoring
@@ -96,16 +111,20 @@ product code, schemas, and documentation rather than a personal Workspace.
 ## User data
 
 Canonical user content lives in one selected Workspace. The fixed default is
-`~/.agents/agent-profile-kit/workspace/`; Local Configuration may point at
-another existing absolute or home-relative Workspace path. Machine-local Project
-Bindings and that optional path live in `config.yaml`; disposable Installation
+`~/.agents/agent-profile-kit/workspace/`; `init` records that path explicitly,
+or Local Configuration may select another existing absolute or home-relative
+Workspace path. Machine-local Project Bindings and that explicit path live in
+`config.yaml`; disposable Installation
 Manifests live under `state/`. Generated Context, hooks, rules, and Skills live
 only in bound project-owned paths.
 
 `agent-profile-kit init` creates an empty default Workspace with a schema marker,
-artifact directories, and short human/agent bootstrap files when configuration is
-absent. When configuration already selects a custom Workspace, `init` validates
-it and does not create or migrate source. Current authoring guidance remains
+artifact directories, short human/agent bootstrap files, and a version-2
+configuration that records the default path when configuration is absent. When
+configuration already selects a custom Workspace, `init` validates it and does
+not create, move, or repair source; when it finds supported legacy configuration,
+it upgrades only the local configuration after validating the effective target.
+Current authoring guidance remains
 owned by the CLI through `agent-profile-kit guide` and
 `agent-profile-kit guide --agent`; initialization does not copy personal or
 opinionated starter content.

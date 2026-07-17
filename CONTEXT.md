@@ -9,7 +9,7 @@ The open-source tool and format that composes reusable agent material into Profi
 _Avoid_: Monorepo, universal agent runtime
 
 **Agent Profile Kit Workspace**:
-The user's single canonical source of Profiles, Context, Skills, Agents, Hooks, and Tools consumed by Agent Profile Kit. It may own both Profile-selected artifacts and unselected universal artifacts; selection controls managed project delivery, not whether material is valid Workspace source. The fixed default path is `~/.agents/agent-profile-kit/workspace/`; Local Configuration may optionally select one existing absolute or home-relative Workspace path on this machine instead. It may be a Git repository version-controlled independently of the tool.
+The user's single canonical source of Profiles, Context, Skills, Agents, Hooks, and Tools consumed by Agent Profile Kit. It may own both Profile-selected artifacts and unselected universal artifacts; selection controls managed project delivery, not whether material is valid Workspace source. The fixed default path is `~/.agents/agent-profile-kit/workspace/`; current Local Configuration explicitly selects either that path or one existing absolute or home-relative Workspace path on this machine. It may be a Git repository version-controlled independently of the tool.
 _Avoid_: Open-source tool repository, Profile Installation, Host-global second source
 
 **Workspace Manifest**:
@@ -61,7 +61,7 @@ A semantic declaration that an artifact needs authenticated access, independent 
 _Avoid_: Token, API key, host credential binding
 
 **Local Configuration**:
-The untracked source of machine-specific, non-secret values, including Project Bindings and an optional Workspace path, that bind canonical definitions to the current system. Omitting `workspace` retains the fixed default Workspace path.
+The untracked source of machine-specific, non-secret values, including Project Bindings and the required explicit Workspace path, that bind canonical definitions to the current system. `init` records the fixed default Workspace path for zero-argument initialization; older files without `workspace` are migration input only and are rejected by desired-state and binding-recording commands until `init` upgrades them.
 _Avoid_: Canonical default, credential value, Profile
 
 **Skill**:

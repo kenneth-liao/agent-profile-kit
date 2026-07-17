@@ -104,7 +104,7 @@ async function workspaceWithSkills(
   );
   writeFileSync(
     join(application, "config.yaml"),
-    `schema_version: 1\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
   );
 }
 

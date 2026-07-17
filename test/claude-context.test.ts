@@ -87,7 +87,7 @@ async function writeContextWorkspace(
   );
   writeFileSync(
     join(application, "config.yaml"),
-    `schema_version: 1\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [${hosts.join(", ")}]\n`,
+    `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [${hosts.join(", ")}]\n`,
   );
 }
 
@@ -129,7 +129,7 @@ describe("Claude Context Local Configuration", () => {
     ).toThrow("unsupported Agent Host 'cursor'");
   });
 
-  test("accepts optional workspace path and retains existing version-1 files without it", () => {
+  test("accepts version-1 Workspace selections as migration input", () => {
     const without = parseLocalConfiguration(
       "schema_version: 1\nbindings: []\n",
       "config.yaml",
@@ -156,6 +156,29 @@ describe("Claude Context Local Configuration", () => {
         "config.yaml",
       ),
     ).toThrow(/does not allow fields: extra/);
+  });
+
+  test("requires an explicit Workspace path in version 2 while retaining version 1 as migration input", () => {
+    const legacy = parseLocalConfiguration(
+      "schema_version: 1\nbindings: []\n",
+      "config.yaml",
+    );
+    expect(legacy.schemaVersion).toBe(1);
+    expect(legacy.workspace).toBeUndefined();
+
+    const current = parseLocalConfiguration(
+      "schema_version: 2\nworkspace: ~/.agents/agent-profile-kit/workspace\nbindings: []\n",
+      "config.yaml",
+    );
+    expect(current.schemaVersion).toBe(2);
+    expect(current.workspace).toBe("~/.agents/agent-profile-kit/workspace");
+
+    expect(() =>
+      parseLocalConfiguration(
+        "schema_version: 2\nbindings: []\n",
+        "config.yaml",
+      ),
+    ).toThrow(/workspace.*required/i);
   });
 });
 
