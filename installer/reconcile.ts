@@ -73,8 +73,6 @@ export type ReconciliationKind =
   | "update";
 
 export interface ReconciliationItem {
-  /** Canonical project identity used to group authored and expanded paths. */
-  readonly canonicalProject?: string;
   readonly kind: ReconciliationKind;
   readonly project: string;
   readonly reason?: string;
@@ -90,8 +88,6 @@ export type OutputReconciliationKind =
   | "update";
 
 export interface OutputReconciliationItem {
-  /** Canonical project identity used to group authored and expanded paths. */
-  readonly canonicalProject?: string;
   readonly kind: OutputReconciliationKind;
   readonly path: string;
   readonly project: string;
@@ -116,7 +112,7 @@ export interface ReconciliationReport {
   readonly blockers: readonly ReconciliationBlocker[];
   readonly desired: readonly {
     /** Canonical project identity used to group authored and expanded paths. */
-    readonly canonicalProject?: string;
+    readonly canonicalProject: string;
     readonly context: string;
     readonly outputs: readonly string[];
     readonly profile: string;
@@ -126,25 +122,6 @@ export interface ReconciliationReport {
   readonly items: readonly ReconciliationItem[];
   readonly outputs: readonly OutputReconciliationItem[];
   readonly warnings: readonly string[];
-}
-
-/*
- * Canonical project identity is presentation metadata, not reconciliation
- * state. Keep it available to the CLI formatter without changing the report's
- * serialized shape or forcing every consumer to understand it.
- */
-const canonicalProjectByReportObject = new WeakMap<object, string>();
-
-export function canonicalProjectFor(value: object): string | undefined {
-  return canonicalProjectByReportObject.get(value);
-}
-
-function captureCanonicalProject<T extends { canonicalProject?: string }>(value: T): T {
-  if (value.canonicalProject) {
-    canonicalProjectByReportObject.set(value, value.canonicalProject);
-    delete value.canonicalProject;
-  }
-  return value;
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -442,17 +419,16 @@ function composedContextFromOutputs(outputs: readonly DesiredProjectOutput[]): s
 function pushDirectoryMemberItems(
   outputItems: OutputReconciliationItem[],
   project: string,
-  canonicalProject: string,
   inspection: Awaited<ReturnType<typeof inspectOwnedDirectory>>,
 ): void {
   for (const path of inspection.missingMembers) {
-    outputItems.push({ canonicalProject, kind: "missing member", path, project });
+    outputItems.push({ kind: "missing member", path, project });
   }
   for (const path of [...inspection.driftedMembers, ...inspection.modeDriftedMembers]) {
-    outputItems.push({ canonicalProject, kind: "drifted member", path, project });
+    outputItems.push({ kind: "drifted member", path, project });
   }
   for (const path of inspection.unexpectedMembers) {
-    outputItems.push({ canonicalProject, kind: "unexpected member", path, project });
+    outputItems.push({ kind: "unexpected member", path, project });
   }
 }
 
@@ -518,7 +494,6 @@ export async function previewReconciliation(
           ? "unchanged"
           : "update";
       outputItems.push({
-        canonicalProject: installation.binding.canonicalProject,
         kind,
         path: output.path,
         project: installation.binding.project,
@@ -527,7 +502,6 @@ export async function previewReconciliation(
         pushDirectoryMemberItems(
           outputItems,
           installation.binding.project,
-          installation.binding.canonicalProject,
           await inspectOwnedDirectory(installation.binding.canonicalProject, previousOutput),
         );
       }
@@ -535,7 +509,6 @@ export async function previewReconciliation(
     }
     for (const [path, previousOutput] of previousOutputs) {
       outputItems.push({
-        canonicalProject: installation.binding.canonicalProject,
         kind: "removal",
         path,
         project: installation.binding.project,
@@ -544,7 +517,6 @@ export async function previewReconciliation(
         pushDirectoryMemberItems(
           outputItems,
           installation.binding.project,
-          installation.binding.canonicalProject,
           await inspectOwnedDirectory(installation.binding.canonicalProject, previousOutput),
         );
       }
@@ -556,7 +528,6 @@ export async function previewReconciliation(
     );
     if (!previous) {
       items.push({
-        canonicalProject: installation.binding.canonicalProject,
         kind: "addition",
         project: installation.binding.project,
       });
@@ -564,7 +535,6 @@ export async function previewReconciliation(
     }
     if (moved) {
       items.push({
-        canonicalProject: installation.binding.canonicalProject,
         kind: "update",
         project: installation.binding.project,
         reason: "project moved",
@@ -591,7 +561,6 @@ export async function previewReconciliation(
     }
     if (!proof.owned && !repairableMissingMarker) {
       items.push({
-        canonicalProject: installation.binding.canonicalProject,
         kind: proof.reason?.includes("malformed")
           ? "malformed ownership state"
           : proof.reason?.includes("missing")
@@ -602,7 +571,6 @@ export async function previewReconciliation(
       });
     } else if (previous.workspaceInputHash !== installation.sourceHash) {
       items.push({
-        canonicalProject: installation.binding.canonicalProject,
         kind: "stale source",
         project: installation.binding.project,
       });
@@ -621,21 +589,18 @@ export async function previewReconciliation(
       })
     ) {
       items.push({
-        canonicalProject: installation.binding.canonicalProject,
         kind: "update",
         project: installation.binding.project,
         reason: "desired output changed",
       });
     } else if (repairableMissingMarker) {
       items.push({
-        canonicalProject: installation.binding.canonicalProject,
         kind: "update",
         project: installation.binding.project,
         reason: "Installation Marker is missing and repairable",
       });
     } else {
       items.push({
-        canonicalProject: installation.binding.canonicalProject,
         kind: "current",
         project: installation.binding.project,
       });
@@ -654,23 +619,18 @@ export async function previewReconciliation(
       });
     }
     items.push({
-      canonicalProject: installation.project,
       kind: "removal",
       project: installation.project,
       ...(proof.reason ? { reason: proof.reason } : {}),
     });
     for (const output of installation.outputs) {
       outputItems.push({
-        canonicalProject: installation.project,
         kind: "removal",
         path: output.path,
         project: installation.project,
       });
     }
   }
-  for (const installation of desiredReport) captureCanonicalProject(installation);
-  for (const item of items) captureCanonicalProject(item);
-  for (const output of outputItems) captureCanonicalProject(output);
   return {
     blockers: [...new Map(
       blockers.map((blocker) => [`${blocker.project ?? ""}\0${blocker.message}`, blocker]),
@@ -932,12 +892,5 @@ export async function applyReconciliation(
       );
     }
   }
-  return {
-    ...report,
-    // A successful apply has already repaired this preflight condition; do not
-    // report the now-stale "apply will restore" warning in the completion view.
-    warnings: report.warnings.filter(
-      (warning) => !warning.includes(" is missing its Agent Profile Kit exclusion section; apply will restore"),
-    ),
-  };
+  return report;
 }

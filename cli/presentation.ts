@@ -1,6 +1,3 @@
-import {
-  canonicalProjectFor,
-} from "../installer/reconcile.js";
 import type {
   OutputReconciliationItem,
   ReconciliationBlocker,
@@ -134,24 +131,18 @@ function groupProjects(report: ReconciliationReport): GroupedProjects {
     return group;
   };
   for (const desired of report.desired) {
-    const canonicalProject = canonicalProjectFor(desired) ?? desired.canonicalProject ?? desired.project;
+    const canonicalProject = desired.canonicalProject;
     canonicalByProject.set(desired.project, canonicalProject);
     ensureGroup(canonicalProject, desired.project);
   }
   for (const output of report.outputs) {
-    const canonicalProject =
-      canonicalProjectFor(output) ?? output.canonicalProject ?? canonicalByProject.get(output.project) ?? output.project;
+    const canonicalProject = canonicalByProject.get(output.project) ?? output.project;
     canonicalByProject.set(output.project, canonicalProject);
     ensureGroup(canonicalProject, output.project).outputs.push(output);
   }
   for (const item of report.items) {
-    const canonicalProject =
-      canonicalProjectFor(item) ?? item.canonicalProject ?? canonicalByProject.get(item.project) ?? item.project;
-    if (
-      canonicalProjectFor(item) === undefined &&
-      item.canonicalProject === undefined &&
-      canonicalByProject.get(item.project) === undefined
-    ) {
+    const canonicalProject = canonicalByProject.get(item.project);
+    if (canonicalProject === undefined) {
       unscopedItems.push(item);
       continue;
     }
@@ -169,7 +160,7 @@ function groupProjects(report: ReconciliationReport): GroupedProjects {
 
 function desiredProfile(report: ReconciliationReport, project: string): string | undefined {
   return report.desired.find((installation) =>
-    (canonicalProjectFor(installation) ?? installation.canonicalProject ?? installation.project) === project || installation.project === project,
+    installation.canonicalProject === project || installation.project === project,
   )?.profile;
 }
 
@@ -202,6 +193,18 @@ function aggregateLine(report: ReconciliationReport, groups: readonly ProjectGro
     `Profile Installations: ${installations} · ` +
     `Changes: ${changes.length === 0 ? "none" : changes.join(", ")} · ` +
     `Blockers: ${report.blockers.length}`
+  );
+}
+
+function warningsForPresentation(
+  command: LifecycleCommand,
+  warnings: readonly string[],
+): readonly string[] {
+  if (command !== "apply") return warnings;
+  // A successful apply has repaired this preflight condition; omit the stale
+  // completion guidance while leaving the canonical report unchanged.
+  return warnings.filter(
+    (warning) => !warning.includes(" is missing its Agent Profile Kit exclusion section; apply will restore"),
   );
 }
 
@@ -245,14 +248,15 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
     lines.push("", "Diagnostics:");
     for (const item of grouped.unscopedItems) lines.push(`- ${item.project}: ${itemText(item)}`);
   }
-  if (report.warnings.length > 0) {
+  const warnings = warningsForPresentation(command, report.warnings);
+  if (warnings.length > 0) {
     lines.push("", "Warnings:");
-    for (const warning of report.warnings) lines.push(`- ${warning}`);
+    for (const warning of warnings) lines.push(`- ${warning}`);
   }
   return `${lines.join("\n")}\n`;
 }
 
-function verboseSections(report: ReconciliationReport): string {
+function verboseSections(command: LifecycleCommand, report: ReconciliationReport): string {
   const items = report.items.length === 0
     ? "(no Profile Installations)"
     : report.items
@@ -289,14 +293,15 @@ function verboseSections(report: ReconciliationReport): string {
     : report.outputs
         .map((output) => `${output.project}/${output.path}: ${output.kind}`)
         .join("\n");
-  const warnings = report.warnings.length === 0
+  const presentationWarnings = warningsForPresentation(command, report.warnings);
+  const warnings = presentationWarnings.length === 0
     ? "(none)"
-    : report.warnings.map((warning) => `- ${warning}`).join("\n");
+    : presentationWarnings.map((warning) => `- ${warning}`).join("\n");
   return `Projects:\n${items}\nOutputs:\n${outputs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\nBlockers:\n${blockers}\n`;
 }
 
 function verboseReport(command: LifecycleCommand, report: ReconciliationReport): string {
-  return `${outcomeLine(command, report)}\n${verboseSections(report)}`;
+  return `${outcomeLine(command, report)}\n${verboseSections(command, report)}`;
 }
 
 export function formatLifecycleReport(
