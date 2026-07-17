@@ -70,6 +70,15 @@ test("legacy artifact roots stay absent from the engine source tree", () => {
   }
 });
 
+test("private release artifact cannot publish to npm", () => {
+  const manifest = JSON.parse(
+    readFileSync(join(repositoryRoot, "package.json"), "utf8"),
+  ) as Record<string, unknown>;
+
+  expect(manifest.private).toBe(true);
+  expect(manifest.publishConfig).toBeUndefined();
+});
+
 test("packed npm artifacts exclude personal, legacy, and generated content", () => {
   const packed = packedFiles();
 

@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-07-16
+
 ### Added
 
 - Recording-only `agent-profile-kit bind <profile> [project] --host <host>…` appends one validated Project Binding to Local Configuration (cwd or explicit path, required Hosts, idempotent identical records, fail-closed conflicts, atomic concurrent-safe publish) without reconciling project or Host state; ADR-0010 amended, architecture and guides distinguish authoring from global reconciliation ([#54](https://github.com/kenneth-liao/agent-profile-kit/issues/54)).
