@@ -111,7 +111,7 @@ function writeContextProfile(home: string, profile = "coding"): void {
 function bind(home: string, projectPath: string, profile = "coding"): void {
   writeFileSync(
     configPath(home),
-    `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: ${profile}\n    hosts:\n      - codex\n`,
+    `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: ${profile}\n    hosts:\n      - codex\n`,
   );
 }
 
@@ -158,7 +158,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     initialize(home);
     const workspace = workspacePath(home);
     const config = configPath(home);
-    const originalConfig = "schema_version: 1\nbindings: []\n# authored\n";
+    const originalConfig = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n# authored\n`;
     writeFileSync(config, originalConfig);
     writeFileSync(join(workspace, "README.md"), "# authored\n");
 
@@ -175,7 +175,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(workspace, { recursive: true });
     writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
-    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
 
     const minimalValidate = runCli(home, "validate");
     expect(minimalValidate.status, minimalValidate.stderr).toBe(0);
@@ -263,7 +263,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const applicationRoot = join(home, ".agents", "agent-profile-kit");
     mkdirSync(applicationRoot, { recursive: true });
     symlinkSync(realWorkspace, join(applicationRoot, "workspace"));
-    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
 
     const validate = runCli(home, "validate");
     expect(validate.status, validate.stderr).toBe(0);
@@ -278,7 +278,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("omitting workspace retains the fixed default Workspace path", () => {
+  test("init records the conventional default Workspace path", () => {
     const home = isolatedHome();
     initialize(home);
     writeContextProfile(home);
@@ -289,7 +289,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("1 Profiles");
     expect(existsSync(workspacePath(home))).toBe(true);
-    expect(readFileSync(configPath(home), "utf8")).not.toMatch(/^\s*workspace:/m);
+    expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${workspacePath(home)}`);
   });
 
   test("absolute and home-relative configured Workspace paths resolve for validate", () => {
@@ -310,7 +310,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const projectPath = project();
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nworkspace: ${custom}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${custom}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
     const absolute = runCli(home, "validate");
@@ -321,7 +321,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const homeRelative = `~/${custom.slice(home.length + 1)}`;
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nworkspace: ${homeRelative}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${homeRelative}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
     );
     const relativeHome = runCli(home, "validate");
     expect(relativeHome.status, relativeHome.stderr).toBe(0);
@@ -350,7 +350,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const projectPath = project();
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nworkspace: ${link}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${link}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
     expect(realpathSync(link)).toBe(realpathSync(realWorkspace));
@@ -366,7 +366,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // Change only the authored alias to the realpath spelling of the same tree.
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nworkspace: ${realWorkspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${realWorkspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
     const statusViaReal = runCli(home, "status");
@@ -429,7 +429,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       example.setup?.();
       writeFileSync(
         configPath(home),
-        `schema_version: 1\nworkspace: ${example.workspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
+        `schema_version: 2\nworkspace: ${example.workspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
       );
       const beforeState = existsSync(statePath(home));
       const result = runCli(home, "apply");
@@ -447,8 +447,161 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
-    expect(readFileSync(configPath(home), "utf8")).toMatch(/schema_version:\s*1/);
-    expect(readFileSync(configPath(home), "utf8")).not.toMatch(/^\s*workspace:/m);
+    expect(readFileSync(configPath(home), "utf8")).toMatch(/schema_version:\s*2/);
+    expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${workspacePath(home)}`);
+  });
+
+  test("init migrates a legacy implicit-default configuration without losing authored content", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const legacy = "schema_version: 1\n# keep this note\nbindings: []\n";
+    writeFileSync(configPath(home), legacy);
+
+    const result = runCli(home, "init");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/migrat/i);
+    const migrated = readFileSync(configPath(home), "utf8");
+    expect(migrated).toMatch(/schema_version:\s*2/);
+    expect(migrated).toContain(`workspace: ${workspacePath(home)}`);
+    expect(migrated).toContain("# keep this note");
+    expect(migrated).toContain("bindings: []");
+  });
+
+  test("init migrates a legacy custom Workspace without changing its authored path or source", () => {
+    const home = isolatedHome();
+    const custom = join(home, "custom-workspace");
+    mkdirSync(custom, { recursive: true });
+    writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(custom, "NOTES.md"), "custom source\n");
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const projectPath = project();
+    const legacy =
+      `schema_version: 1\r\n# keep this note\r\nworkspace: ~/custom-workspace\r\nbindings:\r\n` +
+      `  - project: ${projectPath}\r\n    profile: coding\r\n    hosts: [codex]\r\n`;
+    writeFileSync(configPath(home), legacy);
+    chmodSync(configPath(home), 0o600);
+
+    const result = runCli(home, "init");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/migrat/i);
+    expect(readFileSync(join(custom, "NOTES.md"), "utf8")).toBe("custom source\n");
+    expect(existsSync(workspacePath(home))).toBe(false);
+    const migrated = readFileSync(configPath(home), "utf8");
+    expect(migrated).toContain("schema_version: 2");
+    expect(migrated).toContain("workspace: ~/custom-workspace");
+    expect(migrated).toContain(`# keep this note`);
+    expect(parse(migrated).bindings).toEqual([
+      { project: projectPath, profile: "coding", hosts: ["codex"] },
+    ]);
+    expect(migrated.split("\n").every((line) => line.endsWith("\r") || line === "")).toBe(true);
+    expect(statSync(configPath(home)).mode & 0o777).toBe(0o600);
+
+    const beforeSecondInit = migrated;
+    const second = runCli(home, "init");
+    expect(second.status, second.stderr).toBe(0);
+    expect(second.stdout).toMatch(/already initialized|unchanged/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(beforeSecondInit);
+  });
+
+  test("legacy custom Workspace migration validates before publishing configuration", () => {
+    const home = isolatedHome();
+    const custom = join(home, "broken-custom");
+    mkdirSync(custom, { recursive: true });
+    writeFileSync(join(custom, "stray.txt"), "not a Workspace\n");
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const legacy = "schema_version: 1\n# keep this note\nworkspace: ~/broken-custom\nbindings: []\n";
+    writeFileSync(configPath(home), legacy);
+
+    const result = runCli(home, "init");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/not a valid Agent Profile Kit Workspace|missing required file/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(legacy);
+    expect(readdirSync(custom).sort()).toEqual(["stray.txt"]);
+    expect(existsSync(workspacePath(home))).toBe(false);
+  });
+
+  test("legacy migration cleans failed staging and preserves the canonical configuration", async () => {
+    const home = isolatedHome();
+    const custom = join(home, "custom-workspace");
+    mkdirSync(custom, { recursive: true });
+    writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const configuration = configPath(home);
+    const legacy = "schema_version: 1\nworkspace: ~/custom-workspace\nbindings: []\n";
+    writeFileSync(configuration, legacy);
+    const kitDirectory = join(home, ".agents", "agent-profile-kit");
+    let temporaryPath: string | undefined;
+
+    const { initializeWorkspace } = await import("../installer/initialize-workspace.js");
+    const {
+      mkdir,
+      readdir,
+      readFile,
+      rename,
+      rm,
+      stat,
+      unlink,
+      writeFile,
+    } = await import("node:fs/promises");
+
+    await expect(
+      initializeWorkspace(home, {
+        fileSystem: {
+          mkdir,
+          readdir,
+          readFile,
+          rename,
+          rm,
+          stat,
+          unlink,
+          writeFile: async (path, data, options) => {
+            const result = await writeFile(path, data, options);
+            if (typeof path === "string" && path.endsWith(".tmp")) {
+              temporaryPath = path;
+              throw new Error("simulated Local Configuration staging failure");
+            }
+            return result;
+          },
+        },
+      }),
+    ).rejects.toThrow(/simulated Local Configuration staging failure/);
+
+    expect(readFileSync(configuration, "utf8")).toBe(legacy);
+    expect(existsSync(`${configuration}.lock`)).toBe(false);
+    expect(temporaryPath).toBeDefined();
+    expect(existsSync(temporaryPath!)).toBe(false);
+    expect(readdirSync(kitDirectory).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("desired-state and binding-recording commands reject unmigrated configuration without writing", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const legacy = "schema_version: 1\nbindings: []\n";
+    writeFileSync(configPath(home), legacy);
+    const projectPath = project();
+    const beforeWorkspace = readdirSync(workspacePath(home)).sort();
+
+    const commands: readonly (readonly string[])[] = [
+      ["validate"],
+      ["preview"],
+      ["apply"],
+      ["status"],
+      ["bind", "coding", projectPath, "--host", "codex"],
+      ["unbind", projectPath],
+    ];
+    for (const arguments_ of commands) {
+      const result = runCli(home, ...arguments_);
+      expect(result.status, `${arguments_.join(" ")}: ${result.stderr}`).toBe(1);
+      expect(result.stderr).toMatch(/legacy schema_version 1|run agent-profile-kit init/i);
+    }
+
+    expect(readFileSync(configPath(home), "utf8")).toBe(legacy);
+    expect(readdirSync(workspacePath(home)).sort()).toEqual(beforeWorkspace);
+    expect(existsSync(statePath(home))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
 
   test("init with a valid custom Workspace reports unchanged and does not mutate it", () => {
@@ -460,7 +613,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nworkspace: ${custom}\nbindings: []\n`,
+      `schema_version: 2\nworkspace: ${custom}\nbindings: []\n`,
     );
 
     const result = runCli(home, "init");
@@ -481,7 +634,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nworkspace: ${custom}\nbindings: []\n`,
+      `schema_version: 2\nworkspace: ${custom}\nbindings: []\n`,
     );
 
     const result = runCli(home, "init");
@@ -510,7 +663,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const projectPath = project();
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nworkspace: ${custom}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${custom}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
     );
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
@@ -555,27 +708,27 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const first = project();
     const invalidBindings = [
       {
-        source: `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex, codex]\n`,
+        source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex, codex]\n`,
         message: "must not contain a Host more than once",
       },
       {
-        source: "schema_version: 1\nbindings:\n  - project: ./relative\n    profile: coding\n    hosts: [codex]\n",
+        source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ./relative\n    profile: coding\n    hosts: [codex]\n`,
         message: "absolute path or home-relative",
       },
       {
-        source: "schema_version: 1\nbindings:\n  - project: ~/projects/*\n    profile: coding\n    hosts: [codex]\n",
+        source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ~/projects/*\n    profile: coding\n    hosts: [codex]\n`,
         message: "without wildcards",
       },
       {
-        source: `schema_version: 1\nbindings:\n  - project: ${join(home, "missing")}\n    profile: coding\n    hosts: [codex]\n`,
+        source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${join(home, "missing")}\n    profile: coding\n    hosts: [codex]\n`,
         message: "must be an existing directory",
       },
       {
-        source: `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: missing\n    hosts: [codex]\n`,
+        source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: missing\n    hosts: [codex]\n`,
         message: "does not exist in Workspace",
       },
       {
-        source: `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [cursor]\n`,
+        source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [cursor]\n`,
         message: "unsupported Agent Host 'cursor'",
       },
     ];
@@ -597,7 +750,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     symlinkSync(realProject, alias);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${realProject}\n    profile: coding\n    hosts: [codex]\n  - project: ${alias}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${realProject}\n    profile: coding\n    hosts: [codex]\n  - project: ${alias}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
     const result = runCli(home, "validate");
@@ -671,7 +824,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(second, ".codex", "hooks.json"), "occupied\n");
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
     const result = runCli(home, "preview");
@@ -759,7 +912,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(changed.stdout).toContain(`${projectPath}/.codex/hooks.json: unchanged`);
     expect(readFileSync(contextPath, "utf8")).toBe(before);
 
-    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
     const removed = runCli(home, "preview");
     expect(removed.status, removed.stderr).toBe(0);
     expect(removed.stdout).toContain(`${projectPath}/.agent-profile-kit/codex/context.md: removal`);
@@ -802,7 +955,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
     const result = runCli(home, "apply");
@@ -821,7 +974,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const second = project("agent-profile-kit-order-b-");
     writeContextProfile(home);
     const configuration = (projects: readonly string[]) =>
-      `schema_version: 1\nbindings:\n${projects.map((projectPath) => `  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`).join("")}`;
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n${projects.map((projectPath) => `  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`).join("")}`;
     writeFileSync(configPath(home), configuration([first, second]));
     const forward = runCli(home, "preview");
     writeFileSync(configPath(home), configuration([second, first]));
@@ -840,7 +993,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
     );
     expect(runCli(home, "apply").status).toBe(0);
     writeFileSync(
@@ -1086,7 +1239,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
     );
     chmodSync(second, 0o555);
 
@@ -1115,13 +1268,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n  - project: ${join(repository, "nested")}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n  - project: ${join(repository, "nested")}\n    profile: coding\n    hosts: [codex]\n`,
     );
     expect(runCli(home, "apply").status).toBe(0);
     const exclude = join(repository, ".git", "info", "exclude");
     const before = readFileSync(exclude);
     writeFileSync(join(repository, "nested", ".codex", "hooks.json"), "drifted\n");
-    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
 
     const failed = runCli(home, "apply");
 
@@ -1218,7 +1371,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n  - project: ${worktree}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n  - project: ${worktree}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
     const result = runCli(home, "apply");
@@ -1346,7 +1499,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
     const result = runCli(home, "status");
@@ -1421,7 +1574,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const first = project("agent-profile-kit-uninstall-a-");
     const second = project("agent-profile-kit-uninstall-b-");
     writeContextProfile(home);
-    const configuration = `schema_version: 1\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`;
+    const configuration = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), configuration);
     expect(runCli(home, "apply").status).toBe(0);
     writeFileSync(join(second, ".codex", "hooks.json"), "drifted\n");
@@ -1487,7 +1640,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${retained}\n    profile: coding\n    hosts: [codex]\n  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${retained}\n    profile: coding\n    hosts: [codex]\n  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n`,
     );
     expect(runCli(home, "apply").status).toBe(0);
     bind(home, retained);
@@ -1543,7 +1696,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${retained}\n    profile: coding\n    hosts: [codex]\n  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${retained}\n    profile: coding\n    hosts: [codex]\n  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n`,
     );
     expect(runCli(home, "apply").status).toBe(0);
     const retainedContext = join(retained, ".agent-profile-kit", "codex", "context.md");
@@ -1575,7 +1728,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(join(projectPath, ".codex"), { recursive: true });
     writeFileSync(join(external, "hooks.json"), hook);
     symlinkSync(external, join(projectPath, ".codex"));
-    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
 
     const result = runCli(home, "apply");
 
@@ -1670,7 +1823,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n`,
     );
     chmodSync(second, 0o555);
 
@@ -1887,7 +2040,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n      - claude\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n      - claude\n`,
     );
     const pathValue = `${claudeBin}:${process.env.PATH ?? ""}`;
     const absentValidate = runCliWithPath(home, pathValue, "validate");
@@ -1927,7 +2080,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       configPath(malformedHome),
-      `schema_version: 1\nbindings:\n  - project: ${project()}\n    profile: coding\n    hosts:\n      - codex\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(malformedHome)}\nbindings:\n  - project: ${project()}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
     const malformed = runCli(malformedHome, "validate");
     expect(malformed.status).toBe(1);
@@ -1952,7 +2105,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const conflictProject = project();
     writeFileSync(
       configPath(conflictHome),
-      `schema_version: 1\nbindings:\n  - project: ${conflictProject}\n    profile: coding\n    hosts:\n      - codex\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(conflictHome)}\nbindings:\n  - project: ${conflictProject}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
     const conflict = runCli(conflictHome, "preview");
     expect(conflict.status).toBe(1);
@@ -2015,7 +2168,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: engineering\n    hosts:\n      - codex\n      - claude\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: engineering\n    hosts:\n      - codex\n      - claude\n`,
     );
 
     const emptyHome = isolatedHome();
@@ -2050,7 +2203,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = runCliWithPath(home, pathValue, "status");
     expect(status.status, status.stderr).toBe(0);
 
-    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
     const uninstall = runCliWithPath(home, pathValue, "apply");
     expect(uninstall.status, uninstall.stderr).toBe(0);
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
@@ -2096,7 +2249,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude]\n`,
     );
     const bin = installFakeClaude(home);
     // Prefer the stub, keep the rest of PATH for node/git/etc.
@@ -2152,7 +2305,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude]\n`,
     );
     const emptyBin = join(home, "empty-bin");
     mkdirSync(emptyBin, { recursive: true });
@@ -2211,7 +2364,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude]\n`,
     );
     const bin = installFakeClaude(home);
     const pathWithClaude = `${bin}:${process.env.PATH ?? ""}`;
@@ -2539,7 +2692,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const authored = "~/projects/agent-profile-kit-unbind-missing";
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
     const result = runCli(home, "unbind", authored);
@@ -2559,7 +2712,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const alias = "~/projects/agent-profile-kit-unbind-alias";
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
     );
     const before = readFileSync(configPath(home), "utf8");
 
@@ -2576,7 +2729,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     initialize(home);
     writeContextProfile(home);
     const projectPath = project();
-    const malformed = "schema_version: 1\nbindings: not-an-array\n";
+    const malformed = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: not-an-array\n`;
     writeFileSync(configPath(home), malformed);
 
     const malformedResult = runCli(home, "unbind", projectPath);
@@ -2587,7 +2740,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     const missing = "~/projects/agent-profile-kit-unbind-ambiguous";
     const ambiguous =
-      `schema_version: 1\nbindings:\n` +
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
       `  - project: ${missing}\n    profile: coding\n    hosts: [codex]\n` +
       `  - project: ${missing}\n    profile: coding\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), ambiguous);
@@ -2605,7 +2758,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     writeContextProfile(home);
     const projectPath = project();
     const source =
-      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`;
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), source);
 
     const result = runCli(home, "unbind", projectPath);
@@ -2744,7 +2897,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const projectPath = project();
     writeFileSync(
       configPath(home),
-      `schema_version: 1\r\n# keep\r\nbindings:\r\n  - project: ${projectPath}\r\n    profile: coding\r\n    hosts: [codex]\r\n`,
+      `schema_version: 2\r\n# keep\r\nworkspace: ${workspacePath(home)}\r\nbindings:\r\n  - project: ${projectPath}\r\n    profile: coding\r\n    hosts: [codex]\r\n`,
     );
     chmodSync(configPath(home), 0o600);
 
@@ -2783,7 +2936,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const removed = project();
     const retained = project();
     const source =
-      `schema_version: 1\nbindings: [{project: ${removed}, profile: coding, hosts: [codex]}, ` +
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: [{project: ${removed}, profile: coding, hosts: [codex]}, ` +
       `{project: ${retained}, profile: coding, hosts: [claude]}]\n`;
     writeFileSync(configPath(home), source);
 
@@ -2791,7 +2944,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     expect(result.status, result.stderr).toBe(0);
     expect(readFileSync(configPath(home), "utf8")).toBe(
-      `schema_version: 1\nbindings: [{project: ${retained}, profile: coding, hosts: [claude]}]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: [{project: ${retained}, profile: coding, hosts: [claude]}]\n`,
     );
   });
 
@@ -2804,7 +2957,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const authored = "~/projects/home-relative";
     writeFileSync(
       configPath(home),
-      `schema_version: 1\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
     const result = runCli(home, "unbind", authored);
@@ -2821,7 +2974,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const removed = project();
     const retained = project();
     const original =
-      `schema_version: 1\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+      `schema_version: 2\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n` +
       `  # remove this binding note\n  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n` +
       `  # retain this binding note\n  - project: ${retained}\n    profile: coding\n    hosts: [claude]\n`;
     writeFileSync(configPath(home), original);
@@ -2835,7 +2988,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expect(result.stdout).toContain("Hosts: codex");
     const source = readFileSync(configPath(home), "utf8");
     expect(source).toBe(
-      `schema_version: 1\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+      `schema_version: 2\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n` +
         `  # retain this binding note\n  - project: ${retained}\n    profile: coding\n    hosts: [claude]\n`,
     );
   });
@@ -2931,7 +3084,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const projectPath = project();
     writeFileSync(
       configPath(home),
-      `schema_version: 1\n# keep comment\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n`,
+      `schema_version: 2\n# keep comment\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
     const before = readFileSync(configPath(home), "utf8");
 
@@ -2950,7 +3103,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const next = project();
     writeFileSync(
       configPath(home),
-      `schema_version: 1\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${existing}\n    profile: coding\n    hosts:\n      - codex\n`,
+      `schema_version: 2\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${existing}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
 
     const result = runCli(home, "bind", "coding", next, "--host", "claude");
@@ -3087,7 +3240,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     writeContextProfile(home, "ops");
     const projectPath = project();
     const configuration = configPath(home);
-    const empty = "schema_version: 1\nbindings: []\n";
+    const empty = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`;
     writeFileSync(configuration, empty);
 
     const { bindProject } = await import("../installer/bind-project.js");
@@ -3105,7 +3258,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     // Lie on the first config read (empty model) while the real file already has a
     // conflicting binding; the pre-replace re-check must detect bytes ≠ snapshot.
     const conflicting =
-      `schema_version: 1\nbindings:\n  - project: ${projectPath}\n    profile: ops\n    hosts:\n      - codex\n`;
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: ops\n    hosts:\n      - codex\n`;
     writeFileSync(configuration, conflicting);
 
     let configReads = 0;
@@ -3333,7 +3486,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     initialize(home);
     writeContextProfile(home);
     const projectPath = project();
-    writeFileSync(configPath(home), "schema_version: 1\r\n# keep\r\nbindings: []\r\n");
+    writeFileSync(configPath(home), `schema_version: 2\r\n# keep\r\nworkspace: ${workspacePath(home)}\r\nbindings: []\r\n`);
 
     const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
     expect(result.status, result.stderr).toBe(0);

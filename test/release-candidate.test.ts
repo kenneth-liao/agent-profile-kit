@@ -279,7 +279,7 @@ function writeBindings(
           .join("\n")}\n`,
     )
     .join("");
-  writeFileSync(configPath(home), `schema_version: 1\nbindings:\n${body}`);
+  writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n${body}`);
 }
 
 function writeGlobalSkill(root: string, skillId: string, body?: string): string {
@@ -875,6 +875,8 @@ describe("project-bound release candidate", () => {
     expect(human.stdout).toMatch(/personal\/global|global Host/i);
     expect(human.stdout).toMatch(/fail closed|#53/i);
     expect(human.stdout).toMatch(/optional scaffolding|valid Workspace needs only/i);
+    expect(human.stdout).toMatch(/schema_version: 2/);
+    expect(human.stdout).toMatch(/required `workspace`|legacy.*migration/i);
 
     const agent = runCli(home, ["guide", "--agent"]);
     expect(agent.status, agent.stderr).toBe(0);
@@ -883,5 +885,6 @@ describe("project-bound release candidate", () => {
     expect(agent.stdout).toMatch(/universal|unselected/i);
     expect(agent.stdout).toMatch(/global Skill|personal\/global|#53/i);
     expect(agent.stdout).toMatch(/optional scaffolding|workspace\.yaml/i);
+    expect(agent.stdout).toMatch(/explicit Workspace path|legacy.*migration/i);
   });
 });

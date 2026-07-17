@@ -81,7 +81,7 @@ async function workspaceWithSkill(
   );
   writeFileSync(
     join(application, "config.yaml"),
-    `schema_version: 1\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts:\n${hosts.map((host) => `      - ${host}`).join("\n")}\n`,
+    `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts:\n${hosts.map((host) => `      - ${host}`).join("\n")}\n`,
   );
 }
 

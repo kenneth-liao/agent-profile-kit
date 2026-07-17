@@ -20,23 +20,23 @@ The tool repository owns the CLI, schemas, Installer, Adapters, and product docu
 │   ├── agents/
 │   ├── hooks/
 │   └── tools/
-├── config.yaml                # Machine-local Project Bindings + optional workspace path
+├── config.yaml                # Machine-local explicit Workspace selection + Project Bindings
 └── state/                     # Disposable installation index and staging state
 ```
 
-Each machine has exactly one selected Workspace. The fixed default is `~/.agents/agent-profile-kit/workspace/`. Local Configuration may set an optional `workspace` field to one existing absolute or home-relative path; omission retains the fixed default. Symlinks are resolved once at ingestion to a canonical directory while the authored spelling remains available for diagnostics. Profiles and artifacts may be version-controlled independently of the engine. `config.yaml` is machine-local because checkout paths, Workspace placement, and installed Hosts vary by machine. Credential values belong in Host authentication, environment references, or operating-system secret storage and are invalid in both the Workspace and installation records.
+Each machine has exactly one selected Workspace. The fixed default is `~/.agents/agent-profile-kit/workspace/`, and current Local Configuration explicitly records either that path or one existing absolute or home-relative custom path. Symlinks are resolved once at ingestion to a canonical directory while the authored spelling remains available for diagnostics. Profiles and artifacts may be version-controlled independently of the engine. `config.yaml` is machine-local because checkout paths, Workspace placement, and installed Hosts vary by machine. Credential values belong in Host authentication, environment references, or operating-system secret storage and are invalid in both the Workspace and installation records.
 
 ```yaml
-schema_version: 1
-workspace: ~/projects/agent-profile-workspace   # optional; absolute or ~/… only
+schema_version: 2
+workspace: ~/projects/agent-profile-workspace   # required; absolute or ~/… only
 bindings: []
 ```
 
-A valid Workspace requires only a supported `workspace.yaml`. Artifact directories and bootstrap docs (`README.md`, `AGENTS.md`, `.gitignore`) are initialization scaffolding for discoverability, not permanent format requirements: missing categories ingest as empty, and present artifacts remain fully validated. That layout rule is enforced by CLI **0.16.1+**; it does not change `workspace.yaml` `schema_version` (still `1`). Machines on 0.15.x or older still require the full scaffold — restore the six category directories and bootstrap files before rolling a CLI back, or keep every shared Workspace fully scaffolded in mixed-version environments (see the Workspace guide). Local Configuration schema version remains `1` with an optional `workspace` field; older engines are not claimed to understand a file that uses it.
+A valid Workspace requires only a supported `workspace.yaml`. Artifact directories and bootstrap docs (`README.md`, `AGENTS.md`, `.gitignore`) are initialization scaffolding for discoverability, not permanent format requirements: missing categories ingest as empty, and present artifacts remain fully validated. That layout rule is enforced by CLI **0.16.1+**; it does not change `workspace.yaml` `schema_version` (still `1`). Machines on 0.15.x or older still require the full scaffold — restore the six category directories and bootstrap files before rolling a CLI back, or keep every shared Workspace fully scaffolded in mixed-version environments (see the Workspace guide). A version-1 Local Configuration without `workspace` is legacy migration input only. `init` records the conventional default when upgrading it; desired-state and binding-recording commands fail closed with `agent-profile-kit init` guidance until migration completes. Current Local Configuration schema version is `2` and its `workspace` field is required. Older engines are not claimed to understand the version-2 file.
 
 Desired-state commands (`validate`, `preview`, `apply`, and `status`) resolve the Workspace through the shared Local Configuration ingestion boundary (`ingestApplication`) before reading artifacts or Project Bindings. `init` separately parses Local Configuration and reuses the configured-path resolver (`resolveWorkspaceRoot`) so a custom path is validated without creating or repairing it. `uninstall` intentionally operates from installation ownership state only and does not resolve a Workspace, keeping recovery independent of valid source or configuration. Invalid configured targets (relative paths, wildcards, missing paths, files, dangling symlinks, empty directories, or directories without a valid `workspace.yaml`) fail before any Workspace, configuration, project, Host, or state write.
 
-`agent-profile-kit init` idempotently creates a fully scaffolded empty Workspace at the fixed default and a minimal `config.yaml` containing `schema_version: 1` and `bindings: []` when Local Configuration is absent. When configuration already selects a custom Workspace path, `init` validates that existing target and does not create, move, copy, adopt, or repair it. It never overwrites an existing Workspace or local configuration, and it does not recreate optional scaffolding inside an already valid Workspace (including a Manifest-only tree). Humans and agents edit Workspace artifacts directly. Project Bindings may be hand-edited in Local Configuration or recorded with the authoring-only `bind` command; Local Configuration remains the sole canonical home either way.
+`agent-profile-kit init` idempotently creates a fully scaffolded empty Workspace at the fixed default and a minimal `config.yaml` containing `schema_version: 2`, the explicit conventional `workspace` path, and `bindings: []` when Local Configuration is absent. When configuration already selects a custom Workspace path, `init` validates that existing target and does not create, move, copy, adopt, or repair it. When upgrading a legacy version-1 configuration, `init` validates the effective Workspace and atomically publishes only the migrated Local Configuration, preserving its Project Bindings and authored content. It never overwrites an existing Workspace or current local configuration, and it does not recreate optional scaffolding inside an already valid Workspace (including a Manifest-only tree). Humans and agents edit Workspace artifacts directly. Project Bindings may be hand-edited in Local Configuration or recorded with the authoring-only `bind` command; Local Configuration remains the sole canonical home either way.
 
 ## Runtime Boundary
 
@@ -59,8 +59,8 @@ There is no Agent Profile Kit launcher, session router, global Skill projection,
 A Project Binding associates exactly one explicit project root with one Profile and a set of Agent Hosts:
 
 ```yaml
-schema_version: 1
-# workspace: ~/projects/agent-profile-workspace  # optional; omit for the fixed default
+schema_version: 2
+workspace: ~/projects/agent-profile-workspace
 bindings:
   - project: ~/projects/tools/agent-profile-kit
     profile: engineering

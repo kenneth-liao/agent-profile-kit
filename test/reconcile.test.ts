@@ -40,7 +40,7 @@ describe("injected project filesystem failures", () => {
     );
     writeFileSync(
       join(application, "config.yaml"),
-      `schema_version: 1\nbindings:\n  - project: ${third}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${third}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n`,
     );
     const initial = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, initial.installations);
@@ -137,7 +137,7 @@ describe("injected project filesystem failures", () => {
     );
     writeFileSync(
       join(application, "config.yaml"),
-      `schema_version: 1\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
     );
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, desired.installations);

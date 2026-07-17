@@ -3,13 +3,14 @@ import { isAbsolute, join } from "node:path";
 
 import {
   LOCAL_CONFIGURATION_FILE,
+  requireCurrentLocalConfiguration,
   parseLocalConfiguration,
   type LocalConfiguration,
   type ParsedProjectBinding,
   type ProjectBinding,
 } from "../schemas/local-configuration.js";
 import { ingestWorkspace, type Workspace } from "./ingest-workspace.js";
-import { validateWorkspaceStructure, workspacePath } from "./workspace.js";
+import { validateWorkspaceStructure } from "./workspace.js";
 
 export function localConfigurationPath(home: string): string {
   return join(home, ".agents", "agent-profile-kit", LOCAL_CONFIGURATION_FILE);
@@ -21,7 +22,7 @@ function hasErrorCode(error: unknown, code: string): boolean {
 
 /**
  * Expand an absolute or home-relative machine path. Wildcards and other relative
- * forms are invalid. Shared by Project Binding roots and the optional Workspace path.
+ * forms are invalid. Shared by Project Binding roots and the authored Workspace path.
  */
 export function expandConfiguredPath(
   value: string,
@@ -103,21 +104,14 @@ export async function normalizeProject(
 
 /**
  * Resolve the Workspace directory from Local Configuration.
- * Absence of an authored path selects the fixed default.
- * Returns the canonical (realpath) directory after structural validation when
- * the path must already exist (always for a configured custom path; for the
- * default, callers that need a live Workspace still validate separately).
+ * The explicit authored path is the only selection input. Returns the canonical
+ * (realpath) directory after structural validation.
  */
 export async function resolveWorkspaceRoot(
   home: string,
-  authored: string | undefined,
+  authored: string,
   configPath: string,
 ): Promise<{ readonly authored: string; readonly path: string }> {
-  if (authored === undefined) {
-    const path = workspacePath(home);
-    return { authored: path, path };
-  }
-
   const description = `Local Configuration ${configPath}`;
   const expanded = expandConfiguredPath(authored, home, description, "workspace");
   const canonical = await requireExistingDirectory(
@@ -150,8 +144,8 @@ export interface IngestedProjectBinding {
 
 export interface IngestedApplicationSource {
   readonly bindings: readonly IngestedProjectBinding[];
-  readonly schemaVersion: 1;
-  readonly workspace?: string;
+  readonly schemaVersion: 2;
+  readonly workspace: string;
   readonly workspaceModel: Workspace;
 }
 
@@ -167,17 +161,11 @@ async function isMissingPath(expanded: string): Promise<boolean> {
 
 async function ingestWorkspaceFromConfiguration(
   home: string,
-  authored: string | undefined,
+  authored: string,
   path: string,
 ): Promise<Workspace> {
   const resolved = await resolveWorkspaceRoot(home, authored, path);
-  let workspaceRoot = resolved.path;
-  if (authored === undefined) {
-    // Default path: validate structure and normalize to realpath for identity.
-    await validateWorkspaceStructure(workspaceRoot);
-    workspaceRoot = await realpath(workspacePath(home));
-  }
-  return ingestWorkspace(workspaceRoot);
+  return ingestWorkspace(resolved.path);
 }
 
 /**
@@ -192,7 +180,10 @@ export async function ingestApplicationModelFromSource(
   path: string = localConfigurationPath(home),
   options: { readonly allowMissingProjects?: boolean } = {},
 ): Promise<IngestedApplicationSource> {
-  const parsed = parseLocalConfiguration(source, path);
+  const parsed = requireCurrentLocalConfiguration(
+    parseLocalConfiguration(source, path),
+    path,
+  );
   const workspaceModel = await ingestWorkspaceFromConfiguration(
     home,
     parsed.workspace,
@@ -257,7 +248,7 @@ export async function ingestApplicationModelFromSource(
   return {
     bindings,
     schemaVersion: parsed.schemaVersion,
-    ...(parsed.workspace === undefined ? {} : { workspace: parsed.workspace }),
+    workspace: parsed.workspace,
     workspaceModel,
   };
 }
@@ -285,7 +276,7 @@ export async function ingestApplicationFromSource(
       })),
       path,
       schemaVersion: model.schemaVersion,
-      ...(model.workspace === undefined ? {} : { workspace: model.workspace }),
+      workspace: model.workspace,
     },
     workspace: model.workspaceModel,
   };
@@ -293,9 +284,9 @@ export async function ingestApplicationFromSource(
 
 /**
  * Shared desired-state ingestion boundary: resolve Local Configuration first so
- * validate/preview/apply/status select the same configured Workspace (or the
- * fixed default). `init` reuses `resolveWorkspaceRoot` separately; `uninstall`
- * does not call this path.
+ * validate/preview/apply/status select the same explicitly configured Workspace.
+ * `init` reuses `resolveWorkspaceRoot` separately; `uninstall` does not call
+ * this path.
  */
 export async function ingestApplication(home: string): Promise<{
   readonly configuration: LocalConfiguration;

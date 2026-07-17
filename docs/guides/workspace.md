@@ -51,60 +51,55 @@ feature on the backlog.
 ## Initialize
 
 `agent-profile-kit init` creates an empty, schema-versioned Workspace at the
-fixed default path `~/.agents/agent-profile-kit/workspace/` and an empty
+fixed default path `~/.agents/agent-profile-kit/workspace/` and a version-2
 machine-local Local Configuration at `~/.agents/agent-profile-kit/config.yaml`
-when Local Configuration is absent. Rerunning is safe: it never overwrites
-existing Workspace or configuration content, and it does not restore optional
-scaffolding that you removed from a valid Workspace.
+that explicitly records that path when Local Configuration is absent. Rerunning
+is safe: it never overwrites the Workspace or current configuration, and it does
+not restore optional scaffolding that you removed from a valid Workspace.
 
-To keep the Workspace as an independent Git repository elsewhere, set an optional
-`workspace` field in Local Configuration to one existing absolute or
+To keep the Workspace as an independent Git repository elsewhere, set the
+required `workspace` field in Local Configuration to one existing absolute or
 home-relative path that already contains a valid `workspace.yaml`:
 
 ```yaml
-schema_version: 1
+schema_version: 2
 workspace: ~/projects/agent-profile-workspace
 bindings: []
 ```
 
-Omitting `workspace` retains the fixed default. Symlinks are supported; relative
-paths and wildcards are not. When configuration already selects a custom path,
-`init` validates that target and does not create, move, copy, adopt, or repair
-it. Changing the path never migrates source automatically.
+Symlinks are supported; relative paths and wildcards are not. When configuration
+selects a custom path, `init` validates that target and does not create, move,
+copy, adopt, or repair it. Changing the path never migrates source automatically.
 
 The current Workspace schema version is 1. Its root `workspace.yaml` contains
-only `schema_version: 1`. Local Configuration schema version remains 1 with the
-optional `workspace` field.
+only `schema_version: 1`. Local Configuration schema version is 2 and its
+`workspace` field is required.
 
-### CLI compatibility for configurable Workspace path
+### Legacy Local Configuration migration and version compatibility
 
-The optional Local Configuration `workspace` field remains under
-`schema_version: 1`, but is understood only by Agent Profile Kit **0.18.0 and
-later**. **0.17.x and earlier** reject the unknown field and refuse to load
-configuration that uses it.
+Version-1 Local Configuration without `workspace` is supported only as migration
+input. Run `agent-profile-kit init` to upgrade it before using `validate`,
+`preview`, `apply`, `status`, `bind`, or `unbind`. Those commands never migrate
+the file implicitly: they fail closed with actionable `agent-profile-kit init`
+guidance while leaving migration to the explicit `init` command.
 
-Removing the field before a downgrade redirects desired-state commands to the
-fixed default path (`~/.agents/agent-profile-kit/workspace/`). That can strand
-management of Host output that was installed from the custom Workspace while
-leaving the custom tree unselected.
+For a legacy file that omitted `workspace`, migration records the conventional
+default `~/.agents/agent-profile-kit/workspace/`. For a legacy file with an
+authored path, migration preserves that path. `init` validates the selected
+Workspace before atomically replacing only Local Configuration, preserving
+Project Bindings, comments, line endings, and file mode; it never moves or
+rewrites Workspace source. If validation fails, the configuration remains
+unchanged.
 
-Before rolling a machine back to a CLI older than 0.18.0:
+Older engine versions that understand only Local Configuration schema version 1
+are not compatible with the migrated version-2 file. Before rolling back to
+one, restore a version-1 configuration from a trusted backup and ensure its
+effective Workspace is available at the expected path; do not hand-edit a
+version-2 file while relying on an older binary to preserve it.
 
-1. On **0.18.0+**, reconcile or uninstall with the current configuration so owned
-   installations sourced from the custom Workspace are updated or removed while
-   the newer CLI still understands the field.
-2. If the older CLI must keep managing the same source tree, expose that tree at
-   the fixed default path (for example, replace the fixed default with a symlink
-   to the custom Workspace—older CLIs already support a symlink there).
-3. Remove the `workspace` field from Local Configuration.
-4. Confirm `agent-profile-kit validate` succeeds under 0.18+ with the field
-   removed (and the fixed default pointing at the intended tree).
-5. Only then install the older CLI binary.
-
-Mixed-version consumers cannot share a `config.yaml` that uses the optional
-`workspace` field: older engines reject the unknown key. Keep the field only on
-machines that have upgraded to 0.18.0+, or use the fixed default (optionally via
-symlink) on every machine.
+Mixed-version consumers cannot share a migrated `config.yaml`: older engines
+reject the version-2 schema. Keep the migrated file with current binaries, or
+coordinate an explicit rollback using a trusted version-1 configuration.
 
 ### Required structure vs initialization scaffolding
 
