@@ -30,7 +30,7 @@ import {
   type OwnedDirectoryMember,
 } from "../schemas/installation-manifest.js";
 import { hashWorkspaceInputs } from "./hashes.js";
-import { ingestApplication } from "./local-configuration.js";
+import { ingestApplication, stateDirectory } from "./local-configuration.js";
 import { resolveProfileDependencies, type ResolvedProfile } from "./resolve-dependencies.js";
 import { ENGINE_VERSION } from "./version.js";
 import { findGitProject, listGitProjectCheckouts, type GitProject } from "./git.js";
@@ -563,9 +563,7 @@ export async function buildDesiredState(
   };
 }
 
-export function stateDirectory(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "state");
-}
+export { stateDirectory };
 
 export function stateManifestPath(home: string): string {
   return join(stateDirectory(home), "manifest.yaml");

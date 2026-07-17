@@ -114,7 +114,11 @@ function configPath(home: string): string {
 }
 
 function statePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml");
+  return join(stateDirectory(home), "manifest.yaml");
+}
+
+function stateDirectory(home: string): string {
+  return join(home, ".agents", "agent-profile-kit", "state");
 }
 
 function writeContextProfile(home: string, profile = "coding"): void {
@@ -537,6 +541,90 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(readFileSync(join(applicationRoot, "NOTES.md"), "utf8")).toBe("user-owned source\n");
       expect(existsSync(configPath(home))).toBe(false);
     }
+  });
+
+  test("init rejects Workspace paths inside the disposable state tree before writing", () => {
+    const cases: readonly {
+      readonly authored: (home: string) => string;
+      readonly setup: (home: string) => void;
+    }[] = [
+      {
+        authored: (home) => stateDirectory(home),
+        setup: () => undefined,
+      },
+      {
+        authored: (home) => join(stateDirectory(home), "nested-workspace"),
+        setup: (home) => mkdirSync(stateDirectory(home), { recursive: true }),
+      },
+      {
+        authored: (home) => join(home, "state-alias"),
+        setup: (home) => {
+          mkdirSync(stateDirectory(home), { recursive: true });
+          symlinkSync(stateDirectory(home), join(home, "state-alias"));
+        },
+      },
+      {
+        authored: (home) => join(home, "state-alias", "nested-workspace"),
+        setup: (home) => {
+          mkdirSync(stateDirectory(home), { recursive: true });
+          symlinkSync(stateDirectory(home), join(home, "state-alias"));
+        },
+      },
+    ];
+
+    for (const example of cases) {
+      const home = isolatedHome();
+      example.setup(home);
+      const result = runCli(home, "init", example.authored(home));
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/reserved.*state|installation state/i);
+      expect(existsSync(configPath(home))).toBe(false);
+      expect(existsSync(workspacePath(home))).toBe(false);
+      expect(existsSync(join(stateDirectory(home), "nested-workspace", "workspace.yaml"))).toBe(false);
+    }
+  });
+
+  test("init rejects a configured Workspace root that contains Local Configuration", () => {
+    const home = isolatedHome();
+    const applicationRoot = join(home, ".agents", "agent-profile-kit");
+    const alias = join(home, "application-root-alias");
+    mkdirSync(applicationRoot, { recursive: true });
+    writeFileSync(join(applicationRoot, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(applicationRoot, "NOTES.md"), "user-owned source\n");
+    symlinkSync(applicationRoot, alias);
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${alias}\nbindings: []\n`);
+    const configBefore = readFileSync(configPath(home), "utf8");
+    const sourceBefore = readdirSync(applicationRoot).sort();
+
+    const result = runCli(home, "init");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/reserved.*Local Configuration/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
+    expect(readdirSync(applicationRoot).sort()).toEqual(sourceBefore);
+    expect(readFileSync(join(applicationRoot, "NOTES.md"), "utf8")).toBe("user-owned source\n");
+  });
+
+  test("init rejects a legacy configured Workspace root that contains Local Configuration", () => {
+    const home = isolatedHome();
+    const applicationRoot = join(home, ".agents", "agent-profile-kit");
+    const alias = join(home, "application-root-alias");
+    mkdirSync(applicationRoot, { recursive: true });
+    writeFileSync(join(applicationRoot, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(applicationRoot, "NOTES.md"), "user-owned source\n");
+    symlinkSync(applicationRoot, alias);
+    writeFileSync(configPath(home), `schema_version: 1\nworkspace: ${alias}\nbindings: []\n`);
+    const configBefore = readFileSync(configPath(home), "utf8");
+    const sourceBefore = readdirSync(applicationRoot).sort();
+
+    const result = runCli(home, "init");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/reserved.*Local Configuration/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
+    expect(readdirSync(applicationRoot).sort()).toEqual(sourceBefore);
+    expect(existsSync(`${configPath(home)}.lock`)).toBe(false);
   });
 
   test("init with an explicit valid Workspace adopts it without changing its source", () => {

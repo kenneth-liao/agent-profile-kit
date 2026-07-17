@@ -10,15 +10,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-  sep,
-} from "node:path";
+import { dirname, join } from "node:path";
 import { parseDocument } from "yaml";
 
 import {
@@ -34,6 +26,7 @@ import {
   requireCurrentLocalConfiguration,
 } from "../schemas/local-configuration.js";
 import {
+  assertWorkspaceSelectionSeparation,
   expandConfiguredPath,
   localConfigurationPath,
   resolveWorkspaceRoot,
@@ -114,58 +107,14 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function expandWorkspaceDestination(home: string, authored: string): string {
-  return expandConfiguredPath(
-    authored,
-    home,
-    "agent-profile-kit init",
-    "workspace",
-  );
-}
-
-function isSameOrDescendant(path: string, ancestor: string): boolean {
-  const relativePath = relative(ancestor, path);
-  return (
-    relativePath === "" ||
-    (relativePath !== ".." &&
-      !relativePath.startsWith(`..${sep}`) &&
-      !isAbsolute(relativePath))
-  );
-}
-
-async function canonicalizePathForComparison(path: string): Promise<string> {
-  const original = resolve(path);
-  let candidate = original;
-  const suffix: string[] = [];
-
-  while (true) {
-    try {
-      const canonical = await realpath(candidate);
-      return suffix.reduceRight((parent, segment) => join(parent, segment), canonical);
-    } catch (error) {
-      if (!hasErrorCode(error, "ENOENT") && !hasErrorCode(error, "ENOTDIR")) throw error;
-      const parent = dirname(candidate);
-      if (parent === candidate) return original;
-      suffix.push(basename(candidate));
-      candidate = parent;
-    }
-  }
-}
-
-async function assertWorkspaceConfigurationSeparation(destination: string, home: string): Promise<void> {
-  const configPath = localConfigurationPath(home);
-  const [canonicalDestination, canonicalConfigPath] = await Promise.all([
-    canonicalizePathForComparison(destination),
-    canonicalizePathForComparison(configPath),
-  ]);
-  if (
-    isSameOrDescendant(canonicalDestination, canonicalConfigPath) ||
-    isSameOrDescendant(canonicalConfigPath, canonicalDestination)
-  ) {
-    throw new Error(
-      `Cannot initialize Workspace '${destination}': path is reserved for Local Configuration at ${configPath}`,
-    );
-  }
+async function assertWorkspaceSelectionPath(
+  home: string,
+  authored: string,
+  description: string,
+): Promise<string> {
+  const destination = expandConfiguredPath(authored, home, description, "workspace");
+  await assertWorkspaceSelectionSeparation(home, destination, authored, description);
+  return destination;
 }
 
 async function inspectWorkspace(
@@ -287,8 +236,7 @@ async function initializeWorkspaceAt(
   ensureConfiguration: boolean,
 ): Promise<InitializationResult> {
   const applicationRoot = join(home, ".agents", "agent-profile-kit");
-  const destination = expandWorkspaceDestination(home, authored);
-  await assertWorkspaceConfigurationSeparation(destination, home);
+  const destination = await assertWorkspaceSelectionPath(home, authored, "agent-profile-kit init");
   const workspaceState = await inspectWorkspace(destination);
 
   let workspaceCreated = false;
@@ -389,8 +337,7 @@ async function initializeWithoutConfiguration(
   options: InitializeWorkspaceOptions,
 ): Promise<InitializationResult> {
   const authored = options.workspace ?? workspacePath(home);
-  const destination = expandWorkspaceDestination(home, authored);
-  await assertWorkspaceConfigurationSeparation(destination, home);
+  const destination = await assertWorkspaceSelectionPath(home, authored, "agent-profile-kit init");
   await inspectWorkspace(destination);
   await mkdir(dirname(configPath), { recursive: true });
 
@@ -450,20 +397,10 @@ async function migrateLegacyConfiguration(
             "workspace",
           );
           if (requestedExpanded !== workspacePath(home)) {
-            const configuredDefault = await resolveWorkspaceRoot(
+            await initializeExplicitWorkspaceSelection(
               home,
+              requestedWorkspace,
               workspacePath(home),
-              configPath,
-            );
-            const requested = await resolveWorkspaceRoot(
-              home,
-              requestedWorkspace,
-              configPath,
-            );
-            assertCanonicalWorkspaceMatch(
-              requestedWorkspace,
-              requested.path,
-              configuredDefault.path,
               configPath,
             );
           }

@@ -1,5 +1,13 @@
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 
 import {
   LOCAL_CONFIGURATION_FILE,
@@ -14,6 +22,10 @@ import { validateWorkspaceStructure } from "./workspace.js";
 
 export function localConfigurationPath(home: string): string {
   return join(home, ".agents", "agent-profile-kit", LOCAL_CONFIGURATION_FILE);
+}
+
+export function stateDirectory(home: string): string {
+  return join(home, ".agents", "agent-profile-kit", "state");
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -48,6 +60,69 @@ export function expandConfiguredPath(
     );
   }
   return value;
+}
+
+function isSameOrDescendant(path: string, ancestor: string): boolean {
+  const relativePath = relative(ancestor, path);
+  return (
+    relativePath === "" ||
+    (relativePath !== ".." &&
+      !relativePath.startsWith(`..${sep}`) &&
+      !isAbsolute(relativePath))
+  );
+}
+
+async function canonicalizePathForComparison(path: string): Promise<string> {
+  const original = resolve(path);
+  let candidate = original;
+  const suffix: string[] = [];
+
+  while (true) {
+    try {
+      const canonical = await realpath(candidate);
+      return suffix.reduceRight((parent, segment) => join(parent, segment), canonical);
+    } catch (error) {
+      if (!hasErrorCode(error, "ENOENT") && !hasErrorCode(error, "ENOTDIR")) throw error;
+      const parent = dirname(candidate);
+      if (parent === candidate) return original;
+      suffix.push(basename(candidate));
+      candidate = parent;
+    }
+  }
+}
+
+/**
+ * Keep canonical Workspace source separate from machine-local configuration and
+ * disposable installation state, including when either side is reached through
+ * a symlink alias or a not-yet-created path.
+ */
+export async function assertWorkspaceSelectionSeparation(
+  home: string,
+  destination: string,
+  authored: string,
+  description: string,
+): Promise<void> {
+  const reservedPaths = [
+    { label: "Local Configuration", path: localConfigurationPath(home) },
+    { label: "installation state", path: stateDirectory(home) },
+  ] as const;
+  const canonicalDestination = await canonicalizePathForComparison(destination);
+  const canonicalReservedPaths = await Promise.all(
+    reservedPaths.map(async (reserved) => ({
+      ...reserved,
+      path: await canonicalizePathForComparison(reserved.path),
+    })),
+  );
+  const conflict = canonicalReservedPaths.find(
+    (reserved) =>
+      isSameOrDescendant(canonicalDestination, reserved.path) ||
+      isSameOrDescendant(reserved.path, canonicalDestination),
+  );
+  if (conflict !== undefined) {
+    throw new Error(
+      `${description} workspace '${authored}' is reserved for ${conflict.label} at ${conflict.path}`,
+    );
+  }
 }
 
 export async function requireExistingDirectory(
@@ -114,6 +189,7 @@ export async function resolveWorkspaceRoot(
 ): Promise<{ readonly authored: string; readonly path: string }> {
   const description = `Local Configuration ${configPath}`;
   const expanded = expandConfiguredPath(authored, home, description, "workspace");
+  await assertWorkspaceSelectionSeparation(home, expanded, authored, description);
   const canonical = await requireExistingDirectory(
     expanded,
     authored,

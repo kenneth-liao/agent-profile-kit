@@ -15,6 +15,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 - Document the required pre-migration Local Configuration backup and restore procedure for schema-v2 downgrade ([#68](https://github.com/kenneth-liao/agent-profile-kit/issues/68)).
 
+### Fixed
+
+- Reject Workspace selections that overlap Local Configuration or disposable installation state, including configured and symlinked paths ([#73](https://github.com/kenneth-liao/agent-profile-kit/pull/73)).
+
 ## [0.20.0] - 2026-07-16
 
 ### Added
