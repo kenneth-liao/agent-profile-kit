@@ -462,7 +462,7 @@ describe("project-bound release candidate", () => {
     const validate = runCli(home, ["validate"], { path: pathWithClaude });
     expect(validate.status, validate.stderr).toBe(0);
 
-    const preview = runCli(home, ["preview"], { path: pathWithClaude });
+    const preview = runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
     expect(preview.status, preview.stderr).toBe(0);
     expect(preview.stdout).toContain(nonGitCodex);
     expect(preview.stdout).toContain(claudeOnly);
@@ -689,7 +689,7 @@ describe("project-bound release candidate", () => {
     const validate = runCli(home, ["validate"], { path: pathWithClaude });
     expect(validate.status, validate.stderr).toBe(0);
 
-    const preview = runCli(home, ["preview"], { path: pathWithClaude });
+    const preview = runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
     expect(preview.status, preview.stderr).toBe(0);
     expect(preview.stdout).toContain(".agents/skills/review-pr");
     expect(preview.stdout).toContain(".claude/skills/review-pr");
@@ -749,12 +749,13 @@ describe("project-bound release candidate", () => {
     writeSkill(home, "review-pr");
     writeProfile(home, "engineering", { skills: ["review-pr"] });
 
-    const codexProject = project("agent-profile-kit-rc-global-codex-");
+    const codexProject = join(home, "rc-global-codex");
+    mkdirSync(codexProject);
     const codexAltProject = project("agent-profile-kit-rc-global-codex-alt-");
     const claudeProject = project("agent-profile-kit-rc-global-claude-");
     const pathWithHosts = installControlledHosts(home);
     writeBindings(home, [
-      { project: codexProject, hosts: ["codex"], profile: "engineering" },
+      { project: "~/rc-global-codex", hosts: ["codex"], profile: "engineering" },
       { project: codexAltProject, hosts: ["codex"], profile: "engineering" },
       { project: claudeProject, hosts: ["claude"], profile: "engineering" },
     ]);
@@ -776,6 +777,7 @@ describe("project-bound release candidate", () => {
     expect(previewText).toContain(agentsGlobal);
     expect(previewText).toContain(codexGlobal);
     expect(previewText).toContain(claudeGlobal);
+    expect(previewText).toContain("would conflict with project snapshot at .agents/skills/review-pr");
     expect(previewText).toMatch(/remove or relocate/i);
 
     const apply = runCli(home, ["apply"], { path: pathWithHosts });

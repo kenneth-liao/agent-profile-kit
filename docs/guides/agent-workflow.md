@@ -68,16 +68,21 @@ Use this workflow when helping a person author their Workspace and bind projects
 6. Validate before applying. Context Modules use `id` frontmatter and flat
    Profiles contain explicit arrays for every artifact category. Dependencies use
    explicit `{ type, id }` references. Run `agent-profile-kit validate`, review
-   `agent-profile-kit preview`, and ask before applying all configured Project
-   Bindings with `agent-profile-kit apply`. The current Workspace schema version
-   is 1.
+   the concise outcome from `agent-profile-kit preview`, and ask before applying
+   all configured Project Bindings with `agent-profile-kit apply`. Use
+   `preview --verbose`, `apply --verbose`, or `status --verbose` when complete
+   per-output diagnostics, resolved artifact reasons, or composed Context are
+   needed. The current Workspace schema version is 1.
 7. After apply, the user launches Codex or Claude natively in the bound project.
    Do not claim that Agent Profile Kit manages Host authentication, trust,
    approvals, plugins, or sessions. For non-Git projects, remind the user that
    Codex must launch from the exact bound root.
-8. Use `status` to distinguish current, stale, drifted, missing, and blocked
-   installations (including later global Skill identity collisions). `unbind`
-   removes desired Project Binding state but leaves generated output for global
+8. Use `status` to focus on Profile Installations needing attention; its concise
+   result reports all-current state when nothing needs action and preserves
+   warnings and blockers. Add `--verbose` to distinguish current, stale,
+   drifted, missing, and blocked installations in the complete report (including
+   later global Skill identity collisions). `unbind` removes desired Project
+   Binding state but leaves generated output for global
    `preview` and `apply`. `uninstall` instead removes only output whose
    Installation Marker and hashes prove Agent Profile Kit ownership; it preserves
    the Workspace, Local Configuration, global Host configuration, and

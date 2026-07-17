@@ -389,10 +389,21 @@ hooks = true
 ```
 
 Run `agent-profile-kit validate` to check the Workspace and every Project Binding.
-Review the complete read-only desired state with `agent-profile-kit preview`.
-Apply all configured Project Bindings with `agent-profile-kit apply`. These
-commands operate on the full binding set; they do not filter by Profile, Host, or
-project.
+Review the concise read-only reconciliation outcome with
+`agent-profile-kit preview`. It leads with whether reconciliation can proceed,
+groups changes and blockers by Profile Installation, and summarizes additions,
+updates, removals, and drift without listing every unchanged output. Apply all
+configured Project Bindings with `agent-profile-kit apply`; its result describes
+what reconciliation completed. Use `agent-profile-kit status` to focus on
+installations needing attention. These commands operate on the full binding
+set; they do not filter by Profile, Host, or project.
+
+For complete per-output and desired-state diagnostics, including resolved
+artifact inclusion reasons and composed Context, append `--verbose` to
+`preview`, `apply`, or `status`. Warnings, blockers, drift reasons, and removal
+intent remain visible in the concise view. Git-tracked-path blockers explain
+that repository-owned content is not replaced because generated Profile
+Installation output must be exclusively Installer-owned.
 
 Git is optional. For a Git binding, `apply` installs into the corresponding
 project directory of every existing worktree. A worktree created later is
