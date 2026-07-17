@@ -53,8 +53,17 @@ feature on the backlog.
 `agent-profile-kit init` creates an empty, schema-versioned Workspace at the
 fixed default path `~/.agents/agent-profile-kit/workspace/` and a version-2
 machine-local Local Configuration at `~/.agents/agent-profile-kit/config.yaml`
-that explicitly records that path when Local Configuration is absent. Rerunning
-is safe: it never overwrites the Workspace or current configuration, and it does
+that explicitly records that path when Local Configuration is absent. Pass one
+explicit absolute or home-relative path to choose another destination:
+
+```sh
+agent-profile-kit init ~/projects/agent-profile-workspace
+```
+
+When Local Configuration is absent, an explicit missing or empty non-symlink
+destination is fully scaffolded and recorded. A valid existing Workspace,
+including a symlink alias, is adopted without changing its source. Rerunning is
+safe: it never overwrites the Workspace or current configuration, and it does
 not restore optional scaffolding that you removed from a valid Workspace.
 
 To keep the Workspace as an independent Git repository elsewhere, set the
@@ -67,9 +76,13 @@ workspace: ~/projects/agent-profile-workspace
 bindings: []
 ```
 
-Symlinks are supported; relative paths and wildcards are not. When configuration
-selects a custom path, `init` validates that target and does not create, move,
-copy, adopt, or repair it. Changing the path never migrates source automatically.
+Symlinks are supported; relative paths and wildcards are not. When Local
+Configuration already selects a Workspace, an explicit `init <workspace>` path
+must resolve to that same canonical directory, including through an alias;
+otherwise initialization fails closed without changing either source or
+configuration. Zero-argument `init` validates the selected custom path and does
+not create, move, copy, adopt, or repair it. Initialization never migrates
+Workspace source automatically.
 
 The current Workspace schema version is 1. Its root `workspace.yaml` contains
 only `schema_version: 1`. Local Configuration schema version is 2 and its

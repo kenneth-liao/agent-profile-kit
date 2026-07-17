@@ -22,13 +22,18 @@ Initialize the canonical Workspace without a global installation:
 
 ```sh
 npx agent-profile-kit init
+# Or choose one explicit absolute or home-relative Workspace path:
+npx agent-profile-kit init ~/projects/agent-profile-workspace
 ```
 
 The initial release supports macOS only.
 
-Running the command again is safe: it creates only missing inputs and never
-overwrites the Workspace or current Local Configuration. Supported legacy
-configuration is upgraded only by this explicit `init` command.
+Running the command again is safe: it scaffolds a missing or empty non-symlink
+destination, adopts a valid existing Workspace without rewriting it, and never
+overwrites the current Local Configuration. An explicit path must resolve to the
+same canonical Workspace already selected by Local Configuration; a different
+selection fails closed. Supported legacy configuration is upgraded only by this
+explicit `init` command.
 
 ## Project-bound Context and Skills
 
@@ -111,20 +116,22 @@ product code, schemas, and documentation rather than a personal Workspace.
 ## User data
 
 Canonical user content lives in one selected Workspace. The fixed default is
-`~/.agents/agent-profile-kit/workspace/`; `init` records that path explicitly,
-or Local Configuration may select another existing absolute or home-relative
-Workspace path. Machine-local Project Bindings and that explicit path live in
-`config.yaml`; disposable Installation
+`~/.agents/agent-profile-kit/workspace/`; zero-argument `init` records that path
+explicitly, while `init <workspace>` may provision or adopt another absolute or
+home-relative Workspace path. Machine-local Project Bindings and that explicit
+path live in `config.yaml`; disposable Installation
 Manifests live under `state/`. Generated Context, hooks, rules, and Skills live
 only in bound project-owned paths.
 
 `agent-profile-kit init` creates an empty default Workspace with a schema marker,
 artifact directories, short human/agent bootstrap files, and a version-2
-configuration that records the default path when configuration is absent. When
-configuration already selects a custom Workspace, `init` validates it and does
-not create, move, or repair source; when it finds supported legacy configuration,
-it upgrades only the local configuration after validating the effective target.
-Current authoring guidance remains
+configuration that records the default path when configuration is absent. With
+an explicit path, it applies the same scaffold to a missing or empty non-symlink
+destination, or adopts a valid existing Workspace without changing its source.
+When configuration already selects a Workspace, an explicit path must be an
+equivalent canonical alias; `init` never switches the selection. When it finds
+supported legacy configuration, it upgrades only the local configuration after
+validating the effective target. Current authoring guidance remains
 owned by the CLI through `agent-profile-kit guide` and
 `agent-profile-kit guide --agent`; initialization does not copy personal or
 opinionated starter content.

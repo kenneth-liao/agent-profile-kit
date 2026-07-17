@@ -6,9 +6,13 @@ Use this workflow when helping a person author their Workspace and bind projects
    and its schema version. A valid Workspace needs only that Manifest; missing
    artifact directories are empty categories, and bootstrap files such as
    `README.md`, `AGENTS.md`, and `.gitignore` are optional scaffolding from
-   `init`, not format requirements. Inspect any present artifact directories next.
-   Treat the Workspace as the canonical source; do not infer reusable material
-   from generated Host output.
+   `init`, not format requirements. Use `agent-profile-kit init` for the fixed
+   default or `agent-profile-kit init <workspace>` for one explicit absolute or
+   home-relative destination; missing and empty non-symlink destinations are
+   scaffolded, while valid existing Workspaces are adopted without source
+   changes. Inspect any present artifact directories next. Treat the Workspace
+   as the canonical source; do not infer reusable material from generated Host
+   output.
 2. Elicit the user's needs one decision at a time. Establish the kind of work,
    the reusable facts or workflow they want, and whether existing material
    already satisfies the need. Ask instead of inventing personal preferences,

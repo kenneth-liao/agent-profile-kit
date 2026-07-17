@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -81,6 +81,27 @@ function runCliAt(home: string, cwd: string | undefined, ...arguments_: string[]
     encoding: "utf8" as const,
     cwd,
     env: { ...process.env, HOME: home },
+  });
+}
+
+function runCliAsync(
+  home: string,
+  ...arguments_: string[]
+): Promise<{ readonly status: number | null; readonly stdout: string; readonly stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
+      env: { ...process.env, HOME: home },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
   });
 }
 
@@ -449,6 +470,336 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(configPath(home))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toMatch(/schema_version:\s*2/);
     expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${workspacePath(home)}`);
+  });
+
+  test("init with an explicit missing Workspace path scaffolds and records that selection", () => {
+    const home = isolatedHome();
+    const custom = join(home, "custom-workspace");
+
+    const result = runCli(home, "init", custom);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(custom);
+    expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
+      schema_version: 2,
+      workspace: custom,
+      bindings: [],
+    });
+    expect(existsSync(workspacePath(home))).toBe(false);
+    expect(readFileSync(join(custom, "workspace.yaml"), "utf8")).toBe("schema_version: 1\n");
+    for (const directory of ["profiles", "context", "skills", "agents", "hooks", "tools"]) {
+      expect(existsSync(join(custom, directory, ".gitkeep"))).toBe(true);
+    }
+    expect(existsSync(join(custom, "README.md"))).toBe(true);
+    expect(existsSync(join(custom, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(custom, ".gitignore"))).toBe(true);
+  });
+
+  test("init creates missing parent directories for an explicit Workspace destination", () => {
+    const home = isolatedHome();
+    const custom = join(home, "nested", "custom-workspace");
+
+    const result = runCli(home, "init", custom);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(custom);
+    expect(existsSync(join(custom, "workspace.yaml"))).toBe(true);
+  });
+
+  test("init rejects a Workspace destination reserved by Local Configuration before creating application directories", () => {
+    const home = isolatedHome();
+
+    for (const destination of [configPath(home), join(configPath(home), "nested-workspace")]) {
+      const result = runCli(home, "init", destination);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/reserved for Local Configuration/i);
+      expect(existsSync(join(home, ".agents"))).toBe(false);
+    }
+  });
+
+  test("init rejects a Workspace root that would contain Local Configuration without mutating its source", () => {
+    const home = isolatedHome();
+    const applicationRoot = join(home, ".agents", "agent-profile-kit");
+    const alias = join(home, "application-root-alias");
+    mkdirSync(applicationRoot, { recursive: true });
+    writeFileSync(join(applicationRoot, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(applicationRoot, "NOTES.md"), "user-owned source\n");
+    symlinkSync(applicationRoot, alias);
+    const before = readdirSync(applicationRoot).sort();
+
+    for (const destination of [applicationRoot, alias]) {
+      const result = runCli(home, "init", destination);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/reserved for Local Configuration/i);
+      expect(readdirSync(applicationRoot).sort()).toEqual(before);
+      expect(readFileSync(join(applicationRoot, "NOTES.md"), "utf8")).toBe("user-owned source\n");
+      expect(existsSync(configPath(home))).toBe(false);
+    }
+  });
+
+  test("init with an explicit valid Workspace adopts it without changing its source", () => {
+    const home = isolatedHome();
+    const custom = join(home, "existing-workspace");
+    mkdirSync(custom, { recursive: true });
+    writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(custom, "NOTES.md"), "user-owned source\n");
+    const before = readdirSync(custom).sort();
+
+    const result = runCli(home, "init", custom);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(custom);
+    expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
+      schema_version: 2,
+      workspace: custom,
+      bindings: [],
+    });
+    expect(readdirSync(custom).sort()).toEqual(before);
+    expect(readFileSync(join(custom, "NOTES.md"), "utf8")).toBe("user-owned source\n");
+    expect(existsSync(workspacePath(home))).toBe(false);
+  });
+
+  test("init accepts an explicit home-relative Workspace path", () => {
+    const home = isolatedHome();
+    const custom = join(home, "home-relative-workspace");
+    const authored = "~/home-relative-workspace";
+
+    const result = runCli(home, "init", authored);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(authored);
+    expect(existsSync(custom)).toBe(true);
+    expect(existsSync(workspacePath(home))).toBe(false);
+  });
+
+  test("init scaffolds an explicit empty non-symlink Workspace destination", () => {
+    const home = isolatedHome();
+    const custom = join(home, "empty-workspace");
+    mkdirSync(custom);
+
+    const result = runCli(home, "init", custom);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(custom);
+    expect(readFileSync(join(custom, "workspace.yaml"), "utf8")).toBe("schema_version: 1\n");
+    expect(existsSync(join(custom, "profiles", ".gitkeep"))).toBe(true);
+    expect(existsSync(workspacePath(home))).toBe(false);
+  });
+
+  test("init adopts a valid Workspace through a symlink alias and preserves the authored alias", () => {
+    const home = isolatedHome();
+    const realWorkspace = join(home, "real-workspace");
+    const alias = join(home, "workspace-alias");
+    mkdirSync(realWorkspace, { recursive: true });
+    writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(realWorkspace, "NOTES.md"), "user-owned source\n");
+    symlinkSync(realWorkspace, alias);
+    const before = readdirSync(realWorkspace).sort();
+
+    const result = runCli(home, "init", alias);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(realWorkspace);
+    expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
+      schema_version: 2,
+      workspace: alias,
+      bindings: [],
+    });
+    expect(readdirSync(realWorkspace).sort()).toEqual(before);
+    expect(readFileSync(join(realWorkspace, "NOTES.md"), "utf8")).toBe("user-owned source\n");
+  });
+
+  test("init rejects an explicit Workspace that conflicts with the configured canonical selection", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const custom = join(home, "other-workspace");
+    mkdirSync(custom, { recursive: true });
+    writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(custom, "NOTES.md"), "user-owned source\n");
+    const configBefore = readFileSync(configPath(home), "utf8");
+    const sourceBefore = readdirSync(custom).sort();
+
+    const result = runCli(home, "init", custom);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/conflict|already selects|different Workspace/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
+    expect(readdirSync(custom).sort()).toEqual(sourceBefore);
+    expect(existsSync(workspacePath(home))).toBe(true);
+  });
+
+  test("init treats an explicit alias of the configured Workspace as idempotent", () => {
+    const home = isolatedHome();
+    const realWorkspace = join(home, "real-workspace");
+    const alias = join(home, "workspace-alias");
+    mkdirSync(realWorkspace, { recursive: true });
+    writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(realWorkspace, "NOTES.md"), "user-owned source\n");
+    symlinkSync(realWorkspace, alias);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${alias}\nbindings: []\n`);
+    const configBefore = readFileSync(configPath(home), "utf8");
+    const sourceBefore = readdirSync(realWorkspace).sort();
+
+    const result = runCli(home, "init", realWorkspace);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/already initialized|unchanged/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
+    expect(readdirSync(realWorkspace).sort()).toEqual(sourceBefore);
+    expect(existsSync(workspacePath(home))).toBe(false);
+  });
+
+  test("init rejects invalid explicit Workspace destinations before publishing anything", () => {
+    const cases: readonly {
+      readonly authored: (home: string) => string;
+      readonly setup?: (home: string) => void;
+      readonly pattern: RegExp;
+    }[] = [
+      {
+        authored: () => "./relative-workspace",
+        pattern: /absolute path or home-relative/i,
+      },
+      {
+        authored: () => "~/projects/*",
+        pattern: /without wildcards/i,
+      },
+      {
+        authored: (home) => join(home, "as-file"),
+        setup: (home) => writeFileSync(join(home, "as-file"), "not a directory\n"),
+        pattern: /not a directory/i,
+      },
+      {
+        authored: (home) => join(home, "dangling"),
+        setup: (home) => symlinkSync(join(home, "missing-target"), join(home, "dangling")),
+        pattern: /dangling symlink|target does not exist/i,
+      },
+      {
+        authored: (home) => join(home, "empty-symlink"),
+        setup: (home) => {
+          mkdirSync(join(home, "empty-target"));
+          symlinkSync(join(home, "empty-target"), join(home, "empty-symlink"));
+        },
+        pattern: /symlink target is empty/i,
+      },
+      {
+        authored: (home) => join(home, "invalid-directory"),
+        setup: (home) => {
+          mkdirSync(join(home, "invalid-directory"));
+          writeFileSync(join(home, "invalid-directory", "NOTES.md"), "not a Workspace\n");
+        },
+        pattern: /non-empty and is not an Agent Profile Kit Workspace/i,
+      },
+    ];
+
+    for (const example of cases) {
+      const home = isolatedHome();
+      example.setup?.(home);
+
+      const result = runCli(home, "init", example.authored(home));
+
+      expect(result.status, result.stderr).toBe(1);
+      expect(result.stderr).toMatch(example.pattern);
+      expect(existsSync(configPath(home))).toBe(false);
+      expect(existsSync(workspacePath(home))).toBe(false);
+    }
+  });
+
+  test("init rejects more than one explicit Workspace path", () => {
+    const home = isolatedHome();
+
+    const result = runCli(home, "init", join(home, "one"), join(home, "two"));
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("init accepts at most one Workspace path");
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(existsSync(workspacePath(home))).toBe(false);
+  });
+
+  test("concurrent first-time explicit init serializes canonical Workspace selection", async () => {
+    const home = isolatedHome();
+    const first = join(home, "first-workspace");
+    const second = join(home, "second-workspace");
+
+    const results = await Promise.all([
+      runCliAsync(home, "init", first),
+      runCliAsync(home, "init", second),
+    ]);
+    const succeeded = results.filter((result) => result.status === 0);
+    const failed = results.filter((result) => result.status === 1);
+
+    expect(succeeded).toHaveLength(1);
+    expect(failed).toHaveLength(1);
+    const selected = parse(readFileSync(configPath(home), "utf8")).workspace;
+    expect([first, second]).toContain(selected);
+    expect(existsSync(selected)).toBe(true);
+    expect([first, second].filter((path) => path !== selected).every((path) => !existsSync(path))).toBe(true);
+    expect(failed[0]!.stderr).toMatch(/must be an existing directory|different Workspace|already selects/i);
+  });
+
+  test("init does not switch a legacy implicit selection to a different explicit Workspace", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const legacy = "schema_version: 1\n# keep this note\nbindings: []\n";
+    writeFileSync(configPath(home), legacy);
+    const custom = join(home, "other-workspace");
+    mkdirSync(custom, { recursive: true });
+    writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
+
+    const result = runCli(home, "init", custom);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/conflict|already selects|different Workspace/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(legacy);
+    expect(existsSync(workspacePath(home))).toBe(true);
+    expect(readdirSync(custom)).toEqual(["workspace.yaml"]);
+  });
+
+  test("init migrates a legacy implicit selection through an equivalent default alias", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const alias = join(home, "default-alias");
+    symlinkSync(workspacePath(home), alias);
+    const legacy = "schema_version: 1\nbindings: []\n";
+    writeFileSync(configPath(home), legacy);
+    const workspaceBefore = readdirSync(workspacePath(home)).sort();
+
+    const result = runCli(home, "init", alias);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/migrat/i);
+    expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
+      schema_version: 2,
+      workspace: alias,
+      bindings: [],
+    });
+    expect(readdirSync(workspacePath(home)).sort()).toEqual(workspaceBefore);
+  });
+
+  test("init migrates a legacy custom selection when an explicit alias proves the same Workspace", () => {
+    const home = isolatedHome();
+    const realWorkspace = join(home, "real-workspace");
+    const alias = join(home, "workspace-alias");
+    mkdirSync(realWorkspace, { recursive: true });
+    writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(realWorkspace, "NOTES.md"), "user-owned source\n");
+    symlinkSync(realWorkspace, alias);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const legacy = `schema_version: 1\nworkspace: ${alias}\nbindings: []\n`;
+    writeFileSync(configPath(home), legacy);
+
+    const result = runCli(home, "init", realWorkspace);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/migrat/i);
+    expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
+      schema_version: 2,
+      workspace: alias,
+      bindings: [],
+    });
+    expect(readFileSync(join(realWorkspace, "NOTES.md"), "utf8")).toBe("user-owned source\n");
   });
 
   test("init migrates a legacy implicit-default configuration without losing authored content", () => {

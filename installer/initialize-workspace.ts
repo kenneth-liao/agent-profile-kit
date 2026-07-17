@@ -4,12 +4,21 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rename,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { parseDocument } from "yaml";
 
 import {
@@ -69,6 +78,8 @@ export interface InitializationResult {
 }
 
 export interface InitializeWorkspaceOptions {
+  /** Optional explicit authored Workspace selection for init. */
+  readonly workspace?: string;
   /** Test-only filesystem override for migration publication proofs. */
   readonly fileSystem?: LocalConfigurationFileSystem;
   /** Test-only lock wait/stale-empty timeout (ms). */
@@ -101,6 +112,60 @@ function hasErrorCode(error: unknown, code: string): boolean {
 
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function expandWorkspaceDestination(home: string, authored: string): string {
+  return expandConfiguredPath(
+    authored,
+    home,
+    "agent-profile-kit init",
+    "workspace",
+  );
+}
+
+function isSameOrDescendant(path: string, ancestor: string): boolean {
+  const relativePath = relative(ancestor, path);
+  return (
+    relativePath === "" ||
+    (relativePath !== ".." &&
+      !relativePath.startsWith(`..${sep}`) &&
+      !isAbsolute(relativePath))
+  );
+}
+
+async function canonicalizePathForComparison(path: string): Promise<string> {
+  const original = resolve(path);
+  let candidate = original;
+  const suffix: string[] = [];
+
+  while (true) {
+    try {
+      const canonical = await realpath(candidate);
+      return suffix.reduceRight((parent, segment) => join(parent, segment), canonical);
+    } catch (error) {
+      if (!hasErrorCode(error, "ENOENT") && !hasErrorCode(error, "ENOTDIR")) throw error;
+      const parent = dirname(candidate);
+      if (parent === candidate) return original;
+      suffix.push(basename(candidate));
+      candidate = parent;
+    }
+  }
+}
+
+async function assertWorkspaceConfigurationSeparation(destination: string, home: string): Promise<void> {
+  const configPath = localConfigurationPath(home);
+  const [canonicalDestination, canonicalConfigPath] = await Promise.all([
+    canonicalizePathForComparison(destination),
+    canonicalizePathForComparison(configPath),
+  ]);
+  if (
+    isSameOrDescendant(canonicalDestination, canonicalConfigPath) ||
+    isSameOrDescendant(canonicalConfigPath, canonicalDestination)
+  ) {
+    throw new Error(
+      `Cannot initialize Workspace '${destination}': path is reserved for Local Configuration at ${configPath}`,
+    );
+  }
 }
 
 async function inspectWorkspace(
@@ -170,6 +235,39 @@ async function initializeConfiguredWorkspace(
   };
 }
 
+async function initializeExplicitWorkspaceSelection(
+  home: string,
+  requested: string,
+  configured: string,
+  configPath: string,
+): Promise<InitializationResult> {
+  const configuredWorkspace = await resolveWorkspaceRoot(home, configured, configPath);
+  const requestedWorkspace = await resolveWorkspaceRoot(home, requested, configPath);
+  assertCanonicalWorkspaceMatch(
+    requested,
+    requestedWorkspace.path,
+    configuredWorkspace.path,
+    configPath,
+  );
+  return {
+    outcome: "unchanged",
+    path: requestedWorkspace.path,
+    warnings: [],
+  };
+}
+
+function assertCanonicalWorkspaceMatch(
+  requested: string,
+  requestedPath: string,
+  configuredPath: string,
+  configPath: string,
+): void {
+  if (configuredPath === requestedPath) return;
+  throw new Error(
+    `Cannot initialize Workspace '${requested}': Local Configuration ${configPath} already selects a different Workspace at ${configuredPath}; refusing to change the canonical selection`,
+  );
+}
+
 function selectsConventionalDefaultWorkspace(home: string, authored: string): boolean {
   try {
     return expandConfiguredPath(
@@ -183,31 +281,36 @@ function selectsConventionalDefaultWorkspace(home: string, authored: string): bo
   }
 }
 
-async function initializeDefaultWorkspace(
+async function initializeWorkspaceAt(
   home: string,
+  authored: string,
   ensureConfiguration: boolean,
 ): Promise<InitializationResult> {
   const applicationRoot = join(home, ".agents", "agent-profile-kit");
-  const destination = workspacePath(home);
+  const destination = expandWorkspaceDestination(home, authored);
+  await assertWorkspaceConfigurationSeparation(destination, home);
   const workspaceState = await inspectWorkspace(destination);
 
   let workspaceCreated = false;
   if (workspaceState === "valid") {
     if (ensureConfiguration) {
       await mkdir(applicationRoot, { recursive: true });
-      const configurationCreated = await ensureLocalConfiguration(applicationRoot, destination);
+      const configurationCreated = await ensureLocalConfiguration(applicationRoot, authored);
       return {
         outcome: configurationCreated ? "created" : "unchanged",
-        path: destination,
+        path: await realpath(destination),
         warnings: [],
       };
     }
-    return { outcome: "unchanged", path: destination, warnings: [] };
+    return { outcome: "unchanged", path: await realpath(destination), warnings: [] };
   }
 
-  await mkdir(applicationRoot, { recursive: true });
+  await Promise.all([
+    mkdir(applicationRoot, { recursive: true }),
+    mkdir(dirname(destination), { recursive: true }),
+  ]);
   const stagingDirectory = await mkdtemp(
-    join(applicationRoot, STAGING_DIRECTORY_PREFIX),
+    join(dirname(destination), STAGING_DIRECTORY_PREFIX),
   );
 
   try {
@@ -234,7 +337,7 @@ async function initializeDefaultWorkspace(
       try {
         if ((await inspectWorkspace(destination)) === "valid") {
           const configurationCreated = ensureConfiguration
-            ? await ensureLocalConfiguration(applicationRoot, destination)
+            ? await ensureLocalConfiguration(applicationRoot, authored)
             : false;
           const cleanupWarnings = followUpErrors.map(
             (cleanupError) =>
@@ -242,7 +345,7 @@ async function initializeDefaultWorkspace(
           );
           return {
             outcome: configurationCreated ? "created" : "unchanged",
-            path: destination,
+            path: await realpath(destination),
             warnings: cleanupWarnings,
           };
         }
@@ -262,13 +365,53 @@ async function initializeDefaultWorkspace(
 
   workspaceCreated = true;
   const configurationCreated = ensureConfiguration
-    ? await ensureLocalConfiguration(applicationRoot, destination)
+    ? await ensureLocalConfiguration(applicationRoot, authored)
     : false;
   return {
     outcome: workspaceCreated || configurationCreated ? "created" : "unchanged",
-    path: destination,
+    path: await realpath(destination),
     warnings: [],
   };
+}
+
+async function initializeDefaultWorkspace(
+  home: string,
+  ensureConfiguration: boolean,
+): Promise<InitializationResult> {
+  return initializeWorkspaceAt(home, workspacePath(home), ensureConfiguration);
+}
+
+async function initializeWithoutConfiguration(
+  home: string,
+  configPath: string,
+  fileSystem: LocalConfigurationFileSystem,
+  lockTimeoutMs: number,
+  options: InitializeWorkspaceOptions,
+): Promise<InitializationResult> {
+  const authored = options.workspace ?? workspacePath(home);
+  const destination = expandWorkspaceDestination(home, authored);
+  await assertWorkspaceConfigurationSeparation(destination, home);
+  await inspectWorkspace(destination);
+  await mkdir(dirname(configPath), { recursive: true });
+
+  const initialized = await withConfigurationLock(
+    configPath,
+    fileSystem,
+    lockTimeoutMs,
+    "init",
+    async () => {
+      try {
+        await fileSystem.readFile(configPath, "utf8");
+      } catch (error) {
+        if (!hasErrorCode(error, "ENOENT")) throw error;
+        return options.workspace === undefined
+          ? initializeDefaultWorkspace(home, true)
+          : initializeWorkspaceAt(home, options.workspace, true);
+      }
+      return undefined;
+    },
+  );
+  return initialized ?? initializeWorkspace(home, options);
 }
 
 function migrateLegacyConfigurationSource(source: string, workspace: string): string {
@@ -283,6 +426,7 @@ async function migrateLegacyConfiguration(
   configPath: string,
   fileSystem: LocalConfigurationFileSystem,
   lockTimeoutMs: number,
+  requestedWorkspace?: string,
 ): Promise<InitializationResult | undefined> {
   return withConfigurationLock(
     configPath,
@@ -296,9 +440,45 @@ async function migrateLegacyConfiguration(
         return undefined;
       }
 
-      const selectedWorkspace = parsed.workspace ?? workspacePath(home);
+      let selectedWorkspace = parsed.workspace ?? workspacePath(home);
+      if (requestedWorkspace !== undefined) {
+        if (parsed.workspace === undefined) {
+          const requestedExpanded = expandConfiguredPath(
+            requestedWorkspace,
+            home,
+            "agent-profile-kit init",
+            "workspace",
+          );
+          if (requestedExpanded !== workspacePath(home)) {
+            const configuredDefault = await resolveWorkspaceRoot(
+              home,
+              workspacePath(home),
+              configPath,
+            );
+            const requested = await resolveWorkspaceRoot(
+              home,
+              requestedWorkspace,
+              configPath,
+            );
+            assertCanonicalWorkspaceMatch(
+              requestedWorkspace,
+              requested.path,
+              configuredDefault.path,
+              configPath,
+            );
+          }
+          selectedWorkspace = requestedWorkspace;
+        } else {
+          await initializeExplicitWorkspaceSelection(
+            home,
+            requestedWorkspace,
+            parsed.workspace,
+            configPath,
+          );
+        }
+      }
       const workspaceResult = parsed.workspace === undefined
-        ? await initializeDefaultWorkspace(home, false)
+        ? await initializeWorkspaceAt(home, selectedWorkspace, false)
         : await initializeConfiguredWorkspace(home, parsed.workspace, configPath);
       const nextSource = migrateLegacyConfigurationSource(source, selectedWorkspace);
       const sourceStats = await fileSystem.stat(configPath);
@@ -334,7 +514,13 @@ export async function initializeWorkspace(
     source = await fileSystem.readFile(configPath, "utf8");
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      return initializeDefaultWorkspace(home, true);
+      return initializeWithoutConfiguration(
+        home,
+        configPath,
+        fileSystem,
+        lockTimeoutMs,
+        options,
+      );
     }
     throw error;
   }
@@ -346,10 +532,19 @@ export async function initializeWorkspace(
       configPath,
       fileSystem,
       lockTimeoutMs,
+      options.workspace,
     );
     return migrated ?? initializeWorkspace(home, options);
   }
   const authoredWorkspace = requireCurrentLocalConfiguration(parsed, configPath).workspace;
+  if (options.workspace !== undefined) {
+    return initializeExplicitWorkspaceSelection(
+      home,
+      options.workspace,
+      authoredWorkspace,
+      configPath,
+    );
+  }
   if (selectsConventionalDefaultWorkspace(home, authoredWorkspace)) {
     return initializeDefaultWorkspace(home, false);
   }
