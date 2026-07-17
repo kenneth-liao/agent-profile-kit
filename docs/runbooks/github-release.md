@@ -5,6 +5,11 @@ create its Git tag, and attach the installable npm tarball to a GitHub Release.
 The repository remains private, so only users with repository read access can
 see or download the release.
 
+Repository visibility is the confidentiality boundary for every historical
+Release and attached asset. Making the repository public later also makes those
+artifacts public. Before any visibility change, audit every Release and remove
+or replace assets that are not approved for public distribution.
+
 The release artifact is intentionally not published to npm or GitHub Packages.
 `package.json` sets `private: true`, making an accidental `npm publish` fail.
 No open-source license or public-registry credentials are required while this
@@ -64,15 +69,46 @@ repository before downloading the asset.
 If a run fails before its final step, fix the cause on a new commit, merge it to
 `main`, and dispatch the same version again. No tag or Release will exist.
 
-If GitHub creates the Release but asset upload or final reporting fails, inspect
-the Release and tag before retrying anything:
+If GitHub creates a draft or published Release but asset upload or final
+reporting fails, inspect its exact state before retrying anything:
 
 ```sh
-gh release view "v<version>"
+gh release view "v<version>" --json isDraft,targetCommitish,assets,url
 git ls-remote --tags origin "refs/tags/v<version>"
 ```
 
-Never move an existing release tag to a different commit. If the attached build
-is defective, preserve that version for provenance, fix forward with a new patch
+If the Release targets the expected commit and the tarball is missing, rebuild
+from that immutable tag in a disposable repository-local worktree, upload the
+missing asset without `--clobber`, and publish the draft if necessary:
+
+```sh
+version=<version>
+recovery_path=".worktrees/release-recovery-$version"
+
+git fetch origin "refs/tags/v$version:refs/tags/v$version"
+tag_commit="$(git rev-parse "v$version^{commit}")"
+release_commit="$(gh release view "v$version" --json targetCommitish --jq .targetCommitish)"
+test "$tag_commit" = "$release_commit"
+
+git worktree add --detach "$recovery_path" "v$version"
+(
+  cd "$recovery_path"
+  bun install --frozen-lockfile
+  bun run typecheck
+  bun run build
+  bun test
+  mkdir release
+  npm pack --ignore-scripts --pack-destination release
+)
+gh release upload "v$version" \
+  "$recovery_path/release/agent-profile-kit-$version.tgz"
+gh release edit "v$version" --draft=false
+git worktree remove "$recovery_path"
+git worktree prune
+```
+
+Stop if the commit identities differ or an asset already occupies that name;
+do not move the tag or overwrite the artifact. If the attached build is
+defective, preserve that version for provenance, fix forward with a new patch
 version, and mark the defective Release as a prerelease with an explanatory
 note.

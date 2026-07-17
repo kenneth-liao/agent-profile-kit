@@ -61,4 +61,13 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   expect(commands).toContain('gh release create "v$VERSION"');
   expect(commands).toContain('"$PACKAGE_FILE"');
   expect(commands).toContain('--target "$GITHUB_SHA"');
+
+  const createReleaseCommands = steps.find(
+    (step) => step.name === "Create private GitHub Release",
+  )?.run;
+  expect(createReleaseCommands).toContain('MAIN_SHA="$(gh api');
+  expect(createReleaseCommands).toContain('test "$GITHUB_SHA" = "$MAIN_SHA"');
+  expect(createReleaseCommands!.indexOf('test "$GITHUB_SHA" = "$MAIN_SHA"')).toBeLessThan(
+    createReleaseCommands!.indexOf('gh release create "v$VERSION"'),
+  );
 });
