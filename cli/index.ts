@@ -25,7 +25,7 @@ function formatError(error: unknown): string {
 
 function usage(): string {
   return (
-    "Usage: agent-profile-kit init\n" +
+    "Usage: agent-profile-kit init [workspace]\n" +
     "       agent-profile-kit guide [--agent]\n" +
     "       agent-profile-kit bind <profile> [project] --host <host> [--host <host> ...]\n" +
     "       agent-profile-kit unbind [project]\n" +
@@ -35,6 +35,13 @@ function usage(): string {
     "       agent-profile-kit status\n" +
     "       agent-profile-kit uninstall\n"
   );
+}
+
+function parseInitArguments(arguments_: readonly string[]): { readonly workspace?: string } {
+  if (arguments_.length > 1) {
+    throw new Error("init accepts at most one Workspace path");
+  }
+  return arguments_.length === 0 ? {} : { workspace: arguments_[0]! };
 }
 
 /**
@@ -137,8 +144,9 @@ async function main(): Promise<void> {
     process.stdout.write(await agentGuide());
     return;
   }
-  if (arguments_.length === 1 && arguments_[0] === "init") {
-    const result = await initializeWorkspace(home);
+  if (arguments_.length >= 1 && arguments_[0] === "init") {
+    const parsed = parseInitArguments(arguments_.slice(1));
+    const result = await initializeWorkspace(home, parsed);
     for (const warning of result.warnings) process.stderr.write(`agent-profile-kit: warning: ${warning}\n`);
     if (result.outcome === "migrated") {
       process.stdout.write(

@@ -8,11 +8,16 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Accept an optional explicit Workspace path in `agent-profile-kit init`, provisioning missing or empty destinations, adopting valid existing Workspaces, and failing closed on canonical selection conflicts ([#69](https://github.com/kenneth-liao/agent-profile-kit/issues/69)).
 - Require an explicit Workspace selection in Local Configuration schema version 2; `init` records the conventional default or migrates supported version-1 configuration without implicit read-time migration ([#68](https://github.com/kenneth-liao/agent-profile-kit/issues/68)).
 
 ### Changed
 
 - Document the required pre-migration Local Configuration backup and restore procedure for schema-v2 downgrade ([#68](https://github.com/kenneth-liao/agent-profile-kit/issues/68)).
+
+### Fixed
+
+- Reject Workspace selections that overlap Local Configuration or disposable installation state, including configured and symlinked paths ([#73](https://github.com/kenneth-liao/agent-profile-kit/pull/73)).
 
 ## [0.20.0] - 2026-07-16
 
