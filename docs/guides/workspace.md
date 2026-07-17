@@ -91,15 +91,38 @@ Project Bindings, comments, line endings, and file mode; it never moves or
 rewrites Workspace source. If validation fails, the configuration remains
 unchanged.
 
+Before migrating, make and retain a copy of the version-1 Local Configuration:
+
+```sh
+config_dir="$HOME/.agents/agent-profile-kit"
+cp -p "$config_dir/config.yaml" "$config_dir/config.yaml.before-schema-v2"
+```
+
+Keep this backup until the current CLI has been validated in normal use.
+Rollback is unsupported without it. To use the immediately previous CLI release
+(0.20.x), stop using the current CLI, restore the copy, and then run that older
+binary:
+
+```sh
+config_dir="$HOME/.agents/agent-profile-kit"
+cp -p "$config_dir/config.yaml.before-schema-v2" "$config_dir/config.yaml"
+agent-profile-kit validate
+```
+
+The restored file preserves the pre-migration Workspace selection and Project
+Bindings. This reverses only the Local Configuration schema transition; it does
+not undo later Workspace content changes. Do not hand-edit a version-2 file's
+schema marker while relying on an older binary to preserve it.
+
 Older engine versions that understand only Local Configuration schema version 1
 are not compatible with the migrated version-2 file. Before rolling back to
-one, restore a version-1 configuration from a trusted backup and ensure its
-effective Workspace is available at the expected path; do not hand-edit a
-version-2 file while relying on an older binary to preserve it.
+one, use the backup procedure above and ensure the effective Workspace is
+available at the expected path.
 
 Mixed-version consumers cannot share a migrated `config.yaml`: older engines
 reject the version-2 schema. Keep the migrated file with current binaries, or
-coordinate an explicit rollback using a trusted version-1 configuration.
+coordinate an explicit rollback using the retained pre-migration version-1
+configuration.
 
 ### Required structure vs initialization scaffolding
 
