@@ -64,6 +64,7 @@ agent-profile-kit validate
 agent-profile-kit preview
 agent-profile-kit apply
 agent-profile-kit status
+agent-profile-kit preview --verbose   # complete reconciliation diagnostics
 agent-profile-kit uninstall
 ```
 
@@ -83,10 +84,15 @@ Profile, and one or more Hosts (`codex`, `claude`). Use `bind` to append one
 validated binding, or `unbind` to remove one binding, without reconciling
 output; hand-editing `config.yaml` remains supported. `unbind` defaults to the
 current working directory and only uses exact authored-path recovery when a
-requested project no longer exists. `preview` is read-only; `apply` reconciles
-every binding; `status` reports current, stale source, drifted output, missing
-output, and malformed ownership states. `uninstall` is different: it removes
-proven generated Profile Installation output while preserving bindings.
+requested project no longer exists. `preview` is read-only and leads with a
+ready-to-apply or cannot-apply outcome; `apply` reports what reconciliation
+completed; and `status` emphasizes Profile Installations that need attention.
+These default views group details by Profile Installation, summarize output
+changes, and keep warnings and blockers visible. Add `--verbose` to
+`preview`, `apply`, or `status` for complete per-output and desired-state
+diagnostics, including resolved artifact inclusion reasons and composed Context.
+`uninstall` is different: it removes proven generated Profile Installation
+output while preserving bindings.
 
 Older version-1 configuration without `workspace` is migration input only. Run
 `agent-profile-kit init` to record the effective Workspace and upgrade it;

@@ -3,6 +3,7 @@
 import { homedir } from "node:os";
 
 import { agentGuide, humanGuide } from "./guides.js";
+import { formatLifecycleReport, type LifecycleCommand } from "./presentation.js";
 import { bindProject } from "../installer/bind-project.js";
 import { unbindProject } from "../installer/unbind-project.js";
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
@@ -13,7 +14,6 @@ import {
   uninstallApplication,
   validateApplication,
 } from "../installer/commands.js";
-import type { ReconciliationReport } from "../installer/reconcile.js";
 
 function formatError(error: unknown): string {
   if (error instanceof AggregateError) {
@@ -30,9 +30,9 @@ function usage(): string {
     "       agent-profile-kit bind <profile> [project] --host <host> [--host <host> ...]\n" +
     "       agent-profile-kit unbind [project]\n" +
     "       agent-profile-kit validate\n" +
-    "       agent-profile-kit preview\n" +
-    "       agent-profile-kit apply\n" +
-    "       agent-profile-kit status\n" +
+    "       agent-profile-kit preview [--verbose]\n" +
+    "       agent-profile-kit apply [--verbose]\n" +
+    "       agent-profile-kit status [--verbose]\n" +
     "       agent-profile-kit uninstall\n"
   );
 }
@@ -89,47 +89,14 @@ function parseUnbindArguments(arguments_: readonly string[]): { readonly project
   return arguments_.length === 0 ? {} : { project: arguments_[0]! };
 }
 
-function formatReport(report: ReconciliationReport): string {
-  const items = report.items.length === 0
-    ? "(no Profile Installations)"
-    : report.items
-        .map((item) => `${item.project}: ${item.kind}${item.reason ? ` (${item.reason})` : ""}`)
-        .join("\n");
-  const desired = report.desired.length === 0
-    ? "(none)"
-    : report.desired
-        .map((installation) => {
-          const resolved = installation.resolvedArtifacts.length === 0
-            ? "  Resolved artifacts: (none)"
-            : `  Resolved artifacts:\n${installation.resolvedArtifacts.map((artifact) => {
-                const reasons = artifact.inclusionReasons.map((reason) => {
-                  const path = reason.path.length === 0
-                    ? "selected by profile"
-                    : `via ${reason.path.join(" -> ")}`;
-                  return `${reason.profile}: ${path}`;
-                }).join("; ");
-                return `    - ${artifact.type}:${artifact.id} (${reasons})`;
-              }).join("\n")}`;
-          return (
-            `${installation.project}: Profile ${installation.profile}\n` +
-            `  Outputs: ${installation.outputs.join(", ")}\n` +
-            `${resolved}\n` +
-            `  Context:\n${installation.context}`
-          );
-        })
-        .join("\n");
-  const blockers = report.blockers.length === 0
-    ? "(none)"
-    : report.blockers.map((blocker) => `- ${blocker.message}`).join("\n");
-  const outputs = report.outputs.length === 0
-    ? "(none)"
-    : report.outputs
-        .map((output) => `${output.project}/${output.path}: ${output.kind}`)
-        .join("\n");
-  const warnings = report.warnings.length === 0
-    ? "(none)"
-    : report.warnings.map((warning) => `- ${warning}`).join("\n");
-  return `Projects:\n${items}\nOutputs:\n${outputs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\nBlockers:\n${blockers}\n`;
+function parseLifecycleArguments(
+  command: LifecycleCommand,
+  arguments_: readonly string[],
+): { readonly verbose: boolean } {
+  if (arguments_.length === 0) return { verbose: false };
+  if (arguments_.length === 1 && arguments_[0] === "--verbose") return { verbose: true };
+  const argument = arguments_[0] ?? "";
+  throw new Error(`${command} does not accept argument '${argument}'`);
 }
 
 async function main(): Promise<void> {
@@ -178,8 +145,7 @@ async function main(): Promise<void> {
         `Project Binding unchanged for ${result.project}\n` +
           `  Profile: ${result.profile}\n` +
           `  Hosts: ${result.hosts.join(", ")}\n` +
-          `  Local Configuration: ${result.configurationPath}\n` +
-          "Next: agent-profile-kit preview && agent-profile-kit apply\n",
+          "Next: agent-profile-kit preview\n",
       );
       return;
     }
@@ -187,8 +153,7 @@ async function main(): Promise<void> {
       `Recorded Project Binding for ${result.project}\n` +
         `  Profile: ${result.profile}\n` +
         `  Hosts: ${result.hosts.join(", ")}\n` +
-        `  Local Configuration: ${result.configurationPath}\n` +
-        "Next: agent-profile-kit preview && agent-profile-kit apply\n",
+        "Next: agent-profile-kit preview\n",
     );
     return;
   }
@@ -226,18 +191,32 @@ async function main(): Promise<void> {
     );
     return;
   }
-  if (arguments_.length === 1 && arguments_[0] === "preview") {
+  if (arguments_.length >= 1 && arguments_[0] === "preview") {
+    const parsed = parseLifecycleArguments("preview", arguments_.slice(1));
     const report = await previewApplication(home);
-    process.stdout.write(formatReport(report));
+    process.stdout.write(formatLifecycleReport("preview", report, parsed));
     if (report.blockers.length > 0) process.exitCode = 1;
     return;
   }
-  if (arguments_.length === 1 && arguments_[0] === "apply") {
-    process.stdout.write(formatReport(await applyApplication(home)));
+  if (arguments_.length >= 1 && arguments_[0] === "apply") {
+    const parsed = parseLifecycleArguments("apply", arguments_.slice(1));
+    try {
+      process.stdout.write(formatLifecycleReport("apply", await applyApplication(home), parsed));
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Apply blocked before writes:")) {
+        try {
+          process.stdout.write(formatLifecycleReport("preview", await previewApplication(home), parsed));
+        } catch {
+          // Preserve the original apply failure when the diagnostic preview cannot run.
+        }
+      }
+      throw error;
+    }
     return;
   }
-  if (arguments_.length === 1 && arguments_[0] === "status") {
-    process.stdout.write(formatReport(await statusApplication(home)));
+  if (arguments_.length >= 1 && arguments_[0] === "status") {
+    const parsed = parseLifecycleArguments("status", arguments_.slice(1));
+    process.stdout.write(formatLifecycleReport("status", await statusApplication(home), parsed));
     return;
   }
   if (arguments_.length === 1 && arguments_[0] === "uninstall") {

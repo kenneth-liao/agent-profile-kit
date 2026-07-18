@@ -111,6 +111,8 @@ export interface DesiredResolvedArtifactPreview {
 export interface ReconciliationReport {
   readonly blockers: readonly ReconciliationBlocker[];
   readonly desired: readonly {
+    /** Canonical project identity used to group authored and expanded paths. */
+    readonly canonicalProject: string;
     readonly context: string;
     readonly outputs: readonly string[];
     readonly profile: string;
@@ -446,6 +448,7 @@ export async function previewReconciliation(
   const exclusionWarnings = await gitExclusionWarnings(state, desired);
   const desiredReport = desired.map((installation) => {
     return {
+      canonicalProject: installation.binding.canonicalProject,
       context: composedContextFromOutputs(installation.outputs),
       outputs: [
         ...installation.outputs.map((output) => output.path),
@@ -505,7 +508,11 @@ export async function previewReconciliation(
       previousOutputs.delete(output.path);
     }
     for (const [path, previousOutput] of previousOutputs) {
-      outputItems.push({ kind: "removal", path, project: installation.binding.project });
+      outputItems.push({
+        kind: "removal",
+        path,
+        project: installation.binding.project,
+      });
       if (previousOutput.type === "directory" && previous) {
         pushDirectoryMemberItems(
           outputItems,
@@ -520,11 +527,18 @@ export async function previewReconciliation(
       ...(await desiredOutputConflicts(installation, previous, id)).map((message) => ({ message, project })),
     );
     if (!previous) {
-      items.push({ kind: "addition", project: installation.binding.project });
+      items.push({
+        kind: "addition",
+        project: installation.binding.project,
+      });
       continue;
     }
     if (moved) {
-      items.push({ kind: "update", project: installation.binding.project, reason: "project moved" });
+      items.push({
+        kind: "update",
+        project: installation.binding.project,
+        reason: "project moved",
+      });
       continue;
     }
     const markerKind = await pathKind(markerPath(installation.binding.canonicalProject));
@@ -556,7 +570,10 @@ export async function previewReconciliation(
         ...(proof.reason ? { reason: proof.reason } : {}),
       });
     } else if (previous.workspaceInputHash !== installation.sourceHash) {
-      items.push({ kind: "stale source", project: installation.binding.project });
+      items.push({
+        kind: "stale source",
+        project: installation.binding.project,
+      });
     } else if (
       previous.engineVersion !== installation.engineVersion ||
       previous.adapterVersion !== installation.adapterVersion ||
@@ -571,7 +588,11 @@ export async function previewReconciliation(
           previousOutput.type !== output.type;
       })
     ) {
-      items.push({ kind: "update", project: installation.binding.project, reason: "desired output changed" });
+      items.push({
+        kind: "update",
+        project: installation.binding.project,
+        reason: "desired output changed",
+      });
     } else if (repairableMissingMarker) {
       items.push({
         kind: "update",
@@ -579,7 +600,10 @@ export async function previewReconciliation(
         reason: "Installation Marker is missing and repairable",
       });
     } else {
-      items.push({ kind: "current", project: installation.binding.project });
+      items.push({
+        kind: "current",
+        project: installation.binding.project,
+      });
     }
   }
   for (const installation of state.installations) {
@@ -600,7 +624,11 @@ export async function previewReconciliation(
       ...(proof.reason ? { reason: proof.reason } : {}),
     });
     for (const output of installation.outputs) {
-      outputItems.push({ kind: "removal", path: output.path, project: installation.project });
+      outputItems.push({
+        kind: "removal",
+        path: output.path,
+        project: installation.project,
+      });
     }
   }
   return {
