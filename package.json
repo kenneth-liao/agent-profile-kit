@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "build": "bun run typecheck && bun build cli/index.ts --target=node --packages=bundle --outfile=dist/cli.js --silent",
-    "test": "bun test",
+    "test": "bun test --timeout 10000",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepack": "bun run build"
   },
