@@ -8,12 +8,15 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
   formatInstallationState,
+  canonicalRepositoryExclusionRecord,
+  compareCanonicalStrings,
   INSTALLATION_MARKER_PATH,
+  parseLegacyInstallationState,
   INSTALLATION_STATE_SCHEMA_VERSION,
   parseInstallationMarker,
   parseInstallationState,
@@ -23,6 +26,7 @@ import {
   type OwnedOutput,
   type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
+import { findGitProject, gitExcludeEntry, type GitProject } from "./git.js";
 import {
   hashBytes,
   markerPath,
@@ -34,23 +38,119 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
-export async function readInstallationState(home: string): Promise<InstallationState> {
+export interface InstallationStateRead {
+  readonly migrated: boolean;
+  readonly state: InstallationState;
+}
+
+function slashPath(path: string): string {
+  return path.split(sep).join("/");
+}
+
+/**
+ * Resolve a legacy recorded project without making this lookup part of the
+ * schema-v3 read path. It exists only to preserve v2 ownership during the
+ * one-time state-boundary migration.
+ */
+async function gitProjectForLegacyInstallation(project: string): Promise<GitProject | undefined> {
   try {
-    const state = parseInstallationState(await readFile(stateManifestPath(home), "utf8"));
+    await lstat(project);
+    return await findGitProject(project);
+  } catch (error) {
+    if (!hasErrorCode(error, "ENOENT")) throw error;
+  }
+  let ancestor = dirname(project);
+  while (true) {
+    try {
+      await lstat(ancestor);
+      break;
+    } catch (error) {
+      if (!hasErrorCode(error, "ENOENT")) throw error;
+    }
+    const parent = dirname(ancestor);
+    if (parent === ancestor) return undefined;
+    ancestor = parent;
+  }
+  const priorGit = await findGitProject(ancestor);
+  if (!priorGit) return undefined;
+  const relativeProject = slashPath(relative(priorGit.root, project));
+  if (relativeProject === ".." || relativeProject.startsWith("../")) return undefined;
+  return { ...priorGit, relativeProject };
+}
+
+async function migrateLegacyInstallationState(
+  legacy: ReturnType<typeof parseLegacyInstallationState>,
+): Promise<InstallationState> {
+  const contributionsByTarget = new Map<string, {
+    readonly entries: readonly string[];
+    readonly installationId: string;
+  }[]>();
+  for (const installation of legacy.installations) {
+    const git = await gitProjectForLegacyInstallation(installation.project);
+    if (!git) continue;
+    const targetContributions = contributionsByTarget.get(git.excludeFile) ?? [];
+    targetContributions.push({
+      entries: installation.outputs.map((output) => gitExcludeEntry(git, output.path)),
+      installationId: installation.installationId,
+    });
+    contributionsByTarget.set(git.excludeFile, targetContributions);
+  }
+  const repositoryExclusions = [...contributionsByTarget.entries()]
+    .sort(([left], [right]) => compareCanonicalStrings(left, right))
+    .map(([target, contributions]) => canonicalRepositoryExclusionRecord(target, contributions));
+  return {
+    installations: legacy.installations,
+    repositoryExclusions,
+    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+  };
+}
+
+export async function readInstallationStateWithMigration(home: string): Promise<InstallationStateRead> {
+  try {
+    const source = await readFile(stateManifestPath(home), "utf8");
+    let state: InstallationState;
+    try {
+      state = parseInstallationState(source);
+    } catch (error) {
+      let legacy;
+      try {
+        legacy = parseLegacyInstallationState(source);
+      } catch {
+        throw error;
+      }
+      state = await migrateLegacyInstallationState(legacy);
+      return {
+        migrated: true,
+        state: {
+          ...state,
+          installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
+        },
+      };
+    }
     return {
-      ...state,
-      installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
+      migrated: false,
+      state: {
+        ...state,
+        installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
+      },
     };
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       return {
-        installations: [],
-        repositoryExclusions: [],
-        schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+        migrated: false,
+        state: {
+          installations: [],
+          repositoryExclusions: [],
+          schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+        },
       };
     }
     throw error;
   }
+}
+
+export async function readInstallationState(home: string): Promise<InstallationState> {
+  return (await readInstallationStateWithMigration(home)).state;
 }
 
 export async function writeInstallationState(

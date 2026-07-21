@@ -1,7 +1,10 @@
 import { chmod, lstat, mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import {
+  canonicalRepositoryExclusionRecord,
+  compareCanonicalStrings,
+} from "../schemas/installation-manifest.js";
 import type {
   InstallationState,
   OwnedOutput,
@@ -242,24 +245,6 @@ export interface RepositoryExclusionChange {
   readonly target: string;
 }
 
-function canonicalRecord(
-  target: string,
-  contributions: readonly RepositoryExclusionContribution[],
-): RepositoryExclusionRecord {
-  const canonicalContributions = [...contributions]
-    .map((contribution) => ({
-      entries: [...new Set(contribution.entries)].sort(compareCanonicalStrings),
-      installationId: contribution.installationId,
-    }))
-    .sort((left, right) => compareCanonicalStrings(left.installationId, right.installationId));
-  return {
-    contributions: canonicalContributions,
-    entries: [...new Set(canonicalContributions.flatMap((contribution) => contribution.entries))]
-      .sort(compareCanonicalStrings),
-    target,
-  };
-}
-
 function removeContribution(
   records: readonly RepositoryExclusionRecord[],
   installationId: string,
@@ -268,7 +253,7 @@ function removeContribution(
     const contributions = record.contributions.filter(
       (contribution) => contribution.installationId !== installationId,
     );
-    return contributions.length === 0 ? [] : [canonicalRecord(record.target, contributions)];
+    return contributions.length === 0 ? [] : [canonicalRepositoryExclusionRecord(record.target, contributions)];
   });
 }
 
@@ -287,12 +272,12 @@ export function replaceRepositoryExclusionContribution(
   };
   const existing = withoutInstallation.find((record) => record.target === git.excludeFile);
   if (!existing) {
-    return [...withoutInstallation, canonicalRecord(git.excludeFile, [contribution])]
+    return [...withoutInstallation, canonicalRepositoryExclusionRecord(git.excludeFile, [contribution])]
       .sort((left, right) => compareCanonicalStrings(left.target, right.target));
   }
   return withoutInstallation
     .map((record) => record.target === git.excludeFile
-      ? canonicalRecord(record.target, [...record.contributions, contribution])
+      ? canonicalRepositoryExclusionRecord(record.target, [...record.contributions, contribution])
       : record)
     .sort((left, right) => compareCanonicalStrings(left.target, right.target));
 }
@@ -310,18 +295,18 @@ export function moveRepositoryExclusionContribution(
   const withoutInstallation = removeContribution(records, installationId);
   const existing = withoutInstallation.find((record) => record.target === target);
   if (!existing) {
-    return [...withoutInstallation, canonicalRecord(target, [contribution])]
+    return [...withoutInstallation, canonicalRepositoryExclusionRecord(target, [contribution])]
       .sort((left, right) => compareCanonicalStrings(left.target, right.target));
   }
   return withoutInstallation
     .map((record) => record.target === target
-      ? canonicalRecord(target, [...record.contributions, contribution])
+      ? canonicalRepositoryExclusionRecord(target, [...record.contributions, contribution])
       : record)
     .sort((left, right) => compareCanonicalStrings(left.target, right.target));
 }
 
-/** Add a transient copy of a contribution at a new target for moved-file preflight. */
-export function copyRepositoryExclusionContribution(
+/** Prepare moved-file preflight without changing an already-recorded destination union. */
+export function prepareRepositoryExclusionMovePreflight(
   records: readonly RepositoryExclusionRecord[],
   installationId: string,
   target: string,
@@ -332,7 +317,7 @@ export function copyRepositoryExclusionContribution(
   if (!contribution) return records;
   const existing = records.find((record) => record.target === target);
   if (!existing) {
-    return [...records, canonicalRecord(target, [contribution])]
+    return [...records, canonicalRepositoryExclusionRecord(target, [contribution])]
       .sort((left, right) => compareCanonicalStrings(left.target, right.target));
   }
   // A destination with an existing record is physically preflighted against

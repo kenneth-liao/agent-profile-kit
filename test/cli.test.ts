@@ -1389,6 +1389,48 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
   });
 
+  test("reads schema-v2 installation state for preview and rewrites canonical records on apply", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-state-v2-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expect(runCli(home, "apply").status).toBe(0);
+
+    const current = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly unknown[];
+    };
+    writeFileSync(statePath(home), stringify({
+      schema_version: 2,
+      installations: current.installations,
+    }));
+
+    const preview = runCli(home, "preview");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect((parse(readFileSync(statePath(home), "utf8")) as { schema_version: number }).schema_version)
+      .toBe(2);
+
+    const applied = runCli(home, "apply");
+    expect(applied.status, applied.stderr).toBe(0);
+    const migrated = parse(readFileSync(statePath(home), "utf8")) as {
+      schema_version: number;
+      repository_exclusions: readonly {
+        target: string;
+        contributions: readonly { installation_id: string; entries: readonly string[] }[];
+        entries: readonly string[];
+      }[];
+    };
+    expect(migrated.schema_version).toBe(3);
+    expect(migrated.repository_exclusions).toEqual([{
+      target: join(realpathSync(repository), ".git", "info", "exclude"),
+      contributions: [{
+        installation_id: (current.installations[0] as { installation_id: string }).installation_id,
+        entries: ["/.agent-profile-kit/codex/context.md", "/.agent-profile-kit/installation.json", "/.codex/hooks.json"],
+      }],
+      entries: ["/.agent-profile-kit/codex/context.md", "/.agent-profile-kit/installation.json", "/.codex/hooks.json"],
+    }]);
+  });
+
   test("apply leaves current installation outputs and state untouched", () => {
     const home = isolatedHome();
     initialize(home);

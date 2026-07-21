@@ -472,6 +472,30 @@ conflict. Agent Profile Kit does not detect or resolve contradictions in prose;
 conflicting guidance remains visible to you and the Host. Global Host
 configuration and repository-owned files stay live and unchanged.
 
+### Installation State compatibility and recovery
+
+Agent Profile Kit 0.24.x reads the previous schema-2 machine-local Installation
+State and synthesizes Repository Exclusion Records at the state boundary. The
+read is non-mutating: `preview` and `status` do not rewrite the file. The first
+successful `apply` or `uninstall` publishes schema 3, which older 0.23.x
+engines cannot read. Before upgrading, keep a copy of the state file if a
+downgrade may be needed:
+
+```sh
+state_dir="$HOME/.agents/agent-profile-kit/state"
+cp -p "$state_dir/manifest.yaml" "$state_dir/manifest.yaml.before-schema-v3"
+```
+
+If the current state file is missing or malformed, do not delete or adopt
+surviving generated files. Restore the backup and retry. Without a backup,
+stop the CLI and manually remove only the verified Installer-owned project
+outputs and `.agent-profile-kit/installation.json` Markers, then remove only
+the marked block between `# BEGIN Agent Profile Kit generated paths` and
+`# END Agent Profile Kit generated paths` in each affected `.git/info/exclude`.
+Keep every unrelated exclusion byte. Recreate the desired Project Bindings and
+run `agent-profile-kit apply` to establish fresh v3 ownership records. A wiped
+state cannot safely be reconstructed from output bytes alone.
+
 ### Global Skills vs project-bound Profiles
 
 This section is the Host-path detail for the

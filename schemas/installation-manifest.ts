@@ -10,6 +10,7 @@ import {
 import { isSupportedHost, SUPPORTED_HOSTS } from "./local-configuration.js";
 
 export const INSTALLATION_MANIFEST_SCHEMA_VERSION = 2;
+export const INSTALLATION_STATE_LEGACY_SCHEMA_VERSION = 2;
 export const INSTALLATION_STATE_SCHEMA_VERSION = 3;
 export const INSTALLATION_MARKER_SCHEMA_VERSION = 1;
 export const INSTALLATION_MARKER_PATH = ".agent-profile-kit/installation.json";
@@ -230,6 +231,24 @@ function requireExclusionEntries(value: unknown, description: string): readonly 
 
 function sortedEntries(entries: readonly string[]): readonly string[] {
   return [...entries].sort(compareCanonicalStrings);
+}
+
+/** Build one canonical record from already-normalized generated contributions. */
+export function canonicalRepositoryExclusionRecord(
+  target: string,
+  contributions: readonly RepositoryExclusionContribution[],
+): RepositoryExclusionRecord {
+  const canonicalContributions = [...contributions]
+    .map((contribution) => ({
+      entries: sortedEntries([...new Set(contribution.entries)]),
+      installationId: contribution.installationId,
+    }))
+    .sort((left, right) => compareCanonicalStrings(left.installationId, right.installationId));
+  return {
+    contributions: canonicalContributions,
+    entries: sortedEntries([...new Set(canonicalContributions.flatMap((contribution) => contribution.entries))]),
+    target,
+  };
 }
 
 function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
@@ -513,6 +532,22 @@ export function parseInstallationManifest(source: string): ProjectInstallationMa
   return parseManifestMapping(parseYaml(source, "Installation Manifest"));
 }
 
+function parseInstallations(value: unknown): readonly ProjectInstallationManifest[] {
+  if (!Array.isArray(value)) {
+    throw new Error("Installation State installations must be an array");
+  }
+  const installations = value.map(parseManifestMapping);
+  const ids = installations.map((installation) => installation.installationId);
+  if (new Set(ids).size !== ids.length) {
+    throw new Error("Installation State must not contain an installation more than once");
+  }
+  const projects = installations.map((installation) => installation.project);
+  if (new Set(projects).size !== projects.length) {
+    throw new Error("Installation State must not contain a project more than once");
+  }
+  return installations;
+}
+
 export function formatInstallationManifest(
   manifest: ProjectInstallationManifest,
 ): string {
@@ -582,20 +617,9 @@ export function parseInstallationState(source: string): InstallationState {
   if (state.schema_version !== INSTALLATION_STATE_SCHEMA_VERSION) {
     throw new Error(`Installation State schema_version must be ${INSTALLATION_STATE_SCHEMA_VERSION}`);
   }
-  if (!Array.isArray(state.installations)) {
-    throw new Error("Installation State installations must be an array");
-  }
-  const installations = state.installations.map(parseManifestMapping);
-  const ids = installations.map((installation) => installation.installationId);
-  if (new Set(ids).size !== ids.length) {
-    throw new Error("Installation State must not contain an installation more than once");
-  }
-  const projects = installations.map((installation) => installation.project);
-  if (new Set(projects).size !== projects.length) {
-    throw new Error("Installation State must not contain a project more than once");
-  }
+  const installations = parseInstallations(state.installations);
   const repositoryExclusions = parseRepositoryExclusionRecords(state.repository_exclusions);
-  const installationIds = new Set(ids);
+  const installationIds = new Set(installations.map((installation) => installation.installationId));
   for (const record of repositoryExclusions) {
     for (const contribution of record.contributions) {
       if (!installationIds.has(contribution.installationId)) {
@@ -606,6 +630,25 @@ export function parseInstallationState(source: string): InstallationState {
     }
   }
   return { installations, repositoryExclusions, schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION };
+}
+
+/** Parse the pre-Repository-Exclusion-Record state shape for the migration boundary only. */
+export function parseLegacyInstallationState(source: string): {
+  readonly installations: readonly ProjectInstallationManifest[];
+  readonly schemaVersion: 2;
+} {
+  const value = parseYaml(source, "Installation State");
+  const state = requireMapping(value, "Installation State");
+  requireExactFields(state, ["schema_version", "installations"], "Installation State");
+  if (state.schema_version !== INSTALLATION_STATE_LEGACY_SCHEMA_VERSION) {
+    throw new Error(
+      `Installation State legacy schema_version must be ${INSTALLATION_STATE_LEGACY_SCHEMA_VERSION}`,
+    );
+  }
+  return {
+    installations: parseInstallations(state.installations),
+    schemaVersion: INSTALLATION_STATE_LEGACY_SCHEMA_VERSION,
+  };
 }
 
 export function formatInstallationState(state: InstallationState): string {

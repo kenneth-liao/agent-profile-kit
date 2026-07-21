@@ -8,6 +8,7 @@ import { INSTALLATION_STATE_SCHEMA_VERSION } from "../schemas/installation-manif
 import {
   proveOwnedInstallation,
   readInstallationState,
+  readInstallationStateWithMigration,
   stageProvenInstallationRemoval,
   writeInstallationState,
 } from "./installation-state.js";
@@ -104,8 +105,12 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
 }
 
 export async function uninstallApplication(home: string): Promise<number> {
-  const state = await readInstallationState(home);
-  if (state.installations.length === 0) return 0;
+  const loaded = await readInstallationStateWithMigration(home);
+  const state = loaded.state;
+  if (state.installations.length === 0) {
+    if (loaded.migrated) await writeInstallationState(home, state);
+    return 0;
+  }
   const failures: string[] = [];
   for (const installation of state.installations) {
     const proof = await proveOwnedInstallation(installation);
@@ -148,11 +153,25 @@ export async function uninstallApplication(home: string): Promise<number> {
       }
     }
     for (const transaction of transactions.reverse()) await transaction.rollback();
-    if (stateWriteAttempted) await writeInstallationState(home, state).catch(() => undefined);
-    if (rollbackFailure !== undefined) {
+    let stateRestoreFailure: unknown;
+    if (stateWriteAttempted) {
+      try {
+        await writeInstallationState(home, state);
+      } catch (failure) {
+        stateRestoreFailure = failure;
+      }
+    }
+    const recoveryMessages = [
+      ...(rollbackFailure === undefined
+        ? []
+        : [`Exclusion rollback failed: ${rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)}`]),
+      ...(stateRestoreFailure === undefined
+        ? []
+        : [`Installation State restore failed: ${stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)}`]),
+    ];
+    if (recoveryMessages.length > 0) {
       throw new Error(
-        `${error instanceof Error ? error.message : String(error)}\n` +
-        `Exclusion rollback failed: ${rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)}`,
+        `${error instanceof Error ? error.message : String(error)}\n${recoveryMessages.join("\n")}`,
       );
     }
     throw error;

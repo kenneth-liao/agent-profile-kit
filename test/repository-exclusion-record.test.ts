@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { parse, stringify } from "yaml";
 
 import {
   formatInstallationState,
+  formatInstallationManifest,
+  parseLegacyInstallationState,
   parseInstallationState,
   type InstallationState,
 } from "../schemas/installation-manifest.js";
@@ -45,6 +48,19 @@ function validState(): InstallationState {
 }
 
 describe("Repository Exclusion Record schema", () => {
+  test("keeps schema-v2 state available to the explicit migration boundary", () => {
+    const source = stringify({
+      schema_version: 2,
+      installations: [parse(formatInstallationManifest(installation("install-a", "/repo/a")))],
+    });
+
+    expect(parseLegacyInstallationState(source)).toEqual({
+      installations: [installation("install-a", "/repo/a")],
+      schemaVersion: 2,
+    });
+    expect(() => parseInstallationState(source)).toThrow(/schema_version must be 3/);
+  });
+
   test("round-trips contributions and formats their union deterministically", () => {
     const parsed = parseInstallationState(formatInstallationState(validState()));
 
