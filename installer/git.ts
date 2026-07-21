@@ -14,10 +14,6 @@ export interface GitProject {
   readonly relativeProject: string;
 }
 
-export interface GitProjectCheckout extends GitProject {
-  readonly project: string;
-}
-
 function slashPath(path: string): string {
   return path.split(sep).join("/");
 }
@@ -97,62 +93,6 @@ export async function findGitProject(project: string): Promise<GitProject | unde
     root,
     relativeProject,
   };
-}
-
-/** Enumerate only Git's authoritative worktree set for the bound repository. */
-export async function listGitProjectCheckouts(
-  gitProject: GitProject,
-): Promise<readonly GitProjectCheckout[]> {
-  const result = await execFileAsync(
-    "git",
-    ["-C", gitProject.root, "worktree", "list", "--porcelain", "-z"],
-    { encoding: "utf8" },
-  );
-  const roots = result.stdout
-    .split("\0\0")
-    .flatMap((record) => {
-      const fields = record.split("\0");
-      if (fields.some((field) => field.startsWith("prunable "))) return [];
-      const worktree = fields.find((field) => field.startsWith("worktree "));
-      return worktree ? [worktree.slice("worktree ".length)] : [];
-    });
-  const checkouts: GitProjectCheckout[] = [];
-  for (const authoredRoot of roots) {
-    const root = await realpath(authoredRoot);
-    let project = root;
-    for (const component of gitProject.relativeProject.split("/").filter(Boolean)) {
-      project = join(project, component);
-      let stats;
-      try {
-        stats = await lstat(project);
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-          throw new Error(
-            `Git worktree ${root} is missing bound project directory '${gitProject.relativeProject}'`,
-          );
-        }
-        throw error;
-      }
-      if (stats.isSymbolicLink() || !stats.isDirectory()) {
-        throw new Error(
-          `Git worktree ${root} bound project path '${gitProject.relativeProject}' has non-directory or symlink component '${component}'`,
-        );
-      }
-    }
-    const canonicalProject = await realpath(project);
-    const canonicalRelative = slashPath(relative(root, canonicalProject));
-    if (canonicalRelative !== gitProject.relativeProject) {
-      throw new Error(`Git worktree ${root} bound project path escapes its lexical checkout mapping`);
-    }
-    checkouts.push({
-      commonDirectory: gitProject.commonDirectory,
-      excludeFile: gitProject.excludeFile,
-      project: canonicalProject,
-      relativeProject: gitProject.relativeProject,
-      root,
-    });
-  }
-  return checkouts.sort((left, right) => left.project.localeCompare(right.project));
 }
 
 export function gitExcludeEntry(

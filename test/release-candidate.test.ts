@@ -438,7 +438,7 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(packageRoot, "state"))).toBe(false);
   });
 
-  test("packed CLI acceptance journey covers Codex-only, Claude-only, combined, Git worktree, and non-Git shapes", () => {
+  test("packed CLI acceptance journey covers exact-root and explicit-checkout lifecycles", () => {
     const home = isolatedHome();
     const init = runCli(home, ["init"]);
     expect(init.status, init.stderr).toBe(0);
@@ -451,6 +451,7 @@ describe("project-bound release candidate", () => {
     const gitRoot = gitRepository();
     const existingWorktree = addWorktree(gitRoot, "rc-existing-worktree");
     const pathWithClaude = installFakeClaude(home);
+    writeProfile(home, "review", { context: ["team-rules"] });
 
     writeBindings(home, [
       { project: nonGitCodex, hosts: ["codex"] },
@@ -467,8 +468,8 @@ describe("project-bound release candidate", () => {
     expect(preview.stdout).toContain(nonGitCodex);
     expect(preview.stdout).toContain(claudeOnly);
     expect(preview.stdout).toContain(combined);
-    expect(preview.stdout).toContain(realpathSync(gitRoot));
-    expect(preview.stdout).toContain(realpathSync(existingWorktree));
+    expect(preview.stdout).toContain(gitRoot);
+    expect(preview.stdout).not.toContain(existingWorktree);
     expect(preview.stdout).toContain("Codex must start at the exact bound project root");
 
     const apply = runCli(home, ["apply"], { path: pathWithClaude });
@@ -479,13 +480,34 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(combined, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(combined, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     expect(existsSync(join(gitRoot, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
-    expect(existsSync(join(existingWorktree, ".agent-profile-kit", "codex", "context.md"))).toBe(
-      true,
-    );
+    expect(existsSync(join(existingWorktree, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(existingWorktree, ".codex"))).toBe(false);
 
-    const statusCurrent = runCli(home, ["status"], { path: pathWithClaude });
+    const statusCurrent = runCli(home, ["status", "--verbose"], { path: pathWithClaude });
     expect(statusCurrent.status, statusCurrent.stderr).toBe(0);
-    expect(statusCurrent.stdout).toMatch(/current/i);
+    expect(statusCurrent.stdout).toContain(`${gitRoot}: current`);
+    expect(statusCurrent.stdout).not.toContain(existingWorktree);
+
+    writeBindings(home, [
+      { project: nonGitCodex, hosts: ["codex"] },
+      { project: claudeOnly, hosts: ["claude"] },
+      { project: combined, hosts: ["codex", "claude"] },
+      { project: gitRoot, hosts: ["codex"] },
+      { project: existingWorktree, profile: "review", hosts: ["claude"] },
+    ]);
+
+    const explicitPreview = runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
+    expect(explicitPreview.status, explicitPreview.stderr).toBe(0);
+    expect(explicitPreview.stdout).toContain(`${existingWorktree}: Profile review`);
+
+    const explicitApply = runCli(home, ["apply"], { path: pathWithClaude });
+    expect(explicitApply.status, explicitApply.stderr).toBe(0);
+    expect(existsSync(join(existingWorktree, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(existsSync(join(existingWorktree, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+
+    const explicitStatus = runCli(home, ["status", "--verbose"], { path: pathWithClaude });
+    expect(explicitStatus.status, explicitStatus.stderr).toBe(0);
+    expect(explicitStatus.stdout).toContain(`${existingWorktree}: current`);
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
@@ -522,7 +544,7 @@ describe("project-bound release candidate", () => {
     );
     expect(combinedInstallation?.host_versions.codex).toBe("native-project-sessionstart-v1");
 
-    // Binding removal: drop Claude-only and combined; keep non-Git Codex and Git root.
+    // Binding removal: drop Claude-only, combined, and the explicit linked checkout.
     writeBindings(home, [
       { project: nonGitCodex, hosts: ["codex"] },
       { project: gitRoot, hosts: ["codex"] },
@@ -534,17 +556,13 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(combined, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(nonGitCodex, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(gitRoot, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
-    expect(existsSync(join(existingWorktree, ".agent-profile-kit", "codex", "context.md"))).toBe(
-      true,
-    );
+    expect(existsSync(join(existingWorktree, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
 
     const uninstall = runCli(home, ["uninstall"], { path: pathWithClaude });
     expect(uninstall.status, uninstall.stderr).toBe(0);
     expect(existsSync(join(nonGitCodex, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(gitRoot, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
-    expect(existsSync(join(existingWorktree, ".agent-profile-kit", "codex", "context.md"))).toBe(
-      false,
-    );
+    expect(existsSync(join(existingWorktree, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain(nonGitCodex);
