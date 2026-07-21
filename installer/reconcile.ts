@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 
 import {
   INSTALLATION_MARKER_PATH,
+  INSTALLATION_STATE_SCHEMA_VERSION,
   type InstallationState,
   type OwnedOutput,
   type ProjectInstallationManifest,
@@ -31,16 +32,20 @@ import {
   newInstallationId,
   proveOwnedInstallation,
   proveRemainingOwnedOutputs,
-  readInstallationState,
+  readInstallationStateWithMigration,
   readMarker,
   stageProvenInstallationRemoval,
   writeInstallationState,
 } from "./installation-state.js";
 import { hasTrackedGitDescendants } from "./git.js";
 import {
+  prepareRepositoryExclusionMovePreflight,
   gitExclusionBlockers,
   gitExclusionWarnings,
+  replaceRepositoryExclusionContribution,
+  repositoryExclusionChanges,
   stageGitExclusions,
+  type RepositoryExclusionChange,
 } from "./git-exclusions.js";
 
 export interface ReconciliationFileSystem {
@@ -121,6 +126,7 @@ export interface ReconciliationReport {
   }[];
   readonly items: readonly ReconciliationItem[];
   readonly outputs: readonly OutputReconciliationItem[];
+  readonly repositoryExclusions: readonly RepositoryExclusionChange[];
   readonly warnings: readonly string[];
 }
 
@@ -217,6 +223,23 @@ function manifestFor(
     schemaVersion: 2,
     selectedContext: desired.profile.context,
     workspaceInputHash: desired.sourceHash,
+  };
+}
+
+function stateWithInstallationExclusion(
+  state: InstallationState,
+  installation: ProjectInstallationManifest,
+  gitProject: DesiredInstallation["gitProject"],
+): InstallationState {
+  return {
+    installations: state.installations,
+    repositoryExclusions: replaceRepositoryExclusionContribution(
+      state.repositoryExclusions,
+      installation.installationId,
+      gitProject,
+      installation.outputs,
+    ),
+    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
   };
 }
 
@@ -469,11 +492,19 @@ export async function previewReconciliation(
   const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
   const movedPreviousProjects = new Set<string>();
+  let projectedExclusions = state.repositoryExclusions;
   for (const installation of desired) {
     const previous = await previousFor(installation, state, byProject);
     const moved = previous && previous.project !== installation.binding.canonicalProject;
     if (moved) movedPreviousProjects.add(previous.project);
     const id = previous?.installationId ?? newInstallationId();
+    const projectedManifest = manifestFor(installation, id);
+    projectedExclusions = replaceRepositoryExclusionContribution(
+      projectedExclusions,
+      id,
+      installation.gitProject,
+      projectedManifest.outputs,
+    );
     const proposedOutputs: OwnedOutput[] = [
       ...installation.outputs.map(ownedOutputFromDesired),
       {
@@ -630,7 +661,18 @@ export async function previewReconciliation(
         project: installation.project,
       });
     }
+    projectedExclusions = replaceRepositoryExclusionContribution(
+      projectedExclusions,
+      installation.installationId,
+      undefined,
+      [],
+    );
   }
+  const projectedState: InstallationState = {
+    installations: state.installations,
+    repositoryExclusions: projectedExclusions,
+    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+  };
   return {
     blockers: [...new Map(
       blockers.map((blocker) => [`${blocker.project ?? ""}\0${blocker.message}`, blocker]),
@@ -642,6 +684,7 @@ export async function previewReconciliation(
     outputs: outputItems.sort((left, right) =>
       left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
     ),
+    repositoryExclusions: repositoryExclusionChanges(state, projectedState),
     warnings: [...new Set([
       ...desired.flatMap((installation) => installation.warnings),
       ...exclusionWarnings,
@@ -793,12 +836,19 @@ async function stageProjectOutputs(
 export async function applyReconciliation(
   home: string,
   desired: readonly DesiredInstallation[],
-  options: { readonly fileSystem?: Partial<ReconciliationFileSystem> } = {},
+  options: {
+    readonly fileSystem?: Partial<ReconciliationFileSystem>;
+    readonly writeInstallationState?: typeof writeInstallationState;
+  } = {},
 ): Promise<ReconciliationReport> {
   const fileSystem: ReconciliationFileSystem = { ...nodeFileSystem, ...options.fileSystem };
+  const writeState = options.writeInstallationState ?? writeInstallationState;
   let before;
+  let migratedState = false;
   try {
-    before = await readInstallationState(home);
+    const loaded = await readInstallationStateWithMigration(home);
+    before = loaded.state;
+    migratedState = loaded.migrated;
   } catch (error) {
     throw new Error(
       `Apply blocked before writes:\n- ${error instanceof Error ? error.message : String(error)}`,
@@ -808,9 +858,6 @@ export async function applyReconciliation(
   if (report.blockers.length > 0) {
     throw new Error(`Apply blocked before writes:\n${report.blockers.map((blocker) => `- ${blocker.message}`).join("\n")}`);
   }
-  const repairedExclusions = await stageGitExclusions(before, before);
-  await repairedExclusions.commit();
-
   const currentProjects = new Set(
     report.items
       .filter((item) => item.kind === "current")
@@ -820,6 +867,7 @@ export async function applyReconciliation(
   const installationsByProject = new Map(
     before.installations.map((installation) => [installation.project, installation]),
   );
+  let workingState = before;
   const movedPreviousProjects = new Set<string>();
   const completed: string[] = [];
   for (const [index, item] of desired.entries()) {
@@ -829,32 +877,78 @@ export async function applyReconciliation(
     if (currentProjects.has(item.binding.project)) continue;
     let transaction: { readonly commit: () => Promise<void>; readonly rollback: () => Promise<void> } | undefined;
     let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
+    let stateWriteAttempted = false;
     try {
       const installationId = previous?.installationId ?? newInstallationId();
       const manifest = manifestFor(item, installationId);
       transaction = await stageProjectOutputs(item, manifest, previous, fileSystem);
       if (moved) installationsByProject.delete(previous.project);
       installationsByProject.set(manifest.project, manifest);
-      const nextState: InstallationState = {
-        installations: [...installationsByProject.values()],
-        schemaVersion: 2,
-      };
+      const nextState = stateWithInstallationExclusion(
+        {
+          installations: [...installationsByProject.values()],
+          repositoryExclusions: workingState.repositoryExclusions,
+          schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+        },
+        manifest,
+        item.gitProject,
+      );
+      const exclusionCurrentState = moved && item.gitProject
+        ? {
+            ...workingState,
+            repositoryExclusions: prepareRepositoryExclusionMovePreflight(
+              workingState.repositoryExclusions,
+              previous!.installationId,
+              item.gitProject.excludeFile,
+            ),
+          }
+        : workingState;
       exclusions = await stageGitExclusions(
-        { installations: [...byProject.values()], schemaVersion: 2 },
+        exclusionCurrentState,
         nextState,
       );
-      await writeInstallationState(home, nextState);
-      await transaction.commit();
+      stateWriteAttempted = true;
+      await writeState(home, nextState);
+      // Publish bytes first; GitExclusionTransaction can restore them if the
+      // following project commit reports a failure.
       await exclusions.commit();
+      await transaction.commit();
       byProject.clear();
-      for (const installation of nextState.installations) byProject.set(installation.project, installation);
+      for (const installation of nextState.installations) {
+        byProject.set(installation.project, installation);
+      }
+      workingState = nextState;
       completed.push(item.binding.project);
     } catch (error) {
-      if (exclusions) await exclusions.rollback();
+      let rollbackFailure: unknown;
+      if (exclusions) {
+        try {
+          await exclusions.rollback();
+        } catch (failure) {
+          rollbackFailure = failure;
+        }
+      }
       if (transaction) await transaction.rollback();
+      let stateRestoreFailure: unknown;
+      if (stateWriteAttempted) {
+        try {
+          await writeState(home, workingState);
+        } catch (failure) {
+          stateRestoreFailure = failure;
+        }
+      }
       const pending = desired.slice(index + 1).map((entry) => entry.binding.project);
+      const failureMessage = error instanceof Error ? error.message : String(error);
+      const recoveryMessages = [
+        ...(rollbackFailure === undefined
+          ? []
+          : [`Exclusion rollback failed: ${rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)}`]),
+        ...(stateRestoreFailure === undefined
+          ? []
+          : [`Installation State restore failed: ${stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)}`]),
+      ];
       throw new Error(
-        `Apply failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: ${item.binding.project}; pending projects: ${pending.join(", ") || "(none)"}\n${error instanceof Error ? error.message : String(error)}`,
+        `Apply failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: ${item.binding.project}; pending projects: ${pending.join(", ") || "(none)"}\n${failureMessage}${recoveryMessages.length > 0 ? `\n${recoveryMessages.join("\n")}` : ""}`,
       );
     }
   }
@@ -867,30 +961,70 @@ export async function applyReconciliation(
   for (const [index, previous] of stale.entries()) {
     let transaction: Awaited<ReturnType<typeof stageProvenInstallationRemoval>> | undefined;
     let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
+    let stateWriteAttempted = false;
     try {
       transaction = await stageProvenInstallationRemoval(previous);
       installationsByProject.delete(previous.project);
       const nextState: InstallationState = {
         installations: [...installationsByProject.values()],
-        schemaVersion: 2,
+        repositoryExclusions: replaceRepositoryExclusionContribution(
+          workingState.repositoryExclusions,
+          previous.installationId,
+          undefined,
+          [],
+        ),
+        schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
       };
       exclusions = await stageGitExclusions(
-        { installations: [...byProject.values()], schemaVersion: 2 },
+        workingState,
         nextState,
       );
-      await writeInstallationState(home, nextState);
-      await transaction.commit();
+      stateWriteAttempted = true;
+      await writeState(home, nextState);
+      // The exclusion transaction remains reversible until the removal commit
+      // succeeds, keeping state, bytes, and output ownership retryable together.
       await exclusions.commit();
+      await transaction.commit();
       byProject.delete(previous.project);
+      workingState = nextState;
       completed.push(`removal ${previous.project}`);
     } catch (error) {
-      if (exclusions) await exclusions.rollback();
+      let rollbackFailure: unknown;
+      if (exclusions) {
+        try {
+          await exclusions.rollback();
+        } catch (failure) {
+          rollbackFailure = failure;
+        }
+      }
       if (transaction) await transaction.rollback();
+      let stateRestoreFailure: unknown;
+      if (stateWriteAttempted) {
+        try {
+          await writeState(home, workingState);
+        } catch (failure) {
+          stateRestoreFailure = failure;
+        }
+      }
       const pending = stale.slice(index + 1).map((entry) => `removal ${entry.project}`);
+      const failureMessage = error instanceof Error ? error.message : String(error);
+      const recoveryMessages = [
+        ...(rollbackFailure === undefined
+          ? []
+          : [`Exclusion rollback failed: ${rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)}`]),
+        ...(stateRestoreFailure === undefined
+          ? []
+          : [`Installation State restore failed: ${stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)}`]),
+      ];
       throw new Error(
-        `Apply failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: removal ${previous.project}; pending projects: ${pending.join(", ") || "(none)"}\n${error instanceof Error ? error.message : String(error)}`,
+        `Apply failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: removal ${previous.project}; pending projects: ${pending.join(", ") || "(none)"}\n${failureMessage}${recoveryMessages.length > 0 ? `\n${recoveryMessages.join("\n")}` : ""}`,
       );
     }
   }
+  if (migratedState) {
+    await writeState(home, workingState);
+  }
+  const repairedExclusions = await stageGitExclusions(workingState, workingState);
+  await repairedExclusions.commit();
   return report;
 }

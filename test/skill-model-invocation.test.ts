@@ -321,7 +321,8 @@ describe("Skill model-invocation policy", () => {
     });
     const preview = await previewReconciliation(desired.installations, {
       installations: [],
-      schemaVersion: 2,
+      repositoryExclusions: [],
+      schemaVersion: 3,
     });
     expect(preview.blockers).toEqual([]);
     await applyReconciliation(home, desired.installations);
@@ -448,7 +449,8 @@ describe("Skill model-invocation policy", () => {
       )).toBe(true);
       const preview = await previewReconciliation(desired.installations, {
         installations: [],
-        schemaVersion: 2,
+        repositoryExclusions: [],
+        schemaVersion: 3,
       });
       expect(preview.blockers.length).toBeGreaterThan(0);
       expect(existsSync(join(project, ".agents", "skills", "to-spec"))).toBe(false);

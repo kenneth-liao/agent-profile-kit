@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -160,5 +161,52 @@ describe("injected project filesystem failures", () => {
     expect(statSync(join(project, ".agent-profile-kit", "codex", "context.md")).mode & 0o777).toBe(0o600);
     const state = await readInstallationState(home);
     expect(state.installations[0]!.outputs.find((output) => output.path.endsWith("context.md"))?.mode).toBe(0o600);
+  });
+
+  test("surfaces installation-state restore failures after an apply error", async () => {
+    const home = temporaryDirectory("agent-profile-kit-state-restore-home-");
+    const project = temporaryDirectory("agent-profile-kit-state-restore-project-");
+    execFileSync("git", ["init", "-q", project]);
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nOriginal Context.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const initial = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, initial.installations);
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated Context.\n",
+    );
+    const desiredState = await buildDesiredState(home, { checkHostCapability: false });
+    const desired = desiredState.installations.map((installation) => ({
+      ...installation,
+      outputs: installation.outputs.map((output) =>
+        output.path.endsWith("context.md")
+          ? { ...output, path: ".agent-profile-kit/codex/context-v2.md" }
+          : output,
+      ),
+    }));
+    let stateWrites = 0;
+    const exclude = join(project, ".git", "info", "exclude");
+
+    await expect(applyReconciliation(home, desired, {
+      writeInstallationState: async (targetHome, state) => {
+        stateWrites += 1;
+        if (stateWrites === 2) throw new Error("injected state restore failure");
+        await writeInstallationState(targetHome, state);
+        if (stateWrites === 1) writeFileSync(exclude, "concurrent edit\n");
+      },
+    })).rejects.toThrow(/Installation State restore failed/);
   });
 });

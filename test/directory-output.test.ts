@@ -306,7 +306,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { installations: [], schemaVersion: 2 },
+      { installations: [], repositoryExclusions: [], schemaVersion: 3 },
     );
     expect(report.blockers.some((blocker) =>
       blocker.message.includes("occupied unowned artifact directory")
@@ -325,7 +325,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { installations: [], schemaVersion: 2 },
+      { installations: [], repositoryExclusions: [], schemaVersion: 3 },
     );
     expect(report.blockers.some((blocker) =>
       blocker.message.includes("occupied") && blocker.message.includes("parent path")
@@ -416,7 +416,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(existsSync(join(project, directory.path))).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
 
-    await writeInstallationState(home, { installations: [], schemaVersion: 2 });
+    await writeInstallationState(home, { installations: [], repositoryExclusions: [], schemaVersion: 3 });
   });
 
   test("existing Context-only Codex lifecycle still applies without directory outputs", async () => {
@@ -487,7 +487,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { installations: [], schemaVersion: 2 },
+      { installations: [], repositoryExclusions: [], schemaVersion: 3 },
     );
     expect(report.blockers.some((blocker) =>
       blocker.message.includes("tracked project path")
