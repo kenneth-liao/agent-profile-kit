@@ -33,7 +33,7 @@ import { hashWorkspaceInputs } from "./hashes.js";
 import { ingestApplication, stateDirectory } from "./local-configuration.js";
 import { resolveProfileDependencies, type ResolvedProfile } from "./resolve-dependencies.js";
 import { ENGINE_VERSION } from "./version.js";
-import { findGitProject, listGitProjectCheckouts, type GitProject } from "./git.js";
+import { findGitProject, type GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
 
@@ -416,7 +416,6 @@ export async function buildDesiredState(
 ): Promise<DesiredState> {
   const { configuration, workspace } = await ingestApplication(home);
   const installations: DesiredInstallation[] = [];
-  const expandedRoots = new Map<string, ProjectBinding>();
   for (const binding of [...configuration.bindings].sort((left, right) =>
     left.canonicalProject.localeCompare(right.canonicalProject)
   )) {
@@ -438,121 +437,100 @@ export async function buildDesiredState(
     }
     const gitProject = await findGitProject(binding.canonicalProject);
     const sourceHash = await hashWorkspaceInputs(profile, resolvedProfile);
-    const expanded = gitProject
-      ? (await listGitProjectCheckouts(gitProject)).map((checkout) => ({
-          binding: { ...binding, canonicalProject: checkout.project, project: checkout.project },
-          gitProject: checkout,
-        }))
-      : [{ binding, gitProject: undefined }];
-    for (const target of expanded) {
-      const existing = expandedRoots.get(target.binding.canonicalProject);
-      if (existing) {
-        if (
-          existing.profile !== target.binding.profile ||
-          existing.hosts.join("\n") !== target.binding.hosts.join("\n")
-        ) {
-          throw new Error(
-            `Git worktree expansion maps conflicting Project Bindings to '${target.binding.canonicalProject}'`,
+    const blockers: string[] = [];
+    const plans: AdapterProjectPlan[] = [];
+    const hostVersions: Record<string, string> = {};
+    const warnings: string[] = [];
+    const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
+      resolvedProfile.skills,
+    );
+    // Capability and planning follow selected categories: Context machinery is optional.
+    const requireContext = resolvedProfile.contexts.length > 0;
+    const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
+    for (const host of binding.hosts) {
+      if (options.checkHostCapability !== false) {
+        try {
+          if (host === "codex") {
+            await assertCodexProjectCapability(home, binding.canonicalProject, {
+              requireContext,
+              requireDisabledModelInvocation,
+            });
+          } else if (host === "claude") {
+            await assertClaudeProjectCapability(binding.canonicalProject, {
+              requireContext,
+              requireDisabledModelInvocation,
+            });
+          }
+        } catch (error) {
+          blockers.push(
+            `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      // Global Skill identity overlap is independent of CLI capability probes and must
+      // run for status as well as preview/apply so later global delivery is reported.
+      if (host === "codex") {
+        blockers.push(
+          ...(await detectCodexGlobalSkillOverlaps(home, selectedSkillIds, {
+            project: binding.canonicalProject,
+          })).map((message) => `${binding.project}: ${message}`),
+        );
+      } else if (host === "claude") {
+        blockers.push(
+          ...(await detectClaudeGlobalSkillOverlaps(home, selectedSkillIds, {
+            project: binding.canonicalProject,
+          })).map((message) => `${binding.project}: ${message}`),
+        );
+      }
+      if (host === "codex") {
+        const contextPath = [
+          gitProject?.relativeProject ?? "",
+          ".agent-profile-kit",
+          "codex",
+          "context.md",
+        ].filter((part) => part.length > 0).join("/");
+        const adapterPlan = await planCodexProject(
+          profile.id,
+          resolvedProfile.contexts,
+          resolvedProfile.skills,
+          { contextPath },
+        );
+        plans.push(adapterPlan);
+        hostVersions.codex = adapterPlan.hostVersion;
+        // Context snapshot path is Git-root-relative; Skills-only installs need no launch warning.
+        if (!gitProject && requireContext) {
+          warnings.push(
+            `${binding.project} is not a Git worktree; Codex must start at the exact bound project root for native Context discovery`,
           );
         }
         continue;
       }
-      expandedRoots.set(target.binding.canonicalProject, target.binding);
-      const blockers: string[] = [];
-      const plans: AdapterProjectPlan[] = [];
-      const hostVersions: Record<string, string> = {};
-      const warnings: string[] = [];
-      const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
-        resolvedProfile.skills,
-      );
-      // Capability and planning follow selected categories: Context machinery is optional.
-      const requireContext = resolvedProfile.contexts.length > 0;
-      const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
-      for (const host of target.binding.hosts) {
-        if (options.checkHostCapability !== false) {
-          try {
-            if (host === "codex") {
-              await assertCodexProjectCapability(home, target.binding.canonicalProject, {
-                requireContext,
-                requireDisabledModelInvocation,
-              });
-            } else if (host === "claude") {
-              await assertClaudeProjectCapability(target.binding.canonicalProject, {
-                requireContext,
-                requireDisabledModelInvocation,
-              });
-            }
-          } catch (error) {
-            blockers.push(
-              `${target.binding.project}: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        }
-        // Global Skill identity overlap is independent of CLI capability probes and must
-        // run for status as well as preview/apply so later global delivery is reported.
-        if (host === "codex") {
-          blockers.push(
-            ...(await detectCodexGlobalSkillOverlaps(home, selectedSkillIds, {
-              project: target.binding.canonicalProject,
-            })).map((message) => `${target.binding.project}: ${message}`),
-          );
-        } else if (host === "claude") {
-          blockers.push(
-            ...(await detectClaudeGlobalSkillOverlaps(home, selectedSkillIds, {
-              project: target.binding.canonicalProject,
-            })).map((message) => `${target.binding.project}: ${message}`),
-          );
-        }
-        if (host === "codex") {
-          const contextPath = [
-            target.gitProject?.relativeProject ?? "",
-            ".agent-profile-kit",
-            "codex",
-            "context.md",
-          ].filter((part) => part.length > 0).join("/");
-          const adapterPlan = await planCodexProject(
-            profile.id,
-            resolvedProfile.contexts,
-            resolvedProfile.skills,
-            { contextPath },
-          );
-          plans.push(adapterPlan);
-          hostVersions.codex = adapterPlan.hostVersion;
-          // Context snapshot path is Git-root-relative; Skills-only installs need no launch warning.
-          if (!target.gitProject && requireContext) {
-            warnings.push(
-              `${target.binding.project} is not a Git worktree; Codex must start at the exact bound project root for native Context discovery`,
-            );
-          }
-          continue;
-        }
-        if (host === "claude") {
-          const adapterPlan = await planClaudeProject(
-            profile.id,
-            resolvedProfile.contexts,
-            resolvedProfile.skills,
-          );
-          plans.push(adapterPlan);
-          hostVersions.claude = adapterPlan.hostVersion;
-          continue;
-        }
-        const exhaustive: never = host;
-        throw new Error(`Unsupported Agent Host '${String(exhaustive)}'`);
+      if (host === "claude") {
+        const adapterPlan = await planClaudeProject(
+          profile.id,
+          resolvedProfile.contexts,
+          resolvedProfile.skills,
+        );
+        plans.push(adapterPlan);
+        hostVersions.claude = adapterPlan.hostVersion;
+        continue;
       }
-      installations.push({
-        adapterVersion: adapterVersionFor(target.binding.hosts),
-        binding: target.binding,
-        blockers,
-        engineVersion: ENGINE_VERSION,
-        gitProject: target.gitProject,
-        hostVersions,
-        outputs: normalizeAdapterPlans(plans),
-        profile,
-        resolvedProfile,
-        sourceHash,
-        warnings,
-      });
+      const exhaustive: never = host;
+      throw new Error(`Unsupported Agent Host '${String(exhaustive)}'`);
     }
+    installations.push({
+      adapterVersion: adapterVersionFor(binding.hosts),
+      binding,
+      blockers,
+      engineVersion: ENGINE_VERSION,
+      gitProject,
+      hostVersions,
+      outputs: normalizeAdapterPlans(plans),
+      profile,
+      resolvedProfile,
+      sourceHash,
+      warnings,
+    });
   }
   return {
     bindingCount: configuration.bindings.length,

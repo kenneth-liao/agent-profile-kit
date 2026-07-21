@@ -1261,7 +1261,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Desired State:");
   });
 
-  test("preview keeps repository and worktree Profile Installations distinct while summarizing mixed changes", () => {
+  test("preview reports only the exact bound repository while summarizing mixed changes", () => {
     const home = isolatedHome();
     initialize(home);
     const repository = gitRepository("agent-profile-kit-presentation-repository-");
@@ -1277,8 +1277,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "preview");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain(`Profile Installation: ${realpathSync(repository)}`);
-    expect(result.stdout).toContain(`Profile Installation: ${realpathSync(worktree)}`);
+    expect(result.stdout).toContain(`Profile Installation: ${repository}`);
+    expect(result.stdout).not.toContain(`Profile Installation: ${realpathSync(worktree)}`);
     expect(result.stdout).toMatch(/Changes: .*update/);
     expect(result.stdout).not.toContain("Desired State:");
   });
@@ -1554,7 +1554,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(1);
     expect(result.stdout).toContain("Profile Installations: 1");
-    expect(result.stdout).toContain(`Profile Installation: ${realpathSync(projectPath)}`);
+    expect(result.stdout).toContain(`Profile Installation: ${authoredProject}`);
     expect(result.stdout).toContain("Tracked project path '.codex/hooks.json' is repository-owned");
     expect(result.stdout).toContain("generated Profile Installation output must be exclusively Installer-owned");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
@@ -1565,7 +1565,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(apply.stdout).toContain("generated Profile Installation output must be exclusively Installer-owned");
   });
 
-  test("apply expands a Git binding to every existing worktree and preserves local exclusions", () => {
+  test("a Git binding reconciles only its exact root and preserves local exclusions", () => {
     const home = isolatedHome();
     initialize(home);
     const repository = gitRepository();
@@ -1580,15 +1580,32 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, repository);
 
+    const preview = runCli(home, "preview", "--verbose");
+
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(repository);
+    expect(preview.stdout).not.toContain(worktree);
+
     const result = runCli(home, "apply");
 
     expect(result.status, result.stderr).toBe(0);
-    for (const root of [repository, worktree]) {
-      expect(existsSync(join(root, ".agent-profile-kit", "installation.json"))).toBe(true);
-      expect(existsSync(join(root, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
-      expect(existsSync(join(root, ".codex", "hooks.json"))).toBe(true);
-      expect(execFileSync("git", ["-C", root, "status", "--short"], { encoding: "utf8" })).toBe("");
-    }
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(repository, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(worktree, ".agent-profile-kit"))).toBe(false);
+    expect(existsSync(join(worktree, ".codex"))).toBe(false);
+    expect(execFileSync("git", ["-C", repository, "status", "--short"], { encoding: "utf8" })).toBe("");
+    expect(execFileSync("git", ["-C", worktree, "status", "--short"], { encoding: "utf8" })).toBe("");
+
+    const status = runCli(home, "status", "--verbose");
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain(`${repository}: current`);
+    expect(status.stdout).not.toContain(worktree);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { project: string }[];
+    };
+    expect(state.installations).toHaveLength(1);
+    expect(state.installations[0]?.project).toBe(realpathSync(repository));
     const installedExclude = readFileSync(exclude, "utf8");
     expect(installedExclude.startsWith(unrelated)).toBe(true);
     expect(installedExclude).toContain("# BEGIN Agent Profile Kit generated paths");
@@ -1603,6 +1620,58 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(runCli(home, "uninstall").status).toBe(0);
     expect(readFileSync(exclude, "utf8")).toBe(`${unrelated}${laterUnrelated}`);
     expect(readFileSync(join(repository, ".gitignore"), "utf8")).toBe(sharedIgnore);
+  });
+
+  test("an explicitly bound linked checkout gets its own Profile Installation", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-explicit-root-");
+    const worktree = addWorktree(repository, "explicit-linked-worktree");
+    writeContextProfile(home);
+    writeContextProfile(home, "review");
+    const pathWithClaude = `${installFakeClaude(home)}:${process.env.PATH ?? ""}`;
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${worktree}\n    profile: review\n    hosts: [claude]\n`,
+    );
+
+    const preview = runCliWithPath(home, pathWithClaude, "preview", "--verbose");
+
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(`${repository}: Profile coding`);
+    expect(preview.stdout).toContain(`${worktree}: Profile review`);
+
+    const apply = runCliWithPath(home, pathWithClaude, "apply");
+
+    expect(apply.status, apply.stderr).toBe(0);
+    expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(repository, ".claude"))).toBe(false);
+    expect(existsSync(join(worktree, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(existsSync(join(worktree, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+
+    const status = runCliWithPath(home, pathWithClaude, "status", "--verbose");
+
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain(`${repository}: current`);
+    expect(status.stdout).toContain(`${worktree}: current`);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { hosts: readonly string[]; profile_id: string; project: string }[];
+    };
+    expect(state.installations).toHaveLength(2);
+    expect(state.installations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        hosts: ["codex"],
+        profile_id: "coding",
+        project: realpathSync(repository),
+      }),
+      expect.objectContaining({
+        hosts: ["claude"],
+        profile_id: "review",
+        project: realpathSync(worktree),
+      }),
+    ]));
   });
 
   test("Git exclusion preflight rejects a symlinked info parent without external writes", () => {
@@ -1819,7 +1888,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(repository, "nested", ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
-  test("status reports a worktree created after apply as a missing Profile Installation", () => {
+  test("status ignores an unbound worktree created after apply", () => {
     const home = isolatedHome();
     initialize(home);
     const repository = gitRepository("agent-profile-kit-later-");
@@ -1831,11 +1900,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = runCli(home, "status", "--verbose");
 
     expect(status.status, status.stderr).toBe(0);
-    expect(status.stdout).toContain(`${later}: missing output (Profile Installation is missing)`);
+    expect(status.stdout).toContain(`${repository}: current`);
+    expect(status.stdout).not.toContain(later);
     expect(existsSync(join(later, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("a nested Git binding maps the same existing directory into every worktree", () => {
+  test("a nested Git binding reconciles only its exact nested root", () => {
     const home = isolatedHome();
     initialize(home);
     const repository = gitRepository("agent-profile-kit-nested-");
@@ -1850,15 +1920,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
 
     expect(result.status, result.stderr).toBe(0);
-    for (const root of [repository, worktree]) {
-      expect(existsSync(join(root, "packages", "tool", ".agent-profile-kit", "installation.json"))).toBe(true);
-      const hook = readFileSync(join(root, "packages", "tool", ".codex", "hooks.json"), "utf8");
-      expect(hook).toContain("packages/tool/.agent-profile-kit/codex/context.md");
-    }
+    expect(existsSync(join(repository, "packages", "tool", ".agent-profile-kit", "installation.json"))).toBe(true);
+    const hook = readFileSync(join(repository, "packages", "tool", ".codex", "hooks.json"), "utf8");
+    expect(hook).toContain("packages/tool/.agent-profile-kit/codex/context.md");
+    expect(existsSync(join(worktree, "packages", "tool", ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(repository, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("a missing nested binding directory in any existing worktree blocks before writes", () => {
+  test("exact-root planning ignores a missing sibling nested path", () => {
     const home = isolatedHome();
     initialize(home);
     const repository = gitRepository("agent-profile-kit-missing-nested-");
@@ -1869,36 +1938,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "apply");
 
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain(`Git worktree ${realpathSync(worktree)} is missing bound project directory 'local-only'`);
-    expect(existsSync(join(repository, "local-only", ".agent-profile-kit"))).toBe(false);
+    expect(result.status, result.stderr).toBe(0);
+    expect(existsSync(join(repository, "local-only", ".agent-profile-kit"))).toBe(true);
+    expect(existsSync(join(worktree, "local-only"))).toBe(false);
   });
 
-  test("a symlinked nested binding ancestor in another worktree cannot escape the checkout", () => {
-    const home = isolatedHome();
-    initialize(home);
-    const repository = gitRepository("agent-profile-kit-nested-escape-");
-    mkdirSync(join(repository, "packages", "tool"), { recursive: true });
-    writeFileSync(join(repository, "packages", "tool", ".keep"), "fixture\n");
-    execFileSync("git", ["-C", repository, "add", "packages/tool/.keep"]);
-    execFileSync("git", ["-C", repository, "commit", "-qm", "nested project"]);
-    const worktree = addWorktree(repository, "nested-escape-worktree");
-    const external = project("agent-profile-kit-nested-external-");
-    mkdirSync(join(external, "tool"));
-    rmSync(join(worktree, "packages"), { recursive: true });
-    symlinkSync(external, join(worktree, "packages"));
-    writeContextProfile(home);
-    bind(home, join(repository, "packages", "tool"));
-
-    const result = runCli(home, "apply");
-
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("has non-directory or symlink component 'packages'");
-    expect(existsSync(join(external, "tool", ".agent-profile-kit"))).toBe(false);
-    expect(existsSync(join(repository, "packages", "tool", ".agent-profile-kit"))).toBe(false);
-  });
-
-  test("worktree expansion deduplicates checkout roots reached by another binding", () => {
+  test("explicit bindings create distinct Profile Installations for checkout roots", () => {
     const home = isolatedHome();
     initialize(home);
     const repository = gitRepository("agent-profile-kit-dedupe-");
@@ -1912,8 +1957,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
 
     expect(result.status, result.stderr).toBe(0);
-    const state = parse(readFileSync(statePath(home), "utf8")) as { installations: readonly unknown[] };
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { project: string }[];
+    };
     expect(state.installations).toHaveLength(2);
+    expect(state.installations.map((installation) => installation.project).sort()).toEqual([
+      realpathSync(repository),
+      realpathSync(worktree),
+    ].sort());
   });
 
   test("status distinguishes current, stale source, drifted output, missing output, and malformed ownership", () => {
