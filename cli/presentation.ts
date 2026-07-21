@@ -59,6 +59,33 @@ function changeCount(summary: OutputSummary): number {
   return summary.additions + summary.updates + summary.removals + summary.drift;
 }
 
+function changedRepositoryExclusions(report: ReconciliationReport): readonly ReconciliationReport["repositoryExclusions"][number][] {
+  return report.repositoryExclusions.filter((change) =>
+    change.current.length !== change.next.length ||
+    change.current.some((entry, index) => entry !== change.next[index]),
+  );
+}
+
+function exclusionDelta(change: ReconciliationReport["repositoryExclusions"][number]): {
+  readonly additions: readonly string[];
+  readonly removals: readonly string[];
+} {
+  const current = new Set(change.current);
+  const next = new Set(change.next);
+  return {
+    additions: change.next.filter((entry) => !current.has(entry)),
+    removals: change.current.filter((entry) => !next.has(entry)),
+  };
+}
+
+function exclusionDeltaText(change: ReconciliationReport["repositoryExclusions"][number]): string {
+  const delta = exclusionDelta(change);
+  const parts: string[] = [];
+  if (delta.additions.length > 0) parts.push(`add ${delta.additions.join(", ")}`);
+  if (delta.removals.length > 0) parts.push(`remove ${delta.removals.join(", ")}`);
+  return parts.join("; ");
+}
+
 function itemText(item: ReconciliationItem): string {
   return `${item.kind}${item.reason ? ` (${item.reason})` : ""}`;
 }
@@ -239,6 +266,14 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
     }
   }
 
+  const exclusionChanges = changedRepositoryExclusions(report);
+  if (exclusionChanges.length > 0) {
+    lines.push("", "Repository exclusions:");
+    for (const change of exclusionChanges) {
+      lines.push(`- ${change.target}: ${exclusionDeltaText(change)}`);
+    }
+  }
+
   const globalBlockers = report.blockers.filter((blocker) => !blocker.project);
   if (globalBlockers.length > 0) {
     lines.push("", "Global blockers:");
@@ -293,11 +328,16 @@ function verboseSections(command: LifecycleCommand, report: ReconciliationReport
     : report.outputs
         .map((output) => `${output.project}/${output.path}: ${output.kind}`)
         .join("\n");
+  const repositoryExclusions = changedRepositoryExclusions(report).length === 0
+    ? "(none)"
+    : changedRepositoryExclusions(report)
+        .map((change) => `- ${change.target}: ${exclusionDeltaText(change)}`)
+        .join("\n");
   const presentationWarnings = warningsForPresentation(command, report.warnings);
   const warnings = presentationWarnings.length === 0
     ? "(none)"
     : presentationWarnings.map((warning) => `- ${warning}`).join("\n");
-  return `Projects:\n${items}\nOutputs:\n${outputs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\nBlockers:\n${blockers}\n`;
+  return `Projects:\n${items}\nOutputs:\n${outputs}\nRepository Exclusions:\n${repositoryExclusions}\nDesired State:\n${desired}\nWarnings:\n${warnings}\nBlockers:\n${blockers}\n`;
 }
 
 function verboseReport(command: LifecycleCommand, report: ReconciliationReport): string {

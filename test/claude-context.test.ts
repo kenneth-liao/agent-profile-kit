@@ -288,7 +288,8 @@ describe("Claude-only Profile Installation lifecycle", () => {
 
     const preview = await previewReconciliation(desired.installations, {
       installations: [],
-      schemaVersion: 2,
+      repositoryExclusions: [],
+      schemaVersion: 3,
     });
     expect(preview.blockers).toEqual([]);
     expect(preview.desired[0]?.outputs).toContain(CLAUDE_CONTEXT_RULE_PATH);
@@ -355,7 +356,8 @@ describe("Claude-only Profile Installation lifecycle", () => {
 
       const report = await previewReconciliation(desired.installations, {
         installations: [],
-        schemaVersion: 2,
+        repositoryExclusions: [],
+        schemaVersion: 3,
       });
       expect(report.blockers.some((blocker) => blocker.message.includes("is a file, not a directory"))).toBe(true);
       expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);

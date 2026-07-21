@@ -252,7 +252,8 @@ describe("global Skill overlap desired-state preflight", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const preview = await previewReconciliation(desired.installations, {
       installations: [],
-      schemaVersion: 2,
+      repositoryExclusions: [],
+      schemaVersion: 3,
     });
     expect(preview.blockers.length).toBeGreaterThanOrEqual(1);
     expect(preview.blockers.some((blocker) => blocker.message.includes(globalPath))).toBe(true);
@@ -309,7 +310,8 @@ describe("global Skill overlap desired-state preflight", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const preview = await previewReconciliation(desired.installations, {
       installations: [],
-      schemaVersion: 2,
+      repositoryExclusions: [],
+      schemaVersion: 3,
     });
     expect(preview.blockers.some((blocker) => blocker.message.includes("Claude"))).toBe(true);
     await expect(applyReconciliation(home, desired.installations)).rejects.toThrow(/Apply blocked/);

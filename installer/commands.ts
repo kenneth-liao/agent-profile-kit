@@ -4,6 +4,7 @@ import {
   type ReconciliationReport,
 } from "./reconcile.js";
 import { buildDesiredState, stateManifestPath } from "./project-plan.js";
+import { INSTALLATION_STATE_SCHEMA_VERSION } from "../schemas/installation-manifest.js";
 import {
   proveOwnedInstallation,
   readInstallationState,
@@ -33,7 +34,8 @@ export async function previewApplication(home: string): Promise<ReconciliationRe
   } catch (error) {
     const desiredReport = await previewReconciliation(desired.installations, {
       installations: [],
-      schemaVersion: 2,
+      repositoryExclusions: [],
+      schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
     });
     return {
       ...desiredReport,
@@ -59,7 +61,8 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
   } catch (error) {
     const desiredReport = await previewReconciliation(desired.installations, {
       installations: [],
-      schemaVersion: 2,
+      repositoryExclusions: [],
+      schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
     });
     return {
       ...desiredReport,
@@ -112,7 +115,7 @@ export async function uninstallApplication(home: string): Promise<number> {
       );
     }
   }
-  failures.push(...await gitExclusionBlockers(state));
+  failures.push(...await gitExclusionBlockers(state, [], { validateRecordedInstallations: true }));
   if (failures.length > 0) {
     throw new Error(
       `Uninstall blocked; generated output was not removed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`,
@@ -120,17 +123,38 @@ export async function uninstallApplication(home: string): Promise<number> {
   }
   const transactions: Awaited<ReturnType<typeof stageProvenInstallationRemoval>>[] = [];
   let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
+  let stateWriteAttempted = false;
   try {
     for (const installation of state.installations) {
       transactions.push(await stageProvenInstallationRemoval(installation));
     }
-    exclusions = await stageGitExclusions(state, { installations: [], schemaVersion: 2 });
-    await writeInstallationState(home, { installations: [], schemaVersion: 2 });
-    for (const transaction of transactions) await transaction.commit();
+    const emptyState = {
+      installations: [],
+      repositoryExclusions: [],
+      schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+    } as const;
+    exclusions = await stageGitExclusions(state, emptyState);
+    stateWriteAttempted = true;
+    await writeInstallationState(home, emptyState);
     await exclusions.commit();
+    for (const transaction of transactions) await transaction.commit();
   } catch (error) {
-    if (exclusions) await exclusions.rollback();
+    let rollbackFailure: unknown;
+    if (exclusions) {
+      try {
+        await exclusions.rollback();
+      } catch (failure) {
+        rollbackFailure = failure;
+      }
+    }
     for (const transaction of transactions.reverse()) await transaction.rollback();
+    if (stateWriteAttempted) await writeInstallationState(home, state).catch(() => undefined);
+    if (rollbackFailure !== undefined) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n` +
+        `Exclusion rollback failed: ${rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)}`,
+      );
+    }
     throw error;
   }
   return state.installations.length;

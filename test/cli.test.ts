@@ -1381,7 +1381,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       schema_version: number;
       installations: Array<{ outputs: Array<{ mode: number; type: string }> }>;
     };
-    expect(state.schema_version).toBe(2);
+    expect(state.schema_version).toBe(3);
     expect(state.installations).toHaveLength(1);
     expect(state.installations[0]!.outputs.every((output) =>
       output.type === "file" && output.mode === 0o644
@@ -1620,6 +1620,114 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(runCli(home, "uninstall").status).toBe(0);
     expect(readFileSync(exclude, "utf8")).toBe(`${unrelated}${laterUnrelated}`);
     expect(readFileSync(join(repository, ".gitignore"), "utf8")).toBe(sharedIgnore);
+  });
+
+  test("shared Git exclusions use one canonical record and retain surviving contributions", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-shared-exclusion-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const preview = runCli(home, "preview");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(`${join(repository, ".git", "info", "exclude")}: add`);
+    expect(preview.stdout).toContain("/nested/.codex/hooks.json");
+
+    expect(runCli(home, "apply").status).toBe(0);
+    const target = join(repository, ".git", "info", "exclude");
+    const installed = parse(readFileSync(statePath(home), "utf8")) as {
+      repository_exclusions: readonly {
+        contributions: readonly { entries: readonly string[]; installation_id: string }[];
+        entries: readonly string[];
+        target: string;
+      }[];
+      installations: readonly { installation_id: string; project: string }[];
+    };
+    expect(installed.repository_exclusions).toHaveLength(1);
+    expect(installed.repository_exclusions[0]?.target).toBe(realpathSync(target));
+    expect(installed.repository_exclusions[0]?.contributions).toHaveLength(2);
+    expect(installed.repository_exclusions[0]?.entries).toEqual([
+      "/.agent-profile-kit/codex/context.md",
+      "/.agent-profile-kit/installation.json",
+      "/.codex/hooks.json",
+      "/nested/.agent-profile-kit/codex/context.md",
+      "/nested/.agent-profile-kit/installation.json",
+      "/nested/.codex/hooks.json",
+    ]);
+
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+    const afterRemoval = parse(readFileSync(statePath(home), "utf8")) as {
+      repository_exclusions: readonly {
+        contributions: readonly unknown[];
+        entries: readonly string[];
+      }[];
+    };
+    expect(afterRemoval.repository_exclusions).toHaveLength(1);
+    expect(afterRemoval.repository_exclusions[0]?.contributions).toHaveLength(1);
+    expect(afterRemoval.repository_exclusions[0]?.entries).toEqual([
+      "/.agent-profile-kit/codex/context.md",
+      "/.agent-profile-kit/installation.json",
+      "/.codex/hooks.json",
+    ]);
+    expect(readFileSync(target, "utf8")).not.toContain("/nested/");
+  });
+
+  test("missing Repository Exclusion Record blocks an existing Git installation before writes", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-missing-record-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expect(runCli(home, "apply").status).toBe(0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    const before = readFileSync(exclude);
+    const state = parse(readFileSync(statePath(home), "utf8")) as Record<string, unknown>;
+    state.repository_exclusions = [];
+    writeFileSync(statePath(home), stringify(state));
+
+    const preview = runCli(home, "preview");
+
+    expect(preview.status).toBe(1);
+    expect(preview.stdout).toContain("missing its Repository Exclusion Record");
+    expect(readFileSync(exclude).equals(before)).toBe(true);
+  });
+
+  test("uninstall rejects a Repository Exclusion Record attached to the wrong Git target", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-wrong-record-target-");
+    const other = gitRepository("agent-profile-kit-wrong-record-other-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expect(runCli(home, "apply").status).toBe(0);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      repository_exclusions: { target: string }[];
+    };
+    state.repository_exclusions[0]!.target = join(other, ".git", "info", "exclude");
+    writeFileSync(statePath(home), stringify(state));
+
+    const result = runCli(home, "uninstall");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("targets");
+    expect(result.stderr).toContain(join(repository, ".git", "info", "exclude"));
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
   test("an explicitly bound linked checkout gets its own Profile Installation", () => {
@@ -2047,12 +2155,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(status.status, status.stderr).toBe(0);
     expect(status.stdout).toContain("malformed ownership state");
-    expect(status.stdout).toContain("schema_version must be 2");
+    expect(status.stdout).toContain("schema_version must be 3");
     expect(apply.status).toBe(1);
     expect(apply.stderr).toContain("Apply blocked before writes");
-    expect(apply.stderr).toContain("schema_version must be 2");
+    expect(apply.stderr).toContain("schema_version must be 3");
     expect(uninstall.status).toBe(1);
-    expect(uninstall.stderr).toContain("schema_version must be 2");
+    expect(uninstall.stderr).toContain("schema_version must be 3");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
   });
@@ -2508,6 +2616,45 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(parse(readFileSync(statePath(home), "utf8")).installations[0].project).toBe(realpathSync(moved));
     expect(readFileSync(join(moved, ".git", "info", "exclude"), "utf8")).toContain("/.codex/hooks.json");
+  });
+
+  test("a moved Git project converges when its destination shares another repository exclusion record", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const original = gitRepository("agent-profile-kit-cross-repo-move-a-");
+    const destinationRepository = gitRepository("agent-profile-kit-cross-repo-move-b-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${original}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${destinationRepository}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+
+    const moved = join(destinationRepository, "moved");
+    mkdirSync(moved);
+    execFileSync("cp", ["-a", join(original, ".agent-profile-kit"), join(moved, ".agent-profile-kit")]);
+    execFileSync("cp", ["-a", join(original, ".codex"), join(moved, ".codex")]);
+    rmSync(original, { recursive: true, force: true });
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${destinationRepository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${moved}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const result = runCli(home, "apply");
+
+    expect(result.status, result.stderr).toBe(0);
+    const exclude = readFileSync(join(destinationRepository, ".git", "info", "exclude"), "utf8");
+    expect(exclude).toContain("/moved/.codex/hooks.json");
+    expect(exclude).toContain("/.codex/hooks.json");
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      repository_exclusions: readonly { contributions: readonly unknown[] }[];
+    };
+    expect(state.repository_exclusions).toHaveLength(1);
+    expect(state.repository_exclusions[0]?.contributions).toHaveLength(2);
   });
 
   test("a nested Git project move transfers exact old exclusions to the Marker-proven new root", () => {

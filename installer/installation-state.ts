@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import {
   formatInstallationState,
   INSTALLATION_MARKER_PATH,
+  INSTALLATION_STATE_SCHEMA_VERSION,
   parseInstallationMarker,
   parseInstallationState,
   type InstallationMarker,
@@ -41,7 +42,13 @@ export async function readInstallationState(home: string): Promise<InstallationS
       installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
     };
   } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return { installations: [], schemaVersion: 2 };
+    if (hasErrorCode(error, "ENOENT")) {
+      return {
+        installations: [],
+        repositoryExclusions: [],
+        schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+      };
+    }
     throw error;
   }
 }

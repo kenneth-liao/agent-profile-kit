@@ -8,6 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Make Repository Exclusion Records the canonical machine-local ownership source for shared Git exclusion files, including deterministic unions, fail-closed validation, and transactional reconciliation ([#77](https://github.com/kenneth-liao/agent-profile-kit/issues/77)).
 - Add concise, outcome-led `bind`, `preview`, `apply`, and `status` output with
   Profile Installation grouping, actionable ownership blockers, and explicit
   `--verbose` lifecycle diagnostics ([#70](https://github.com/kenneth-liao/agent-profile-kit/issues/70)).

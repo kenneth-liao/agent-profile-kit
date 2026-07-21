@@ -42,7 +42,15 @@ function installationState(project: string): InstallationState {
       selectedContext: [],
       workspaceInputHash: hash,
     }],
-    schemaVersion: 2,
+    repositoryExclusions: [{
+      target: join(project, ".git", "info", "exclude"),
+      contributions: [{
+        installationId: "test-installation",
+        entries: ["/.agent-profile-kit/installation.json"],
+      }],
+      entries: ["/.agent-profile-kit/installation.json"],
+    }],
+    schemaVersion: 3,
   };
 }
 
@@ -52,7 +60,11 @@ describe("Git exclusion transaction", () => {
     const exclude = join(repository, ".git", "info", "exclude");
     const authored = Buffer.from("# authored exclusion\n");
     writeFileSync(exclude, authored);
-    const empty: InstallationState = { installations: [], schemaVersion: 2 };
+    const empty: InstallationState = {
+      installations: [],
+      repositoryExclusions: [],
+      schemaVersion: 3,
+    };
 
     const transaction = await stageGitExclusions(empty, installationState(repository));
 
@@ -61,5 +73,9 @@ describe("Git exclusion transaction", () => {
     await transaction.commit();
 
     expect(readFileSync(exclude, "utf8")).toContain("/.agent-profile-kit/installation.json");
+
+    await transaction.rollback();
+
+    expect(readFileSync(exclude).equals(authored)).toBe(true);
   });
 });

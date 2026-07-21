@@ -1,10 +1,16 @@
 import { chmod, lstat, mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, join } from "node:path";
 
-import type { InstallationState } from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import type {
+  InstallationState,
+  OwnedOutput,
+  RepositoryExclusionContribution,
+  RepositoryExclusionRecord,
+} from "../schemas/installation-manifest.js";
 import { assertRealDirectoryPath, findGitProject, gitExcludeEntry, type GitProject } from "./git.js";
-import { readMarker } from "./installation-state.js";
 import type { DesiredInstallation } from "./project-plan.js";
+import { readMarker } from "./installation-state.js";
 
 const BEGIN = "# BEGIN Agent Profile Kit generated paths";
 const BEGIN_WITH_SEPARATOR = `${BEGIN} (separator owned)`;
@@ -129,7 +135,7 @@ function assertExpectedEntries(
 ): void {
   if (!section) return;
   const actual = sectionEntries(source, section);
-  const canonical = [...new Set(expected)].sort();
+  const canonical = [...new Set(expected)].sort(compareCanonicalStrings);
   if (actual.length !== canonical.length || actual.some((entry, index) => entry !== canonical[index])) {
     throw new Error(`${path} Agent Profile Kit exclusion section is modified; restore its exact generated entries before retrying`);
   }
@@ -152,7 +158,7 @@ export function reconcileGitExcludeBytes(
   assertExpectedEntries(source, path, section, currentEntries);
   const prefix = section ? source.subarray(0, section.prefixEnd) : source;
   const suffix = section ? source.subarray(section.suffixStart) : Buffer.alloc(0);
-  const entries = [...new Set(nextEntries)].sort();
+  const entries = [...new Set(nextEntries)].sort(compareCanonicalStrings);
   if (entries.length === 0) return Buffer.concat([prefix, suffix]);
   const newline = newlineFor(source, section);
   const ownsSeparator = prefix.length > 0 && prefix[prefix.length - 1] !== 0x0a;
@@ -201,8 +207,15 @@ async function assertSafeExcludePath(git: GitProject): Promise<{ readonly infoEx
   return { infoExists };
 }
 
-async function readSnapshot(git: GitProject): Promise<ExcludeSnapshot> {
-  await assertSafeExcludePath(git);
+async function readSnapshot(git: GitProject, allowMissingTarget = false): Promise<ExcludeSnapshot> {
+  try {
+    await assertSafeExcludePath(git);
+  } catch (error) {
+    if (allowMissingTarget && hasErrorCode(error, "ENOENT")) {
+      return { bytes: Buffer.alloc(0), exists: false, mode: 0o644 };
+    }
+    throw error;
+  }
   try {
     const stats = await lstat(git.excludeFile);
     return {
@@ -217,114 +230,352 @@ async function readSnapshot(git: GitProject): Promise<ExcludeSnapshot> {
 }
 
 interface Target {
+  readonly allowMissingTarget?: boolean;
   readonly current: readonly string[];
   readonly git: GitProject;
   readonly next: readonly string[];
 }
 
-function slashPath(path: string): string {
-  return path.split(sep).join("/");
+export interface RepositoryExclusionChange {
+  readonly current: readonly string[];
+  readonly next: readonly string[];
+  readonly target: string;
 }
 
-async function gitForRecordedInstallation(
-  project: string,
-  fallback: GitProject | undefined,
-): Promise<GitProject | undefined> {
-  try {
-    await lstat(project);
-    return await findGitProject(project) ?? fallback;
-  } catch (error) {
-    if (!hasErrorCode(error, "ENOENT")) throw error;
-  }
-  let ancestor = dirname(project);
-  while (true) {
-    try {
-      await lstat(ancestor);
-      break;
-    } catch (error) {
-      if (!hasErrorCode(error, "ENOENT")) throw error;
-    }
-    const parent = dirname(ancestor);
-    if (parent === ancestor) return fallback;
-    ancestor = parent;
-  }
-  const priorGit = await findGitProject(ancestor);
-  if (priorGit) {
-    const oldRelative = slashPath(relative(priorGit.root, project));
-    if (oldRelative !== ".." && !oldRelative.startsWith("../")) {
-      return { ...priorGit, relativeProject: oldRelative };
-    }
-  }
-  return fallback;
+function canonicalRecord(
+  target: string,
+  contributions: readonly RepositoryExclusionContribution[],
+): RepositoryExclusionRecord {
+  const canonicalContributions = [...contributions]
+    .map((contribution) => ({
+      entries: [...new Set(contribution.entries)].sort(compareCanonicalStrings),
+      installationId: contribution.installationId,
+    }))
+    .sort((left, right) => compareCanonicalStrings(left.installationId, right.installationId));
+  return {
+    contributions: canonicalContributions,
+    entries: [...new Set(canonicalContributions.flatMap((contribution) => contribution.entries))]
+      .sort(compareCanonicalStrings),
+    target,
+  };
 }
 
-async function entriesByExclude(
-  state: InstallationState,
-  fallbackByInstallationId: ReadonlyMap<string, GitProject> = new Map(),
-): Promise<Map<string, { git: GitProject; entries: string[] }>> {
-  const targets = new Map<string, { git: GitProject; entries: string[] }>();
-  for (const installation of state.installations) {
-    const git = await gitForRecordedInstallation(
-      installation.project,
-      fallbackByInstallationId.get(installation.installationId),
+function removeContribution(
+  records: readonly RepositoryExclusionRecord[],
+  installationId: string,
+): readonly RepositoryExclusionRecord[] {
+  return records.flatMap((record) => {
+    const contributions = record.contributions.filter(
+      (contribution) => contribution.installationId !== installationId,
     );
-    if (!git) continue;
-    const target = targets.get(git.excludeFile) ?? { git, entries: [] };
-    for (const output of installation.outputs) target.entries.push(gitExcludeEntry(git, output.path));
-    targets.set(git.excludeFile, target);
-  }
-  return targets;
+    return contributions.length === 0 ? [] : [canonicalRecord(record.target, contributions)];
+  });
 }
 
-async function targetsFor(current: InstallationState, next: InstallationState): Promise<readonly Target[]> {
-  const nextTargets = await entriesByExclude(next);
-  const nextGitByInstallationId = new Map<string, GitProject>();
-  for (const installation of next.installations) {
-    const git = await gitForRecordedInstallation(installation.project, undefined);
-    if (git) nextGitByInstallationId.set(installation.installationId, git);
+/** Replace one Installation ID's canonical exclusion contribution in machine-local state. */
+export function replaceRepositoryExclusionContribution(
+  records: readonly RepositoryExclusionRecord[],
+  installationId: string,
+  git: Pick<GitProject, "excludeFile" | "relativeProject"> | undefined,
+  outputs: readonly OwnedOutput[],
+): readonly RepositoryExclusionRecord[] {
+  const withoutInstallation = removeContribution(records, installationId);
+  if (!git) return withoutInstallation;
+  const contribution: RepositoryExclusionContribution = {
+    entries: [...new Set(outputs.map((output) => gitExcludeEntry(git, output.path)))].sort(compareCanonicalStrings),
+    installationId,
+  };
+  const existing = withoutInstallation.find((record) => record.target === git.excludeFile);
+  if (!existing) {
+    return [...withoutInstallation, canonicalRecord(git.excludeFile, [contribution])]
+      .sort((left, right) => compareCanonicalStrings(left.target, right.target));
   }
-  const currentTargets = await entriesByExclude(current, nextGitByInstallationId);
-  return [...new Set([...currentTargets.keys(), ...nextTargets.keys()])].sort().map((path) => ({
-    current: currentTargets.get(path)?.entries ?? [],
-    git: nextTargets.get(path)?.git ?? currentTargets.get(path)!.git,
-    next: nextTargets.get(path)?.entries ?? [],
+  return withoutInstallation
+    .map((record) => record.target === git.excludeFile
+      ? canonicalRecord(record.target, [...record.contributions, contribution])
+      : record)
+    .sort((left, right) => compareCanonicalStrings(left.target, right.target));
+}
+
+/** Move one recorded contribution to a newly proven target while preserving its prior entries for preflight. */
+export function moveRepositoryExclusionContribution(
+  records: readonly RepositoryExclusionRecord[],
+  installationId: string,
+  target: string,
+): readonly RepositoryExclusionRecord[] {
+  const contribution = records
+    .flatMap((record) => record.contributions)
+    .find((entry) => entry.installationId === installationId);
+  if (!contribution) return records;
+  const withoutInstallation = removeContribution(records, installationId);
+  const existing = withoutInstallation.find((record) => record.target === target);
+  if (!existing) {
+    return [...withoutInstallation, canonicalRecord(target, [contribution])]
+      .sort((left, right) => compareCanonicalStrings(left.target, right.target));
+  }
+  return withoutInstallation
+    .map((record) => record.target === target
+      ? canonicalRecord(target, [...record.contributions, contribution])
+      : record)
+    .sort((left, right) => compareCanonicalStrings(left.target, right.target));
+}
+
+/** Add a transient copy of a contribution at a new target for moved-file preflight. */
+export function copyRepositoryExclusionContribution(
+  records: readonly RepositoryExclusionRecord[],
+  installationId: string,
+  target: string,
+): readonly RepositoryExclusionRecord[] {
+  const contribution = records
+    .flatMap((record) => record.contributions)
+    .find((entry) => entry.installationId === installationId);
+  if (!contribution) return records;
+  const existing = records.find((record) => record.target === target);
+  if (!existing) {
+    return [...records, canonicalRecord(target, [contribution])]
+      .sort((left, right) => compareCanonicalStrings(left.target, right.target));
+  }
+  // A destination with an existing record is physically preflighted against
+  // its recorded union; the moved contribution is added only to `next`.
+  return records;
+}
+
+function gitForExclusionTarget(target: string): GitProject {
+  const commonDirectory = dirname(dirname(target));
+  return {
+    commonDirectory,
+    excludeFile: target,
+    relativeProject: "",
+    root: dirname(commonDirectory),
+  };
+}
+
+function recordsByTarget(
+  records: readonly RepositoryExclusionRecord[],
+): Map<string, RepositoryExclusionRecord> {
+  return new Map(records.map((record) => [record.target, record]));
+}
+
+function targetsFor(current: InstallationState, next: InstallationState): readonly Target[] {
+  const currentByTarget = recordsByTarget(current.repositoryExclusions);
+  const nextByTarget = recordsByTarget(next.repositoryExclusions);
+  return [...new Set([...currentByTarget.keys(), ...nextByTarget.keys()])]
+    .sort(compareCanonicalStrings)
+    .map((target) => ({
+      allowMissingTarget: currentByTarget.has(target) && !nextByTarget.has(target),
+      current: currentByTarget.get(target)?.entries ?? [],
+      git: gitForExclusionTarget(target),
+      next: nextByTarget.get(target)?.entries ?? [],
+    }));
+}
+
+/** Return the canonical union transition without inspecting or reconstructing Git topology. */
+export function repositoryExclusionChanges(
+  current: InstallationState,
+  next: InstallationState,
+): readonly RepositoryExclusionChange[] {
+  return targetsFor(current, next).map((target) => ({
+    current: target.current,
+    next: target.next,
+    target: target.git.excludeFile,
   }));
+}
+
+export async function relocateRepositoryExclusionsForDesired(
+  state: InstallationState,
+  desired: readonly DesiredInstallation[],
+): Promise<InstallationState> {
+  let inspectionState = state;
+  for (const installation of desired) {
+    const git = installation.gitProject;
+    if (!git) continue;
+    const marker = await readMarker(installation.binding.canonicalProject).catch(() => undefined);
+    const previous = marker
+      ? state.installations.find((candidate) => candidate.installationId === marker.installationId)
+      : undefined;
+    if (previous && previous.project !== installation.binding.canonicalProject) {
+      inspectionState = {
+        ...inspectionState,
+        repositoryExclusions: moveRepositoryExclusionContribution(
+          inspectionState.repositoryExclusions,
+          previous.installationId,
+          git.excludeFile,
+        ),
+      };
+    }
+  }
+  return inspectionState;
 }
 
 async function inspectionTargets(
   state: InstallationState,
   desired: readonly DesiredInstallation[],
 ): Promise<readonly Target[]> {
-  const targets = [...await targetsFor(state, state)];
+  const inspectionState = await relocateRepositoryExclusionsForDesired(state, desired);
+  const currentByTarget = recordsByTarget(state.repositoryExclusions);
+  const relocatedByTarget = recordsByTarget(inspectionState.repositoryExclusions);
+  const targets = [...new Set([
+    ...currentByTarget.keys(),
+    ...relocatedByTarget.keys(),
+  ])]
+    .sort(compareCanonicalStrings)
+    .map((target) => ({
+      allowMissingTarget: currentByTarget.has(target) && !relocatedByTarget.has(target),
+      current: currentByTarget.get(target)?.entries ?? relocatedByTarget.get(target)?.entries ?? [],
+      git: gitForExclusionTarget(target),
+      next: relocatedByTarget.get(target)?.entries ?? [],
+    }));
   const known = new Set(targets.map((target) => target.git.excludeFile));
   for (const installation of desired) {
     const git = installation.gitProject;
     if (!git || known.has(git.excludeFile)) continue;
     known.add(git.excludeFile);
-    const marker = await readMarker(installation.binding.canonicalProject).catch(() => undefined);
-    const owner = marker
-      ? state.installations.find((candidate) => candidate.installationId === marker.installationId)
-      : undefined;
-    const current = owner?.outputs.map((output) => gitExcludeEntry(git, output.path)) ?? [];
-    targets.push({ current, git, next: current });
+    targets.push({ allowMissingTarget: false, current: [], git, next: [] });
   }
   return targets;
+}
+
+function sortedUniqueEntries(entries: readonly string[]): readonly string[] {
+  return [...new Set(entries)].sort(compareCanonicalStrings);
+}
+
+function sameEntries(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((entry, index) => entry === right[index]);
+}
+
+function contributionFor(
+  records: readonly RepositoryExclusionRecord[],
+  installationId: string,
+): { readonly record: RepositoryExclusionRecord; readonly entries: readonly string[] } | undefined {
+  for (const record of records) {
+    const contribution = record.contributions.find((entry) => entry.installationId === installationId);
+    if (contribution) return { entries: contribution.entries, record };
+  }
+  return undefined;
+}
+
+async function existingInstallationForDesired(
+  state: InstallationState,
+  desired: DesiredInstallation,
+): Promise<InstallationState["installations"][number] | undefined> {
+  const direct = state.installations.find(
+    (installation) => installation.project === desired.binding.canonicalProject,
+  );
+  if (direct) return direct;
+  const marker = await readMarker(desired.binding.canonicalProject).catch(() => undefined);
+  if (!marker) return undefined;
+  return state.installations.find(
+    (installation) => installation.installationId === marker.installationId,
+  );
+}
+
+/** Validate semantic ownership links before touching any repository-local exclusion bytes. */
+async function repositoryExclusionOwnershipBlockers(
+  state: InstallationState,
+  desired: readonly DesiredInstallation[],
+): Promise<readonly string[]> {
+  const blockers: string[] = [];
+  for (const installation of desired) {
+    const git = installation.gitProject;
+    if (!git) continue;
+    const previous = await existingInstallationForDesired(state, installation);
+    if (!previous) continue;
+    const contribution = contributionFor(state.repositoryExclusions, previous.installationId);
+    if (!contribution) {
+      blockers.push(
+        `${installation.binding.canonicalProject} is missing its Repository Exclusion Record for Installation ID ${previous.installationId}`,
+      );
+      continue;
+    }
+    const moved = previous.project !== installation.binding.canonicalProject;
+    if (moved) continue;
+    if (contribution.record.target !== git.excludeFile) {
+      blockers.push(
+        `${installation.binding.canonicalProject} Repository Exclusion Record for Installation ID ${previous.installationId} targets ${contribution.record.target}, expected ${git.excludeFile}`,
+      );
+      continue;
+    }
+    const expected = sortedUniqueEntries(
+      previous.outputs.map((output) => gitExcludeEntry(git, output.path)),
+    );
+    if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
+      blockers.push(
+        `${git.excludeFile} Repository Exclusion Record for Installation ID ${previous.installationId} does not match its recorded Installation Manifest contribution`,
+      );
+    }
+  }
+  return blockers;
+}
+
+/** Validate every recorded Installation against its live Git target for uninstall. */
+async function recordedInstallationOwnershipBlockers(
+  state: InstallationState,
+): Promise<readonly string[]> {
+  const blockers: string[] = [];
+  for (const installation of state.installations) {
+    const contribution = contributionFor(state.repositoryExclusions, installation.installationId);
+    let git: GitProject | undefined;
+    try {
+      git = await findGitProject(installation.project);
+    } catch (error) {
+      blockers.push(
+        `${installation.project} Git target cannot be proven: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      continue;
+    }
+    if (!git) {
+      if (contribution) {
+        blockers.push(
+          `${installation.project} has a Repository Exclusion Record but is no longer a Git project`,
+        );
+      }
+      continue;
+    }
+    if (!contribution) {
+      blockers.push(
+        `${installation.project} is missing its Repository Exclusion Record for Installation ID ${installation.installationId}`,
+      );
+      continue;
+    }
+    if (contribution.record.target !== git.excludeFile) {
+      blockers.push(
+        `${installation.project} Repository Exclusion Record for Installation ID ${installation.installationId} targets ${contribution.record.target}, expected ${git.excludeFile}`,
+      );
+      continue;
+    }
+    const expected = sortedUniqueEntries(
+      installation.outputs.map((output) => gitExcludeEntry(git, output.path)),
+    );
+    if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
+      blockers.push(
+        `${git.excludeFile} Repository Exclusion Record for Installation ID ${installation.installationId} does not match its recorded Installation Manifest contribution`,
+      );
+    }
+  }
+  return blockers;
 }
 
 export async function gitExclusionBlockers(
   state: InstallationState,
   desired: readonly DesiredInstallation[] = [],
+  options: { readonly validateRecordedInstallations?: boolean } = {},
 ): Promise<readonly string[]> {
-  const blockers: string[] = [];
+  const validateRecordedInstallations = options.validateRecordedInstallations ?? desired.length === 0;
+  const blockers = [
+    ...await repositoryExclusionOwnershipBlockers(state, desired),
+    ...(validateRecordedInstallations
+      ? await recordedInstallationOwnershipBlockers(state)
+      : []),
+  ];
   for (const target of await inspectionTargets(state, desired)) {
     try {
-      const snapshot = await readSnapshot(target.git);
+      const snapshot = await readSnapshot(target.git, target.allowMissingTarget);
       reconcileGitExcludeBytes(snapshot.bytes, target.git.excludeFile, target.current, target.current);
     } catch (error) {
       blockers.push(error instanceof Error ? error.message : String(error));
     }
   }
-  return blockers.sort();
+  return blockers.sort(compareCanonicalStrings);
 }
 
 export async function gitExclusionWarnings(
@@ -334,18 +585,18 @@ export async function gitExclusionWarnings(
   const warnings: string[] = [];
   for (const target of await inspectionTargets(state, desired)) {
     try {
-      const snapshot = await readSnapshot(target.git);
+      const snapshot = await readSnapshot(target.git, target.allowMissingTarget);
       const expected = new Set(target.current);
       if (expected.size > 0 && !parseOwnedSection(snapshot.bytes, target.git.excludeFile)) {
         warnings.push(
-          `${target.git.excludeFile} is missing its Agent Profile Kit exclusion section; apply will restore Manifest-proven exact entries`,
+          `${target.git.excludeFile} is missing its Agent Profile Kit exclusion section; apply will restore recorded exact entries`,
         );
       }
     } catch {
       // The blocker path owns malformed or unsafe exclusion diagnostics.
     }
   }
-  return warnings.sort();
+  return warnings.sort(compareCanonicalStrings);
 }
 
 async function replace(git: GitProject, source: Buffer, mode: number): Promise<boolean> {
@@ -379,22 +630,46 @@ export async function stageGitExclusions(
 ): Promise<GitExclusionTransaction> {
   const plans: Array<{
     readonly git: GitProject;
+    readonly allowMissingTarget: boolean;
     readonly snapshot: ExcludeSnapshot;
     readonly updated: Buffer;
   }> = [];
   for (const target of await targetsFor(current, next)) {
-    const snapshot = await readSnapshot(target.git);
+    const snapshot = await readSnapshot(target.git, target.allowMissingTarget);
     const updated = reconcileGitExcludeBytes(
       snapshot.bytes,
       target.git.excludeFile,
       target.current,
       target.next,
     );
-    if (!updated.equals(snapshot.bytes)) plans.push({ git: target.git, snapshot, updated });
+    if (!updated.equals(snapshot.bytes)) {
+      plans.push({
+        allowMissingTarget: target.allowMissingTarget ?? false,
+        git: target.git,
+        snapshot,
+        updated,
+      });
+    }
   }
-  const originals = new Map<string, { createdInfo: boolean; git: GitProject; snapshot: ExcludeSnapshot }>();
+  const originals = new Map<string, {
+    readonly allowMissingTarget: boolean;
+    readonly createdInfo: boolean;
+    readonly git: GitProject;
+    readonly snapshot: ExcludeSnapshot;
+    readonly updated: Buffer;
+  }>();
   const rollbackChanges = async (): Promise<void> => {
-    for (const { createdInfo, git, snapshot } of [...originals.values()].reverse()) {
+    for (const { allowMissingTarget, createdInfo, git, snapshot, updated } of [...originals.values()].reverse()) {
+      const current = await readSnapshot(git, allowMissingTarget);
+      if (
+        !current.exists ||
+        current.mode !== snapshot.mode ||
+        !current.bytes.equals(updated)
+      ) {
+        throw new Error(
+          `${git.excludeFile} changed before exclusion rollback; refusing to overwrite concurrent repository-local edits`,
+        );
+      }
       if (snapshot.exists) await replace(git, snapshot.bytes, snapshot.mode);
       else {
         await assertSafeExcludePath(git);
@@ -405,13 +680,13 @@ export async function stageGitExclusions(
       });
     }
   };
-  let settled = false;
+  let status: "staged" | "committed" | "rolled-back" = "staged";
   return {
     commit: async () => {
-      if (settled) return;
+      if (status !== "staged") return;
       try {
         for (const plan of plans) {
-          const currentSnapshot = await readSnapshot(plan.git);
+          const currentSnapshot = await readSnapshot(plan.git, plan.allowMissingTarget);
           if (
             currentSnapshot.exists !== plan.snapshot.exists ||
             currentSnapshot.mode !== plan.snapshot.mode ||
@@ -422,18 +697,34 @@ export async function stageGitExclusions(
             );
           }
           const createdInfo = await replace(plan.git, plan.updated, plan.snapshot.mode);
-          originals.set(plan.git.excludeFile, { createdInfo, git: plan.git, snapshot: plan.snapshot });
+          originals.set(plan.git.excludeFile, {
+            allowMissingTarget: plan.allowMissingTarget,
+            createdInfo,
+            git: plan.git,
+            snapshot: plan.snapshot,
+            updated: plan.updated,
+          });
         }
-        settled = true;
+        status = "committed";
       } catch (error) {
-        await rollbackChanges().catch(() => undefined);
-        settled = true;
+        status = "rolled-back";
+        try {
+          await rollbackChanges();
+        } catch (rollbackError) {
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)}\n` +
+            `Exclusion rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          );
+        }
         throw error;
       }
     },
     rollback: async () => {
-      if (settled) return;
-      settled = true;
+      if (status === "rolled-back") return;
+      if (status === "committed") {
+        await rollbackChanges();
+      }
+      status = "rolled-back";
     },
   };
 }
