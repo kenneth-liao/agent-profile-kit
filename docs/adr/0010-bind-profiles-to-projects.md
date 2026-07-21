@@ -46,3 +46,84 @@ recording command because portable POSIX regular-file operations do not provide
 compare-and-swap publication.
 
 Each installed project carries a minimal Installer-owned marker containing an opaque installation ID, linked to its machine-local Installation Manifest. This permits safe folder moves and makes copied installations fail on duplicate identity; the marker contains no desired state and is removed with the installation.
+
+### Amendment: bind only the exact project root
+
+Post-v1, a Project Binding reconciles only its explicit canonical project root.
+Git repository membership does not implicitly expand that binding into sibling
+worktrees. This supersedes the original consequence that every existing
+worktree of a bound Git repository receives a Profile Installation during
+`apply`.
+
+A Host session launched from the bound root can operate on files in another
+worktree while retaining the Profile loaded for that session. A worktree that
+must support Hosts launched directly from its own root requires its own explicit
+Project Binding and otherwise follows the same lifecycle as any explicitly
+bound root. The ordinary removal path removes its Project Binding, applies the
+ownership-proven output removal, and then deletes the directory. If the user
+deletes a bound root first, `unbind` accepts only its exact authored path; that
+explicit removal confirms the deletion was intentional, and the next `apply`
+retires the absent Profile Installation without attempting project filesystem
+deletion. Restoring that project later requires a new Project Binding.
+Transient or later-created unbound worktrees are outside the binding's
+lifecycle, so their creation and deletion cannot create stale Installation
+Manifests or block reconciliation of the bound project.
+
+This narrows the original worktree convenience in favor of the Project
+Binding's explicit-root contract: enrollment remains intentional and auditable,
+and reconciliation owns no directory the user did not name.
+
+The Installer retains ordinary Git inspection for the exact bound root,
+including tracked-path protection and repository-local exclusions, but it does
+not enumerate, classify, deduplicate, or report Git worktree topology. A primary
+checkout and a linked worktree are indistinguishable at the Project Binding
+boundary.
+
+### Amendment: retire an intentionally deleted project
+
+When a project root is absent, its Project Binding remains desired state until
+the user explicitly removes it by its exact authored path. That successful
+`unbind` is the intent boundary: the next `apply` retires the machine-local
+Installation Manifest without requiring the vanished Marker or attempting any
+project filesystem deletion. If repository-local exclusion state survives
+outside the deleted root, reconciliation removes only the exact entries whose
+ownership was recorded for that installation.
+
+Deleting a directory alone never edits Local Configuration. A later restoration
+is a new project lifecycle and therefore requires `bind` followed by `apply`.
+
+Repository-local exclusion ownership is recorded in machine-local installation
+state when a Git project is applied: the canonical exclusion-file target and
+the exact entries attributable to the installation. Cleanup uses that recorded
+provenance rather than attempting to rediscover Git through a project root that
+may no longer exist. Before changing the exclusion file, reconciliation still
+proves its real path and exact Installer-owned section; missing, malformed, or
+modified ownership state fails closed.
+
+When multiple explicit Project Bindings resolve to the same canonical
+repository-local exclusion file, machine-local state contains one Repository
+Exclusion Record for that file. The record maps each contributing Installation ID to its
+exact entries, and the on-disk marked section is the deterministic union of all
+contributions. Removing one installation removes only its contribution; entries
+still required by another installation remain. Parallel ownership records for
+the same exclusion target are invalid.
+
+### Amendment: repair absent owned output
+
+For a currently bound Profile Installation whose Installation Marker matches
+its machine-local Manifest, `apply` recreates a recorded output that is wholly
+absent from the current Workspace source. Absence is a safe desired-state
+repair because no existing project data is overwritten.
+
+This repair is allowed only when every surviving owned output remains
+ownership-proven and the ordinary tracked-path, parent-path, and unowned-path
+checks pass. A modified output, mode drift, unexpected directory member, or
+occupied destination remains blocking and is never overwritten silently.
+
+### Amendment: no migration for automatic worktree expansion
+
+Automatic worktree expansion was not released or used by external consumers.
+The exact-root implementation replaces it directly and carries no compatibility
+reader, state migration, or cleanup command for installations produced by the
+development-only behavior. Development installations may be reset and reapplied
+from canonical Workspace and Local Configuration source.

@@ -44,6 +44,10 @@ _Avoid_: Canonical artifact, independent source
 The machine-local record for one Profile Installation, identifying its project, Profile, Agent Hosts, selected and resolved artifacts, deterministic inputs, and every owned output and hash.
 _Avoid_: Profile, canonical artifact registry
 
+**Repository Exclusion Record**:
+The single machine-local ownership record for one canonical Git repository-local exclusion file, mapping contributing Installation IDs to their exact generated-path entries and defining the deterministic union expected in the Installer-owned section.
+_Avoid_: Project Binding, shared `.gitignore`, one exclusion owner per Profile Installation
+
 **Installation Marker**:
 The minimal Installer-owned file that travels with a project and links its Profile Installation to the machine-local Installation Manifest through an opaque installation ID. It proves continuity across a project-folder move but contains no desired state.
 _Avoid_: Installation Manifest, Project Binding, Profile

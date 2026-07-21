@@ -405,9 +405,30 @@ intent remain visible in the concise view. Git-tracked-path blockers explain
 that repository-owned content is not replaced because generated Profile
 Installation output must be exclusively Installer-owned.
 
-Git is optional. For a Git binding, `apply` installs into the corresponding
-project directory of every existing worktree. A worktree created later is
-reported missing until the next explicit `apply`.
+Git is optional. For a Git binding, `apply` installs only into the exact bound
+project directory. The Installer uses Git for tracked-path protection and local
+exclusions but does not inspect or report worktree topology. Bind any additional
+root explicitly only when Hosts must be launched directly from that root; it
+then follows the same lifecycle as any other binding.
+
+For every bound project root, the ordinary removal order is:
+
+```sh
+agent-profile-kit unbind /path/to/project
+agent-profile-kit apply
+# Now delete the project directory.
+```
+
+If the project directory was deleted first, run `unbind` with its exact authored
+path. That explicit action confirms the deletion was intentional; the next
+`apply` retires its machine-local installation record without attempting
+project filesystem deletion and cleans any separately surviving local Git
+exclusions whose ownership was recorded. Restoring the project later requires a
+new `bind` and `apply`.
+
+Pre-release installations created by older development builds that expanded a
+binding across worktrees are reset and reapplied; the CLI carries no migration
+or compatibility workflow for that development-only state.
 
 Generated output is owned whole: complete files and artifact directories whose
 Installation Marker and hashes prove Agent Profile Kit ownership. Unrelated project files,
@@ -415,6 +436,11 @@ repository-owned instructions, global Host configuration, authentication, trust,
 approvals, plugins, and sessions remain untouched. Agent Profile Kit does not
 merge selected fields into Host or repository configuration, install a watcher or
 Git hook, or modify shared `.gitignore` files.
+
+For a currently bound installation with a matching Marker, `apply` recreates a
+recorded output that is completely missing when all surviving owned output is
+unchanged and normal path-conflict checks pass. Existing modified output and
+unexpected directory members remain blockers and are never overwritten.
 
 ## Use Hosts natively
 

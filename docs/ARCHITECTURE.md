@@ -77,7 +77,11 @@ Every `project` is an explicit existing directory that the user declares to be t
 
 Git is optional. When a project is not a Git working tree, native Codex discovery can guarantee the installed project Context only when Codex starts in the exact bound root; starting it in a descendant is unsupported because Codex has no repository boundary to search toward. Claude project rules load from the project root independently of Git. The project workflow documents the Codex launch-from-root constraint.
 
-For a Git binding, the Installer asks Git for the repository's authoritative existing worktree list and maps the binding's repository-relative directory into each checkout. It does not scan neighboring folders or discover unrelated repositories. Every mapped directory must already exist as a real directory, and roots reached through more than one binding are deduplicated. A later-created worktree remains missing until the next explicit `apply`.
+For a Git binding, the Installer reconciles only the explicit canonical project root. It uses Git only to inspect that root's repository boundary, tracked paths, and repository-local exclusions; it does not enumerate, classify, deduplicate, or report worktree topology. A primary checkout and linked worktree are indistinguishable at the Project Binding boundary. A Host session launched from the bound root may operate on files elsewhere, while any other root that must support direct Host launches requires its own explicit Project Binding.
+
+Every bound root, Git or non-Git, uses the same removal semantics. The ordinary order is `unbind`, `apply`, then delete the directory. If the directory is deleted first, the binding remains desired state until `unbind` matches its exact authored path. That explicit removal confirms intent; the next `apply` retires the absent Profile Installation without project filesystem deletion and removes any separately surviving repository-local exclusion entries whose ownership was recorded for that installation. Restoring the project later requires a new `bind` and `apply`. Worktrees receive no special deletion or recovery mechanism.
+
+The former development-only automatic worktree expansion has no compatibility or state-migration path. It was never released; development installations created by that behavior are reset and reapplied from canonical source.
 
 Commands separate binding authoring from global reconciliation:
 
@@ -142,20 +146,22 @@ The Claude Adapter generates the same canonical Context envelope as an unscoped 
 
 `preview` builds and validates the entire desired output for every bound project before `apply` writes anything. A predictable conflict in any project blocks all writes. Once preflight succeeds, each project is updated transactionally. An unexpected filesystem failure may leave later projects unapplied; the command reports the exact completed and pending set, and rerunning `apply` converges safely.
 
-One machine-local Installation Manifest records each project's selected Profile, Hosts, Adapter and engine versions, resolved artifacts, deterministic source hash, and every owned output's project-relative path, entry type, mode, and hash. Owned artifact directories also record their complete member tree so missing, drifted, and unexpected members can be proven without Host sessions. A minimal `.agent-profile-kit/installation.json` marker travels with the project and links it to that record through an opaque installation ID. The Installer creates the marker during the first successful project transaction; it is lifecycle metadata rather than Adapter output. Together the marker and record prove ownership across a project-folder move without becoming a second source of desired state. Bindings remain authoritative.
+One machine-local Installation Manifest records each project's selected Profile, Hosts, Adapter and engine versions, resolved artifacts, deterministic source hash, and every owned output's project-relative path, entry type, mode, and hash. Owned artifact directories also record their complete member tree so missing, drifted, and unexpected members can be proven without Host sessions. For Git projects, machine-local installation state additionally contains one Repository Exclusion Record per canonical exclusion-file path. Each record maps contributing Installation IDs to their exact entries, and its deterministic union is the expected marked section; this permits safe shared ownership and cleanup even after a contributing project root disappears. A minimal `.agent-profile-kit/installation.json` marker travels with the project and links it to its Installation Manifest through an opaque installation ID. The Installer creates the marker during the first successful project transaction; it is lifecycle metadata rather than Adapter output. Together the marker and records prove ownership across a project-folder move without becoming a second source of desired state. Bindings remain authoritative.
 
 When a configured project moves, its marker lets reconciliation update the recorded path. If a copied project creates the same installation ID at two existing roots, reconciliation fails instead of silently adopting either copy. A missing or modified marker is drift. At the Manifest's recorded path, `apply` may restore a missing marker only when the record and every remaining output hash independently prove the installation; at a different path, the missing identity cannot prove a move and installation fails.
 
-When a binding, Host, project, or artifact disappears, `apply` removes the no-longer-desired output only after its Manifest, Installation Marker, and current hashes prove ownership. Modified generated files are reported as drift and are never overwritten or removed silently.
+When a binding, Host, project, or artifact disappears, `apply` removes the no-longer-desired output only after its Manifest, Installation Marker, and current hashes prove ownership. For a currently bound installation with a matching Marker, `apply` recreates wholly absent recorded outputs from current Workspace source when every surviving output remains ownership-proven and ordinary path-conflict checks pass. Modified generated files, mode drift, unexpected directory members, and occupied destinations are reported as drift and are never overwritten or removed silently.
 
 Generated project paths are owned whole files. A symlink, occupied parent, or
 occupied unowned path blocks installation; shared repository and Host
 configuration are never edited. In Git repositories, the Installer keeps its
 generated files untracked through one marked set of exact, root-anchored entries
 in Git's repository-local exclude file. Reconciliation replaces or removes only
-that marked section after proving its exact entries against Installation
-Manifests, preserving every unrelated byte and never changing a shared
-`.gitignore`. Exclusion changes advance with each successfully committed project
+that marked section after proving its exact target and entries against
+the single canonical ownership record for that exclusion file, preserving every
+unrelated byte and never changing a shared `.gitignore`. Multiple installations
+contribute to one deterministic entry union; removing one contribution cannot
+remove entries still required by another. Exclusion changes advance with each successfully committed project
 transaction, so a partial apply reflects only actual Installation Manifest
 state. The Installer treats the common directory reported by Git as the
 repository-local metadata authority only after proving every path component is
