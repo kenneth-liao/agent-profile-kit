@@ -476,22 +476,22 @@ function expectedContributionEntries(
   );
 }
 
+function relativeProjectForTarget(target: string, project: string): string {
+  const relativeProject = relative(targetRoot(target), project).split(sep).join("/");
+  return relativeProject === ".." || relativeProject.startsWith("../") ? "" : relativeProject;
+}
+
 function hasExpectedContributionEntries(
   installation: InstallationState["installations"][number],
   contribution: { readonly record: RepositoryExclusionRecord; readonly entries: readonly string[] },
 ): boolean {
-  const root = targetRoot(contribution.record.target);
-  const relativeProject = relative(root, installation.project).split(sep).join("/");
-  if (relativeProject === ".." || relativeProject.startsWith("../")) {
-    return sameEntries(
-      sortedUniqueEntries(contribution.entries),
-      expectedContributionEntries(installation, ""),
-    );
-  }
-  const actual = sortedUniqueEntries(contribution.entries);
+  const expected = expectedContributionEntries(
+    installation,
+    relativeProjectForTarget(contribution.record.target, installation.project),
+  );
   return sameEntries(
-    actual,
-    expectedContributionEntries(installation, relativeProject),
+    sortedUniqueEntries(contribution.entries),
+    expected,
   );
 }
 
@@ -549,9 +549,7 @@ async function repositoryExclusionOwnershipBlockers(
       );
       continue;
     }
-    const expected = sortedUniqueEntries(
-      previous.outputs.map((output) => gitExcludeEntry(git, output.path)),
-    );
+    const expected = expectedContributionEntries(previous, git.relativeProject);
     if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
       blockers.push(
         `${git.excludeFile} Repository Exclusion Record for Installation ID ${previous.installationId} does not match its recorded Installation Manifest contribution`,
@@ -592,6 +590,8 @@ async function retiringInstallationOwnershipBlockers(
       }
       continue;
     }
+    // Keep this defensive check for callers that construct state in memory
+    // without passing through the parser's cross-record uniqueness boundary.
     if (contributionLinks.length !== 1) {
       blockers.push(
         `${installation.project} has duplicate Repository Exclusion Records for Installation ID ${installation.installationId}`,
@@ -657,9 +657,7 @@ async function recordedInstallationOwnershipBlockers(
       );
       continue;
     }
-    const expected = sortedUniqueEntries(
-      installation.outputs.map((output) => gitExcludeEntry(git, output.path)),
-    );
+    const expected = expectedContributionEntries(installation, git.relativeProject);
     if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
       blockers.push(
         `${git.excludeFile} Repository Exclusion Record for Installation ID ${installation.installationId} does not match its recorded Installation Manifest contribution`,

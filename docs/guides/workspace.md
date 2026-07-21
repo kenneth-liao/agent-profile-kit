@@ -486,6 +486,27 @@ state_dir="$HOME/.agents/agent-profile-kit/state"
 cp -p "$state_dir/manifest.yaml" "$state_dir/manifest.yaml.before-schema-v3"
 ```
 
+Agent Profile Kit 0.24.2 also records the installation-time `git_project`
+classification in each Installation Manifest without changing the Manifest
+schema version. It reads older Manifests that omit this field, but older
+engines reject a Manifest written with it because they require exact fields.
+Before the first 0.24.2 `apply`, keep a second state backup for rollback:
+
+```sh
+cp -p "$state_dir/manifest.yaml" "$state_dir/manifest.yaml.before-0.24.2"
+```
+
+If rollback is needed after a 0.24.2 `apply`, stop using the newer CLI, restore
+`manifest.yaml.before-0.24.2` to `manifest.yaml`, and then use the older binary.
+The backup restores machine-local ownership state; it does not undo Workspace
+source or project-file changes made after the backup.
+
+For installations created before 0.24.2, run one live `agent-profile-kit apply`
+while each bound project root still exists. This records `git_project: false`
+for non-Git installations. Without that classification, deleting a non-Git
+root before `unbind` leaves no durable proof that its missing exclusion record
+was unnecessary, so intentional-deletion retirement fails closed.
+
 If the current state file is missing or malformed, do not delete or adopt
 surviving generated files. Restore the backup and retry. Without a backup,
 stop the CLI and manually remove only the verified Installer-owned project
