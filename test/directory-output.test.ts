@@ -240,6 +240,29 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(owned.members).toHaveLength(directory.members.length);
   });
 
+  test("apply drops a wholly absent recorded directory that current Workspace state no longer desires", async () => {
+    const home = temporaryDirectory("agent-profile-kit-dir-absent-removal-home-");
+    const project = temporaryDirectory("agent-profile-kit-dir-absent-removal-project-");
+    const base = await contextInstallation(home, project);
+    const directory = normalizedDirectory();
+    await applyReconciliation(home, [withDirectoryOutput(base, directory)]);
+    rmSync(join(project, directory.path), { recursive: true });
+
+    const preview = await previewReconciliation([base], await readInstallationState(home));
+    expect(preview.items).toContainEqual({
+      kind: "update",
+      project,
+      reason: "desired output changed",
+    });
+    expect(preview.outputs).toContainEqual({ kind: "removal", path: directory.path, project });
+
+    await applyReconciliation(home, [base]);
+    expect(existsSync(join(project, directory.path))).toBe(false);
+    expect((await readInstallationState(home)).installations[0]?.outputs.some(
+      (output) => output.path === directory.path,
+    )).toBe(false);
+  });
+
   test("preview distinguishes directory additions, updates, unchanged, and member drift", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-preview-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-preview-project-");

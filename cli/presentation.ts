@@ -10,6 +10,7 @@ export type LifecycleCommand = "preview" | "apply" | "status";
 interface OutputSummary {
   readonly additions: number;
   readonly updates: number;
+  readonly repairs: number;
   readonly removals: number;
   readonly drift: number;
   readonly unchanged: number;
@@ -38,10 +39,11 @@ function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputS
       if (output.kind === "addition") return { ...summary, additions: summary.additions + 1 };
       if (output.kind === "update") return { ...summary, updates: summary.updates + 1 };
       if (output.kind === "removal") return { ...summary, removals: summary.removals + 1 };
+      if (output.kind === "repair") return { ...summary, repairs: summary.repairs + 1 };
       if (output.kind === "unchanged") return { ...summary, unchanged: summary.unchanged + 1 };
       return { ...summary, drift: summary.drift + 1 };
     },
-    { additions: 0, updates: 0, removals: 0, drift: 0, unchanged: 0 },
+    { additions: 0, updates: 0, repairs: 0, removals: 0, drift: 0, unchanged: 0 },
   );
 }
 
@@ -49,6 +51,7 @@ function changeParts(summary: OutputSummary): string[] {
   const parts: string[] = [];
   if (summary.additions > 0) parts.push(plural(summary.additions, "addition"));
   if (summary.updates > 0) parts.push(plural(summary.updates, "update"));
+  if (summary.repairs > 0) parts.push(plural(summary.repairs, "repair"));
   if (summary.removals > 0) parts.push(plural(summary.removals, "removal"));
   if (summary.drift > 0) parts.push(`${plural(summary.drift, "drift item")}`);
   if (summary.unchanged > 0) parts.push(plural(summary.unchanged, "unchanged output"));
@@ -56,7 +59,7 @@ function changeParts(summary: OutputSummary): string[] {
 }
 
 function changeCount(summary: OutputSummary): number {
-  return summary.additions + summary.updates + summary.removals + summary.drift;
+  return summary.additions + summary.updates + summary.repairs + summary.removals + summary.drift;
 }
 
 function changedRepositoryExclusions(report: ReconciliationReport): readonly ReconciliationReport["repositoryExclusions"][number][] {

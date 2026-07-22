@@ -29,6 +29,7 @@ import {
 } from "./project-plan.js";
 import {
   inspectOwnedDirectory,
+  inspectInstallationOwnership,
   newInstallationId,
   proveOwnedInstallation,
   proveRemainingOwnedOutputs,
@@ -73,6 +74,7 @@ export type ReconciliationKind =
   | "drifted output"
   | "malformed ownership state"
   | "missing output"
+  | "repairable missing output"
   | "removal"
   | "stale source"
   | "update";
@@ -88,6 +90,7 @@ export type OutputReconciliationKind =
   | "drifted member"
   | "missing member"
   | "removal"
+  | "repair"
   | "unchanged"
   | "unexpected member"
   | "update";
@@ -569,9 +572,18 @@ export async function previewReconciliation(
       },
     ];
     const previousOutputs = new Map(previous?.outputs.map((output) => [output.path, output]) ?? []);
+    const ownership = previous && !moved
+      ? await inspectInstallationOwnership(previous)
+      : undefined;
+    const proposedOutputPaths = new Set(proposedOutputs.map((output) => output.path));
+    const repairableMissingOutputs = new Set(
+      (ownership?.repairableMissingOutputs ?? []).filter((path) => proposedOutputPaths.has(path)),
+    );
     for (const output of proposedOutputs) {
       const previousOutput = previousOutputs.get(output.path);
-      const kind: OutputReconciliationKind = previousOutput === undefined
+      const kind: OutputReconciliationKind = repairableMissingOutputs.has(output.path)
+        ? "repair"
+        : previousOutput === undefined
         ? "addition"
         : previousOutput.hash === output.hash &&
             previousOutput.mode === output.mode &&
@@ -583,7 +595,7 @@ export async function previewReconciliation(
         path: output.path,
         project: installation.binding.project,
       });
-      if (previousOutput?.type === "directory" && previous) {
+      if (previousOutput?.type === "directory" && previous && kind !== "repair") {
         pushDirectoryMemberItems(
           outputItems,
           installation.binding.project,
@@ -651,7 +663,7 @@ export async function previewReconciliation(
       continue;
     }
     const markerKind = await pathKind(markerPath(installation.binding.canonicalProject));
-    const proof = await proveOwnedInstallation(previous);
+    const proof = ownership ?? await inspectInstallationOwnership(previous);
     let repairableMissingMarker = false;
     if (markerKind === "missing") {
       const remaining = await proveRemainingOwnedOutputs(previous);
@@ -668,7 +680,8 @@ export async function previewReconciliation(
         project,
       });
     }
-    if (!proof.owned && !repairableMissingMarker) {
+    const repairableMissingOutput = repairableMissingOutputs.size > 0;
+    if (!proof.owned && !repairableMissingMarker && !repairableMissingOutput) {
       items.push({
         kind: proof.reason?.includes("malformed")
           ? "malformed ownership state"
@@ -677,6 +690,14 @@ export async function previewReconciliation(
             : "drifted output",
         project: installation.binding.project,
         ...(proof.reason ? { reason: proof.reason } : {}),
+      });
+    // Surface safe recreation ahead of stale source because apply repairs from
+    // that current source; missing-Marker repair does not restore project output.
+    } else if (repairableMissingOutput) {
+      items.push({
+        kind: "repairable missing output",
+        project: installation.binding.project,
+        reason: [...repairableMissingOutputs].join(", "),
       });
     } else if (previous.workspaceInputHash !== installation.sourceHash) {
       items.push({
@@ -863,6 +884,7 @@ async function stageProjectOutputs(
     for (const output of previous?.outputs ?? []) {
       if (desiredPaths.has(output.path)) continue;
       const destination = join(project, output.path);
+      if ((await pathKind(destination)) === "missing") continue;
       const prior = join(backup, output.path);
       await fileSystem.mkdir(dirname(prior), { recursive: true });
       await fileSystem.rename(destination, prior);

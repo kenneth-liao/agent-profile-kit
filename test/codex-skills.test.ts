@@ -364,10 +364,9 @@ describe("Codex project Skill packages", () => {
 
     rmSync(join(project, ".agents", "skills", "write-notes"), { recursive: true, force: true });
     const missing = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(missing.items.some((item) => item.kind === "missing output")).toBe(true);
+    expect(missing.items.some((item) => item.kind === "repairable missing output")).toBe(true);
     expect(missing.outputs.some((item) =>
-      item.path === ".agents/skills/write-notes" ||
-      item.path.startsWith(".agents/skills/write-notes/")
+      item.kind === "repair" && item.path === ".agents/skills/write-notes"
     )).toBe(true);
     // Restore owned package contents so later drift/stale cases exercise a complete installation.
     mkdirSync(join(project, ".agents", "skills", "write-notes"), { recursive: true });

@@ -3007,6 +3007,113 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
+  test("apply repairs a wholly absent owned file from current Workspace source without changing installation identity", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const installed = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { installation_id: string }[];
+    };
+    const installationId = installed.installations[0]!.installation_id;
+    const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
+    rmSync(contextPath);
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nCurrent Workspace repair bytes.\n",
+    );
+
+    const concise = runCli(home, "preview");
+    expect(concise.status, concise.stderr).toBe(0);
+    expect(concise.stdout).toContain("Changes: 1 repair");
+
+    for (const command of ["preview", "status"] as const) {
+      const result = runCli(home, command, "--verbose");
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(`${projectPath}: repairable missing output`);
+      expect(result.stdout).toContain(`${contextPath}: repair`);
+      expect(existsSync(contextPath)).toBe(false);
+    }
+
+    const applied = runCli(home, "apply");
+
+    expect(applied.status, applied.stderr).toBe(0);
+    expect(readFileSync(contextPath, "utf8")).toContain("Current Workspace repair bytes.");
+    const repaired = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { installation_id: string }[];
+    };
+    expect(repaired.installations[0]!.installation_id).toBe(installationId);
+  });
+
+  test("apply repairs a wholly absent owned Skill directory with current Workspace bytes and modes", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    const source = join(workspacePath(home), "skills", "review-pr");
+    mkdirSync(join(source, "scripts"), { recursive: true });
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nOriginal.\n",
+    );
+    writeFileSync(join(source, "scripts", "run.sh"), "#!/bin/sh\necho original\n");
+    chmodSync(join(source, "scripts", "run.sh"), 0o755);
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const destination = join(projectPath, ".agents", "skills", "review-pr");
+    rmSync(destination, { recursive: true });
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nCurrent Workspace.\n",
+    );
+    writeFileSync(join(source, "scripts", "run.sh"), "#!/bin/sh\necho current\n");
+    chmodSync(join(source, "scripts", "run.sh"), 0o700);
+
+    const preview = runCli(home, "preview", "--verbose");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(`${destination}: repair`);
+    expect(preview.stdout).not.toContain("missing member");
+    expect(preview.stdout).not.toContain("drift item");
+    expect(existsSync(destination)).toBe(false);
+
+    const applied = runCli(home, "apply");
+
+    expect(applied.status, applied.stderr).toBe(0);
+    expect(readFileSync(join(destination, "SKILL.md"), "utf8")).toContain("Current Workspace.");
+    expect(readFileSync(join(destination, "scripts", "run.sh"), "utf8")).toContain("echo current");
+    expect(statSync(join(destination, "scripts", "run.sh")).mode & 0o777).toBe(0o700);
+  });
+
+  test("a wholly absent output remains blocking when surviving owned output has drifted", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const missing = join(projectPath, ".agent-profile-kit", "codex", "context.md");
+    const drifted = join(projectPath, ".codex", "hooks.json");
+    rmSync(missing);
+    writeFileSync(drifted, "drifted surviving output\n");
+
+    const preview = runCli(home, "preview", "--verbose");
+    const applied = runCli(home, "apply");
+
+    expect(preview.status).toBe(1);
+    expect(preview.stdout).toContain(`${projectPath}: missing output`);
+    expect(preview.stdout).not.toContain(`${missing}: repair`);
+    expect(applied.status).toBe(1);
+    expect(applied.stderr).toContain("Apply blocked before writes");
+    expect(existsSync(missing)).toBe(false);
+    expect(readFileSync(drifted, "utf8")).toBe("drifted surviving output\n");
+  });
+
   test("a copied installation identity is rejected while the original remains", () => {
     const home = isolatedHome();
     initialize(home);
