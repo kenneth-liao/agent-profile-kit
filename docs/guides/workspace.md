@@ -558,8 +558,8 @@ implicit precedence rule.
 ## Status, unbind, and uninstall
 
 Use `agent-profile-kit status` to inspect every bound project. It reports current,
-stale source, drifted output, missing output, blocked (including later global
-Skill identity collisions), and malformed ownership.
+stale source, repairable missing output, drifted output, missing output, blocked
+(including later global Skill identity collisions), and malformed ownership.
 
 Use `agent-profile-kit unbind [project]` to remove desired Project Binding state.
 It does not delete generated output. Run the global `preview` and `apply` to

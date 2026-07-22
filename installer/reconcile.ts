@@ -691,6 +691,8 @@ export async function previewReconciliation(
         project: installation.binding.project,
         ...(proof.reason ? { reason: proof.reason } : {}),
       });
+    // Surface safe recreation ahead of stale source because apply repairs from
+    // that current source; missing-Marker repair does not restore project output.
     } else if (repairableMissingOutput) {
       items.push({
         kind: "repairable missing output",

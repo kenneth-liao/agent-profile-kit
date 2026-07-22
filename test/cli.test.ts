@@ -3025,6 +3025,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "---\nid: team-rules\ndependencies: []\n---\nCurrent Workspace repair bytes.\n",
     );
 
+    const concise = runCli(home, "preview");
+    expect(concise.status, concise.stderr).toBe(0);
+    expect(concise.stdout).toContain("Changes: 1 repair");
+
     for (const command of ["preview", "status"] as const) {
       const result = runCli(home, command, "--verbose");
       expect(result.status, result.stderr).toBe(0);

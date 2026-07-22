@@ -24,6 +24,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Report safely repairable output distinctly in compact lifecycle summaries and document its status vocabulary ([#83](https://github.com/kenneth-liao/agent-profile-kit/pull/83)).
 - Retire intentionally deleted projects after exact-path `unbind` without requiring a vanished Installation Marker, while preserving shared Git exclusion ownership and failing closed on missing or drifted exclusion sections ([#78](https://github.com/kenneth-liao/agent-profile-kit/issues/78)).
 - Surface Installation State restore failures during transactional apply and uninstall instead of silently discarding recovery errors ([#77](https://github.com/kenneth-liao/agent-profile-kit/issues/77)).
 - Reconcile each Project Binding only at its exact canonical project root without enrolling sibling Git worktrees ([#76](https://github.com/kenneth-liao/agent-profile-kit/issues/76)).
