@@ -1730,6 +1730,384 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(target, "utf8")).not.toContain("/nested/");
   });
 
+  test("retires a deleted Git root and removes only its recorded exclusion contribution", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-git-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    const unrelated = "# unrelated after managed section\n/local-only\n";
+    writeFileSync(exclude, `${readFileSync(exclude, "utf8")}${unrelated}`);
+    chmodSync(exclude, 0o640);
+    rmSync(nested, { recursive: true });
+
+    const unbound = runCli(home, "unbind", nested);
+
+    expect(unbound.status, unbound.stderr).toBe(0);
+    const preview = runCli(home, "preview", "--verbose");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(`${nested}: removal`);
+    expect(preview.stdout).toContain("/nested/.codex/hooks.json");
+    const status = runCli(home, "status", "--verbose");
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain(`${nested}: removal`);
+    expect(status.stdout).toContain("project intentionally deleted");
+
+    const applied = runCli(home, "apply");
+
+    expect(applied.status, applied.stderr).toBe(0);
+    expect(existsSync(repository)).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(nested)).toBe(false);
+    expect(readFileSync(exclude, "utf8")).toContain(unrelated);
+    expect(readFileSync(exclude, "utf8")).not.toContain("/nested/");
+    expect(statSync(exclude).mode & 0o7777).toBe(0o640);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { project: string }[];
+      repository_exclusions: readonly { contributions: readonly unknown[] }[];
+    };
+    expect(state.installations).toHaveLength(1);
+    expect(state.installations[0]?.project).toBe(realpathSync(repository));
+    expect(state.repository_exclusions[0]?.contributions).toHaveLength(1);
+  });
+
+  test("retires one deleted independent project while preserving another installation", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const first = project("agent-profile-kit-retire-independent-first-");
+    const second = project("agent-profile-kit-retire-independent-second-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${first}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+    rmSync(first, { recursive: true });
+
+    expect(runCli(home, "unbind", first).status).toBe(0);
+    const preview = runCli(home, "preview", "--verbose");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(`${first}: removal`);
+    expect(runCli(home, "apply").status).toBe(0);
+
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { project: string }[];
+    };
+    expect(state.installations).toHaveLength(1);
+    expect(state.installations[0]?.project).toBe(realpathSync(second));
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
+  test("retires a deleted Git root when its exclusion target disappears with the root", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-whole-git-root-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expect(runCli(home, "apply").status).toBe(0);
+    rmSync(repository, { recursive: true });
+
+    expect(runCli(home, "unbind", repository).status).toBe(0);
+    const preview = runCli(home, "preview");
+    expect(preview.status, `${preview.stdout}\n${preview.stderr}`).toBe(0);
+    expect(preview.stdout).toContain("project intentionally deleted");
+    expect(runCli(home, "apply").status).toBe(0);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly unknown[];
+      repository_exclusions: readonly unknown[];
+    };
+    expect(state.installations).toHaveLength(0);
+    expect(state.repository_exclusions).toHaveLength(0);
+  });
+
+  test("retires a deleted linked checkout using its recorded common target", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-linked-root-");
+    const worktree = addWorktree(repository, "retire-linked-root");
+    writeContextProfile(home);
+    bind(home, worktree);
+    expect(runCli(home, "apply").status).toBe(0);
+    rmSync(worktree, { recursive: true });
+
+    expect(runCli(home, "unbind", worktree).status).toBe(0);
+    const preview = runCli(home, "preview");
+    expect(preview.status, `${preview.stdout}\n${preview.stderr}`).toBe(0);
+    expect(runCli(home, "apply").status).toBe(0);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly unknown[];
+      repository_exclusions: readonly unknown[];
+    };
+    expect(state.installations).toHaveLength(0);
+    expect(state.repository_exclusions).toHaveLength(0);
+  });
+
+  test("blocks a deleted linked checkout when its exclusion record is missing", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-linked-missing-record-");
+    const worktree = addWorktree(repository, "retire-linked-missing-record");
+    writeContextProfile(home);
+    bind(home, worktree);
+    expect(runCli(home, "apply").status).toBe(0);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { git_project: boolean; project: string }[];
+      repository_exclusions: readonly unknown[];
+    };
+    expect(state.installations[0]?.git_project).toBe(true);
+    writeFileSync(
+      statePath(home),
+      stringify({
+        schema_version: 3,
+        installations: state.installations,
+        repository_exclusions: [],
+      }),
+    );
+    const exclude = join(repository, ".git", "info", "exclude");
+    const beforeExclude = readFileSync(exclude);
+    rmSync(worktree, { recursive: true });
+    expect(runCli(home, "unbind", worktree).status).toBe(0);
+
+    const preview = runCli(home, "preview");
+
+    expect(preview.status).toBe(1);
+    expect(preview.stdout).toContain("missing its Repository Exclusion Record");
+    expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
+    expect(runCli(home, "apply").status).toBe(1);
+  });
+
+  test("blocks intentional-deletion retirement when its exclusion contribution is missing", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-missing-record-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { installation_id: string; project: string }[];
+      repository_exclusions: { contributions: { installation_id: string }[]; entries: readonly string[] }[];
+    };
+    const nestedId = state.installations.find((installation) => installation.project === realpathSync(nested))!.installation_id;
+    const record = state.repository_exclusions[0]!;
+    record.contributions = record.contributions
+      .filter((contribution) => contribution.installation_id !== nestedId);
+    const remainingEntries = [
+      "/.agent-profile-kit/codex/context.md",
+      "/.agent-profile-kit/installation.json",
+      "/.codex/hooks.json",
+    ];
+    state.repository_exclusions[0]!.entries = remainingEntries;
+    writeFileSync(statePath(home), stringify(state));
+    const exclude = join(repository, ".git", "info", "exclude");
+    const beforeExclude = readFileSync(exclude);
+    rmSync(nested, { recursive: true });
+    expect(runCli(home, "unbind", nested).status).toBe(0);
+
+    const preview = runCli(home, "preview");
+
+    expect(preview.status).toBe(1);
+    expect(preview.stdout).toContain("missing its Repository Exclusion Record");
+    expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
+    expect(runCli(home, "apply").status).toBe(1);
+  });
+
+  test("blocks intentional-deletion retirement when its recorded exclusion contribution is modified", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-modified-record-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { installation_id: string; project: string }[];
+      repository_exclusions: {
+        contributions: { entries: readonly string[]; installation_id: string }[];
+        entries: readonly string[];
+      }[];
+    };
+    const nestedId = state.installations.find((installation) => installation.project === realpathSync(nested))!.installation_id;
+    const record = state.repository_exclusions[0]!;
+    record.contributions = record.contributions.map((contribution) =>
+      contribution.installation_id === nestedId
+        ? { ...contribution, entries: ["/nested/not-generated"] }
+        : contribution,
+    );
+    record.entries = [...new Set(record.contributions.flatMap((contribution) => contribution.entries))].sort();
+    writeFileSync(statePath(home), stringify(state));
+    rmSync(nested, { recursive: true });
+    expect(runCli(home, "unbind", nested).status).toBe(0);
+
+    const preview = runCli(home, "preview");
+
+    expect(preview.status).toBe(1);
+    expect(preview.stdout).toContain("does not match its recorded Installation Manifest contribution");
+    expect(runCli(home, "apply").status).toBe(1);
+  });
+
+  test("blocks intentional-deletion retirement when the surviving exclusion section is missing", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-missing-exclude-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    rmSync(exclude);
+    rmSync(nested, { recursive: true });
+
+    const unbound = runCli(home, "unbind", nested);
+
+    expect(unbound.status, unbound.stderr).toBe(0);
+    const preview = runCli(home, "preview");
+
+    expect(preview.status).toBe(1);
+    expect(preview.stdout).toContain("missing its Agent Profile Kit exclusion section");
+    const applied = runCli(home, "apply");
+    expect(applied.status).toBe(1);
+    expect(applied.stderr).toContain("Apply blocked before writes");
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { project: string }[];
+    };
+    expect(state.installations).toHaveLength(2);
+  });
+
+  test("blocks intentional-deletion retirement when its only exclusion file is missing", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-only-missing-exclude-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    bind(home, nested);
+    expect(runCli(home, "apply").status).toBe(0);
+    rmSync(join(repository, ".git", "info", "exclude"));
+    rmSync(nested, { recursive: true });
+    expect(runCli(home, "unbind", nested).status).toBe(0);
+
+    const preview = runCli(home, "preview");
+
+    expect(preview.status).toBe(1);
+    expect(preview.stdout).toContain("missing its Agent Profile Kit exclusion section");
+    expect(runCli(home, "apply").status).toBe(1);
+  });
+
+  test("blocks intentional-deletion retirement when the Git exclusion parent is missing", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-missing-exclude-parent-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    bind(home, nested);
+    expect(runCli(home, "apply").status).toBe(0);
+    const info = join(repository, ".git", "info");
+    rmSync(info, { recursive: true });
+    rmSync(nested, { recursive: true });
+    expect(runCli(home, "unbind", nested).status).toBe(0);
+
+    const preview = runCli(home, "preview");
+
+    expect(preview.status).toBe(1);
+    expect(preview.stdout).toContain("missing its Agent Profile Kit exclusion section");
+    expect(runCli(home, "apply").status).toBe(1);
+    expect(existsSync(info)).toBe(false);
+  });
+
+  test("keeps intentional-deletion retirement retryable when state publication fails", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-state-failure-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    const beforeExclude = readFileSync(exclude);
+    rmSync(nested, { recursive: true });
+    expect(runCli(home, "unbind", nested).status).toBe(0);
+    const stateDirectory = join(home, ".agents", "agent-profile-kit", "state");
+    chmodSync(stateDirectory, 0o555);
+
+    const failed = runCli(home, "apply");
+
+    chmodSync(stateDirectory, 0o755);
+    expect(failed.status).toBe(1);
+    expect(failed.stderr).toContain("Apply failed");
+    expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
+    const retained = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly unknown[];
+    };
+    expect(retained.installations).toHaveLength(2);
+
+    const retry = runCli(home, "apply");
+
+    expect(retry.status, retry.stderr).toBe(0);
+    const converged = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly unknown[];
+    };
+    expect(converged.installations).toHaveLength(1);
+    expect(readFileSync(exclude, "utf8")).not.toContain("/nested/");
+  });
+
   test("missing Repository Exclusion Record blocks an existing Git installation before writes", () => {
     const home = isolatedHome();
     initialize(home);
@@ -2435,6 +2813,80 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(retained, ".agent-profile-kit", "installation.json"))).toBe(true);
     const state = parse(readFileSync(statePath(home), "utf8")) as { installations: readonly unknown[] };
     expect(state.installations).toHaveLength(1);
+  });
+
+  test("retires an intentionally deleted project after exact-path unbind without a Marker", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project("agent-profile-kit-intentionally-deleted-");
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    rmSync(projectPath, { recursive: true });
+
+    const unbound = runCli(home, "unbind", projectPath);
+
+    expect(unbound.status, unbound.stderr).toBe(0);
+    const preview = runCli(home, "preview", "--verbose");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(`${projectPath}: removal`);
+    expect(preview.stdout).toContain("intentionally deleted");
+
+    const applied = runCli(home, "apply");
+
+    expect(applied.status, applied.stderr).toBe(0);
+    expect(existsSync(projectPath)).toBe(false);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly unknown[];
+    };
+    expect(state.installations).toHaveLength(0);
+  });
+
+  test("deleting a bound root without unbind leaves desired state and blocks reconciliation", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project("agent-profile-kit-deleted-still-bound-");
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const configuration = readFileSync(configPath(home), "utf8");
+    rmSync(projectPath, { recursive: true });
+
+    const result = runCli(home, "preview");
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}\n${result.stderr}`).toMatch(/project.*(?:missing|existing)|missing.*project/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
+  });
+
+  test("restoring an intentionally deleted root requires a new binding and Installation ID", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project("agent-profile-kit-restored-");
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const initial = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { installation_id: string }[];
+    };
+    const initialId = initial.installations[0]!.installation_id;
+    rmSync(projectPath, { recursive: true });
+    expect(runCli(home, "unbind", projectPath).status).toBe(0);
+    expect(runCli(home, "apply").status).toBe(0);
+    mkdirSync(projectPath);
+
+    const rebound = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+
+    expect(rebound.status, rebound.stderr).toBe(0);
+    const applied = runCli(home, "apply");
+    expect(applied.status, applied.stderr).toBe(0);
+    const restored = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly { installation_id: string; project: string }[];
+    };
+    expect(restored.installations).toHaveLength(1);
+    expect(restored.installations[0]?.project).toBe(realpathSync(projectPath));
+    expect(restored.installations[0]?.installation_id).not.toBe(initialId);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
   test("apply removes a no-longer-desired Adapter output whose recorded hash still proves ownership", () => {

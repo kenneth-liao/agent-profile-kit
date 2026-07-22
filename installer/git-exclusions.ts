@@ -1,5 +1,5 @@
 import { chmod, lstat, mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 import {
   canonicalRepositoryExclusionRecord,
@@ -180,6 +180,8 @@ interface ExcludeSnapshot {
   readonly bytes: Buffer;
   readonly exists: boolean;
   readonly mode: number;
+  /** True only when the Git common directory itself is absent. */
+  readonly targetMissing: boolean;
 }
 
 async function assertSafeExcludePath(git: GitProject): Promise<{ readonly infoExists: boolean }> {
@@ -215,7 +217,7 @@ async function readSnapshot(git: GitProject, allowMissingTarget = false): Promis
     await assertSafeExcludePath(git);
   } catch (error) {
     if (allowMissingTarget && hasErrorCode(error, "ENOENT")) {
-      return { bytes: Buffer.alloc(0), exists: false, mode: 0o644 };
+      return { bytes: Buffer.alloc(0), exists: false, mode: 0o644, targetMissing: true };
     }
     throw error;
   }
@@ -225,9 +227,17 @@ async function readSnapshot(git: GitProject, allowMissingTarget = false): Promis
       bytes: await readFile(git.excludeFile),
       exists: true,
       mode: stats.mode & 0o7777,
+      targetMissing: false,
     };
   } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return { bytes: Buffer.alloc(0), exists: false, mode: 0o644 };
+    if (hasErrorCode(error, "ENOENT")) {
+      return {
+        bytes: Buffer.alloc(0),
+        exists: false,
+        mode: 0o644,
+        targetMissing: false,
+      };
+    }
     throw error;
   }
 }
@@ -395,6 +405,7 @@ export async function relocateRepositoryExclusionsForDesired(
 async function inspectionTargets(
   state: InstallationState,
   desired: readonly DesiredInstallation[],
+  retiringInstallationIds: ReadonlySet<string> = new Set(),
 ): Promise<readonly Target[]> {
   const inspectionState = await relocateRepositoryExclusionsForDesired(state, desired);
   const currentByTarget = recordsByTarget(state.repositoryExclusions);
@@ -404,12 +415,20 @@ async function inspectionTargets(
     ...relocatedByTarget.keys(),
   ])]
     .sort(compareCanonicalStrings)
-    .map((target) => ({
-      allowMissingTarget: currentByTarget.has(target) && !relocatedByTarget.has(target),
-      current: currentByTarget.get(target)?.entries ?? relocatedByTarget.get(target)?.entries ?? [],
-      git: gitForExclusionTarget(target),
-      next: relocatedByTarget.get(target)?.entries ?? [],
-    }));
+    .map((target) => {
+      const record = currentByTarget.get(target);
+      const allContributionsRetiring = record !== undefined &&
+        record.contributions.length > 0 &&
+        retiringInstallationIds.size > 0 &&
+        record.contributions.every((contribution) => retiringInstallationIds.has(contribution.installationId));
+      return {
+        allowMissingTarget:
+          (currentByTarget.has(target) && !relocatedByTarget.has(target)) || allContributionsRetiring,
+        current: currentByTarget.get(target)?.entries ?? relocatedByTarget.get(target)?.entries ?? [],
+        git: gitForExclusionTarget(target),
+        next: relocatedByTarget.get(target)?.entries ?? [],
+      };
+    });
   const known = new Set(targets.map((target) => target.git.excludeFile));
   for (const installation of desired) {
     const git = installation.gitProject;
@@ -437,6 +456,56 @@ function contributionFor(
     if (contribution) return { entries: contribution.entries, record };
   }
   return undefined;
+}
+
+function targetRoot(target: string): string {
+  return dirname(dirname(dirname(target)));
+}
+
+function targetContainsProject(target: string, project: string): boolean {
+  const root = targetRoot(target);
+  return project === root || project.startsWith(`${root}${sep}`);
+}
+
+function expectedContributionEntries(
+  installation: InstallationState["installations"][number],
+  relativeProject: string,
+): readonly string[] {
+  return sortedUniqueEntries(
+    installation.outputs.map((output) => gitExcludeEntry({ relativeProject }, output.path)),
+  );
+}
+
+function relativeProjectForTarget(target: string, project: string): string {
+  const relativeProject = relative(targetRoot(target), project).split(sep).join("/");
+  return relativeProject === ".." || relativeProject.startsWith("../") ? "" : relativeProject;
+}
+
+function hasExpectedContributionEntries(
+  installation: InstallationState["installations"][number],
+  contribution: { readonly record: RepositoryExclusionRecord; readonly entries: readonly string[] },
+): boolean {
+  const expected = expectedContributionEntries(
+    installation,
+    relativeProjectForTarget(contribution.record.target, installation.project),
+  );
+  return sameEntries(
+    sortedUniqueEntries(contribution.entries),
+    expected,
+  );
+}
+
+function hasKnownExclusionTargetForProject(
+  state: InstallationState,
+  desired: readonly DesiredInstallation[],
+  project: string,
+): boolean {
+  const recordedTargets = state.repositoryExclusions.map((record) => record.target);
+  const desiredTargets = desired.flatMap((installation) =>
+    installation.gitProject ? [installation.gitProject.excludeFile] : [],
+  );
+  return [...new Set([...recordedTargets, ...desiredTargets])]
+    .some((target) => targetContainsProject(target, project));
 }
 
 async function existingInstallationForDesired(
@@ -480,9 +549,7 @@ async function repositoryExclusionOwnershipBlockers(
       );
       continue;
     }
-    const expected = sortedUniqueEntries(
-      previous.outputs.map((output) => gitExcludeEntry(git, output.path)),
-    );
+    const expected = expectedContributionEntries(previous, git.relativeProject);
     if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
       blockers.push(
         `${git.excludeFile} Repository Exclusion Record for Installation ID ${previous.installationId} does not match its recorded Installation Manifest contribution`,
@@ -492,12 +559,74 @@ async function repositoryExclusionOwnershipBlockers(
   return blockers;
 }
 
+/** Validate the canonical exclusion contribution before retiring an absent installation. */
+async function retiringInstallationOwnershipBlockers(
+  state: InstallationState,
+  desired: readonly DesiredInstallation[],
+  retiringInstallationIds: ReadonlySet<string>,
+): Promise<readonly string[]> {
+  if (retiringInstallationIds.size === 0) return [];
+  const blockers: string[] = [];
+  for (const installation of state.installations) {
+    if (!retiringInstallationIds.has(installation.installationId)) continue;
+    const contributionLinks = state.repositoryExclusions.flatMap((record) =>
+      record.contributions
+        .filter((contribution) => contribution.installationId === installation.installationId)
+        .map((contribution) => ({ contribution, record })),
+    );
+    if (contributionLinks.length === 0) {
+      // Repository Exclusion Records are the only durable ownership proof after
+      // a root disappears. Do not rediscover Git topology for a missing record;
+      // the installation-time Git classification distinguishes a missing Git
+      // record from a non-Git installation without becoming an ownership source;
+      // an absent classification remains unknown and therefore fails closed.
+      if (
+        installation.gitProject !== false ||
+        hasKnownExclusionTargetForProject(state, desired, installation.project)
+      ) {
+        blockers.push(
+          `${installation.project} is missing its Repository Exclusion Record for Installation ID ${installation.installationId}`,
+        );
+      }
+      continue;
+    }
+    // Keep this defensive check for callers that construct state in memory
+    // without passing through the parser's cross-record uniqueness boundary.
+    if (contributionLinks.length !== 1) {
+      blockers.push(
+        `${installation.project} has duplicate Repository Exclusion Records for Installation ID ${installation.installationId}`,
+      );
+      continue;
+    }
+    const { contribution, record } = contributionLinks[0]!;
+    if (!hasExpectedContributionEntries(installation, { entries: contribution.entries, record })) {
+      blockers.push(
+        `${record.target} Repository Exclusion Record for Installation ID ${installation.installationId} does not match its recorded Installation Manifest contribution`,
+      );
+    }
+  }
+  return blockers;
+}
+
 /** Validate every recorded Installation against its live Git target for uninstall. */
 async function recordedInstallationOwnershipBlockers(
   state: InstallationState,
+  retiringInstallationIds: ReadonlySet<string> = new Set(),
 ): Promise<readonly string[]> {
   const blockers: string[] = [];
   for (const installation of state.installations) {
+    try {
+      await lstat(installation.project);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) {
+        if (retiringInstallationIds.has(installation.installationId)) continue;
+        blockers.push(
+          `${installation.project} Git target cannot be proven: project root is missing`,
+        );
+        continue;
+      }
+      throw error;
+    }
     const contribution = contributionFor(state.repositoryExclusions, installation.installationId);
     let git: GitProject | undefined;
     try {
@@ -528,9 +657,7 @@ async function recordedInstallationOwnershipBlockers(
       );
       continue;
     }
-    const expected = sortedUniqueEntries(
-      installation.outputs.map((output) => gitExcludeEntry(git, output.path)),
-    );
+    const expected = expectedContributionEntries(installation, git.relativeProject);
     if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
       blockers.push(
         `${git.excludeFile} Repository Exclusion Record for Installation ID ${installation.installationId} does not match its recorded Installation Manifest contribution`,
@@ -543,18 +670,40 @@ async function recordedInstallationOwnershipBlockers(
 export async function gitExclusionBlockers(
   state: InstallationState,
   desired: readonly DesiredInstallation[] = [],
-  options: { readonly validateRecordedInstallations?: boolean } = {},
+  options: {
+    readonly retiringInstallationIds?: ReadonlySet<string>;
+    readonly validateRecordedInstallations?: boolean;
+  } = {},
 ): Promise<readonly string[]> {
   const validateRecordedInstallations = options.validateRecordedInstallations ?? desired.length === 0;
   const blockers = [
     ...await repositoryExclusionOwnershipBlockers(state, desired),
+    ...await retiringInstallationOwnershipBlockers(
+      state,
+      desired,
+      options.retiringInstallationIds ?? new Set(),
+    ),
     ...(validateRecordedInstallations
-      ? await recordedInstallationOwnershipBlockers(state)
+      ? await recordedInstallationOwnershipBlockers(state, options.retiringInstallationIds)
       : []),
   ];
-  for (const target of await inspectionTargets(state, desired)) {
+  for (const target of await inspectionTargets(state, desired, options.retiringInstallationIds)) {
     try {
       const snapshot = await readSnapshot(target.git, target.allowMissingTarget);
+      const targetRecord = state.repositoryExclusions.find(
+        (record) => record.target === target.git.excludeFile,
+      );
+      if (
+        options.retiringInstallationIds !== undefined &&
+        targetRecord?.contributions.some((contribution) => options.retiringInstallationIds?.has(contribution.installationId)) &&
+        target.current.length > 0 &&
+        ((!snapshot.exists && !snapshot.targetMissing) ||
+          (snapshot.exists && !parseOwnedSection(snapshot.bytes, target.git.excludeFile)))
+      ) {
+        blockers.push(
+          `${target.git.excludeFile} is missing its Agent Profile Kit exclusion section; intentional-deletion retirement requires the recorded section to be present`,
+        );
+      }
       reconcileGitExcludeBytes(snapshot.bytes, target.git.excludeFile, target.current, target.current);
     } catch (error) {
       blockers.push(error instanceof Error ? error.message : String(error));

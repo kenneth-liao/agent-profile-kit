@@ -207,6 +207,7 @@ function manifestFor(
   return {
     adapterVersion: desired.adapterVersion,
     engineVersion: desired.engineVersion,
+    gitProject: desired.gitProject !== undefined,
     hosts: desired.binding.hosts,
     hostVersions: desired.hostVersions,
     installationId,
@@ -423,6 +424,54 @@ async function previousFor(
   return (await pathKind(owner.project)) === "missing" ? owner : undefined;
 }
 
+interface InstallationRetirementSelection {
+  readonly intentionallyDeletedInstallationIds: ReadonlySet<string>;
+  readonly intentionallyDeletedProjects: ReadonlySet<string>;
+  readonly movedPreviousProjects: ReadonlySet<string>;
+}
+
+/**
+ * Select stale installations that may be retired without project-tree ownership
+ * proof after an exact-path unbind. Both preview and apply use this same reader
+ * so deletion intent cannot silently lose its exclusion-ownership safeguards.
+ */
+async function installationRetirementSelection(
+  desired: readonly DesiredInstallation[],
+  state: InstallationState,
+): Promise<InstallationRetirementSelection> {
+  const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
+  const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
+  const movedPreviousProjects = new Set<string>();
+  for (const installation of desired) {
+    const previous = await previousFor(installation, state, byProject);
+    if (previous && previous.project !== installation.binding.canonicalProject) {
+      movedPreviousProjects.add(previous.project);
+    }
+  }
+  // Local Configuration is the sole canonical desired-state record. A successful
+  // exact-path `unbind` (or an equivalent supported hand edit) is represented by
+  // the binding's absence; no second retirement tombstone is persisted.
+  const intentionallyDeletedProjects = new Set<string>();
+  for (const installation of state.installations) {
+    if (
+      !desiredProjects.has(installation.project) &&
+      !movedPreviousProjects.has(installation.project) &&
+      (await pathKind(installation.project)) === "missing"
+    ) {
+      intentionallyDeletedProjects.add(installation.project);
+    }
+  }
+  return {
+    intentionallyDeletedInstallationIds: new Set(
+      state.installations
+        .filter((installation) => intentionallyDeletedProjects.has(installation.project))
+        .map((installation) => installation.installationId),
+    ),
+    intentionallyDeletedProjects,
+    movedPreviousProjects,
+  };
+}
+
 function ownershipBlocker(project: string, reason: string): string {
   return `Cannot reconcile Profile Installation at ${project}: ${reason}`;
 }
@@ -461,13 +510,22 @@ export async function previewReconciliation(
 ): Promise<ReconciliationReport> {
   const items: ReconciliationItem[] = [];
   const outputItems: OutputReconciliationItem[] = [];
+  const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
+  const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
+  const {
+    intentionallyDeletedInstallationIds,
+    intentionallyDeletedProjects,
+    movedPreviousProjects,
+  } = await installationRetirementSelection(desired, state);
   const blockers: ReconciliationBlocker[] = desired.flatMap((installation) =>
     installation.blockers.map((message) => ({
       message,
       project: installation.binding.canonicalProject,
     }))
   );
-  blockers.push(...(await gitExclusionBlockers(state, desired)).map((message) => ({ message })));
+  blockers.push(...(await gitExclusionBlockers(state, desired, {
+    retiringInstallationIds: intentionallyDeletedInstallationIds,
+  })).map((message) => ({ message })));
   const exclusionWarnings = await gitExclusionWarnings(state, desired);
   const desiredReport = desired.map((installation) => {
     return {
@@ -489,14 +547,10 @@ export async function previewReconciliation(
       })),
     };
   });
-  const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
-  const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
-  const movedPreviousProjects = new Set<string>();
   let projectedExclusions = state.repositoryExclusions;
   for (const installation of desired) {
     const previous = await previousFor(installation, state, byProject);
     const moved = previous && previous.project !== installation.binding.canonicalProject;
-    if (moved) movedPreviousProjects.add(previous.project);
     const id = previous?.installationId ?? newInstallationId();
     const projectedManifest = manifestFor(installation, id);
     projectedExclusions = replaceRepositoryExclusionContribution(
@@ -553,10 +607,34 @@ export async function previewReconciliation(
       }
     }
     const project = installation.binding.canonicalProject;
+    const outputConflicts = await desiredOutputConflicts(installation, previous, id);
     blockers.push(
       ...(await identityBlockers(installation, state, id)).map((message) => ({ message, project })),
-      ...(await desiredOutputConflicts(installation, previous, id)).map((message) => ({ message, project })),
+      ...outputConflicts.map((message) => ({ message, project })),
     );
+    if (!previous && outputConflicts.length > 0) {
+      let copiedInstallation = false;
+      for (const candidate of state.installations) {
+        if (!intentionallyDeletedProjects.has(candidate.project)) continue;
+        const copiedOutputs = candidate.outputs.filter((output) => output.path !== markerRelativePath());
+        if (
+          copiedOutputs.length > 0 &&
+          (await Promise.all(copiedOutputs.map((output) => ownedOutputMatches(project, output)))).every(Boolean)
+        ) {
+          copiedInstallation = true;
+          break;
+        }
+      }
+      if (copiedInstallation) {
+        blockers.push({
+          message: ownershipBlocker(
+            installation.binding.project,
+            "Installation Marker is missing; if this project moved, restore its Manifest-linked Installation Marker at the new root before retrying",
+          ),
+          project,
+        });
+      }
+    }
     if (!previous) {
       items.push({
         kind: "addition",
@@ -611,6 +689,7 @@ export async function previewReconciliation(
       !hostVersionsEqual(previous.hostVersions, installation.hostVersions) ||
       previous.hosts.join("\n") !== installation.binding.hosts.join("\n") ||
       previous.profileId !== installation.profile.id ||
+      previous.gitProject !== (installation.gitProject !== undefined) ||
       previous.outputs.length !== proposedOutputs.length ||
       proposedOutputs.some((output) => {
         const previousOutput = previous.outputs.find((entry) => entry.path === output.path);
@@ -639,7 +718,10 @@ export async function previewReconciliation(
   }
   for (const installation of state.installations) {
     if (desiredProjects.has(installation.project) || movedPreviousProjects.has(installation.project)) continue;
-    const proof = await proveOwnedInstallation(installation);
+    const intentionallyDeleted = intentionallyDeletedProjects.has(installation.project);
+    const proof = intentionallyDeleted
+      ? { owned: true as const }
+      : await proveOwnedInstallation(installation);
     if (!proof.owned) {
       const remediation = proof.reason?.includes("Installation Marker")
         ? "; if this project moved, restore its Manifest-linked Installation Marker at the new root before retrying"
@@ -652,7 +734,11 @@ export async function previewReconciliation(
     items.push({
       kind: "removal",
       project: installation.project,
-      ...(proof.reason ? { reason: proof.reason } : {}),
+      ...(intentionallyDeleted
+        ? { reason: "project intentionally deleted" }
+        : proof.reason
+          ? { reason: proof.reason }
+          : {}),
     });
     for (const output of installation.outputs) {
       outputItems.push({
@@ -858,6 +944,7 @@ export async function applyReconciliation(
   if (report.blockers.length > 0) {
     throw new Error(`Apply blocked before writes:\n${report.blockers.map((blocker) => `- ${blocker.message}`).join("\n")}`);
   }
+  const retirement = await installationRetirementSelection(desired, before);
   const currentProjects = new Set(
     report.items
       .filter((item) => item.kind === "current")
@@ -868,12 +955,11 @@ export async function applyReconciliation(
     before.installations.map((installation) => [installation.project, installation]),
   );
   let workingState = before;
-  const movedPreviousProjects = new Set<string>();
+  const movedPreviousProjects = new Set(retirement.movedPreviousProjects);
   const completed: string[] = [];
   for (const [index, item] of desired.entries()) {
     const previous = await previousFor(item, before, byProject);
     const moved = previous && previous.project !== item.binding.canonicalProject;
-    if (moved) movedPreviousProjects.add(previous.project);
     if (currentProjects.has(item.binding.project)) continue;
     let transaction: { readonly commit: () => Promise<void>; readonly rollback: () => Promise<void> } | undefined;
     let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
@@ -963,7 +1049,10 @@ export async function applyReconciliation(
     let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
     let stateWriteAttempted = false;
     try {
-      transaction = await stageProvenInstallationRemoval(previous);
+      const intentionallyDeleted = retirement.intentionallyDeletedProjects.has(previous.project);
+      if (!intentionallyDeleted) {
+        transaction = await stageProvenInstallationRemoval(previous);
+      }
       installationsByProject.delete(previous.project);
       const nextState: InstallationState = {
         installations: [...installationsByProject.values()],
@@ -984,7 +1073,7 @@ export async function applyReconciliation(
       // The exclusion transaction remains reversible until the removal commit
       // succeeds, keeping state, bytes, and output ownership retryable together.
       await exclusions.commit();
-      await transaction.commit();
+      if (transaction) await transaction.commit();
       byProject.delete(previous.project);
       workingState = nextState;
       completed.push(`removal ${previous.project}`);

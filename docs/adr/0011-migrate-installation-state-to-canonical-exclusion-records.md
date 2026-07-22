@@ -45,3 +45,12 @@ bindings and run `apply` to establish fresh canonical records. This manual
 recovery is intentionally fail-closed because ownership cannot be proven from
 the surviving files alone.
 
+### Amendment: retain the installation-time Git classification
+
+An Installation Manifest may retain a `git_project` boolean set at the live
+planning boundary. This is a classification fact, not a Repository Exclusion
+Record target or entry, and it is used only to fail closed when a deleted Git
+project's entire exclusion record is missing. Preview, status, apply, and
+uninstall never reconstruct the missing target from ancestors or Git
+worktree topology; a non-Git installation remains eligible for ordinary
+intentional-deletion retirement when it has no exclusion record.

@@ -66,6 +66,8 @@ export interface ResolvedArtifactRecord {
 export interface ProjectInstallationManifest {
   readonly adapterVersion: string;
   readonly engineVersion: string;
+  /** Whether the installation was planned from a Git project boundary. */
+  readonly gitProject?: boolean;
   readonly hosts: readonly string[];
   readonly hostVersions: Readonly<Record<string, string>>;
   readonly installationId: string;
@@ -119,6 +121,13 @@ function requireMapping(value: unknown, description: string): Record<string, unk
 function requireString(value: unknown, description: string): string {
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`${description} must be a non-empty string`);
+  }
+  return value;
+}
+
+function requireBoolean(value: unknown, description: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`${description} must be a boolean`);
   }
   return value;
 }
@@ -478,6 +487,7 @@ function parseManifestMapping(value: unknown): ProjectInstallationManifest {
       "host_versions",
       "adapter_version",
       "engine_version",
+      "git_project",
       "workspace_input_hash",
       "outputs",
     ],
@@ -507,6 +517,9 @@ function parseManifestMapping(value: unknown): ProjectInstallationManifest {
   return {
     adapterVersion: requireString(manifest.adapter_version, "Installation Manifest adapter_version"),
     engineVersion: requireString(manifest.engine_version, "Installation Manifest engine_version"),
+    ...(manifest.git_project === undefined
+      ? {}
+      : { gitProject: requireBoolean(manifest.git_project, "Installation Manifest git_project") }),
     hosts,
     hostVersions,
     installationId: requireString(manifest.installation_id, "Installation Manifest installation_id"),
@@ -573,6 +586,7 @@ function manifestValue(manifest: ProjectInstallationManifest): Record<string, un
     host_versions: manifest.hostVersions,
     adapter_version: manifest.adapterVersion,
     engine_version: manifest.engineVersion,
+    ...(manifest.gitProject === undefined ? {} : { git_project: manifest.gitProject }),
     workspace_input_hash: manifest.workspaceInputHash,
     outputs: manifest.outputs.map((output) =>
       output.type === "file"

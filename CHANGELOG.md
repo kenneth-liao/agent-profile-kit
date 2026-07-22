@@ -19,9 +19,11 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 - Keep schema-v2 Installation State readable through a one-time Repository Exclusion Record migration, publish schema v3 on the next successful lifecycle operation, and document downgrade/recovery guidance ([#77](https://github.com/kenneth-liao/agent-profile-kit/issues/77)).
 - Document the required pre-migration Local Configuration backup and restore procedure for schema-v2 downgrade ([#68](https://github.com/kenneth-liao/agent-profile-kit/issues/68)).
+- Document the 0.24.2 Installation State backup and pre-delete apply required for rollback and safe retirement of pre-0.24.2 non-Git installations ([#78](https://github.com/kenneth-liao/agent-profile-kit/issues/78)).
 
 ### Fixed
 
+- Retire intentionally deleted projects after exact-path `unbind` without requiring a vanished Installation Marker, while preserving shared Git exclusion ownership and failing closed on missing or drifted exclusion sections ([#78](https://github.com/kenneth-liao/agent-profile-kit/issues/78)).
 - Surface Installation State restore failures during transactional apply and uninstall instead of silently discarding recovery errors ([#77](https://github.com/kenneth-liao/agent-profile-kit/issues/77)).
 - Reconcile each Project Binding only at its exact canonical project root without enrolling sibling Git worktrees ([#76](https://github.com/kenneth-liao/agent-profile-kit/issues/76)).
 - Reject Workspace selections that overlap Local Configuration or disposable installation state, including configured and symlinked paths ([#73](https://github.com/kenneth-liao/agent-profile-kit/pull/73)).
