@@ -8,6 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Repair wholly absent owned files and complete artifact directories from current Workspace source when the Installation Marker and every surviving output prove ownership ([#79](https://github.com/kenneth-liao/agent-profile-kit/issues/79)).
 - Make Repository Exclusion Records the canonical machine-local ownership source for shared Git exclusion files, including deterministic unions, fail-closed validation, and transactional reconciliation ([#77](https://github.com/kenneth-liao/agent-profile-kit/issues/77)).
 - Add concise, outcome-led `bind`, `preview`, `apply`, and `status` output with
   Profile Installation grouping, actionable ownership blockers, and explicit

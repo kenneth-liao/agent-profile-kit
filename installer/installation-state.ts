@@ -404,17 +404,35 @@ export async function proveRemainingOwnedOutputs(
   return proveOutputHashes(installation, false);
 }
 
-export async function proveOwnedInstallation(
+export interface InstallationOwnershipInspection {
+  readonly owned: boolean;
+  readonly reason?: string;
+  readonly repairableMissingOutputs: readonly string[];
+}
+
+/**
+ * Inspect the Installation Marker and every recorded output once, distinguishing
+ * whole-output absence from ambiguous partial absence or drift.
+ */
+export async function inspectInstallationOwnership(
   installation: ProjectInstallationManifest,
-): Promise<{ readonly reason?: string; readonly owned: boolean }> {
+): Promise<InstallationOwnershipInspection> {
   try {
     const markerStats = await lstat(markerPath(installation.project));
     if (markerStats.isSymbolicLink() || !markerStats.isFile()) {
-      return { owned: false, reason: "Installation Marker is not a regular file" };
+      return {
+        owned: false,
+        reason: "Installation Marker is not a regular file",
+        repairableMissingOutputs: [],
+      };
     }
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      return { owned: false, reason: "Installation Marker is missing" };
+      return {
+        owned: false,
+        reason: "Installation Marker is missing",
+        repairableMissingOutputs: [],
+      };
     }
     throw error;
   }
@@ -425,13 +443,77 @@ export async function proveOwnedInstallation(
     return {
       owned: false,
       reason: `Installation Marker is malformed: ${error instanceof Error ? error.message : String(error)}`,
+      repairableMissingOutputs: [],
     };
   }
-  if (!marker) return { owned: false, reason: "Installation Marker is missing" };
-  if (marker.installationId !== installation.installationId) {
-    return { owned: false, reason: "Installation Marker identity does not match the Manifest" };
+  if (!marker) {
+    return {
+      owned: false,
+      reason: "Installation Marker is missing",
+      repairableMissingOutputs: [],
+    };
   }
-  return proveOutputHashes(installation, true);
+  if (marker.installationId !== installation.installationId) {
+    return {
+      owned: false,
+      reason: "Installation Marker identity does not match the Manifest",
+      repairableMissingOutputs: [],
+    };
+  }
+
+  const repairableMissingOutputs: string[] = [];
+  for (const output of installation.outputs) {
+    if (output.path === INSTALLATION_MARKER_PATH) continue;
+    const unsafeParent = await unsafeOutputParent(installation.project, output.path);
+    if (unsafeParent) {
+      return {
+        owned: false,
+        reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
+        repairableMissingOutputs: [],
+      };
+    }
+    try {
+      await lstat(join(installation.project, output.path));
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) {
+        repairableMissingOutputs.push(output.path);
+        continue;
+      }
+      throw error;
+    }
+  }
+  const missingPaths = new Set(repairableMissingOutputs);
+  const surviving: ProjectInstallationManifest = {
+    ...installation,
+    outputs: installation.outputs.filter(
+      (output) => !missingPaths.has(output.path),
+    ),
+  };
+  const proof = await proveOutputHashes(surviving, true);
+  if (!proof.owned && repairableMissingOutputs.length > 0) {
+    return {
+      owned: false,
+      reason: `owned output missing: ${repairableMissingOutputs.join(", ")}; ${proof.reason ?? "surviving output ownership cannot be proven"}`,
+      repairableMissingOutputs: [],
+    };
+  }
+  return {
+    ...proof,
+    repairableMissingOutputs: proof.owned ? repairableMissingOutputs : [],
+  };
+}
+
+export async function proveOwnedInstallation(
+  installation: ProjectInstallationManifest,
+): Promise<{ readonly reason?: string; readonly owned: boolean }> {
+  const inspection = await inspectInstallationOwnership(installation);
+  if (inspection.repairableMissingOutputs.length > 0) {
+    return {
+      owned: false,
+      reason: `owned output missing: ${inspection.repairableMissingOutputs.join(", ")}`,
+    };
+  }
+  return inspection;
 }
 
 export async function removeProvenInstallation(

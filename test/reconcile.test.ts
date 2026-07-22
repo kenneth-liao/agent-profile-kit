@@ -163,6 +163,73 @@ describe("injected project filesystem failures", () => {
     expect(state.installations[0]!.outputs.find((output) => output.path.endsWith("context.md"))?.mode).toBe(0o600);
   });
 
+  test("a missing-output repair remains retryable across output and Installation State publication failures", async () => {
+    const home = temporaryDirectory("agent-profile-kit-repair-failure-home-");
+    const project = temporaryDirectory("agent-profile-kit-repair-failure-project-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nRepair transaction.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, desired.installations);
+    const canonicalProject = desired.installations[0]!.binding.canonicalProject;
+    const context = join(canonicalProject, ".agent-profile-kit", "codex", "context.md");
+    const marker = join(canonicalProject, ".agent-profile-kit", "installation.json");
+    const originalMarker = readFileSync(marker, "utf8");
+    const originalState = await readInstallationState(home);
+    rmSync(context);
+    let outputFailureInjected = false;
+
+    await expect(applyReconciliation(home, desired.installations, {
+      fileSystem: {
+        rename: async (oldPath, newPath) => {
+          if (
+            !outputFailureInjected &&
+            oldPath.toString().startsWith(`${canonicalProject}/.agent-profile-kit-stage-`) &&
+            newPath.toString() === context
+          ) {
+            outputFailureInjected = true;
+            throw new Error("injected repair output failure");
+          }
+          await rename(oldPath, newPath);
+        },
+      },
+    })).rejects.toThrow("injected repair output failure");
+    expect(existsSync(context)).toBe(false);
+    expect(readFileSync(marker, "utf8")).toBe(originalMarker);
+    expect(await readInstallationState(home)).toEqual(originalState);
+    await expect(applyReconciliation(home, desired.installations)).resolves.toBeDefined();
+
+    rmSync(context);
+    let stateFailureInjected = false;
+    await expect(applyReconciliation(home, desired.installations, {
+      writeInstallationState: async (targetHome, state) => {
+        if (!stateFailureInjected) {
+          stateFailureInjected = true;
+          throw new Error("injected repair state failure");
+        }
+        await writeInstallationState(targetHome, state);
+      },
+    })).rejects.toThrow("injected repair state failure");
+    expect(existsSync(context)).toBe(false);
+    expect(readFileSync(marker, "utf8")).toBe(originalMarker);
+    expect(await readInstallationState(home)).toEqual(originalState);
+
+    await expect(applyReconciliation(home, desired.installations)).resolves.toBeDefined();
+    expect(readFileSync(context, "utf8")).toContain("Repair transaction.");
+  });
+
   test("surfaces installation-state restore failures after an apply error", async () => {
     const home = temporaryDirectory("agent-profile-kit-state-restore-home-");
     const project = temporaryDirectory("agent-profile-kit-state-restore-project-");

@@ -38,6 +38,7 @@ function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputS
       if (output.kind === "addition") return { ...summary, additions: summary.additions + 1 };
       if (output.kind === "update") return { ...summary, updates: summary.updates + 1 };
       if (output.kind === "removal") return { ...summary, removals: summary.removals + 1 };
+      if (output.kind === "repair") return { ...summary, updates: summary.updates + 1 };
       if (output.kind === "unchanged") return { ...summary, unchanged: summary.unchanged + 1 };
       return { ...summary, drift: summary.drift + 1 };
     },
