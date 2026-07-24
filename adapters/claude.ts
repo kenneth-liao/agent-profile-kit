@@ -63,6 +63,16 @@ export const CLAUDE_CONTEXT_RULE_PATH = posix.join(
   "agent-profile-kit.md",
 );
 
+/**
+ * Semantic requirements for the owned Claude Context rule.
+ * Shared Host consumers (for example Grok Claude-rules compatibility) must plan
+ * the same list so Installer normalization can coalesce exact output.
+ */
+export const CLAUDE_CONTEXT_REQUIREMENTS = [
+  "Claude loads unscoped project rule as additive Profile Context",
+  "Claude re-injects unscoped rules after compaction",
+] as const;
+
 /** Claude native project Skill discovery root. */
 export const CLAUDE_SKILLS_DISCOVERY_ROOT = posix.join(".claude", "skills");
 
@@ -333,10 +343,7 @@ function contextRule(
     bytes: composeContextEnvelope(profileId, modules),
     mode: 0o644,
     path: CLAUDE_CONTEXT_RULE_PATH,
-    requirements: [
-      "Claude loads unscoped project rule as additive Profile Context",
-      "Claude re-injects unscoped rules after compaction",
-    ],
+    requirements: [...CLAUDE_CONTEXT_REQUIREMENTS],
     type: "file",
   };
 }

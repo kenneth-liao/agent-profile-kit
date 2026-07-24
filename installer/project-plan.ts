@@ -13,6 +13,14 @@ import {
   detectCodexGlobalSkillOverlaps,
   planCodexProject,
 } from "../adapters/codex.js";
+import {
+  assertGrokProjectCapability,
+  GROK_ADAPTER_VERSION,
+  grokSkillsUnsupportedBlocker,
+  inspectGrokProject,
+  planGrokProject,
+  type GrokInspection,
+} from "../adapters/grok.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
   AdapterProjectPlan,
@@ -98,6 +106,7 @@ export function adapterVersionFor(hosts: readonly SupportedHost[]): string {
   const versions = hosts.map((host) => {
     if (host === "claude") return CLAUDE_ADAPTER_VERSION;
     if (host === "codex") return CODEX_ADAPTER_VERSION;
+    if (host === "grok") return GROK_ADAPTER_VERSION;
     const exhaustive: never = host;
     throw new Error(`Unsupported Agent Host '${String(exhaustive)}'`);
   });
@@ -448,6 +457,7 @@ export async function buildDesiredState(
     const requireContext = resolvedProfile.contexts.length > 0;
     const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
     for (const host of binding.hosts) {
+      let grokInspection: GrokInspection | undefined;
       if (options.checkHostCapability !== false) {
         try {
           if (host === "codex") {
@@ -460,11 +470,22 @@ export async function buildDesiredState(
               requireContext,
               requireDisabledModelInvocation,
             });
+          } else if (host === "grok") {
+            grokInspection = await assertGrokProjectCapability(binding.canonicalProject);
           }
         } catch (error) {
           blockers.push(
             `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
           );
+        }
+      } else if (host === "grok") {
+        // Path selection depends on Claude rules compatibility even when full
+        // capability preflight is skipped (status/validate). Soft-inspect when
+        // available; fall back to Grok's documented default (enabled) if not.
+        try {
+          grokInspection = await inspectGrokProject(binding.canonicalProject);
+        } catch {
+          grokInspection = undefined;
         }
       }
       // Global Skill identity overlap is independent of CLI capability probes and must
@@ -481,6 +502,10 @@ export async function buildDesiredState(
             project: binding.canonicalProject,
           })).map((message) => `${binding.project}: ${message}`),
         );
+      } else if (host === "grok" && resolvedProfile.skills.length > 0) {
+        // Portable Grok Skill delivery is owned by a successor ticket; fail closed
+        // rather than accepting the binding and silently omitting selected Skills.
+        blockers.push(grokSkillsUnsupportedBlocker(binding.project));
       }
       if (host === "codex") {
         const contextPath = [
@@ -513,6 +538,21 @@ export async function buildDesiredState(
         );
         plans.push(adapterPlan);
         hostVersions.claude = adapterPlan.hostVersion;
+        continue;
+      }
+      if (host === "grok") {
+        const adapterPlan = await planGrokProject(
+          profile.id,
+          resolvedProfile.contexts,
+          {
+            claudeCoSelected: binding.hosts.includes("claude"),
+            // Default matches Grok's documented Claude rules default when capability
+            // inspection was skipped (lifecycle tests) or failed after version probe.
+            claudeRulesEnabled: grokInspection?.claudeRulesEnabled ?? true,
+          },
+        );
+        plans.push(adapterPlan);
+        hostVersions.grok = adapterPlan.hostVersion;
         continue;
       }
       const exhaustive: never = host;
