@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatLifecycleReport } from "../cli/presentation.js";
-import type { ReconciliationReport } from "../installer/reconcile.js";
+import { formatLifecycleReport, NON_CURRENT_STATE_ORDER } from "../cli/presentation.js";
+import type { ReconciliationKind, ReconciliationReport } from "../installer/reconcile.js";
 
 function emptyReport(overrides: Partial<ReconciliationReport> = {}): ReconciliationReport {
   return {
@@ -13,6 +13,31 @@ function emptyReport(overrides: Partial<ReconciliationReport> = {}): Reconciliat
     warnings: [],
     ...overrides,
   };
+}
+
+/** Distinctive anchor phrases — not a second home for the full gloss table. */
+const STATE_ANCHORS: Readonly<Record<(typeof NON_CURRENT_STATE_ORDER)[number], string>> = {
+  addition: "not installed yet",
+  "missing output": "not a safe automatic repair",
+  update: "rewrite Installer-owned generated outputs",
+  "stale source": "Workspace source changed",
+  "repairable missing output": "ownership is proven",
+  "drifted output": "not treated as a safe automatic rewrite",
+  "malformed ownership state": "cannot prove what it owns",
+  blocked: "until the listed blocker is resolved",
+  removal: "remove proven Installer-owned generated outputs",
+};
+
+function explanationLines(reportText: string): string[] {
+  const start = reportText.indexOf("State explanations:\n");
+  if (start < 0) return [];
+  const after = reportText.slice(start + "State explanations:\n".length);
+  const lines: string[] = [];
+  for (const line of after.split("\n")) {
+    if (!line.startsWith("- ")) break;
+    lines.push(line);
+  }
+  return lines;
 }
 
 describe("formatLifecycleReport concise terminology", () => {
@@ -47,58 +72,7 @@ describe("formatLifecycleReport concise terminology", () => {
   });
 
   test("explains every non-current Profile Installation state only when present", () => {
-    const explanations: ReadonlyArray<{
-      readonly kind:
-        | "addition"
-        | "update"
-        | "stale source"
-        | "repairable missing output"
-        | "drifted output"
-        | "malformed ownership state"
-        | "blocked"
-        | "removal"
-        | "missing output";
-      readonly text: string;
-    }> = [
-      {
-        kind: "addition",
-        text: "The Profile Installation is not installed yet; apply will create its Installer-owned generated outputs.",
-      },
-      {
-        kind: "update",
-        text: "Desired state changed for this Profile Installation; apply will rewrite Installer-owned generated outputs to match.",
-      },
-      {
-        kind: "stale source",
-        text: "Workspace source changed since the last apply; generated outputs no longer match current desired state.",
-      },
-      {
-        kind: "repairable missing output",
-        text: "An owned generated output is wholly missing, but ownership is proven; apply will recreate it from current Workspace source.",
-      },
-      {
-        kind: "drifted output",
-        text: "An owned generated output no longer matches its Installation Manifest hash and is not treated as a safe automatic rewrite.",
-      },
-      {
-        kind: "malformed ownership state",
-        text: "Ownership metadata is incomplete or inconsistent, so the Installer cannot prove what it owns.",
-      },
-      {
-        kind: "blocked",
-        text: "Reconciliation cannot change this Profile Installation until the listed blocker is resolved.",
-      },
-      {
-        kind: "removal",
-        text: "No Project Binding remains for this installation; apply will remove proven Installer-owned generated outputs.",
-      },
-      {
-        kind: "missing output",
-        text: "The Profile Installation is absent or its generated outputs are missing without proven Installer ownership; this is not a safe automatic repair.",
-      },
-    ];
-
-    for (const { kind, text } of explanations) {
+    for (const kind of NON_CURRENT_STATE_ORDER) {
       const report = emptyReport({
         desired: [{
           canonicalProject: "/solo",
@@ -120,16 +94,11 @@ describe("formatLifecycleReport concise terminology", () => {
 
       const concise = formatLifecycleReport("status", report);
       expect(concise).toContain(`State: ${kind}`);
-      expect(concise).toContain("State explanations:");
-      expect(concise).toContain(`- ${kind}: ${text}`);
-      // Only this state's explanation should appear for a single-state report.
-      const explanationLines = concise
-        .split("\n")
-        .filter((line) =>
-          line.startsWith("- ") &&
-          explanations.some((entry) => line.startsWith(`- ${entry.kind}:`)),
-        );
-      expect(explanationLines).toHaveLength(1);
+      const glosses = explanationLines(concise);
+      expect(glosses).toHaveLength(1);
+      expect(glosses[0]).toMatch(new RegExp(`^- ${kind.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: .+`));
+      expect(glosses[0]!.length).toBeGreaterThan(`- ${kind}: `.length);
+      expect(glosses[0]).toContain(STATE_ANCHORS[kind]);
     }
 
     const currentOnly = emptyReport({
@@ -194,6 +163,43 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).toMatch(
       /Profile Installation: \/project-b\n  Profile: coding\n  State: stale source\n  State: blocked \(hooks disabled\)\n  Changes: 1 generated-output addition, 1 generated-output update\n  Blocker: hooks disabled\n/,
     );
+  });
+
+  test("orders state explanations stably by NON_CURRENT_STATE_ORDER when several kinds are present", () => {
+    const present: readonly ReconciliationKind[] = ["removal", "blocked", "addition", "stale source"];
+    const report = emptyReport({
+      desired: present.map((kind, index) => ({
+        canonicalProject: `/p${index}`,
+        context: "composed",
+        outputs: [],
+        profile: "coding",
+        project: `/p${index}`,
+        resolvedArtifacts: [],
+      })),
+      items: present.map((kind, index) =>
+        kind === "blocked"
+          ? { kind, project: `/p${index}`, reason: "hooks disabled" }
+          : { kind, project: `/p${index}` },
+      ),
+      blockers: [{ message: "/p1: hooks disabled", project: "/p1" }],
+    });
+
+    const glosses = explanationLines(formatLifecycleReport("status", report));
+    const kinds = glosses.map((line) => line.slice(2, line.indexOf(":")));
+    expect(kinds).toEqual(NON_CURRENT_STATE_ORDER.filter((kind) => present.includes(kind)));
+  });
+
+  test("places state explanations after Diagnostics for unscoped items", () => {
+    const report = emptyReport({
+      items: [{ kind: "removal", project: "/orphan" }],
+    });
+    const concise = formatLifecycleReport("status", report);
+    const diagnosticsAt = concise.indexOf("Diagnostics:");
+    const explanationsAt = concise.indexOf("State explanations:");
+    expect(diagnosticsAt).toBeGreaterThan(-1);
+    expect(explanationsAt).toBeGreaterThan(diagnosticsAt);
+    expect(concise).toContain("- /orphan: removal");
+    expect(explanationLines(concise)).toHaveLength(1);
   });
 
   test("explains Repository Exclusion deltas as Git-local exclusions while preserving exact paths", () => {

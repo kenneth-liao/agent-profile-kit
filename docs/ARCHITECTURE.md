@@ -89,9 +89,9 @@ Commands separate binding authoring from global reconciliation:
 - `bind` appends one validated Project Binding to Local Configuration only. It serializes other `bind` processes with a sidecar lock, rechecks the exact source snapshot, and publishes with an atomic replacement. It does not preview, apply, or touch Host, Workspace, project, or installation state.
 - `unbind` removes one Project Binding from Local Configuration only. Existing paths match by canonical identity; a missing path may match only its exact authored spelling. It uses the same lock, snapshot recheck, and atomic publication boundary as `bind`, and never removes generated output.
 - `validate` checks the Workspace and Project Bindings.
-- `preview` shows additions, updates, repairs, removals, unchanged installations, and blocking conflicts without writing.
+- `preview` summarizes generated-output additions, updates, repairs, removals, and drift, with short explanations for non-current Profile Installation states when present, and blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics.
 - `apply` reconciles every binding.
-- `status` reports current, stale source, repairable missing output, drifted output, missing output, malformed ownership, and blocked installations.
+- `status` reports current, stale source, repairable missing output, drifted output, missing output, malformed ownership, and blocked installations, with the same concise generated-output units and presence-gated state explanations.
 - `uninstall` safely removes all owned Profile Installations without deleting the Workspace or bindings.
 
 `unbind` changes desired Project Binding state and directs the user to global

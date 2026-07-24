@@ -10,6 +10,34 @@ export type LifecycleCommand = "preview" | "apply" | "status";
 
 type NonCurrentKind = Exclude<ReconciliationKind, "current">;
 
+/**
+ * Single ordered list of non-current Profile Installation states for concise glosses.
+ * Exhaustiveness against `ReconciliationKind` is asserted below so a new kind cannot
+ * render without an explanation entry.
+ */
+export const NON_CURRENT_STATE_ORDER = [
+  "addition",
+  "missing output",
+  "update",
+  "stale source",
+  "repairable missing output",
+  "drifted output",
+  "malformed ownership state",
+  "blocked",
+  "removal",
+] as const;
+
+type OrderedNonCurrentKind = (typeof NON_CURRENT_STATE_ORDER)[number];
+
+type AssertOrderExhaustive =
+  Exclude<NonCurrentKind, OrderedNonCurrentKind> extends never
+    ? Exclude<OrderedNonCurrentKind, NonCurrentKind> extends never
+      ? true
+      : never
+    : never;
+const _assertOrderExhaustive: AssertOrderExhaustive = true;
+void _assertOrderExhaustive;
+
 /** Short, progressive-disclosure glosses for non-current Profile Installation states. */
 const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
   addition:
@@ -32,25 +60,12 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
     "The Profile Installation is absent or its generated outputs are missing without proven Installer ownership; this is not a safe automatic repair.",
 };
 
-const STATE_EXPLANATION_ORDER: readonly NonCurrentKind[] = [
-  "addition",
-  "missing output",
-  "update",
-  "stale source",
-  "repairable missing output",
-  "drifted output",
-  "malformed ownership state",
-  "blocked",
-  "removal",
-];
-
 interface OutputSummary {
   readonly additions: number;
   readonly updates: number;
   readonly repairs: number;
   readonly removals: number;
   readonly drift: number;
-  readonly unchanged: number;
 }
 
 interface ProjectGroup {
@@ -77,10 +92,10 @@ function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputS
       if (output.kind === "update") return { ...summary, updates: summary.updates + 1 };
       if (output.kind === "removal") return { ...summary, removals: summary.removals + 1 };
       if (output.kind === "repair") return { ...summary, repairs: summary.repairs + 1 };
-      if (output.kind === "unchanged") return { ...summary, unchanged: summary.unchanged + 1 };
+      if (output.kind === "unchanged") return summary;
       return { ...summary, drift: summary.drift + 1 };
     },
-    { additions: 0, updates: 0, repairs: 0, removals: 0, drift: 0, unchanged: 0 },
+    { additions: 0, updates: 0, repairs: 0, removals: 0, drift: 0 },
   );
 }
 
@@ -139,7 +154,7 @@ function presentNonCurrentKinds(items: readonly ReconciliationItem[]): readonly 
   for (const item of items) {
     if (isNonCurrentKind(item.kind)) present.add(item.kind);
   }
-  return STATE_EXPLANATION_ORDER.filter((kind) => present.has(kind));
+  return NON_CURRENT_STATE_ORDER.filter((kind) => present.has(kind));
 }
 
 function stateExplanationLines(items: readonly ReconciliationItem[]): readonly string[] {
@@ -327,14 +342,6 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
     }
   }
 
-  const explanations = stateExplanationLines([
-    ...activeGroups.flatMap((group) => group.items),
-    ...grouped.unscopedItems,
-  ]);
-  if (explanations.length > 0) {
-    lines.push("", ...explanations);
-  }
-
   const exclusionChanges = changedRepositoryExclusions(report);
   if (exclusionChanges.length > 0) {
     lines.push(
@@ -355,6 +362,14 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
   if (grouped.unscopedItems.length > 0) {
     lines.push("", "Diagnostics:");
     for (const item of grouped.unscopedItems) lines.push(`- ${item.project}: ${itemText(item)}`);
+  }
+  // After every state line (installations + unscoped diagnostics) so glosses follow the states they explain.
+  const explanations = stateExplanationLines([
+    ...activeGroups.flatMap((group) => group.items),
+    ...grouped.unscopedItems,
+  ]);
+  if (explanations.length > 0) {
+    lines.push("", ...explanations);
   }
   const warnings = warningsForPresentation(command, report.warnings);
   if (warnings.length > 0) {
