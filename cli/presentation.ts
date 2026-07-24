@@ -2,10 +2,63 @@ import type {
   OutputReconciliationItem,
   ReconciliationBlocker,
   ReconciliationItem,
+  ReconciliationKind,
   ReconciliationReport,
 } from "../installer/reconcile.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
+
+type NonCurrentKind = Exclude<ReconciliationKind, "current">;
+
+/**
+ * Single ordered list of non-current Profile Installation states for concise glosses.
+ * Exhaustiveness against `ReconciliationKind` is asserted below so a new kind cannot
+ * render without an explanation entry.
+ */
+export const NON_CURRENT_STATE_ORDER = [
+  "addition",
+  "missing output",
+  "update",
+  "stale source",
+  "repairable missing output",
+  "drifted output",
+  "malformed ownership state",
+  "blocked",
+  "removal",
+] as const;
+
+type OrderedNonCurrentKind = (typeof NON_CURRENT_STATE_ORDER)[number];
+
+type AssertOrderExhaustive =
+  Exclude<NonCurrentKind, OrderedNonCurrentKind> extends never
+    ? Exclude<OrderedNonCurrentKind, NonCurrentKind> extends never
+      ? true
+      : never
+    : never;
+const _assertOrderExhaustive: AssertOrderExhaustive = true;
+void _assertOrderExhaustive;
+
+/** Short, progressive-disclosure glosses for non-current Profile Installation states. */
+const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
+  addition:
+    "The Profile Installation is not installed yet; apply will create its Installer-owned generated outputs.",
+  update:
+    "Desired state changed for this Profile Installation; apply will rewrite Installer-owned generated outputs to match.",
+  "stale source":
+    "Workspace source changed since the last apply; generated outputs no longer match current desired state.",
+  "repairable missing output":
+    "An owned generated output is wholly missing, but ownership is proven; apply will recreate it from current Workspace source.",
+  "drifted output":
+    "An owned generated output no longer matches its Installation Manifest hash and is not treated as a safe automatic rewrite.",
+  "malformed ownership state":
+    "Ownership metadata is incomplete or inconsistent, so the Installer cannot prove what it owns.",
+  blocked:
+    "Reconciliation cannot change this Profile Installation until the listed blocker is resolved.",
+  removal:
+    "No Project Binding remains for this installation; apply will remove proven Installer-owned generated outputs.",
+  "missing output":
+    "The Profile Installation is absent or its generated outputs are missing without proven Installer ownership; this is not a safe automatic repair.",
+};
 
 interface OutputSummary {
   readonly additions: number;
@@ -13,7 +66,6 @@ interface OutputSummary {
   readonly repairs: number;
   readonly removals: number;
   readonly drift: number;
-  readonly unchanged: number;
 }
 
 interface ProjectGroup {
@@ -40,21 +92,21 @@ function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputS
       if (output.kind === "update") return { ...summary, updates: summary.updates + 1 };
       if (output.kind === "removal") return { ...summary, removals: summary.removals + 1 };
       if (output.kind === "repair") return { ...summary, repairs: summary.repairs + 1 };
-      if (output.kind === "unchanged") return { ...summary, unchanged: summary.unchanged + 1 };
+      if (output.kind === "unchanged") return summary;
       return { ...summary, drift: summary.drift + 1 };
     },
-    { additions: 0, updates: 0, repairs: 0, removals: 0, drift: 0, unchanged: 0 },
+    { additions: 0, updates: 0, repairs: 0, removals: 0, drift: 0 },
   );
 }
 
+/** Concise change units; unchanged generated outputs are omitted by design. */
 function changeParts(summary: OutputSummary): string[] {
   const parts: string[] = [];
-  if (summary.additions > 0) parts.push(plural(summary.additions, "addition"));
-  if (summary.updates > 0) parts.push(plural(summary.updates, "update"));
-  if (summary.repairs > 0) parts.push(plural(summary.repairs, "repair"));
-  if (summary.removals > 0) parts.push(plural(summary.removals, "removal"));
-  if (summary.drift > 0) parts.push(`${plural(summary.drift, "drift item")}`);
-  if (summary.unchanged > 0) parts.push(plural(summary.unchanged, "unchanged output"));
+  if (summary.additions > 0) parts.push(plural(summary.additions, "generated-output addition"));
+  if (summary.updates > 0) parts.push(plural(summary.updates, "generated-output update"));
+  if (summary.repairs > 0) parts.push(plural(summary.repairs, "generated-output repair"));
+  if (summary.removals > 0) parts.push(plural(summary.removals, "generated-output removal"));
+  if (summary.drift > 0) parts.push(plural(summary.drift, "generated-output drift item"));
   return parts;
 }
 
@@ -91,6 +143,27 @@ function exclusionDeltaText(change: ReconciliationReport["repositoryExclusions"]
 
 function itemText(item: ReconciliationItem): string {
   return `${item.kind}${item.reason ? ` (${item.reason})` : ""}`;
+}
+
+function isNonCurrentKind(kind: ReconciliationKind): kind is NonCurrentKind {
+  return kind !== "current";
+}
+
+function presentNonCurrentKinds(items: readonly ReconciliationItem[]): readonly NonCurrentKind[] {
+  const present = new Set<NonCurrentKind>();
+  for (const item of items) {
+    if (isNonCurrentKind(item.kind)) present.add(item.kind);
+  }
+  return NON_CURRENT_STATE_ORDER.filter((kind) => present.has(kind));
+}
+
+function stateExplanationLines(items: readonly ReconciliationItem[]): readonly string[] {
+  const kinds = presentNonCurrentKinds(items);
+  if (kinds.length === 0) return [];
+  return [
+    "State explanations:",
+    ...kinds.map((kind) => `- ${kind}: ${STATE_EXPLANATIONS[kind]}`),
+  ];
 }
 
 function projectCandidates(blocker: ReconciliationBlocker, displayProject?: string): string[] {
@@ -218,7 +291,7 @@ function outcomeLine(command: LifecycleCommand, report: ReconciliationReport): s
 function aggregateLine(report: ReconciliationReport, groups: readonly ProjectGroup[]): string {
   const installations = groups.length;
   const summary = summarizeOutputs(report.outputs);
-  const changes = changeParts(summary).filter((part) => !part.endsWith("unchanged output") && !part.endsWith("unchanged outputs"));
+  const changes = changeParts(summary);
   return (
     `Profile Installations: ${installations} · ` +
     `Changes: ${changes.length === 0 ? "none" : changes.join(", ")} · ` +
@@ -263,7 +336,7 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
       for (const item of group.items) {
         if (item.kind !== "current") lines.push(`  State: ${itemText(item)}`);
       }
-      const changes = changeParts(summary).filter((part) => !part.endsWith("unchanged output") && !part.endsWith("unchanged outputs"));
+      const changes = changeParts(summary);
       if (changes.length > 0) lines.push(`  Changes: ${changes.join(", ")}`);
       for (const blocker of group.blockers) lines.push(`  Blocker: ${formatBlocker(blocker, group.project)}`);
     }
@@ -271,7 +344,11 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
 
   const exclusionChanges = changedRepositoryExclusions(report);
   if (exclusionChanges.length > 0) {
-    lines.push("", "Repository exclusions:");
+    lines.push(
+      "",
+      "Repository exclusions:",
+      "Git-local exclusions that keep Installer-owned generated paths untracked.",
+    );
     for (const change of exclusionChanges) {
       lines.push(`- ${change.target}: ${exclusionDeltaText(change)}`);
     }
@@ -285,6 +362,14 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
   if (grouped.unscopedItems.length > 0) {
     lines.push("", "Diagnostics:");
     for (const item of grouped.unscopedItems) lines.push(`- ${item.project}: ${itemText(item)}`);
+  }
+  // After every state line (installations + unscoped diagnostics) so glosses follow the states they explain.
+  const explanations = stateExplanationLines([
+    ...activeGroups.flatMap((group) => group.items),
+    ...grouped.unscopedItems,
+  ]);
+  if (explanations.length > 0) {
+    lines.push("", ...explanations);
   }
   const warnings = warningsForPresentation(command, report.warnings);
   if (warnings.length > 0) {

@@ -79,16 +79,19 @@ Use this workflow when helping a person author their Workspace and bind projects
    approvals, plugins, or sessions. For non-Git projects, remind the user that
    Codex must launch from the exact bound root.
 8. Use `status` to focus on Profile Installations needing attention; its concise
-   result reports all-current state when nothing needs action and preserves
-   warnings and blockers. Add `--verbose` to distinguish current, stale,
-   drifted, missing, and blocked installations in the complete report (including
-   later global Skill identity collisions). `unbind` removes desired Project
-   Binding state but leaves generated output for global
-   `preview` and `apply`. `uninstall` instead removes only output whose
-   Installation Marker and hashes prove Agent Profile Kit ownership; it preserves
-   the Workspace, Local Configuration, global Host configuration, and
-   repository-owned files. Never use `uninstall` as a substitute for removing a
-   binding, or `unbind` as a substitute for output cleanup.
+   result reports all-current state when nothing needs action, labels change
+   counts as generated-output units, explains non-current states when they
+   appear, and preserves warnings and blockers. Repository Exclusion lines are
+   Git-local exclusions for Installer-owned generated paths. Add `--verbose` to
+   distinguish current, stale, drifted, missing, and blocked installations in
+   the complete per-output report (including later global Skill identity
+   collisions). `unbind` removes desired Project Binding state but leaves
+   generated output for global `preview` and `apply`. `uninstall` instead
+   removes only output whose Installation Marker and hashes prove Agent Profile
+   Kit ownership; it preserves the Workspace, Local Configuration, global Host
+   configuration, and repository-owned files. Never use `uninstall` as a
+   substitute for removing a binding, or `unbind` as a substitute for output
+   cleanup.
 
 If the user plans to publish the Workspace, remind them to review personal
 content. Credentials are invalid in a Workspace regardless of publication

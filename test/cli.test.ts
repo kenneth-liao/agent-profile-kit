@@ -1307,7 +1307,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout.startsWith("All Profile Installations are current\n")).toBe(true);
     expect(result.stdout).toContain("Changes: none");
     expect(result.stdout).toContain("No Profile Installations need attention.");
-    expect(result.stdout).not.toContain("unchanged output");
+    expect(result.stdout).not.toContain("unchanged generated output");
     expect(result.stdout).not.toContain("Desired State:");
   });
 
@@ -1505,7 +1505,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Apply complete");
     expect(result.stdout).toContain("Changes: none");
-    expect(result.stdout).not.toContain("unchanged output");
+    expect(result.stdout).not.toContain("unchanged generated output");
     expect(paths.map((path) => statSync(path).mtimeMs)).toEqual(before);
   });
 
@@ -2690,13 +2690,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const drift = runCli(home, "status");
     expect(drift.status, drift.stderr).toBe(0);
     expect(drift.stdout).toContain("State: stale source");
-    expect(drift.stdout).toContain("Changes: 1 update");
+    expect(drift.stdout).toContain("Changes: 1 generated-output update");
 
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
     const removal = runCli(home, "preview");
     expect(removal.status, removal.stderr).toBe(0);
     expect(removal.stdout).toContain("State: removal");
-    expect(removal.stdout).toMatch(/Changes: .*removal/);
+    expect(removal.stdout).toMatch(/Changes: .*generated-output removal/);
   });
 
   test("status attributes blockers by canonical project identity instead of path prefix", () => {
@@ -3081,7 +3081,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const concise = runCli(home, "preview");
     expect(concise.status, concise.stderr).toBe(0);
-    expect(concise.stdout).toContain("Changes: 1 repair");
+    expect(concise.stdout).toContain("Changes: 1 generated-output repair");
 
     for (const command of ["preview", "status"] as const) {
       const result = runCli(home, command, "--verbose");

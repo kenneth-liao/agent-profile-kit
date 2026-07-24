@@ -392,8 +392,13 @@ hooks = true
 Run `agent-profile-kit validate` to check the Workspace and every Project Binding.
 Review the concise read-only reconciliation outcome with
 `agent-profile-kit preview`. It leads with whether reconciliation can proceed,
-groups changes and blockers by Profile Installation, and summarizes additions,
-updates, removals, and drift without listing every unchanged output. Apply all
+groups changes and blockers by Profile Installation, and summarizes
+generated-output additions, updates, repairs, removals, and drift without
+listing every unchanged output. Non-current Profile Installation states such as
+`stale source`, `blocked`, or `removal` get a short explanation when present
+(once per distinct state across installations). Repository Exclusion deltas are
+Git-local exclusions that keep Installer-owned generated paths untracked; the
+exact exclusion target and added or removed paths remain listed. Apply all
 configured Project Bindings with `agent-profile-kit apply`; its result describes
 what reconciliation completed. Use `agent-profile-kit status` to focus on
 installations needing attention. These commands operate on the full binding

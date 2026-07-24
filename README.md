@@ -91,8 +91,11 @@ current working directory and only uses exact authored-path recovery when a
 requested project no longer exists. `preview` is read-only and leads with a
 ready-to-apply or cannot-apply outcome; `apply` reports what reconciliation
 completed; and `status` emphasizes Profile Installations that need attention.
-These default views group details by Profile Installation, summarize output
-changes, and keep warnings and blockers visible. Add `--verbose` to
+These default views group details by Profile Installation, summarize
+generated-output changes (additions, updates, repairs, removals, and drift),
+explain non-current Profile Installation states when they appear, describe
+Repository Exclusion deltas as Git-local exclusions for Installer-owned
+generated paths, and keep warnings and blockers visible. Add `--verbose` to
 `preview`, `apply`, or `status` for complete per-output and desired-state
 diagnostics, including resolved artifact inclusion reasons and composed Context.
 `uninstall` is different: it removes proven generated Profile Installation
