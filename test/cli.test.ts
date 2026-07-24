@@ -1347,6 +1347,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(verbose.stdout).toContain("Resolved artifacts:");
       expect(verbose.stdout).toContain("Context:");
 
+      const duplicateVerbose = runCli(home, command, "--verbose", "--verbose");
+      expect(duplicateVerbose.status, `${command} duplicate flag: ${duplicateVerbose.stderr}`).toBe(0);
+      expect(duplicateVerbose.stderr).toBe("");
+
       const unsupported = runCli(home, command, "--json");
       expect(unsupported.status).toBe(1);
       expect(unsupported.stderr).toContain(`${command} does not accept argument '--json'`);
@@ -4896,5 +4900,132 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(usage.status).toBe(1);
     expect(usage.stderr).toContain("bind <profile>");
     expect(usage.stderr).toContain("unbind [project]");
+  });
+});
+
+describe("agent-profile-kit root help", () => {
+  const COMMANDS = [
+    { name: "init", syntax: "init [workspace]" },
+    { name: "guide", syntax: "guide [--agent]" },
+    { name: "bind", syntax: "bind <profile> [project] --host <host> [--host <host> ...]" },
+    { name: "unbind", syntax: "unbind [project]" },
+    { name: "validate", syntax: "validate" },
+    { name: "preview", syntax: "preview [--verbose]" },
+    { name: "apply", syntax: "apply [--verbose]" },
+    { name: "status", syntax: "status [--verbose]" },
+    { name: "uninstall", syntax: "uninstall" },
+  ] as const;
+
+  test("bare invocation and --help print identical root help to stdout and exit successfully", () => {
+    const home = isolatedHome();
+    const bare = runCli(home);
+    const help = runCli(home, "--help");
+
+    expect(bare.status, bare.stderr).toBe(0);
+    expect(help.status, help.stderr).toBe(0);
+    expect(bare.stderr).toBe("");
+    expect(help.stderr).toBe("");
+    expect(bare.stdout).toBe(help.stdout);
+    expect(bare.stdout.length).toBeGreaterThan(0);
+  });
+
+  test("root help lists all nine supported commands with usable syntax and concise purposes", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "--help");
+    expect(result.status, result.stderr).toBe(0);
+
+    const commandsSection = result.stdout.match(/Commands:\n([\s\S]*?)\n\nProfile Installation quick start:/)?.[1];
+    expect(commandsSection).toBeDefined();
+    const commandLines = commandsSection!.split("\n").filter((line) => line.trim().length > 0);
+    expect(commandLines).toHaveLength(COMMANDS.length);
+    for (const command of COMMANDS) {
+      const line = commandLines.find((candidate) => new RegExp(`^\\s*${command.name}\\b`).test(candidate));
+      expect(line).toBeDefined();
+      expect(line).toContain(command.syntax);
+      const purpose = line!.slice(line!.indexOf(command.syntax) + command.syntax.length).trim();
+      expect(purpose.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("root help shows the minimal Profile Installation flow and points to guide for deeper authoring", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "--help");
+    expect(result.status, result.stderr).toBe(0);
+
+    const initIndex = result.stdout.indexOf("agent-profile-kit init");
+    const bindIndex = result.stdout.indexOf("agent-profile-kit bind", initIndex + 1);
+    const previewIndex = result.stdout.indexOf("agent-profile-kit preview", bindIndex + 1);
+    const applyIndex = result.stdout.indexOf("agent-profile-kit apply", previewIndex + 1);
+    expect(initIndex).toBeGreaterThanOrEqual(0);
+    expect(bindIndex).toBeGreaterThan(initIndex);
+    expect(previewIndex).toBeGreaterThan(bindIndex);
+    expect(applyIndex).toBeGreaterThan(previewIndex);
+
+    expect(result.stdout).toMatch(/agent-profile-kit guide/);
+    expect(result.stdout.toLowerCase()).toMatch(/workspace authoring/);
+  });
+
+  test("an unknown command exits nonzero, names the unknown command, and shows root usage", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "frobnicate");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("frobnicate");
+    expect(result.stderr).toContain("Usage: agent-profile-kit");
+    for (const { name } of COMMANDS) {
+      expect(result.stderr).toMatch(new RegExp(`\\b${name}\\b`));
+    }
+  });
+
+  test("representative invalid arguments exit nonzero, explain the error, and show the relevant command usage", () => {
+    const home = isolatedHome();
+
+    const missingProfile = runCli(home, "bind");
+    expect(missingProfile.status).toBe(1);
+    expect(missingProfile.stderr).toContain("bind requires a Profile Artifact ID");
+    expect(missingProfile.stderr).toContain("Usage: agent-profile-kit bind <profile>");
+
+    const missingHost = runCli(home, "bind", "coding");
+    expect(missingHost.status).toBe(1);
+    expect(missingHost.stderr).toContain("bind requires at least one --host flag");
+    expect(missingHost.stderr).toContain("supported Hosts: claude, codex");
+    expect(missingHost.stderr).toContain("Usage: agent-profile-kit bind <profile>");
+
+    const tooManyInitPaths = runCli(home, "init", "one", "two");
+    expect(tooManyInitPaths.status).toBe(1);
+    expect(tooManyInitPaths.stderr).toContain("init accepts at most one Workspace path");
+    expect(tooManyInitPaths.stderr).toContain("Usage: agent-profile-kit init [workspace]");
+    expect(tooManyInitPaths.stderr).not.toContain("Usage: agent-profile-kit bind");
+
+    const badLifecycleFlag = runCli(home, "preview", "--json");
+    expect(badLifecycleFlag.status).toBe(1);
+    expect(badLifecycleFlag.stderr).toContain("preview does not accept argument '--json'");
+    expect(badLifecycleFlag.stderr).toContain("Usage: agent-profile-kit preview [--verbose]");
+
+    const badAfterValidLifecycleFlag = runCli(home, "preview", "--verbose", "--json");
+    expect(badAfterValidLifecycleFlag.status).toBe(1);
+    expect(badAfterValidLifecycleFlag.stderr).toContain("preview does not accept argument '--json'");
+    expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: agent-profile-kit preview [--verbose]");
+
+    const badGuideFlag = runCli(home, "guide", "--json");
+    expect(badGuideFlag.status).toBe(1);
+    expect(badGuideFlag.stderr).toContain("guide does not accept argument '--json'");
+    expect(badGuideFlag.stderr).toContain("Usage: agent-profile-kit guide [--agent]");
+
+    const badValidateFlag = runCli(home, "validate", "--json");
+    expect(badValidateFlag.status).toBe(1);
+    expect(badValidateFlag.stderr).toContain("validate does not accept argument '--json'");
+    expect(badValidateFlag.stderr).toContain("Usage: agent-profile-kit validate");
+
+    const badUninstallFlag = runCli(home, "uninstall", "--json");
+    expect(badUninstallFlag.status).toBe(1);
+    expect(badUninstallFlag.stderr).toContain("uninstall does not accept argument '--json'");
+    expect(badUninstallFlag.stderr).toContain("Usage: agent-profile-kit uninstall");
+
+    const tooManyUnbindPaths = runCli(home, "unbind", "one", "two");
+    expect(tooManyUnbindPaths.status).toBe(1);
+    expect(tooManyUnbindPaths.stderr).toContain("unbind accepts at most one project path");
+    expect(tooManyUnbindPaths.stderr).toContain("Usage: agent-profile-kit unbind [project]");
   });
 });
