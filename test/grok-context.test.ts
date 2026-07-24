@@ -156,6 +156,12 @@ exit 2
 
 const supportedGrokInspection = async () => ({
   claudeRulesEnabled: true,
+  claudeSkillsEnabled: true,
+  cursorSkillsEnabled: true,
+  skills: [],
+  skillsDisabledNames: [],
+  skillsExtraPaths: [],
+  skillsIgnorePaths: [],
   version: "0.2.111",
 });
 
@@ -224,7 +230,7 @@ describe("Grok Adapter planner", () => {
     expect(resolveGrokContextRulePath({ claudeCoSelected: false })).toBe(GROK_CONTEXT_RULE_PATH);
 
     const modules = [{ id: "team-rules", content: "Always preserve the project boundary.\n" }];
-    const plan = await planGrokProject("coding", modules, {
+    const plan = await planGrokProject("coding", modules, [], {
       claudeCoSelected: true,
       claudeRulesEnabled: true,
     });
@@ -441,29 +447,33 @@ describe("Grok-only Profile Installation lifecycle", () => {
     }
   });
 
-  test("fails closed before writes when the resolved Profile contains Skills", async () => {
+  test("plans resolved Skills under .grok/skills for Grok-only Profiles", async () => {
     const home = temporaryDirectory("apk-grok-skills-home-");
     const project = temporaryDirectory("apk-grok-skills-project-");
     await writeContextWorkspace(home, project, ["grok"], { skills: ["review-pr"] });
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(
-      desired.installations[0]?.blockers.some((blocker) =>
-        blocker.includes("Grok portable Skill delivery is not supported yet"),
-      ),
-    ).toBe(true);
+    expect(desired.installations[0]?.blockers).toEqual([]);
+    const skillPaths = desired.installations[0]?.outputs
+      .filter((output) => output.type === "directory")
+      .map((output) => output.path)
+      .sort();
+    expect(skillPaths).toEqual([".grok/skills/review-pr"]);
+    expect(desired.installations[0]?.outputs.some((output) => output.path === GROK_CONTEXT_RULE_PATH))
+      .toBe(true);
+    expect(desired.installations[0]?.hostVersions.grok).toBe(
+      "native-project-unscoped-rules-skills-v1",
+    );
+
     const report = await previewReconciliation(desired.installations, {
       installations: [],
       repositoryExclusions: [],
       schemaVersion: 3,
     });
-    expect(
-      report.blockers.some((blocker) =>
-        blocker.message.includes("Grok portable Skill delivery is not supported yet"),
-      ),
-    ).toBe(true);
-    expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(false);
-    expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
+    expect(report.blockers).toEqual([]);
+    await applyReconciliation(home, desired.installations);
+    expect(existsSync(join(project, ".grok", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(true);
   });
 
   test("reports drift when the owned Grok rule is modified", async () => {
@@ -681,18 +691,18 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
           blocker.includes("Claude rules compatibility could not be inspected"),
         ) ?? [];
       expect(topologyBlockers).toEqual([]);
-      // Grok still fail-closes on Skills until portable Skill delivery exists, but
-      // that is independent of Context delivery topology resolution.
-      expect(
-        desired.installations[0]?.blockers.some((blocker) =>
-          blocker.includes("Grok portable Skill delivery is not supported yet"),
-        ),
-      ).toBe(true);
+      // Skills-only Claude+Grok plans Skill packages without Context rule topology.
       expect(
         desired.installations[0]?.outputs.some((output) =>
           output.path.includes("rules/agent-profile-kit.md"),
         ),
       ).toBe(false);
+      expect(
+        desired.installations[0]?.outputs.some((output) => output.path === ".grok/skills/review-pr"),
+      ).toBe(true);
+      expect(
+        desired.installations[0]?.outputs.some((output) => output.path === ".claude/skills/review-pr"),
+      ).toBe(true);
     } finally {
       process.env.PATH = previousPath;
     }

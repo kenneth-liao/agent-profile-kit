@@ -11,12 +11,10 @@ Claude Code, and Grok on macOS then load that material through ordinary native
 project discovery. Global Host configuration and repository-owned instructions
 remain untouched.
 
-This release installs Context Modules and portable Skills for Codex and Claude,
-and Context Modules for Grok. A Profile needs at least one supported artifact
-(Context, Skills, or both); Context is not mandatory. Grok bindings fail closed
-when the resolved Profile includes Skills until portable Grok Skill delivery
-exists. Profiles selecting Agents, Hooks, or Tools are rejected until those
-artifact categories have native project delivery.
+This release installs Context Modules and portable Skills for Codex, Claude,
+and Grok. A Profile needs at least one supported artifact (Context, Skills, or
+both); Context is not mandatory. Profiles selecting Agents, Hooks, or Tools are
+rejected until those artifact categories have native project delivery.
 
 ## Quick start
 
@@ -44,9 +42,10 @@ selected Skills under `.agents/skills/`. Claude Code loads Context as an unscope
 project rule and discovers selected Skills under `.claude/skills/`. Grok loads
 Context as an unscoped project rule under `.grok/rules/` (or, when Claude is also
 bound and Grok Claude rules compatibility is enabled, shares Claude’s
-`.claude/rules/agent-profile-kit.md` path so Grok receives one effective copy).
-Skills-only Profiles install only Skill packages—no Context snapshot, Codex hooks,
-or Claude/Grok Context rule—and do not require Context-related Host capability.
+`.claude/rules/agent-profile-kit.md` path so Grok receives one effective copy)
+and discovers selected Skills under `.grok/skills/`. Skills-only Profiles install
+only Skill packages—no Context snapshot, Codex hooks, or Claude/Grok Context
+rule—and do not require Context-related Host capability.
 
 When a Profile includes Context for Codex, Codex must trust each bound project
 and have lifecycle hooks explicitly enabled in its global or project

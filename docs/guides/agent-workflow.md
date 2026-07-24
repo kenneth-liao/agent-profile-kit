@@ -18,17 +18,18 @@ Use this workflow when helping a person author their Workspace and bind projects
    already satisfies the need. Ask instead of inventing personal preferences,
    project facts, Host preferences, credentials, or machine paths.
 3. Create the smallest useful artifact set. This release accepts Context Modules
-   and portable Skills for Codex and Claude Code. Put standing facts in Context
-   Modules and reusable procedures in Skills. A Profile needs at least one
-   supported artifact (Context, Skills, or both); Context is not mandatory—a
+   and portable Skills for Codex, Claude Code, and Grok. Put standing facts in
+   Context Modules and reusable procedures in Skills. A Profile needs at least
+   one supported artifact (Context, Skills, or both); Context is not mandatory—a
    Skills-only Profile is valid on CLI 0.17.0+ (convert or uninstall before
    rolling back to older binaries; see the human Workspace guide). For Skills
    that must not fire implicitly, use
    `metadata.agent-profile-kit.model-invocation: disabled` (default is
-   `allowed`); do not leave Claude-native `disable-model-invocation` in
-   Workspace source. Profiles selecting Agents, Hooks, or Tools are rejected. Do
-   not create a new artifact merely because a directory exists, and do not invent
-   Agents, Hooks, or Tools for this release.
+   `allowed`); do not leave Host-native `disable-model-invocation` in
+   Workspace source (Adapters project that field for Claude and Grok). Profiles
+   selecting Agents, Hooks, or Tools are rejected. Do not create a new artifact
+   merely because a directory exists, and do not invent Agents, Hooks, or Tools
+   for this release.
 4. Preserve boundaries.
    - **Workspace** owns reusable cross-project Profiles and artifacts as the
      single canonical source. That includes Profile-selected material and
