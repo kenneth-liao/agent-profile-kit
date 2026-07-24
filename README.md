@@ -100,9 +100,11 @@ Older version-1 configuration without `workspace` is migration input only. Run
 that guidance until migration completes. `init` never moves or rewrites the
 Workspace source, and a custom authored Workspace path is preserved.
 
-See `agent-profile-kit guide` for the Context Module, Skill, Profile, and binding
-formats, and `agent-profile-kit guide --agent` for agent-facing authoring
-boundaries.
+Run `agent-profile-kit` with no arguments or `agent-profile-kit --help` for a
+concise summary of every command and the minimal `init` → `bind` → `preview` →
+`apply` flow. See `agent-profile-kit guide` for the Context Module, Skill,
+Profile, and binding formats, and `agent-profile-kit guide --agent` for
+agent-facing authoring boundaries.
 
 ## Product layout
 
