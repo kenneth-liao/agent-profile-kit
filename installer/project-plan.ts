@@ -508,10 +508,12 @@ export async function buildDesiredState(
       } else if (
         host === "grok" &&
         options.resolveHostTopology === true &&
+        requireContext &&
         binding.hosts.includes("claude")
       ) {
-        // Status-only topology probe: Claude co-selection needs Claude rules
-        // compatibility to choose one path. validate stays probe-free.
+        // Status-only topology probe for Context-bearing Claude+Grok bindings.
+        // Context-free Profiles plan no rule paths, so inspection is irrelevant.
+        // validate stays probe-free.
         try {
           grokInspection = await inspectGrokProject(binding.canonicalProject);
         } catch {
@@ -573,7 +575,12 @@ export async function buildDesiredState(
       if (host === "grok") {
         const claudeCoSelected = binding.hosts.includes("claude");
         let claudeRulesEnabled = grokInspection?.claudeRulesEnabled;
-        if (claudeRulesEnabled === undefined && claudeCoSelected) {
+        // Context delivery topology only matters when the Profile selects Context.
+        if (
+          requireContext &&
+          claudeRulesEnabled === undefined &&
+          claudeCoSelected
+        ) {
           const previous = previousByProject.get(binding.canonicalProject);
           claudeRulesEnabled = previous
             ? inferGrokClaudeRulesEnabledFromOutputs(
@@ -598,7 +605,8 @@ export async function buildDesiredState(
           {
             claudeCoSelected,
             // Grok's documented default is enabled when topology is not required
-            // (validate / hermetic tests) or when Claude is not co-selected.
+            // (validate / hermetic tests / Context-free Profiles) or when Claude
+            // is not co-selected.
             claudeRulesEnabled: claudeRulesEnabled ?? true,
           },
         );

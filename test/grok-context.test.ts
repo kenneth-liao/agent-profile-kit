@@ -612,6 +612,92 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     }
   });
 
+  test("Context-free Claude+Grok status does not require Grok topology inspection", async () => {
+    const home = temporaryDirectory("apk-context-free-status-home-");
+    const project = temporaryDirectory("apk-context-free-status-project-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    // Skills-only Profile: no Context rule topology for Claude or Grok.
+    const skillRoot = join(workspace, "skills", "review-pr");
+    mkdirSync(skillRoot, { recursive: true });
+    writeFileSync(
+      join(skillRoot, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\n# review-pr\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [claude, grok]\n`,
+    );
+
+    const emptyPath = temporaryDirectory("apk-empty-path-");
+    const previousPath = process.env.PATH ?? "";
+    process.env.PATH = emptyPath;
+    try {
+      const desired = await buildDesiredState(home, {
+        checkHostCapability: false,
+        resolveHostTopology: true,
+        // Applied Skills-only installation: no Context rule paths to infer.
+        previousInstallations: [
+          {
+            adapterVersion: "claude-project-v1+grok-project-v1",
+            engineVersion: "0.27.0",
+            hosts: ["claude", "grok"],
+            hostVersions: {
+              claude: "native-project-unscoped-rules-skills-v1",
+              grok: GROK_HOST_VERSION,
+            },
+            installationId: "test-installation",
+            outputs: [
+              {
+                hash: "sha256:deadbeef",
+                mode: 0o755,
+                path: ".claude/skills/review-pr",
+                type: "directory",
+                members: [],
+              },
+              {
+                hash: "sha256:cafebabe",
+                mode: 0o644,
+                path: ".agent-profile-kit/installation.json",
+                type: "file",
+              },
+            ],
+            profileId: "coding",
+            project,
+            resolvedArtifacts: [],
+            schemaVersion: 2,
+            selectedContext: [],
+            workspaceInputHash: "sha256:test",
+          },
+        ],
+      });
+      const topologyBlockers =
+        desired.installations[0]?.blockers.filter((blocker) =>
+          blocker.includes("Claude rules compatibility could not be inspected"),
+        ) ?? [];
+      expect(topologyBlockers).toEqual([]);
+      // Grok still fail-closes on Skills until portable Skill delivery exists, but
+      // that is independent of Context delivery topology resolution.
+      expect(
+        desired.installations[0]?.blockers.some((blocker) =>
+          blocker.includes("Grok portable Skill delivery is not supported yet"),
+        ),
+      ).toBe(true);
+      expect(
+        desired.installations[0]?.outputs.some((output) =>
+          output.path.includes("rules/agent-profile-kit.md"),
+        ),
+      ).toBe(false);
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
   test("produces one three-Host installation with Codex, Claude, and Grok outputs", async () => {
     const home = temporaryDirectory("apk-three-host-home-");
     const project = temporaryDirectory("apk-three-host-project-");
