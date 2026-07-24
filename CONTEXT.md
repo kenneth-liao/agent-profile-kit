@@ -17,7 +17,7 @@ The `workspace.yaml` file that marks a Workspace root and declares the Workspace
 _Avoid_: Installation Manifest, Profile
 
 **Agent Host**:
-An agent product or environment that consumes Agent Profile Kit material, such as Codex, Claude Code, or Gemini.
+An agent product or environment that consumes Agent Profile Kit material, such as Codex, Claude Code, or Grok.
 _Avoid_: Agent Profile Kit implementation
 
 **Adapter**:

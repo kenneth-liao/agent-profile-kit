@@ -7,7 +7,7 @@ export const LOCAL_CONFIGURATION_SCHEMA_VERSION = 2;
 export const LOCAL_CONFIGURATION_FILE = "config.yaml";
 
 /** Agent Hosts the engine can plan project output for. */
-export const SUPPORTED_HOSTS = ["claude", "codex"] as const;
+export const SUPPORTED_HOSTS = ["claude", "codex", "grok"] as const;
 export type SupportedHost = (typeof SUPPORTED_HOSTS)[number];
 
 export function isSupportedHost(value: unknown): value is SupportedHost {

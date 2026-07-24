@@ -13,6 +13,15 @@ import {
   detectCodexGlobalSkillOverlaps,
   planCodexProject,
 } from "../adapters/codex.js";
+import {
+  assertGrokProjectCapability,
+  GROK_ADAPTER_VERSION,
+  grokSkillsUnsupportedBlocker,
+  inferGrokClaudeRulesEnabledFromOutputs,
+  inspectGrokProject,
+  planGrokProject,
+  type GrokInspection,
+} from "../adapters/grok.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
   AdapterProjectPlan,
@@ -28,6 +37,7 @@ import {
   INSTALLATION_MARKER_PATH,
   parseFileMode,
   type OwnedDirectoryMember,
+  type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
 import { hashWorkspaceInputs } from "./hashes.js";
 import { ingestApplication, stateDirectory } from "./local-configuration.js";
@@ -98,6 +108,7 @@ export function adapterVersionFor(hosts: readonly SupportedHost[]): string {
   const versions = hosts.map((host) => {
     if (host === "claude") return CLAUDE_ADAPTER_VERSION;
     if (host === "codex") return CODEX_ADAPTER_VERSION;
+    if (host === "grok") return GROK_ADAPTER_VERSION;
     const exhaustive: never = host;
     throw new Error(`Unsupported Agent Host '${String(exhaustive)}'`);
   });
@@ -410,11 +421,36 @@ export function normalizeAdapterPlans(
   return normalized;
 }
 
+export interface BuildDesiredStateOptions {
+  /**
+   * When false, skip Host CLI/version/surface capability preflight (status and
+   * validate). Defaults to true for preview/apply.
+   */
+  readonly checkHostCapability?: boolean;
+  /**
+   * Prior Installation Manifests used only to preserve applied Grok Context
+   * delivery topology when live inspection is unavailable (status).
+   */
+  readonly previousInstallations?: readonly ProjectInstallationManifest[];
+  /**
+   * When true, resolve multi-Host Grok Context topology (Claude rules
+   * compatibility) without full capability preflight. validate stays probe-free;
+   * status sets this so topology is not guessed.
+   */
+  readonly resolveHostTopology?: boolean;
+}
+
 export async function buildDesiredState(
   home: string,
-  options: { readonly checkHostCapability?: boolean } = {},
+  options: BuildDesiredStateOptions = {},
 ): Promise<DesiredState> {
   const { configuration, workspace } = await ingestApplication(home);
+  const previousByProject = new Map(
+    (options.previousInstallations ?? []).map((installation) => [
+      installation.project,
+      installation,
+    ]),
+  );
   const installations: DesiredInstallation[] = [];
   for (const binding of [...configuration.bindings].sort((left, right) =>
     left.canonicalProject.localeCompare(right.canonicalProject)
@@ -448,6 +484,7 @@ export async function buildDesiredState(
     const requireContext = resolvedProfile.contexts.length > 0;
     const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
     for (const host of binding.hosts) {
+      let grokInspection: GrokInspection | undefined;
       if (options.checkHostCapability !== false) {
         try {
           if (host === "codex") {
@@ -460,11 +497,27 @@ export async function buildDesiredState(
               requireContext,
               requireDisabledModelInvocation,
             });
+          } else if (host === "grok") {
+            grokInspection = await assertGrokProjectCapability(binding.canonicalProject);
           }
         } catch (error) {
           blockers.push(
             `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
           );
+        }
+      } else if (
+        host === "grok" &&
+        options.resolveHostTopology === true &&
+        requireContext &&
+        binding.hosts.includes("claude")
+      ) {
+        // Status-only topology probe for Context-bearing Claude+Grok bindings.
+        // Context-free Profiles plan no rule paths, so inspection is irrelevant.
+        // validate stays probe-free.
+        try {
+          grokInspection = await inspectGrokProject(binding.canonicalProject);
+        } catch {
+          grokInspection = undefined;
         }
       }
       // Global Skill identity overlap is independent of CLI capability probes and must
@@ -481,6 +534,10 @@ export async function buildDesiredState(
             project: binding.canonicalProject,
           })).map((message) => `${binding.project}: ${message}`),
         );
+      } else if (host === "grok" && resolvedProfile.skills.length > 0) {
+        // Portable Grok Skill delivery is owned by a successor ticket; fail closed
+        // rather than accepting the binding and silently omitting selected Skills.
+        blockers.push(grokSkillsUnsupportedBlocker(binding.project));
       }
       if (host === "codex") {
         const contextPath = [
@@ -513,6 +570,48 @@ export async function buildDesiredState(
         );
         plans.push(adapterPlan);
         hostVersions.claude = adapterPlan.hostVersion;
+        continue;
+      }
+      if (host === "grok") {
+        const claudeCoSelected = binding.hosts.includes("claude");
+        let claudeRulesEnabled = grokInspection?.claudeRulesEnabled;
+        // Context delivery topology only matters when the Profile selects Context.
+        if (
+          requireContext &&
+          claudeRulesEnabled === undefined &&
+          claudeCoSelected
+        ) {
+          const previous = previousByProject.get(binding.canonicalProject);
+          claudeRulesEnabled = previous
+            ? inferGrokClaudeRulesEnabledFromOutputs(
+                previous.hosts,
+                previous.outputs.map((output) => output.path),
+              )
+            : undefined;
+          if (
+            claudeRulesEnabled === undefined &&
+            options.resolveHostTopology === true
+          ) {
+            // Do not invent topology for status when inspection and applied state
+            // cannot prove Claude rules compatibility.
+            blockers.push(
+              `${binding.project}: Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available; restore \`grok inspect --json\` or re-apply before trusting status`,
+            );
+          }
+        }
+        const adapterPlan = await planGrokProject(
+          profile.id,
+          resolvedProfile.contexts,
+          {
+            claudeCoSelected,
+            // Grok's documented default is enabled when topology is not required
+            // (validate / hermetic tests / Context-free Profiles) or when Claude
+            // is not co-selected.
+            claudeRulesEnabled: claudeRulesEnabled ?? true,
+          },
+        );
+        plans.push(adapterPlan);
+        hostVersions.grok = adapterPlan.hostVersion;
         continue;
       }
       const exhaustive: never = host;

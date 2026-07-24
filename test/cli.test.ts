@@ -165,6 +165,54 @@ function installFakeCodex(home: string, version = "0.99.0"): string {
   return bin;
 }
 
+/** Put a controlled Grok CLI stub first on PATH for version + inspect preflight. */
+function installFakeGrok(
+  home: string,
+  options: {
+    readonly version?: string;
+    readonly claudeRulesEnabled?: boolean;
+  } = {},
+): string {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  const version = options.version ?? "0.2.111";
+  const claudeRulesEnabled = options.claudeRulesEnabled ?? true;
+  const inspectBody = JSON.stringify({
+    grokVersion: version,
+    externalCompat: {
+      remoteSettingsLoaded: false,
+      cells: [
+        {
+          vendor: "claude",
+          surface: "rules",
+          enabled: claudeRulesEnabled,
+          source: "default",
+        },
+      ],
+    },
+    projectInstructions: [],
+  });
+  writeFileSync(
+    join(bin, "grok"),
+    `#!/bin/sh
+if [ "$1" = "version" ]; then
+  echo "grok ${version} (fake) [stable]"
+  exit 0
+fi
+if [ "$1" = "inspect" ] && [ "$2" = "--json" ]; then
+  cat <<'EOF'
+${inspectBody}
+EOF
+  exit 0
+fi
+echo "unexpected grok invocation: $*" >&2
+exit 2
+`,
+  );
+  execFileSync("chmod", ["+x", join(bin, "grok")]);
+  return bin;
+}
+
 function runCliWithPath(
   home: string,
   pathValue: string,
@@ -3707,6 +3755,140 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const boundary = runCliWithPath(home, `${boundaryBin}:${process.env.PATH ?? ""}`, "preview", "--verbose");
     expect(boundary.status, boundary.stderr).toBe(0);
     expect(boundary.stdout).toContain(".claude/rules/agent-profile-kit.md");
+  });
+
+  test("packed CLI Grok-only preview → apply → status → uninstall installs unscoped Context", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeFileSync(join(projectPath, "AGENTS.md"), "repository-owned instructions\n");
+    mkdirSync(join(projectPath, ".grok", "rules"), { recursive: true });
+    writeFileSync(join(projectPath, ".grok", "rules", "team.md"), "existing team rule\n");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [grok]\n`,
+    );
+    const bin = installFakeGrok(home);
+    const pathWithGrok = `${bin}:${process.env.PATH ?? ""}`;
+
+    const preview = runCliWithPath(home, pathWithGrok, "preview", "--verbose");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(`${projectPath}: addition`);
+    expect(preview.stdout).toContain(".grok/rules/agent-profile-kit.md");
+    expect(preview.stdout).toContain("# Agent Profile Kit Context");
+    expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
+
+    const apply = runCliWithPath(home, pathWithGrok, "apply");
+    expect(apply.status, apply.stderr).toBe(0);
+    const rule = readFileSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"), "utf8");
+    expect(rule).toContain("Profile: coding");
+    expect(rule).toContain("Context Module: team-rules");
+    expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned instructions\n");
+    expect(readFileSync(join(projectPath, ".grok", "rules", "team.md"), "utf8")).toBe(
+      "existing team rule\n",
+    );
+
+    const status = runCliWithPath(home, pathWithGrok, "status");
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain("All Profile Installations are current");
+
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: Array<{ hosts: string[]; host_versions: Record<string, string> }>;
+    };
+    expect(state.installations[0]?.hosts).toEqual(["grok"]);
+    expect(state.installations[0]?.host_versions.grok).toBe("native-project-unscoped-rules-v1");
+
+    const uninstall = runCliWithPath(home, pathWithGrok, "uninstall");
+    expect(uninstall.status, uninstall.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned instructions\n");
+    expect(readFileSync(join(projectPath, ".grok", "rules", "team.md"), "utf8")).toBe(
+      "existing team rule\n",
+    );
+  });
+
+  test("packed CLI Grok preview fails closed when Grok CLI is missing, Skills are selected, or the surface is obstructed", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [grok]\n`,
+    );
+    const emptyBin = join(home, "empty-bin");
+    mkdirSync(emptyBin, { recursive: true });
+    const missing = runCliWithPath(home, emptyBin, "preview");
+    expect(missing.status).toBe(1);
+    expect(`${missing.stdout}${missing.stderr}`).toContain("Grok CLI was not found");
+
+    const oldBin = installFakeGrok(home, { version: "0.1.0" });
+    const old = runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
+    expect(old.status).toBe(1);
+    expect(`${old.stdout}${old.stderr}`).toContain("does not support project rules inspection");
+    expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
+
+    writeFileSync(join(projectPath, ".grok"), "occupied\n");
+    const surfaceBin = installFakeGrok(home);
+    const surface = runCliWithPath(home, `${surfaceBin}:${process.env.PATH ?? ""}`, "preview");
+    expect(surface.status).toBe(1);
+    expect(`${surface.stdout}${surface.stderr}`).toMatch(/\.grok/);
+    expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
+
+    rmSync(join(projectPath, ".grok"), { force: true });
+    mkdirSync(join(workspacePath(home), "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const skillsBin = installFakeGrok(home);
+    const skills = runCliWithPath(home, `${skillsBin}:${process.env.PATH ?? ""}`, "preview");
+    expect(skills.status).toBe(1);
+    expect(`${skills.stdout}${skills.stderr}`).toContain(
+      "Grok portable Skill delivery is not supported yet",
+    );
+    expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
+  });
+
+  test("packed CLI Claude+Grok binding coalesces onto one Context rule path", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeFileSync(join(projectPath, "CLAUDE.md"), "project-owned\n");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude, grok]\n`,
+    );
+    const bin = installFakeGrok(home);
+    writeFileSync(join(bin, "claude"), "#!/bin/sh\necho '2.1.0 (Claude Code)'\n");
+    execFileSync("chmod", ["+x", join(bin, "claude")]);
+    const pathWithHosts = `${bin}:${process.env.PATH ?? ""}`;
+
+    const preview = runCliWithPath(home, pathWithHosts, "preview", "--verbose");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain(".claude/rules/agent-profile-kit.md");
+    expect(preview.stdout).not.toContain(".grok/rules/agent-profile-kit.md");
+
+    const apply = runCliWithPath(home, pathWithHosts, "apply");
+    expect(apply.status, apply.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
+
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: Array<{ hosts: string[]; host_versions: Record<string, string> }>;
+    };
+    expect(state.installations[0]?.hosts).toEqual(["claude", "grok"]);
+    expect(state.installations[0]?.host_versions).toEqual({
+      claude: "native-project-unscoped-rules-skills-v1",
+      grok: "native-project-unscoped-rules-v1",
+    });
   });
 
   test("Profiles selecting Skills install portable packages into Claude project discovery", () => {
