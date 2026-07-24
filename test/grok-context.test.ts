@@ -96,8 +96,11 @@ async function writeContextWorkspace(
   );
 }
 
-function inspectJson(claudeRulesEnabled: boolean): string {
-  return JSON.stringify({
+function inspectJson(
+  claudeRulesEnabled: boolean,
+  options: { readonly omitSkills?: boolean; readonly skills?: unknown } = {},
+): string {
+  const document: Record<string, unknown> = {
     grokVersion: "0.2.111",
     externalCompat: {
       remoteSettingsLoaded: false,
@@ -111,7 +114,11 @@ function inspectJson(claudeRulesEnabled: boolean): string {
       ],
     },
     projectInstructions: [],
-  });
+  };
+  if (!options.omitSkills) {
+    document.skills = options.skills ?? [];
+  }
+  return JSON.stringify(document);
 }
 
 function installFakeGrok(

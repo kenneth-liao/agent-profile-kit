@@ -190,6 +190,8 @@ function installFakeGrok(
         },
       ],
     },
+    // Empty inventory is valid proof when no Host-visible Skills collide.
+    skills: [],
     projectInstructions: [],
   });
   writeFileSync(

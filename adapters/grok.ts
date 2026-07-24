@@ -3,6 +3,7 @@ import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, posix, resolve, sep } from "node:path";
 import { promisify } from "node:util";
+import { parse as parseToml } from "smol-toml";
 import { parse, stringify } from "yaml";
 
 import {
@@ -133,6 +134,11 @@ export interface GrokCapabilityOptions {
   readonly requireDisabledModelInvocation?: boolean;
   /** When true, prove native project Skill discovery surface is hostable. */
   readonly requireSkills?: boolean;
+  /**
+   * When true, `grok inspect --json` must include a `skills` inventory array.
+   * Context-only probes may omit it; Skill delivery must not treat omission as empty.
+   */
+  readonly requireSkillsInventory?: boolean;
   /** Injectable version probe for tests; defaults to `grok version`. */
   readonly resolveVersion?: () => Promise<string>;
 }
@@ -314,72 +320,62 @@ function expandUserPath(
   return resolve(resolveGrokHome(env, home), path);
 }
 
+function requireTomlStringArray(
+  value: unknown,
+  description: string,
+): readonly string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(
+      `Grok skills configuration ${description} must be an array of strings`,
+    );
+  }
+  const items: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      throw new Error(
+        `Grok skills configuration ${description} must be an array of strings`,
+      );
+    }
+    items.push(entry);
+  }
+  return [...new Set(items)].sort();
+}
+
 /**
- * Minimal `[skills]` section reader for disabled names and ignore prefixes.
- * Only the documented keys are read; malformed tables fail closed.
+ * Normalize the safety-critical `[skills]` fields from user `config.toml`.
+ * Uses a conforming TOML parser and fails closed on invalid syntax or types for
+ * `disabled`, `ignore`, and `paths`. Other tables/keys are ignored.
  */
 export function parseGrokSkillsConfigSection(source: string): {
   readonly disabled: readonly string[];
   readonly ignore: readonly string[];
   readonly paths: readonly string[];
 } {
-  const lines = source.split(/\r?\n/);
-  let inSkills = false;
-  const disabled: string[] = [];
-  const ignore: string[] = [];
-  const paths: string[] = [];
-  let activeList: string[] | undefined;
-
-  const pushQuotedOrBare = (target: string[], raw: string): void => {
-    const trimmed = raw.trim();
-    if (!trimmed || trimmed.startsWith("#")) return;
-    const match = trimmed.match(/^["']([^"']+)["']\s*,?\s*$/) ?? trimmed.match(/^([^,#]+?)\s*,?\s*$/);
-    if (!match) return;
-    const value = match[1]?.trim();
-    if (value) target.push(value);
-  };
-
-  for (const line of lines) {
-    const heading = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/);
-    if (heading) {
-      inSkills = heading[1] === "skills";
-      activeList = undefined;
-      continue;
-    }
-    if (!inSkills) continue;
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-
-    const inlineArray = trimmed.match(/^(disabled|ignore|paths)\s*=\s*\[(.*)\]\s*(?:#.*)?$/);
-    if (inlineArray) {
-      const key = inlineArray[1];
-      const body = inlineArray[2] ?? "";
-      const target = key === "disabled" ? disabled : key === "ignore" ? ignore : paths;
-      activeList = undefined;
-      for (const part of body.split(",")) pushQuotedOrBare(target, part);
-      continue;
-    }
-
-    const listKey = trimmed.match(/^(disabled|ignore|paths)\s*=\s*\[\s*(?:#.*)?$/);
-    if (listKey) {
-      activeList = listKey[1] === "disabled" ? disabled : listKey[1] === "ignore" ? ignore : paths;
-      continue;
-    }
-
-    if (activeList) {
-      if (trimmed === "]") {
-        activeList = undefined;
-        continue;
-      }
-      pushQuotedOrBare(activeList, trimmed);
-      continue;
-    }
+  let document: unknown;
+  try {
+    document = parseToml(source);
+  } catch (error) {
+    throw new Error(
+      `Grok skills configuration is invalid TOML (${error instanceof Error ? error.message : String(error)})`,
+    );
   }
-
+  if (typeof document !== "object" || document === null || Array.isArray(document)) {
+    throw new Error("Grok skills configuration must be a TOML table");
+  }
+  const root = document as Record<string, unknown>;
+  const skills = root.skills;
+  if (skills === undefined) {
+    return { disabled: [], ignore: [], paths: [] };
+  }
+  if (typeof skills !== "object" || skills === null || Array.isArray(skills)) {
+    throw new Error("Grok skills configuration [skills] must be a table");
+  }
+  const table = skills as Record<string, unknown>;
   return {
-    disabled: [...new Set(disabled)].sort(),
-    ignore: [...new Set(ignore)].sort(),
-    paths: [...new Set(paths)].sort(),
+    disabled: requireTomlStringArray(table.disabled, "[skills].disabled"),
+    ignore: requireTomlStringArray(table.ignore, "[skills].ignore"),
+    paths: requireTomlStringArray(table.paths, "[skills].paths"),
   };
 }
 
@@ -398,6 +394,12 @@ async function readGrokSkillsConfig(
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       return { disabled: [], ignore: [], paths: [] };
+    }
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Grok skills configuration")
+    ) {
+      throw error;
     }
     throw new Error(
       `Grok skills configuration at ${configPath} cannot be inspected sufficiently to prove selected Skills are deliverable (${error instanceof Error ? error.message : String(error)}); fix or remove the obstruction before applying`,
@@ -426,8 +428,18 @@ function parseCompatCellEnabled(
   return enabled;
 }
 
-function parseDiscoveredSkills(raw: unknown): readonly GrokDiscoveredSkill[] {
-  if (raw === undefined) return [];
+function parseDiscoveredSkills(
+  raw: unknown,
+  options: { readonly requireInventory?: boolean } = {},
+): readonly GrokDiscoveredSkill[] {
+  if (raw === undefined) {
+    if (options.requireInventory) {
+      throw new Error(
+        "Grok inspect --json is missing the skills inventory; upgrade Grok Build before previewing or applying the Profile",
+      );
+    }
+    return [];
+  }
   if (!Array.isArray(raw)) {
     throw new Error(
       "Grok inspect --json skills must be an array; upgrade Grok Build before previewing or applying the Profile",
@@ -488,6 +500,7 @@ export function parseGrokInspectClaudeRulesEnabled(source: string): boolean {
 export function parseGrokInspectDocument(
   source: string,
   options: {
+    readonly requireSkillsInventory?: boolean;
     readonly skillsConfig?: {
       readonly disabled: readonly string[];
       readonly ignore: readonly string[];
@@ -557,7 +570,9 @@ export function parseGrokInspectDocument(
     claudeRulesEnabled,
     claudeSkillsEnabled,
     cursorSkillsEnabled,
-    skills: parseDiscoveredSkills(root.skills),
+    skills: parseDiscoveredSkills(root.skills, {
+      requireInventory: options.requireSkillsInventory === true,
+    }),
     skillsDisabledNames: skillsConfig.disabled,
     skillsExtraPaths: skillsConfig.paths,
     skillsIgnorePaths: skillsConfig.ignore,
@@ -579,6 +594,8 @@ export async function inspectGrokProject(
     ? await options.resolveVersion()
     : await resolveGrokCliVersion(options);
   const skillsConfig = await readGrokSkillsConfig(env, options.home);
+  const requireSkillsInventory =
+    options.requireSkillsInventory === true || options.requireSkills === true;
   try {
     const { stdout } = await execFileAsync("grok", ["inspect", "--json"], {
       cwd: project,
@@ -587,7 +604,11 @@ export async function inspectGrokProject(
       timeout: 15_000,
     });
     // Parse machine-readable stdout only; stderr diagnostics must not corrupt JSON.
-    return parseGrokInspectDocument(stdout, { skillsConfig, version });
+    return parseGrokInspectDocument(stdout, {
+      requireSkillsInventory,
+      skillsConfig,
+      version,
+    });
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       throw new Error(
@@ -605,7 +626,11 @@ export async function inspectGrokProject(
       const stdout = String((error as { stdout?: unknown }).stdout ?? "");
       if (stdout.trim()) {
         try {
-          return parseGrokInspectDocument(stdout, { skillsConfig, version });
+          return parseGrokInspectDocument(stdout, {
+            requireSkillsInventory,
+            skillsConfig,
+            version,
+          });
         } catch (parseError) {
           if (
             parseError instanceof Error &&
@@ -664,6 +689,7 @@ export async function assertGrokProjectCapability(
   });
   const inspection = await inspectGrokProject(project, {
     ...options,
+    requireSkillsInventory: requireSkills || options.requireSkillsInventory === true,
     resolveVersion: async () => version,
   });
 

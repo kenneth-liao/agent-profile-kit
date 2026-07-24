@@ -511,19 +511,28 @@ export async function buildDesiredState(
             `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
-      } else if (
-        host === "grok" &&
-        options.resolveHostTopology === true &&
-        requireContext &&
-        binding.hosts.includes("claude")
-      ) {
-        // Status-only topology probe for Context-bearing Claude+Grok bindings.
-        // Context-free Profiles plan no rule paths, so inspection is irrelevant.
-        // validate stays probe-free.
-        try {
-          grokInspection = await inspectGrokProject(binding.canonicalProject, { home });
-        } catch {
-          grokInspection = undefined;
+      } else if (host === "grok" && options.resolveHostTopology === true) {
+        // Status probes live Host Skill inventory whenever Skills are selected so
+        // post-apply plugin/bundled collisions surface as blocked. Context-only
+        // Claude+Grok still probes for rules topology; failure there stays soft
+        // and falls back to applied Manifest inference.
+        const needsSkillsInventory = requireSkills;
+        const needsContextTopology =
+          requireContext && binding.hosts.includes("claude");
+        if (needsSkillsInventory || needsContextTopology) {
+          try {
+            grokInspection = await inspectGrokProject(binding.canonicalProject, {
+              home,
+              requireSkillsInventory: needsSkillsInventory,
+            });
+          } catch (error) {
+            if (needsSkillsInventory) {
+              blockers.push(
+                `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+            grokInspection = undefined;
+          }
         }
       }
       // Global Skill identity overlap is independent of CLI capability probes and must
