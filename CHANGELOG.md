@@ -8,6 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Explain concise lifecycle summary terminology: generated-output change units, short non-current Profile Installation state glosses (deduplicated across installations), and Git-local Repository Exclusion purpose while preserving exact path deltas; `--verbose` still exposes complete diagnostics from the same reconciliation report ([#89](https://github.com/kenneth-liao/agent-profile-kit/issues/89)).
 - Install resolved portable Skills for Grok projects under `.grok/skills/<Artifact ID>/`, preserving package bytes/modes, projecting `disable-model-invocation` for disabled model-invocation policy, and fail-closed Skill discovery preflight across native, personal, compatibility, plugin, and configured sources ([#87](https://github.com/kenneth-liao/agent-profile-kit/issues/87)).
 - Add Grok as a project-bound Agent Host for Profile Context via always-scanned `.grok/rules/` and Claude rules compatibility coalescing ([#86](https://github.com/kenneth-liao/agent-profile-kit/issues/86)).
 - Explain every command in root `agent-profile-kit` and `agent-profile-kit --help` output, including a minimal `init` → `bind` → `preview` → `apply` Profile Installation quick start and a pointer to `guide` for deeper authoring; unknown commands and invalid arguments now name the error and show the relevant usage ([#88](https://github.com/kenneth-liao/agent-profile-kit/issues/88)).

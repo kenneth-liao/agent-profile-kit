@@ -2,10 +2,47 @@ import type {
   OutputReconciliationItem,
   ReconciliationBlocker,
   ReconciliationItem,
+  ReconciliationKind,
   ReconciliationReport,
 } from "../installer/reconcile.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
+
+type NonCurrentKind = Exclude<ReconciliationKind, "current">;
+
+/** Short, progressive-disclosure glosses for non-current Profile Installation states. */
+const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
+  addition:
+    "The Profile Installation is not installed yet; apply will create its Installer-owned generated outputs.",
+  update:
+    "Desired state changed for this Profile Installation; apply will rewrite Installer-owned generated outputs to match.",
+  "stale source":
+    "Workspace source changed since the last apply; generated outputs no longer match current desired state.",
+  "repairable missing output":
+    "An owned generated output is wholly missing, but ownership is proven; apply will recreate it from current Workspace source.",
+  "drifted output":
+    "An owned generated output no longer matches its Installation Manifest hash and is not treated as a safe automatic rewrite.",
+  "malformed ownership state":
+    "Ownership metadata is incomplete or inconsistent, so the Installer cannot prove what it owns.",
+  blocked:
+    "Reconciliation cannot change this Profile Installation until the listed blocker is resolved.",
+  removal:
+    "No Project Binding remains for this installation; apply will remove proven Installer-owned generated outputs.",
+  "missing output":
+    "The Profile Installation is absent or its generated outputs are missing without proven Installer ownership; this is not a safe automatic repair.",
+};
+
+const STATE_EXPLANATION_ORDER: readonly NonCurrentKind[] = [
+  "addition",
+  "missing output",
+  "update",
+  "stale source",
+  "repairable missing output",
+  "drifted output",
+  "malformed ownership state",
+  "blocked",
+  "removal",
+];
 
 interface OutputSummary {
   readonly additions: number;
@@ -47,14 +84,14 @@ function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputS
   );
 }
 
+/** Concise change units; unchanged generated outputs are omitted by design. */
 function changeParts(summary: OutputSummary): string[] {
   const parts: string[] = [];
-  if (summary.additions > 0) parts.push(plural(summary.additions, "addition"));
-  if (summary.updates > 0) parts.push(plural(summary.updates, "update"));
-  if (summary.repairs > 0) parts.push(plural(summary.repairs, "repair"));
-  if (summary.removals > 0) parts.push(plural(summary.removals, "removal"));
-  if (summary.drift > 0) parts.push(`${plural(summary.drift, "drift item")}`);
-  if (summary.unchanged > 0) parts.push(plural(summary.unchanged, "unchanged output"));
+  if (summary.additions > 0) parts.push(plural(summary.additions, "generated-output addition"));
+  if (summary.updates > 0) parts.push(plural(summary.updates, "generated-output update"));
+  if (summary.repairs > 0) parts.push(plural(summary.repairs, "generated-output repair"));
+  if (summary.removals > 0) parts.push(plural(summary.removals, "generated-output removal"));
+  if (summary.drift > 0) parts.push(plural(summary.drift, "generated-output drift item"));
   return parts;
 }
 
@@ -91,6 +128,27 @@ function exclusionDeltaText(change: ReconciliationReport["repositoryExclusions"]
 
 function itemText(item: ReconciliationItem): string {
   return `${item.kind}${item.reason ? ` (${item.reason})` : ""}`;
+}
+
+function isNonCurrentKind(kind: ReconciliationKind): kind is NonCurrentKind {
+  return kind !== "current";
+}
+
+function presentNonCurrentKinds(items: readonly ReconciliationItem[]): readonly NonCurrentKind[] {
+  const present = new Set<NonCurrentKind>();
+  for (const item of items) {
+    if (isNonCurrentKind(item.kind)) present.add(item.kind);
+  }
+  return STATE_EXPLANATION_ORDER.filter((kind) => present.has(kind));
+}
+
+function stateExplanationLines(items: readonly ReconciliationItem[]): readonly string[] {
+  const kinds = presentNonCurrentKinds(items);
+  if (kinds.length === 0) return [];
+  return [
+    "State explanations:",
+    ...kinds.map((kind) => `- ${kind}: ${STATE_EXPLANATIONS[kind]}`),
+  ];
 }
 
 function projectCandidates(blocker: ReconciliationBlocker, displayProject?: string): string[] {
@@ -218,7 +276,7 @@ function outcomeLine(command: LifecycleCommand, report: ReconciliationReport): s
 function aggregateLine(report: ReconciliationReport, groups: readonly ProjectGroup[]): string {
   const installations = groups.length;
   const summary = summarizeOutputs(report.outputs);
-  const changes = changeParts(summary).filter((part) => !part.endsWith("unchanged output") && !part.endsWith("unchanged outputs"));
+  const changes = changeParts(summary);
   return (
     `Profile Installations: ${installations} · ` +
     `Changes: ${changes.length === 0 ? "none" : changes.join(", ")} · ` +
@@ -263,15 +321,27 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
       for (const item of group.items) {
         if (item.kind !== "current") lines.push(`  State: ${itemText(item)}`);
       }
-      const changes = changeParts(summary).filter((part) => !part.endsWith("unchanged output") && !part.endsWith("unchanged outputs"));
+      const changes = changeParts(summary);
       if (changes.length > 0) lines.push(`  Changes: ${changes.join(", ")}`);
       for (const blocker of group.blockers) lines.push(`  Blocker: ${formatBlocker(blocker, group.project)}`);
     }
   }
 
+  const explanations = stateExplanationLines([
+    ...activeGroups.flatMap((group) => group.items),
+    ...grouped.unscopedItems,
+  ]);
+  if (explanations.length > 0) {
+    lines.push("", ...explanations);
+  }
+
   const exclusionChanges = changedRepositoryExclusions(report);
   if (exclusionChanges.length > 0) {
-    lines.push("", "Repository exclusions:");
+    lines.push(
+      "",
+      "Repository exclusions:",
+      "Git-local exclusions that keep Installer-owned generated paths untracked.",
+    );
     for (const change of exclusionChanges) {
       lines.push(`- ${change.target}: ${exclusionDeltaText(change)}`);
     }
