@@ -17,6 +17,7 @@ import {
   assertGrokProjectCapability,
   GROK_ADAPTER_VERSION,
   grokSkillsUnsupportedBlocker,
+  inferGrokClaudeRulesEnabledFromOutputs,
   inspectGrokProject,
   planGrokProject,
   type GrokInspection,
@@ -36,6 +37,7 @@ import {
   INSTALLATION_MARKER_PATH,
   parseFileMode,
   type OwnedDirectoryMember,
+  type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
 import { hashWorkspaceInputs } from "./hashes.js";
 import { ingestApplication, stateDirectory } from "./local-configuration.js";
@@ -419,11 +421,36 @@ export function normalizeAdapterPlans(
   return normalized;
 }
 
+export interface BuildDesiredStateOptions {
+  /**
+   * When false, skip Host CLI/version/surface capability preflight (status and
+   * validate). Defaults to true for preview/apply.
+   */
+  readonly checkHostCapability?: boolean;
+  /**
+   * Prior Installation Manifests used only to preserve applied Grok Context
+   * delivery topology when live inspection is unavailable (status).
+   */
+  readonly previousInstallations?: readonly ProjectInstallationManifest[];
+  /**
+   * When true, resolve multi-Host Grok Context topology (Claude rules
+   * compatibility) without full capability preflight. validate stays probe-free;
+   * status sets this so topology is not guessed.
+   */
+  readonly resolveHostTopology?: boolean;
+}
+
 export async function buildDesiredState(
   home: string,
-  options: { readonly checkHostCapability?: boolean } = {},
+  options: BuildDesiredStateOptions = {},
 ): Promise<DesiredState> {
   const { configuration, workspace } = await ingestApplication(home);
+  const previousByProject = new Map(
+    (options.previousInstallations ?? []).map((installation) => [
+      installation.project,
+      installation,
+    ]),
+  );
   const installations: DesiredInstallation[] = [];
   for (const binding of [...configuration.bindings].sort((left, right) =>
     left.canonicalProject.localeCompare(right.canonicalProject)
@@ -478,10 +505,13 @@ export async function buildDesiredState(
             `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
-      } else if (host === "grok") {
-        // Path selection depends on Claude rules compatibility even when full
-        // capability preflight is skipped (status/validate). Soft-inspect when
-        // available; fall back to Grok's documented default (enabled) if not.
+      } else if (
+        host === "grok" &&
+        options.resolveHostTopology === true &&
+        binding.hosts.includes("claude")
+      ) {
+        // Status-only topology probe: Claude co-selection needs Claude rules
+        // compatibility to choose one path. validate stays probe-free.
         try {
           grokInspection = await inspectGrokProject(binding.canonicalProject);
         } catch {
@@ -541,14 +571,35 @@ export async function buildDesiredState(
         continue;
       }
       if (host === "grok") {
+        const claudeCoSelected = binding.hosts.includes("claude");
+        let claudeRulesEnabled = grokInspection?.claudeRulesEnabled;
+        if (claudeRulesEnabled === undefined && claudeCoSelected) {
+          const previous = previousByProject.get(binding.canonicalProject);
+          claudeRulesEnabled = previous
+            ? inferGrokClaudeRulesEnabledFromOutputs(
+                previous.hosts,
+                previous.outputs.map((output) => output.path),
+              )
+            : undefined;
+          if (
+            claudeRulesEnabled === undefined &&
+            options.resolveHostTopology === true
+          ) {
+            // Do not invent topology for status when inspection and applied state
+            // cannot prove Claude rules compatibility.
+            blockers.push(
+              `${binding.project}: Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available; restore \`grok inspect --json\` or re-apply before trusting status`,
+            );
+          }
+        }
         const adapterPlan = await planGrokProject(
           profile.id,
           resolvedProfile.contexts,
           {
-            claudeCoSelected: binding.hosts.includes("claude"),
-            // Default matches Grok's documented Claude rules default when capability
-            // inspection was skipped (lifecycle tests) or failed after version probe.
-            claudeRulesEnabled: grokInspection?.claudeRulesEnabled ?? true,
+            claudeCoSelected,
+            // Grok's documented default is enabled when topology is not required
+            // (validate / hermetic tests) or when Claude is not co-selected.
+            claudeRulesEnabled: claudeRulesEnabled ?? true,
           },
         );
         plans.push(adapterPlan);

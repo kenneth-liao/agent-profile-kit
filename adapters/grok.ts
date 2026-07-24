@@ -228,13 +228,14 @@ export async function inspectGrokProject(
     ? await options.resolveVersion()
     : await resolveGrokCliVersion(options);
   try {
-    const { stdout, stderr } = await execFileAsync("grok", ["inspect", "--json"], {
+    const { stdout } = await execFileAsync("grok", ["inspect", "--json"], {
       cwd: project,
       env: options.env ?? process.env,
       encoding: "utf8",
       timeout: 15_000,
     });
-    const claudeRulesEnabled = parseGrokInspectClaudeRulesEnabled(`${stdout}\n${stderr}`);
+    // Parse machine-readable stdout only; stderr diagnostics must not corrupt JSON.
+    const claudeRulesEnabled = parseGrokInspectClaudeRulesEnabled(stdout);
     return { claudeRulesEnabled, version };
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
@@ -248,10 +249,9 @@ export async function inspectGrokProject(
     // Non-zero exit may still carry usable JSON on stdout.
     if (error instanceof Error && "stdout" in error) {
       const stdout = String((error as { stdout?: unknown }).stdout ?? "");
-      const stderr = String((error as { stderr?: unknown }).stderr ?? "");
       if (stdout.trim()) {
         try {
-          const claudeRulesEnabled = parseGrokInspectClaudeRulesEnabled(`${stdout}\n${stderr}`);
+          const claudeRulesEnabled = parseGrokInspectClaudeRulesEnabled(stdout);
           return { claudeRulesEnabled, version };
         } catch (parseError) {
           if (parseError instanceof Error && parseError.message.startsWith("Grok inspect")) {
@@ -264,6 +264,25 @@ export async function inspectGrokProject(
       `Grok project inspection failed (${error instanceof Error ? error.message : String(error)}); ensure \`grok inspect --json\` works in the bound project before previewing or applying the Profile`,
     );
   }
+}
+
+/**
+ * Infer whether a prior Profile Installation used Claude rules coalescing.
+ * Dual Claude+Grok rule paths mean compatibility was disabled; Claude path only
+ * with both Hosts recorded means compatibility was enabled.
+ */
+export function inferGrokClaudeRulesEnabledFromOutputs(
+  hosts: readonly string[],
+  outputPaths: readonly string[],
+): boolean | undefined {
+  if (!hosts.includes("claude") || !hosts.includes("grok")) return undefined;
+  const paths = new Set(outputPaths);
+  const hasClaudeRule = paths.has(CLAUDE_CONTEXT_RULE_PATH);
+  const hasGrokRule = paths.has(GROK_CONTEXT_RULE_PATH);
+  if (hasClaudeRule && hasGrokRule) return false;
+  if (hasClaudeRule && !hasGrokRule) return true;
+  if (!hasClaudeRule && hasGrokRule) return false;
+  return undefined;
 }
 
 /**

@@ -22,6 +22,8 @@ import {
   GROK_CONTEXT_RULE_PATH,
   GROK_HOST_VERSION,
   GROK_MINIMUM_CLI_VERSION,
+  inferGrokClaudeRulesEnabledFromOutputs,
+  inspectGrokProject,
   parseGrokCliVersion,
   parseGrokInspectClaudeRulesEnabled,
   planGrokProject,
@@ -37,7 +39,7 @@ import {
   applyReconciliation,
   previewReconciliation,
 } from "../installer/reconcile.js";
-import { uninstallApplication } from "../installer/commands.js";
+import { statusApplication, uninstallApplication } from "../installer/commands.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
 
 const temporaryDirectories: string[] = [];
@@ -119,6 +121,7 @@ function installFakeGrok(
     readonly claudeRulesEnabled?: boolean;
     readonly inspectBody?: string;
     readonly inspectExit?: number;
+    readonly inspectStderr?: string;
   } = {},
 ): string {
   const bin = join(home, "bin");
@@ -126,6 +129,9 @@ function installFakeGrok(
   const version = options.version ?? "0.2.111";
   const body = options.inspectBody ?? inspectJson(options.claudeRulesEnabled ?? true);
   const exit = options.inspectExit ?? 0;
+  const stderrLine = options.inspectStderr
+    ? `echo ${JSON.stringify(options.inspectStderr)} >&2\n`
+    : "";
   // Hermetic stub: version + inspect --json only.
   writeFileSync(
     join(bin, "grok"),
@@ -135,7 +141,7 @@ if [ "$1" = "version" ]; then
   exit 0
 fi
 if [ "$1" = "inspect" ] && [ "$2" = "--json" ]; then
-  cat <<'EOF'
+  ${stderrLine}cat <<'EOF'
 ${body}
 EOF
   exit ${exit}
@@ -292,6 +298,40 @@ describe("Grok Adapter planner", () => {
       inspect: supportedGrokInspection,
     });
     expect(inspection.claudeRulesEnabled).toBe(true);
+  });
+
+  test("inspect parses valid stdout even when stderr carries diagnostics", async () => {
+    const home = temporaryDirectory("apk-grok-stderr-home-");
+    const project = temporaryDirectory("apk-grok-stderr-project-");
+    const previousPath = process.env.PATH ?? "";
+    const bin = installFakeGrok(home, {
+      claudeRulesEnabled: false,
+      inspectStderr: "warning: slow config load",
+    });
+    process.env.PATH = `${bin}:${previousPath}`;
+    try {
+      const inspection = await inspectGrokProject(project, {
+        resolveVersion: async () => "0.2.111",
+      });
+      expect(inspection.claudeRulesEnabled).toBe(false);
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
+  test("infers applied Claude rules topology from prior installation outputs", () => {
+    expect(
+      inferGrokClaudeRulesEnabledFromOutputs(
+        ["claude", "grok"],
+        [CLAUDE_CONTEXT_RULE_PATH, GROK_CONTEXT_RULE_PATH],
+      ),
+    ).toBe(false);
+    expect(
+      inferGrokClaudeRulesEnabledFromOutputs(["claude", "grok"], [CLAUDE_CONTEXT_RULE_PATH]),
+    ).toBe(true);
+    expect(inferGrokClaudeRulesEnabledFromOutputs(["grok"], [GROK_CONTEXT_RULE_PATH])).toBe(
+      undefined,
+    );
   });
 });
 
@@ -491,10 +531,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
 
     const previousPath = process.env.PATH ?? "";
     const bin = installFakeGrok(home, { claudeRulesEnabled: false });
-    // Claude capability is not under test; skip via checkHostCapability false after
-    // probing Grok inspection only through plan options by using pure plans.
     // Drive desired state with capability on so inspect supplies the disabled cell.
-    // Provide a Claude stub so Claude capability also passes.
     writeFileSync(join(bin, "claude"), "#!/bin/sh\necho '2.1.0 (Claude Code)'\n");
     chmodSync(join(bin, "claude"), 0o755);
     process.env.PATH = `${bin}:${previousPath}`;
@@ -511,6 +548,65 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
       );
       expect(grokOutput?.consumingHosts).toEqual(["grok"]);
       expect(claudeOutput?.consumingHosts).toEqual(["claude"]);
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
+  test("status preserves dual-path topology when inspection fails after compatibility-disabled apply", async () => {
+    const home = temporaryDirectory("apk-status-topology-home-");
+    const project = temporaryDirectory("apk-status-topology-project-");
+    await writeContextWorkspace(home, project, ["claude", "grok"]);
+
+    const previousPath = process.env.PATH ?? "";
+    const goodBin = installFakeGrok(home, { claudeRulesEnabled: false });
+    writeFileSync(join(goodBin, "claude"), "#!/bin/sh\necho '2.1.0 (Claude Code)'\n");
+    chmodSync(join(goodBin, "claude"), 0o755);
+    process.env.PATH = `${goodBin}:${previousPath}`;
+    try {
+      const desired = await buildDesiredState(home);
+      expect(desired.installations[0]?.blockers).toEqual([]);
+      await applyReconciliation(home, desired.installations);
+      expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(true);
+      expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(true);
+
+      // Break inspect so status cannot re-read Claude rules compatibility live.
+      writeFileSync(
+        join(goodBin, "grok"),
+        "#!/bin/sh\nif [ \"$1\" = \"version\" ]; then echo 'grok 0.2.111 (fake) [stable]'; exit 0; fi\necho broken >&2; exit 1\n",
+      );
+      chmodSync(join(goodBin, "grok"), 0o755);
+
+      const status = await statusApplication(home);
+      expect(status.blockers).toEqual([]);
+      expect(status.items).toContainEqual({ kind: "current", project });
+      // Topology is preserved from the applied Manifest, not guessed as coalesced.
+      const after = await buildDesiredState(home, {
+        checkHostCapability: false,
+        previousInstallations: (await readInstallationState(home)).installations,
+        resolveHostTopology: true,
+      });
+      const paths = after.installations[0]?.outputs.map((output) => output.path).sort() ?? [];
+      expect(paths).toEqual([CLAUDE_CONTEXT_RULE_PATH, GROK_CONTEXT_RULE_PATH].sort());
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
+  test("validate does not probe Grok when capability checks are disabled", async () => {
+    const home = temporaryDirectory("apk-validate-probe-home-");
+    const project = temporaryDirectory("apk-validate-probe-project-");
+    await writeContextWorkspace(home, project, ["claude", "grok"]);
+    const emptyPath = temporaryDirectory("apk-empty-path-");
+    const previousPath = process.env.PATH ?? "";
+    process.env.PATH = emptyPath;
+    try {
+      // No Grok/Claude on PATH; validate must remain probe-free.
+      const desired = await buildDesiredState(home, { checkHostCapability: false });
+      expect(desired.installations[0]?.blockers).toEqual([]);
+      expect(desired.installations[0]?.outputs.map((output) => output.path)).toEqual([
+        CLAUDE_CONTEXT_RULE_PATH,
+      ]);
     } finally {
       process.env.PATH = previousPath;
     }

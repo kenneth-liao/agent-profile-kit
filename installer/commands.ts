@@ -55,11 +55,13 @@ export async function applyApplication(home: string): Promise<ReconciliationRepo
 }
 
 export async function statusApplication(home: string): Promise<ReconciliationReport> {
-  const desired = await buildDesiredState(home, { checkHostCapability: false });
   let state;
   try {
     state = await readInstallationState(home);
   } catch (error) {
+    // Probe-free desired state: ownership is already malformed, so topology
+    // resolution against prior Manifests is unavailable.
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
     const desiredReport = await previewReconciliation(desired.installations, {
       installations: [],
       repositoryExclusions: [],
@@ -77,6 +79,13 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
       ],
     };
   }
+  // Resolve Grok multi-Host Context topology from live inspect when possible,
+  // otherwise preserve the applied delivery paths recorded on the Manifest.
+  const desired = await buildDesiredState(home, {
+    checkHostCapability: false,
+    previousInstallations: state.installations,
+    resolveHostTopology: true,
+  });
   const report = await previewReconciliation(desired.installations, state);
   const blockedProjects = new Set(
     report.blockers.flatMap((blocker) => blocker.project ? [blocker.project] : []),
