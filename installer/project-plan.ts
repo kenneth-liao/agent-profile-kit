@@ -15,8 +15,8 @@ import {
 } from "../adapters/codex.js";
 import {
   assertGrokProjectCapability,
+  detectGrokSkillDiscoveryOverlaps,
   GROK_ADAPTER_VERSION,
-  grokSkillsUnsupportedBlocker,
   inferGrokClaudeRulesEnabledFromOutputs,
   inspectGrokProject,
   planGrokProject,
@@ -482,6 +482,7 @@ export async function buildDesiredState(
     );
     // Capability and planning follow selected categories: Context machinery is optional.
     const requireContext = resolvedProfile.contexts.length > 0;
+    const requireSkills = resolvedProfile.skills.length > 0;
     const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
     for (const host of binding.hosts) {
       let grokInspection: GrokInspection | undefined;
@@ -498,26 +499,40 @@ export async function buildDesiredState(
               requireDisabledModelInvocation,
             });
           } else if (host === "grok") {
-            grokInspection = await assertGrokProjectCapability(binding.canonicalProject);
+            grokInspection = await assertGrokProjectCapability(binding.canonicalProject, {
+              home,
+              requireContext,
+              requireSkills,
+              requireDisabledModelInvocation,
+            });
           }
         } catch (error) {
           blockers.push(
             `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
-      } else if (
-        host === "grok" &&
-        options.resolveHostTopology === true &&
-        requireContext &&
-        binding.hosts.includes("claude")
-      ) {
-        // Status-only topology probe for Context-bearing Claude+Grok bindings.
-        // Context-free Profiles plan no rule paths, so inspection is irrelevant.
-        // validate stays probe-free.
-        try {
-          grokInspection = await inspectGrokProject(binding.canonicalProject);
-        } catch {
-          grokInspection = undefined;
+      } else if (host === "grok" && options.resolveHostTopology === true) {
+        // Status probes live Host Skill inventory whenever Skills are selected so
+        // post-apply plugin/bundled collisions surface as blocked. Context-only
+        // Claude+Grok still probes for rules topology; failure there stays soft
+        // and falls back to applied Manifest inference.
+        const needsSkillsInventory = requireSkills;
+        const needsContextTopology =
+          requireContext && binding.hosts.includes("claude");
+        if (needsSkillsInventory || needsContextTopology) {
+          try {
+            grokInspection = await inspectGrokProject(binding.canonicalProject, {
+              home,
+              requireSkillsInventory: needsSkillsInventory,
+            });
+          } catch (error) {
+            if (needsSkillsInventory) {
+              blockers.push(
+                `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+            grokInspection = undefined;
+          }
         }
       }
       // Global Skill identity overlap is independent of CLI capability probes and must
@@ -534,10 +549,14 @@ export async function buildDesiredState(
             project: binding.canonicalProject,
           })).map((message) => `${binding.project}: ${message}`),
         );
-      } else if (host === "grok" && resolvedProfile.skills.length > 0) {
-        // Portable Grok Skill delivery is owned by a successor ticket; fail closed
-        // rather than accepting the binding and silently omitting selected Skills.
-        blockers.push(grokSkillsUnsupportedBlocker(binding.project));
+      } else if (host === "grok" && requireSkills) {
+        blockers.push(
+          ...(await detectGrokSkillDiscoveryOverlaps(selectedSkillIds, {
+            home,
+            project: binding.canonicalProject,
+            ...(grokInspection ? { inspection: grokInspection } : {}),
+          })).map((message) => `${binding.project}: ${message}`),
+        );
       }
       if (host === "codex") {
         const contextPath = [
@@ -602,6 +621,7 @@ export async function buildDesiredState(
         const adapterPlan = await planGrokProject(
           profile.id,
           resolvedProfile.contexts,
+          resolvedProfile.skills,
           {
             claudeCoSelected,
             // Grok's documented default is enabled when topology is not required

@@ -182,11 +182,11 @@ when every consumer has upgraded to 0.16.1+.
 
 ## Author the Workspace
 
-This release supports Context Modules and portable Skills for Codex and Claude
-Code. Profiles that select Agents, Hooks, or Tools are rejected. A Profile must
-select at least one supported artifact overall (Context Module, Skill, or both);
-no individual category is mandatory. Context-only, Skills-only, and combined
-Profiles are valid.
+This release supports Context Modules and portable Skills for Codex, Claude
+Code, and Grok. Profiles that select Agents, Hooks, or Tools are rejected. A
+Profile must select at least one supported artifact overall (Context Module,
+Skill, or both); no individual category is mandatory. Context-only, Skills-only,
+and combined Profiles are valid.
 
 A Context Module is a Markdown file under `context/` with frontmatter containing
 one stable, lowercase kebab-case `id`; the Markdown body is the Context. A Skill
@@ -210,16 +210,16 @@ metadata:
 Accepted values are the strings `allowed` and `disabled`. Absence normalizes to
 `allowed`. Invalid types or values fail at Workspace ingestion.
 
-This is the only portable spelling. Claude-native top-level
+This is the only portable spelling. Host-native top-level
 `disable-model-invocation` and Codex-only `agents/openai.yaml` policy are not
-canonical source fields for Agent Profile Kit: migrate Claude-shaped Skills to
+canonical source fields for Agent Profile Kit: migrate Host-shaped Skills to
 the namespaced metadata key above rather than relying on Host-specific
 frontmatter. The Installer never rewrites Workspace `SKILL.md` during
 validate, preview, or apply.
 
 Adapters translate the trusted policy only in generated Host output:
 
-| Canonical policy | Claude generated output | Codex generated output |
+| Canonical policy | Claude / Grok generated output | Codex generated output |
 | --- | --- | --- |
 | `allowed` (default) | No Host restriction field | No Host restriction field |
 | `disabled` | `disable-model-invocation: true` in generated `SKILL.md` | `policy.allow_implicit_invocation: false` in generated `agents/openai.yaml` |
@@ -229,10 +229,11 @@ invocation policy coalesces; a conflicting policy fails before any project
 write. When any selected Skill disables model invocation, capability preflight
 proves each selected Host can enforce it before writes: Claude Code CLI
 `2.0.64+` (same floor as unscoped rules and native Skill discovery, which
-honors `disable-model-invocation`), and Codex CLI `0.99.0+` (first stable
-release with `agents/openai.yaml` `policy.allow_implicit_invocation`; see
-openai/codex#11244 / rust-v0.99.0). Unsupported versions fail closed rather
-than silently weakening the policy.
+honors `disable-model-invocation`), Grok CLI `0.2.0+` (same floor as project
+rules and native Skill discovery, which honors `disable-model-invocation`),
+and Codex CLI `0.99.0+` (first stable release with `agents/openai.yaml`
+`policy.allow_implicit_invocation`; see openai/codex#11244 / rust-v0.99.0).
+Unsupported versions fail closed rather than silently weakening the policy.
 
 Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each
@@ -524,24 +525,28 @@ This section is the Host-path detail for the
 
 Agent Profile Kit installs selected Skills only into the bound **project**
 (`.agents/skills/<Artifact ID>/` for Codex, `.claude/skills/<Artifact ID>/` for
-Claude). It never installs into, adopts, disables, or removes personal/global
-Host Skill folders. Unselected Workspace Skills are not installed into projects
-either; they may remain valid Workspace source without any APK-managed delivery.
+Claude, `.grok/skills/<Artifact ID>/` for Grok). It never installs into, adopts,
+disables, or removes personal/global Host Skill folders. Unselected Workspace
+Skills are not installed into projects either; they may remain valid Workspace
+source without any APK-managed delivery.
 
 Those global folders remain Host-owned:
 
 - Codex: `~/.agents/skills/` and `~/.codex/skills/`
 - Claude Code: `~/.claude/skills/`
+- Grok: `~/.grok/skills/` (plus enabled compatibility roots and configured
+  `[skills].paths`; see `grok inspect`)
 
 If a selected Skill’s Host-visible identity already exists in a selected Host’s
 global folder, `preview` and `apply` fail closed before any project write
-([#53](https://github.com/kenneth-liao/agent-profile-kit/issues/53)). The blocker
-names the Host, Artifact ID, global path, and proposed project path, and asks you
-to remove or relocate the unmanaged global copy first (or deselect the Skill
-from the Profile). Missing global roots are fine. Unrelated global Skills are
-fine. Identical bytes and symlinks from a global folder into the Workspace still
-block, because the Host would see global delivery in addition to or instead of
-the managed project snapshot.
+([#53](https://github.com/kenneth-liao/agent-profile-kit/issues/53),
+[#87](https://github.com/kenneth-liao/agent-profile-kit/issues/87)). The blocker
+names the Host, Artifact ID, conflicting evidence, and asks you to remove or
+relocate the unmanaged copy first (or deselect the Skill from the Profile).
+Missing global roots are fine. Unrelated global Skills are fine. Identical bytes
+and symlinks from a global folder into the Workspace still block, because the
+Host would see global delivery in addition to or instead of the managed project
+snapshot.
 
 When migrating from temporary global symlinks into project-bound delivery: keep
 the reusable material in the Workspace as its single canonical source, remove the
@@ -551,9 +556,10 @@ user-managed global delivery for a Skill instead, leave it unselected by every
 bound Profile so APK never attempts a project snapshot for that identity.
 
 Claude personal Skills override project Skills by name. Codex can expose both
-global and project Skills with the same name. Agent Profile Kit therefore treats
-any selected global/project identity collision as a conflict rather than an
-implicit precedence rule.
+global and project Skills with the same name. Grok deduplicates by name across
+native, personal, plugin, and compatibility roots. Agent Profile Kit therefore
+treats any selected global/project identity collision as a conflict rather than
+an implicit precedence rule.
 
 ## Status, unbind, and uninstall
 

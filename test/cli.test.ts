@@ -190,6 +190,8 @@ function installFakeGrok(
         },
       ],
     },
+    // Empty inventory is valid proof when no Host-visible Skills collide.
+    skills: [],
     projectInstructions: [],
   });
   writeFileSync(
@@ -3809,7 +3811,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("packed CLI Grok preview fails closed when Grok CLI is missing, Skills are selected, or the surface is obstructed", () => {
+  test("packed CLI Grok preview fails closed when Grok CLI is missing or the surface is obstructed, and installs Skills when ready", () => {
     const home = isolatedHome();
     initialize(home);
     const projectPath = project();
@@ -3848,12 +3850,20 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
     );
     const skillsBin = installFakeGrok(home);
-    const skills = runCliWithPath(home, `${skillsBin}:${process.env.PATH ?? ""}`, "preview");
-    expect(skills.status).toBe(1);
-    expect(`${skills.stdout}${skills.stderr}`).toContain(
-      "Grok portable Skill delivery is not supported yet",
+    const skills = runCliWithPath(
+      home,
+      `${skillsBin}:${process.env.PATH ?? ""}`,
+      "preview",
+      "--verbose",
     );
-    expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
+    expect(skills.status, `${skills.stdout}${skills.stderr}`).toBe(0);
+    expect(skills.stdout).toContain(".grok/skills/review-pr");
+    expect(skills.stdout).toContain(".grok/rules/agent-profile-kit.md");
+
+    const skillsApply = runCliWithPath(home, `${skillsBin}:${process.env.PATH ?? ""}`, "apply");
+    expect(skillsApply.status, skillsApply.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".grok", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(true);
   });
 
   test("packed CLI Claude+Grok binding coalesces onto one Context rule path", () => {
