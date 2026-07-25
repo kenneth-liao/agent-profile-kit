@@ -313,23 +313,31 @@ function warningsForPresentation(
 
 /**
  * One aggregate next-action instruction for concise lifecycle results.
- * Reads only the existing ReconciliationReport — no second desired-state model.
- * Blockers take precedence over apply guidance; apply never recommends more work.
+ * Derives from the same attention surface already computed for the report body
+ * (active groups + unscoped diagnostics + blockers) — not a third "actionable" predicate.
+ * Blockers take precedence; completed/no-op apply is silent after the blocker branch.
  */
-function nextActionLine(command: LifecycleCommand, report: ReconciliationReport): string | undefined {
-  if (command === "apply") return undefined;
-
+function nextActionLine(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  surface: {
+    readonly activeGroups: readonly ProjectGroup[];
+    readonly unscopedItems: readonly ReconciliationItem[];
+  },
+): string | undefined {
   if (report.blockers.length > 0) {
     const blockerWord = report.blockers.length === 1 ? "blocker" : "blockers";
-    return command === "status"
-      ? `Next: Resolve the reported ${blockerWord}, then run agent-profile-kit status again.`
-      : `Next: Resolve the reported ${blockerWord}, then run agent-profile-kit preview again.`;
+    // Same command the user just ran (status, preview, or apply) so the retry
+    // invariant is structural — not parallel prose strings that can drift.
+    return `Next: Resolve the reported ${blockerWord}, then run agent-profile-kit ${command} again.`;
   }
 
+  // Completed or no-op apply: reconciliation already ran; do not recommend more work.
+  if (command === "apply") return undefined;
+
   const hasActionableWork =
-    report.items.some((item) => item.kind !== "current") ||
-    report.outputs.some((output) => output.kind !== "unchanged") ||
-    changedRepositoryExclusions(report).length > 0;
+    surface.activeGroups.length > 0 ||
+    surface.unscopedItems.some((item) => item.kind !== "current");
 
   if (!hasActionableWork) return undefined;
 
@@ -404,7 +412,10 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
     lines.push("", "Warnings:");
     for (const warning of warnings) lines.push(`- ${warning}`);
   }
-  const next = nextActionLine(command, report);
+  const next = nextActionLine(command, report, {
+    activeGroups,
+    unscopedItems: grouped.unscopedItems,
+  });
   if (next) lines.push("", next);
   return `${lines.join("\n")}\n`;
 }

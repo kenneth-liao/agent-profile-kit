@@ -82,11 +82,11 @@ Use this workflow when helping a person author their Workspace and bind projects
    result reports all-current state when nothing needs action, labels change
    counts as generated-output units, explains non-current states when they
    appear, preserves warnings and blockers, and ends with one next-action line
-   when useful (preview before apply; resolve blocker and retry status when
-   blocked; omit when already current). Repository Exclusion lines are
+   when useful (preview before apply; resolve blocker and retry the same command
+   when blocked; omit when already current). Repository Exclusion lines are
    Git-local exclusions for Installer-owned generated paths. A ready `preview`
-   likewise recommends `apply`; blocked `preview` retries preview after the
-   blocker, never apply. Add `--verbose` to distinguish current, stale, drifted,
+   likewise recommends `apply`; blocked `preview` or `apply` retries that same
+   command after the blocker. Add `--verbose` to distinguish current, stale, drifted,
    missing, and blocked installations in the complete per-output report
    (including later global Skill identity collisions). `unbind` removes desired
    Project Binding state but leaves generated output for global `preview` and

@@ -337,7 +337,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(concise).toContain("Ready to apply");
   });
 
-  test("blocked status and preview direct resolve-and-retry of the same read-only command, never apply", () => {
+  test("blocked status retries status without recommending apply", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -351,13 +351,27 @@ describe("formatLifecycleReport next-action guidance", () => {
       blockers: [{ message: "/project-a: hooks disabled", project: "/project-a" }],
     });
 
-    const status = formatLifecycleReport("status", report);
-    const statusNext = nextActionLines(status);
+    const statusNext = nextActionLines(formatLifecycleReport("status", report));
     expect(statusNext).toHaveLength(1);
     expect(statusNext[0]).toMatch(/resolve/i);
     expect(statusNext[0]).toMatch(/blocker/i);
     expect(statusNext[0]).toMatch(/agent-profile-kit status/);
     expect(statusNext[0]).not.toMatch(/apply/i);
+  });
+
+  test("blocked preview retries preview without recommending apply", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a", reason: "hooks disabled" }],
+      blockers: [{ message: "/project-a: hooks disabled", project: "/project-a" }],
+    });
 
     const preview = formatLifecycleReport("preview", report);
     const previewNext = nextActionLines(preview);
@@ -369,7 +383,28 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(preview).toContain("Cannot apply");
   });
 
-  test("current status, completed or no-op apply, and current preview emit no next action", () => {
+  test("blocked apply directs resolve-and-retry of apply", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a", reason: "hooks disabled" }],
+      blockers: [{ message: "/project-a: hooks disabled", project: "/project-a" }],
+    });
+
+    const next = nextActionLines(formatLifecycleReport("apply", report));
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatch(/resolve/i);
+    expect(next[0]).toMatch(/blocker/i);
+    expect(next[0]).toMatch(/agent-profile-kit apply/);
+  });
+
+  test("current status and current preview emit no next action", () => {
     const current = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -385,6 +420,21 @@ describe("formatLifecycleReport next-action guidance", () => {
 
     expect(nextActionLines(formatLifecycleReport("status", current))).toEqual([]);
     expect(nextActionLines(formatLifecycleReport("preview", current))).toEqual([]);
+  });
+
+  test("completed or no-op apply without blockers emits no next action", () => {
+    const current = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
     expect(nextActionLines(formatLifecycleReport("apply", current))).toEqual([]);
 
     const appliedWithChanges = emptyReport({
@@ -403,7 +453,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(nextActionLines(formatLifecycleReport("apply", appliedWithChanges))).toEqual([]);
   });
 
-  test("mixed multi-project outcomes emit one aggregate next action with blockers taking precedence", () => {
+  test("mixed multi-project blockers take precedence over actionable peers", () => {
     const mixedBlocked = emptyReport({
       desired: [
         {
@@ -434,17 +484,19 @@ describe("formatLifecycleReport next-action guidance", () => {
       blockers: [{ message: "/project-b: hooks disabled", project: "/project-b" }],
     });
 
-    const status = formatLifecycleReport("status", mixedBlocked);
-    expect(nextActionLines(status)).toHaveLength(1);
-    expect(nextActionLines(status)[0]).toMatch(/resolve/i);
-    expect(nextActionLines(status)[0]).toMatch(/agent-profile-kit status/);
-    expect(nextActionLines(status)[0]).not.toMatch(/apply/i);
+    const statusNext = nextActionLines(formatLifecycleReport("status", mixedBlocked));
+    expect(statusNext).toHaveLength(1);
+    expect(statusNext[0]).toMatch(/resolve/i);
+    expect(statusNext[0]).toMatch(/agent-profile-kit status/);
+    expect(statusNext[0]).not.toMatch(/apply/i);
 
-    const preview = formatLifecycleReport("preview", mixedBlocked);
-    expect(nextActionLines(preview)).toHaveLength(1);
-    expect(nextActionLines(preview)[0]).toMatch(/agent-profile-kit preview/);
-    expect(nextActionLines(preview)[0]).not.toMatch(/apply/i);
+    const previewNext = nextActionLines(formatLifecycleReport("preview", mixedBlocked));
+    expect(previewNext).toHaveLength(1);
+    expect(previewNext[0]).toMatch(/agent-profile-kit preview/);
+    expect(previewNext[0]).not.toMatch(/apply/i);
+  });
 
+  test("mixed multi-project actionable outcomes emit one aggregate next action", () => {
     const mixedActionable = emptyReport({
       desired: [
         {
@@ -498,7 +550,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(nextActionLines(formatLifecycleReport("preview", report, { verbose: true }))).toEqual([]);
   });
 
-  test("exclusion-only changes still recommend the aggregate next action", () => {
+  test("exclusion-only deltas stay consistent with all-current outcome and emit no next action", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/repo",
@@ -517,13 +569,37 @@ describe("formatLifecycleReport next-action guidance", () => {
       }],
     });
 
-    const statusNext = nextActionLines(formatLifecycleReport("status", report));
-    expect(statusNext).toHaveLength(1);
-    expect(statusNext[0]).toMatch(/preview/i);
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain("All Profile Installations are current");
+    expect(status).toContain("No Profile Installations need attention.");
+    expect(nextActionLines(status)).toEqual([]);
 
-    const previewNext = nextActionLines(formatLifecycleReport("preview", report));
-    expect(previewNext).toHaveLength(1);
-    expect(previewNext[0]).toMatch(/agent-profile-kit apply/);
+    const preview = formatLifecycleReport("preview", report);
+    expect(preview).toContain("Nothing to reconcile; all Profile Installations are current.");
+    expect(nextActionLines(preview)).toEqual([]);
+  });
+
+  test("status with a desired installation but no reconciliation item still recommends preview", () => {
+    // groupNeedsAttention treats status + empty items as attention; next action must agree.
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: [],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [],
+      outputs: [],
+    });
+
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain("Profile Installation: /project-a");
+    const next = nextActionLines(status);
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatch(/preview/i);
+    expect(next[0]).not.toMatch(/bind/i);
   });
 
   test("plural blockers wording when more than one blocker is present", () => {
