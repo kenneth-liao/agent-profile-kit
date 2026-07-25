@@ -398,11 +398,18 @@ listing every unchanged output. Non-current Profile Installation states such as
 `stale source`, `blocked`, or `removal` get a short explanation when present
 (once per distinct state across installations). Repository Exclusion deltas are
 Git-local exclusions that keep Installer-owned generated paths untracked; the
-exact exclusion target and added or removed paths remain listed. Apply all
-configured Project Bindings with `agent-profile-kit apply`; its result describes
-what reconciliation completed. Use `agent-profile-kit status` to focus on
-installations needing attention. These commands operate on the full binding
-set; they do not filter by Profile, Host, or project.
+exact exclusion target and added or removed paths remain listed. When action is
+useful, concise results end with one next-action line derived from the same
+reconciliation outcome: actionable `status` points to read-only `preview` before
+`apply`; a ready `preview` recommends `apply`; a blocked result tells you to
+resolve the reported blocker and retry that same read-only command (never
+`apply` while blocked); current status and completed or no-op `apply` results
+omit a next step. Multi-project outcomes emit one conservative instruction for
+the aggregate. Apply all configured Project Bindings with
+`agent-profile-kit apply`; its result describes what reconciliation completed.
+Use `agent-profile-kit status` to focus on installations needing attention.
+These commands operate on the full binding set; they do not filter by Profile,
+Host, or project.
 
 For complete per-output and desired-state diagnostics, including resolved
 artifact inclusion reasons and composed Context, append `--verbose` to

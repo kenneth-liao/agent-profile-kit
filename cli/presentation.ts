@@ -311,6 +311,34 @@ function warningsForPresentation(
   );
 }
 
+/**
+ * One aggregate next-action instruction for concise lifecycle results.
+ * Reads only the existing ReconciliationReport — no second desired-state model.
+ * Blockers take precedence over apply guidance; apply never recommends more work.
+ */
+function nextActionLine(command: LifecycleCommand, report: ReconciliationReport): string | undefined {
+  if (command === "apply") return undefined;
+
+  if (report.blockers.length > 0) {
+    const blockerWord = report.blockers.length === 1 ? "blocker" : "blockers";
+    return command === "status"
+      ? `Next: Resolve the reported ${blockerWord}, then run agent-profile-kit status again.`
+      : `Next: Resolve the reported ${blockerWord}, then run agent-profile-kit preview again.`;
+  }
+
+  const hasActionableWork =
+    report.items.some((item) => item.kind !== "current") ||
+    report.outputs.some((output) => output.kind !== "unchanged") ||
+    changedRepositoryExclusions(report).length > 0;
+
+  if (!hasActionableWork) return undefined;
+
+  if (command === "status") {
+    return "Next: Run agent-profile-kit preview to review the planned changes (read-only), then apply when ready.";
+  }
+  return "Next: Run agent-profile-kit apply to reconcile Profile Installations.";
+}
+
 function conciseReport(command: LifecycleCommand, report: ReconciliationReport): string {
   const grouped = groupProjects(report);
   const groups = grouped.groups;
@@ -376,6 +404,8 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
     lines.push("", "Warnings:");
     for (const warning of warnings) lines.push(`- ${warning}`);
   }
+  const next = nextActionLine(command, report);
+  if (next) lines.push("", next);
   return `${lines.join("\n")}\n`;
 }
 

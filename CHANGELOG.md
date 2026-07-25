@@ -8,6 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Guide users to the next lifecycle action on concise `status` and `preview` results: actionable status recommends read-only `preview` before `apply`, ready preview recommends `apply`, blockers direct resolve-and-retry of the same read-only command, and current or completed results omit redundant steps; multi-project outcomes emit one conservative aggregate instruction ([#90](https://github.com/kenneth-liao/agent-profile-kit/issues/90)).
 - Explain concise lifecycle summary terminology: generated-output change units, short non-current Profile Installation state glosses (deduplicated across installations), and Git-local Repository Exclusion purpose while preserving exact path deltas; `--verbose` still exposes complete diagnostics from the same reconciliation report ([#89](https://github.com/kenneth-liao/agent-profile-kit/issues/89)).
 - Install resolved portable Skills for Grok projects under `.grok/skills/<Artifact ID>/`, preserving package bytes/modes, projecting `disable-model-invocation` for disabled model-invocation policy, and fail-closed Skill discovery preflight across native, personal, compatibility, plugin, and configured sources ([#87](https://github.com/kenneth-liao/agent-profile-kit/issues/87)).
 - Add Grok as a project-bound Agent Host for Profile Context via always-scanned `.grok/rules/` and Claude rules compatibility coalescing ([#86](https://github.com/kenneth-liao/agent-profile-kit/issues/86)).
