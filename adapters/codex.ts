@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { promisify } from "node:util";
+import { parse as parseToml } from "smol-toml";
 import { parse, stringify } from "yaml";
 
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
@@ -106,25 +107,31 @@ function memberBytesAsString(bytes: string | Uint8Array): string {
   return typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8");
 }
 
-function hookFeatureSetting(source: string): boolean | undefined {
-  const settings = new Map<string, boolean>();
-  let section = "";
-  for (const line of source.split(/\r?\n/)) {
-    const header = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/);
-    if (header) {
-      section = (header[1] ?? "").toLowerCase();
-      continue;
-    }
-    const dotted = section === ""
-      ? line.match(/^\s*features\.(hooks|codex_hooks)\s*=\s*(true|false)\s*(?:#.*)?$/i)
-      : undefined;
-    const nested = section === "features"
-      ? line.match(/^\s*(hooks|codex_hooks)\s*=\s*(true|false)\s*(?:#.*)?$/i)
-      : undefined;
-    const setting = dotted ?? nested;
-    if (setting) settings.set((setting[1] ?? "").toLowerCase(), setting[2]?.toLowerCase() === "true");
+function hookFeatureSetting(source: string, path: string): boolean | undefined {
+  let document: unknown;
+  try {
+    document = parseToml(source);
+  } catch {
+    throw new Error(`Codex configuration at ${path} is invalid TOML; fix the file before retrying`);
   }
-  return settings.get("hooks") ?? settings.get("codex_hooks");
+  if (typeof document !== "object" || document === null || Array.isArray(document)) {
+    throw new Error(`Codex configuration at ${path} must be a TOML table`);
+  }
+  const features = (document as Record<string, unknown>).features;
+  if (features === undefined) return undefined;
+  if (typeof features !== "object" || features === null || Array.isArray(features)) {
+    throw new Error(`Codex configuration [features] at ${path} must be a TOML table`);
+  }
+  const mapping = features as Record<string, unknown>;
+  const hooks = mapping.hooks;
+  const codexHooks = mapping.codex_hooks;
+  if (hooks !== undefined && typeof hooks !== "boolean") {
+    throw new Error(`Codex [features].hooks at ${path} must be a boolean`);
+  }
+  if (codexHooks !== undefined && typeof codexHooks !== "boolean") {
+    throw new Error(`Codex [features].codex_hooks at ${path} must be a boolean`);
+  }
+  return (hooks as boolean | undefined) ?? (codexHooks as boolean | undefined);
 }
 
 async function readOptional(path: string): Promise<string> {
@@ -206,15 +213,15 @@ export async function assertCodexProjectCapability(
 ): Promise<void> {
   // Context delivery uses SessionStart hooks; Skills-only Profiles omit that machinery.
   if (options.requireContext !== false) {
-    const [globalConfig, projectConfig] = await Promise.all([
-      readOptional(join(home, ".codex", "config.toml")),
-      readOptional(join(project, ".codex", "config.toml")),
-    ]);
     const globalPath = join(home, ".codex", "config.toml");
     const projectPath = join(project, ".codex", "config.toml");
-    const globalSetting = hookFeatureSetting(globalConfig);
-    const projectSetting = hookFeatureSetting(projectConfig);
-    const effectiveSetting = projectSetting ?? globalSetting;
+    const [globalConfig, projectConfig] = await Promise.all([
+      readOptional(globalPath),
+      readOptional(projectPath),
+    ]);
+    const globalSetting = hookFeatureSetting(globalConfig, globalPath);
+    const projectSetting = hookFeatureSetting(projectConfig, projectPath);
+    const effectiveSetting = projectSetting ?? globalSetting ?? true;
     if (effectiveSetting !== true) {
       const configuredBy = projectSetting !== undefined
         ? projectPath

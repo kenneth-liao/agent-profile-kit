@@ -379,15 +379,13 @@ bindings:
 
 ## Validate, preview, and apply
 
-For Codex bindings that select Context, explicitly enable lifecycle hooks in
-global or project Codex configuration before `preview` or `apply`. Agent Profile
-Kit checks this during preflight and rejects reconciliation when hooks are
-disabled or unset. Skills-only Codex bindings do not require hooks:
-
-```toml
-[features]
-hooks = true
-```
+For Codex bindings that select Context, review and trust the generated project
+SessionStart hook in Codex for each bound project. Lifecycle hooks are enabled by
+default. Agent Profile Kit checks the effective global and project configuration
+during preflight and rejects reconciliation only when hooks are explicitly
+disabled. Project configuration takes precedence over global configuration, and
+the deprecated `codex_hooks` alias remains supported. Skills-only Codex bindings
+do not require hooks.
 
 Run `agent-profile-kit validate` to check the Workspace and every Project Binding.
 Review the concise read-only reconciliation outcome with

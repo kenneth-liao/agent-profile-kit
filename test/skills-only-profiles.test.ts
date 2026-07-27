@@ -152,7 +152,8 @@ describe("Skills-only Profiles", () => {
   test("Skills-only Codex does not require SessionStart hooks", async () => {
     const home = temporaryDirectory("apk-skills-only-codex-cap-");
     const project = temporaryDirectory("apk-skills-only-codex-project-");
-    // No hooks enabled in config.
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
 
     await expect(
       assertCodexProjectCapability(home, project, { requireContext: false }),

@@ -47,14 +47,12 @@ and discovers selected Skills under `.grok/skills/`. Skills-only Profiles instal
 only Skill packages—no Context snapshot, Codex hooks, or Claude/Grok Context
 rule—and do not require Context-related Host capability.
 
-When a Profile includes Context for Codex, Codex must trust each bound project
-and have lifecycle hooks explicitly enabled in its global or project
-configuration:
-
-```toml
-[features]
-hooks = true
-```
+When a Profile includes Context for Codex, review and trust the generated project
+SessionStart hook in Codex for each bound project. Lifecycle hooks are enabled by
+default; Agent Profile Kit blocks `preview` and `apply` only when the effective
+global or project configuration explicitly disables them. Project configuration
+takes precedence over global configuration, and the deprecated `codex_hooks`
+alias remains supported.
 
 Launch Codex or Claude from the bound project. For a non-Git project with
 Context, use the exact bound root so Codex can discover the generated project
