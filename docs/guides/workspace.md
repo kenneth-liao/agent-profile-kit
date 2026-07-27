@@ -382,10 +382,12 @@ bindings:
 For Codex bindings that select Context, review and trust the generated project
 SessionStart hook in Codex for each bound project. Lifecycle hooks are enabled by
 default. Agent Profile Kit checks the effective global and project configuration
-during preflight and rejects reconciliation only when hooks are explicitly
-disabled. Project configuration takes precedence over global configuration, and
-the deprecated `codex_hooks` alias remains supported. Skills-only Codex bindings
-do not require hooks.
+during preflight and rejects reconciliation when hooks are explicitly disabled,
+when the Codex configuration it reads is malformed TOML, or when `hooks` or the
+deprecated `codex_hooks` alias is not a boolean. Project configuration takes
+precedence over global configuration. If `CODEX_HOME` is set, Codex reads its
+global configuration from `CODEX_HOME/config.toml`; otherwise it uses
+`~/.codex/config.toml`. Skills-only Codex bindings do not require hooks.
 
 Run `agent-profile-kit validate` to check the Workspace and every Project Binding.
 Review the concise read-only reconciliation outcome with

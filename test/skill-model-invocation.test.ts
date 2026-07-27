@@ -24,6 +24,7 @@ import {
   assertCodexCliVersionSupportsDisabledModelInvocation,
   assertCodexProjectCapability,
   coalesceCodexInvocationPolicy,
+  parseCodexHooksFeatureSetting,
   planCodexProject,
   CODEX_HOST_VERSION,
   CODEX_HOST_VERSION_WITH_INVOCATION,
@@ -75,6 +76,23 @@ function skillAt(
 
 const DISABLED_BODY =
   "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n  author: maintainer\n---\n\n# To spec\n";
+
+describe("Codex hooks configuration parsing", () => {
+  test("supports dotted TOML settings and gives canonical hooks precedence", () => {
+    const path = "/tmp/codex/config.toml";
+
+    expect(parseCodexHooksFeatureSetting("features.hooks = true\n", path)).toBe(true);
+    expect(
+      parseCodexHooksFeatureSetting(
+        "[features]\nhooks = false\ncodex_hooks = true\n",
+        path,
+      ),
+    ).toBe(false);
+    expect(() => parseCodexHooksFeatureSetting("[[features]]\nhooks = true\n", path)).toThrow(
+      /\[features\].*must be a TOML table/,
+    );
+  });
+});
 
 describe("Skill model-invocation policy", () => {
   test("normalizes absence of model-invocation metadata to allowed", () => {
@@ -406,6 +424,24 @@ describe("Skill model-invocation policy", () => {
         requireDisabledModelInvocation: true,
         resolveVersion: async () => "2.1.0",
       }),
+    ).resolves.toBeUndefined();
+  });
+
+  test("Codex capability preflight reads hooks from CODEX_HOME", async () => {
+    const home = temporaryDirectory("apk-codex-home-env-");
+    const codexHome = temporaryDirectory("apk-codex-config-env-");
+    const project = temporaryDirectory("apk-codex-project-env-");
+    mkdirSync(codexHome, { recursive: true });
+    writeFileSync(join(codexHome, "config.toml"), "[features]\nhooks = false\n");
+
+    await expect(
+      assertCodexProjectCapability(home, project, { env: { CODEX_HOME: codexHome } }),
+    ).rejects.toThrow(join(codexHome, "config.toml"));
+
+    mkdirSync(join(project, ".codex"), { recursive: true });
+    writeFileSync(join(project, ".codex", "config.toml"), "[features]\nhooks = true\n");
+    await expect(
+      assertCodexProjectCapability(home, project, { env: { CODEX_HOME: codexHome } }),
     ).resolves.toBeUndefined();
   });
 

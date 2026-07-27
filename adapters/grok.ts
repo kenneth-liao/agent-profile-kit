@@ -3,7 +3,6 @@ import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, posix, resolve, sep } from "node:path";
 import { promisify } from "node:util";
-import { parse as parseToml } from "smol-toml";
 import { parse, stringify } from "yaml";
 
 import {
@@ -25,6 +24,7 @@ import {
   type SkillPackageProjection,
 } from "./skill-package.js";
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
+import { parseTomlTable } from "./toml.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -352,18 +352,7 @@ export function parseGrokSkillsConfigSection(source: string): {
   readonly ignore: readonly string[];
   readonly paths: readonly string[];
 } {
-  let document: unknown;
-  try {
-    document = parseToml(source);
-  } catch (error) {
-    throw new Error(
-      `Grok skills configuration is invalid TOML (${error instanceof Error ? error.message : String(error)})`,
-    );
-  }
-  if (typeof document !== "object" || document === null || Array.isArray(document)) {
-    throw new Error("Grok skills configuration must be a TOML table");
-  }
-  const root = document as Record<string, unknown>;
+  const root = parseTomlTable(source, "Grok skills configuration");
   const skills = root.skills;
   if (skills === undefined) {
     return { disabled: [], ignore: [], paths: [] };

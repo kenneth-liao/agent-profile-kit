@@ -1353,7 +1353,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(home, ".codex", "config.toml"), `[features ${secretLikeValue}\n`);
     const malformed = runCli(home, "preview", "--verbose");
     expect(malformed.status).toBe(1);
-    expect(malformed.stdout).toContain("invalid TOML");
+    expect(malformed.stdout).toContain("invalid TOML at line 1, column 2");
     expect(malformed.stdout).not.toContain(secretLikeValue);
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = \"false\"\n");

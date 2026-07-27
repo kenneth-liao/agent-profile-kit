@@ -1,8 +1,7 @@
 import { execFile } from "node:child_process";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
-import { join, posix } from "node:path";
+import { join, posix, resolve } from "node:path";
 import { promisify } from "node:util";
-import { parse as parseToml } from "smol-toml";
 import { parse, stringify } from "yaml";
 
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
@@ -19,6 +18,7 @@ import {
   skillsRequireDisabledModelInvocation,
   type SkillPackageProjection,
 } from "./skill-package.js";
+import { parseTomlTable } from "./toml.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -107,17 +107,8 @@ function memberBytesAsString(bytes: string | Uint8Array): string {
   return typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8");
 }
 
-function hookFeatureSetting(source: string, path: string): boolean | undefined {
-  let document: unknown;
-  try {
-    document = parseToml(source);
-  } catch {
-    throw new Error(`Codex configuration at ${path} is invalid TOML; fix the file before retrying`);
-  }
-  if (typeof document !== "object" || document === null || Array.isArray(document)) {
-    throw new Error(`Codex configuration at ${path} must be a TOML table`);
-  }
-  const features = (document as Record<string, unknown>).features;
+export function parseCodexHooksFeatureSetting(source: string, path: string): boolean | undefined {
+  const features = parseTomlTable(source, `Codex configuration at ${path}`).features;
   if (features === undefined) return undefined;
   if (typeof features !== "object" || features === null || Array.isArray(features)) {
     throw new Error(`Codex configuration [features] at ${path} must be a TOML table`);
@@ -141,6 +132,11 @@ async function readOptional(path: string): Promise<string> {
     if (hasErrorCode(error, "ENOENT")) return "";
     throw error;
   }
+}
+
+function resolveCodexHome(home: string, env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.CODEX_HOME?.trim();
+  return configured ? resolve(configured) : join(home, ".codex");
 }
 
 /** Parse the leading semver from `codex --version` output (e.g. `codex-cli 0.144.4`). */
@@ -213,23 +209,19 @@ export async function assertCodexProjectCapability(
 ): Promise<void> {
   // Context delivery uses SessionStart hooks; Skills-only Profiles omit that machinery.
   if (options.requireContext !== false) {
-    const globalPath = join(home, ".codex", "config.toml");
+    const globalPath = join(resolveCodexHome(home, options.env), "config.toml");
     const projectPath = join(project, ".codex", "config.toml");
     const [globalConfig, projectConfig] = await Promise.all([
       readOptional(globalPath),
       readOptional(projectPath),
     ]);
-    const globalSetting = hookFeatureSetting(globalConfig, globalPath);
-    const projectSetting = hookFeatureSetting(projectConfig, projectPath);
+    const globalSetting = parseCodexHooksFeatureSetting(globalConfig, globalPath);
+    const projectSetting = parseCodexHooksFeatureSetting(projectConfig, projectPath);
     const effectiveSetting = projectSetting ?? globalSetting ?? true;
     if (effectiveSetting !== true) {
-      const configuredBy = projectSetting !== undefined
-        ? projectPath
-        : globalSetting !== undefined
-          ? globalPath
-          : undefined;
+      const configuredBy = projectSetting === false ? projectPath : globalPath;
       throw new Error(
-        `Codex SessionStart hooks are not enabled${configuredBy ? ` by ${configuredBy}` : ""}; set [features].hooks = true in ${projectPath} or ${globalPath} before previewing or applying the Profile`,
+        `Codex SessionStart hooks are not enabled by ${configuredBy}; set [features].hooks = true in ${projectPath} or ${globalPath} before previewing or applying the Profile`,
       );
     }
   }
