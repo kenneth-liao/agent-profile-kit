@@ -1333,27 +1333,55 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Desired State:");
   });
 
-  test("preview requires Codex SessionStart hooks to be explicitly enabled", () => {
+  test("preview treats Codex SessionStart hooks as default-enabled but blocks explicit disablement", () => {
     const home = isolatedHome();
     initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
+    const projectConfig = join(projectPath, ".codex", "config.toml");
+    mkdirSync(join(projectPath, ".codex"));
 
     writeFileSync(join(home, ".codex", "config.toml"), "");
+    writeFileSync(projectConfig, "");
     const missing = runCli(home, "preview");
-    expect(missing.status).toBe(1);
-    expect(missing.stdout).toContain("SessionStart hooks are not enabled");
-    expect(missing.stdout).toContain("[features].hooks = true");
+    expect(missing.status, missing.stderr).toBe(0);
+    expect(missing.stdout).toContain("Ready to apply");
+    expect(missing.stdout).not.toContain("SessionStart hooks are not enabled");
+
+    const secretLikeValue = "sk-test-should-not-leak";
+    writeFileSync(join(home, ".codex", "config.toml"), `[features ${secretLikeValue}\n`);
+    const malformed = runCli(home, "preview", "--verbose");
+    expect(malformed.status).toBe(1);
+    expect(malformed.stdout).toContain("invalid TOML at line 1, column 2");
+    expect(malformed.stdout).not.toContain(secretLikeValue);
+
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = \"false\"\n");
+    const invalidType = runCli(home, "preview", "--verbose");
+    expect(invalidType.status).toBe(1);
+    expect(invalidType.stdout).toContain("[features].hooks at");
+    expect(invalidType.stdout).toContain("must be a boolean");
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
-    const disabled = runCli(home, "preview");
+    const disabled = runCli(home, "preview", "--verbose");
     expect(disabled.status).toBe(1);
     expect(disabled.stdout).toContain("SessionStart hooks are not enabled");
+    expect(disabled.stdout).toContain(join(home, ".codex", "config.toml"));
+    expect(disabled.stdout).toContain("set [features].hooks = true");
+
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+    writeFileSync(projectConfig, "[features]\nhooks = false\n");
+    const projectDisabled = runCli(home, "preview", "--verbose");
+    expect(projectDisabled.status).toBe(1);
+    expect(projectDisabled.stdout).toContain(realpathSync(projectConfig));
+
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
+    writeFileSync(projectConfig, "[features]\nhooks = true\n");
+    const projectEnabledWithCanonicalSetting = runCli(home, "preview");
+    expect(projectEnabledWithCanonicalSetting.status, projectEnabledWithCanonicalSetting.stderr).toBe(0);
 
     writeFileSync(join(home, ".codex", "config.toml"), "");
-    mkdirSync(join(projectPath, ".codex"));
-    writeFileSync(join(projectPath, ".codex", "config.toml"), "[features]\ncodex_hooks = true\n");
+    writeFileSync(projectConfig, "[features]\ncodex_hooks = true\n");
     const projectEnabled = runCli(home, "preview");
     expect(projectEnabled.status, projectEnabled.stderr).toBe(0);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
@@ -4094,19 +4122,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       /Agent Profile Kit manages\s+(?:native\s+)?(?:authentication|trust|approvals|plugins|sessions)/i,
     );
 
-    // Hook enablement is a preflight precondition; project trust is Host-owned launch prep.
-    const hooksIndex = result.stdout.indexOf("hooks = true");
+    // Hook enablement defaults on; project hook review/trust remains Host-owned launch prep.
+    const defaultHooksIndex = result.stdout.search(/Lifecycle hooks are enabled by\s+default/i);
     const previewIndex = result.stdout.indexOf("agent-profile-kit preview");
     const applyIndex = result.stdout.indexOf("agent-profile-kit apply");
     const trustIndex = result.stdout.search(/trust each bound project/i);
     const launchIndex = result.stdout.search(/Before launching\s+Codex/i);
-    expect(hooksIndex).toBeGreaterThan(-1);
+    expect(defaultHooksIndex).toBeGreaterThan(-1);
     expect(previewIndex).toBeGreaterThan(-1);
     expect(applyIndex).toBeGreaterThan(-1);
     expect(trustIndex).toBeGreaterThan(-1);
     expect(launchIndex).toBeGreaterThan(-1);
-    expect(hooksIndex).toBeLessThan(previewIndex);
-    expect(hooksIndex).toBeLessThan(applyIndex);
+    expect(defaultHooksIndex).toBeLessThan(previewIndex);
+    expect(defaultHooksIndex).toBeLessThan(applyIndex);
     expect(trustIndex).toBeGreaterThan(applyIndex);
     expect(Math.abs(trustIndex - launchIndex)).toBeLessThan(120);
   });

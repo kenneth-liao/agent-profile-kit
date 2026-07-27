@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
-import { join, posix } from "node:path";
+import { join, posix, resolve } from "node:path";
 import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 
@@ -18,6 +18,7 @@ import {
   skillsRequireDisabledModelInvocation,
   type SkillPackageProjection,
 } from "./skill-package.js";
+import { parseTomlTable } from "./toml.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -106,25 +107,22 @@ function memberBytesAsString(bytes: string | Uint8Array): string {
   return typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8");
 }
 
-function hookFeatureSetting(source: string): boolean | undefined {
-  const settings = new Map<string, boolean>();
-  let section = "";
-  for (const line of source.split(/\r?\n/)) {
-    const header = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/);
-    if (header) {
-      section = (header[1] ?? "").toLowerCase();
-      continue;
-    }
-    const dotted = section === ""
-      ? line.match(/^\s*features\.(hooks|codex_hooks)\s*=\s*(true|false)\s*(?:#.*)?$/i)
-      : undefined;
-    const nested = section === "features"
-      ? line.match(/^\s*(hooks|codex_hooks)\s*=\s*(true|false)\s*(?:#.*)?$/i)
-      : undefined;
-    const setting = dotted ?? nested;
-    if (setting) settings.set((setting[1] ?? "").toLowerCase(), setting[2]?.toLowerCase() === "true");
+export function parseCodexHooksFeatureSetting(source: string, path: string): boolean | undefined {
+  const features = parseTomlTable(source, `Codex configuration at ${path}`).features;
+  if (features === undefined) return undefined;
+  if (typeof features !== "object" || features === null || Array.isArray(features)) {
+    throw new Error(`Codex configuration [features] at ${path} must be a TOML table`);
   }
-  return settings.get("hooks") ?? settings.get("codex_hooks");
+  const mapping = features as Record<string, unknown>;
+  const hooks = mapping.hooks;
+  const codexHooks = mapping.codex_hooks;
+  if (hooks !== undefined && typeof hooks !== "boolean") {
+    throw new Error(`Codex [features].hooks at ${path} must be a boolean`);
+  }
+  if (codexHooks !== undefined && typeof codexHooks !== "boolean") {
+    throw new Error(`Codex [features].codex_hooks at ${path} must be a boolean`);
+  }
+  return (hooks as boolean | undefined) ?? (codexHooks as boolean | undefined);
 }
 
 async function readOptional(path: string): Promise<string> {
@@ -134,6 +132,11 @@ async function readOptional(path: string): Promise<string> {
     if (hasErrorCode(error, "ENOENT")) return "";
     throw error;
   }
+}
+
+function resolveCodexHome(home: string, env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.CODEX_HOME?.trim();
+  return configured ? resolve(configured) : join(home, ".codex");
 }
 
 /** Parse the leading semver from `codex --version` output (e.g. `codex-cli 0.144.4`). */
@@ -206,23 +209,19 @@ export async function assertCodexProjectCapability(
 ): Promise<void> {
   // Context delivery uses SessionStart hooks; Skills-only Profiles omit that machinery.
   if (options.requireContext !== false) {
-    const [globalConfig, projectConfig] = await Promise.all([
-      readOptional(join(home, ".codex", "config.toml")),
-      readOptional(join(project, ".codex", "config.toml")),
-    ]);
-    const globalPath = join(home, ".codex", "config.toml");
+    const globalPath = join(resolveCodexHome(home, options.env), "config.toml");
     const projectPath = join(project, ".codex", "config.toml");
-    const globalSetting = hookFeatureSetting(globalConfig);
-    const projectSetting = hookFeatureSetting(projectConfig);
-    const effectiveSetting = projectSetting ?? globalSetting;
+    const [globalConfig, projectConfig] = await Promise.all([
+      readOptional(globalPath),
+      readOptional(projectPath),
+    ]);
+    const globalSetting = parseCodexHooksFeatureSetting(globalConfig, globalPath);
+    const projectSetting = parseCodexHooksFeatureSetting(projectConfig, projectPath);
+    const effectiveSetting = projectSetting ?? globalSetting ?? true;
     if (effectiveSetting !== true) {
-      const configuredBy = projectSetting !== undefined
-        ? projectPath
-        : globalSetting !== undefined
-          ? globalPath
-          : undefined;
+      const configuredBy = projectSetting === false ? projectPath : globalPath;
       throw new Error(
-        `Codex SessionStart hooks are not enabled${configuredBy ? ` by ${configuredBy}` : ""}; set [features].hooks = true in ${projectPath} or ${globalPath} before previewing or applying the Profile`,
+        `Codex SessionStart hooks are not enabled by ${configuredBy}; set [features].hooks = true in ${projectPath} or ${globalPath} before previewing or applying the Profile`,
       );
     }
   }

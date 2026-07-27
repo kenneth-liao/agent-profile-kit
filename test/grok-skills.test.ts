@@ -586,6 +586,21 @@ skills = true
     );
   });
 
+  test("reports invalid TOML position without echoing configuration source", () => {
+    const secretLikeValue = "sk-grok-test-should-not-leak";
+    let failure: unknown;
+    try {
+      parseGrokSkillsConfigSection(`[skills ${secretLikeValue}\n`);
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    const message = failure instanceof Error ? failure.message : "";
+    expect(message).toContain("invalid TOML at line 1, column 2");
+    expect(message).not.toContain(secretLikeValue);
+  });
+
   test("requires skills inventory when Skill delivery depends on inspect", () => {
     const withoutSkills = JSON.stringify({
       grokVersion: "0.2.111",
