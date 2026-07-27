@@ -81,17 +81,20 @@ Use this workflow when helping a person author their Workspace and bind projects
 8. Use `status` to focus on Profile Installations needing attention; its concise
    result reports all-current state when nothing needs action, labels change
    counts as generated-output units, explains non-current states when they
-   appear, and preserves warnings and blockers. Repository Exclusion lines are
-   Git-local exclusions for Installer-owned generated paths. Add `--verbose` to
-   distinguish current, stale, drifted, missing, and blocked installations in
-   the complete per-output report (including later global Skill identity
-   collisions). `unbind` removes desired Project Binding state but leaves
-   generated output for global `preview` and `apply`. `uninstall` instead
-   removes only output whose Installation Marker and hashes prove Agent Profile
-   Kit ownership; it preserves the Workspace, Local Configuration, global Host
-   configuration, and repository-owned files. Never use `uninstall` as a
-   substitute for removing a binding, or `unbind` as a substitute for output
-   cleanup.
+   appear, preserves warnings and blockers, and ends with one next-action line
+   when useful (preview before apply; resolve blocker and retry the same command
+   when blocked; omit when already current). Repository Exclusion lines are
+   Git-local exclusions for Installer-owned generated paths. A ready `preview`
+   likewise recommends `apply`; blocked `preview` or `apply` retries that same
+   command after the blocker. Add `--verbose` to distinguish current, stale, drifted,
+   missing, and blocked installations in the complete per-output report
+   (including later global Skill identity collisions). `unbind` removes desired
+   Project Binding state but leaves generated output for global `preview` and
+   `apply`. `uninstall` instead removes only output whose Installation Marker
+   and hashes prove Agent Profile Kit ownership; it preserves the Workspace,
+   Local Configuration, global Host configuration, and repository-owned files.
+   Never use `uninstall` as a substitute for removing a binding, or `unbind` as
+   a substitute for output cleanup.
 
 If the user plans to publish the Workspace, remind them to review personal
 content. Credentials are invalid in a Workspace regardless of publication

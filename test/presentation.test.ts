@@ -286,3 +286,355 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).not.toContain("Git-local exclusions that keep Installer-owned generated paths untracked");
   });
 });
+
+describe("formatLifecycleReport next-action guidance", () => {
+  function nextActionLines(reportText: string): string[] {
+    return reportText.split("\n").filter((line) => line.startsWith("Next:"));
+  }
+
+  test("actionable status recommends read-only preview before apply without rebinding", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "stale source", project: "/project-a" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
+    });
+
+    const concise = formatLifecycleReport("status", report);
+    const next = nextActionLines(concise);
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatch(/preview/i);
+    expect(next[0]).toMatch(/apply/i);
+    expect(next[0]).toMatch(/read-only/i);
+    expect(next[0]).not.toMatch(/bind/i);
+    expect(concise).toContain("Attention required");
+  });
+
+  test("ready preview recommends apply", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+    const next = nextActionLines(concise);
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatch(/agent-profile-kit apply/);
+    expect(concise).toContain("Ready to apply");
+  });
+
+  test("blocked status retries status without recommending apply", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a", reason: "hooks disabled" }],
+      blockers: [{ message: "/project-a: hooks disabled", project: "/project-a" }],
+    });
+
+    const statusNext = nextActionLines(formatLifecycleReport("status", report));
+    expect(statusNext).toHaveLength(1);
+    expect(statusNext[0]).toMatch(/resolve/i);
+    expect(statusNext[0]).toMatch(/blocker/i);
+    expect(statusNext[0]).toMatch(/agent-profile-kit status/);
+    expect(statusNext[0]).not.toMatch(/apply/i);
+  });
+
+  test("blocked preview retries preview without recommending apply", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a", reason: "hooks disabled" }],
+      blockers: [{ message: "/project-a: hooks disabled", project: "/project-a" }],
+    });
+
+    const preview = formatLifecycleReport("preview", report);
+    const previewNext = nextActionLines(preview);
+    expect(previewNext).toHaveLength(1);
+    expect(previewNext[0]).toMatch(/resolve/i);
+    expect(previewNext[0]).toMatch(/blocker/i);
+    expect(previewNext[0]).toMatch(/agent-profile-kit preview/);
+    expect(previewNext[0]).not.toMatch(/apply/i);
+    expect(preview).toContain("Cannot apply");
+  });
+
+  test("blocked apply directs resolve-and-retry of apply", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a", reason: "hooks disabled" }],
+      blockers: [{ message: "/project-a: hooks disabled", project: "/project-a" }],
+    });
+
+    const next = nextActionLines(formatLifecycleReport("apply", report));
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatch(/resolve/i);
+    expect(next[0]).toMatch(/blocker/i);
+    expect(next[0]).toMatch(/agent-profile-kit apply/);
+  });
+
+  test("current status and current preview emit no next action", () => {
+    const current = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    expect(nextActionLines(formatLifecycleReport("status", current))).toEqual([]);
+    expect(nextActionLines(formatLifecycleReport("preview", current))).toEqual([]);
+  });
+
+  test("completed or no-op apply without blockers emits no next action", () => {
+    const current = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    expect(nextActionLines(formatLifecycleReport("apply", current))).toEqual([]);
+
+    const appliedWithChanges = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
+    });
+    // Apply already completed; do not recommend another apply or preview.
+    expect(nextActionLines(formatLifecycleReport("apply", appliedWithChanges))).toEqual([]);
+  });
+
+  test("mixed multi-project blockers take precedence over actionable peers", () => {
+    const mixedBlocked = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: ["a"],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          outputs: ["b"],
+          profile: "coding",
+          project: "/project-b",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [
+        { kind: "stale source", project: "/project-a" },
+        { kind: "blocked", project: "/project-b", reason: "hooks disabled" },
+      ],
+      outputs: [
+        { kind: "update", path: "a.md", project: "/project-a" },
+        { kind: "update", path: "b.md", project: "/project-b" },
+      ],
+      blockers: [{ message: "/project-b: hooks disabled", project: "/project-b" }],
+    });
+
+    const statusNext = nextActionLines(formatLifecycleReport("status", mixedBlocked));
+    expect(statusNext).toHaveLength(1);
+    expect(statusNext[0]).toMatch(/resolve/i);
+    expect(statusNext[0]).toMatch(/agent-profile-kit status/);
+    expect(statusNext[0]).not.toMatch(/apply/i);
+
+    const previewNext = nextActionLines(formatLifecycleReport("preview", mixedBlocked));
+    expect(previewNext).toHaveLength(1);
+    expect(previewNext[0]).toMatch(/agent-profile-kit preview/);
+    expect(previewNext[0]).not.toMatch(/apply/i);
+  });
+
+  test("mixed multi-project actionable outcomes emit one aggregate next action", () => {
+    const mixedActionable = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: ["a"],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          outputs: ["b"],
+          profile: "coding",
+          project: "/project-b",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [
+        { kind: "current", project: "/project-a" },
+        { kind: "stale source", project: "/project-b" },
+      ],
+      outputs: [
+        { kind: "unchanged", path: "a.md", project: "/project-a" },
+        { kind: "update", path: "b.md", project: "/project-b" },
+      ],
+    });
+
+    const mixedStatus = formatLifecycleReport("status", mixedActionable);
+    expect(nextActionLines(mixedStatus)).toHaveLength(1);
+    expect(nextActionLines(mixedStatus)[0]).toMatch(/preview/i);
+    expect(nextActionLines(mixedStatus)[0]).not.toMatch(/bind/i);
+  });
+
+  test("--verbose does not append next-action guidance", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "stale source", project: "/project-a" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
+    });
+
+    expect(nextActionLines(formatLifecycleReport("status", report, { verbose: true }))).toEqual([]);
+    expect(nextActionLines(formatLifecycleReport("preview", report, { verbose: true }))).toEqual([]);
+  });
+
+  test("exclusion-only deltas stay consistent with all-current outcome and emit no next action", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/repo",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/repo",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/repo" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/repo" }],
+      repositoryExclusions: [{
+        current: [],
+        next: ["/.agent-profile-kit/codex/context.md"],
+        target: "/repo/.git/info/exclude",
+      }],
+    });
+
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain("All Profile Installations are current");
+    expect(status).toContain("No Profile Installations need attention.");
+    expect(nextActionLines(status)).toEqual([]);
+
+    const preview = formatLifecycleReport("preview", report);
+    expect(preview).toContain("Nothing to reconcile; all Profile Installations are current.");
+    expect(nextActionLines(preview)).toEqual([]);
+  });
+
+  test("status with a desired installation but no reconciliation item still recommends preview", () => {
+    // groupNeedsAttention treats status + empty items as attention; next action must agree.
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: [],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [],
+      outputs: [],
+    });
+
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain("Profile Installation: /project-a");
+    const next = nextActionLines(status);
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatch(/preview/i);
+    expect(next[0]).not.toMatch(/bind/i);
+  });
+
+  test("plural blockers wording when more than one blocker is present", () => {
+    const report = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/a",
+          context: "composed",
+          outputs: [],
+          profile: "coding",
+          project: "/a",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/b",
+          context: "composed",
+          outputs: [],
+          profile: "coding",
+          project: "/b",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [
+        { kind: "blocked", project: "/a", reason: "hooks disabled" },
+        { kind: "blocked", project: "/b", reason: "tracked path" },
+      ],
+      blockers: [
+        { message: "/a: hooks disabled", project: "/a" },
+        { message: "/b: tracked path", project: "/b" },
+      ],
+    });
+
+    const next = nextActionLines(formatLifecycleReport("status", report));
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatch(/blockers/);
+    expect(next[0]).not.toMatch(/blocker,/);
+  });
+});

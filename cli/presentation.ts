@@ -311,6 +311,42 @@ function warningsForPresentation(
   );
 }
 
+/**
+ * One aggregate next-action instruction for concise lifecycle results.
+ * Derives from the same attention surface already computed for the report body
+ * (active groups + unscoped diagnostics + blockers) — not a third "actionable" predicate.
+ * Blockers take precedence; completed/no-op apply is silent after the blocker branch.
+ */
+function nextActionLine(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  surface: {
+    readonly activeGroups: readonly ProjectGroup[];
+    readonly unscopedItems: readonly ReconciliationItem[];
+  },
+): string | undefined {
+  if (report.blockers.length > 0) {
+    const blockerWord = report.blockers.length === 1 ? "blocker" : "blockers";
+    // Same command the user just ran (status, preview, or apply) so the retry
+    // invariant is structural — not parallel prose strings that can drift.
+    return `Next: Resolve the reported ${blockerWord}, then run agent-profile-kit ${command} again.`;
+  }
+
+  // Completed or no-op apply: reconciliation already ran; do not recommend more work.
+  if (command === "apply") return undefined;
+
+  const hasActionableWork =
+    surface.activeGroups.length > 0 ||
+    surface.unscopedItems.some((item) => item.kind !== "current");
+
+  if (!hasActionableWork) return undefined;
+
+  if (command === "status") {
+    return "Next: Run agent-profile-kit preview to review the planned changes (read-only), then apply when ready.";
+  }
+  return "Next: Run agent-profile-kit apply to reconcile Profile Installations.";
+}
+
 function conciseReport(command: LifecycleCommand, report: ReconciliationReport): string {
   const grouped = groupProjects(report);
   const groups = grouped.groups;
@@ -376,6 +412,11 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
     lines.push("", "Warnings:");
     for (const warning of warnings) lines.push(`- ${warning}`);
   }
+  const next = nextActionLine(command, report, {
+    activeGroups,
+    unscopedItems: grouped.unscopedItems,
+  });
+  if (next) lines.push("", next);
   return `${lines.join("\n")}\n`;
 }
 

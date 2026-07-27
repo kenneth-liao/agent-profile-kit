@@ -95,7 +95,10 @@ These default views group details by Profile Installation, summarize
 generated-output changes (additions, updates, repairs, removals, and drift),
 explain non-current Profile Installation states when they appear, describe
 Repository Exclusion deltas as Git-local exclusions for Installer-owned
-generated paths, and keep warnings and blockers visible. Add `--verbose` to
+generated paths, keep warnings and blockers visible, and when useful end with
+one next-action instruction (status → read-only preview before apply; ready
+preview → apply; blocked → resolve and retry the same command; current or
+completed/no-op results omit a next step). Add `--verbose` to
 `preview`, `apply`, or `status` for complete per-output and desired-state
 diagnostics, including resolved artifact inclusion reasons and composed Context.
 `uninstall` is different: it removes proven generated Profile Installation
