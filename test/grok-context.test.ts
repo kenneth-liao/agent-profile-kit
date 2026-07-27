@@ -382,7 +382,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
     );
 
     const report = await applyReconciliation(home, desired.installations);
-    expect(report.items).toContainEqual({ kind: "addition", project });
+    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
 
     const rulePath = join(project, GROK_CONTEXT_RULE_PATH);
     const rule = readFileSync(rulePath, "utf8");
@@ -748,7 +748,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     expect(claudeRule?.consumingHosts).toEqual(["claude", "grok"]);
 
     const report = await applyReconciliation(home, desired.installations);
-    expect(report.items).toContainEqual({ kind: "addition", project });
+    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(true);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(true);

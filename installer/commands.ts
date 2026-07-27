@@ -1,6 +1,7 @@
 import {
   applyReconciliation,
   previewReconciliation,
+  type ApplyReconciliationResult,
   type ReconciliationReport,
 } from "./reconcile.js";
 import { buildDesiredState, stateManifestPath } from "./project-plan.js";
@@ -49,7 +50,7 @@ export async function previewApplication(home: string): Promise<ReconciliationRe
   return previewReconciliation(desired.installations, state);
 }
 
-export async function applyApplication(home: string): Promise<ReconciliationReport> {
+export async function applyApplication(home: string): Promise<ApplyReconciliationResult> {
   const desired = await buildDesiredState(home);
   return applyReconciliation(home, desired.installations);
 }

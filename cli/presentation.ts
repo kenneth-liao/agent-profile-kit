@@ -1,4 +1,5 @@
 import type {
+  ApplyReconciliationResult,
   OutputReconciliationItem,
   ReconciliationBlocker,
   ReconciliationItem,
@@ -114,11 +115,23 @@ function changeCount(summary: OutputSummary): number {
   return summary.additions + summary.updates + summary.repairs + summary.removals + summary.drift;
 }
 
+function isApplyReconciliationResult(
+  report: ReconciliationReport | ApplyReconciliationResult,
+): report is ApplyReconciliationResult {
+  return "receipt" in report && "result" in report;
+}
+
 function changedRepositoryExclusions(report: ReconciliationReport): readonly ReconciliationReport["repositoryExclusions"][number][] {
   return report.repositoryExclusions.filter((change) =>
     change.current.length !== change.next.length ||
     change.current.some((entry, index) => entry !== change.next[index]),
   );
+}
+
+function repairedRepositoryExclusionWarnings(report: ReconciliationReport): readonly string[] {
+  return report.warnings
+    .filter((warning) => warning.includes(" is missing its Agent Profile Kit exclusion section; apply will restore"))
+    .map((warning) => warning.replace("; apply will restore", "; restored"));
 }
 
 function exclusionDelta(change: ReconciliationReport["repositoryExclusions"][number]): {
@@ -277,6 +290,14 @@ function groupNeedsAttention(group: ProjectGroup, command: LifecycleCommand): bo
   );
 }
 
+function groupHasReconciliationWork(group: ProjectGroup): boolean {
+  return (
+    group.blockers.length > 0 ||
+    changeCount(summarizeOutputs(group.outputs)) > 0 ||
+    group.items.some((item) => item.kind !== "current")
+  );
+}
+
 function outcomeLine(command: LifecycleCommand, report: ReconciliationReport): string {
   if (command === "preview") return report.blockers.length > 0 ? "Cannot apply" : "Ready to apply";
   if (command === "apply") return "Apply complete";
@@ -347,11 +368,59 @@ function nextActionLine(
   return "Next: Run agent-profile-kit apply to reconcile Profile Installations.";
 }
 
-function conciseReport(command: LifecycleCommand, report: ReconciliationReport): string {
+function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
+  const grouped = groupProjects(receipt);
+  const entries = grouped.groups.flatMap((group) => {
+    const changes = changeParts(summarizeOutputs(group.outputs));
+    if (changes.length > 0) return [`- ${group.project}: ${changes.join(", ")}`];
+    const workKinds = [...new Set(
+      group.items
+        .filter((item) => item.kind !== "current")
+        .map((item) => item.kind === "update" ? "Profile Installation update" : `reconciliation ${item.kind}`),
+    )];
+    return workKinds.length > 0 ? [`- ${group.project}: ${workKinds.join(", ")}`] : [];
+  });
+  const exclusionChanges = changedRepositoryExclusions(receipt);
+  const exclusionRepairs = repairedRepositoryExclusionWarnings(receipt);
+  if (entries.length === 0 && exclusionChanges.length === 0 && exclusionRepairs.length === 0) {
+    return ["Apply receipt: no changes were applied; all Profile Installations were already current."];
+  }
+
+  const lines = ["Apply receipt:", ...(entries.length > 0 ? entries : ["- No generated-output changes"])];
+  if (exclusionChanges.length > 0 || exclusionRepairs.length > 0) {
+    lines.push(
+      "",
+      "Repository exclusions completed:",
+      "Git-local exclusions that keep Installer-owned generated paths untracked.",
+    );
+    for (const change of exclusionChanges) {
+      lines.push(`- ${change.target}: ${exclusionDeltaText(change)}`);
+    }
+    for (const repair of exclusionRepairs) lines.push(`- ${repair}`);
+  }
+  return lines;
+}
+
+function conciseReport(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  receipt?: ReconciliationReport,
+): string {
   const grouped = groupProjects(report);
   const groups = grouped.groups;
   const lines = [outcomeLine(command, report), aggregateLine(report, groups)];
-  const activeGroups = groups.filter((group) => groupNeedsAttention(group, command));
+  const receiptGroups = receipt === undefined
+    ? new Map<string, ProjectGroup>()
+    : new Map(groupProjects(receipt).groups.map((group) => [group.canonicalProject, group]));
+  const receiptHasWork = receipt !== undefined && (
+    [...receiptGroups.values()].some(groupHasReconciliationWork) ||
+    changedRepositoryExclusions(receipt).length > 0 ||
+    repairedRepositoryExclusionWarnings(receipt).length > 0
+  );
+  const activeGroups = groups.filter((group) =>
+    groupNeedsAttention(group, command) ||
+    (command === "apply" && receiptHasWork),
+  );
 
   if (activeGroups.length === 0) {
     if (groups.length > 0 && report.blockers.length === 0) {
@@ -370,7 +439,12 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
       const profile = desiredProfile(report, group.project);
       if (profile) lines.push(`  Profile: ${profile}`);
       for (const item of group.items) {
-        if (item.kind !== "current") lines.push(`  State: ${itemText(item)}`);
+        if (
+          item.kind !== "current" ||
+          (command === "apply" && receiptHasWork)
+        ) {
+          lines.push(`  State: ${itemText(item)}`);
+        }
       }
       const changes = changeParts(summary);
       if (changes.length > 0) lines.push(`  Changes: ${changes.join(", ")}`);
@@ -417,6 +491,7 @@ function conciseReport(command: LifecycleCommand, report: ReconciliationReport):
     unscopedItems: grouped.unscopedItems,
   });
   if (next) lines.push("", next);
+  if (receipt) lines.push("", ...applyReceiptLines(receipt));
   return `${lines.join("\n")}\n`;
 }
 
@@ -473,10 +548,29 @@ function verboseReport(command: LifecycleCommand, report: ReconciliationReport):
   return `${outcomeLine(command, report)}\n${verboseSections(command, report)}`;
 }
 
+function verboseApplyReport(result: ApplyReconciliationResult): string {
+  return (
+    `${outcomeLine("apply", result.result)}\n` +
+    `Resulting state:\n${verboseSections("status", result.result)}` +
+    `Apply receipt:\n${verboseSections("preview", result.receipt)}`
+  );
+}
+
 export function formatLifecycleReport(
   command: LifecycleCommand,
-  report: ReconciliationReport,
+  report: ReconciliationReport | ApplyReconciliationResult,
   options: { readonly verbose?: boolean } = {},
 ): string {
+  if (command === "apply") {
+    if (!isApplyReconciliationResult(report)) {
+      throw new Error("apply presentation requires receipt and resulting reconciliation reports");
+    }
+    return options.verbose
+      ? verboseApplyReport(report)
+      : conciseReport(command, report.result, report.receipt);
+  }
+  if (isApplyReconciliationResult(report)) {
+    throw new Error(`${command} presentation requires one reconciliation report`);
+  }
   return options.verbose ? verboseReport(command, report) : conciseReport(command, report);
 }

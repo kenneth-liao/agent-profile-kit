@@ -45,8 +45,10 @@ describe("injected project filesystem failures", () => {
     );
     const initial = await buildDesiredState(home, { checkHostCapability: false });
     const initialReport = await applyReconciliation(home, initial.installations);
-    expect(initialReport.desired.find((entry) => entry.project === third)?.canonicalProject)
+    expect(initialReport.receipt.desired.find((entry) => entry.project === third)?.canonicalProject)
       .toBe(initial.installations.find((entry) => entry.binding.project === third)?.binding.canonicalProject);
+    expect(initialReport.receipt.items.every((item) => item.kind === "addition")).toBe(true);
+    expect(initialReport.result.items.every((item) => item.kind === "current")).toBe(true);
     const obsoleteRelative = ".agent-profile-kit/codex/obsolete.txt";
     const obsolete = join(second, obsoleteRelative);
     const obsoleteBytes = "owned obsolete output\n";
@@ -153,7 +155,7 @@ describe("injected project filesystem failures", () => {
 
     const report = await applyReconciliation(home, changed);
 
-    expect(report.items).toContainEqual({
+    expect(report.receipt.items).toContainEqual({
       kind: "update",
       project,
       reason: "desired output changed",

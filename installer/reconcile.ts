@@ -133,6 +133,19 @@ export interface ReconciliationReport {
   readonly warnings: readonly string[];
 }
 
+/**
+ * The two distinct snapshots produced by a successful apply.
+ *
+ * `receipt` records the pre-apply work that was executed. `result` is a fresh
+ * reconciliation against the state and project output committed by that work.
+ * Keeping both snapshots explicit prevents presentation from treating a
+ * preflight state as the resulting Profile Installation state.
+ */
+export interface ApplyReconciliationResult {
+  readonly receipt: ReconciliationReport;
+  readonly result: ReconciliationReport;
+}
+
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
@@ -948,7 +961,7 @@ export async function applyReconciliation(
     readonly fileSystem?: Partial<ReconciliationFileSystem>;
     readonly writeInstallationState?: typeof writeInstallationState;
   } = {},
-): Promise<ReconciliationReport> {
+): Promise<ApplyReconciliationResult> {
   const fileSystem: ReconciliationFileSystem = { ...nodeFileSystem, ...options.fileSystem };
   const writeState = options.writeInstallationState ?? writeInstallationState;
   let before;
@@ -1137,5 +1150,8 @@ export async function applyReconciliation(
   }
   const repairedExclusions = await stageGitExclusions(workingState, workingState);
   await repairedExclusions.commit();
-  return report;
+  return {
+    receipt: report,
+    result: await previewReconciliation(desired, workingState),
+  };
 }

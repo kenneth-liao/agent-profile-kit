@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { formatLifecycleReport, NON_CURRENT_STATE_ORDER } from "../cli/presentation.js";
-import type { ReconciliationKind, ReconciliationReport } from "../installer/reconcile.js";
+import type {
+  ApplyReconciliationResult,
+  ReconciliationKind,
+  ReconciliationReport,
+} from "../installer/reconcile.js";
 
 function emptyReport(overrides: Partial<ReconciliationReport> = {}): ReconciliationReport {
   return {
@@ -13,6 +17,13 @@ function emptyReport(overrides: Partial<ReconciliationReport> = {}): Reconciliat
     warnings: [],
     ...overrides,
   };
+}
+
+function applyResult(
+  receipt: ReconciliationReport,
+  result: ReconciliationReport = receipt,
+): ApplyReconciliationResult {
+  return { receipt, result };
 }
 
 /** Distinctive anchor phrases — not a second home for the full gloss table. */
@@ -397,7 +408,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       blockers: [{ message: "/project-a: hooks disabled", project: "/project-a" }],
     });
 
-    const next = nextActionLines(formatLifecycleReport("apply", report));
+    const next = nextActionLines(formatLifecycleReport("apply", applyResult(report)));
     expect(next).toHaveLength(1);
     expect(next[0]).toMatch(/resolve/i);
     expect(next[0]).toMatch(/blocker/i);
@@ -435,7 +446,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
-    expect(nextActionLines(formatLifecycleReport("apply", current))).toEqual([]);
+    expect(nextActionLines(formatLifecycleReport("apply", applyResult(current)))).toEqual([]);
 
     const appliedWithChanges = emptyReport({
       desired: [{
@@ -450,7 +461,24 @@ describe("formatLifecycleReport next-action guidance", () => {
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
     // Apply already completed; do not recommend another apply or preview.
-    expect(nextActionLines(formatLifecycleReport("apply", appliedWithChanges))).toEqual([]);
+    expect(nextActionLines(formatLifecycleReport("apply", applyResult(appliedWithChanges)))).toEqual([]);
+
+    const metadataOnlyReceipt = emptyReport({
+      desired: current.desired,
+      items: [{ kind: "update", project: "/project-a", reason: "desired output changed" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    const metadataOnlyResult = emptyReport({
+      desired: current.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    const metadataOnly = formatLifecycleReport(
+      "apply",
+      applyResult(metadataOnlyReceipt, metadataOnlyResult),
+    );
+    expect(metadataOnly).not.toContain("no changes were applied");
+    expect(metadataOnly).toContain("Profile Installation update");
   });
 
   test("mixed multi-project blockers take precedence over actionable peers", () => {
