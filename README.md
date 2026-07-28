@@ -90,8 +90,9 @@ validated binding, or `unbind` to remove one binding, without reconciling
 output; hand-editing `config.yaml` remains supported. `unbind` defaults to the
 current working directory and only uses exact authored-path recovery when a
 requested project no longer exists. `preview` is read-only and leads with a
-ready-to-apply or cannot-apply outcome; `apply` reports what reconciliation
-completed; and `status` emphasizes Profile Installations that need attention.
+ready-to-apply or cannot-apply outcome; `apply` reports the verified resulting
+state separately from an Apply Receipt describing the pre-apply work that was
+committed; and `status` emphasizes Profile Installations that need attention.
 These default views group details by Profile Installation, summarize
 generated-output changes (additions, updates, repairs, removals, and drift),
 explain non-current Profile Installation states when they appear, describe

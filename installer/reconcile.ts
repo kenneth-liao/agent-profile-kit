@@ -42,11 +42,12 @@ import { hasTrackedGitDescendants } from "./git.js";
 import {
   prepareRepositoryExclusionMovePreflight,
   gitExclusionBlockers,
-  gitExclusionWarnings,
+  gitExclusionDiagnostics,
   replaceRepositoryExclusionContribution,
   repositoryExclusionChanges,
   stageGitExclusions,
   type RepositoryExclusionChange,
+  type RepositoryExclusionRepair,
 } from "./git-exclusions.js";
 
 export interface ReconciliationFileSystem {
@@ -129,6 +130,7 @@ export interface ReconciliationReport {
   }[];
   readonly items: readonly ReconciliationItem[];
   readonly outputs: readonly OutputReconciliationItem[];
+  readonly repositoryExclusionRepairs: readonly RepositoryExclusionRepair[];
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
   readonly warnings: readonly string[];
 }
@@ -136,14 +138,26 @@ export interface ReconciliationReport {
 /**
  * The two distinct snapshots produced by a successful apply.
  *
- * `receipt` records the pre-apply work that was executed. `result` is a fresh
+ * `receipt` records the pre-apply work that was executed. `resultingState` is a fresh
  * reconciliation against the state and project output committed by that work.
  * Keeping both snapshots explicit prevents presentation from treating a
  * preflight state as the resulting Profile Installation state.
  */
 export interface ApplyReconciliationResult {
   readonly receipt: ReconciliationReport;
-  readonly result: ReconciliationReport;
+  readonly resultingState: ReconciliationReport;
+}
+
+/** Raised only after all apply writes have committed but verification could not complete. */
+export class ApplyVerificationError extends Error {
+  readonly receipt: ReconciliationReport;
+
+  constructor(receipt: ReconciliationReport, cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`Apply committed; post-apply verification failed: ${detail}`, { cause });
+    this.name = "ApplyVerificationError";
+    this.receipt = receipt;
+  }
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -542,7 +556,7 @@ export async function previewReconciliation(
   blockers.push(...(await gitExclusionBlockers(state, desired, {
     retiringInstallationIds: intentionallyDeletedInstallationIds,
   })).map((message) => ({ message })));
-  const exclusionWarnings = await gitExclusionWarnings(state, desired);
+  const exclusionDiagnostics = await gitExclusionDiagnostics(state, desired);
   const desiredReport = desired.map((installation) => {
     return {
       canonicalProject: installation.binding.canonicalProject,
@@ -804,10 +818,11 @@ export async function previewReconciliation(
     outputs: outputItems.sort((left, right) =>
       left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
     ),
+    repositoryExclusionRepairs: exclusionDiagnostics.repairs,
     repositoryExclusions: repositoryExclusionChanges(state, projectedState),
     warnings: [...new Set([
       ...desired.flatMap((installation) => installation.warnings),
-      ...exclusionWarnings,
+      ...exclusionDiagnostics.warnings,
     ])].sort(),
   };
 }
@@ -959,6 +974,7 @@ export async function applyReconciliation(
   desired: readonly DesiredInstallation[],
   options: {
     readonly fileSystem?: Partial<ReconciliationFileSystem>;
+    readonly verifyReconciliation?: typeof previewReconciliation;
     readonly writeInstallationState?: typeof writeInstallationState;
   } = {},
 ): Promise<ApplyReconciliationResult> {
@@ -1150,8 +1166,14 @@ export async function applyReconciliation(
   }
   const repairedExclusions = await stageGitExclusions(workingState, workingState);
   await repairedExclusions.commit();
+  let resultingState: ReconciliationReport;
+  try {
+    resultingState = await (options.verifyReconciliation ?? previewReconciliation)(desired, workingState);
+  } catch (error) {
+    throw new ApplyVerificationError(report, error);
+  }
   return {
     receipt: report,
-    result: await previewReconciliation(desired, workingState),
+    resultingState,
   };
 }

@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState, hashBytes } from "../installer/project-plan.js";
-import { applyReconciliation } from "../installer/reconcile.js";
+import { ApplyVerificationError, applyReconciliation } from "../installer/reconcile.js";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
 
 const temporaryDirectories: string[] = [];
@@ -23,6 +23,48 @@ function temporaryDirectory(prefix: string): string {
 }
 
 describe("injected project filesystem failures", () => {
+  test("returns the completed receipt when post-commit verification fails", async () => {
+    const home = temporaryDirectory("agent-profile-kit-verification-failure-home-");
+    const project = temporaryDirectory("agent-profile-kit-verification-failure-project-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nVerification failure.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+
+    let failure: unknown;
+    try {
+      await applyReconciliation(home, desired.installations, {
+        verifyReconciliation: async () => {
+          throw new Error("injected verification read failure");
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(ApplyVerificationError);
+    expect((failure as ApplyVerificationError).message).toContain(
+      "Apply committed; post-apply verification failed: injected verification read failure",
+    );
+    expect((failure as ApplyVerificationError).receipt.items).toContainEqual({
+      kind: "addition",
+      project,
+    });
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
   test("rolls back a mid-update failure and reports non-empty completed, failed, and pending sets", async () => {
     const home = temporaryDirectory("agent-profile-kit-injected-home-");
     const first = temporaryDirectory("agent-profile-kit-injected-a-");
@@ -48,7 +90,7 @@ describe("injected project filesystem failures", () => {
     expect(initialReport.receipt.desired.find((entry) => entry.project === third)?.canonicalProject)
       .toBe(initial.installations.find((entry) => entry.binding.project === third)?.binding.canonicalProject);
     expect(initialReport.receipt.items.every((item) => item.kind === "addition")).toBe(true);
-    expect(initialReport.result.items.every((item) => item.kind === "current")).toBe(true);
+    expect(initialReport.resultingState.items.every((item) => item.kind === "current")).toBe(true);
     const obsoleteRelative = ".agent-profile-kit/codex/obsolete.txt";
     const obsolete = join(second, obsoleteRelative);
     const obsoleteBytes = "owned obsolete output\n";

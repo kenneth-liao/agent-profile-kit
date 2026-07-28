@@ -1498,6 +1498,33 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("State: stale source");
   });
 
+  test("apply receipt work expands only the changed project in a multi-project binding", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const changedProject = project("agent-profile-kit-apply-changed-");
+    const untouchedProject = project("agent-profile-kit-apply-untouched-");
+    writeContextProfile(home);
+    writeFileSync(
+      join(workspacePath(home), "profiles", "alternate.yaml"),
+      "id: alternate\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${changedProject}\n    profile: coding\n    hosts: [codex]\n  - project: ${untouchedProject}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${changedProject}\n    profile: alternate\n    hosts: [codex]\n  - project: ${untouchedProject}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const result = runCli(home, "apply");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Profile Installation: ${changedProject}`);
+    expect(result.stdout).not.toContain(`Profile Installation: ${untouchedProject}`);
+  });
+
   test("verbose apply labels resulting state and pre-apply receipt separately", () => {
     const home = isolatedHome();
     initialize(home);
@@ -2490,7 +2517,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(repaired.stdout).toContain("State: current");
     expect(repaired.stdout).toContain("Apply receipt:");
     expect(repaired.stdout).toContain("Repository exclusions completed:");
+    expect(repaired.stdout).toContain("restored 3 recorded Repository Exclusion entries");
     expect(repaired.stdout).not.toContain("apply will restore");
+
+    writeFileSync(exclude, "# unrelated local exclusion\n");
+    const verboseRepaired = runCli(home, "apply", "--verbose");
+    expect(verboseRepaired.status, verboseRepaired.stderr).toBe(0);
+    expect(verboseRepaired.stdout).not.toContain("apply will restore");
+    expect(verboseRepaired.stdout).toContain("restored 3 recorded Repository Exclusion entries");
     expect(readFileSync(exclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
     expect(runCli(home, "status").stdout).not.toContain("is missing its Agent Profile Kit exclusion section");
   });

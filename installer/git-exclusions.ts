@@ -255,6 +255,20 @@ export interface RepositoryExclusionChange {
   readonly target: string;
 }
 
+export interface RepositoryExclusionRepair {
+  readonly entries: readonly string[];
+  readonly target: string;
+}
+
+export interface RepositoryExclusionDiagnostics {
+  readonly repairs: readonly RepositoryExclusionRepair[];
+  readonly warnings: readonly string[];
+}
+
+/** Canonical suffix for a repair warning surfaced by preview and status. */
+export const REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX =
+  " is missing its Agent Profile Kit exclusion section; apply will restore recorded exact entries";
+
 function removeContribution(
   records: readonly RepositoryExclusionRecord[],
   installationId: string,
@@ -712,25 +726,36 @@ export async function gitExclusionBlockers(
   return blockers.sort(compareCanonicalStrings);
 }
 
-export async function gitExclusionWarnings(
+export async function gitExclusionDiagnostics(
   state: InstallationState,
   desired: readonly DesiredInstallation[] = [],
-): Promise<readonly string[]> {
+): Promise<RepositoryExclusionDiagnostics> {
   const warnings: string[] = [];
+  const repairs: RepositoryExclusionRepair[] = [];
   for (const target of await inspectionTargets(state, desired)) {
     try {
       const snapshot = await readSnapshot(target.git, target.allowMissingTarget);
       const expected = new Set(target.current);
       if (expected.size > 0 && !parseOwnedSection(snapshot.bytes, target.git.excludeFile)) {
-        warnings.push(
-          `${target.git.excludeFile} is missing its Agent Profile Kit exclusion section; apply will restore recorded exact entries`,
-        );
+        warnings.push(`${target.git.excludeFile}${REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX}`);
+        repairs.push({ entries: [...target.current], target: target.git.excludeFile });
       }
     } catch {
       // The blocker path owns malformed or unsafe exclusion diagnostics.
     }
   }
-  return warnings.sort(compareCanonicalStrings);
+  return {
+    repairs: repairs.sort((left, right) => compareCanonicalStrings(left.target, right.target)),
+    warnings: warnings.sort(compareCanonicalStrings),
+  };
+}
+
+/** Backward-compatible warning-only view for callers that do not need repair metadata. */
+export async function gitExclusionWarnings(
+  state: InstallationState,
+  desired: readonly DesiredInstallation[] = [],
+): Promise<readonly string[]> {
+  return (await gitExclusionDiagnostics(state, desired)).warnings;
 }
 
 async function replace(git: GitProject, source: Buffer, mode: number): Promise<boolean> {
