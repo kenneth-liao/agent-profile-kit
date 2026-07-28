@@ -219,8 +219,8 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await applyReconciliation(home, desired);
 
-    expect(report.items).toContainEqual({ kind: "addition", project });
-    expect(report.outputs).toContainEqual({
+    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
+    expect(report.receipt.outputs).toContainEqual({
       kind: "addition",
       path: directory.path,
       project,
@@ -447,7 +447,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     const project = temporaryDirectory("agent-profile-kit-dir-context-project-");
     const installation = await contextInstallation(home, project);
     const report = await applyReconciliation(home, [installation]);
-    expect(report.items).toContainEqual({ kind: "addition", project });
+    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
     expect(readFileSync(join(project, ".agent-profile-kit", "codex", "context.md"), "utf8"))
       .toContain("Directory ownership context.");
     const state = await readInstallationState(home);

@@ -29,6 +29,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Harden apply receipt/result reporting for verbose repairs, per-project output, and post-commit verification failures ([#97](https://github.com/kenneth-liao/agent-profile-kit/issues/97)).
+- Report the verified post-apply Profile Installation state separately from the completed reconciliation receipt, including generated-output and Repository Exclusion work ([#97](https://github.com/kenneth-liao/agent-profile-kit/issues/97)).
 - Treat omitted Codex lifecycle hook settings as default-enabled, honor `CODEX_HOME`, and fail closed on malformed or invalid hook settings while preserving explicit disablement, configuration precedence, and deprecated alias compatibility ([#84](https://github.com/kenneth-liao/agent-profile-kit/issues/84)).
 - Report safely repairable output distinctly in compact lifecycle summaries and document its status vocabulary ([#83](https://github.com/kenneth-liao/agent-profile-kit/pull/83)).
 - Retire intentionally deleted projects after exact-path `unbind` without requiring a vanished Installation Marker, while preserving shared Git exclusion ownership and failing closed on missing or drifted exclusion sections ([#78](https://github.com/kenneth-liao/agent-profile-kit/issues/78)).

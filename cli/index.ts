@@ -3,7 +3,12 @@
 import { homedir } from "node:os";
 
 import { agentGuide, humanGuide } from "./guides.js";
-import { formatLifecycleReport, type LifecycleCommand } from "./presentation.js";
+import {
+  formatApplyReport,
+  formatApplyVerificationFailure,
+  formatLifecycleReport,
+  type LifecycleCommand,
+} from "./presentation.js";
 import { bindProject } from "../installer/bind-project.js";
 import { unbindProject } from "../installer/unbind-project.js";
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
@@ -15,6 +20,7 @@ import {
   uninstallApplication,
   validateApplication,
 } from "../installer/commands.js";
+import { ApplyVerificationError } from "../installer/reconcile.js";
 
 function formatError(error: unknown): string {
   if (error instanceof AggregateError) {
@@ -276,8 +282,20 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("apply", () => parseLifecycleArguments("apply", arguments_.slice(1)));
     if (parsed === undefined) return;
     try {
-      process.stdout.write(formatLifecycleReport("apply", await applyApplication(home), parsed));
+      const applied = await applyApplication(home);
+      process.stdout.write(formatApplyReport(applied, parsed));
+      if (
+        applied.resultingState.blockers.length > 0 ||
+        applied.resultingState.items.some((item) => item.kind !== "current")
+      ) {
+        process.exitCode = 1;
+      }
     } catch (error) {
+      if (error instanceof ApplyVerificationError) {
+        process.stdout.write(formatApplyVerificationFailure(error.receipt, error.message, parsed));
+        process.exitCode = 1;
+        return;
+      }
       if (error instanceof Error && error.message.startsWith("Apply blocked before writes:")) {
         try {
           process.stdout.write(formatLifecycleReport("preview", await previewApplication(home), parsed));

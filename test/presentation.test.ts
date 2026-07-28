@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatLifecycleReport, NON_CURRENT_STATE_ORDER } from "../cli/presentation.js";
-import type { ReconciliationKind, ReconciliationReport } from "../installer/reconcile.js";
+import {
+  formatApplyReport,
+  formatApplyVerificationFailure,
+  formatLifecycleReport,
+  NON_CURRENT_STATE_ORDER,
+} from "../cli/presentation.js";
+import type {
+  ApplyReconciliationResult,
+  ReconciliationKind,
+  ReconciliationReport,
+} from "../installer/reconcile.js";
 
 function emptyReport(overrides: Partial<ReconciliationReport> = {}): ReconciliationReport {
   return {
@@ -9,10 +18,18 @@ function emptyReport(overrides: Partial<ReconciliationReport> = {}): Reconciliat
     desired: [],
     items: [],
     outputs: [],
+    repositoryExclusionRepairs: [],
     repositoryExclusions: [],
     warnings: [],
     ...overrides,
   };
+}
+
+function applyResult(
+  receipt: ReconciliationReport,
+  resultingState: ReconciliationReport = receipt,
+): ApplyReconciliationResult {
+  return { receipt, resultingState };
 }
 
 /** Distinctive anchor phrases — not a second home for the full gloss table. */
@@ -285,6 +302,117 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).not.toContain("generated-output");
     expect(verbose).not.toContain("Git-local exclusions that keep Installer-owned generated paths untracked");
   });
+
+  test("verbose apply keeps repaired exclusion guidance in the receipt tense", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/repo",
+        context: "composed",
+        outputs: ["context.md"],
+        profile: "coding",
+        project: "/repo",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/repo" }],
+      repositoryExclusionRepairs: [{
+        entries: ["/.agent-profile-kit/codex/context.md"],
+        target: "/repo/.git/info/exclude",
+      }],
+      warnings: [
+        "/repo/.git/info/exclude is missing its Agent Profile Kit exclusion section; apply will restore recorded exact entries",
+      ],
+    });
+    const result = emptyReport({
+      ...receipt,
+      repositoryExclusionRepairs: [],
+      warnings: [],
+    });
+
+    const verbose = formatApplyReport(applyResult(receipt, result), { verbose: true });
+
+    expect(verbose).not.toContain("apply will restore");
+    expect(verbose).toContain("Apply receipt:");
+    expect(verbose).toContain("restored 1 recorded Repository Exclusion entry");
+  });
+
+  test("apply only expands Profile Installations with receipt work", () => {
+    const desired = [
+      {
+        canonicalProject: "/changed",
+        context: "composed",
+        outputs: ["changed.md"],
+        profile: "coding",
+        project: "/changed",
+        resolvedArtifacts: [],
+      },
+      {
+        canonicalProject: "/untouched",
+        context: "composed",
+        outputs: ["untouched.md"],
+        profile: "coding",
+        project: "/untouched",
+        resolvedArtifacts: [],
+      },
+    ];
+    const receipt = emptyReport({
+      desired,
+      items: [{ kind: "update", project: "/changed" }],
+      outputs: [{ kind: "update", path: "changed.md", project: "/changed" }],
+    });
+    const resultingState = emptyReport({
+      desired,
+      items: [
+        { kind: "current", project: "/changed" },
+        { kind: "current", project: "/untouched" },
+      ],
+      outputs: [
+        { kind: "unchanged", path: "changed.md", project: "/changed" },
+        { kind: "unchanged", path: "untouched.md", project: "/untouched" },
+      ],
+    });
+
+    const concise = formatApplyReport(applyResult(receipt, resultingState));
+
+    expect(concise).toContain("Profile Installation: /changed");
+    expect(concise).not.toContain("Profile Installation: /untouched");
+  });
+
+  test("verified apply blockers change the outcome and preserve a nonzero-worthy state", () => {
+    const resultingState = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a", reason: "changed after commit" }],
+      blockers: [{ message: "changed after commit", project: "/project-a" }],
+    });
+
+    const concise = formatApplyReport(applyResult(emptyReport(), resultingState));
+
+    expect(concise.startsWith("Apply completed with blockers\n")).toBe(true);
+    expect(concise).toContain("Next: Resolve the reported blocker");
+  });
+
+  test("verification failures print the completed receipt without claiming current state", () => {
+    const receipt = emptyReport({
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+
+    const concise = formatApplyVerificationFailure(
+      receipt,
+      "Apply committed; post-apply verification failed: transient read",
+    );
+
+    expect(concise.startsWith("Apply committed; post-apply verification failed: transient read\n")).toBe(true);
+    expect(concise).toContain("Apply receipt:");
+    expect(concise).toContain("generated-output addition");
+    expect(concise).not.toContain("Apply complete");
+  });
 });
 
 describe("formatLifecycleReport next-action guidance", () => {
@@ -397,7 +525,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       blockers: [{ message: "/project-a: hooks disabled", project: "/project-a" }],
     });
 
-    const next = nextActionLines(formatLifecycleReport("apply", report));
+    const next = nextActionLines(formatApplyReport(applyResult(report)));
     expect(next).toHaveLength(1);
     expect(next[0]).toMatch(/resolve/i);
     expect(next[0]).toMatch(/blocker/i);
@@ -435,7 +563,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
-    expect(nextActionLines(formatLifecycleReport("apply", current))).toEqual([]);
+    expect(nextActionLines(formatApplyReport(applyResult(current)))).toEqual([]);
 
     const appliedWithChanges = emptyReport({
       desired: [{
@@ -450,7 +578,21 @@ describe("formatLifecycleReport next-action guidance", () => {
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
     // Apply already completed; do not recommend another apply or preview.
-    expect(nextActionLines(formatLifecycleReport("apply", appliedWithChanges))).toEqual([]);
+    expect(nextActionLines(formatApplyReport(applyResult(appliedWithChanges)))).toEqual([]);
+
+    const metadataOnlyReceipt = emptyReport({
+      desired: current.desired,
+      items: [{ kind: "update", project: "/project-a", reason: "desired output changed" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    const metadataOnlyResult = emptyReport({
+      desired: current.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    const metadataOnly = formatApplyReport(applyResult(metadataOnlyReceipt, metadataOnlyResult));
+    expect(metadataOnly).not.toContain("no changes were applied");
+    expect(metadataOnly).toContain("Profile Installation update");
   });
 
   test("mixed multi-project blockers take precedence over actionable peers", () => {

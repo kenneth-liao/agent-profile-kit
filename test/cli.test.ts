@@ -1446,6 +1446,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.startsWith("Apply complete\n")).toBe(true);
+    expect(result.stdout).toContain("State: current");
+    expect(result.stdout).not.toContain("State: addition");
+    expect(result.stdout).toContain("Apply receipt:");
+    expect(result.stdout).toContain("generated-output addition");
     expect(result.stdout).not.toContain("Desired State:");
     const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     const hookPath = join(projectPath, ".codex", "hooks.json");
@@ -1469,6 +1473,80 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       output.type === "file" && output.mode === 0o644
     )).toBe(true);
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
+  });
+
+  test("successful apply reports verified current state and a separate apply receipt", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated canonical Context.\n",
+    );
+
+    const result = runCli(home, "apply");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Apply receipt:");
+    expect(result.stdout).toContain("1 generated-output update");
+    expect(result.stdout).toContain(`Profile Installation: ${projectPath}`);
+    expect(result.stdout).toContain("State: current");
+    expect(result.stdout).not.toContain("State: stale source");
+  });
+
+  test("apply receipt work expands only the changed project in a multi-project binding", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const changedProject = project("agent-profile-kit-apply-changed-");
+    const untouchedProject = project("agent-profile-kit-apply-untouched-");
+    writeContextProfile(home);
+    writeFileSync(
+      join(workspacePath(home), "profiles", "alternate.yaml"),
+      "id: alternate\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${changedProject}\n    profile: coding\n    hosts: [codex]\n  - project: ${untouchedProject}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expect(runCli(home, "apply").status).toBe(0);
+
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${changedProject}\n    profile: alternate\n    hosts: [codex]\n  - project: ${untouchedProject}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const result = runCli(home, "apply");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Profile Installation: ${changedProject}`);
+    expect(result.stdout).not.toContain(`Profile Installation: ${untouchedProject}`);
+  });
+
+  test("verbose apply labels resulting state and pre-apply receipt separately", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated canonical Context.\n",
+    );
+
+    const result = runCli(home, "apply", "--verbose");
+
+    expect(result.status, result.stderr).toBe(0);
+    const resultingState = result.stdout.indexOf("Resulting state:");
+    const receipt = result.stdout.indexOf("Apply receipt:");
+    expect(resultingState).toBeGreaterThanOrEqual(0);
+    expect(receipt).toBeGreaterThan(resultingState);
+    expect(result.stdout.slice(resultingState, receipt)).toContain(`${projectPath}: current`);
+    expect(result.stdout.slice(resultingState, receipt)).not.toContain(`${projectPath}: stale source`);
+    expect(result.stdout.slice(receipt)).toContain(`${projectPath}: stale source`);
   });
 
   test("reads schema-v2 installation state for preview and rewrites canonical records on apply", () => {
@@ -1533,6 +1611,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Apply complete");
     expect(result.stdout).toContain("Changes: none");
+    expect(result.stdout).toContain("All Profile Installations were already current.");
+    expect(result.stdout).toContain("Apply receipt: no changes were applied");
+    expect(result.stdout).not.toContain("generated-output update");
     expect(result.stdout).not.toContain("unchanged generated output");
     expect(paths.map((path) => statSync(path).mtimeMs)).toEqual(before);
   });
@@ -2433,7 +2514,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const repaired = runCli(home, "apply");
     expect(repaired.status, repaired.stderr).toBe(0);
+    expect(repaired.stdout).toContain("State: current");
+    expect(repaired.stdout).toContain("Apply receipt:");
+    expect(repaired.stdout).toContain("Repository exclusions completed:");
+    expect(repaired.stdout).toContain("restored 3 recorded Repository Exclusion entries");
     expect(repaired.stdout).not.toContain("apply will restore");
+
+    writeFileSync(exclude, "# unrelated local exclusion\n");
+    const verboseRepaired = runCli(home, "apply", "--verbose");
+    expect(verboseRepaired.status, verboseRepaired.stderr).toBe(0);
+    expect(verboseRepaired.stdout).not.toContain("apply will restore");
+    expect(verboseRepaired.stdout).toContain("restored 3 recorded Repository Exclusion entries");
     expect(readFileSync(exclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
     expect(runCli(home, "status").stdout).not.toContain("is missing its Agent Profile Kit exclusion section");
   });

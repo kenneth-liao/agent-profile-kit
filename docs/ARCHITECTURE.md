@@ -90,7 +90,11 @@ Commands separate binding authoring from global reconciliation:
 - `unbind` removes one Project Binding from Local Configuration only. Existing paths match by canonical identity; a missing path may match only its exact authored spelling. It uses the same lock, snapshot recheck, and atomic publication boundary as `bind`, and never removes generated output.
 - `validate` checks the Workspace and Project Bindings.
 - `preview` summarizes generated-output additions, updates, repairs, removals, and drift, with short explanations for non-current Profile Installation states when present, and blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics.
-- `apply` reconciles every binding.
+- `apply` reconciles every binding and, after its commits, performs a fresh
+  reconciliation to report the verified resulting state. It separately emits
+  an Apply Receipt containing the pre-apply generated-output and Repository
+  Exclusion work that was committed; a verification failure still reports that
+  receipt and exits nonzero.
 - `status` reports current, stale source, repairable missing output, drifted output, missing output, malformed ownership, and blocked installations, with the same concise generated-output units and presence-gated state explanations.
 - `uninstall` safely removes all owned Profile Installations without deleting the Workspace or bindings.
 
@@ -150,6 +154,13 @@ The Grok Adapter generates the same canonical Context envelope as an unscoped ow
 ## Reconciliation and Ownership
 
 `preview` builds and validates the entire desired output for every bound project before `apply` writes anything. A predictable conflict in any project blocks all writes. Once preflight succeeds, each project is updated transactionally. An unexpected filesystem failure may leave later projects unapplied; the command reports the exact completed and pending set, and rerunning `apply` converges safely.
+
+The apply presentation keeps the pre-commit receipt distinct from the
+post-commit snapshot: concise output labels the receipt `Apply receipt:`, while
+verbose output labels the verified snapshot `Resulting state:` and the
+pre-commit report `Apply receipt:`. The resulting snapshot is authoritative for
+whether Profile Installations are current; the receipt is the audit of work
+that was performed.
 
 One machine-local Installation Manifest records each project's selected Profile, Hosts, Adapter and engine versions, resolved artifacts, deterministic source hash, and every owned output's project-relative path, entry type, mode, and hash. Owned artifact directories also record their complete member tree so missing, drifted, and unexpected members can be proven without Host sessions. For Git projects, machine-local installation state additionally contains one Repository Exclusion Record per canonical exclusion-file path. Each record maps contributing Installation IDs to their exact entries, and its deterministic union is the expected marked section; this permits safe shared ownership and cleanup even after a contributing project root disappears. A minimal `.agent-profile-kit/installation.json` marker travels with the project and links it to its Installation Manifest through an opaque installation ID. The Installer creates the marker during the first successful project transaction; it is lifecycle metadata rather than Adapter output. Together the marker and records prove ownership across a project-folder move without becoming a second source of desired state. Bindings remain authoritative. State schema-v2 remains a read-only migration input at the state boundary; only schema-v3 paths use stored Repository Exclusion Records, and the next successful `apply` or `uninstall` publishes the migrated state.
 

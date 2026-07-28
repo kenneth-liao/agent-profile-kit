@@ -301,7 +301,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
     ]));
 
     const report = await applyReconciliation(home, desired.installations);
-    expect(report.items).toContainEqual({ kind: "addition", project });
+    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
 
     const rulePath = join(project, CLAUDE_CONTEXT_RULE_PATH);
     const rule = readFileSync(rulePath, "utf8");
@@ -414,7 +414,7 @@ describe("Combined Codex and Claude Profile Installation", () => {
     ].sort());
 
     const report = await applyReconciliation(home, desired.installations);
-    expect(report.items).toContainEqual({ kind: "addition", project });
+    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
 
     const claudeRule = readFileSync(join(project, CLAUDE_CONTEXT_RULE_PATH), "utf8");
     const codexContext = readFileSync(
