@@ -173,7 +173,7 @@ const supportedGrokInspection = async () => ({
 });
 
 describe("Grok Context Local Configuration", () => {
-  test("accepts Grok-only and three-Host bindings, normalizes order, rejects duplicates and unknowns", () => {
+  test("accepts Grok-only and three-Host bindings and normalizes duplicates", () => {
     const grokOnly = parseLocalConfiguration(
       "schema_version: 1\nbindings:\n  - project: /tmp/project\n    profile: coding\n    hosts: [grok]\n",
       "config.yaml",
@@ -192,12 +192,11 @@ describe("Grok Context Local Configuration", () => {
     );
     expect(reversed.bindings[0]?.hosts).toEqual(three.bindings[0]?.hosts);
 
-    expect(() =>
-      parseLocalConfiguration(
-        "schema_version: 1\nbindings:\n  - project: /tmp/project\n    profile: coding\n    hosts: [grok, grok]\n",
-        "config.yaml",
-      ),
-    ).toThrow("must not contain a Host more than once");
+    const duplicate = parseLocalConfiguration(
+      "schema_version: 1\nbindings:\n  - project: /tmp/project\n    profile: coding\n    hosts: [grok, grok]\n",
+      "config.yaml",
+    );
+    expect(duplicate.bindings[0]?.hosts).toEqual(["grok"]);
 
     expect(() =>
       parseLocalConfiguration(

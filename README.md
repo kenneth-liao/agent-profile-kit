@@ -7,14 +7,17 @@ existing configuration or capabilities.
 
 Profiles are reusable Workspace selections. Each machine-local Project Binding
 installs one Profile into one explicit project for the Hosts you name. Codex,
-Claude Code, and Grok on macOS then load that material through ordinary native
-project discovery. Global Host configuration and repository-owned instructions
-remain untouched.
+Claude Code, Grok, and Pi on macOS then load that material through ordinary
+native project discovery. Global Host configuration and repository-owned
+instructions remain untouched.
 
 This release installs Context Modules and portable Skills for Codex, Claude,
-and Grok. A Profile needs at least one supported artifact (Context, Skills, or
-both); Context is not mandatory. Profiles selecting Agents, Hooks, or Tools are
-rejected until those artifact categories have native project delivery.
+and Grok, plus Profile Context for Pi. Pi Skill delivery remains fail-closed
+until [Pi Skill delivery #102](https://github.com/kenneth-liao/agent-profile-kit/issues/102).
+A Profile needs at least one supported artifact
+(Context, Skills, or both); Context is not mandatory. Profiles selecting
+Agents, Hooks, or Tools are rejected until those artifact categories have native
+project delivery.
 
 ## Quick start
 
@@ -43,9 +46,12 @@ project rule and discovers selected Skills under `.claude/skills/`. Grok loads
 Context as an unscoped project rule under `.grok/rules/` (or, when Claude is also
 bound and Grok Claude rules compatibility is enabled, shares Claude’s
 `.claude/rules/agent-profile-kit.md` path so Grok receives one effective copy)
-and discovers selected Skills under `.grok/skills/`. Skills-only Profiles install
-only Skill packages—no Context snapshot, Codex hooks, or Claude/Grok Context
-rule—and do not require Context-related Host capability.
+and discovers selected Skills under `.grok/skills/`. Pi loads Profile Context
+from the owned `.pi/APPEND_SYSTEM.md` project surface; Pi trust and session
+overrides remain Pi-owned, and Pi bindings with resolved Skills fail before any
+write. Skills-only Profiles install only Skill packages—no Context snapshot,
+Codex hooks, or Claude/Grok Context rule—and do not require Context-related Host
+capability.
 
 When a Profile includes Context for Codex, review and trust the generated project
 SessionStart hook in Codex for each bound project. Lifecycle hooks are enabled by
@@ -57,13 +63,13 @@ precedence over global configuration; when `CODEX_HOME` is set, Codex's global
 configuration is `CODEX_HOME/config.toml`, otherwise it is the default
 `~/.codex/config.toml`. The deprecated `codex_hooks` alias remains supported.
 
-Launch Codex or Claude from the bound project. For a non-Git project with
-Context, use the exact bound root so Codex can discover the generated project
-hook and Context.
+Launch Codex, Claude, Grok, or Pi from the bound project. For a non-Git project
+with Context, use the exact bound root so Codex can discover the generated
+project hook and Context.
 
 ```sh
 agent-profile-kit bind engineering --host codex
-agent-profile-kit bind engineering ~/projects/x --host codex --host claude --host grok
+agent-profile-kit bind engineering ~/projects/x --host codex --host claude --host grok --host pi
 agent-profile-kit unbind ~/projects/x
 agent-profile-kit validate
 agent-profile-kit preview
@@ -85,7 +91,8 @@ bindings: []
 ```
 
 Each binding names one existing absolute or home-relative project root, one
-Profile, and one or more Hosts (`codex`, `claude`). Use `bind` to append one
+Profile, and one or more Hosts (`codex`, `claude`, `grok`, or `pi`). Host order
+and duplicate entries normalize at ingestion. Use `bind` to append one
 validated binding, or `unbind` to remove one binding, without reconciling
 output; hand-editing `config.yaml` remains supported. `unbind` defaults to the
 current working directory and only uses exact authored-path recovery when a

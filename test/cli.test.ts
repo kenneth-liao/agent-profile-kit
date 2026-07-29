@@ -1190,15 +1190,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(invoked)).toBe(false);
   });
 
-  test("validate rejects relative, wildcard, duplicate, missing, and unsupported bindings", () => {
+  test("validate rejects empty, relative, wildcard, missing, and unsupported bindings", () => {
     const home = isolatedHome();
     initialize(home);
     writeContextProfile(home);
     const first = project();
     const invalidBindings = [
       {
-        source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex, codex]\n`,
-        message: "must not contain a Host more than once",
+        source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: []\n`,
+        message: "hosts must be a non-empty array",
       },
       {
         source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ./relative\n    profile: coding\n    hosts: [codex]\n`,
@@ -4725,14 +4725,16 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
       "codex",
       "--host",
       "claude",
+      "--host",
+      "pi",
     );
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("Hosts: claude, codex");
+    expect(result.stdout).toContain("Hosts: claude, codex, pi");
     const source = readFileSync(configPath(home), "utf8");
     expect(source).toContain(`project: ${projectPath}`);
     // Hosts are stored in canonical SUPPORTED_HOSTS order (claude before codex).
-    expect(source).toMatch(/hosts:\n\s+- claude\n\s+- codex/);
+    expect(source).toMatch(/hosts:\n\s+- claude\n\s+- codex\n\s+- pi/);
 
     const validate = runCli(home, "validate");
     expect(validate.status, validate.stderr).toBe(0);
@@ -4823,6 +4825,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const badHost = runCli(home, "bind", "coding", projectPath, "--host", "gemini");
     expect(badHost.status).toBe(1);
     expect(badHost.stderr).toMatch(/unsupported Agent Host/i);
+    expect(badHost.stderr).toContain("pi");
 
     const missingProject = runCli(
       home,

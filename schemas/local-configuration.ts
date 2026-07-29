@@ -7,7 +7,7 @@ export const LOCAL_CONFIGURATION_SCHEMA_VERSION = 2;
 export const LOCAL_CONFIGURATION_FILE = "config.yaml";
 
 /** Agent Hosts the engine can plan project output for. */
-export const SUPPORTED_HOSTS = ["claude", "codex", "grok"] as const;
+export const SUPPORTED_HOSTS = ["claude", "codex", "grok", "pi"] as const;
 export type SupportedHost = (typeof SUPPORTED_HOSTS)[number];
 
 export function isSupportedHost(value: unknown): value is SupportedHost {
@@ -142,10 +142,8 @@ export function parseLocalConfiguration(source: string, path: string): ParsedLoc
       }
       return host;
     });
-    if (new Set(hosts).size !== hosts.length) {
-      throw new Error(`${description} hosts must not contain a Host more than once`);
-    }
-    // hosts is a set: normalize order once so authored permutations are identical.
+    // Hosts are a set: normalize duplicates and order once so authored
+    // permutations are identical at the ingestion boundary.
     const orderedHosts = SUPPORTED_HOSTS.filter((host) => hosts.includes(host));
     return { hosts: orderedHosts, profile, project };
   });

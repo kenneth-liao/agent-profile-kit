@@ -8,6 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Add Pi as a project-bound Agent Host for Context-only Profile Installations through `.pi/APPEND_SYSTEM.md`, with Pi 0.82.1+ capability preflight, shared lifecycle reconciliation, and fail-closed Skill selection until [Pi Skill delivery #102](https://github.com/kenneth-liao/agent-profile-kit/issues/102) ([#101](https://github.com/kenneth-liao/agent-profile-kit/issues/101)).
 - Guide users to the next lifecycle action on concise `status` and `preview` results: actionable status recommends read-only `preview` before `apply`, ready preview recommends `apply`, blockers direct resolve-and-retry of the same read-only command, and current or completed results omit redundant steps; multi-project outcomes emit one conservative aggregate instruction ([#90](https://github.com/kenneth-liao/agent-profile-kit/issues/90)).
 - Explain concise lifecycle summary terminology: generated-output change units, short non-current Profile Installation state glosses (deduplicated across installations), and Git-local Repository Exclusion purpose while preserving exact path deltas; `--verbose` still exposes complete diagnostics from the same reconciliation report ([#89](https://github.com/kenneth-liao/agent-profile-kit/issues/89)).
 - Install resolved portable Skills for Grok projects under `.grok/skills/<Artifact ID>/`, preserving package bytes/modes, projecting `disable-model-invocation` for disabled model-invocation policy, and fail-closed Skill discovery preflight across native, personal, compatibility, plugin, and configured sources ([#87](https://github.com/kenneth-liao/agent-profile-kit/issues/87)).
@@ -23,6 +24,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Normalize repeated Host entries at Local Configuration and `bind` ingestion; authored Host order and duplicates now converge to the canonical supported-Host order ([#101](https://github.com/kenneth-liao/agent-profile-kit/issues/101)).
+- Require Agent Profile Kit 0.31.0+ to read Installation State containing the `pi` Host; unbind Pi and re-apply or uninstall with 0.31.0+ before rolling back to 0.30.3 or older ([#101](https://github.com/kenneth-liao/agent-profile-kit/issues/101)).
 - Keep schema-v2 Installation State readable through a one-time Repository Exclusion Record migration, publish schema v3 on the next successful lifecycle operation, and document downgrade/recovery guidance ([#77](https://github.com/kenneth-liao/agent-profile-kit/issues/77)).
 - Document the required pre-migration Local Configuration backup and restore procedure for schema-v2 downgrade ([#68](https://github.com/kenneth-liao/agent-profile-kit/issues/68)).
 - Document the 0.24.2 Installation State backup and pre-delete apply required for rollback and safe retirement of pre-0.24.2 non-Git installations ([#78](https://github.com/kenneth-liao/agent-profile-kit/issues/78)).

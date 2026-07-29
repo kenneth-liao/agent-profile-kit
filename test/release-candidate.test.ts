@@ -201,7 +201,11 @@ function enableCodexHooks(home: string): void {
  */
 function installControlledHosts(
   home: string,
-  options: { readonly claudeVersion?: string; readonly codexVersion?: string } = {},
+  options: {
+    readonly claudeVersion?: string;
+    readonly codexVersion?: string;
+    readonly piVersion?: string;
+  } = {},
 ): string {
   const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });
@@ -209,7 +213,12 @@ function installControlledHosts(
   const codexVersion = options.codexVersion ?? "0.99.0";
   writeFileSync(join(bin, "claude"), `#!/bin/sh\necho "${claudeVersion} (Claude Code)"\n`);
   writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "codex-cli ${codexVersion}"\n`);
-  execFileSync("chmod", ["+x", join(bin, "claude"), join(bin, "codex")]);
+  const executables = [join(bin, "claude"), join(bin, "codex")];
+  if (options.piVersion !== undefined) {
+    writeFileSync(join(bin, "pi"), `#!/bin/sh\necho "pi ${options.piVersion}"\n`);
+    executables.push(join(bin, "pi"));
+  }
+  execFileSync("chmod", ["+x", ...executables]);
   return `${bin}:${process.env.PATH ?? ""}`;
 }
 
@@ -279,7 +288,12 @@ function writeBindings(
           .join("\n")}\n`,
     )
     .join("");
-  writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n${body}`);
+  writeFileSync(
+    configPath(home),
+    bindings.length === 0
+      ? `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`
+      : `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n${body}`,
+  );
 }
 
 function writeGlobalSkill(root: string, skillId: string, body?: string): string {
@@ -567,6 +581,90 @@ describe("project-bound release candidate", () => {
     expect(existsSync(configPath(home))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain(nonGitCodex);
   }, 15_000);
+
+  test("packed CLI installs Pi Context, records its Capability Contract, and fails closed on unsupported Pi", () => {
+    const home = isolatedHome();
+    expect(runCli(home, ["init"]).status).toBe(0);
+    writeWorkspaceAuthoring(home);
+    const projectPath = project("agent-profile-kit-rc-pi-");
+    const combinedProject = project("agent-profile-kit-rc-pi-combined-");
+    const trustPath = join(home, ".pi", "agent", "trust.json");
+    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+    writeFileSync(trustPath, `{"${projectPath}":true,"${combinedProject}":false}\n`);
+    mkdirSync(join(projectPath, ".pi"), { recursive: true });
+    writeFileSync(join(projectPath, ".pi", "settings.json"), "native settings\n");
+    mkdirSync(join(combinedProject, ".pi"), { recursive: true });
+    writeFileSync(join(combinedProject, ".pi", "settings.json"), "combined native settings\n");
+    writeBindings(home, [
+      { project: projectPath, hosts: ["pi"] },
+      { project: combinedProject, hosts: ["pi", "claude"] },
+    ]);
+
+    const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
+    const preview = runCli(home, ["preview"], { path: supportedPath });
+    expect(preview.status, preview.stderr).toBe(0);
+    const apply = runCli(home, ["apply"], { path: supportedPath });
+    expect(apply.status, apply.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
+    expect(existsSync(join(combinedProject, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
+    expect(existsSync(join(combinedProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: Array<{
+        hosts: string[];
+        host_versions: Record<string, string>;
+        adapter_version: string;
+      }>;
+    };
+    expect(state.installations).toHaveLength(2);
+    const piOnlyInstallation = state.installations.find((installation) =>
+      installation.hosts.length === 1 && installation.hosts[0] === "pi",
+    );
+    expect(piOnlyInstallation?.adapter_version).toBe("pi-project-v1");
+    expect(piOnlyInstallation?.host_versions.pi).toBe("native-project-append-system-v1");
+    const combinedInstallation = state.installations.find((installation) =>
+      installation.hosts.join(",") === "claude,pi",
+    );
+    expect(combinedInstallation?.adapter_version).toBe("claude-project-v1+pi-project-v1");
+    expect(combinedInstallation?.host_versions.pi).toBe("native-project-append-system-v1");
+    expect(combinedInstallation?.host_versions.claude).toBe("native-project-unscoped-rules-skills-v1");
+
+    const status = runCli(home, ["status"], { path: supportedPath });
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toMatch(/current/i);
+
+    writeBindings(home, []);
+    const remove = runCli(home, ["apply"], { path: supportedPath });
+    expect(remove.status, remove.stderr).toBe(0);
+    expect(existsSync(join(projectPath, ".pi", "APPEND_SYSTEM.md"))).toBe(false);
+    expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe("native settings\n");
+    expect(existsSync(join(combinedProject, ".pi", "APPEND_SYSTEM.md"))).toBe(false);
+    expect(existsSync(join(combinedProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
+    expect(readFileSync(join(combinedProject, ".pi", "settings.json"), "utf8")).toBe("combined native settings\n");
+    expect(readFileSync(trustPath, "utf8")).toBe(`{"${projectPath}":true,"${combinedProject}":false}\n`);
+
+    const unsupportedHome = isolatedHome();
+    expect(runCli(unsupportedHome, ["init"]).status).toBe(0);
+    writeWorkspaceAuthoring(unsupportedHome);
+    const unsupportedProject = project("agent-profile-kit-rc-pi-old-");
+    writeBindings(unsupportedHome, [{ project: unsupportedProject, hosts: ["pi"] }]);
+    const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
+    const oldPreview = runCli(unsupportedHome, ["preview"], { path: oldPath });
+    expect(oldPreview.status).toBe(1);
+    expect(`${oldPreview.stdout}${oldPreview.stderr}`).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
+    expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
+
+    const missingHome = isolatedHome();
+    expect(runCli(missingHome, ["init"]).status).toBe(0);
+    writeWorkspaceAuthoring(missingHome);
+    const missingProject = project("agent-profile-kit-rc-pi-missing-");
+    writeBindings(missingHome, [{ project: missingProject, hosts: ["pi"] }]);
+    installControlledHosts(missingHome);
+    const noPiPath = join(missingHome, "bin");
+    const missingPreview = runCli(missingHome, ["preview"], { path: noPiPath });
+    expect(missingPreview.status).toBe(1);
+    expect(`${missingPreview.stdout}${missingPreview.stderr}`).toMatch(/Pi CLI was not found/i);
+    expect(existsSync(join(missingProject, ".pi"))).toBe(false);
+  });
 
   test("unsupported artifact categories, Host versions, Hosts, and project surfaces fail before writes", () => {
     const home = isolatedHome();

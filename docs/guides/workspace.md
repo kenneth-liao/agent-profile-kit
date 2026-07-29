@@ -183,8 +183,10 @@ when every consumer has upgraded to 0.16.1+.
 ## Author the Workspace
 
 This release supports Context Modules and portable Skills for Codex, Claude
-Code, and Grok. Profiles that select Agents, Hooks, or Tools are rejected. A
-Profile must select at least one supported artifact overall (Context Module,
+Code, and Grok, plus Profile Context for Pi. Pi Skill selection fails closed
+until [Pi Skill delivery #102](https://github.com/kenneth-liao/agent-profile-kit/issues/102). Profiles that select Agents, Hooks, or Tools are
+rejected. A Profile must select at least one supported artifact overall
+(Context Module,
 Skill, or both); no individual category is mandatory. Context-only, Skills-only,
 and combined Profiles are valid.
 
@@ -329,7 +331,8 @@ metadata:
 Project Bindings live only in machine-local
 `~/.agents/agent-profile-kit/config.yaml`. Each binding names exactly one
 existing absolute or home-relative project root, one Profile, and a non-empty set
-of supported Hosts (`codex`, `claude`, `grok`). There are no wildcards, recursive scans,
+of supported Hosts (`codex`, `claude`, `grok`, `pi`). Host order and duplicate
+entries normalize at ingestion. There are no wildcards, recursive scans,
 hidden default projects, Host auto-detection, per-session Profile selection, or
 Profile version pins. A project root may appear in only one binding.
 
@@ -338,7 +341,7 @@ Hand-edit `config.yaml`, or record one binding with the authoring-only command
 
 ```sh
 agent-profile-kit bind coding --host codex
-agent-profile-kit bind coding ~/projects/tools/agent-profile-kit --host codex --host claude --host grok
+agent-profile-kit bind coding ~/projects/tools/agent-profile-kit --host codex --host claude --host grok --host pi
 ```
 
 Omit the project argument to use the current working directory. At least one
@@ -456,8 +459,8 @@ unexpected directory members remain blockers and are never overwritten.
 
 ## Use Hosts natively
 
-After `apply`, launch Codex or Claude Code from the bound project the way you
-normally would. Agent Profile Kit does not launch Hosts or manage their
+After `apply`, launch Codex, Claude Code, Grok, or Pi from the bound project the
+way you normally would. Agent Profile Kit does not launch Hosts or manage their
 authentication, trust, approvals, plugins, or sessions.
 
 ### Codex
@@ -476,6 +479,15 @@ Claude Code receives Profile Context as an unscoped owned project rule under
 `.claude/rules/` and discovers selected Skills under
 `.claude/skills/<Artifact ID>/`. Ordinary Claude launches in the bound project
 load that material. Claude project rules do not depend on Git.
+
+### Pi
+
+Pi receives Profile Context through the owned project file
+`.pi/APPEND_SYSTEM.md`. The Pi Adapter requires CLI 0.82.1 or newer and
+proves that `.pi` and the append-system destination are compatible before
+writes. Pi's native project trust, authentication, settings, prompt files, and
+per-session overrides remain Host-owned. Profiles with resolved Skills fail
+closed for Pi until [Pi Skill delivery #102](https://github.com/kenneth-liao/agent-profile-kit/issues/102) is implemented.
 
 ### Precedence and conflicts
 
@@ -512,6 +524,10 @@ If rollback is needed after a 0.24.2 `apply`, stop using the newer CLI, restore
 `manifest.yaml.before-0.24.2` to `manifest.yaml`, and then use the older binary.
 The backup restores machine-local ownership state; it does not undo Workspace
 source or project-file changes made after the backup.
+
+Agent Profile Kit 0.31.0 records the `pi` Host in Installation State. Older
+0.30.3 and earlier engines reject that Host while reading the Manifest, so
+unbind Pi and run `apply` or `uninstall` with 0.31.0+ before rolling back.
 
 For installations created before 0.24.2, run one live `agent-profile-kit apply`
 while each bound project root still exists. This records `git_project: false`
