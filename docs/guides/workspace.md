@@ -185,8 +185,10 @@ when every consumer has upgraded to 0.16.1+.
 This release supports Context Modules and portable Skills for Codex, Claude
 Code, Grok, and Pi. Pi Skills install under `.pi/skills/<Artifact ID>/` after
 static collision and settings-aware proof; configured Skill paths, dynamic
-extensions, contributing packages, and disabled model-invocation Skills fail
-closed. Profiles that select Agents, Hooks, or Tools are
+extensions, contributing packages, and unprovable discovery state fail closed.
+Disabled model-invocation Skills are projected with Pi-native
+`disable-model-invocation: true` while explicit `/skill:<Artifact ID>`
+activation remains available. Profiles that select Agents, Hooks, or Tools are
 rejected. A Profile must select at least one supported artifact overall
 (Context Module,
 Skill, or both); no individual category is mandatory. Context-only, Skills-only,
@@ -237,6 +239,9 @@ honors `disable-model-invocation`), Grok CLI `0.2.0+` (same floor as project
 rules and native Skill discovery, which honors `disable-model-invocation`),
 and Codex CLI `0.99.0+` (first stable release with `agents/openai.yaml`
 `policy.allow_implicit_invocation`; see openai/codex#11244 / rust-v0.99.0).
+Pi CLI `0.82.1+` preserves the Pi-native frontmatter field and records
+`native-project-skills-invocation-v1` for Skills-only or
+`native-project-append-system-skills-invocation-v1` for combined Profiles.
 Unsupported versions fail closed rather than silently weakening the policy.
 
 Artifacts may declare required Dependencies with explicit typed references. Put
@@ -487,15 +492,18 @@ load that material. Claude project rules do not depend on Git.
 Pi receives Profile Context through the owned project file
 `.pi/APPEND_SYSTEM.md`. The Pi Adapter requires CLI 0.82.1 or newer and
 proves that `.pi` and the append-system destination are compatible before
-writes. Profiles with allowed-model-invocation Skills also receive one package
+writes. Profiles with portable Skills also receive one package
 per resolved Artifact ID under `.pi/skills/<Artifact ID>/`; standard package
 bytes and modes are preserved and `agent-profile-kit.yaml` is omitted. Pi
 checks its personal, project, and ancestor static discovery roots for selected
 identity collisions, recursively inspecting directories with `SKILL.md` and
 direct root `.md` files in `.pi` Skill roots (root `.md` files under `.agents`
-are ignored). Relevant settings surfaces and disabled model-invocation
-Skills remain conservative blockers until their successor tickets land. Pi's
-native project trust, authentication, settings, prompt files, and per-session
+are ignored). Disabled model-invocation Skills receive top-level
+`disable-model-invocation: true` in generated `SKILL.md` while the canonical
+Workspace source remains unchanged and explicit `/skill:<Artifact ID>`
+activation remains available. Relevant settings surfaces and any state that
+prevents proving these semantics remain conservative blockers. Pi's native
+project trust, authentication, settings, prompt files, and per-session
 overrides remain Host-owned.
 
 ### Precedence and conflicts
@@ -539,6 +547,9 @@ State. Unbind Pi or run `apply`/`uninstall` with 0.32.0+ before rolling back
 below 0.32.0. Context-only Pi state remains readable with 0.31.0+, and any
 Installation State that records the `pi` Host requires 0.31.0+ before rolling
 back to 0.30.3 or older.
+Invocation-capable Pi `host_versions` are first recorded by Agent Profile Kit
+0.34.0. Unbind Pi or run `apply`/`uninstall` with 0.34.0+ before rolling back
+an invocation-capable installation below 0.34.0.
 
 For installations created before 0.24.2, run one live `agent-profile-kit apply`
 while each bound project root still exists. This records `git_project: false`

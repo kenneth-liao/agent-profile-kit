@@ -18,8 +18,7 @@ Use this workflow when helping a person author their Workspace and bind projects
    already satisfies the need. Ask instead of inventing personal preferences,
    project facts, Host preferences, credentials, or machine paths.
 3. Create the smallest useful artifact set. This release accepts Context Modules
-   and portable Skills for Codex, Claude Code, and Grok, plus Profile Context
-   for Pi. Put standing facts in Context Modules and reusable procedures in
+   and portable Skills for Codex, Claude Code, Grok, and Pi. Put standing facts in Context Modules and reusable procedures in
    Skills. A Profile needs at least one supported artifact (Context, Skills, or
    both); Context is not mandatory—a
    Skills-only Profile is valid on CLI 0.17.0+ (convert or uninstall before
@@ -27,7 +26,7 @@ Use this workflow when helping a person author their Workspace and bind projects
    that must not fire implicitly, use
    `metadata.agent-profile-kit.model-invocation: disabled` (default is
    `allowed`); do not leave Host-native `disable-model-invocation` in
-   Workspace source (Adapters project that field for Claude and Grok). Profiles
+   Workspace source (Adapters project that field for Claude, Grok, and Pi). Profiles
    selecting Agents, Hooks, or Tools are rejected. Do not create a new artifact
    merely because a directory exists, and do not invent Agents, Hooks, or Tools
    for this release.
@@ -80,8 +79,8 @@ Use this workflow when helping a person author their Workspace and bind projects
    bound project. Do not claim that Agent Profile Kit manages Host
    authentication, trust, approvals, plugins, or sessions. Pi bindings load the
    generated `.pi/APPEND_SYSTEM.md` and `.pi/skills/<Artifact ID>` packages after
-   Pi's native trust boundary; settings surfaces and disabled model-invocation
-   Skills remain conservative blockers. For non-Git projects, remind the
+   Pi's native trust boundary; settings surfaces and unprovable discovery state
+   remain conservative blockers. For non-Git projects, remind the
    user that Codex must launch from the exact bound root.
 8. Use `status` to focus on Profile Installations needing attention; its concise
    result reports all-current state when nothing needs action, labels change

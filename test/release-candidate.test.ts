@@ -713,6 +713,105 @@ describe("project-bound release candidate", () => {
     );
   });
 
+  test("packed CLI projects mixed Pi invocation policies with independent Skills-only and combined contracts", () => {
+    const home = isolatedHome();
+    expect(runCli(home, ["init"]).status).toBe(0);
+    writeWorkspaceAuthoring(home);
+    writeSkill(home, "allowed-skill", { modelInvocation: "allowed", body: "# Allowed\n" });
+    writeSkill(home, "explicit-skill", { modelInvocation: "disabled", body: "# Explicit\n" });
+    writeProfile(home, "skills-only", { skills: ["allowed-skill", "explicit-skill"] });
+    writeProfile(home, "combined", {
+      context: ["team-rules"],
+      skills: ["allowed-skill", "explicit-skill"],
+    });
+
+    const skillsOnlyProject = project("agent-profile-kit-rc-pi-invocation-skills-only-");
+    const combinedProject = project("agent-profile-kit-rc-pi-invocation-combined-");
+    writeBindings(home, [
+      { project: skillsOnlyProject, profile: "skills-only", hosts: ["pi"] },
+      { project: combinedProject, profile: "combined", hosts: ["pi", "claude"] },
+    ]);
+    const canonicalSource = readFileSync(
+      join(workspacePath(home), "skills", "explicit-skill", "SKILL.md"),
+      "utf8",
+    );
+
+    const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
+    const preview = runCli(home, ["preview"], { path: supportedPath });
+    expect(preview.status, preview.stderr).toBe(0);
+    const apply = runCli(home, ["apply"], { path: supportedPath });
+    expect(apply.status, apply.stderr).toBe(0);
+
+    const generatedSkillsOnly = readFileSync(
+      join(skillsOnlyProject, ".pi", "skills", "explicit-skill", "SKILL.md"),
+      "utf8",
+    );
+    const generatedCombined = readFileSync(
+      join(combinedProject, ".pi", "skills", "explicit-skill", "SKILL.md"),
+      "utf8",
+    );
+    expect(generatedSkillsOnly).toContain("name: explicit-skill");
+    expect(generatedSkillsOnly).toContain("disable-model-invocation: true");
+    expect(generatedCombined).toContain("name: explicit-skill");
+    expect(generatedCombined).toContain("disable-model-invocation: true");
+    expect(readFileSync(join(skillsOnlyProject, ".pi", "skills", "allowed-skill", "SKILL.md"), "utf8")).toContain(
+      "name: allowed-skill",
+    );
+    expect(readFileSync(join(skillsOnlyProject, ".pi", "skills", "allowed-skill", "SKILL.md"), "utf8")).not.toContain(
+      "disable-model-invocation",
+    );
+    expect(readFileSync(join(workspacePath(home), "skills", "explicit-skill", "SKILL.md"), "utf8")).toBe(
+      canonicalSource,
+    );
+
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: Array<{
+        hosts: string[];
+        host_versions: Record<string, string>;
+      }>;
+    };
+    const skillsOnlyInstallation = state.installations.find(
+      (installation) => installation.hosts.join(",") === "pi",
+    );
+    expect(skillsOnlyInstallation?.host_versions.pi).toBe("native-project-skills-invocation-v1");
+    const combinedInstallation = state.installations.find(
+      (installation) => installation.hosts.join(",") === "claude,pi",
+    );
+    expect(combinedInstallation?.host_versions.pi).toBe(
+      "native-project-append-system-skills-invocation-v1",
+    );
+
+    const unsupportedHome = isolatedHome();
+    expect(runCli(unsupportedHome, ["init"]).status).toBe(0);
+    writeWorkspaceAuthoring(unsupportedHome);
+    writeSkill(unsupportedHome, "explicit-skill", { modelInvocation: "disabled" });
+    writeProfile(unsupportedHome, "coding", { skills: ["explicit-skill"] });
+    const unsupportedProject = project("agent-profile-kit-rc-pi-invocation-old-");
+    writeBindings(unsupportedHome, [{ project: unsupportedProject, hosts: ["pi"] }]);
+    const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
+    const oldPreview = runCli(unsupportedHome, ["preview"], { path: oldPath });
+    expect(oldPreview.status).toBe(1);
+    expect(`${oldPreview.stdout}${oldPreview.stderr}`).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
+    expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
+
+    const malformedHome = isolatedHome();
+    expect(runCli(malformedHome, ["init"]).status).toBe(0);
+    writeWorkspaceAuthoring(malformedHome);
+    writeSkill(malformedHome, "explicit-skill", { modelInvocation: "disabled" });
+    writeProfile(malformedHome, "coding", { skills: ["explicit-skill"] });
+    writeFileSync(
+      join(workspacePath(malformedHome), "skills", "explicit-skill", "SKILL.md"),
+      "---\nname: [\n---\n# malformed\n",
+    );
+    const malformedProject = project("agent-profile-kit-rc-pi-invocation-malformed-");
+    writeBindings(malformedHome, [{ project: malformedProject, hosts: ["pi"] }]);
+    const malformedPath = installControlledHosts(malformedHome, { piVersion: "0.82.1" });
+    const malformedPreview = runCli(malformedHome, ["preview"], { path: malformedPath });
+    expect(malformedPreview.status).toBe(1);
+    expect(`${malformedPreview.stdout}${malformedPreview.stderr}`).toMatch(/invalid YAML|frontmatter/i);
+    expect(existsSync(join(malformedProject, ".pi"))).toBe(false);
+  });
+
   test("unsupported artifact categories, Host versions, Hosts, and project surfaces fail before writes", () => {
     const home = isolatedHome();
     expect(runCli(home, ["init"]).status).toBe(0);

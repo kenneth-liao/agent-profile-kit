@@ -12,21 +12,24 @@ import {
   sep,
 } from "node:path";
 import { promisify } from "node:util";
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
 
 import { requireArtifactId } from "../schemas/dependencies.js";
 import type { Skill } from "../schemas/skill.js";
 import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
 import {
+  DISABLED_MODEL_INVOCATION_REQUIREMENT,
   planSkillPackageDirectory,
-  skillsRequireDisabledModelInvocation,
   type SkillPackageProjection,
 } from "./skill-package.js";
 import type {
   AdapterProjectPlan,
+  ProposedDirectoryFileMember,
+  ProposedDirectoryMember,
   ProposedProjectFileOutput,
   ProposedProjectOutput,
 } from "./project-plan.js";
+import type { ModelInvocationPolicy } from "../schemas/skill.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -35,10 +38,12 @@ export const PI_HOST_VERSION = "native-project-append-system-v1";
 export const PI_HOST_VERSION_WITH_SKILLS = "native-project-skills-v1";
 export const PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS =
   "native-project-append-system-skills-v1";
+export const PI_HOST_VERSION_WITH_INVOCATION =
+  "native-project-skills-invocation-v1";
+export const PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION =
+  "native-project-append-system-skills-invocation-v1";
 export const PI_MINIMUM_CLI_VERSION = "0.82.1";
 export const PI_CONTEXT_PATH = posix.join(".pi", "APPEND_SYSTEM.md");
-export const PI_DISABLED_MODEL_INVOCATION_UNSUPPORTED =
-  "Pi Skill delivery cannot preserve disabled model invocation in this ticket; wait for successor Pi Skill ticket #104 before selecting Skills with disabled model invocation for a Pi binding";
 export const PI_PROJECT_SKILLS_ROOT = posix.join(".pi", "skills");
 export const PI_PERSONAL_SKILL_ROOTS = [
   posix.join(".pi", "agent", "skills"),
@@ -131,8 +136,29 @@ function piSkillInspectBlocker(path: string, detail: string): string {
   );
 }
 
-function parsePiSkillIdentity(source: string, path: string): string {
-  const normalized = source.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+interface PiSkillFrontmatter {
+  readonly body: string;
+  readonly header: Record<string, unknown>;
+}
+
+function originalOffsetForNormalizedOffset(source: string, target: number): number {
+  let originalOffset = 0;
+  let normalizedOffset = 0;
+  while (originalOffset < source.length && normalizedOffset < target) {
+    if (source[originalOffset] === "\r") {
+      originalOffset += 1;
+      if (source[originalOffset] === "\n") originalOffset += 1;
+    } else {
+      originalOffset += 1;
+    }
+    normalizedOffset += 1;
+  }
+  return originalOffset;
+}
+
+function parsePiSkillFrontmatter(source: string, path: string): PiSkillFrontmatter {
+  const withoutBom = source.replace(/^\uFEFF/, "");
+  const normalized = withoutBom.replace(/\r\n?/g, "\n");
   const delimiter = "---\n";
   if (!normalized.startsWith(delimiter)) {
     throw new Error(`Skill ${path} must start with YAML frontmatter`);
@@ -150,10 +176,15 @@ function parsePiSkillIdentity(source: string, path: string): string {
   if (typeof header !== "object" || header === null || Array.isArray(header)) {
     throw new Error(`Skill ${path} frontmatter must be a YAML mapping`);
   }
-  return requireArtifactId(
-    (header as Record<string, unknown>).name,
-    `Skill ${path} name`,
-  );
+  return {
+    body: withoutBom.slice(originalOffsetForNormalizedOffset(withoutBom, closing + delimiter.length)),
+    header: header as Record<string, unknown>,
+  };
+}
+
+function parsePiSkillIdentity(source: string, path: string): string {
+  const { header } = parsePiSkillFrontmatter(source, path);
+  return requireArtifactId(header.name, `Skill ${path} name`);
 }
 
 function managedPiSkillPath(project: string, skillId: string): string {
@@ -782,8 +813,16 @@ function compareSemver(left: string, right: string): number {
   return 0;
 }
 
-export function assertPiCliVersionSupported(version: string): void {
+export function assertPiCliVersionSupported(
+  version: string,
+  options: { readonly requireDisabledModelInvocation?: boolean } = {},
+): void {
   if (compareSemver(version, PI_MINIMUM_CLI_VERSION) < 0) {
+    if (options.requireDisabledModelInvocation) {
+      throw new Error(
+        `Pi CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${PI_MINIMUM_CLI_VERSION}+); upgrade Pi before previewing or applying the Profile`,
+      );
+    }
     throw new Error(
       `Pi CLI ${version} does not support project APPEND_SYSTEM.md Context discovery (requires ${PI_MINIMUM_CLI_VERSION}+); upgrade Pi before previewing or applying the Profile`,
     );
@@ -822,21 +861,15 @@ async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string
   }
 }
 
-/**
- * Prove the Pi project surface needed by the selected Profile before writes.
- * Skill discovery and settings-aware checks are added below as one Adapter-owned
- * capability boundary; disabled model invocation remains deferred to #104.
- */
+/** Prove the Pi project surface needed by the selected Profile before writes. */
 export async function assertPiProjectCapability(
   project: string,
   options: PiCapabilityOptions = {},
 ): Promise<void> {
-  if (options.requireDisabledModelInvocation) {
-    throw new Error(PI_DISABLED_MODEL_INVOCATION_UNSUPPORTED);
-  }
-
   const version = await resolvePiCliVersion(options);
-  assertPiCliVersionSupported(version);
+  assertPiCliVersionSupported(version, {
+    ...(options.requireDisabledModelInvocation ? { requireDisabledModelInvocation: true } : {}),
+  });
   const piPath = join(project, ".pi");
   const piKind = await pathKind(piPath);
   if (piKind !== "missing" && piKind !== "directory") {
@@ -894,9 +927,63 @@ function contextOutput(
 }
 
 const PI_SKILL_PROJECTION: SkillPackageProjection = {
-  projectMembers: (_skill, members) => members,
-  requirements: (_skill, base) => base,
+  projectMembers: projectPiSkillMembers,
+  requirements: piSkillRequirements,
 };
+
+/** Emit Pi-native SKILL.md frontmatter for one portable model-invocation policy. */
+export function emitPiSkillMarkdown(
+  skillId: string,
+  source: string,
+  modelInvocation: ModelInvocationPolicy,
+): string {
+  if (modelInvocation === "allowed") return source;
+
+  const delimiter = "---\n";
+  const { body, header: mapping } = parsePiSkillFrontmatter(
+    source,
+    `'${skillId}' SKILL.md`,
+  );
+  if (mapping.name !== skillId) {
+    throw new Error(
+      `Skill '${skillId}' SKILL.md name must remain the canonical Artifact ID '${skillId}'`,
+    );
+  }
+  mapping["disable-model-invocation"] = true;
+  return `${delimiter}${stringify(mapping).trimEnd()}\n---\n${body}`;
+}
+
+/** Project one Pi Skill package while translating only its invocation policy. */
+export function projectPiSkillMembers(
+  skill: Skill,
+  members: readonly ProposedDirectoryMember[],
+): readonly ProposedDirectoryMember[] {
+  if (skill.modelInvocation === "allowed") return members;
+  return members.map((member) => {
+    if (member.type !== "file" || member.path !== "SKILL.md") return member;
+    const projected: ProposedDirectoryFileMember = {
+      ...member,
+      bytes: emitPiSkillMarkdown(
+        skill.id,
+        typeof member.bytes === "string" ? member.bytes : Buffer.from(member.bytes).toString("utf8"),
+        skill.modelInvocation,
+      ),
+    };
+    return projected;
+  });
+}
+
+export function piSkillRequirements(
+  skill: Skill,
+  base: readonly string[],
+): readonly string[] {
+  if (skill.modelInvocation !== "disabled") return base;
+  return [
+    ...base,
+    DISABLED_MODEL_INVOCATION_REQUIREMENT,
+    "Pi disable-model-invocation frontmatter enforces disabled model invocation",
+  ];
+}
 
 function skillOutputs(skills: readonly Skill[]) {
   return Promise.all(
@@ -913,18 +1000,12 @@ function skillOutputs(skills: readonly Skill[]) {
   );
 }
 
-/**
- * Pure Pi Adapter planner for Profile Context and allowed-invocation Skills.
- * Disabled model invocation remains deferred to successor ticket #104.
- */
+/** Pure Pi Adapter planner for Profile Context and portable Skills. */
 export async function planPiProject(
   profileId: string,
   modules: readonly ContextModuleSource[],
   skills: readonly Skill[] = [],
 ): Promise<PiProjectPlan> {
-  if (skillsRequireDisabledModelInvocation(skills)) {
-    throw new Error(PI_DISABLED_MODEL_INVOCATION_UNSUPPORTED);
-  }
   const packages = await skillOutputs(skills);
   const outputs: readonly ProposedProjectOutput[] = modules.length > 0
     ? [contextOutput(profileId, modules), ...packages]
@@ -932,9 +1013,13 @@ export async function planPiProject(
   return {
     host: "pi",
     hostVersion: skills.length > 0
-      ? modules.length > 0
-        ? PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS
-        : PI_HOST_VERSION_WITH_SKILLS
+      ? skills.some((skill) => skill.modelInvocation === "disabled")
+        ? modules.length > 0
+          ? PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION
+          : PI_HOST_VERSION_WITH_INVOCATION
+        : modules.length > 0
+          ? PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS
+          : PI_HOST_VERSION_WITH_SKILLS
       : PI_HOST_VERSION,
     outputs,
   };
