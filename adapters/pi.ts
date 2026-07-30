@@ -697,6 +697,9 @@ function configuredPiPackageBlockers(
   const projectPackages = packages.filter(
     (entry) => entry.settingsSource.scope === "project",
   );
+  // Conservative Pi precedence approximation: only one unique, enabled npm:
+  // project entry is treated as replacing the same global source. Multiple
+  // entries and scope-relative local sources stay unprovable and fail closed.
   const replacedGlobalSources = new Set(
     projectPackages
       .filter(

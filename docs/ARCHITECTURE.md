@@ -173,9 +173,12 @@ or unmanaged selected identities block, while the current Installer-owned
 Profiles, the Adapter reads global and project Pi settings once and normalizes
 the relevant `skills`, `extensions`, and `packages` fields. Missing, unrelated,
 empty, and explicitly Skill-and-extension-disabled package settings preserve
-the static proof. Configured Skill paths, enabled extensions, packages that can
-contribute either category, malformed or unreadable settings, ignored paths,
-unprovable symlinks, and ambiguous package precedence block before writes.
+the static proof. As a conservative Pi package-precedence approximation, one
+unique enabled project `npm:` package entry may supersede the same global source;
+multiple entries and scope-relative local sources remain unprovable. Configured
+Skill paths, enabled extensions, packages that can contribute either category,
+malformed or unreadable settings, ignored paths, unprovable symlinks, and
+ambiguous package precedence block before writes.
 Context-only Profiles skip this settings inspection. Pi's native project trust,
 authentication, settings, prompt files, and per-session overrides remain
 Host-owned and are never changed; explicit runtime `--skill` and `--no-skills`
