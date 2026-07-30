@@ -673,6 +673,13 @@ describe("project-bound release candidate", () => {
     writeSkill(home, "review-pr", { body: "# Review\n" });
     writeProfile(home, "coding", { context: ["team-rules"], skills: ["review-pr"] });
     const projectPath = project("agent-profile-kit-rc-pi-skills-");
+    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+    mkdirSync(join(projectPath, ".pi"), { recursive: true });
+    const globalSettings = '{"packages":["npm:team-theme"]}\n';
+    const projectSettings =
+      '{"packages":[{"source":"npm:team-theme","skills":[],"extensions":[],"themes":["dark.json"]}]}\n';
+    writeFileSync(join(home, ".pi", "agent", "settings.json"), globalSettings);
+    writeFileSync(join(projectPath, ".pi", "settings.json"), projectSettings);
     writeBindings(home, [{ project: projectPath, hosts: ["pi"] }]);
 
     const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
@@ -692,6 +699,18 @@ describe("project-bound release candidate", () => {
     };
     expect(state.installations[0]?.host_versions.pi).toBe("native-project-append-system-skills-v1");
     expect(state.installations[0]?.resolved_artifacts.some((artifact) => artifact.id === "review-pr" && artifact.type === "skill")).toBe(true);
+    expect(readFileSync(join(home, ".pi", "agent", "settings.json"), "utf8")).toBe(globalSettings);
+    expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe(projectSettings);
+
+    const dynamicSettings = '{"extensions":["./dynamic.ts"]}\n';
+    writeFileSync(join(projectPath, ".pi", "settings.json"), dynamicSettings);
+    const blockedStatus = runCli(home, ["status"], { path: supportedPath });
+    expect(blockedStatus.status, blockedStatus.stderr).toBe(0);
+    expect(`${blockedStatus.stdout}${blockedStatus.stderr}`).toMatch(/Pi Skill project settings.*dynamic\.ts/i);
+    expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe(dynamicSettings);
+    expect(readFileSync(join(projectPath, ".pi", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
+      "name: review-pr",
+    );
   });
 
   test("unsupported artifact categories, Host versions, Hosts, and project surfaces fail before writes", () => {
