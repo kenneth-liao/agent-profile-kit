@@ -190,7 +190,7 @@ function installFakeGrok(
         },
       ],
     },
-    // Empty inventory is valid proof when no Host-visible Skills collide.
+    // Empty inspection output is valid for the controlled Host fixture.
     skills: [],
     projectInstructions: [],
   });
@@ -1333,7 +1333,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Desired State:");
   });
 
-  test("preview treats Codex SessionStart hooks as default-enabled but blocks explicit disablement", () => {
+  test("preview treats Codex SessionStart hook configuration as advisory", () => {
     const home = isolatedHome();
     initialize(home);
     const projectPath = project();
@@ -1352,27 +1352,31 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const secretLikeValue = "sk-test-should-not-leak";
     writeFileSync(join(home, ".codex", "config.toml"), `[features ${secretLikeValue}\n`);
     const malformed = runCli(home, "preview", "--verbose");
-    expect(malformed.status).toBe(1);
+    expect(malformed.status, malformed.stderr).toBe(0);
+    expect(malformed.stdout).toContain("Warnings:");
     expect(malformed.stdout).toContain("invalid TOML at line 1, column 2");
     expect(malformed.stdout).not.toContain(secretLikeValue);
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = \"false\"\n");
     const invalidType = runCli(home, "preview", "--verbose");
-    expect(invalidType.status).toBe(1);
+    expect(invalidType.status, invalidType.stderr).toBe(0);
+    expect(invalidType.stdout).toContain("Warnings:");
     expect(invalidType.stdout).toContain("[features].hooks at");
     expect(invalidType.stdout).toContain("must be a boolean");
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
     const disabled = runCli(home, "preview", "--verbose");
-    expect(disabled.status).toBe(1);
+    expect(disabled.status, disabled.stderr).toBe(0);
+    expect(disabled.stdout).toContain("Warnings:");
     expect(disabled.stdout).toContain("SessionStart hooks are not enabled");
     expect(disabled.stdout).toContain(join(home, ".codex", "config.toml"));
-    expect(disabled.stdout).toContain("set [features].hooks = true");
+    expect(disabled.stdout).toContain("[features].hooks = true");
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
     writeFileSync(projectConfig, "[features]\nhooks = false\n");
     const projectDisabled = runCli(home, "preview", "--verbose");
-    expect(projectDisabled.status).toBe(1);
+    expect(projectDisabled.status, projectDisabled.stderr).toBe(0);
+    expect(projectDisabled.stdout).toContain("Warnings:");
     expect(projectDisabled.stdout).toContain(realpathSync(projectConfig));
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
@@ -1386,6 +1390,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(projectEnabled.status, projectEnabled.stderr).toBe(0);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+  });
+
+  test("apply and status preserve Codex configuration warnings without blocking installation", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
+
+    const apply = runCli(home, "apply", "--verbose");
+    expect(apply.status, apply.stderr).toBe(0);
+    expect(apply.stdout).toContain("Warnings:");
+    expect(apply.stdout).toContain("SessionStart hooks are not enabled");
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
+
+    const status = runCli(home, "status", "--verbose");
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain(`${projectPath}: current`);
+    expect(status.stdout).toContain("Warnings:");
+    expect(status.stdout).toContain("SessionStart hooks are not enabled");
+    expect(status.stdout).not.toContain(`${projectPath}: blocked`);
   });
 
   test("preview reports blockers from every project in one complete preflight", () => {
@@ -3761,7 +3787,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr"))).toBe(false);
   });
 
-  test("tracked colliding Codex Skill packages block global preflight", () => {
+  test("tracked exact planned Codex Skill destinations block preflight", () => {
     const home = isolatedHome();
     initialize(home);
     const projectPath = gitRepository();
@@ -4251,7 +4277,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(
       /(?:does not manage|not Agent Profile Kit[-–]owned).{0,80}global|user-managed native global/i,
     );
-    expect(result.stdout).toMatch(/#53|fail closed|fail-closed|status.{0,40}blocked/i);
+    expect(result.stdout).toMatch(/Host Resolution/i);
+    expect(result.stdout).toMatch(/Output Ownership Conflict/i);
     for (const command of ["validate", "preview", "apply", "status", "unbind", "uninstall"]) {
       expect(result.stdout).toContain(
         command === "status" || command === "uninstall"
@@ -4303,10 +4330,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(
       /never adopt, record as managed output, or mutate those paths/i,
     );
-    // Ownership vs observation: status may still report blocked on dual delivery.
-    expect(result.stdout).toMatch(
-      /status.{0,80}(?:report|blocked)|(?:report|blocked).{0,80}status/is,
-    );
+    expect(result.stdout).toMatch(/Host Resolution/i);
 
     // Bindings select Profile/Hosts; artifacts enter Manifests / managed lifecycle.
     expect(result.stdout).toMatch(
@@ -4321,10 +4345,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       /Agent Profile Kit (?:owns|manages|tracks) (?:your )?global (?:Host )?(?:Skill |delivery)/i,
     );
 
-    // Dual delivery (global + Profile-selected) is prohibited; #53 fail-closed.
-    expect(result.stdout).toMatch(/must not be both/i);
-    expect(result.stdout).toMatch(/#53/);
-    expect(result.stdout).toMatch(/fail closed/i);
+    // Same-identity native delivery is delegated to the Host.
+    expect(result.stdout).toMatch(/may be both universally delivered/i);
+    expect(result.stdout).toMatch(/exact planned destination/i);
   });
 
   test("init bootstrap pointers stay short and name current guide commands", () => {

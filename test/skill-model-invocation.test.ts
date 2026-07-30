@@ -24,6 +24,7 @@ import {
   assertCodexCliVersionSupportsDisabledModelInvocation,
   assertCodexProjectCapability,
   coalesceCodexInvocationPolicy,
+  detectCodexProjectConfigurationWarnings,
   parseCodexHooksFeatureSetting,
   planCodexProject,
   CODEX_HOST_VERSION,
@@ -427,7 +428,7 @@ describe("Skill model-invocation policy", () => {
     ).resolves.toBeUndefined();
   });
 
-  test("Codex capability preflight reads hooks from CODEX_HOME", async () => {
+  test("Codex configuration warnings honor CODEX_HOME and project precedence", async () => {
     const home = temporaryDirectory("apk-codex-home-env-");
     const codexHome = temporaryDirectory("apk-codex-config-env-");
     const project = temporaryDirectory("apk-codex-project-env-");
@@ -436,13 +437,22 @@ describe("Skill model-invocation policy", () => {
 
     await expect(
       assertCodexProjectCapability(home, project, { env: { CODEX_HOME: codexHome } }),
-    ).rejects.toThrow(join(codexHome, "config.toml"));
+    ).resolves.toBeUndefined();
+    expect(
+      await detectCodexProjectConfigurationWarnings(home, project, {
+        env: { CODEX_HOME: codexHome },
+      }),
+    ).toEqual([
+      expect.stringContaining(join(codexHome, "config.toml")),
+    ]);
 
     mkdirSync(join(project, ".codex"), { recursive: true });
     writeFileSync(join(project, ".codex", "config.toml"), "[features]\nhooks = true\n");
-    await expect(
-      assertCodexProjectCapability(home, project, { env: { CODEX_HOME: codexHome } }),
-    ).resolves.toBeUndefined();
+    expect(
+      await detectCodexProjectConfigurationWarnings(home, project, {
+        env: { CODEX_HOME: codexHome },
+      }),
+    ).toEqual([]);
   });
 
   test("end-to-end: unsupported Codex CLI blocks preview and apply before project or state writes", async () => {

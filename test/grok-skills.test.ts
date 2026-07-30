@@ -19,7 +19,7 @@ import {
 import { CODEX_HOST_VERSION } from "../adapters/codex.js";
 import {
   assertGrokCliVersionSupported,
-  detectGrokSkillDiscoveryOverlaps,
+  assertGrokProjectCapability,
   emitGrokSkillMarkdown,
   GROK_CONTEXT_RULE_PATH,
   GROK_HOST_VERSION,
@@ -27,7 +27,6 @@ import {
   GROK_HOST_VERSION_WITH_SKILLS,
   GROK_MINIMUM_CLI_VERSION,
   GROK_SKILLS_DISCOVERY_ROOT,
-  parseGrokInspectDocument,
   parseGrokSkillsConfigSection,
   planGrokProject,
 } from "../adapters/grok.js";
@@ -311,7 +310,7 @@ describe("Grok project Skill packages", () => {
     ).toBe("unchanged");
   });
 
-  test("unowned colliding Host-visible Skill package blocks preflight without adopting it", async () => {
+  test("unowned exact planned Skill destination blocks preflight without adoption", async () => {
     const home = temporaryDirectory("apk-grok-skill-collision-home-");
     const project = temporaryDirectory("apk-grok-skill-collision-project-");
     await workspaceWithSkills(home, project, ["grok"], [{ id: "review-pr" }], ["review-pr"]);
@@ -546,7 +545,7 @@ describe("Grok project Skill packages", () => {
   });
 });
 
-describe("Grok Skill discovery preflight", () => {
+describe("Grok capability and configuration diagnostics", () => {
   test("parses [skills] disabled, ignore, and paths including quoted commas and comments", () => {
     const parsed = parseGrokSkillsConfigSection(`
 [cli]
@@ -601,126 +600,24 @@ skills = true
     expect(message).not.toContain(secretLikeValue);
   });
 
-  test("requires skills inventory when Skill delivery depends on inspect", () => {
-    const withoutSkills = JSON.stringify({
-      grokVersion: "0.2.111",
-      externalCompat: {
-        cells: [{ vendor: "claude", surface: "rules", enabled: true, source: "default" }],
-      },
-    });
-    expect(() =>
-      parseGrokInspectDocument(withoutSkills, { requireSkillsInventory: true }),
-    ).toThrow(/missing the skills inventory/);
-    // Context-only probes may omit the field.
-    expect(parseGrokInspectDocument(withoutSkills).skills).toEqual([]);
-    expect(
-      parseGrokInspectDocument(
-        JSON.stringify({
-          grokVersion: "0.2.111",
-          externalCompat: {
-            cells: [{ vendor: "claude", surface: "rules", enabled: true, source: "default" }],
-          },
-          skills: [],
-        }),
-        { requireSkillsInventory: true },
-      ).skills,
-    ).toEqual([]);
-  });
-
-  test("blocks personal, project-compat, plugin, disabled, and ignored selected identities", async () => {
-    const home = temporaryDirectory("apk-grok-discovery-home-");
-    const project = temporaryDirectory("apk-grok-discovery-project-");
-
-    mkdirSync(join(home, ".grok", "skills", "personal-skill"), { recursive: true });
-    writeFileSync(
-      join(home, ".grok", "skills", "personal-skill", "SKILL.md"),
-      "---\nname: personal-skill\ndescription: personal\n---\n\n# personal\n",
-    );
-    mkdirSync(join(project, ".agents", "skills", "agents-skill"), { recursive: true });
-    writeFileSync(
-      join(project, ".agents", "skills", "agents-skill", "SKILL.md"),
-      "---\nname: agents-skill\ndescription: agents\n---\n\n# agents\n",
-    );
-    mkdirSync(join(project, ".claude", "skills", "claude-skill"), { recursive: true });
-    writeFileSync(
-      join(project, ".claude", "skills", "claude-skill", "SKILL.md"),
-      "---\nname: claude-skill\ndescription: claude\n---\n\n# claude\n",
-    );
-
-    const blockers = await detectGrokSkillDiscoveryOverlaps(
-      ["personal-skill", "agents-skill", "claude-skill", "plugin-skill", "disabled-skill", "ignored-skill"],
-      {
-        home,
-        project,
-        inspection: {
-          claudeRulesEnabled: true,
-          claudeSkillsEnabled: true,
-          cursorSkillsEnabled: true,
-          skills: [
-            {
-              name: "plugin-skill",
-              sourceType: "plugin",
-              sourcePath: "/plugins/demo/skills/plugin-skill/SKILL.md",
-              vendor: "demo",
-            },
-            {
-              name: "disabled-skill",
-              sourceType: "user",
-              sourcePath: join(home, ".grok", "skills", "disabled-skill", "SKILL.md"),
-              disabled: true,
-            },
-          ],
-          skillsDisabledNames: ["disabled-skill"],
-          skillsExtraPaths: [],
-          skillsIgnorePaths: [join(project, ".grok", "skills", "ignored-skill")],
-          version: "0.2.111",
+  test("Skills capability detection uses version and output surface without inventory inspection", async () => {
+    const project = temporaryDirectory("apk-grok-capability-no-inventory-");
+    let inspected = false;
+    await expect(
+      assertGrokProjectCapability(project, {
+        inspect: async () => {
+          inspected = true;
+          throw new Error("effective inventory must not be inspected");
         },
-      },
-    );
-
-    expect(blockers.some((message) => message.includes("personal-skill"))).toBe(true);
-    expect(blockers.some((message) => message.includes("agents-skill"))).toBe(true);
-    expect(blockers.some((message) => message.includes("claude-skill"))).toBe(true);
-    expect(blockers.some((message) => message.includes("plugin-skill"))).toBe(true);
-    expect(blockers.some((message) => message.includes("disabled-skill"))).toBe(true);
-    expect(blockers.some((message) => message.includes("ignored-skill"))).toBe(true);
-    // Unrelated package under managed root must not poison unrelated selected IDs.
-    expect(blockers.every((message) => !message.includes("foreign-only"))).toBe(true);
+        requireContext: false,
+        requireSkills: true,
+        resolveVersion: async () => "0.2.111",
+      }),
+    ).resolves.toBeDefined();
+    expect(inspected).toBe(false);
   });
 
-  test("missing discovery roots stay empty and managed install path is exempt", async () => {
-    const home = temporaryDirectory("apk-grok-discovery-empty-home-");
-    const project = temporaryDirectory("apk-grok-discovery-empty-project-");
-    mkdirSync(join(project, ".grok", "skills", "review-pr"), { recursive: true });
-    writeFileSync(
-      join(project, ".grok", "skills", "review-pr", "SKILL.md"),
-      "---\nname: review-pr\ndescription: managed\n---\n\n# review\n",
-    );
-
-    const blockers = await detectGrokSkillDiscoveryOverlaps(["review-pr"], {
-      home,
-      project,
-      inspection: {
-        claudeRulesEnabled: true,
-        claudeSkillsEnabled: true,
-        cursorSkillsEnabled: true,
-        skills: [
-          {
-            name: "review-pr",
-            sourceType: "project",
-            sourcePath: join(project, ".grok", "skills", "review-pr", "SKILL.md"),
-          },
-        ],
-        skillsDisabledNames: [],
-        skillsExtraPaths: [],
-        skillsIgnorePaths: [],
-        version: "0.2.111",
-      },
-    });
-    expect(blockers).toEqual([]);
-  });
-
-  test("status fails closed when a plugin Skill collides after apply", async () => {
+  test("status delegates later plugin Skill identities to Grok Host Resolution", async () => {
     const home = temporaryDirectory("apk-grok-status-plugin-home-");
     const project = temporaryDirectory("apk-grok-status-plugin-project-");
     await workspaceWithSkills(
@@ -786,19 +683,15 @@ exit 2
     process.env.PATH = `${bin}:${previousPath}`;
     try {
       const report = await statusApplication(home);
-      expect(
-        report.blockers.some((blocker) =>
-          blocker.message.includes("review-pr") &&
-          (blocker.message.includes("plugin") || blocker.message.toLowerCase().includes("shadow")),
-        ),
-      ).toBe(true);
-      expect(report.items.some((item) => item.kind === "blocked")).toBe(true);
+      expect(report.blockers).toEqual([]);
+      expect(report.warnings).toEqual([]);
+      expect(report.items.some((item) => item.kind === "current")).toBe(true);
     } finally {
       process.env.PATH = previousPath;
     }
   });
 
-  test("status fails closed when Grok inspect omits the skills inventory for a Skills Profile", async () => {
+  test("status does not require a Grok effective Skill inventory", async () => {
     const home = temporaryDirectory("apk-grok-status-missing-inventory-home-");
     const project = temporaryDirectory("apk-grok-status-missing-inventory-project-");
     await workspaceWithSkills(
@@ -843,14 +736,37 @@ exit 2
     process.env.PATH = `${bin}:${previousPath}`;
     try {
       const report = await statusApplication(home);
-      expect(
-        report.blockers.some((blocker) =>
-          blocker.message.includes("missing the skills inventory"),
-        ),
-      ).toBe(true);
+      expect(report.blockers).toEqual([]);
+      expect(report.items.some((item) => item.kind === "current")).toBe(true);
     } finally {
       process.env.PATH = previousPath;
     }
+  });
+
+  test("status warns when Grok configuration disables planned Skill output", async () => {
+    const home = temporaryDirectory("apk-grok-status-disabled-home-");
+    const project = temporaryDirectory("apk-grok-status-disabled-project-");
+    await workspaceWithSkills(
+      home,
+      project,
+      ["grok"],
+      [{ id: "review-pr" }],
+      ["review-pr"],
+      { context: false },
+    );
+    mkdirSync(join(home, ".grok"), { recursive: true });
+    writeFileSync(
+      join(home, ".grok", "config.toml"),
+      '[skills]\ndisabled = ["review-pr"]\n',
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    expect(desired.installations[0]?.blockers).toEqual([]);
+    expect(
+      desired.installations[0]?.warnings.some((warning) =>
+        /Grok.*review-pr.*disabled.*may not load/i.test(warning),
+      ),
+    ).toBe(true);
   });
 });
 

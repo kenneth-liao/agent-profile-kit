@@ -704,9 +704,10 @@ describe("project-bound release candidate", () => {
 
     const dynamicSettings = '{"extensions":["./dynamic.ts"]}\n';
     writeFileSync(join(projectPath, ".pi", "settings.json"), dynamicSettings);
-    const blockedStatus = runCli(home, ["status"], { path: supportedPath });
-    expect(blockedStatus.status, blockedStatus.stderr).toBe(0);
-    expect(`${blockedStatus.stdout}${blockedStatus.stderr}`).toMatch(/Pi Skill project settings.*dynamic\.ts/i);
+    const resolvedStatus = runCli(home, ["status"], { path: supportedPath });
+    expect(resolvedStatus.status, resolvedStatus.stderr).toBe(0);
+    expect(resolvedStatus.stdout).toContain("All Profile Installations are current");
+    expect(`${resolvedStatus.stdout}${resolvedStatus.stderr}`).not.toMatch(/dynamic\.ts|blocked/i);
     expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe(dynamicSettings);
     expect(readFileSync(join(projectPath, ".pi", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "name: review-pr",
@@ -1004,7 +1005,7 @@ describe("project-bound release candidate", () => {
     expect(existsSync(configPath(home))).toBe(true);
   });
 
-  test("packed CLI fails closed on supported-Host global Skill identity collisions without global or project writes", () => {
+  test("packed CLI delegates global Skill identities to Codex and Claude Host Resolution", () => {
     const home = isolatedHome();
     expect(runCli(home, ["init"]).status).toBe(0);
     // No Codex hooks: Skills-only Profile must still hit global preflight without Context capability.
@@ -1031,35 +1032,24 @@ describe("project-bound release candidate", () => {
     const claudeGlobalBody = readFileSync(join(claudeGlobal, "SKILL.md"), "utf8");
 
     const preview = runCli(home, ["preview"], { path: pathWithHosts });
-    expect(preview.status).toBe(1);
+    expect(preview.status, preview.stderr).toBe(0);
     const previewText = `${preview.stdout}${preview.stderr}`;
-    expect(previewText).toMatch(/review-pr/);
-    expect(previewText).toMatch(/Codex personal\/global Skill/);
-    expect(previewText).toMatch(/Claude personal\/global Skill/);
-    expect(previewText).toContain(agentsGlobal);
-    expect(previewText).toContain(codexGlobal);
-    expect(previewText).toContain(claudeGlobal);
-    expect(previewText).toContain("would conflict with project snapshot at .agents/skills/review-pr");
-    expect(previewText).toMatch(/remove or relocate/i);
+    expect(previewText).not.toMatch(/personal\/global Skill|remove or relocate/i);
 
     const apply = runCli(home, ["apply"], { path: pathWithHosts });
-    expect(apply.status).toBe(1);
-    expect(`${apply.stdout}${apply.stderr}`).toMatch(/Apply blocked|blocked before writes/i);
+    expect(apply.status, apply.stderr).toBe(0);
 
-    // No project Skill trees written.
-    expect(existsSync(join(codexProject, ".agents", "skills", "review-pr"))).toBe(false);
-    expect(existsSync(join(codexAltProject, ".agents", "skills", "review-pr"))).toBe(false);
-    expect(existsSync(join(claudeProject, ".claude", "skills", "review-pr"))).toBe(false);
-    expect(existsSync(join(codexProject, ".agent-profile-kit"))).toBe(false);
+    expect(existsSync(join(codexProject, ".agents", "skills", "review-pr"))).toBe(true);
+    expect(existsSync(join(codexAltProject, ".agents", "skills", "review-pr"))).toBe(true);
+    expect(existsSync(join(claudeProject, ".claude", "skills", "review-pr"))).toBe(true);
+    expect(existsSync(join(codexProject, ".agent-profile-kit"))).toBe(true);
     expect(existsSync(join(claudeProject, ".claude", "rules"))).toBe(false);
 
     // Global roots untouched (APK never mutates them).
     expect(readFileSync(join(agentsGlobal, "SKILL.md"), "utf8")).toBe(agentsGlobalBody);
     expect(readFileSync(join(codexGlobal, "SKILL.md"), "utf8")).toBe(codexGlobalBody);
     expect(readFileSync(join(claudeGlobal, "SKILL.md"), "utf8")).toBe(claudeGlobalBody);
-    expect(existsSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml"))).toBe(
-      false,
-    );
+    expect(existsSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml"))).toBe(true);
   });
 
   test("minimal and partial Workspaces prove optional scaffolding without weakening Manifest or artifact validation", () => {
@@ -1127,7 +1117,7 @@ describe("project-bound release candidate", () => {
     expect(`${malformed.stdout}${malformed.stderr}`).toMatch(/schema|workspace\.yaml|unsupported/i);
   });
 
-  test("packed human and agent guidance describe pre-v1 policy, Skills-only, universal ownership, and collision remediation", () => {
+  test("packed guidance describes Skills-only Profiles, universal ownership, and Host Resolution", () => {
     const home = isolatedHome();
     const human = runCli(home, ["guide"]);
     expect(human.status, human.stderr).toBe(0);
@@ -1137,7 +1127,8 @@ describe("project-bound release candidate", () => {
     expect(human.stdout).toMatch(/universal/i);
     expect(human.stdout).toMatch(/source ownership and managed delivery/i);
     expect(human.stdout).toMatch(/personal\/global|global Host/i);
-    expect(human.stdout).toMatch(/fail closed|#53/i);
+    expect(human.stdout).toMatch(/Host Resolution/i);
+    expect(human.stdout).toMatch(/Output Ownership Conflict/i);
     expect(human.stdout).toMatch(/optional scaffolding|valid Workspace needs only/i);
     expect(human.stdout).toMatch(/schema_version: 2/);
     expect(human.stdout).toMatch(/required `workspace`|legacy.*migration/i);
@@ -1147,7 +1138,8 @@ describe("project-bound release candidate", () => {
     expect(agent.stdout).toMatch(/agent-profile-kit\.model-invocation|model-invocation/i);
     expect(agent.stdout).toMatch(/Skills-only|at least one supported artifact/i);
     expect(agent.stdout).toMatch(/universal|unselected/i);
-    expect(agent.stdout).toMatch(/global Skill|personal\/global|#53/i);
+    expect(agent.stdout).toMatch(/Host Resolution/i);
+    expect(agent.stdout).toMatch(/Output Ownership Conflict/i);
     expect(agent.stdout).toMatch(/optional scaffolding|workspace\.yaml/i);
     expect(agent.stdout).toMatch(/explicit Workspace path|legacy.*migration/i);
   });

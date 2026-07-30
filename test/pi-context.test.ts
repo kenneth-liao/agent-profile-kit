@@ -6,8 +6,6 @@ import { join } from "node:path";
 import {
   assertPiCliVersionSupported,
   assertPiProjectCapability,
-  detectPiSkillDiscoveryOverlaps,
-  detectPiSkillSettingsBlockers,
   emitPiSkillMarkdown,
   PI_ADAPTER_VERSION,
   PI_CONTEXT_PATH,
@@ -135,7 +133,7 @@ describe("Pi Project Binding ingestion", () => {
 });
 
 describe("Pi Adapter", () => {
-  test("blocks a selected Skill identity already present in Pi's personal discovery root", async () => {
+  test("delegates a same-identity personal Skill to Pi Host Resolution", async () => {
     const home = temporaryDirectory("apk-pi-overlap-home-");
     const project = temporaryDirectory("apk-pi-overlap-project-");
     const personalSkill = join(home, ".pi", "agent", "skills", "review-pr");
@@ -151,9 +149,8 @@ describe("Pi Adapter", () => {
         requireContext: false,
         requireSkills: true,
         resolveVersion: async () => "0.82.1",
-        skillIds: ["review-pr"],
       }),
-    ).rejects.toThrow(/Pi.*review-pr.*collid/i);
+    ).resolves.toBeUndefined();
   });
 
   test("accepts benign global and project Pi settings for Skill delivery", async () => {
@@ -176,97 +173,17 @@ describe("Pi Adapter", () => {
         requireContext: false,
         requireSkills: true,
         resolveVersion: async () => "0.82.1",
-        skillIds: ["review-pr"],
       }),
     ).resolves.toBeUndefined();
   });
 
-  test("blocks configured Pi Skill paths before writing project output", async () => {
-    const home = temporaryDirectory("apk-pi-configured-skills-home-");
-    const project = temporaryDirectory("apk-pi-configured-skills-project-");
-    mkdirSync(join(project, ".pi"), { recursive: true });
-    writeFileSync(join(project, ".pi", "settings.json"), '{"skills":["../team-skills"]}\n');
-
-    await expect(
-      assertPiProjectCapability(project, {
-        home,
-        requireContext: false,
-        requireSkills: true,
-        resolveVersion: async () => "0.82.1",
-        skillIds: ["review-pr"],
-      }),
-    ).rejects.toThrow(/project settings.*skills.*team-skills/i);
-    expect(existsSync(join(project, ".pi", "skills"))).toBe(false);
-  });
-
-  test("blocks configured Pi extensions that can contribute Skill paths", async () => {
-    const home = temporaryDirectory("apk-pi-configured-extensions-home-");
-    const project = temporaryDirectory("apk-pi-configured-extensions-project-");
-    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
-    writeFileSync(
-      join(home, ".pi", "agent", "settings.json"),
-      '{"extensions":["extensions/team.ts"]}\n',
-    );
-
-    await expect(
-      assertPiProjectCapability(project, {
-        home,
-        requireContext: false,
-        requireSkills: true,
-        resolveVersion: async () => "0.82.1",
-        skillIds: ["review-pr"],
-      }),
-    ).rejects.toThrow(/global settings.*extensions.*team\.ts/i);
-  });
-
-  test("blocks unfiltered Pi packages that can contribute Skills or extensions", async () => {
+  test("allows an ordinary Pi extension package alongside project Skills", async () => {
     const home = temporaryDirectory("apk-pi-configured-packages-home-");
     const project = temporaryDirectory("apk-pi-configured-packages-project-");
     mkdirSync(join(project, ".pi"), { recursive: true });
-    writeFileSync(join(project, ".pi", "settings.json"), '{"packages":["npm:team-tools"]}\n');
-
-    await expect(
-      assertPiProjectCapability(project, {
-        home,
-        requireContext: false,
-        requireSkills: true,
-        resolveVersion: async () => "0.82.1",
-        skillIds: ["review-pr"],
-      }),
-    ).rejects.toThrow(/project settings.*package.*team-tools/i);
-  });
-
-  test("blocks package filters that enable either Skills or extensions", async () => {
-    const home = temporaryDirectory("apk-pi-filtered-packages-home-");
-    const project = temporaryDirectory("apk-pi-filtered-packages-project-");
-    mkdirSync(join(project, ".pi"), { recursive: true });
     writeFileSync(
       join(project, ".pi", "settings.json"),
-      JSON.stringify({
-        packages: [
-          { source: "npm:skill-pack", skills: ["review"], extensions: [] },
-          { source: "npm:extension-pack", skills: [], extensions: ["register.ts"] },
-        ],
-      }),
-    );
-
-    const blockers = await detectPiSkillSettingsBlockers({ home, project });
-    expect(blockers.some((blocker) => /skill-pack.*cannot be proven static/i.test(blocker))).toBe(true);
-    expect(blockers.some((blocker) => /extension-pack.*cannot be proven static/i.test(blocker))).toBe(true);
-  });
-
-  test("honors a project package filter that safely replaces the same global package", async () => {
-    const home = temporaryDirectory("apk-pi-package-precedence-home-");
-    const project = temporaryDirectory("apk-pi-package-precedence-project-");
-    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
-    mkdirSync(join(project, ".pi"), { recursive: true });
-    writeFileSync(
-      join(home, ".pi", "agent", "settings.json"),
-      '{"packages":["npm:team-tools"]}\n',
-    );
-    writeFileSync(
-      join(project, ".pi", "settings.json"),
-      '{"packages":[{"source":"npm:team-tools","skills":[],"extensions":[]}]}\n',
+      '{"packages":["npm:@ollama/pi-web-search"]}\n',
     );
 
     await expect(
@@ -275,153 +192,8 @@ describe("Pi Adapter", () => {
         requireContext: false,
         requireSkills: true,
         resolveVersion: async () => "0.82.1",
-        skillIds: ["review-pr"],
       }),
     ).resolves.toBeUndefined();
-  });
-
-  test("fails closed when duplicate project entries obscure an autoload delta", async () => {
-    const home = temporaryDirectory("apk-pi-package-delta-home-");
-    const project = temporaryDirectory("apk-pi-package-delta-project-");
-    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
-    mkdirSync(join(project, ".pi"), { recursive: true });
-    writeFileSync(
-      join(home, ".pi", "agent", "settings.json"),
-      '{"packages":["npm:team-tools"]}\n',
-    );
-    writeFileSync(
-      join(project, ".pi", "settings.json"),
-      JSON.stringify({
-        packages: [
-          { source: "npm:team-tools", autoload: false, skills: [], extensions: [] },
-          { source: "npm:team-tools", skills: [], extensions: [] },
-        ],
-      }),
-    );
-
-    const blockers = await detectPiSkillSettingsBlockers({ home, project });
-    expect(blockers.some((blocker) => /duplicate.*package precedence.*team-tools/i.test(blocker))).toBe(true);
-    expect(blockers.some((blocker) => /global settings.*team-tools.*contribute/i.test(blocker))).toBe(true);
-  });
-
-  test("does not treat identical bare local package paths as cross-scope replacements", async () => {
-    const home = temporaryDirectory("apk-pi-local-package-home-");
-    const project = temporaryDirectory("apk-pi-local-package-project-");
-    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
-    mkdirSync(join(project, ".pi"), { recursive: true });
-    writeFileSync(
-      join(home, ".pi", "agent", "settings.json"),
-      '{"packages":["team-tools"]}\n',
-    );
-    writeFileSync(
-      join(project, ".pi", "settings.json"),
-      '{"packages":[{"source":"team-tools","skills":[],"extensions":[]}]}\n',
-    );
-
-    await expect(
-      assertPiProjectCapability(project, {
-        home,
-        requireContext: false,
-        requireSkills: true,
-        resolveVersion: async () => "0.82.1",
-      }),
-    ).rejects.toThrow(/global settings.*team-tools.*contribute/i);
-  });
-
-  test("fails closed on Pi Skill exclusion patterns instead of approximating ignored paths", async () => {
-    const home = temporaryDirectory("apk-pi-ignored-settings-home-");
-    const project = temporaryDirectory("apk-pi-ignored-settings-project-");
-    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
-    writeFileSync(
-      join(home, ".pi", "agent", "settings.json"),
-      '{"skills":["!legacy/**"]}\n',
-    );
-
-    await expect(
-      assertPiProjectCapability(project, {
-        home,
-        requireContext: false,
-        requireSkills: true,
-        resolveVersion: async () => "0.82.1",
-        skillIds: ["review-pr"],
-      }),
-    ).rejects.toThrow(/exclusion.*ignored paths/i);
-  });
-
-  test("fails closed on malformed, unreadable, and symlinked Pi Skill settings", async () => {
-    const malformedHome = temporaryDirectory("apk-pi-malformed-settings-home-");
-    const malformedProject = temporaryDirectory("apk-pi-malformed-settings-project-");
-    mkdirSync(join(malformedHome, ".pi", "agent"), { recursive: true });
-    writeFileSync(join(malformedHome, ".pi", "agent", "settings.json"), "{not json\n");
-    await expect(
-      assertPiProjectCapability(malformedProject, {
-        home: malformedHome,
-        requireContext: false,
-        requireSkills: true,
-        resolveVersion: async () => "0.82.1",
-      }),
-    ).rejects.toThrow(/global settings.*JSON/i);
-
-    const unreadableHome = temporaryDirectory("apk-pi-unreadable-settings-home-");
-    const unreadableProject = temporaryDirectory("apk-pi-unreadable-settings-project-");
-    mkdirSync(join(unreadableProject, ".pi"), { recursive: true });
-    const unreadablePath = join(unreadableProject, ".pi", "settings.json");
-    writeFileSync(unreadablePath, "{}\n");
-    chmodSync(unreadablePath, 0o000);
-    try {
-      await expect(
-        assertPiProjectCapability(unreadableProject, {
-          home: unreadableHome,
-          requireContext: false,
-          requireSkills: true,
-          resolveVersion: async () => "0.82.1",
-        }),
-      ).rejects.toThrow(/project settings.*(permission|EACCES)/i);
-    } finally {
-      chmodSync(unreadablePath, 0o600);
-    }
-
-    const symlinkHome = temporaryDirectory("apk-pi-symlink-settings-home-");
-    const symlinkProject = temporaryDirectory("apk-pi-symlink-settings-project-");
-    const externalSettings = join(
-      temporaryDirectory("apk-pi-symlink-settings-target-"),
-      "settings.json",
-    );
-    writeFileSync(externalSettings, "{}\n");
-    mkdirSync(join(symlinkProject, ".pi"), { recursive: true });
-    symlinkSync(externalSettings, join(symlinkProject, ".pi", "settings.json"));
-    await expect(
-      assertPiProjectCapability(symlinkProject, {
-        home: symlinkHome,
-        requireContext: false,
-        requireSkills: true,
-        resolveVersion: async () => "0.82.1",
-      }),
-    ).rejects.toThrow(/project settings.*unprovable symlink/i);
-  });
-
-  test("fails closed when package precedence cannot be proven without resolving identities", async () => {
-    const home = temporaryDirectory("apk-pi-ambiguous-package-home-");
-    const project = temporaryDirectory("apk-pi-ambiguous-package-project-");
-    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
-    mkdirSync(join(project, ".pi"), { recursive: true });
-    writeFileSync(
-      join(home, ".pi", "agent", "settings.json"),
-      '{"packages":["npm:team-tools"]}\n',
-    );
-    writeFileSync(
-      join(project, ".pi", "settings.json"),
-      '{"packages":[{"source":"team-tools","skills":[],"extensions":[]}]}\n',
-    );
-
-    await expect(
-      assertPiProjectCapability(project, {
-        home,
-        requireContext: false,
-        requireSkills: true,
-        resolveVersion: async () => "0.82.1",
-      }),
-    ).rejects.toThrow(/global settings.*team-tools.*contribute/i);
   });
 
   test("Context-only Pi capability does not read or require Skill settings", async () => {
@@ -438,150 +210,6 @@ describe("Pi Adapter", () => {
         resolveVersion: async () => "0.82.1",
       }),
     ).resolves.toBeUndefined();
-  });
-
-  test("fails closed when a static discovery root depends on a symlinked path component", async () => {
-    const home = temporaryDirectory("apk-pi-symlink-home-");
-    const project = temporaryDirectory("apk-pi-symlink-project-");
-    const external = temporaryDirectory("apk-pi-symlink-target-");
-    symlinkSync(external, join(home, ".pi"));
-
-    await expect(
-      assertPiProjectCapability(project, {
-        home,
-        requireContext: false,
-        requireSkills: true,
-        resolveVersion: async () => "0.82.1",
-        skillIds: ["review-pr"],
-      }),
-    ).rejects.toThrow(/symlink/i);
-  });
-
-  test("checks Pi personal, project, and ancestor static discovery roots by Host-visible identity", async () => {
-    const home = temporaryDirectory("apk-pi-roots-home-");
-    const repository = temporaryDirectory("apk-pi-roots-repository-");
-    const project = join(repository, "nested", "project");
-    mkdirSync(project, { recursive: true });
-    const roots = [
-      join(home, ".pi", "agent", "skills"),
-      join(home, ".agents", "skills"),
-      join(project, ".pi", "skills"),
-      join(project, ".agents", "skills"),
-      join(repository, ".agents", "skills"),
-    ];
-    for (const [index, root] of roots.entries()) {
-      const packagePath = join(root, `source-${index}`);
-      mkdirSync(packagePath, { recursive: true });
-      writeFileSync(
-        join(packagePath, "SKILL.md"),
-        "---\nname: review-pr\ndescription: Existing Skill.\n---\n\n# Existing\n",
-      );
-    }
-
-    const blockers = await detectPiSkillDiscoveryOverlaps(["review-pr"], {
-      home,
-      project,
-      projectBoundary: repository,
-    });
-    expect(blockers).toHaveLength(5);
-    expect(blockers.every((blocker) => blocker.includes("review-pr"))).toBe(true);
-    expect(blockers.some((blocker) => blocker.includes(join(home, ".pi", "agent", "skills")))).toBe(true);
-    expect(blockers.some((blocker) => blocker.includes(join(home, ".agents", "skills")))).toBe(true);
-    expect(blockers.some((blocker) => blocker.includes(join(project, ".pi", "skills")))).toBe(true);
-    expect(blockers.some((blocker) => blocker.includes(join(project, ".agents", "skills")))).toBe(true);
-    expect(blockers.some((blocker) => blocker.includes(join(repository, ".agents", "skills")))).toBe(true);
-  });
-
-  test("scans recursive packages and Pi .md roots through the non-Git filesystem boundary", async () => {
-    const home = temporaryDirectory("apk-pi-recursive-home-");
-    const ancestor = temporaryDirectory("apk-pi-recursive-ancestor-");
-    const project = join(ancestor, "nested", "project");
-    mkdirSync(project, { recursive: true });
-    const skillBody = "---\nname: review-pr\ndescription: Existing Skill.\n---\n\n# Existing\n";
-
-    mkdirSync(join(home, ".pi", "agent", "skills"), { recursive: true });
-    writeFileSync(join(home, ".pi", "agent", "skills", "review-pr.md"), skillBody);
-    mkdirSync(join(home, ".agents", "skills", "collection", "review"), { recursive: true });
-    writeFileSync(join(home, ".agents", "skills", "collection", "review", "SKILL.md"), skillBody);
-    mkdirSync(join(project, ".pi", "skills"), { recursive: true });
-    writeFileSync(join(project, ".pi", "skills", "review-pr.md"), skillBody);
-    mkdirSync(join(project, ".agents", "skills", "collection", "review"), { recursive: true });
-    writeFileSync(join(project, ".agents", "skills", "collection", "review", "SKILL.md"), skillBody);
-    mkdirSync(join(ancestor, ".agents", "skills", "collection", "review"), { recursive: true });
-    writeFileSync(join(ancestor, ".agents", "skills", "collection", "review", "SKILL.md"), skillBody);
-    writeFileSync(join(project, ".agents", "skills", "ignored.md"), skillBody);
-
-    const blockers = await detectPiSkillDiscoveryOverlaps(["review-pr"], { home, project });
-    expect(blockers).toHaveLength(5);
-    expect(blockers.some((blocker) => blocker.includes(join(home, ".pi", "agent", "skills", "review-pr.md")))).toBe(true);
-    expect(blockers.some((blocker) => blocker.includes(join(home, ".agents", "skills", "collection", "review")))).toBe(true);
-    expect(blockers.some((blocker) => blocker.includes(join(project, ".pi", "skills", "review-pr.md")))).toBe(true);
-    expect(blockers.some((blocker) => blocker.includes(join(project, ".agents", "skills", "collection", "review")))).toBe(true);
-    expect(blockers.some((blocker) => blocker.includes(join(ancestor, ".agents", "skills", "collection", "review")))).toBe(true);
-    expect(blockers.some((blocker) => blocker.includes("ignored.md"))).toBe(false);
-  });
-
-  test("exempts the current Installer-owned Pi destination while rejecting malformed selected identities", async () => {
-    const home = temporaryDirectory("apk-pi-managed-home-");
-    const project = temporaryDirectory("apk-pi-managed-project-");
-    const managed = join(project, ".pi", "skills", "review-pr");
-    mkdirSync(managed, { recursive: true });
-    writeFileSync(
-      join(managed, "SKILL.md"),
-      "---\nname: review-pr\ndescription: Managed Skill.\n---\n\n# Managed\n",
-    );
-    await expect(
-      detectPiSkillDiscoveryOverlaps(["review-pr"], { home, project }),
-    ).resolves.toEqual([]);
-
-    const personal = join(home, ".agents", "skills", "review-pr");
-    mkdirSync(personal, { recursive: true });
-    writeFileSync(join(personal, "SKILL.md"), "not frontmatter\n");
-    const blockers = await detectPiSkillDiscoveryOverlaps(["review-pr"], { home, project });
-    expect(blockers).toHaveLength(1);
-    expect(blockers[0]).toMatch(/malformed|cannot be inspected/i);
-  });
-
-  test("rechecks nested Skill identities beneath an Installer-owned Pi package", async () => {
-    const home = temporaryDirectory("apk-pi-managed-nested-home-");
-    const project = temporaryDirectory("apk-pi-managed-nested-project-");
-    const managed = join(project, ".pi", "skills", "review-pr");
-    const nested = join(managed, "nested-skill");
-    mkdirSync(nested, { recursive: true });
-    writeFileSync(
-      join(managed, "SKILL.md"),
-      "---\nname: review-pr\ndescription: Managed Skill.\n---\n\n# Managed\n",
-    );
-    writeFileSync(
-      join(nested, "SKILL.md"),
-      "---\nname: nested-skill\ndescription: Nested Skill.\n---\n\n# Nested\n",
-    );
-
-    const blockers = await detectPiSkillDiscoveryOverlaps(
-      ["review-pr", "nested-skill"],
-      { home, project },
-    );
-    expect(blockers).toHaveLength(1);
-    expect(blockers[0]).toMatch(/nested-skill.*collid/i);
-  });
-
-  test("fails closed for malformed packages and normalizes BOM/CRLF Skill identities", async () => {
-    const home = temporaryDirectory("apk-pi-identity-proof-home-");
-    const project = temporaryDirectory("apk-pi-identity-proof-project-");
-    const packagePath = join(home, ".agents", "skills", "unrelated-directory");
-    mkdirSync(packagePath, { recursive: true });
-    writeFileSync(
-      join(packagePath, "SKILL.md"),
-      "\uFEFF---\r\nname: review-pr\r\ndescription: Existing Skill.\r\n---\r\n\r\n# Existing\r\n",
-    );
-    const collision = await detectPiSkillDiscoveryOverlaps(["review-pr"], { home, project });
-    expect(collision).toHaveLength(1);
-    expect(collision[0]).toMatch(/review-pr.*collid/i);
-
-    writeFileSync(join(packagePath, "SKILL.md"), "not frontmatter\n");
-    const malformed = await detectPiSkillDiscoveryOverlaps(["review-pr"], { home, project });
-    expect(malformed).toHaveLength(1);
-    expect(malformed[0]).toMatch(/cannot be inspected|malformed/i);
   });
 
   test("plans each allowed Skill under .pi/skills/<Artifact ID> with package bytes, modes, and sidecars preserved", async () => {
@@ -907,6 +535,33 @@ describe("Pi Adapter", () => {
     );
   });
 
+  test("unowned exact planned Pi Skill destination blocks preflight without adoption", async () => {
+    const home = temporaryDirectory("apk-pi-owned-destination-home-");
+    const project = temporaryDirectory("apk-pi-owned-destination-project-");
+    await writePiSkillWorkspace(home, project, ["review-pr"], [
+      { id: "review-pr", path: "review-pr" },
+    ]);
+    const destination = join(project, ".pi", "skills", "review-pr");
+    mkdirSync(destination, { recursive: true });
+    writeFileSync(join(destination, "SKILL.md"), "foreign skill\n");
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const preview = await previewReconciliation(desired.installations, {
+      installations: [],
+      repositoryExclusions: [],
+      schemaVersion: 3,
+    });
+
+    expect(
+      preview.blockers.some(
+        (blocker) =>
+          blocker.message.includes(".pi/skills/review-pr") &&
+          blocker.message.toLowerCase().includes("unowned"),
+      ),
+    ).toBe(true);
+    expect(readFileSync(join(destination, "SKILL.md"), "utf8")).toBe("foreign skill\n");
+  });
+
   test("Pi Skill selection plans only its binding without touching project or Installation State before apply", async () => {
     const home = temporaryDirectory("apk-pi-skill-home-");
     const project = temporaryDirectory("apk-pi-skill-project-");
@@ -950,7 +605,7 @@ describe("Pi Adapter", () => {
     expect(existsSync(join(home, ".agents", "agent-profile-kit", "state"))).toBe(false);
   });
 
-  test("status preflight reports Pi static Skill collisions through the Installer planning path", async () => {
+  test("status delegates later same-identity Pi material to Host Resolution", async () => {
     const home = temporaryDirectory("apk-pi-status-overlap-home-");
     const project = temporaryDirectory("apk-pi-status-overlap-project-");
     await writePiSkillWorkspace(home, project, ["review-pr"], [
@@ -967,10 +622,11 @@ describe("Pi Adapter", () => {
     const installation = desired.installations.find(
       (candidate) => candidate.binding.project === project,
     );
-    expect(installation?.blockers.some((blocker) => /review-pr.*collid/i.test(blocker))).toBe(true);
+    expect(installation?.blockers).toEqual([]);
+    expect(installation?.warnings).toEqual([]);
   });
 
-  test("status preflight reports later Pi settings contributors without changing Host state", async () => {
+  test("status delegates later Pi extension settings to Host Resolution", async () => {
     const home = temporaryDirectory("apk-pi-status-settings-home-");
     const project = temporaryDirectory("apk-pi-status-settings-project-");
     await writePiSkillWorkspace(home, project, ["review-pr"], [
@@ -984,9 +640,48 @@ describe("Pi Adapter", () => {
     const installation = desired.installations.find(
       (candidate) => candidate.binding.project === project,
     );
-    expect(installation?.blockers.some((blocker) => /project settings.*dynamic\.ts/i.test(blocker))).toBe(true);
+    expect(installation?.blockers).toEqual([]);
+    expect(installation?.warnings).toEqual([]);
     expect(existsSync(join(project, ".pi", "skills", "review-pr"))).toBe(false);
     expect(readFileSync(settingsPath, "utf8")).toBe('{"extensions":["./dynamic.ts"]}\n');
+  });
+
+  test("status reports malformed relevant Pi settings as a warning", async () => {
+    const home = temporaryDirectory("apk-pi-status-malformed-settings-home-");
+    const project = temporaryDirectory("apk-pi-status-malformed-settings-project-");
+    await writePiSkillWorkspace(home, project, ["review-pr"], [
+      { id: "review-pr", path: "review-pr" },
+    ]);
+    mkdirSync(join(project, ".pi"), { recursive: true });
+    writeFileSync(join(project, ".pi", "settings.json"), "{not json\n");
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations.find(
+      (candidate) => candidate.binding.project === project,
+    );
+    expect(installation?.blockers).toEqual([]);
+    expect(installation?.warnings.some((warning) => /project settings.*JSON/i.test(warning))).toBe(
+      true,
+    );
+  });
+
+  test("valid symlinked Pi settings remain Host Resolution without false warnings", async () => {
+    const home = temporaryDirectory("apk-pi-status-symlinked-settings-home-");
+    const project = temporaryDirectory("apk-pi-status-symlinked-settings-project-");
+    await writePiSkillWorkspace(home, project, ["review-pr"], [
+      { id: "review-pr", path: "review-pr" },
+    ]);
+    mkdirSync(join(project, ".pi"), { recursive: true });
+    const settingsSource = join(home, "pi-settings.json");
+    writeFileSync(settingsSource, '{"skills":["!review-pr"],"extensions":["./extension.ts"]}\n');
+    symlinkSync(settingsSource, join(project, ".pi", "settings.json"));
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations.find(
+      (candidate) => candidate.binding.project === project,
+    );
+    expect(installation?.blockers).toEqual([]);
+    expect(installation?.warnings).toEqual([]);
   });
 
   test("requires Pi 0.82.1+ and proves project surfaces for disabled model-invocation Skills", async () => {

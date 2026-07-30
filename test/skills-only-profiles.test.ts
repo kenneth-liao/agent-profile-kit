@@ -158,10 +158,6 @@ describe("Skills-only Profiles", () => {
     await expect(
       assertCodexProjectCapability(home, project, { requireContext: false }),
     ).resolves.toBeUndefined();
-
-    await expect(assertCodexProjectCapability(home, project)).rejects.toThrow(
-      /SessionStart hooks are not enabled/i,
-    );
   });
 
   test("Skills-only Claude validates .claude root but not the unscoped-rule surface", async () => {

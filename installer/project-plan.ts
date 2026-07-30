@@ -4,18 +4,17 @@ import { isAbsolute, join, posix } from "node:path";
 import {
   assertClaudeProjectCapability,
   CLAUDE_ADAPTER_VERSION,
-  detectClaudeGlobalSkillOverlaps,
   planClaudeProject,
 } from "../adapters/claude.js";
 import {
   assertCodexProjectCapability,
   CODEX_ADAPTER_VERSION,
-  detectCodexGlobalSkillOverlaps,
+  detectCodexProjectConfigurationWarnings,
   planCodexProject,
 } from "../adapters/codex.js";
 import {
   assertGrokProjectCapability,
-  detectGrokSkillDiscoveryOverlaps,
+  detectGrokProjectConfigurationWarnings,
   GROK_ADAPTER_VERSION,
   inferGrokClaudeRulesEnabledFromOutputs,
   inspectGrokProject,
@@ -24,8 +23,7 @@ import {
 } from "../adapters/grok.js";
 import {
   assertPiProjectCapability,
-  detectPiSkillDiscoveryOverlaps,
-  detectPiSkillSettingsBlockers,
+  detectPiSkillSettingsWarnings,
   PI_ADAPTER_VERSION,
   planPiProject,
 } from "../adapters/pi.js";
@@ -521,8 +519,6 @@ export async function buildDesiredState(
               requireContext,
               requireDisabledModelInvocation,
               requireSkills,
-              skillIds: selectedSkillIds,
-              ...(gitProject === undefined ? {} : { projectBoundary: gitProject.root }),
             });
           }
         } catch (error) {
@@ -531,68 +527,43 @@ export async function buildDesiredState(
           );
         }
       } else if (host === "grok" && options.resolveHostTopology === true) {
-        // Status probes live Host Skill inventory whenever Skills are selected so
-        // post-apply plugin/bundled collisions surface as blocked. Context-only
-        // Claude+Grok still probes for rules topology; failure there stays soft
-        // and falls back to applied Manifest inference.
-        const needsSkillsInventory = requireSkills;
         const needsContextTopology =
           requireContext && binding.hosts.includes("claude");
-        if (needsSkillsInventory || needsContextTopology) {
+        if (needsContextTopology) {
           try {
             grokInspection = await inspectGrokProject(binding.canonicalProject, {
               home,
-              requireSkillsInventory: needsSkillsInventory,
             });
           } catch (error) {
-            if (needsSkillsInventory) {
-              blockers.push(
-                `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
-              );
-            }
             grokInspection = undefined;
           }
         }
       }
-      // Global Skill identity overlap is independent of CLI capability probes and must
-      // run for status as well as preview/apply so later global delivery is reported.
-      if (host === "codex") {
-        blockers.push(
-          ...(await detectCodexGlobalSkillOverlaps(home, selectedSkillIds, {
-            project: binding.canonicalProject,
-          })).map((message) => `${binding.project}: ${message}`),
-        );
-      } else if (host === "claude") {
-        blockers.push(
-          ...(await detectClaudeGlobalSkillOverlaps(home, selectedSkillIds, {
-            project: binding.canonicalProject,
-          })).map((message) => `${binding.project}: ${message}`),
-        );
-      } else if (host === "grok" && requireSkills) {
-        blockers.push(
-          ...(await detectGrokSkillDiscoveryOverlaps(selectedSkillIds, {
+      if (host === "pi" && requireSkills) {
+        warnings.push(
+          ...(await detectPiSkillSettingsWarnings({
             home,
             project: binding.canonicalProject,
-            ...(grokInspection ? { inspection: grokInspection } : {}),
           })).map((message) => `${binding.project}: ${message}`),
         );
       }
-      if (host === "pi" && requireSkills && options.checkHostCapability === false) {
-        blockers.push(
-          ...(await detectPiSkillDiscoveryOverlaps(selectedSkillIds, {
-            home,
-            project: binding.canonicalProject,
-            ...(gitProject === undefined ? {} : { projectBoundary: gitProject.root }),
-          })).map((message) => `${binding.project}: ${message}`),
-        );
-        blockers.push(
-          ...(await detectPiSkillSettingsBlockers({
+      if (host === "grok" && requireSkills) {
+        warnings.push(
+          ...(await detectGrokProjectConfigurationWarnings(selectedSkillIds, {
             home,
             project: binding.canonicalProject,
           })).map((message) => `${binding.project}: ${message}`),
         );
       }
       if (host === "codex") {
+        if (requireContext) {
+          warnings.push(
+            ...(await detectCodexProjectConfigurationWarnings(
+              home,
+              binding.canonicalProject,
+            )).map((message) => `${binding.project}: ${message}`),
+          );
+        }
         const contextPath = [
           gitProject?.relativeProject ?? "",
           ".agent-profile-kit",
