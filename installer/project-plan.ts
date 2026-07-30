@@ -24,6 +24,9 @@ import {
 } from "../adapters/grok.js";
 import {
   assertPiProjectCapability,
+  detectPiSkillDiscoveryOverlaps,
+  detectPiSkillSettingsBlockers,
+  PI_DISABLED_MODEL_INVOCATION_UNSUPPORTED,
   PI_ADAPTER_VERSION,
   planPiProject,
 } from "../adapters/pi.js";
@@ -493,8 +496,7 @@ export async function buildDesiredState(
     for (const host of binding.hosts) {
       let grokInspection: GrokInspection | undefined;
       if (
-        options.checkHostCapability !== false ||
-        (host === "pi" && requireSkills)
+        options.checkHostCapability !== false
       ) {
         try {
           if (host === "codex") {
@@ -516,8 +518,12 @@ export async function buildDesiredState(
             });
           } else if (host === "pi") {
             await assertPiProjectCapability(binding.canonicalProject, {
+              home,
               requireContext,
+              requireDisabledModelInvocation,
               requireSkills,
+              skillIds: selectedSkillIds,
+              ...(gitProject === undefined ? {} : { projectBoundary: gitProject.root }),
             });
           }
         } catch (error) {
@@ -569,6 +575,21 @@ export async function buildDesiredState(
             home,
             project: binding.canonicalProject,
             ...(grokInspection ? { inspection: grokInspection } : {}),
+          })).map((message) => `${binding.project}: ${message}`),
+        );
+      }
+      if (host === "pi" && requireSkills && options.checkHostCapability === false) {
+        blockers.push(
+          ...(await detectPiSkillDiscoveryOverlaps(selectedSkillIds, {
+            home,
+            project: binding.canonicalProject,
+            ...(gitProject === undefined ? {} : { projectBoundary: gitProject.root }),
+          })).map((message) => `${binding.project}: ${message}`),
+        );
+        blockers.push(
+          ...(await detectPiSkillSettingsBlockers({
+            home,
+            project: binding.canonicalProject,
           })).map((message) => `${binding.project}: ${message}`),
         );
       }
@@ -649,7 +670,12 @@ export async function buildDesiredState(
         continue;
       }
       if (host === "pi") {
-        if (requireSkills) continue;
+        if (requireDisabledModelInvocation) {
+          if (options.checkHostCapability === false) {
+            blockers.push(`${binding.project}: ${PI_DISABLED_MODEL_INVOCATION_UNSUPPORTED}`);
+          }
+          continue;
+        }
         const adapterPlan = await planPiProject(
           profile.id,
           resolvedProfile.contexts,
