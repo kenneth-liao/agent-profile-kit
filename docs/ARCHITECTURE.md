@@ -161,9 +161,13 @@ envelope as the complete owned project file `.pi/APPEND_SYSTEM.md`. It plans
 each resolved Skill once under `.pi/skills/<Artifact ID>/`, preserving standard
 package bytes and modes while omitting the `agent-profile-kit.yaml` sidecar.
 Allowed-invocation Skills retain their source `SKILL.md`; disabled-invocation
-Skills receive top-level Pi-native `disable-model-invocation: true` while
-preserving the canonical `name` used by explicit `/skill:<Artifact ID>`
-activation. Before writes it proves `.pi` and the selected
+Skills receive top-level Pi-native `disable-model-invocation: true`, which Pi
+honors by hiding them from the model's system prompt while preserving the
+canonical `name` used by explicit `/skill:<Artifact ID>` activation. Pi's
+official Skills documentation defines this enforcement behavior, introduced in
+Pi 0.50.0 and included in the supported 0.82.1+ floor:
+<https://pi.dev/docs/latest/skills> and <https://pi.dev/news/releases/0.50.0>.
+Before writes it proves `.pi` and the selected
 output surfaces, checks selected `SKILL.md` frontmatter identities across
 personal `.pi/agent/skills` and `.agents/skills`, bound-project `.pi/skills`,
 and bound-project/ancestor `.agents/skills` roots through the Pi project

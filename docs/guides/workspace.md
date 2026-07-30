@@ -225,7 +225,7 @@ validate, preview, or apply.
 
 Adapters translate the trusted policy only in generated Host output:
 
-| Canonical policy | Claude / Grok generated output | Codex generated output |
+| Canonical policy | Claude / Grok / Pi generated output | Codex generated output |
 | --- | --- | --- |
 | `allowed` (default) | No Host restriction field | No Host restriction field |
 | `disabled` | `disable-model-invocation: true` in generated `SKILL.md` | `policy.allow_implicit_invocation: false` in generated `agents/openai.yaml` |
@@ -239,7 +239,11 @@ honors `disable-model-invocation`), Grok CLI `0.2.0+` (same floor as project
 rules and native Skill discovery, which honors `disable-model-invocation`),
 and Codex CLI `0.99.0+` (first stable release with `agents/openai.yaml`
 `policy.allow_implicit_invocation`; see openai/codex#11244 / rust-v0.99.0).
-Pi CLI `0.82.1+` preserves the Pi-native frontmatter field and records
+Pi CLI `0.82.1+` honors and enforces the Pi-native frontmatter field: the
+official [Skills documentation](https://pi.dev/docs/latest/skills) says the
+field hides a Skill from the model's system prompt while users can still invoke
+it explicitly with `/skill:<name>`, and the behavior was introduced in
+[Pi 0.50.0](https://pi.dev/news/releases/0.50.0). Pi records
 `native-project-skills-invocation-v1` for Skills-only or
 `native-project-append-system-skills-invocation-v1` for combined Profiles.
 Unsupported versions fail closed rather than silently weakening the policy.

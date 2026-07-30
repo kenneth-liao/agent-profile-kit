@@ -15,11 +15,12 @@ import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 
 import { requireArtifactId } from "../schemas/dependencies.js";
-import type { Skill } from "../schemas/skill.js";
+import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
 import {
   DISABLED_MODEL_INVOCATION_REQUIREMENT,
   planSkillPackageDirectory,
+  skillsRequireDisabledModelInvocation,
   type SkillPackageProjection,
 } from "./skill-package.js";
 import type {
@@ -29,7 +30,6 @@ import type {
   ProposedProjectFileOutput,
   ProposedProjectOutput,
 } from "./project-plan.js";
-import type { ModelInvocationPolicy } from "../schemas/skill.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -38,6 +38,14 @@ export const PI_HOST_VERSION = "native-project-append-system-v1";
 export const PI_HOST_VERSION_WITH_SKILLS = "native-project-skills-v1";
 export const PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS =
   "native-project-append-system-skills-v1";
+/**
+ * Pi 0.82.1+ enforces these contracts: `disable-model-invocation: true`
+ * hides a Skill from the model's system prompt while explicit `/skill:<name>`
+ * activation remains available. Pi introduced this behavior in 0.50.0, so the
+ * adapter's 0.82.1 floor includes it.
+ * Evidence: https://pi.dev/docs/latest/skills and
+ * https://pi.dev/news/releases/0.50.0
+ */
 export const PI_HOST_VERSION_WITH_INVOCATION =
   "native-project-skills-invocation-v1";
 export const PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION =
@@ -1013,7 +1021,7 @@ export async function planPiProject(
   return {
     host: "pi",
     hostVersion: skills.length > 0
-      ? skills.some((skill) => skill.modelInvocation === "disabled")
+      ? skillsRequireDisabledModelInvocation(skills)
         ? modules.length > 0
           ? PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION
           : PI_HOST_VERSION_WITH_INVOCATION
