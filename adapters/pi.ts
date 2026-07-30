@@ -383,61 +383,381 @@ export async function detectPiSkillDiscoveryOverlaps(
   return [...new Set(blockers)].sort();
 }
 
-/**
- * The first Pi Skill slice is safe only when no settings surface can add dynamic
- * Skill contributors. Settings-aware ingestion belongs to successor ticket #103;
- * an existing or unprovable surface therefore blocks the complete installation.
- */
-export async function detectPiSkillSettingsBlockers(
-  options: { readonly home?: string; readonly project: string },
-): Promise<readonly string[]> {
-  const home = resolve(options.home ?? homedir());
-  const project = resolve(options.project);
-  const paths = [
-    { label: "global", path: join(home, ...PI_GLOBAL_SETTINGS_PATH.split("/")) },
-    { label: "project", path: join(project, ...PI_PROJECT_SETTINGS_PATH.split("/")) },
-  ];
-  const blockers: string[] = [];
-  for (const setting of paths) {
-    try {
-      const symlink = await symlinkAncestor(
-        setting.path,
-        setting.label === "global" ? home : project,
-      );
-      if (symlink !== undefined) {
+type PiSettingsScope = "global" | "project";
+type PiDynamicResourceKey = "extensions" | "skills";
+
+interface PiPackageSettings {
+  readonly autoload: boolean;
+  readonly extensions?: readonly string[];
+  readonly skills?: readonly string[];
+  readonly source: string;
+}
+
+interface PiSkillSettingsSource {
+  readonly extensions: readonly string[];
+  readonly packages: readonly PiPackageSettings[];
+  readonly path: string;
+  readonly scope: PiSettingsScope;
+  readonly skills: readonly string[];
+}
+
+interface PiSkillSettingsIngestion {
+  readonly blockers: readonly string[];
+  readonly sources: readonly PiSkillSettingsSource[];
+}
+
+function piSkillSettingsBlocker(
+  scope: PiSettingsScope,
+  path: string,
+  detail: string,
+): string {
+  return (
+    `Pi Skill ${scope} settings at ${path} cannot be inspected sufficiently ` +
+    `to prove static Skill discovery (${detail}); repair or remove the settings before applying`
+  );
+}
+
+function normalizePiStringArray(
+  settings: Readonly<Record<string, unknown>>,
+  key: PiDynamicResourceKey,
+  scope: PiSettingsScope,
+  path: string,
+  blockers: string[],
+): readonly string[] {
+  const value = settings[key];
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    blockers.push(
+      piSkillSettingsBlocker(scope, path, `${key} must be an array of path strings`),
+    );
+    return [];
+  }
+  return value;
+}
+
+function normalizePiPackageFilter(
+  value: unknown,
+  key: PiDynamicResourceKey,
+  packageSource: string,
+  scope: PiSettingsScope,
+  path: string,
+  blockers: string[],
+): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    blockers.push(
+      piSkillSettingsBlocker(
+        scope,
+        path,
+        `package ${JSON.stringify(packageSource)} ${key} must be an array of strings`,
+      ),
+    );
+    return undefined;
+  }
+  return value;
+}
+
+function normalizePiPackages(
+  settings: Readonly<Record<string, unknown>>,
+  scope: PiSettingsScope,
+  path: string,
+  blockers: string[],
+): readonly PiPackageSettings[] {
+  const configured = settings.packages;
+  if (configured === undefined) return [];
+  if (!Array.isArray(configured)) {
+    blockers.push(piSkillSettingsBlocker(scope, path, "packages must be an array"));
+    return [];
+  }
+
+  const packages: PiPackageSettings[] = [];
+  for (const entry of configured) {
+    if (typeof entry === "string") {
+      if (entry.length === 0) {
         blockers.push(
-          `Pi Skill ${setting.label} settings at ${setting.path} cannot be inspected sufficiently ` +
-          `because path component ${symlink} is a symlink; remove the obstruction or wait for ` +
-          "settings-aware Pi Skill preflight #103",
+          piSkillSettingsBlocker(scope, path, "package source strings must not be empty"),
         );
         continue;
       }
-    } catch (error) {
+      packages.push({ autoload: true, source: entry });
+      continue;
+    }
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
       blockers.push(
-        `Pi Skill ${setting.label} settings at ${setting.path} cannot be inspected sufficiently ` +
-        `to prove static Skill discovery (${error instanceof Error ? error.message : String(error)}); ` +
-        "remove the obstruction or wait for settings-aware Pi Skill preflight #103",
+        piSkillSettingsBlocker(
+          scope,
+          path,
+          "each package must be a source string or package filter object",
+        ),
       );
       continue;
     }
-    let kind: Awaited<ReturnType<typeof pathKind>>;
+    const packageFilter = entry as Record<string, unknown>;
+    if (typeof packageFilter.source !== "string" || packageFilter.source.length === 0) {
+      blockers.push(
+        piSkillSettingsBlocker(
+          scope,
+          path,
+          "each package filter object must have a non-empty source string",
+        ),
+      );
+      continue;
+    }
+    if (
+      packageFilter.autoload !== undefined &&
+      typeof packageFilter.autoload !== "boolean"
+    ) {
+      blockers.push(
+        piSkillSettingsBlocker(
+          scope,
+          path,
+          `package ${JSON.stringify(packageFilter.source)} autoload must be boolean`,
+        ),
+      );
+      continue;
+    }
+    const blockerCount = blockers.length;
+    const extensions = normalizePiPackageFilter(
+      packageFilter.extensions,
+      "extensions",
+      packageFilter.source,
+      scope,
+      path,
+      blockers,
+    );
+    const skills = normalizePiPackageFilter(
+      packageFilter.skills,
+      "skills",
+      packageFilter.source,
+      scope,
+      path,
+      blockers,
+    );
+    if (blockers.length !== blockerCount) continue;
+    packages.push({
+      autoload: packageFilter.autoload !== false,
+      ...(extensions === undefined ? {} : { extensions }),
+      ...(skills === undefined ? {} : { skills }),
+      source: packageFilter.source,
+    });
+  }
+  return packages;
+}
+
+function normalizePiSkillSettings(
+  settings: Readonly<Record<string, unknown>>,
+  scope: PiSettingsScope,
+  path: string,
+): { readonly blockers: readonly string[]; readonly source: PiSkillSettingsSource } {
+  const blockers: string[] = [];
+  const extensions = normalizePiStringArray(settings, "extensions", scope, path, blockers);
+  const skills = normalizePiStringArray(settings, "skills", scope, path, blockers);
+  const packages = normalizePiPackages(settings, scope, path, blockers);
+  return {
+    blockers,
+    source: { extensions, packages, path, scope, skills },
+  };
+}
+
+async function ingestPiSkillSettings(
+  options: { readonly home?: string; readonly project: string },
+): Promise<PiSkillSettingsIngestion> {
+  const home = resolve(options.home ?? homedir());
+  const project = resolve(options.project);
+  const inputs = [
+    {
+      base: home,
+      path: join(home, ...PI_GLOBAL_SETTINGS_PATH.split("/")),
+      scope: "global",
+    },
+    {
+      base: project,
+      path: join(project, ...PI_PROJECT_SETTINGS_PATH.split("/")),
+      scope: "project",
+    },
+  ] as const;
+  const blockers: string[] = [];
+  const sources: PiSkillSettingsSource[] = [];
+
+  for (const input of inputs) {
     try {
-      kind = await pathKind(setting.path);
+      const symlink = await symlinkAncestor(input.path, input.base);
+      if (symlink !== undefined) {
+        blockers.push(
+          piSkillSettingsBlocker(
+            input.scope,
+            input.path,
+            `path component ${symlink} is an unprovable symlink`,
+          ),
+        );
+        continue;
+      }
+
+      const kind = await pathKind(input.path);
+      if (kind === "missing") {
+        sources.push({
+          extensions: [],
+          packages: [],
+          path: input.path,
+          scope: input.scope,
+          skills: [],
+        });
+        continue;
+      }
+      if (kind !== "file") {
+        blockers.push(
+          piSkillSettingsBlocker(input.scope, input.path, `path is a ${kind}, not a regular file`),
+        );
+        continue;
+      }
+
+      const parsed: unknown = JSON.parse(await readFile(input.path, "utf8"));
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        blockers.push(
+          piSkillSettingsBlocker(input.scope, input.path, "settings JSON must be an object"),
+        );
+        continue;
+      }
+      const normalized = normalizePiSkillSettings(
+        parsed as Record<string, unknown>,
+        input.scope,
+        input.path,
+      );
+      blockers.push(...normalized.blockers);
+      sources.push(normalized.source);
     } catch (error) {
       blockers.push(
-        `Pi Skill ${setting.label} settings at ${setting.path} cannot be inspected sufficiently ` +
-        `to prove static Skill discovery (${error instanceof Error ? error.message : String(error)}); ` +
-        "remove the obstruction or wait for settings-aware Pi Skill preflight #103",
+        piSkillSettingsBlocker(
+          input.scope,
+          input.path,
+          error instanceof Error ? error.message : String(error),
+        ),
       );
-      continue;
     }
-    if (kind === "missing") continue;
-    blockers.push(
-      `Pi Skill ${setting.label} settings at ${setting.path} are present (${kind}); ` +
-      "the first static-only slice cannot prove that configuration adds no Skill contributors; " +
-      "remove the settings surface or wait for settings-aware Pi Skill preflight #103",
+  }
+
+  return { blockers: [...new Set(blockers)].sort(), sources };
+}
+
+function configuredPiResourceBlockers(
+  source: PiSkillSettingsSource,
+  key: PiDynamicResourceKey,
+): readonly string[] {
+  const entries = source[key];
+  if (entries.length === 0) return [];
+  if (entries.some((entry) => entry.startsWith("!") || entry.startsWith("-"))) {
+    return [
+      `Pi Skill ${source.scope} settings at ${source.path} configure ${key} exclusion ` +
+      `${JSON.stringify(entries)}; ignored paths make the static inventory unprovable, so ` +
+      `remove the ${key} overrides before applying`,
+    ];
+  }
+  return [
+    `Pi Skill ${source.scope} settings at ${source.path} configure ${key} ` +
+    `${JSON.stringify(entries)}, which can add or alter Host-visible Skill paths; ` +
+    `remove the configured ${key === "skills" ? "Skill paths" : "extensions"} before applying`,
+  ];
+}
+
+interface PiConfiguredPackage extends PiPackageSettings {
+  readonly settingsSource: PiSkillSettingsSource;
+}
+
+const PI_PACKAGE_DYNAMIC_RESOURCE_KEYS = ["skills", "extensions"] as const;
+
+function configuredPiPackageBlockers(
+  sources: readonly PiSkillSettingsSource[],
+): readonly string[] {
+  const blockers: string[] = [];
+  const packages: PiConfiguredPackage[] = sources.flatMap((settingsSource) =>
+    settingsSource.packages.map((entry) => ({ ...entry, settingsSource })),
+  );
+  const projectSourceCounts = new Map<string, number>();
+  for (const entry of packages) {
+    if (entry.settingsSource.scope !== "project") continue;
+    projectSourceCounts.set(
+      entry.source,
+      (projectSourceCounts.get(entry.source) ?? 0) + 1,
     );
   }
+  for (const [source, count] of projectSourceCounts) {
+    if (count < 2) continue;
+    const projectSettings = packages.find(
+      (entry) =>
+        entry.settingsSource.scope === "project" &&
+        entry.source === source,
+    )?.settingsSource;
+    if (projectSettings !== undefined) {
+      blockers.push(
+        `Pi Skill project settings at ${projectSettings.path} have ambiguous duplicate ` +
+        `package precedence for ${JSON.stringify(source)}; keep one package entry per source before applying`,
+      );
+    }
+  }
+  const projectPackages = packages.filter(
+    (entry) => entry.settingsSource.scope === "project",
+  );
+  // Conservative Pi precedence approximation: only one unique, enabled npm:
+  // project entry is treated as replacing the same global source. Multiple
+  // entries and scope-relative local sources stay unprovable and fail closed.
+  const replacedGlobalSources = new Set(
+    projectPackages
+      .filter(
+        (entry) =>
+          projectPackages.length === 1 &&
+          entry.autoload &&
+          entry.source.startsWith("npm:") &&
+          projectSourceCounts.get(entry.source) === 1,
+      )
+      .map((entry) => entry.source),
+  );
+
+  for (const entry of packages) {
+    if (
+      entry.settingsSource.scope === "global" &&
+      replacedGlobalSources.has(entry.source)
+    ) {
+      continue;
+    }
+    if (
+      entry.autoload &&
+      entry.extensions === undefined &&
+      entry.skills === undefined
+    ) {
+      blockers.push(
+        `Pi Skill ${entry.settingsSource.scope} settings at ${entry.settingsSource.path} configure package ` +
+        `${JSON.stringify(entry.source)}, which can contribute Host-visible Skills or extensions; ` +
+        "use an object package entry with both skills: [] and extensions: [] before applying",
+      );
+      continue;
+    }
+    const canContribute = PI_PACKAGE_DYNAMIC_RESOURCE_KEYS.some((key) => {
+      const patterns = entry[key];
+      return !entry.autoload
+        ? (patterns?.length ?? 0) > 0
+        : patterns === undefined || patterns.length > 0;
+    });
+    if (canContribute) {
+      blockers.push(
+        `Pi Skill ${entry.settingsSource.scope} settings at ${entry.settingsSource.path} configure package ` +
+        `${JSON.stringify(entry.source)} with Skill or extension loading that cannot be ` +
+        "proven static; set both skills: [] and extensions: [] before applying",
+      );
+    }
+  }
+  return blockers;
+}
+
+export async function detectPiSkillSettingsBlockers(
+  options: { readonly home?: string; readonly project: string },
+): Promise<readonly string[]> {
+  const ingestion = await ingestPiSkillSettings(options);
+  const blockers = [...ingestion.blockers];
+  for (const source of ingestion.sources) {
+    blockers.push(...configuredPiResourceBlockers(source, "skills"));
+    blockers.push(...configuredPiResourceBlockers(source, "extensions"));
+  }
+  blockers.push(...configuredPiPackageBlockers(ingestion.sources));
   return [...new Set(blockers)].sort();
 }
 

@@ -13,8 +13,9 @@ instructions remain untouched.
 
 This release installs Context Modules and portable Skills for Codex, Claude,
 Grok, and Pi. Pi Skills are delivered under `.pi/skills/<Artifact ID>/` with
-static collision proof; Pi Skill settings surfaces and disabled model-invocation
-policies remain fail-closed until their successor tickets land.
+static collision proof and settings-aware preflight; configured Skill paths,
+dynamic extensions, contributing packages, and disabled model-invocation
+policies fail closed.
 A Profile needs at least one supported artifact
 (Context, Skills, or both); Context is not mandatory. Profiles selecting
 Agents, Hooks, or Tools are rejected until those artifact categories have native

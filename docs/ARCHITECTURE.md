@@ -110,7 +110,7 @@ and `bind` does not replace or remove an existing binding.
 
 ## Canonical Model
 
-Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Context and portable Skills for Codex, Claude, Grok, and Pi; Agents, Hooks, and Tools fail at ingestion before writes when selected for a Host that cannot preserve them. Pi Skills are limited to allowed-model-invocation packages while static discovery is proven; relevant settings surfaces and disabled model-invocation Skills fail closed until their successor tickets. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
+Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Context and portable Skills for Codex, Claude, Grok, and Pi; Agents, Hooks, and Tools fail at ingestion before writes when selected for a Host that cannot preserve them. Pi Skills are limited to allowed-model-invocation packages while static discovery and relevant settings are proven; unsupported dynamic Skill contributors and disabled model-invocation Skills fail closed. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
 
 Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
@@ -138,7 +138,7 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The project-bound release supports Codex CLI, Claude Code, Grok, and Pi on macOS for Profile Context and portable Skills. Pi's first Skill slice supports allowed-model-invocation packages with static discovery proof; settings-aware and disabled-invocation successors remain explicit future slices. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
+The project-bound release supports Codex CLI, Claude Code, Grok, and Pi on macOS for Profile Context and portable Skills. Pi supports allowed-model-invocation packages with static discovery and settings-aware proof; disabled-invocation projection remains an explicit future slice. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
 
 ### Codex
 
@@ -169,11 +169,21 @@ are recursive, direct root `.md` files are considered only in `.pi` Skill roots,
 and non-Git ancestor traversal reaches the filesystem root. Missing roots are
 empty; unreadable, symlinked, malformed, ambiguous,
 or unmanaged selected identities block, while the current Installer-owned
-`.pi/skills/<Artifact ID>` path is exempt for re-apply. Existing global or
-project Pi settings surfaces and disabled model-invocation Skills remain
-conservative blockers until their successor tickets. Pi's native project trust,
+`.pi/skills/<Artifact ID>` path is exempt for re-apply. For Skill-bearing
+Profiles, the Adapter reads global and project Pi settings once and normalizes
+the relevant `skills`, `extensions`, and `packages` fields. Missing, unrelated,
+empty, and explicitly Skill-and-extension-disabled package settings preserve
+the static proof. As a conservative Pi package-precedence approximation, one
+unique enabled project `npm:` package entry may supersede the same global source;
+multiple entries and scope-relative local sources remain unprovable. Configured
+Skill paths, enabled extensions, packages that can contribute either category,
+malformed or unreadable settings, ignored paths, unprovable symlinks, and
+ambiguous package precedence block before writes.
+Context-only Profiles skip this settings inspection. Pi's native project trust,
 authentication, settings, prompt files, and per-session overrides remain
-Host-owned and are never changed. Context-only installations record
+Host-owned and are never changed; explicit runtime `--skill` and `--no-skills`
+overrides remain outside the Installation guarantee. Disabled model-invocation
+Skills remain blocked until their projection successor. Context-only installations record
 `native-project-append-system-v1`; Skills-only installations record
 `native-project-skills-v1`; combined installations record
 `native-project-append-system-skills-v1`, all under Adapter version

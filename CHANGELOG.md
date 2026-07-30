@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Make Pi Skill capability preflight settings-aware: benign global and project settings preserve static collision proof, while configured Skill paths, dynamic extensions, contributing packages, and unprovable relevant configuration fail closed without modifying Host state ([#103](https://github.com/kenneth-liao/agent-profile-kit/issues/103)).
+
 - Install resolved allowed-model-invocation portable Skills for Pi under `.pi/skills/<Artifact ID>/`, preserving package bytes and modes, retaining dependency reasons, and failing closed on static discovery collisions, unsafe state, configured Pi settings, or disabled model invocation ([#102](https://github.com/kenneth-liao/agent-profile-kit/issues/102)).
 - Add Pi as a project-bound Agent Host for Context-only Profile Installations through `.pi/APPEND_SYSTEM.md`, with Pi 0.82.1+ capability preflight and shared lifecycle reconciliation ([#101](https://github.com/kenneth-liao/agent-profile-kit/issues/101)).
 - Guide users to the next lifecycle action on concise `status` and `preview` results: actionable status recommends read-only `preview` before `apply`, ready preview recommends `apply`, blockers direct resolve-and-retry of the same read-only command, and current or completed results omit redundant steps; multi-project outcomes emit one conservative aggregate instruction ([#90](https://github.com/kenneth-liao/agent-profile-kit/issues/90)).
