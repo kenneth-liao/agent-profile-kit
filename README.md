@@ -13,9 +13,8 @@ instructions remain untouched.
 
 This release installs Context Modules and portable Skills for Codex, Claude,
 Grok, and Pi. Pi Skills are delivered under `.pi/skills/<Artifact ID>/` with
-static collision proof and settings-aware preflight; configured Skill paths,
-dynamic extensions, contributing packages, and unprovable discovery state fail
-closed. Disabled model-invocation Skills receive Pi-native
+Host-native resolution alongside user-managed Skills, extensions, and packages.
+Disabled model-invocation Skills receive Pi-native
 `disable-model-invocation: true` projection while remaining explicitly
 activatable by Artifact ID.
 A Profile needs at least one supported artifact
@@ -59,13 +58,16 @@ capability.
 
 When a Profile includes Context for Codex, review and trust the generated project
 SessionStart hook in Codex for each bound project. Lifecycle hooks are enabled by
-default; Agent Profile Kit blocks `preview` and `apply` only when the effective
-global or project configuration explicitly disables them. It also fails closed
-when the Codex configuration it reads is malformed TOML or gives `hooks` or the
-deprecated `codex_hooks` alias a non-boolean value. Project configuration takes
-precedence over global configuration; when `CODEX_HOME` is set, Codex's global
-configuration is `CODEX_HOME/config.toml`, otherwise it is the default
-`~/.codex/config.toml`. The deprecated `codex_hooks` alias remains supported.
+default. Agent Profile Kit warns when the effective global or project
+configuration explicitly disables them, or when the relevant configuration is
+malformed or unreadable, because generated Context may not load; the warning
+does not block installation. Project configuration takes precedence over global
+configuration; when `CODEX_HOME` is set, Codex's global configuration is
+`CODEX_HOME/config.toml`, otherwise it is the default `~/.codex/config.toml`.
+The deprecated `codex_hooks` alias remains supported.
+When Host configuration warnings are the only diagnostics, `preview`, `apply`,
+and `status` still exit successfully. Automation that needs loading guarantees
+must inspect the `Warnings` section rather than relying on the exit code alone.
 
 Launch Codex, Claude, Grok, or Pi from the bound project. For a non-Git project
 with Context, use the exact bound root so Codex can discover the generated

@@ -49,14 +49,15 @@ Use this workflow when helping a person author their Workspace and bind projects
      Host-root symlinks into Workspace source) is Host configuration, not
      Agent Profile Kit–owned state: outside Project Bindings and Installation
      Manifests; `apply` / `uninstall` never adopt or remove those paths. v1 does
-     not manage global Host delivery. `status` may still report a project
-     installation as blocked when a selected Skill collides with global delivery
-     (#53).
+     not manage global Host delivery. Hosts own Skill discovery, precedence,
+     deduplication, collision diagnostics, and resolution across project,
+     personal, package, plugin, extension, and compatibility sources.
    - **Generated output** is disposable Installer-owned material inside bound
      projects. Never copy it back into the Workspace as source.
-   - Do not select a Skill into a bound Profile while the same Host-visible
-     identity is also globally delivered; preview/apply fail closed, and later
-     overlap appears as status blocked (#53).
+   - Same-identity Skill material outside an exact planned output destination is
+     Host Resolution, not an Agent Profile Kit blocker. Concrete Host settings
+     that disable planned output may warn; exact Output Ownership Conflicts and
+     unsupported capability remain blockers.
 5. Author bindings in Local Configuration—either hand-edit `config.yaml` or run
    recording-only `agent-profile-kit bind <profile> [project] --host <host>…`
    (cwd when project is omitted; at least one explicit `--host` required). Do not
@@ -79,8 +80,8 @@ Use this workflow when helping a person author their Workspace and bind projects
    bound project. Do not claim that Agent Profile Kit manages Host
    authentication, trust, approvals, plugins, or sessions. Pi bindings load the
    generated `.pi/APPEND_SYSTEM.md` and `.pi/skills/<Artifact ID>` packages after
-   Pi's native trust boundary; settings surfaces and unprovable discovery state
-   remain conservative blockers. For non-Git projects, remind the
+   Pi's native trust boundary; packages, extensions, and other Skill sources
+   coexist through Pi Host Resolution. For non-Git projects, remind the
    user that Codex must launch from the exact bound root.
 8. Use `status` to focus on Profile Installations needing attention; its concise
    result reports all-current state when nothing needs action, labels change
@@ -91,8 +92,8 @@ Use this workflow when helping a person author their Workspace and bind projects
    Git-local exclusions for Installer-owned generated paths. A ready `preview`
    likewise recommends `apply`; blocked `preview` or `apply` retries that same
    command after the blocker. Add `--verbose` to distinguish current, stale, drifted,
-   missing, and blocked installations in the complete per-output report
-   (including later global Skill identity collisions). `unbind` removes desired
+   missing, and blocked installations in the complete per-output report.
+   `unbind` removes desired
    Project Binding state but leaves generated output for global `preview` and
    `apply`. `uninstall` instead removes only output whose Installation Marker
    and hashes prove Agent Profile Kit ownership; it preserves the Workspace,

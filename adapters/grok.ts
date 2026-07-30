@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, posix, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -58,9 +58,8 @@ export const GROK_HOST_VERSION_WITH_INVOCATION =
  * Minimum Grok CLI version that preserves the Grok project Capability Contract.
  * Evidence: Grok Build documents always-scanned project `.grok/rules/*.md`,
  * native project `.grok/skills/`, `disable-model-invocation`, and
- * `grok inspect --json` with `externalCompat` cells and a skills inventory.
- * Releases that cannot report that surface fail closed at inspection instead of
- * weakening delivery.
+ * `grok inspect --json` with `externalCompat` cells. Context planning fails
+ * closed when that topology cannot be determined.
  */
 export const GROK_MINIMUM_CLI_VERSION = "0.2.0";
 
@@ -74,40 +73,11 @@ export const GROK_CONTEXT_RULE_PATH = posix.join(
 /** Grok native project Skill discovery root. */
 export const GROK_SKILLS_DISCOVERY_ROOT = posix.join(".grok", "skills");
 
-/**
- * Personal Grok Skill root relative to GROK_HOME (or `~/.grok` when unset).
- * Same package shape as project discovery.
- */
-export const GROK_PERSONAL_SKILLS_ROOT = "skills";
-
 export type GrokProjectPlan = AdapterProjectPlan;
-
-/** One Skill entry from `grok inspect --json` (or an equivalent fixture). */
-export interface GrokDiscoveredSkill {
-  readonly compatibilityStatus?: string;
-  readonly disabled?: boolean;
-  readonly name: string;
-  readonly sourcePath?: string;
-  readonly sourceType: string;
-  readonly userInvocable?: boolean;
-  readonly vendor?: string;
-}
 
 export interface GrokInspection {
   /** Whether Grok's Claude rules compatibility cell is enabled for this project. */
   readonly claudeRulesEnabled: boolean;
-  /** Whether Grok scans Claude Skill roots (default true when unreported). */
-  readonly claudeSkillsEnabled: boolean;
-  /** Whether Grok scans Cursor Skill roots (default true when unreported). */
-  readonly cursorSkillsEnabled: boolean;
-  /** Skill names listed under `[skills].disabled` when config is readable. */
-  readonly skillsDisabledNames: readonly string[];
-  /** Extra discovery roots under `[skills].paths` when config is readable. */
-  readonly skillsExtraPaths: readonly string[];
-  /** Absolute or home-relative ignore prefixes under `[skills].ignore`. */
-  readonly skillsIgnorePaths: readonly string[];
-  /** Effective discovered Skills from inspection (empty when not required). */
-  readonly skills: readonly GrokDiscoveredSkill[];
   /** Parsed Grok CLI semver from `grok version` / inspection. */
   readonly version: string;
 }
@@ -134,11 +104,6 @@ export interface GrokCapabilityOptions {
   readonly requireDisabledModelInvocation?: boolean;
   /** When true, prove native project Skill discovery surface is hostable. */
   readonly requireSkills?: boolean;
-  /**
-   * When true, `grok inspect --json` must include a `skills` inventory array.
-   * Context-only probes may omit it; Skill delivery must not treat omission as empty.
-   */
-  readonly requireSkillsInventory?: boolean;
   /** Injectable version probe for tests; defaults to `grok version`. */
   readonly resolveVersion?: () => Promise<string>;
 }
@@ -156,17 +121,6 @@ export interface GrokProjectPlanOptions {
    * matches typical Host configuration.
    */
   readonly claudeRulesEnabled?: boolean;
-}
-
-export interface GrokSkillOverlapOptions {
-  /** Absolute project root used for managed-path exemption and blockers. */
-  readonly project: string;
-  /** Optional live inspection; when omitted, only filesystem roots are scanned. */
-  readonly inspection?: GrokInspection;
-  /** Home directory for personal Skill roots (`~/.agents`, `~/.claude`, …). */
-  readonly home?: string;
-  /** Process env for GROK_HOME resolution. */
-  readonly env?: NodeJS.ProcessEnv;
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -391,9 +345,47 @@ async function readGrokSkillsConfig(
       throw error;
     }
     throw new Error(
-      `Grok skills configuration at ${configPath} cannot be inspected sufficiently to prove selected Skills are deliverable (${error instanceof Error ? error.message : String(error)}); fix or remove the obstruction before applying`,
+      `Grok skills configuration at ${configPath} could not be read (${error instanceof Error ? error.message : String(error)})`,
     );
   }
+}
+
+/** Report relevant Grok settings that directly disable planned project Skills. */
+export async function detectGrokProjectConfigurationWarnings(
+  skillIds: readonly string[],
+  options: { readonly env?: NodeJS.ProcessEnv; readonly home?: string; readonly project: string },
+): Promise<readonly string[]> {
+  const env = options.env ?? process.env;
+  const home = options.home ?? env.HOME ?? homedir();
+  const configPath = join(resolveGrokHome(env, home), "config.toml");
+  let config: Awaited<ReturnType<typeof readGrokSkillsConfig>>;
+  try {
+    config = await readGrokSkillsConfig(env, home);
+  } catch (error) {
+    return [
+      `Grok configuration relevant to planned Skills at ${configPath} could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Skills may not load until the configuration is repaired`,
+    ];
+  }
+
+  const warnings: string[] = [];
+  const disabled = new Set(config.disabled);
+  for (const skillId of [...new Set(skillIds)].sort()) {
+    const managedDirectory = join(options.project, ...grokProjectSkillPath(skillId).split("/"));
+    if (disabled.has(skillId)) {
+      warnings.push(
+        `Grok configuration at ${configPath} lists planned Skill '${skillId}' as disabled; generated Skill output may not load until it is enabled`,
+      );
+    }
+    if (
+      pathIsIgnored(managedDirectory, config.ignore, env, home) ||
+      pathIsIgnored(join(managedDirectory, "SKILL.md"), config.ignore, env, home)
+    ) {
+      warnings.push(
+        `Grok configuration at ${configPath} ignores planned Skill '${skillId}' at ${managedDirectory}; generated Skill output may not load until the ignore entry is removed`,
+      );
+    }
+  }
+  return warnings;
 }
 
 function parseCompatCellEnabled(
@@ -417,62 +409,6 @@ function parseCompatCellEnabled(
   return enabled;
 }
 
-function parseDiscoveredSkills(
-  raw: unknown,
-  options: { readonly requireInventory?: boolean } = {},
-): readonly GrokDiscoveredSkill[] {
-  if (raw === undefined) {
-    if (options.requireInventory) {
-      throw new Error(
-        "Grok inspect --json is missing the skills inventory; upgrade Grok Build before previewing or applying the Profile",
-      );
-    }
-    return [];
-  }
-  if (!Array.isArray(raw)) {
-    throw new Error(
-      "Grok inspect --json skills must be an array; upgrade Grok Build before previewing or applying the Profile",
-    );
-  }
-  const skills: GrokDiscoveredSkill[] = [];
-  for (const entry of raw) {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-      throw new Error(
-        "Grok inspect --json skills entries must be objects; upgrade Grok Build before previewing or applying the Profile",
-      );
-    }
-    const mapping = entry as Record<string, unknown>;
-    const name = mapping.name;
-    if (typeof name !== "string" || name.length === 0) {
-      throw new Error(
-        "Grok inspect --json skills entry is missing a name; upgrade Grok Build before previewing or applying the Profile",
-      );
-    }
-    const source = mapping.source;
-    let sourceType = "unknown";
-    let sourcePath: string | undefined;
-    if (typeof source === "object" && source !== null && !Array.isArray(source)) {
-      const sourceMapping = source as Record<string, unknown>;
-      if (typeof sourceMapping.type === "string") sourceType = sourceMapping.type;
-      if (typeof sourceMapping.path === "string") sourcePath = sourceMapping.path;
-    }
-    skills.push({
-      name,
-      sourceType,
-      ...(sourcePath !== undefined ? { sourcePath } : {}),
-      ...(typeof mapping.disabled === "boolean" ? { disabled: mapping.disabled } : {}),
-      ...(typeof mapping.userInvocable === "boolean"
-        ? { userInvocable: mapping.userInvocable }
-        : {}),
-      ...(typeof mapping.vendor === "string" ? { vendor: mapping.vendor } : {}),
-      ...(typeof mapping.compatibilityStatus === "string"
-        ? { compatibilityStatus: mapping.compatibilityStatus }
-        : {}),
-    });
-  }
-  return skills.sort((left, right) => left.name.localeCompare(right.name));
-}
-
 /**
  * Parse Claude rules compatibility from `grok inspect --json` externalCompat cells.
  * Missing or unreadable cells fail closed so combined Claude/Grok bindings cannot
@@ -483,20 +419,12 @@ export function parseGrokInspectClaudeRulesEnabled(source: string): boolean {
 }
 
 /**
- * Parse the machine-readable Grok inspection document used for capability and
- * Skill discovery preflight.
+ * Parse the machine-readable Grok inspection document used for Context
+ * compatibility planning.
  */
 export function parseGrokInspectDocument(
   source: string,
-  options: {
-    readonly requireSkillsInventory?: boolean;
-    readonly skillsConfig?: {
-      readonly disabled: readonly string[];
-      readonly ignore: readonly string[];
-      readonly paths: readonly string[];
-    };
-    readonly version?: string;
-  } = {},
+  options: { readonly version?: string } = {},
 ): GrokInspection {
   let document: unknown;
   try {
@@ -536,14 +464,6 @@ export function parseGrokInspectDocument(
     );
   }
 
-  // Skills compatibility cells default on when absent (older fixtures / Context-only probes).
-  let claudeSkillsEnabled = true;
-  let cursorSkillsEnabled = true;
-  const claudeSkills = parseCompatCellEnabled(cells, "claude", "skills", "Claude skills compatibility");
-  if (claudeSkills !== undefined) claudeSkillsEnabled = claudeSkills;
-  const cursorSkills = parseCompatCellEnabled(cells, "cursor", "skills", "Cursor skills compatibility");
-  if (cursorSkills !== undefined) cursorSkillsEnabled = cursorSkills;
-
   let version = options.version;
   if (version === undefined) {
     if (typeof root.grokVersion === "string" && root.grokVersion.trim()) {
@@ -553,20 +473,7 @@ export function parseGrokInspectDocument(
     }
   }
 
-  const skillsConfig = options.skillsConfig ?? { disabled: [], ignore: [], paths: [] };
-
-  return {
-    claudeRulesEnabled,
-    claudeSkillsEnabled,
-    cursorSkillsEnabled,
-    skills: parseDiscoveredSkills(root.skills, {
-      requireInventory: options.requireSkillsInventory === true,
-    }),
-    skillsDisabledNames: skillsConfig.disabled,
-    skillsExtraPaths: skillsConfig.paths,
-    skillsIgnorePaths: skillsConfig.ignore,
-    version,
-  };
+  return { claudeRulesEnabled, version };
 }
 
 /**
@@ -582,9 +489,6 @@ export async function inspectGrokProject(
   const version = options.resolveVersion
     ? await options.resolveVersion()
     : await resolveGrokCliVersion(options);
-  const skillsConfig = await readGrokSkillsConfig(env, options.home);
-  const requireSkillsInventory =
-    options.requireSkillsInventory === true || options.requireSkills === true;
   try {
     const { stdout } = await execFileAsync("grok", ["inspect", "--json"], {
       cwd: project,
@@ -593,11 +497,7 @@ export async function inspectGrokProject(
       timeout: 15_000,
     });
     // Parse machine-readable stdout only; stderr diagnostics must not corrupt JSON.
-    return parseGrokInspectDocument(stdout, {
-      requireSkillsInventory,
-      skillsConfig,
-      version,
-    });
+    return parseGrokInspectDocument(stdout, { version });
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       throw new Error(
@@ -607,24 +507,16 @@ export async function inspectGrokProject(
     if (error instanceof Error && error.message.startsWith("Grok inspect")) {
       throw error;
     }
-    if (error instanceof Error && error.message.startsWith("Grok skills configuration")) {
-      throw error;
-    }
     // Non-zero exit may still carry usable JSON on stdout.
     if (error instanceof Error && "stdout" in error) {
       const stdout = String((error as { stdout?: unknown }).stdout ?? "");
       if (stdout.trim()) {
         try {
-          return parseGrokInspectDocument(stdout, {
-            requireSkillsInventory,
-            skillsConfig,
-            version,
-          });
+          return parseGrokInspectDocument(stdout, { version });
         } catch (parseError) {
           if (
             parseError instanceof Error &&
-            (parseError.message.startsWith("Grok inspect") ||
-              parseError.message.startsWith("Grok skills configuration"))
+            parseError.message.startsWith("Grok inspect")
           ) {
             throw parseError;
           }
@@ -676,11 +568,12 @@ export async function assertGrokProjectCapability(
       ? { requireDisabledModelInvocation: true }
       : {}),
   });
-  const inspection = await inspectGrokProject(project, {
-    ...options,
-    requireSkillsInventory: requireSkills || options.requireSkillsInventory === true,
-    resolveVersion: async () => version,
-  });
+  const inspection = requireContext
+    ? await inspectGrokProject(project, {
+        ...options,
+        resolveVersion: async () => version,
+      })
+    : { claudeRulesEnabled: true, version };
 
   const grokPath = join(project, ".grok");
   const grokKind = await pathKind(grokPath);
@@ -824,18 +717,6 @@ function normalizePathForCompare(path: string): string {
   return resolve(path);
 }
 
-function isManagedSkillPath(project: string, skillId: string, candidate?: string): boolean {
-  if (!candidate) return false;
-  const managed = normalizePathForCompare(
-    join(project, ...grokProjectSkillPath(skillId).split("/"), "SKILL.md"),
-  );
-  const managedDir = normalizePathForCompare(
-    join(project, ...grokProjectSkillPath(skillId).split("/")),
-  );
-  const actual = normalizePathForCompare(candidate);
-  return actual === managed || actual === managedDir;
-}
-
 function pathIsIgnored(
   candidate: string,
   ignorePaths: readonly string[],
@@ -848,286 +729,6 @@ function pathIsIgnored(
     if (actual === ignore || actual.startsWith(`${ignore}${sep}`)) return true;
   }
   return false;
-}
-
-function grokSkillOverlapBlocker(input: {
-  readonly artifactId: string;
-  readonly evidence: string;
-  readonly reason: string;
-}): string {
-  return (
-    `Grok Skill '${input.artifactId}' is not safely deliverable (${input.reason}): ` +
-    `${input.evidence}; remove, relocate, enable, or stop ignoring the conflicting Host-visible ` +
-    `Skill before applying`
-  );
-}
-
-function grokSkillInspectBlocker(path: string, detail: string): string {
-  return (
-    `Grok Skill discovery root at ${path} cannot be inspected sufficiently to prove absence ` +
-    `of selected Skills (${detail}); remove the obstruction or make the path readable before applying`
-  );
-}
-
-async function packageEvidencePath(packagePath: string): Promise<string> {
-  try {
-    return await realpath(packagePath);
-  } catch {
-    return packagePath;
-  }
-}
-
-async function scanSkillRootForSelected(
-  root: string,
-  selected: ReadonlySet<string>,
-  project: string,
-  blockers: string[],
-  label: string,
-): Promise<void> {
-  let kind: Awaited<ReturnType<typeof pathKind>>;
-  try {
-    kind = await pathKind(root);
-  } catch (error) {
-    blockers.push(
-      grokSkillInspectBlocker(root, error instanceof Error ? error.message : String(error)),
-    );
-    return;
-  }
-  if (kind === "missing") return;
-  if (kind !== "directory") {
-    blockers.push(grokSkillInspectBlocker(root, `path is a ${kind}, not a directory`));
-    return;
-  }
-
-  let entries: string[];
-  try {
-    entries = await readdir(root);
-  } catch (error) {
-    blockers.push(
-      grokSkillInspectBlocker(root, error instanceof Error ? error.message : String(error)),
-    );
-    return;
-  }
-
-  for (const entry of entries.sort((left, right) => left.localeCompare(right))) {
-    if (entry.startsWith(".")) continue;
-    if (!selected.has(entry)) continue;
-    const packagePath = join(root, entry);
-    if (isManagedSkillPath(project, entry, packagePath)) continue;
-
-    let packageKind: "directory" | "file" | "missing" | "other";
-    try {
-      packageKind = await stat(packagePath).then(
-        (info) => (info.isDirectory() ? "directory" : info.isFile() ? "file" : "other"),
-        (error: unknown) => {
-          if (hasErrorCode(error, "ENOENT")) return "missing" as const;
-          throw error;
-        },
-      );
-    } catch (error) {
-      blockers.push(
-        grokSkillInspectBlocker(
-          packagePath,
-          error instanceof Error ? error.message : String(error),
-        ),
-      );
-      continue;
-    }
-    if (packageKind !== "directory") continue;
-
-    const skillMd = join(packagePath, "SKILL.md");
-    let skillKind: "directory" | "file" | "missing" | "other";
-    try {
-      skillKind = await stat(skillMd).then(
-        (info) => (info.isDirectory() ? "directory" : info.isFile() ? "file" : "other"),
-        (error: unknown) => {
-          if (hasErrorCode(error, "ENOENT")) return "missing" as const;
-          throw error;
-        },
-      );
-    } catch (error) {
-      blockers.push(
-        grokSkillInspectBlocker(skillMd, error instanceof Error ? error.message : String(error)),
-      );
-      continue;
-    }
-    if (skillKind === "missing") continue;
-    if (skillKind !== "file") {
-      blockers.push(grokSkillInspectBlocker(skillMd, `SKILL.md is a ${skillKind}, not a file`));
-      continue;
-    }
-
-    const evidence = await packageEvidencePath(packagePath);
-    blockers.push(
-      grokSkillOverlapBlocker({
-        artifactId: entry,
-        evidence: `${label} at ${evidence === packagePath ? packagePath : `${packagePath} -> ${evidence}`}`,
-        reason: "duplicated or shadowed by an enabled Host-visible source",
-      }),
-    );
-  }
-}
-
-/**
- * Fail closed when a selected Skill identity is already disabled, ignored,
- * duplicated, or shadowed across Grok's native, personal, compatibility, plugin,
- * extra-path, or repository-visible discovery sources.
- *
- * Missing roots are treated as empty. Unrelated identities are ignored. The
- * managed install path under `.grok/skills/<id>` is exempt so re-apply works.
- */
-export async function detectGrokSkillDiscoveryOverlaps(
-  skillIds: readonly string[],
-  options: GrokSkillOverlapOptions,
-): Promise<readonly string[]> {
-  if (skillIds.length === 0) return [];
-  const selected = new Set(skillIds);
-  const blockers: string[] = [];
-  const env = options.env ?? process.env;
-  const home = options.home ?? env.HOME ?? homedir();
-  const project = options.project;
-  const inspection = options.inspection;
-  const grokHome = resolveGrokHome(env, home);
-
-  let disabledNames = new Set(inspection?.skillsDisabledNames ?? []);
-  let ignorePaths = inspection?.skillsIgnorePaths ?? [];
-  if (!inspection) {
-    try {
-      const config = await readGrokSkillsConfig(env, home);
-      disabledNames = new Set(config.disabled);
-      ignorePaths = config.ignore;
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith("Grok skills configuration")) {
-        return [error.message];
-      }
-      throw error;
-    }
-  }
-
-  for (const skillId of [...selected].sort()) {
-    const managedSkillMd = join(project, ...grokProjectSkillPath(skillId).split("/"), "SKILL.md");
-    const managedDir = join(project, ...grokProjectSkillPath(skillId).split("/"));
-    if (
-      pathIsIgnored(managedSkillMd, ignorePaths, env, home) ||
-      pathIsIgnored(managedDir, ignorePaths, env, home)
-    ) {
-      blockers.push(
-        grokSkillOverlapBlocker({
-          artifactId: skillId,
-          evidence: `[skills].ignore covers managed path ${managedDir}`,
-          reason: "managed install path is ignored by Grok Skill configuration",
-        }),
-      );
-    }
-    if (disabledNames.has(skillId)) {
-      blockers.push(
-        grokSkillOverlapBlocker({
-          artifactId: skillId,
-          evidence: `[skills].disabled lists '${skillId}'`,
-          reason: "selected identity is disabled in Grok Skill configuration",
-        }),
-      );
-    }
-  }
-
-  if (inspection) {
-    for (const skill of inspection.skills) {
-      if (!selected.has(skill.name)) continue;
-      if (isManagedSkillPath(project, skill.name, skill.sourcePath)) continue;
-      if (skill.compatibilityStatus === "unresolved") {
-        blockers.push(
-          grokSkillOverlapBlocker({
-            artifactId: skill.name,
-            evidence: `inspect reports unresolved compatibility for ${skill.sourceType}${skill.sourcePath ? ` at ${skill.sourcePath}` : ""}`,
-            reason: "Host-visible discovery root is impossible to inspect",
-          }),
-        );
-        continue;
-      }
-      if (skill.disabled === true) {
-        blockers.push(
-          grokSkillOverlapBlocker({
-            artifactId: skill.name,
-            evidence: `inspect reports disabled skill from ${skill.sourceType}${skill.sourcePath ? ` at ${skill.sourcePath}` : ""}`,
-            reason: "selected identity is disabled in Host-visible discovery",
-          }),
-        );
-        continue;
-      }
-      blockers.push(
-        grokSkillOverlapBlocker({
-          artifactId: skill.name,
-          evidence: `${skill.sourceType}${skill.vendor ? `/${skill.vendor}` : ""} source${skill.sourcePath ? ` at ${skill.sourcePath}` : ""}`,
-          reason: "duplicated or shadowed by an enabled Host-visible source",
-        }),
-      );
-    }
-  }
-
-  // Filesystem roots Grok always or optionally scans. Missing roots stay empty.
-  const projectRoots: Array<{ readonly label: string; readonly path: string }> = [
-    { label: "project .agents/skills", path: join(project, ".agents", "skills") },
-  ];
-  if (inspection?.claudeSkillsEnabled !== false) {
-    projectRoots.push({
-      label: "project .claude/skills",
-      path: join(project, ".claude", "skills"),
-    });
-  }
-  if (inspection?.cursorSkillsEnabled !== false) {
-    projectRoots.push({
-      label: "project .cursor/skills",
-      path: join(project, ".cursor", "skills"),
-    });
-  }
-
-  const personalRoots: Array<{ readonly label: string; readonly path: string }> = [
-    { label: "personal Grok skills", path: join(grokHome, GROK_PERSONAL_SKILLS_ROOT) },
-    { label: "personal .agents/skills", path: join(home, ".agents", "skills") },
-  ];
-  if (inspection?.claudeSkillsEnabled !== false) {
-    personalRoots.push({
-      label: "personal Claude skills",
-      path: join(home, ".claude", "skills"),
-    });
-  }
-  if (inspection?.cursorSkillsEnabled !== false) {
-    personalRoots.push({
-      label: "personal Cursor skills",
-      path: join(home, ".cursor", "skills"),
-    });
-  }
-
-  for (const root of [...projectRoots, ...personalRoots]) {
-    await scanSkillRootForSelected(root.path, selected, project, blockers, root.label);
-  }
-
-  // Extra `[skills].paths` entries from inspection or live user config.
-  let extraPaths: readonly string[] = inspection?.skillsExtraPaths ?? [];
-  if (!inspection) {
-    try {
-      extraPaths = (await readGrokSkillsConfig(env, home)).paths;
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith("Grok skills configuration")) {
-        blockers.push(error.message);
-      } else {
-        throw error;
-      }
-    }
-  }
-
-  for (const raw of extraPaths) {
-    const absolute = expandUserPath(raw, env, home);
-    await scanSkillRootForSelected(
-      absolute,
-      selected,
-      project,
-      blockers,
-      `configured skills path ${raw}`,
-    );
-  }
-
-  return [...new Set(blockers)].sort();
 }
 
 /**

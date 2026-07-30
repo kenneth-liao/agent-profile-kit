@@ -28,21 +28,16 @@ Source ownership and managed delivery are separate:
   personal/global Host roots. Global Host delivery is not APK-owned state: it is
   outside Project Bindings and Installation Manifests, and `apply` / `uninstall`
   never adopt, record as managed output, or mutate those paths. `status` does not
-  treat global roots as managed output, but it may still report a project
-  installation as blocked when a selected Skill’s Host-visible identity collides
-  with personal or global delivery (see
-  [#53](https://github.com/kenneth-liao/agent-profile-kit/issues/53)).
+  treat global roots as managed output.
 - You may still manage native global delivery yourself—for example by symlinking
   a Host Skill root entry to canonical Workspace source—but that delivery is
   user-managed Host configuration, not Agent Profile Kit–owned state. Agent
   Profile Kit never adopts, tracks, or uninstalls those global paths.
-- A Skill must not be both universally delivered in a Host global root and
-  selected into a bound Profile for that Host. When a selected Skill’s
-  Host-visible identity already exists in a selected Host’s personal/global Skill
-  root, `preview` and `apply` fail closed (see
-  [#53](https://github.com/kenneth-liao/agent-profile-kit/issues/53)). Prefer one
-  delivery path: either project-bound Profile selection or user-managed global
-  delivery, not both.
+- A Skill may be both universally delivered through Host configuration and
+  selected into a bound Profile. The Host owns discovery, precedence,
+  deduplication, collision diagnostics, and resolution between those sources.
+  Agent Profile Kit blocks only an exact planned destination it cannot safely
+  own, not same-identity material elsewhere.
 
 Future Agent Profile Kit–managed global delivery would need an explicit ADR that
 revisits the no-global-output boundary. Closing this guidance does not put that
@@ -184,8 +179,8 @@ when every consumer has upgraded to 0.16.1+.
 
 This release supports Context Modules and portable Skills for Codex, Claude
 Code, Grok, and Pi. Pi Skills install under `.pi/skills/<Artifact ID>/` after
-static collision and settings-aware proof; configured Skill paths, dynamic
-extensions, contributing packages, and unprovable discovery state fail closed.
+project-surface capability checks; Pi resolves other Skills, extensions, and
+packages through its native Host behavior.
 Disabled model-invocation Skills are projected with Pi-native
 `disable-model-invocation: true` while explicit `/skill:<Artifact ID>`
 activation remains available. Profiles that select Agents, Hooks, or Tools are
@@ -396,9 +391,10 @@ bindings:
 For Codex bindings that select Context, review and trust the generated project
 SessionStart hook in Codex for each bound project. Lifecycle hooks are enabled by
 default. Agent Profile Kit checks the effective global and project configuration
-during preflight and rejects reconciliation when hooks are explicitly disabled,
-when the Codex configuration it reads is malformed TOML, or when `hooks` or the
-deprecated `codex_hooks` alias is not a boolean. Project configuration takes
+during preflight and warns when hooks are explicitly disabled, when relevant
+configuration is malformed or unreadable, or when `hooks` or the deprecated
+`codex_hooks` alias is not a boolean. These warnings do not block installation,
+but generated Context may not load until the setting is corrected. Project configuration takes
 precedence over global configuration. If `CODEX_HOME` is set, Codex reads its
 global configuration from `CODEX_HOME/config.toml`; otherwise it uses
 `~/.codex/config.toml`. Skills-only Codex bindings do not require hooks.
@@ -499,14 +495,12 @@ proves that `.pi` and the append-system destination are compatible before
 writes. Profiles with portable Skills also receive one package
 per resolved Artifact ID under `.pi/skills/<Artifact ID>/`; standard package
 bytes and modes are preserved and `agent-profile-kit.yaml` is omitted. Pi
-checks its personal, project, and ancestor static discovery roots for selected
-identity collisions, recursively inspecting directories with `SKILL.md` and
-direct root `.md` files in `.pi` Skill roots (root `.md` files under `.agents`
-are ignored). Disabled model-invocation Skills receive top-level
+owns Skill resolution across personal, project, ancestor, package, extension,
+and configured sources. Disabled model-invocation Skills receive top-level
 `disable-model-invocation: true` in generated `SKILL.md` while the canonical
 Workspace source remains unchanged and explicit `/skill:<Artifact ID>`
-activation remains available. Relevant settings surfaces and any state that
-prevents proving these semantics remain conservative blockers. Pi's native
+activation remains available. Malformed or unreadable relevant settings warn
+without blocking. Pi's native
 project trust, authentication, settings, prompt files, and per-session
 overrides remain Host-owned.
 
@@ -571,7 +565,7 @@ Keep every unrelated exclusion byte. Recreate the desired Project Bindings and
 run `agent-profile-kit apply` to establish fresh v3 ownership records. A wiped
 state cannot safely be reconstructed from output bytes alone.
 
-### Global Skills vs project-bound Profiles
+### Host Resolution and project-bound Profiles
 
 This section is the Host-path detail for the
 [Universal Workspace material](#universal-workspace-material) boundary.
@@ -590,35 +584,25 @@ Those global folders remain Host-owned:
 - Grok: `~/.grok/skills/` (plus enabled compatibility roots and configured
   `[skills].paths`; see `grok inspect`)
 
-If a selected Skill’s Host-visible identity already exists in a selected Host’s
-global folder, `preview` and `apply` fail closed before any project write
-([#53](https://github.com/kenneth-liao/agent-profile-kit/issues/53),
-[#87](https://github.com/kenneth-liao/agent-profile-kit/issues/87)). The blocker
-names the Host, Artifact ID, conflicting evidence, and asks you to remove or
-relocate the unmanaged copy first (or deselect the Skill from the Profile).
-Missing global roots are fine. Unrelated global Skills are fine. Identical bytes
-and symlinks from a global folder into the Workspace still block, because the
-Host would see global delivery in addition to or instead of the managed project
-snapshot.
+Selected Skills may share an identity with material from these roots, packages,
+plugins, extensions, compatibility sources, or other Host-native locations.
+The Host owns discovery, precedence, deduplication, collision diagnostics, and
+resolution across those sources. Agent Profile Kit neither scans an effective
+inventory nor asks you to remove same-identity material.
 
-When migrating from temporary global symlinks into project-bound delivery: keep
-the reusable material in the Workspace as its single canonical source, remove the
-unmanaged global delivery for Skills you will select into a Profile, then
-`apply` so only the project-bound Profile Installation remains. If you prefer
-user-managed global delivery for a Skill instead, leave it unselected by every
-bound Profile so APK never attempts a project snapshot for that identity.
-
-Claude personal Skills override project Skills by name. Codex can expose both
-global and project Skills with the same name. Grok deduplicates by name across
-native, personal, plugin, and compatibility roots. Agent Profile Kit therefore
-treats any selected global/project identity collision as a conflict rather than
-an implicit precedence rule.
+Where a disable is detectable without reconstructing Host Resolution, the
+Adapter warns: Codex checks SessionStart hooks and Grok checks
+`[skills].disabled` and `[skills].ignore`. Malformed or unreadable
+configuration that an Adapter reads for planned output also warns; Pi's
+settings rule is described in its Adapter section above. Capability failures,
+unrepresentable portable semantics, and exact Output Ownership Conflicts at the
+planned project destination remain blockers.
 
 ## Status, unbind, and uninstall
 
 Use `agent-profile-kit status` to inspect every bound project. It reports current,
 stale source, repairable missing output, drifted output, missing output, blocked
-(including later global Skill identity collisions), and malformed ownership.
+and malformed ownership, while keeping Host configuration warnings visible.
 
 Use `agent-profile-kit unbind [project]` to remove desired Project Binding state.
 It does not delete generated output. Run the global `preview` and `apply` to

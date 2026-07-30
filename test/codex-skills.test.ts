@@ -277,7 +277,7 @@ describe("Codex project Skill packages", () => {
     ).toBe("unchanged");
   });
 
-  test("unowned colliding Host-visible Skill package blocks preflight without adopting it", async () => {
+  test("unowned exact planned Skill destination blocks preflight without adoption", async () => {
     const home = temporaryDirectory("apk-skill-collision-home-");
     const project = temporaryDirectory("apk-skill-collision-project-");
     await workspaceWithSkills(home, project, [{ id: "review-pr" }], ["review-pr"]);
