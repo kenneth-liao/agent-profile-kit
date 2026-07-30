@@ -123,8 +123,10 @@ collision diagnostics, and resolution across project, personal, package,
 plugin, extension, and compatibility sources. Adapters do not reconstruct those
 resolvers or inventories. Same-identity material outside an exact planned
 output destination is Host Resolution and does not block lifecycle commands.
-Concrete Host configuration that disables or ignores planned output produces an
-actionable warning; malformed or unreadable relevant configuration also warns.
+Where an Adapter can detect a concrete disable without reconstructing Host
+Resolution, it emits an actionable warning: Codex checks SessionStart hooks and
+Grok checks `[skills].disabled` and `[skills].ignore`. Malformed or unreadable
+configuration that an Adapter reads for planned output also warns.
 Capability failures, unrepresentable portable semantics, and exact Output
 Ownership Conflicts remain blockers.
 

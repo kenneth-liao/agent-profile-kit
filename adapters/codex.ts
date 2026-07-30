@@ -59,11 +59,6 @@ export type CodexProjectPlan = AdapterProjectPlan;
 
 export interface CodexCapabilityOptions {
   readonly env?: NodeJS.ProcessEnv;
-  /**
-   * When false, skip SessionStart-hooks preflight (Skills-only Profiles that
-   * plan no Context snapshot or hooks.json). Defaults to true.
-   */
-  readonly requireContext?: boolean;
   /** When true, prove Host can enforce disabled model invocation. */
   readonly requireDisabledModelInvocation?: boolean;
   /** Injectable version probe for tests; defaults to `codex --version`. */
@@ -193,6 +188,9 @@ export async function assertCodexProjectCapability(
   project: string,
   options: CodexCapabilityOptions = {},
 ): Promise<void> {
+  // SessionStart configuration is advisory and is reported separately by
+  // detectCodexProjectConfigurationWarnings. Capability preflight proves only
+  // portable semantics that Codex must be able to represent.
   if (options.requireDisabledModelInvocation) {
     const version = await resolveCodexCliVersion(options);
     assertCodexCliVersionSupportsDisabledModelInvocation(version);

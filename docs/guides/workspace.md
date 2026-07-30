@@ -590,9 +590,11 @@ The Host owns discovery, precedence, deduplication, collision diagnostics, and
 resolution across those sources. Agent Profile Kit neither scans an effective
 inventory nor asks you to remove same-identity material.
 
-Concrete settings that disable or ignore a planned Skill produce warnings so
-you can correct Host configuration without losing the generated installation.
-Malformed or unreadable relevant configuration also warns. Capability failures,
+Where a disable is detectable without reconstructing Host Resolution, the
+Adapter warns: Codex checks SessionStart hooks and Grok checks
+`[skills].disabled` and `[skills].ignore`. Malformed or unreadable
+configuration that an Adapter reads for planned output also warns; Pi's
+settings rule is described in its Adapter section above. Capability failures,
 unrepresentable portable semantics, and exact Output Ownership Conflicts at the
 planned project destination remain blockers.
 

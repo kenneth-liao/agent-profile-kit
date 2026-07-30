@@ -4373,6 +4373,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readme).toContain("Codex");
     expect(readme).toContain("Claude");
     expect(readme).toContain("agent-profile-kit apply");
+    expect(readme).toMatch(/Warnings.{0,80}exit|exit.{0,80}Warnings/is);
     expect(readme).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
     expect(readme).not.toMatch(/per-session launcher|global Skill projection|process[- ]overlay/i);
     expect(readme).not.toMatch(/legacy migration input/i);

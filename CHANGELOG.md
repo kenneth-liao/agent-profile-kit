@@ -40,7 +40,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
-- Delegate Skill discovery, precedence, deduplication, and collision handling to Codex, Claude, Grok, and Pi Host Resolution; retain exact output and capability blockers while reporting concrete disabling or malformed Host configuration as warnings ([#109](https://github.com/kenneth-liao/agent-profile-kit/issues/109)).
+- Delegate Skill discovery, precedence, deduplication, and collision handling to Codex, Claude, Grok, and Pi Host Resolution; retain exact output and capability blockers while reporting detectable disabling or malformed Host configuration as warnings. Warning-only lifecycle results remain exit status 0, so automation that requires Host loading guarantees must inspect reported warnings ([#109](https://github.com/kenneth-liao/agent-profile-kit/issues/109)).
 - Complete Pi static collision proof beneath managed Skill trees, cover Installer status preflight, and clarify Pi rollback floors for Context-only versus Skill-capable state ([#102](https://github.com/kenneth-liao/agent-profile-kit/issues/102)).
 - Harden apply receipt/result reporting for verbose repairs, per-project output, and post-commit verification failures ([#97](https://github.com/kenneth-liao/agent-profile-kit/issues/97)).
 - Report the verified post-apply Profile Installation state separately from the completed reconciliation receipt, including generated-output and Repository Exclusion work ([#97](https://github.com/kenneth-liao/agent-profile-kit/issues/97)).

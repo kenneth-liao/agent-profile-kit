@@ -498,7 +498,6 @@ export async function buildDesiredState(
         try {
           if (host === "codex") {
             await assertCodexProjectCapability(home, binding.canonicalProject, {
-              requireContext,
               requireDisabledModelInvocation,
             });
           } else if (host === "claude") {

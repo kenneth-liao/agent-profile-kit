@@ -149,15 +149,13 @@ describe("Skills-only Profiles", () => {
     ).toBe(false);
   });
 
-  test("Skills-only Codex does not require SessionStart hooks", async () => {
+  test("Codex capability preflight does not gate on advisory SessionStart configuration", async () => {
     const home = temporaryDirectory("apk-skills-only-codex-cap-");
     const project = temporaryDirectory("apk-skills-only-codex-project-");
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
 
-    await expect(
-      assertCodexProjectCapability(home, project, { requireContext: false }),
-    ).resolves.toBeUndefined();
+    await expect(assertCodexProjectCapability(home, project)).resolves.toBeUndefined();
   });
 
   test("Skills-only Claude validates .claude root but not the unscoped-rule surface", async () => {

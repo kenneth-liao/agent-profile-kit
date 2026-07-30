@@ -46,9 +46,9 @@ Use this workflow when helping a person author their Workspace and bind projects
    - **Project repositories** own project facts and repository-owned instructions.
    - **Hosts** own authentication, trust, approvals, plugins, sessions, and
      Host preferences. User-managed native global Skill delivery (including
-   Host-root symlinks into Workspace source) is Host configuration, not
-   Agent Profile Kit–owned state: outside Project Bindings and Installation
-   Manifests; `apply` / `uninstall` never adopt or remove those paths. v1 does
+     Host-root symlinks into Workspace source) is Host configuration, not
+     Agent Profile Kit–owned state: outside Project Bindings and Installation
+     Manifests; `apply` / `uninstall` never adopt or remove those paths. v1 does
      not manage global Host delivery. Hosts own Skill discovery, precedence,
      deduplication, collision diagnostics, and resolution across project,
      personal, package, plugin, extension, and compatibility sources.

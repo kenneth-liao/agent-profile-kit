@@ -65,6 +65,9 @@ does not block installation. Project configuration takes precedence over global
 configuration; when `CODEX_HOME` is set, Codex's global configuration is
 `CODEX_HOME/config.toml`, otherwise it is the default `~/.codex/config.toml`.
 The deprecated `codex_hooks` alias remains supported.
+When Host configuration warnings are the only diagnostics, `preview`, `apply`,
+and `status` still exit successfully. Automation that needs loading guarantees
+must inspect the `Warnings` section rather than relying on the exit code alone.
 
 Launch Codex, Claude, Grok, or Pi from the bound project. For a non-Git project
 with Context, use the exact bound root so Codex can discover the generated
