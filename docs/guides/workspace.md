@@ -183,8 +183,9 @@ when every consumer has upgraded to 0.16.1+.
 ## Author the Workspace
 
 This release supports Context Modules and portable Skills for Codex, Claude
-Code, and Grok, plus Profile Context for Pi. Pi Skill selection fails closed
-until [Pi Skill delivery #102](https://github.com/kenneth-liao/agent-profile-kit/issues/102). Profiles that select Agents, Hooks, or Tools are
+Code, Grok, and Pi. Pi Skills install under `.pi/skills/<Artifact ID>/` after
+static collision proof; relevant Pi settings and disabled model-invocation
+Skills fail closed until their successor tickets land. Profiles that select Agents, Hooks, or Tools are
 rejected. A Profile must select at least one supported artifact overall
 (Context Module,
 Skill, or both); no individual category is mandatory. Context-only, Skills-only,
@@ -485,9 +486,16 @@ load that material. Claude project rules do not depend on Git.
 Pi receives Profile Context through the owned project file
 `.pi/APPEND_SYSTEM.md`. The Pi Adapter requires CLI 0.82.1 or newer and
 proves that `.pi` and the append-system destination are compatible before
-writes. Pi's native project trust, authentication, settings, prompt files, and
-per-session overrides remain Host-owned. Profiles with resolved Skills fail
-closed for Pi until [Pi Skill delivery #102](https://github.com/kenneth-liao/agent-profile-kit/issues/102) is implemented.
+writes. Profiles with allowed-model-invocation Skills also receive one package
+per resolved Artifact ID under `.pi/skills/<Artifact ID>/`; standard package
+bytes and modes are preserved and `agent-profile-kit.yaml` is omitted. Pi
+checks its personal, project, and ancestor static discovery roots for selected
+identity collisions, recursively inspecting directories with `SKILL.md` and
+direct root `.md` files in `.pi` Skill roots (root `.md` files under `.agents`
+are ignored). Relevant settings surfaces and disabled model-invocation
+Skills remain conservative blockers until their successor tickets land. Pi's
+native project trust, authentication, settings, prompt files, and per-session
+overrides remain Host-owned.
 
 ### Precedence and conflicts
 
@@ -525,9 +533,10 @@ If rollback is needed after a 0.24.2 `apply`, stop using the newer CLI, restore
 The backup restores machine-local ownership state; it does not undo Workspace
 source or project-file changes made after the backup.
 
-Agent Profile Kit 0.31.0 records the `pi` Host in Installation State. Older
-0.30.3 and earlier engines reject that Host while reading the Manifest, so
-unbind Pi and run `apply` or `uninstall` with 0.31.0+ before rolling back.
+Agent Profile Kit 0.32.0 records Pi Skill-capable `host_versions` in Installation
+State. Older 0.30.3 and earlier engines reject the `pi` Host while reading the
+Manifest, so unbind Pi and run `apply` or `uninstall` with 0.32.0+ before
+rolling back.
 
 For installations created before 0.24.2, run one live `agent-profile-kit apply`
 while each bound project root still exists. This records `git_project: false`

@@ -666,6 +666,34 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(missingProject, ".pi"))).toBe(false);
   });
 
+  test("packed CLI installs Pi Skills with the non-invocation Capability Contract", () => {
+    const home = isolatedHome();
+    expect(runCli(home, ["init"]).status).toBe(0);
+    writeWorkspaceAuthoring(home);
+    writeSkill(home, "review-pr", { body: "# Review\n" });
+    writeProfile(home, "coding", { context: ["team-rules"], skills: ["review-pr"] });
+    const projectPath = project("agent-profile-kit-rc-pi-skills-");
+    writeBindings(home, [{ project: projectPath, hosts: ["pi"] }]);
+
+    const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
+    const preview = runCli(home, ["preview", "--verbose"], { path: supportedPath });
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toMatch(/\.pi\/skills\/review-pr|review-pr/i);
+    const apply = runCli(home, ["apply"], { path: supportedPath });
+    expect(apply.status, apply.stderr).toBe(0);
+    expect(readFileSync(join(projectPath, ".pi", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
+      "name: review-pr",
+    );
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: Array<{
+        host_versions: Record<string, string>;
+        resolved_artifacts: Array<{ id: string; type: string }>;
+      }>;
+    };
+    expect(state.installations[0]?.host_versions.pi).toBe("native-project-append-system-skills-v1");
+    expect(state.installations[0]?.resolved_artifacts.some((artifact) => artifact.id === "review-pr" && artifact.type === "skill")).toBe(true);
+  });
+
   test("unsupported artifact categories, Host versions, Hosts, and project surfaces fail before writes", () => {
     const home = isolatedHome();
     expect(runCli(home, ["init"]).status).toBe(0);

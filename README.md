@@ -12,8 +12,9 @@ native project discovery. Global Host configuration and repository-owned
 instructions remain untouched.
 
 This release installs Context Modules and portable Skills for Codex, Claude,
-and Grok, plus Profile Context for Pi. Pi Skill delivery remains fail-closed
-until [Pi Skill delivery #102](https://github.com/kenneth-liao/agent-profile-kit/issues/102).
+Grok, and Pi. Pi Skills are delivered under `.pi/skills/<Artifact ID>/` with
+static collision proof; Pi Skill settings surfaces and disabled model-invocation
+policies remain fail-closed until their successor tickets land.
 A Profile needs at least one supported artifact
 (Context, Skills, or both); Context is not mandatory. Profiles selecting
 Agents, Hooks, or Tools are rejected until those artifact categories have native
@@ -47,9 +48,9 @@ Context as an unscoped project rule under `.grok/rules/` (or, when Claude is als
 bound and Grok Claude rules compatibility is enabled, shares Claude’s
 `.claude/rules/agent-profile-kit.md` path so Grok receives one effective copy)
 and discovers selected Skills under `.grok/skills/`. Pi loads Profile Context
-from the owned `.pi/APPEND_SYSTEM.md` project surface; Pi trust and session
-overrides remain Pi-owned, and Pi bindings with resolved Skills fail before any
-write. Skills-only Profiles install only Skill packages—no Context snapshot,
+from the owned `.pi/APPEND_SYSTEM.md` project surface and selected Skills under
+`.pi/skills/<Artifact ID>/`; Pi trust and session overrides remain Pi-owned.
+Skills-only Profiles install only Skill packages—no Context snapshot,
 Codex hooks, or Claude/Grok Context rule—and do not require Context-related Host
 capability.
 
