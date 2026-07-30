@@ -26,7 +26,6 @@ import {
   assertPiProjectCapability,
   detectPiSkillDiscoveryOverlaps,
   detectPiSkillSettingsBlockers,
-  PI_DISABLED_MODEL_INVOCATION_UNSUPPORTED,
   PI_ADAPTER_VERSION,
   planPiProject,
 } from "../adapters/pi.js";
@@ -670,12 +669,6 @@ export async function buildDesiredState(
         continue;
       }
       if (host === "pi") {
-        if (requireDisabledModelInvocation) {
-          if (options.checkHostCapability === false) {
-            blockers.push(`${binding.project}: ${PI_DISABLED_MODEL_INVOCATION_UNSUPPORTED}`);
-          }
-          continue;
-        }
         const adapterPlan = await planPiProject(
           profile.id,
           resolvedProfile.contexts,

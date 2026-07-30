@@ -110,7 +110,7 @@ and `bind` does not replace or remove an existing binding.
 
 ## Canonical Model
 
-Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Context and portable Skills for Codex, Claude, Grok, and Pi; Agents, Hooks, and Tools fail at ingestion before writes when selected for a Host that cannot preserve them. Pi Skills are limited to allowed-model-invocation packages while static discovery and relevant settings are proven; unsupported dynamic Skill contributors and disabled model-invocation Skills fail closed. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
+Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Context and portable Skills for Codex, Claude, Grok, and Pi; Agents, Hooks, and Tools fail at ingestion before writes when selected for a Host that cannot preserve them. Pi Skills use static discovery and relevant-settings proof; unsupported dynamic Skill contributors and unprovable discovery state fail closed. Trusted disabled model-invocation policy is projected into Pi-native frontmatter while explicit Artifact ID activation remains available. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
 
 Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
@@ -138,7 +138,7 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The project-bound release supports Codex CLI, Claude Code, Grok, and Pi on macOS for Profile Context and portable Skills. Pi supports allowed-model-invocation packages with static discovery and settings-aware proof; disabled-invocation projection remains an explicit future slice. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
+The project-bound release supports Codex CLI, Claude Code, Grok, and Pi on macOS for Profile Context and portable Skills. Pi supports static discovery and settings-aware proof for portable Skills, including Pi-native projection of disabled model invocation. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
 
 ### Codex
 
@@ -158,9 +158,16 @@ The Grok Adapter generates the same canonical Context envelope as an unscoped ow
 
 The Pi Adapter requires Pi CLI `0.82.1+` and plans the canonical Context
 envelope as the complete owned project file `.pi/APPEND_SYSTEM.md`. It plans
-each resolved allowed-model-invocation Skill once under `.pi/skills/<Artifact
-ID>/`, preserving standard package bytes and modes while omitting the
-`agent-profile-kit.yaml` sidecar. Before writes it proves `.pi` and the selected
+each resolved Skill once under `.pi/skills/<Artifact ID>/`, preserving standard
+package bytes and modes while omitting the `agent-profile-kit.yaml` sidecar.
+Allowed-invocation Skills retain their source `SKILL.md`; disabled-invocation
+Skills receive top-level Pi-native `disable-model-invocation: true`, which Pi
+honors by hiding them from the model's system prompt while preserving the
+canonical `name` used by explicit `/skill:<Artifact ID>` activation. Pi's
+official Skills documentation defines this enforcement behavior, introduced in
+Pi 0.50.0 and included in the supported 0.82.1+ floor:
+<https://pi.dev/docs/latest/skills> and <https://pi.dev/news/releases/0.50.0>.
+Before writes it proves `.pi` and the selected
 output surfaces, checks selected `SKILL.md` frontmatter identities across
 personal `.pi/agent/skills` and `.agents/skills`, bound-project `.pi/skills`,
 and bound-project/ancestor `.agents/skills` roots through the Pi project
@@ -182,11 +189,12 @@ ambiguous package precedence block before writes.
 Context-only Profiles skip this settings inspection. Pi's native project trust,
 authentication, settings, prompt files, and per-session overrides remain
 Host-owned and are never changed; explicit runtime `--skill` and `--no-skills`
-overrides remain outside the Installation guarantee. Disabled model-invocation
-Skills remain blocked until their projection successor. Context-only installations record
-`native-project-append-system-v1`; Skills-only installations record
-`native-project-skills-v1`; combined installations record
-`native-project-append-system-skills-v1`, all under Adapter version
+overrides remain outside the Installation guarantee. Context-only installations
+record `native-project-append-system-v1`; allowed Skills-only and combined
+installations record `native-project-skills-v1` and
+`native-project-append-system-skills-v1`; installations with at least one
+disabled-invocation Skill record `native-project-skills-invocation-v1` or
+`native-project-append-system-skills-invocation-v1`, all under Adapter version
 `pi-project-v1`.
 
 Installation State with Pi Skill-capable `host_versions` requires Agent Profile
@@ -194,6 +202,9 @@ Kit 0.32.0+; unbind Pi or re-apply/uninstall with 0.32.0+ before rolling back
 below 0.32.0. Context-only Pi state remains readable with 0.31.0+, and any
 Installation State that records the `pi` Host requires 0.31.0+ before rolling
 back to 0.30.3 or older.
+Invocation-capable Pi `host_versions` are first recorded by Agent Profile Kit
+0.34.0; unbind Pi or re-apply/uninstall with 0.34.0+ before rolling back an
+invocation-capable installation below 0.34.0.
 
 ## Reconciliation and Ownership
 

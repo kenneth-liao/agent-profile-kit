@@ -8,9 +8,12 @@ import {
   assertPiProjectCapability,
   detectPiSkillDiscoveryOverlaps,
   detectPiSkillSettingsBlockers,
+  emitPiSkillMarkdown,
   PI_ADAPTER_VERSION,
   PI_CONTEXT_PATH,
   PI_HOST_VERSION,
+  PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION,
+  PI_HOST_VERSION_WITH_INVOCATION,
   PI_HOST_VERSION_WITH_SKILLS,
   PI_MINIMUM_CLI_VERSION,
   parsePiCliVersion,
@@ -605,7 +608,90 @@ describe("Pi Adapter", () => {
       expect.objectContaining({ path: "SKILL.md", mode: 0o644, type: "file" }),
       expect.objectContaining({ path: "scripts/run.sh", mode: 0o755, type: "file" }),
     ]));
+    const skillMarkdown = output.members.find(
+      (member) => member.type === "file" && member.path === "SKILL.md",
+    );
+    if (!skillMarkdown || skillMarkdown.type !== "file") throw new Error("expected Skill markdown");
+    expect(Buffer.from(skillMarkdown.bytes).toString("utf8")).toBe(
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
     expect(output.members.some((member) => member.path === "agent-profile-kit.yaml")).toBe(false);
+  });
+
+  test("projects disabled model invocation into Pi frontmatter while preserving explicit Skill identity", () => {
+    const source =
+      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n";
+
+    expect(emitPiSkillMarkdown("review-pr", source, "allowed")).toBe(source);
+    const projected = emitPiSkillMarkdown("review-pr", source, "disabled");
+
+    expect(projected).toContain("name: review-pr");
+    expect(projected).toContain("disable-model-invocation: true");
+    expect(projected).toContain("agent-profile-kit.model-invocation: disabled");
+    expect(projected).toContain("# Review");
+    expect(projected).not.toBe(source);
+    expect(() =>
+      emitPiSkillMarkdown(
+        "review-pr",
+        source.replace("name: review-pr", "name: another-skill"),
+        "disabled",
+      ),
+    ).toThrow(/canonical Artifact ID/i);
+    const crlfBody = "---\r\nname: review-pr\r\ndescription: Review a pull request.\r\n---\r\n# Review\r\n";
+    expect(emitPiSkillMarkdown("review-pr", crlfBody, "disabled")).toMatch(/# Review\r\n$/);
+    const inlineDelimiter = "---\nname: review-pr\ndescription: Review a pull request.\nlicense: abc---\nfoo: bar\n---\n# Review\n";
+    expect(emitPiSkillMarkdown("review-pr", inlineDelimiter, "disabled")).toContain(
+      "foo: bar\n---\n# Review\n",
+    );
+  });
+
+  test("fails closed when Pi invocation projection cannot parse Skill frontmatter", () => {
+    expect(() => emitPiSkillMarkdown("review-pr", "not frontmatter\n", "disabled")).toThrow(
+      /must start with YAML frontmatter/i,
+    );
+    expect(() => emitPiSkillMarkdown("review-pr", "---\nname: review-pr\n", "disabled")).toThrow(
+      /must close its YAML frontmatter/i,
+    );
+    expect(() => emitPiSkillMarkdown("review-pr", "---\nname: [\n---\nbody\n", "disabled")).toThrow(
+      /frontmatter.*invalid YAML/i,
+    );
+  });
+
+  test("records invocation-specific Pi Capability Contracts for Skills-only and combined Profiles", async () => {
+    const source = temporaryDirectory("apk-pi-invocation-source-");
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+    );
+    const disabled = {
+      dependencies: [],
+      id: "review-pr",
+      modelInvocation: "disabled" as const,
+      path: source,
+    };
+
+    const skillsOnly = await planPiProject("coding", [], [disabled]);
+    expect(skillsOnly.hostVersion).toBe(PI_HOST_VERSION_WITH_INVOCATION);
+    const skillOutput = skillsOnly.outputs[0];
+    if (!skillOutput || skillOutput.type !== "directory") throw new Error("expected Skill directory output");
+    const skillMarkdown = skillOutput.members.find(
+      (member) => member.type === "file" && member.path === "SKILL.md",
+    );
+    if (!skillMarkdown || skillMarkdown.type !== "file") throw new Error("expected projected SKILL.md");
+    expect(Buffer.from(skillMarkdown.bytes).toString("utf8")).toContain("disable-model-invocation: true");
+    expect(skillOutput.requirements).toContain("Host prevents implicit model invocation while retaining explicit user invocation");
+
+    const combined = await planPiProject(
+      "coding",
+      [{ id: "team-rules", content: "Context\n" }],
+      [disabled],
+    );
+    expect(combined.hostVersion).toBe(PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION);
+    expect(combined.outputs.map((output) => output.path)).toEqual([
+      PI_CONTEXT_PATH,
+      ".pi/skills/review-pr",
+    ]);
+    expect(readFileSync(join(source, "SKILL.md"), "utf8")).not.toContain("disable-model-invocation: true");
   });
 
   test("plans only the canonical composed Context at Pi's append-system surface", async () => {
@@ -792,7 +878,7 @@ describe("Pi Adapter", () => {
     expect(existsSync(join(project, ".pi", "skills", "review-pr"))).toBe(false);
   });
 
-  test("keeps disabled-model-invocation Pi Skills blocked until the projection successor", async () => {
+  test("projects disabled-model-invocation Pi Skills through the Installer lifecycle", async () => {
     const home = temporaryDirectory("apk-pi-disabled-home-");
     const project = temporaryDirectory("apk-pi-disabled-project-");
     await writePiSkillWorkspace(home, project, ["review-pr"], [
@@ -804,9 +890,21 @@ describe("Pi Adapter", () => {
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.blockers.some((blocker) => /disabled model invocation.*successor.*#104/i.test(blocker))).toBe(true);
-    expect(desired.installations[0]?.outputs).toEqual([]);
+    expect(desired.installations[0]?.blockers).toEqual([]);
+    expect(desired.installations[0]?.hostVersions.pi).toBe(PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION);
+    expect(desired.installations[0]?.outputs.map((output) => output.path)).toEqual([
+      PI_CONTEXT_PATH,
+      ".pi/skills/review-pr",
+    ]);
     expect(existsSync(join(project, ".pi"))).toBe(false);
+
+    await applyReconciliation(home, desired.installations);
+    expect(readFileSync(join(project, ".pi", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
+      "disable-model-invocation: true",
+    );
+    expect(readFileSync(join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"), "utf8")).not.toContain(
+      "disable-model-invocation: true",
+    );
   });
 
   test("Pi Skill selection plans only its binding without touching project or Installation State before apply", async () => {
@@ -891,13 +989,16 @@ describe("Pi Adapter", () => {
     expect(readFileSync(settingsPath, "utf8")).toBe('{"extensions":["./dynamic.ts"]}\n');
   });
 
-  test("requires Pi 0.82.1+, proves project surfaces, and defers disabled model-invocation Skills", async () => {
+  test("requires Pi 0.82.1+ and proves project surfaces for disabled model-invocation Skills", async () => {
     const home = temporaryDirectory("apk-pi-capability-home-");
     const project = temporaryDirectory("apk-pi-capability-");
     expect(parsePiCliVersion("pi 0.82.1\n")).toBe("0.82.1");
     expect(() => parsePiCliVersion("not-a-version")).toThrow(/unreadable/i);
     expect(PI_MINIMUM_CLI_VERSION).toBe("0.82.1");
     expect(() => assertPiCliVersionSupported("0.82.0")).toThrow(/requires 0\.82\.1\+/i);
+    expect(() =>
+      assertPiCliVersionSupported("0.82.0", { requireDisabledModelInvocation: true }),
+    ).toThrow(/cannot enforce disabled model invocation/i);
     await expect(
       assertPiProjectCapability(project, { resolveVersion: async () => "0.82.1" }),
     ).resolves.toBeUndefined();
@@ -935,13 +1036,21 @@ describe("Pi Adapter", () => {
         requireDisabledModelInvocation: true,
         resolveVersion: async () => "0.82.1",
       }),
-    ).rejects.toThrow(/Skill.*successor/i);
+    ).resolves.toBeUndefined();
+    const source = join(home, "disabled-skill");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+    );
     await expect(
       planPiProject(
         "coding",
         [{ id: "team-rules", content: "Context\n" }],
-        [{ dependencies: [], id: "review-pr", modelInvocation: "disabled", path: "/workspace/skills/review-pr" }],
+        [{ dependencies: [], id: "review-pr", modelInvocation: "disabled", path: source }],
       ),
-    ).rejects.toThrow(/Skill.*successor/i);
+    ).resolves.toMatchObject({
+      hostVersion: PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION,
+    });
   });
 });

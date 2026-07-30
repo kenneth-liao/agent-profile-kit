@@ -8,9 +8,11 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Project Pi Skill projections now preserve disabled model-invocation policy with Pi-native frontmatter, explicit Artifact ID activation, invocation-specific Capability Contracts, and packed-CLI rejection coverage ([#104](https://github.com/kenneth-liao/agent-profile-kit/issues/104)).
+
 - Make Pi Skill capability preflight settings-aware: benign global and project settings preserve static collision proof, while configured Skill paths, dynamic extensions, contributing packages, and unprovable relevant configuration fail closed without modifying Host state ([#103](https://github.com/kenneth-liao/agent-profile-kit/issues/103)).
 
-- Install resolved allowed-model-invocation portable Skills for Pi under `.pi/skills/<Artifact ID>/`, preserving package bytes and modes, retaining dependency reasons, and failing closed on static discovery collisions, unsafe state, configured Pi settings, or disabled model invocation ([#102](https://github.com/kenneth-liao/agent-profile-kit/issues/102)).
+- Install resolved allowed-model-invocation portable Skills for Pi under `.pi/skills/<Artifact ID>/`, preserving package bytes and modes, retaining dependency reasons, and failing closed on static discovery collisions, unsafe state, configured Pi settings, or disabled model invocation until #104 added Pi-native projection ([#102](https://github.com/kenneth-liao/agent-profile-kit/issues/102)).
 - Add Pi as a project-bound Agent Host for Context-only Profile Installations through `.pi/APPEND_SYSTEM.md`, with Pi 0.82.1+ capability preflight and shared lifecycle reconciliation ([#101](https://github.com/kenneth-liao/agent-profile-kit/issues/101)).
 - Guide users to the next lifecycle action on concise `status` and `preview` results: actionable status recommends read-only `preview` before `apply`, ready preview recommends `apply`, blockers direct resolve-and-retry of the same read-only command, and current or completed results omit redundant steps; multi-project outcomes emit one conservative aggregate instruction ([#90](https://github.com/kenneth-liao/agent-profile-kit/issues/90)).
 - Explain concise lifecycle summary terminology: generated-output change units, short non-current Profile Installation state glosses (deduplicated across installations), and Git-local Repository Exclusion purpose while preserving exact path deltas; `--verbose` still exposes complete diagnostics from the same reconciliation report ([#89](https://github.com/kenneth-liao/agent-profile-kit/issues/89)).
@@ -26,6 +28,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Require an explicit Workspace selection in Local Configuration schema version 2; `init` records the conventional default or migrates supported version-1 configuration without implicit read-time migration ([#68](https://github.com/kenneth-liao/agent-profile-kit/issues/68)).
 
 ### Changed
+
+- Require Agent Profile Kit 0.34.0+ to read Pi invocation-capable `host_versions`; unbind Pi or re-apply/uninstall with 0.34.0+ before rolling back an invocation-capable installation ([#104](https://github.com/kenneth-liao/agent-profile-kit/issues/104)).
 
 - Normalize repeated Host entries at Local Configuration and `bind` ingestion; authored Host order and duplicates now converge to the canonical supported-Host order ([#101](https://github.com/kenneth-liao/agent-profile-kit/issues/101)).
 - Require Agent Profile Kit 0.32.0+ to read Pi Skill-capable `host_versions` in Installation State; unbind Pi and re-apply or uninstall with 0.32.0+ before rolling back ([#102](https://github.com/kenneth-liao/agent-profile-kit/issues/102)).
