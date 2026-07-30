@@ -18,9 +18,10 @@ Use this workflow when helping a person author their Workspace and bind projects
    already satisfies the need. Ask instead of inventing personal preferences,
    project facts, Host preferences, credentials, or machine paths.
 3. Create the smallest useful artifact set. This release accepts Context Modules
-   and portable Skills for Codex, Claude Code, and Grok. Put standing facts in
-   Context Modules and reusable procedures in Skills. A Profile needs at least
-   one supported artifact (Context, Skills, or both); Context is not mandatory—a
+   and portable Skills for Codex, Claude Code, and Grok, plus Profile Context
+   for Pi. Put standing facts in Context Modules and reusable procedures in
+   Skills. A Profile needs at least one supported artifact (Context, Skills, or
+   both); Context is not mandatory—a
    Skills-only Profile is valid on CLI 0.17.0+ (convert or uninstall before
    rolling back to older binaries; see the human Workspace guide). For Skills
    that must not fire implicitly, use
@@ -39,8 +40,9 @@ Use this workflow when helping a person author their Workspace and bind projects
      machine-local Project Bindings and the explicit Workspace path. Current
      schema version 2 requires one existing absolute or home-relative Workspace
      path and each binding names one existing project root, one Profile, and a
-     supported Host set. A version-1 configuration without `workspace` is legacy
-     migration input only; run `agent-profile-kit init` before any desired-state
+     supported Host set (`codex`, `claude`, `grok`, or `pi`); Host order and
+     duplicate entries normalize at ingestion. A version-1 configuration without
+     `workspace` is legacy migration input only; run `agent-profile-kit init` before any desired-state
      or binding-recording command.
    - **Project repositories** own project facts and repository-owned instructions.
    - **Hosts** own authentication, trust, approvals, plugins, sessions, and
@@ -74,10 +76,12 @@ Use this workflow when helping a person author their Workspace and bind projects
    `preview --verbose`, `apply --verbose`, or `status --verbose` when complete
    per-output diagnostics, resolved artifact reasons, or composed Context are
    needed. The current Workspace schema version is 1.
-7. After apply, the user launches Codex or Claude natively in the bound project.
-   Do not claim that Agent Profile Kit manages Host authentication, trust,
-   approvals, plugins, or sessions. For non-Git projects, remind the user that
-   Codex must launch from the exact bound root.
+7. After apply, the user launches Codex, Claude, Grok, or Pi natively in the
+   bound project. Do not claim that Agent Profile Kit manages Host
+   authentication, trust, approvals, plugins, or sessions. Pi bindings load the
+   generated `.pi/APPEND_SYSTEM.md` after Pi's native trust boundary; Pi Skill
+   selection is unsupported in this slice. For non-Git projects, remind the
+   user that Codex must launch from the exact bound root.
 8. Use `status` to focus on Profile Installations needing attention; its concise
    result reports all-current state when nothing needs action, labels change
    counts as generated-output units, explains non-current states when they

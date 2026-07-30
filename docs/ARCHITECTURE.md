@@ -1,6 +1,6 @@
 # Agent Profile Kit Architecture
 
-This document describes the implemented project-bound architecture for Profile Context and portable Skills on Codex CLI, Claude Code, and Grok. The former per-session overlay implementation is removed.
+This document describes the implemented project-bound architecture for Profile Context and portable Skills on Codex CLI, Claude Code, Grok, and Pi Context. The former per-session overlay implementation is removed.
 
 ## Purpose
 
@@ -68,6 +68,7 @@ bindings:
       - codex
       - claude
       - grok
+      - pi
   - project: ~/projects/business/customer-portal
     profile: engineering
     hosts:
@@ -75,6 +76,8 @@ bindings:
 ```
 
 Every `project` is an explicit existing directory that the user declares to be the project root. Paths must be absolute or begin with `~/`; other relative paths are invalid. Home-relative paths and symbolic links are normalized once at ingestion to a canonical absolute directory, which is used for identity and installation state while the authored spelling remains available for display. Wildcards, directory scans, and implicit parent-root detection are unsupported. A canonical project root may appear in exactly one binding; duplicates are invalid regardless of whether their Profile and Hosts agree.
+
+Host selections are a set normalized at Local Configuration and `bind` ingestion: authored order and repeated entries collapse to the deterministic `SUPPORTED_HOSTS` order (`claude`, `codex`, `grok`, `pi`).
 
 Git is optional. When a project is not a Git working tree, native Codex discovery can guarantee the installed project Context only when Codex starts in the exact bound root; starting it in a descendant is unsupported because Codex has no repository boundary to search toward. Claude project rules and Grok project rules load from the project root independently of Git. The project workflow documents the Codex launch-from-root constraint.
 
@@ -107,7 +110,7 @@ and `bind` does not replace or remove an existing binding.
 
 ## Canonical Model
 
-Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Context and portable Skills for Codex, Claude, and Grok; Agents, Hooks, and Tools fail at ingestion before writes when selected for a Host that cannot preserve them. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
+Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Context and portable Skills for Codex, Claude, and Grok, plus Context-only delivery for Pi; Agents, Hooks, and Tools fail at ingestion before writes when selected for a Host that cannot preserve them. A Pi binding with resolved Skills fails closed until [Pi Skill delivery #102](https://github.com/kenneth-liao/agent-profile-kit/issues/102). A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
 
 Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
@@ -135,7 +138,7 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The project-bound release supports Codex CLI, Claude Code, and Grok on macOS for Profile Context and portable Skills. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
+The project-bound release supports Codex CLI, Claude Code, and Grok on macOS for Profile Context and portable Skills, plus Pi for Profile Context. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
 
 ### Codex
 
@@ -150,6 +153,21 @@ The Claude Adapter generates the same canonical Context envelope as an unscoped 
 ### Grok
 
 The Grok Adapter generates the same canonical Context envelope as an unscoped owned Markdown rule. Grok always scans project `.grok/rules/*.md`; the Adapter’s default owned path is `.grok/rules/agent-profile-kit.md`. When Claude is co-selected on the same Project Binding and Grok reports Claude rules compatibility enabled (`grok inspect --json` `externalCompat` cell `claude`/`rules`), the Grok Adapter plans the exact Claude rule path and envelope bytes so Installer normalization coalesces one effective copy that both Hosts load. Grok-only bindings and combined bindings with Claude rules disabled continue to use `.grok/rules/`. Resolved standard Skill packages are planned as owned artifact directories under the project-relative `.grok/skills/<Artifact ID>/` tree that Grok discovers natively. Portable package members keep source file bytes and modes; Agent Profile Kit-only sidecars such as `agent-profile-kit.yaml` are omitted. When trusted model-invocation policy is `disabled`, the Grok Adapter projects `disable-model-invocation: true` into generated `SKILL.md`, records Capability Contract `native-project-unscoped-rules-skills-invocation-v1`, and reuses the existing `0.2.0+` CLI floor (which honors that field). Workspace source stays unchanged. Unselected Workspace Skills are not installed. Capability preflight requires a Grok CLI on `PATH` at or above the Adapter minimum that supports project-rules and Skill inspection (`0.2.0+`), successful `grok inspect --json`, and rejects non-directory `.grok`, `.grok/rules` (when Context is selected), or `.grok/skills` (when Skills are selected) surfaces before writes. Skill discovery preflight fails closed when a selected identity is disabled via `[skills].disabled`, ignored via `[skills].ignore`, or already present in any enabled Host-visible personal, plugin, compatibility, extra-path, or repository-owned project source reported by inspection or filesystem scan; the managed `.grok/skills/<id>` path is exempt so re-apply works. Repository-owned instructions (`AGENTS.md` and peers), other rules, trust, authentication, and Host configuration remain untouched. After a successful check the Installation Manifest records Capability Contract `native-project-unscoped-rules-v1` for Context-only Profiles, `native-project-unscoped-rules-skills-v1` when Skills are selected, or the invocation contract when any selected Skill requires disabled model invocation.
+
+### Pi
+
+The Pi Adapter requires Pi CLI `0.82.1+` and plans the canonical Context
+envelope as the complete owned project file `.pi/APPEND_SYSTEM.md`. It proves
+that `.pi` is a directory (or absent) and that the append-system destination is
+absent or a regular file before writes. Pi's native project trust, settings,
+authentication, prompt files, and per-session overrides remain Host-owned and
+are never inspected or changed. Pi Context-only installations record Adapter
+version `pi-project-v1` and Capability Contract
+`native-project-append-system-v1`; any resolved Skill causes capability
+preflight to fail closed until [Pi Skill delivery #102](https://github.com/kenneth-liao/agent-profile-kit/issues/102) is implemented.
+
+Installation State that records the `pi` Host requires Agent Profile Kit 0.31.0+;
+unbind Pi and re-apply or uninstall before rolling back to 0.30.3 or older.
 
 ## Reconciliation and Ownership
 

@@ -22,6 +22,11 @@ import {
   planGrokProject,
   type GrokInspection,
 } from "../adapters/grok.js";
+import {
+  assertPiProjectCapability,
+  PI_ADAPTER_VERSION,
+  planPiProject,
+} from "../adapters/pi.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
   AdapterProjectPlan,
@@ -109,6 +114,7 @@ export function adapterVersionFor(hosts: readonly SupportedHost[]): string {
     if (host === "claude") return CLAUDE_ADAPTER_VERSION;
     if (host === "codex") return CODEX_ADAPTER_VERSION;
     if (host === "grok") return GROK_ADAPTER_VERSION;
+    if (host === "pi") return PI_ADAPTER_VERSION;
     const exhaustive: never = host;
     throw new Error(`Unsupported Agent Host '${String(exhaustive)}'`);
   });
@@ -486,7 +492,10 @@ export async function buildDesiredState(
     const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
     for (const host of binding.hosts) {
       let grokInspection: GrokInspection | undefined;
-      if (options.checkHostCapability !== false) {
+      if (
+        options.checkHostCapability !== false ||
+        (host === "pi" && requireSkills)
+      ) {
         try {
           if (host === "codex") {
             await assertCodexProjectCapability(home, binding.canonicalProject, {
@@ -504,6 +513,11 @@ export async function buildDesiredState(
               requireContext,
               requireSkills,
               requireDisabledModelInvocation,
+            });
+          } else if (host === "pi") {
+            await assertPiProjectCapability(binding.canonicalProject, {
+              requireContext,
+              requireSkills,
             });
           }
         } catch (error) {
@@ -632,6 +646,17 @@ export async function buildDesiredState(
         );
         plans.push(adapterPlan);
         hostVersions.grok = adapterPlan.hostVersion;
+        continue;
+      }
+      if (host === "pi") {
+        if (requireSkills) continue;
+        const adapterPlan = await planPiProject(
+          profile.id,
+          resolvedProfile.contexts,
+          resolvedProfile.skills,
+        );
+        plans.push(adapterPlan);
+        hostVersions.pi = adapterPlan.hostVersion;
         continue;
       }
       const exhaustive: never = host;

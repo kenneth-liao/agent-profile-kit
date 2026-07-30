@@ -94,7 +94,7 @@ async function writeContextWorkspace(
 const supportedClaudeVersion = async () => "2.1.0";
 
 describe("Claude Context Local Configuration", () => {
-  test("accepts Claude-only and combined Codex/Claude Host selections and rejects duplicates and unknowns", () => {
+  test("accepts Claude-only and combined Codex/Claude Host selections and normalizes duplicates", () => {
     const claudeOnly = parseLocalConfiguration(
       "schema_version: 1\nbindings:\n  - project: /tmp/project\n    profile: coding\n    hosts: [claude]\n",
       "config.yaml",
@@ -114,12 +114,11 @@ describe("Claude Context Local Configuration", () => {
     );
     expect(reversed.bindings[0]?.hosts).toEqual(combined.bindings[0]?.hosts);
 
-    expect(() =>
-      parseLocalConfiguration(
-        "schema_version: 1\nbindings:\n  - project: /tmp/project\n    profile: coding\n    hosts: [claude, claude]\n",
-        "config.yaml",
-      ),
-    ).toThrow("must not contain a Host more than once");
+    const duplicate = parseLocalConfiguration(
+      "schema_version: 1\nbindings:\n  - project: /tmp/project\n    profile: coding\n    hosts: [claude, claude]\n",
+      "config.yaml",
+    );
+    expect(duplicate.bindings[0]?.hosts).toEqual(["claude"]);
 
     expect(() =>
       parseLocalConfiguration(
