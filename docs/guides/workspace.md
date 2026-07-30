@@ -534,9 +534,10 @@ The backup restores machine-local ownership state; it does not undo Workspace
 source or project-file changes made after the backup.
 
 Agent Profile Kit 0.32.0 records Pi Skill-capable `host_versions` in Installation
-State. Older 0.30.3 and earlier engines reject the `pi` Host while reading the
-Manifest, so unbind Pi and run `apply` or `uninstall` with 0.32.0+ before
-rolling back.
+State. Unbind Pi or run `apply`/`uninstall` with 0.32.0+ before rolling back
+below 0.32.0. Context-only Pi state remains readable with 0.31.0+, and any
+Installation State that records the `pi` Host requires 0.31.0+ before rolling
+back to 0.30.3 or older.
 
 For installations created before 0.24.2, run one live `agent-profile-kit apply`
 while each bound project root still exists. This records `git_project: false`

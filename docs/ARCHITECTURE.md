@@ -179,8 +179,11 @@ Host-owned and are never changed. Context-only installations record
 `native-project-append-system-skills-v1`, all under Adapter version
 `pi-project-v1`.
 
-Installation State that records the `pi` Host requires Agent Profile Kit 0.32.0+;
-unbind Pi and re-apply or uninstall before rolling back to 0.30.3 or older.
+Installation State with Pi Skill-capable `host_versions` requires Agent Profile
+Kit 0.32.0+; unbind Pi or re-apply/uninstall with 0.32.0+ before rolling back
+below 0.32.0. Context-only Pi state remains readable with 0.31.0+, and any
+Installation State that records the `pi` Host requires 0.31.0+ before rolling
+back to 0.30.3 or older.
 
 ## Reconciliation and Ownership
 

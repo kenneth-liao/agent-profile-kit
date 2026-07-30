@@ -271,6 +271,29 @@ describe("Pi Adapter", () => {
     expect(blockers[0]).toMatch(/malformed|cannot be inspected/i);
   });
 
+  test("rechecks nested Skill identities beneath an Installer-owned Pi package", async () => {
+    const home = temporaryDirectory("apk-pi-managed-nested-home-");
+    const project = temporaryDirectory("apk-pi-managed-nested-project-");
+    const managed = join(project, ".pi", "skills", "review-pr");
+    const nested = join(managed, "nested-skill");
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(
+      join(managed, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Managed Skill.\n---\n\n# Managed\n",
+    );
+    writeFileSync(
+      join(nested, "SKILL.md"),
+      "---\nname: nested-skill\ndescription: Nested Skill.\n---\n\n# Nested\n",
+    );
+
+    const blockers = await detectPiSkillDiscoveryOverlaps(
+      ["review-pr", "nested-skill"],
+      { home, project },
+    );
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0]).toMatch(/nested-skill.*collid/i);
+  });
+
   test("fails closed for malformed packages and normalizes BOM/CRLF Skill identities", async () => {
     const home = temporaryDirectory("apk-pi-identity-proof-home-");
     const project = temporaryDirectory("apk-pi-identity-proof-project-");
@@ -559,6 +582,26 @@ describe("Pi Adapter", () => {
     expect(existsSync(join(project, ".pi"))).toBe(false);
     expect(existsSync(join(unrelatedProject, ".claude"))).toBe(false);
     expect(existsSync(join(home, ".agents", "agent-profile-kit", "state"))).toBe(false);
+  });
+
+  test("status preflight reports Pi static Skill collisions through the Installer planning path", async () => {
+    const home = temporaryDirectory("apk-pi-status-overlap-home-");
+    const project = temporaryDirectory("apk-pi-status-overlap-project-");
+    await writePiSkillWorkspace(home, project, ["review-pr"], [
+      { id: "review-pr", path: "review-pr" },
+    ]);
+    const personal = join(home, ".agents", "skills", "foreign-review");
+    mkdirSync(personal, { recursive: true });
+    writeFileSync(
+      join(personal, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Existing Skill.\n---\n\n# Existing\n",
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations.find(
+      (candidate) => candidate.binding.project === project,
+    );
+    expect(installation?.blockers.some((blocker) => /review-pr.*collid/i.test(blocker))).toBe(true);
   });
 
   test("requires Pi 0.82.1+, proves project surfaces, and defers disabled model-invocation Skills", async () => {

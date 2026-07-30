@@ -309,7 +309,12 @@ async function scanPiSkillRootForSelected(
         continue;
       }
       if (kind === "directory") {
-        if (managedDestination(candidate)) continue;
+        if (managedDestination(candidate)) {
+          // The package root's own identity is Installer-owned, but Pi scans
+          // nested directories recursively, so keep proving nested identities.
+          await visit(candidate, false);
+          continue;
+        }
         const skillMd = join(candidate, "SKILL.md");
         let skillKind: Awaited<ReturnType<typeof pathKind>>;
         try {
@@ -580,7 +585,7 @@ function skillOutputs(skills: readonly Skill[]) {
       .map((skill) =>
         planSkillPackageDirectory(
           skill,
-          posix.join(".pi", "skills"),
+          PI_PROJECT_SKILLS_ROOT,
           ["Pi discovers Skill package through native project .pi/skills"],
           PI_SKILL_PROJECTION,
         ),
