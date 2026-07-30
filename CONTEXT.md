@@ -28,6 +28,10 @@ _Avoid_: Installer, canonical source, duplicate implementation
 The machine-readable set of behaviors an Adapter can preserve for a detected Agent Host version and surface. The Installer compares artifact requirements against this contract before installation.
 _Avoid_: Best-effort compatibility, version number alone
 
+**Host Resolution**:
+An Agent Host's native discovery, precedence, deduplication, and collision behavior across Agent Profile Kit output and other Host-visible material. Agent Profile Kit relies on this behavior rather than reproducing it.
+_Avoid_: Adapter-owned resolver, emulated Host inventory
+
 **Installer**:
 The mechanism that reads the Workspace and Project Bindings, combines Adapter output plans, and reconciles Profile Installations. Portable Skills are copied without changing their canonical content.
 _Avoid_: Adapter, runtime router
@@ -35,6 +39,10 @@ _Avoid_: Adapter, runtime router
 **Profile Installation**:
 A generated, host-native snapshot of one Workspace Profile installed into one bound project for all Agent Hosts selected by its Project Binding. The Installer exclusively owns its normalized output set; the Profile Installation is disposable output with no authority independent of its Workspace source.
 _Avoid_: Canonical source, live link
+
+**Output Ownership Conflict**:
+A condition where reconciling a planned Profile Installation output would overwrite, adopt, or conflict with project material not proven to be owned by that installation. Same-identity material at a different Host-visible location is Host Resolution, not an Output Ownership Conflict.
+_Avoid_: Host Skill collision, precedence conflict
 
 **Apply Receipt**:
 The pre-apply ReconciliationReport retained after a successful apply. It records the generated-output and Repository Exclusion work committed by that invocation, while a separate post-commit reconciliation snapshot is authoritative for the resulting Profile Installation state.

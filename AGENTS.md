@@ -7,6 +7,10 @@ This repository is the open-source Agent Profile Kit engine. It contains product
 - Keep one canonical home per fact. Do not duplicate maintained guidance across files.
 - Normalize external inputs at the boundary of the tool or skill that ingests them.
 - Prefer small, complete changes over broad scaffolding that is not used yet.
+- Delegate native discovery, precedence, deduplication, collisions, and resource
+  resolution to each Agent Host. Adapters detect only the capabilities needed
+  to project portable material and must not reconstruct Host resolvers or
+  effective inventories. See ADR-0012.
 - Use test-driven development for behavior changes unless the change is trivial, docs-only, or a throwaway spike.
 - Keep per-issue worktrees under `.worktrees/` and never commit local runtime state.
 
