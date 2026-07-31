@@ -32,6 +32,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Rename the published CLI command to `apkit` while preserving existing Profile Installation ownership paths and records ([#113](https://github.com/kenneth-liao/agent-profile-kit/issues/113)).
+
 - Require Agent Profile Kit 0.34.0+ to read Pi invocation-capable `host_versions`; unbind Pi or re-apply/uninstall with 0.34.0+ before rolling back an invocation-capable installation ([#104](https://github.com/kenneth-liao/agent-profile-kit/issues/104)).
 
 - Normalize repeated Host entries at Local Configuration and `bind` ingestion; authored Host order and duplicates now converge to the canonical supported-Host order ([#101](https://github.com/kenneth-liao/agent-profile-kit/issues/101)).

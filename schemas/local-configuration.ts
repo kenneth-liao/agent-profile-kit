@@ -1,5 +1,6 @@
 import { parse, stringify } from "yaml";
 
+import { COMMAND_NAME } from "../cli/command-name.js";
 import { requireArtifactId } from "./dependencies.js";
 
 export const LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION = 1;
@@ -161,7 +162,7 @@ export function requireCurrentLocalConfiguration(
 ): ParsedCurrentLocalConfiguration {
   if (parsed.schemaVersion !== LOCAL_CONFIGURATION_SCHEMA_VERSION) {
     throw new Error(
-      `Local Configuration ${path} uses legacy schema_version ${parsed.schemaVersion}; run agent-profile-kit init to migrate it`,
+      `Local Configuration ${path} uses legacy schema_version ${parsed.schemaVersion}; run ${COMMAND_NAME} init to migrate it`,
     );
   }
   if (parsed.workspace === undefined) {

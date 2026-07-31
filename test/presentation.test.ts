@@ -461,7 +461,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     const concise = formatLifecycleReport("preview", report);
     const next = nextActionLines(concise);
     expect(next).toHaveLength(1);
-    expect(next[0]).toMatch(/agent-profile-kit apply/);
+    expect(next[0]).toMatch(/apkit apply/);
     expect(concise).toContain("Ready to apply");
   });
 
@@ -483,7 +483,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(statusNext).toHaveLength(1);
     expect(statusNext[0]).toMatch(/resolve/i);
     expect(statusNext[0]).toMatch(/blocker/i);
-    expect(statusNext[0]).toMatch(/agent-profile-kit status/);
+    expect(statusNext[0]).toMatch(/apkit status/);
     expect(statusNext[0]).not.toMatch(/apply/i);
   });
 
@@ -506,7 +506,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(previewNext).toHaveLength(1);
     expect(previewNext[0]).toMatch(/resolve/i);
     expect(previewNext[0]).toMatch(/blocker/i);
-    expect(previewNext[0]).toMatch(/agent-profile-kit preview/);
+    expect(previewNext[0]).toMatch(/apkit preview/);
     expect(previewNext[0]).not.toMatch(/apply/i);
     expect(preview).toContain("Cannot apply");
   });
@@ -529,7 +529,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(next).toHaveLength(1);
     expect(next[0]).toMatch(/resolve/i);
     expect(next[0]).toMatch(/blocker/i);
-    expect(next[0]).toMatch(/agent-profile-kit apply/);
+    expect(next[0]).toMatch(/apkit apply/);
   });
 
   test("current status and current preview emit no next action", () => {
@@ -629,12 +629,12 @@ describe("formatLifecycleReport next-action guidance", () => {
     const statusNext = nextActionLines(formatLifecycleReport("status", mixedBlocked));
     expect(statusNext).toHaveLength(1);
     expect(statusNext[0]).toMatch(/resolve/i);
-    expect(statusNext[0]).toMatch(/agent-profile-kit status/);
+    expect(statusNext[0]).toMatch(/apkit status/);
     expect(statusNext[0]).not.toMatch(/apply/i);
 
     const previewNext = nextActionLines(formatLifecycleReport("preview", mixedBlocked));
     expect(previewNext).toHaveLength(1);
-    expect(previewNext[0]).toMatch(/agent-profile-kit preview/);
+    expect(previewNext[0]).toMatch(/apkit preview/);
     expect(previewNext[0]).not.toMatch(/apply/i);
   });
 

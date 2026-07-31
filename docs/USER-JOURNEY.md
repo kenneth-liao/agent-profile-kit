@@ -27,7 +27,7 @@ a non-Git project, and a disabled-model-invocation Skill.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `agent-profile-kit`, `--help` | Understand what the tool does and the shortest path to value |
+| 1 | Discover | `apkit`, `--help` | Understand what the tool does and the shortest path to value |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
 | 3 | Learn the format | `guide [--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |

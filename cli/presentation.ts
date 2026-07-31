@@ -1,3 +1,4 @@
+import { COMMAND_NAME } from "./command-name.js";
 import type {
   ApplyReconciliationResult,
   OutputReconciliationItem,
@@ -351,7 +352,7 @@ function nextActionLine(
     const blockerWord = report.blockers.length === 1 ? "blocker" : "blockers";
     // Same command the user just ran (status, preview, or apply) so the retry
     // invariant is structural — not parallel prose strings that can drift.
-    return `Next: Resolve the reported ${blockerWord}, then run agent-profile-kit ${command} again.`;
+    return `Next: Resolve the reported ${blockerWord}, then run ${COMMAND_NAME} ${command} again.`;
   }
 
   // Completed or no-op apply: reconciliation already ran; do not recommend more work.
@@ -364,9 +365,9 @@ function nextActionLine(
   if (!hasActionableWork) return undefined;
 
   if (command === "status") {
-    return "Next: Run agent-profile-kit preview to review the planned changes (read-only), then apply when ready.";
+    return `Next: Run ${COMMAND_NAME} preview to review the planned changes (read-only), then apply when ready.`;
   }
-  return "Next: Run agent-profile-kit apply to reconcile Profile Installations.";
+  return `Next: Run ${COMMAND_NAME} apply to reconcile Profile Installations.`;
 }
 
 function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {

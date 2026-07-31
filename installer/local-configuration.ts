@@ -9,6 +9,7 @@ import {
   sep,
 } from "node:path";
 
+import { COMMAND_NAME } from "../cli/command-name.js";
 import {
   LOCAL_CONFIGURATION_FILE,
   requireCurrentLocalConfiguration,
@@ -374,7 +375,7 @@ export async function ingestApplication(home: string): Promise<{
     source = await readFile(path, "utf8");
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw new Error(`Local Configuration is missing at ${path}; run agent-profile-kit init`);
+      throw new Error(`Local Configuration is missing at ${path}; run ${COMMAND_NAME} init`);
     }
     throw error;
   }

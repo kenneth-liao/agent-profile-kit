@@ -1,5 +1,6 @@
 import { isMap, isSeq, parseDocument } from "yaml";
 
+import { COMMAND_NAME } from "../cli/command-name.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
 import {
   isSupportedHost,
@@ -133,7 +134,7 @@ export async function bindProject(
   if (!(await pathExists(fileSystem, configurationPath))) {
     if (!(await hasHeldResidue(configurationPath, fileSystem))) {
       throw new Error(
-        `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
+        `Local Configuration is missing at ${configurationPath}; run ${COMMAND_NAME} init`,
       );
     }
   }
@@ -153,7 +154,7 @@ export async function bindProject(
       } catch (error) {
         if (hasErrorCode(error, "ENOENT")) {
           throw new Error(
-            `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
+            `Local Configuration is missing at ${configurationPath}; run ${COMMAND_NAME} init`,
           );
         }
         throw error;

@@ -27,9 +27,9 @@ project delivery.
 Initialize the canonical Workspace without a global installation:
 
 ```sh
-npx agent-profile-kit init
+npx --package agent-profile-kit apkit init
 # Or choose one explicit absolute or home-relative Workspace path:
-npx agent-profile-kit init ~/projects/agent-profile-workspace
+npx --package agent-profile-kit apkit init ~/projects/agent-profile-workspace
 ```
 
 The initial release supports macOS only.
@@ -74,15 +74,15 @@ with Context, use the exact bound root so Codex can discover the generated
 project hook and Context.
 
 ```sh
-agent-profile-kit bind engineering --host codex
-agent-profile-kit bind engineering ~/projects/x --host codex --host claude --host grok --host pi
-agent-profile-kit unbind ~/projects/x
-agent-profile-kit validate
-agent-profile-kit preview
-agent-profile-kit apply
-agent-profile-kit status
-agent-profile-kit preview --verbose   # complete reconciliation diagnostics
-agent-profile-kit uninstall
+apkit bind engineering --host codex
+apkit bind engineering ~/projects/x --host codex --host claude --host grok --host pi
+apkit unbind ~/projects/x
+apkit validate
+apkit preview
+apkit apply
+apkit status
+apkit preview --verbose   # complete reconciliation diagnostics
+apkit uninstall
 ```
 
 Project Bindings and the explicit Workspace selection live in the machine-local
@@ -120,20 +120,20 @@ diagnostics, including resolved artifact inclusion reasons and composed Context.
 output while preserving bindings.
 
 Older version-1 configuration without `workspace` is migration input only. Run
-`agent-profile-kit init` to record the effective Workspace and upgrade it;
+`apkit init` to record the effective Workspace and upgrade it;
 `validate`, `preview`, `apply`, `status`, `bind`, and `unbind` fail closed with
 that guidance until migration completes. `init` never moves or rewrites the
 Workspace source, and a custom authored Workspace path is preserved.
 
-Run `agent-profile-kit` with no arguments or `agent-profile-kit --help` for a
+Run `apkit` with no arguments or `apkit --help` for a
 concise summary of every command and the minimal `init` → `bind` → `preview` →
-`apply` flow. See `agent-profile-kit guide` for the Context Module, Skill,
-Profile, and binding formats, and `agent-profile-kit guide --agent` for
+`apply` flow. See `apkit guide` for the Context Module, Skill,
+Profile, and binding formats, and `apkit guide --agent` for
 agent-facing authoring boundaries.
 
 ## Product layout
 
-- `cli/` - the `agent-profile-kit` command.
+- `cli/` - the `apkit` command.
 - `adapters/` - all Host-specific generation and capability detection.
 - `installer/` - configuration ingestion, desired-state planning, reconciliation, ownership, and lifecycle orchestration.
 - `schemas/` - portable Workspace and artifact schemas.
@@ -157,7 +157,7 @@ path live in `config.yaml`; disposable Installation
 Manifests live under `state/`. Generated Context, hooks, rules, and Skills live
 only in bound project-owned paths.
 
-`agent-profile-kit init` creates an empty default Workspace with a schema marker,
+`apkit init` creates an empty default Workspace with a schema marker,
 artifact directories, short human/agent bootstrap files, and a version-2
 configuration that records the default path when configuration is absent. With
 an explicit path, it applies the same scaffold to a missing or empty non-symlink
@@ -166,8 +166,8 @@ When configuration already selects a Workspace, an explicit path must be an
 equivalent canonical alias; `init` never switches the selection. When it finds
 supported legacy configuration, it upgrades only the local configuration after
 validating the effective target. Current authoring guidance remains
-owned by the CLI through `agent-profile-kit guide` and
-`agent-profile-kit guide --agent`; initialization does not copy personal or
+owned by the CLI through `apkit guide` and
+`apkit guide --agent`; initialization does not copy personal or
 opinionated starter content.
 
 ## Working Principles

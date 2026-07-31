@@ -56,7 +56,7 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   expect(commands).toContain("bun test");
   expect(commands).toContain("git diff --exit-code");
   expect(commands).toContain("npm pack --ignore-scripts");
-  expect(commands).toContain('node "$INSTALL_ROOT/node_modules/agent-profile-kit/dist/cli.js" guide');
+  expect(commands).toContain('"$INSTALL_ROOT/node_modules/.bin/apkit" guide');
   expect(commands).toContain("CHANGELOG.md > release-notes.md");
   expect(commands).toContain('gh release create "v$VERSION"');
   expect(commands).toContain('"$PACKAGE_FILE"');

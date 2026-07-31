@@ -64,6 +64,31 @@ test("living engine guidance does not describe removed legacy content as reposit
   expect(agents).not.toContain("`commands/`, `context/`, and `skills/`");
 });
 
+test("current user guidance invokes the published apkit command", () => {
+  const guidance = new Map<string, readonly string[]>([
+    ["AGENTS.md", []],
+    ["README.md", []],
+    ["docs/ARCHITECTURE.md", []],
+    ["docs/guides/agent-workflow.md", []],
+    ["docs/guides/workspace.md", ["agent-profile-kit validate"]],
+    ["docs/runbooks/github-release.md", ["agent-profile-kit guide"]],
+  ]);
+  const formerCommand = /\bagent-profile-kit (?=(?:init|guide|bind|unbind|validate|preview|apply|status|uninstall|--help)\b)/;
+
+  for (const [path, versionPinnedInvocations] of guidance) {
+    let source = readFileSync(join(repositoryRoot, path), "utf8");
+    if (path !== "docs/runbooks/github-release.md") expect(source).toContain("apkit");
+    for (const invocation of versionPinnedInvocations) {
+      expect(source.split(invocation)).toHaveLength(2);
+      source = source.replace(invocation, "");
+    }
+    expect(source).not.toMatch(formerCommand);
+  }
+
+  const userJourney = readFileSync(join(repositoryRoot, "docs/USER-JOURNEY.md"), "utf8");
+  expect(userJourney).toContain("| 1 | Discover | `apkit`, `--help`");
+});
+
 test("legacy artifact roots stay absent from the engine source tree", () => {
   for (const directory of ["commands", "context", "skills", "tools"]) {
     expect(existsSync(join(repositoryRoot, directory))).toBe(false);

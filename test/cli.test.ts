@@ -1084,7 +1084,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const arguments_ of commands) {
       const result = runCli(home, ...arguments_);
       expect(result.status, `${arguments_.join(" ")}: ${result.stderr}`).toBe(1);
-      expect(result.stderr).toMatch(/legacy schema_version 1|run agent-profile-kit init/i);
+      expect(result.stderr).toMatch(/legacy schema_version 1|run apkit init/i);
     }
 
     expect(readFileSync(configPath(home), "utf8")).toBe(legacy);
@@ -1642,6 +1642,38 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("generated-output update");
     expect(result.stdout).not.toContain("unchanged generated output");
     expect(paths.map((path) => statSync(path).mtimeMs)).toEqual(before);
+  });
+
+  test("an installation created before the command rename stays current without re-apply", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: { engine_version: string }[];
+    };
+    state.installations[0]!.engine_version = "0.34.1";
+    writeFileSync(statePath(home), stringify(state));
+    const stateBefore = readFileSync(statePath(home), "utf8");
+    const outputPaths = [
+      join(projectPath, ".agent-profile-kit", "codex", "context.md"),
+      join(projectPath, ".agent-profile-kit", "installation.json"),
+      join(projectPath, ".codex", "hooks.json"),
+    ];
+    const outputTimesBefore = outputPaths.map((path) => statSync(path).mtimeMs);
+
+    const status = runCli(home, "status", "--verbose");
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain(`${projectPath}: current`);
+
+    const applied = runCli(home, "apply");
+    expect(applied.status, applied.stderr).toBe(0);
+    expect(applied.stdout).toContain("Apply receipt: no changes were applied");
+    expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
+    expect(outputPaths.map((path) => statSync(path).mtimeMs)).toEqual(outputTimesBefore);
   });
 
   test("preview classifies output additions, updates, removals, and unchanged output without writing", () => {
@@ -4177,7 +4209,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const command of ["plan", "install", "update", "run"]) {
       const result = runCli(home, command);
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Usage: agent-profile-kit");
+      expect(result.stderr).toContain("Usage: apkit");
     }
   });
 
@@ -4216,10 +4248,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
 
     for (const command of ["init", "validate", "preview", "apply", "status", "unbind", "uninstall"]) {
-      expect(result.stdout).toContain(`agent-profile-kit ${command}`);
+      expect(result.stdout).toContain(`apkit ${command}`);
     }
     expect(result.stdout).toMatch(/unbind.*(?:desired|Project Binding).*uninstall|uninstall.*unbind/is);
-    expect(result.stdout).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
+    expect(result.stdout).not.toMatch(/apkit (plan|install|update|run)\b/);
 
     expect(result.stdout).toMatch(/project:\s*(~\/|\/)/);
     expect(result.stdout).toMatch(/profile:\s+\S+/);
@@ -4241,8 +4273,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // Hook enablement defaults on; project hook review/trust remains Host-owned launch prep.
     const defaultHooksIndex = result.stdout.search(/Lifecycle hooks are enabled by\s+default/i);
-    const previewIndex = result.stdout.indexOf("agent-profile-kit preview");
-    const applyIndex = result.stdout.indexOf("agent-profile-kit apply");
+    const previewIndex = result.stdout.indexOf("apkit preview");
+    const applyIndex = result.stdout.indexOf("apkit apply");
     const trustIndex = result.stdout.search(/trust each bound project/i);
     const launchIndex = result.stdout.search(/Before launching\s+Codex/i);
     expect(defaultHooksIndex).toBeGreaterThan(-1);
@@ -4261,7 +4293,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "guide", "--agent");
     expect(result.status, result.stderr).toBe(0);
 
-    expect(result.stdout).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
+    expect(result.stdout).not.toMatch(/apkit (plan|install|update|run)\b/);
     expect(result.stdout).toMatch(/Local\s+Configuration/);
     expect(result.stdout).toMatch(/Agents, Hooks, or Tools|Agents, Hooks, and Tools/);
     expect(result.stdout).toMatch(/reject/i);
@@ -4280,11 +4312,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/Host Resolution/i);
     expect(result.stdout).toMatch(/Output Ownership Conflict/i);
     for (const command of ["validate", "preview", "apply", "status", "unbind", "uninstall"]) {
-      expect(result.stdout).toContain(
-        command === "status" || command === "uninstall"
-          ? command
-          : `agent-profile-kit ${command}`,
-      );
+      expect(result.stdout).toContain(`apkit ${command}`);
     }
   });
 
@@ -4356,8 +4384,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const readme = readFileSync(join(workspacePath(home), "README.md"), "utf8");
     const agents = readFileSync(join(workspacePath(home), "AGENTS.md"), "utf8");
 
-    expect(readme).toContain("agent-profile-kit guide");
-    expect(agents).toContain("agent-profile-kit guide --agent");
+    expect(readme).toContain("apkit guide");
+    expect(agents).toContain("apkit guide --agent");
     expect(readme).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
     expect(agents).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
     expect(readme.trim().split("\n").length).toBeLessThan(12);
@@ -4372,7 +4400,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readme).toMatch(/bound project|Project Binding/i);
     expect(readme).toContain("Codex");
     expect(readme).toContain("Claude");
-    expect(readme).toContain("agent-profile-kit apply");
+    expect(readme).toContain("apkit apply");
     expect(readme).toMatch(/Warnings.{0,80}exit|exit.{0,80}Warnings/is);
     expect(readme).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
     expect(readme).not.toMatch(/per-session launcher|global Skill projection|process[- ]overlay/i);
@@ -4396,8 +4424,8 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
     expect(result.stdout).toContain(configPath(home));
-    expect(result.stdout).toContain("agent-profile-kit preview");
-    expect(result.stdout).toContain("agent-profile-kit apply");
+    expect(result.stdout).toContain("apkit preview");
+    expect(result.stdout).toContain("apkit apply");
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
@@ -4727,7 +4755,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
     expect(result.stdout).not.toContain(configPath(home));
-    expect(result.stdout).toContain("agent-profile-kit preview");
+    expect(result.stdout).toContain("apkit preview");
     expect(readFileSync(configPath(home), "utf8")).not.toBe(before);
     expect(readFileSync(configPath(home), "utf8")).toContain(realpathSync(projectPath));
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
@@ -5196,7 +5224,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/Local Configuration is missing/);
-    expect(result.stderr).toMatch(/agent-profile-kit init/);
+    expect(result.stderr).toMatch(/apkit init/);
     expect(result.stderr).not.toMatch(/config\.yaml\.lock/);
   });
 
@@ -5241,7 +5269,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
   });
 });
 
-describe("agent-profile-kit root help", () => {
+describe("apkit root help", () => {
   const COMMANDS = [
     { name: "init", syntax: "init [workspace]" },
     { name: "guide", syntax: "guide [--agent]" },
@@ -5290,16 +5318,16 @@ describe("agent-profile-kit root help", () => {
     const result = runCli(home, "--help");
     expect(result.status, result.stderr).toBe(0);
 
-    const initIndex = result.stdout.indexOf("agent-profile-kit init");
-    const bindIndex = result.stdout.indexOf("agent-profile-kit bind", initIndex + 1);
-    const previewIndex = result.stdout.indexOf("agent-profile-kit preview", bindIndex + 1);
-    const applyIndex = result.stdout.indexOf("agent-profile-kit apply", previewIndex + 1);
+    const initIndex = result.stdout.indexOf("apkit init");
+    const bindIndex = result.stdout.indexOf("apkit bind", initIndex + 1);
+    const previewIndex = result.stdout.indexOf("apkit preview", bindIndex + 1);
+    const applyIndex = result.stdout.indexOf("apkit apply", previewIndex + 1);
     expect(initIndex).toBeGreaterThanOrEqual(0);
     expect(bindIndex).toBeGreaterThan(initIndex);
     expect(previewIndex).toBeGreaterThan(bindIndex);
     expect(applyIndex).toBeGreaterThan(previewIndex);
 
-    expect(result.stdout).toMatch(/agent-profile-kit guide/);
+    expect(result.stdout).toMatch(/apkit guide/);
     expect(result.stdout.toLowerCase()).toMatch(/workspace authoring/);
   });
 
@@ -5310,7 +5338,8 @@ describe("agent-profile-kit root help", () => {
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("frobnicate");
-    expect(result.stderr).toContain("Usage: agent-profile-kit");
+    expect(result.stderr).toContain("apkit: unknown command 'frobnicate'");
+    expect(result.stderr).toContain("Usage: apkit");
     for (const { name } of COMMANDS) {
       expect(result.stderr).toMatch(new RegExp(`\\b${name}\\b`));
     }
@@ -5322,48 +5351,48 @@ describe("agent-profile-kit root help", () => {
     const missingProfile = runCli(home, "bind");
     expect(missingProfile.status).toBe(1);
     expect(missingProfile.stderr).toContain("bind requires a Profile Artifact ID");
-    expect(missingProfile.stderr).toContain("Usage: agent-profile-kit bind <profile>");
+    expect(missingProfile.stderr).toContain("Usage: apkit bind <profile>");
 
     const missingHost = runCli(home, "bind", "coding");
     expect(missingHost.status).toBe(1);
     expect(missingHost.stderr).toContain("bind requires at least one --host flag");
     expect(missingHost.stderr).toContain("supported Hosts: claude, codex");
-    expect(missingHost.stderr).toContain("Usage: agent-profile-kit bind <profile>");
+    expect(missingHost.stderr).toContain("Usage: apkit bind <profile>");
 
     const tooManyInitPaths = runCli(home, "init", "one", "two");
     expect(tooManyInitPaths.status).toBe(1);
     expect(tooManyInitPaths.stderr).toContain("init accepts at most one Workspace path");
-    expect(tooManyInitPaths.stderr).toContain("Usage: agent-profile-kit init [workspace]");
-    expect(tooManyInitPaths.stderr).not.toContain("Usage: agent-profile-kit bind");
+    expect(tooManyInitPaths.stderr).toContain("Usage: apkit init [workspace]");
+    expect(tooManyInitPaths.stderr).not.toContain("Usage: apkit bind");
 
     const badLifecycleFlag = runCli(home, "preview", "--json");
     expect(badLifecycleFlag.status).toBe(1);
     expect(badLifecycleFlag.stderr).toContain("preview does not accept argument '--json'");
-    expect(badLifecycleFlag.stderr).toContain("Usage: agent-profile-kit preview [--verbose]");
+    expect(badLifecycleFlag.stderr).toContain("Usage: apkit preview [--verbose]");
 
     const badAfterValidLifecycleFlag = runCli(home, "preview", "--verbose", "--json");
     expect(badAfterValidLifecycleFlag.status).toBe(1);
     expect(badAfterValidLifecycleFlag.stderr).toContain("preview does not accept argument '--json'");
-    expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: agent-profile-kit preview [--verbose]");
+    expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: apkit preview [--verbose]");
 
     const badGuideFlag = runCli(home, "guide", "--json");
     expect(badGuideFlag.status).toBe(1);
     expect(badGuideFlag.stderr).toContain("guide does not accept argument '--json'");
-    expect(badGuideFlag.stderr).toContain("Usage: agent-profile-kit guide [--agent]");
+    expect(badGuideFlag.stderr).toContain("Usage: apkit guide [--agent]");
 
     const badValidateFlag = runCli(home, "validate", "--json");
     expect(badValidateFlag.status).toBe(1);
     expect(badValidateFlag.stderr).toContain("validate does not accept argument '--json'");
-    expect(badValidateFlag.stderr).toContain("Usage: agent-profile-kit validate");
+    expect(badValidateFlag.stderr).toContain("Usage: apkit validate");
 
     const badUninstallFlag = runCli(home, "uninstall", "--json");
     expect(badUninstallFlag.status).toBe(1);
     expect(badUninstallFlag.stderr).toContain("uninstall does not accept argument '--json'");
-    expect(badUninstallFlag.stderr).toContain("Usage: agent-profile-kit uninstall");
+    expect(badUninstallFlag.stderr).toContain("Usage: apkit uninstall");
 
     const tooManyUnbindPaths = runCli(home, "unbind", "one", "two");
     expect(tooManyUnbindPaths.status).toBe(1);
     expect(tooManyUnbindPaths.stderr).toContain("unbind accepts at most one project path");
-    expect(tooManyUnbindPaths.stderr).toContain("Usage: agent-profile-kit unbind [project]");
+    expect(tooManyUnbindPaths.stderr).toContain("Usage: apkit unbind [project]");
   });
 });

@@ -17,7 +17,7 @@ This repository is the open-source Agent Profile Kit engine. It contains product
 
 ## Canonical Locations
 
-- `cli/` owns the `agent-profile-kit` command and user-facing orchestration.
+- `cli/` owns the `apkit` command and user-facing orchestration.
 - `adapters/` owns Host-specific project output planning and capability detection.
 - `installer/` owns shared validation, reconciliation planning, ownership, and installation lifecycle.
 - `schemas/` owns portable Workspace and artifact schemas.

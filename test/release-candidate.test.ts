@@ -397,7 +397,7 @@ describe("project-bound release candidate", () => {
     expect(packedManifest.scripts?.prepare).toBeUndefined();
     expect(packedManifest.os).toEqual(["darwin"]);
     expect(packedManifest.files).toEqual(["dist/cli.js", "docs/guides", "README.md"]);
-    expect(packedManifest.bin?.["agent-profile-kit"]).toBe("./dist/cli.js");
+    expect(packedManifest.bin).toEqual({ apkit: "./dist/cli.js" });
 
     // Dry-run inspection of a clean pack does not write under an isolated HOME.
     execFileSync("npm", ["pack", "--dry-run", "--ignore-scripts", "--json"], {
@@ -417,8 +417,8 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(installPrefix, "node_modules", "agent-profile-kit", "dist", "cli.js")))
       .toBe(true);
 
-    const installedCli = join(installPrefix, "node_modules", "agent-profile-kit", "dist", "cli.js");
-    const guide = spawnSync(nodeBinary, [installedCli, "guide"], {
+    const installedCli = join(installPrefix, "node_modules", ".bin", "apkit");
+    const guide = spawnSync(installedCli, ["guide"], {
       encoding: "utf8",
       env: { ...process.env, HOME: home },
     });
@@ -437,14 +437,24 @@ describe("project-bound release candidate", () => {
     ).toBe(gitStatusBefore);
   });
 
-  test("packed distribution excludes credentials, runtime state, and removed overlay commands", () => {
+  test("packed distribution excludes credentials, runtime state, and removed commands", () => {
     // Exact file allowlist lives only in release-boundary.test.ts.
     const packageText = filesUnder(packageRoot)
-      .map((path) => readFileSync(join(packageRoot, path), "utf8"))
+      .map((path) => {
+        const source = readFileSync(join(packageRoot, path), "utf8");
+        if (path !== join("docs", "guides", "workspace.md")) return source;
+
+        const versionPinnedInvocation = "agent-profile-kit validate";
+        expect(source.split(versionPinnedInvocation)).toHaveLength(2);
+        return source.replace(versionPinnedInvocation, "");
+      })
       .join("\n");
 
     expect(packageText).not.toMatch(/BEGIN (RSA |OPENSSH )?PRIVATE KEY|api[_-]?key\s*[:=]/i);
-    expect(packageText).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
+    expect(packageText).not.toMatch(
+      /\bagent-profile-kit (?=(?:init|guide|bind|unbind|validate|preview|apply|status|uninstall|--help)\b)/,
+    );
+    expect(packageText).not.toMatch(/apkit (plan|install|update|run)\b/);
     expect(packageText).not.toMatch(/per-session launcher|global Skill projection|process[- ]overlay/i);
     expect(existsSync(join(packageRoot, "node_modules"))).toBe(false);
     expect(existsSync(join(packageRoot, "test"))).toBe(false);

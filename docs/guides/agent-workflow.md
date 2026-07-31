@@ -6,8 +6,8 @@ Use this workflow when helping a person author their Workspace and bind projects
    and its schema version. A valid Workspace needs only that Manifest; missing
    artifact directories are empty categories, and bootstrap files such as
    `README.md`, `AGENTS.md`, and `.gitignore` are optional scaffolding from
-   `init`, not format requirements. Use `agent-profile-kit init` for the fixed
-   default or `agent-profile-kit init <workspace>` for one explicit absolute or
+   `init`, not format requirements. Use `apkit init` for the fixed
+   default or `apkit init <workspace>` for one explicit absolute or
    home-relative destination; missing and empty non-symlink destinations are
    scaffolded, while valid existing Workspaces are adopted without source
    changes. Inspect any present artifact directories next. Treat the Workspace
@@ -41,7 +41,7 @@ Use this workflow when helping a person author their Workspace and bind projects
      path and each binding names one existing project root, one Profile, and a
      supported Host set (`codex`, `claude`, `grok`, or `pi`); Host order and
      duplicate entries normalize at ingestion. A version-1 configuration without
-     `workspace` is legacy migration input only; run `agent-profile-kit init` before any desired-state
+     `workspace` is legacy migration input only; run `apkit init` before any desired-state
      or binding-recording command.
    - **Project repositories** own project facts and repository-owned instructions.
    - **Hosts** own authentication, trust, approvals, plugins, sessions, and
@@ -59,21 +59,21 @@ Use this workflow when helping a person author their Workspace and bind projects
      that disable planned output may warn; exact Output Ownership Conflicts and
      unsupported capability remain blockers.
 5. Author bindings in Local Configuration—either hand-edit `config.yaml` or run
-   recording-only `agent-profile-kit bind <profile> [project] --host <host>…`
+   recording-only `apkit bind <profile> [project] --host <host>…`
    (cwd when project is omitted; at least one explicit `--host` required). Do not
    invent project roots or Host lists. Use only explicit paths the user confirms.
    Reject wildcards, recursive scans, Host auto-detection, all-Hosts defaults,
    per-session selection, and Profile version pins. `bind` never applies output;
    after recording, continue with validate/preview/apply. To remove desired
-   state, use `agent-profile-kit unbind [project]`; it defaults to cwd, matches
+   state, use `apkit unbind [project]`; it defaults to cwd, matches
    existing paths canonically, and permits missing-path recovery only by exact
    authored spelling. `unbind` never removes generated output.
 6. Validate before applying. Context Modules use `id` frontmatter and flat
    Profiles contain explicit arrays for every artifact category. Dependencies use
-   explicit `{ type, id }` references. Run `agent-profile-kit validate`, review
-   the concise outcome from `agent-profile-kit preview`, and ask before applying
-   all configured Project Bindings with `agent-profile-kit apply`. Use
-   `preview --verbose`, `apply --verbose`, or `status --verbose` when complete
+   explicit `{ type, id }` references. Run `apkit validate`, review
+   the concise outcome from `apkit preview`, and ask before applying
+   all configured Project Bindings with `apkit apply`. Use
+   `apkit preview --verbose`, `apkit apply --verbose`, or `apkit status --verbose` when complete
    per-output diagnostics, resolved artifact reasons, or composed Context are
    needed. The current Workspace schema version is 1.
 7. After apply, the user launches Codex, Claude, Grok, or Pi natively in the
@@ -83,7 +83,7 @@ Use this workflow when helping a person author their Workspace and bind projects
    Pi's native trust boundary; packages, extensions, and other Skill sources
    coexist through Pi Host Resolution. For non-Git projects, remind the
    user that Codex must launch from the exact bound root.
-8. Use `status` to focus on Profile Installations needing attention; its concise
+8. Use `apkit status` to focus on Profile Installations needing attention; its concise
    result reports all-current state when nothing needs action, labels change
    counts as generated-output units, explains non-current states when they
    appear, preserves warnings and blockers, and ends with one next-action line
@@ -93,9 +93,9 @@ Use this workflow when helping a person author their Workspace and bind projects
    likewise recommends `apply`; blocked `preview` or `apply` retries that same
    command after the blocker. Add `--verbose` to distinguish current, stale, drifted,
    missing, and blocked installations in the complete per-output report.
-   `unbind` removes desired
+   `apkit unbind` removes desired
    Project Binding state but leaves generated output for global `preview` and
-   `apply`. `uninstall` instead removes only output whose Installation Marker
+   `apply`. `apkit uninstall` instead removes only output whose Installation Marker
    and hashes prove Agent Profile Kit ownership; it preserves the Workspace,
    Local Configuration, global Host configuration, and repository-owned files.
    Never use `uninstall` as a substitute for removing a binding, or `unbind` as
