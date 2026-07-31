@@ -13,6 +13,99 @@ export type LifecycleCommand = "preview" | "apply" | "status";
 
 type NonCurrentKind = Exclude<ReconciliationKind, "current">;
 
+const DEFAULT_VIEW_LEXICON = {
+  artifactId: { singular: "name", plural: "names" },
+  desiredState: "selected setup",
+  generatedOutput: {
+    paths: "generated paths",
+    plural: "generated files",
+    singular: "generated file",
+  },
+  installationManifest: { singular: "installation record", plural: "installation records" },
+  installerOwned: {
+    attributive: "Agent Profile Kit-managed",
+    postpositive: "managed by Agent Profile Kit",
+  },
+  profileInstallation: { singular: "project", plural: "projects" },
+  reconciliation: {
+    base: "sync",
+    continuous: "syncing",
+    noun: "sync",
+    past: "synced",
+    thirdPerson: "syncs",
+  },
+  repositoryExclusion: {
+    localPlural: "Git-local exclusions",
+    plural: "Git exclusions",
+    singular: "Git exclusion",
+  },
+  repositoryExclusionRecord: { singular: "Git exclusion record", plural: "Git exclusion records" },
+} as const;
+
+function capitalize(text: string): string {
+  return `${text[0]?.toUpperCase()}${text.slice(1)}`;
+}
+
+function preserveInitialCase(source: string, replacement: string): string {
+  return source[0] === source[0]?.toUpperCase()
+    ? capitalize(replacement)
+    : replacement;
+}
+
+function defaultViewText(text: string): string {
+  const replacements: readonly (readonly [RegExp, string, boolean?])[] = [
+    [
+      /\bInstaller-owned generated outputs\b/gi,
+      `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}`,
+      false,
+    ],
+    [
+      /\bInstaller-owned generated output\b/gi,
+      `${DEFAULT_VIEW_LEXICON.generatedOutput.singular} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}`,
+      false,
+    ],
+    [
+      /\bInstaller-owned generated paths\b/gi,
+      `${DEFAULT_VIEW_LEXICON.generatedOutput.paths} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}`,
+      false,
+    ],
+    [/\bRepository Exclusion Records\b/gi, DEFAULT_VIEW_LEXICON.repositoryExclusionRecord.plural],
+    [/\bRepository Exclusion Record\b/gi, DEFAULT_VIEW_LEXICON.repositoryExclusionRecord.singular],
+    [/\bProfile Installations\b/gi, DEFAULT_VIEW_LEXICON.profileInstallation.plural],
+    [/\bProfile Installation\b/gi, DEFAULT_VIEW_LEXICON.profileInstallation.singular],
+    [/\bgenerated[- ]outputs\b/gi, DEFAULT_VIEW_LEXICON.generatedOutput.plural],
+    [/\bgenerated[- ]output\b/gi, DEFAULT_VIEW_LEXICON.generatedOutput.singular],
+    [/\bRepository Exclusions\b/gi, DEFAULT_VIEW_LEXICON.repositoryExclusion.plural],
+    [/\bRepository Exclusion\b/gi, DEFAULT_VIEW_LEXICON.repositoryExclusion.singular],
+    [/\bInstaller-owned\b/gi, DEFAULT_VIEW_LEXICON.installerOwned.attributive],
+    [/\breconciling\b/gi, DEFAULT_VIEW_LEXICON.reconciliation.continuous],
+    [/\breconciles\b/gi, DEFAULT_VIEW_LEXICON.reconciliation.thirdPerson],
+    [/\breconciled\b/gi, DEFAULT_VIEW_LEXICON.reconciliation.past],
+    [/\breconciliation\b/gi, DEFAULT_VIEW_LEXICON.reconciliation.noun],
+    [/\breconcile\b/gi, DEFAULT_VIEW_LEXICON.reconciliation.base],
+    [/\bArtifact IDs\b/gi, DEFAULT_VIEW_LEXICON.artifactId.plural, false],
+    [/\bArtifact ID\b/gi, DEFAULT_VIEW_LEXICON.artifactId.singular, false],
+    [/\bInstallation Manifests\b/gi, DEFAULT_VIEW_LEXICON.installationManifest.plural, false],
+    [/\bInstallation Manifest\b/gi, DEFAULT_VIEW_LEXICON.installationManifest.singular, false],
+    [/\bdesired state\b/gi, DEFAULT_VIEW_LEXICON.desiredState],
+  ];
+  return replacements.reduce(
+    (rendered, [pattern, replacement, preserveSourceCase = true]) => rendered.replace(
+      pattern,
+      (match) => preserveSourceCase ? preserveInitialCase(match, replacement) : replacement,
+    ),
+    text,
+  );
+}
+
+function defaultDiagnosticText(text: string): string {
+  const protectedValue = /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[^\s'"]*\/[^\s'"]*)/g;
+  return text
+    .split(protectedValue)
+    .map((part, index) => index % 2 === 1 ? part : defaultViewText(part))
+    .join("");
+}
+
 /**
  * Single ordered list of non-current Profile Installation states for concise glosses.
  * Exhaustiveness against `ReconciliationKind` is asserted below so a new kind cannot
@@ -44,23 +137,33 @@ void _assertOrderExhaustive;
 /** Short, progressive-disclosure glosses for non-current Profile Installation states. */
 const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
   addition:
-    "The Profile Installation is not installed yet; apply will create its Installer-owned generated outputs.",
+    `The ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} is not installed yet; apply will create its ` +
+    `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`,
   update:
-    "Desired state changed for this Profile Installation; apply will rewrite Installer-owned generated outputs to match.",
+    `${capitalize(DEFAULT_VIEW_LEXICON.desiredState)} changed for this ` +
+    `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}; apply will rewrite ` +
+    `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive} to match.`,
   "stale source":
-    "Workspace source changed since the last apply; generated outputs no longer match current desired state.",
+    `Workspace source changed since the last apply; ${DEFAULT_VIEW_LEXICON.generatedOutput.plural} no longer ` +
+    `match current ${DEFAULT_VIEW_LEXICON.desiredState}.`,
   "repairable missing output":
-    "An owned generated output is wholly missing, but ownership is proven; apply will recreate it from current Workspace source.",
+    `An owned ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} is wholly missing, but ownership is proven; ` +
+    "apply will recreate it from current Workspace source.",
   "drifted output":
-    "An owned generated output no longer matches its Installation Manifest hash and is not treated as a safe automatic rewrite.",
+    `An owned ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} no longer matches its ` +
+    `${DEFAULT_VIEW_LEXICON.installationManifest.singular} hash and is not treated as a safe automatic rewrite.`,
   "malformed ownership state":
-    "Ownership metadata is incomplete or inconsistent, so the Installer cannot prove what it owns.",
+    "Ownership metadata is incomplete or inconsistent, so Agent Profile Kit cannot prove what it owns.",
   blocked:
-    "Reconciliation cannot change this Profile Installation until the listed blocker is resolved.",
+    `${capitalize(DEFAULT_VIEW_LEXICON.reconciliation.noun)} cannot change this ` +
+    `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} until the listed blocker is resolved.`,
   removal:
-    "No Project Binding remains for this installation; apply will remove proven Installer-owned generated outputs.",
+    `No Project Binding remains for this installation; apply will remove proven ` +
+    `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`,
   "missing output":
-    "The Profile Installation is absent or its generated outputs are missing without proven Installer ownership; this is not a safe automatic repair.",
+    `The ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} is absent or its ` +
+    `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} are missing without proven Agent Profile Kit ownership; ` +
+    "this is not a safe automatic repair.",
 };
 
 interface OutputSummary {
@@ -105,11 +208,12 @@ function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputS
 /** Concise change units; unchanged generated outputs are omitted by design. */
 function changeParts(summary: OutputSummary): string[] {
   const parts: string[] = [];
-  if (summary.additions > 0) parts.push(plural(summary.additions, "generated-output addition"));
-  if (summary.updates > 0) parts.push(plural(summary.updates, "generated-output update"));
-  if (summary.repairs > 0) parts.push(plural(summary.repairs, "generated-output repair"));
-  if (summary.removals > 0) parts.push(plural(summary.removals, "generated-output removal"));
-  if (summary.drift > 0) parts.push(plural(summary.drift, "generated-output drift item"));
+  const generatedFile = DEFAULT_VIEW_LEXICON.generatedOutput.singular;
+  if (summary.additions > 0) parts.push(plural(summary.additions, `${generatedFile} addition`));
+  if (summary.updates > 0) parts.push(plural(summary.updates, `${generatedFile} update`));
+  if (summary.repairs > 0) parts.push(plural(summary.repairs, `${generatedFile} repair`));
+  if (summary.removals > 0) parts.push(plural(summary.removals, `${generatedFile} removal`));
+  if (summary.drift > 0) parts.push(plural(summary.drift, `${generatedFile} drift item`));
   return parts;
 }
 
@@ -129,6 +233,19 @@ function repairedRepositoryExclusionLines(report: ReconciliationReport): readonl
     const count = repair.entries.length;
     return `${repair.target}: restored ${count} recorded Repository Exclusion ${count === 1 ? "entry" : "entries"}`;
   });
+}
+
+function defaultRepairedRepositoryExclusionLines(report: ReconciliationReport): readonly string[] {
+  return report.repositoryExclusionRepairs.map((repair) => {
+    const count = repair.entries.length;
+    return `${repair.target}: restored ${count} recorded ${DEFAULT_VIEW_LEXICON.repositoryExclusion.singular} ` +
+      `${count === 1 ? "entry" : "entries"}`;
+  });
+}
+
+function defaultRepositoryExclusionDescription(): string {
+  return `${DEFAULT_VIEW_LEXICON.repositoryExclusion.localPlural} that keep ` +
+    `${DEFAULT_VIEW_LEXICON.generatedOutput.paths} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive} untracked.`;
 }
 
 function exclusionDelta(change: ReconciliationReport["repositoryExclusions"][number]): {
@@ -152,7 +269,7 @@ function exclusionDeltaText(change: ReconciliationReport["repositoryExclusions"]
 }
 
 function itemText(item: ReconciliationItem): string {
-  return `${item.kind}${item.reason ? ` (${item.reason})` : ""}`;
+  return `${item.kind}${item.reason ? ` (${defaultDiagnosticText(item.reason)})` : ""}`;
 }
 
 function isNonCurrentKind(kind: ReconciliationKind): kind is NonCurrentKind {
@@ -219,11 +336,12 @@ function formatBlocker(blocker: ReconciliationBlocker, displayProject?: string):
   if (message.endsWith(trackedSuffix)) {
     const path = message.slice(0, -trackedSuffix.length);
     return (
-      `Tracked project path '${path}' is repository-owned. The Installer cannot replace it ` +
-      "because generated Profile Installation output must be exclusively Installer-owned."
+      `Tracked project path '${path}' is repository-owned. Agent Profile Kit cannot replace it ` +
+      `because ${DEFAULT_VIEW_LEXICON.generatedOutput.plural} must be exclusively ` +
+      `${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`
     );
   }
-  return message;
+  return defaultDiagnosticText(message);
 }
 
 function groupProjects(report: ReconciliationReport): GroupedProjects {
@@ -306,9 +424,10 @@ function outcomeLine(command: LifecycleCommand, report: ReconciliationReport): s
   if (report.blockers.length > 0 || report.items.some((item) => item.kind !== "current")) {
     return "Attention required";
   }
+  const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
   return report.items.length === 0
-    ? "No Profile Installations are configured"
-    : "All Profile Installations are current";
+    ? `No ${projects} are configured`
+    : `All ${projects} are current`;
 }
 
 function aggregateLine(report: ReconciliationReport, groups: readonly ProjectGroup[]): string {
@@ -316,7 +435,7 @@ function aggregateLine(report: ReconciliationReport, groups: readonly ProjectGro
   const summary = summarizeOutputs(report.outputs);
   const changes = changeParts(summary);
   return (
-    `Profile Installations: ${installations} · ` +
+    `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}: ${installations} · ` +
     `Changes: ${changes.length === 0 ? "none" : changes.join(", ")} · ` +
     `Blockers: ${report.blockers.length}`
   );
@@ -367,7 +486,8 @@ function nextActionLine(
   if (command === "status") {
     return `Next: Run ${COMMAND_NAME} preview to review the planned changes (read-only), then apply when ready.`;
   }
-  return `Next: Run ${COMMAND_NAME} apply to reconcile Profile Installations.`;
+  return `Next: Run ${COMMAND_NAME} apply to ${DEFAULT_VIEW_LEXICON.reconciliation.base} ` +
+    `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}.`;
 }
 
 function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
@@ -378,22 +498,30 @@ function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
     const workKinds = [...new Set(
       group.items
         .filter((item) => item.kind !== "current")
-        .map((item) => item.kind === "update" ? "Profile Installation update" : `reconciliation ${item.kind}`),
+        .map((item) => item.kind === "update"
+          ? `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} update`
+          : `${DEFAULT_VIEW_LEXICON.reconciliation.noun} ${item.kind}`),
     )];
     return workKinds.length > 0 ? [`- ${group.project}: ${workKinds.join(", ")}`] : [];
   });
   const exclusionChanges = changedRepositoryExclusions(receipt);
-  const exclusionRepairs = repairedRepositoryExclusionLines(receipt);
+  const exclusionRepairs = defaultRepairedRepositoryExclusionLines(receipt);
   if (entries.length === 0 && exclusionChanges.length === 0 && exclusionRepairs.length === 0) {
-    return ["Apply receipt: no changes were applied; all Profile Installations were already current."];
+    return [
+      `Apply receipt: no changes were applied; all ` +
+      `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
+    ];
   }
 
-  const lines = ["Apply receipt:", ...(entries.length > 0 ? entries : ["- No generated-output changes"])];
+  const lines = [
+    "Apply receipt:",
+    ...(entries.length > 0 ? entries : [`- No ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} changes`]),
+  ];
   if (exclusionChanges.length > 0 || exclusionRepairs.length > 0) {
     lines.push(
       "",
-      "Repository exclusions completed:",
-      "Git-local exclusions that keep Installer-owned generated paths untracked.",
+      `${capitalize(DEFAULT_VIEW_LEXICON.repositoryExclusion.plural)} completed:`,
+      defaultRepositoryExclusionDescription(),
     );
     for (const change of exclusionChanges) {
       lines.push(`- ${change.target}: ${exclusionDeltaText(change)}`);
@@ -427,12 +555,13 @@ function conciseReport(
 
   if (activeGroups.length === 0) {
     if (groups.length > 0 && report.blockers.length === 0) {
+      const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
       lines.push(
         command === "apply"
-          ? "All Profile Installations were already current."
+          ? `All ${projects} were already current.`
           : command === "preview"
-            ? "Nothing to reconcile; all Profile Installations are current."
-            : "No Profile Installations need attention.",
+            ? `Nothing to ${DEFAULT_VIEW_LEXICON.reconciliation.base}; all ${projects} are current.`
+            : `No ${projects} need attention.`,
       );
     }
   } else {
@@ -441,7 +570,7 @@ function conciseReport(
       const receiptGroup = receiptGroups.get(group.canonicalProject);
       const receiptHasWork = command === "apply" && groupHasReconciliationWork(receiptGroup);
       const showCurrentState = receiptHasWork || showSingleCurrentGroup;
-      lines.push("", `Profile Installation: ${group.project}`);
+      lines.push("", `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${group.project}`);
       const profile = desiredProfile(report, group.project);
       if (profile) lines.push(`  Profile: ${profile}`);
       for (const item of group.items) {
@@ -462,8 +591,8 @@ function conciseReport(
   if (exclusionChanges.length > 0) {
     lines.push(
       "",
-      "Repository exclusions:",
-      "Git-local exclusions that keep Installer-owned generated paths untracked.",
+      `${capitalize(DEFAULT_VIEW_LEXICON.repositoryExclusion.plural)}:`,
+      defaultRepositoryExclusionDescription(),
     );
     for (const change of exclusionChanges) {
       lines.push(`- ${change.target}: ${exclusionDeltaText(change)}`);
@@ -490,7 +619,7 @@ function conciseReport(
   const warnings = warningsForPresentation(command, report.warnings);
   if (warnings.length > 0) {
     lines.push("", "Warnings:");
-    for (const warning of warnings) lines.push(`- ${warning}`);
+    for (const warning of warnings) lines.push(`- ${defaultDiagnosticText(warning)}`);
   }
   const next = nextActionLine(command, report, {
     activeGroups,
@@ -583,7 +712,7 @@ export function formatApplyVerificationFailure(
     return `${message}\nApply receipt:\n${verboseSections("apply", receipt)}`;
   }
   return [
-    message,
+    defaultDiagnosticText(message),
     ...applyReceiptLines(receipt),
   ].join("\n") + "\n";
 }

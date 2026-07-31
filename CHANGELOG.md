@@ -10,6 +10,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 - Document the CLI user journey in `docs/USER-JOURNEY.md` with a stable-ID gap register covering 23 observed gaps, and record the placement decision in ADR-0013.
 - Accept user-facing CLI presentation decisions — vocabulary layering, information design, Host Setup Steps, the `apkit` command name, `--json` and uniform exit codes, the teaching surface, and pre-1.0 versioning — in ADR-0014.
+- Add one UI lexicon for task-focused default lifecycle wording, with exhaustive enforcement that keeps internal domain vocabulary in `--verbose` output ([#114](https://github.com/kenneth-liao/agent-profile-kit/issues/114)).
 
 - Project Pi Skill projections now preserve disabled model-invocation policy with Pi-native frontmatter, explicit Artifact ID activation, invocation-specific Capability Contracts, and packed-CLI rejection coverage ([#104](https://github.com/kenneth-liao/agent-profile-kit/issues/104)).
 

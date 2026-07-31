@@ -36,14 +36,29 @@ function applyResult(
 const STATE_ANCHORS: Readonly<Record<(typeof NON_CURRENT_STATE_ORDER)[number], string>> = {
   addition: "not installed yet",
   "missing output": "not a safe automatic repair",
-  update: "rewrite Installer-owned generated outputs",
+  update: "rewrite generated files managed by Agent Profile Kit",
   "stale source": "Workspace source changed",
   "repairable missing output": "ownership is proven",
   "drifted output": "not treated as a safe automatic rewrite",
   "malformed ownership state": "cannot prove what it owns",
-  blocked: "until the listed blocker is resolved",
-  removal: "remove proven Installer-owned generated outputs",
+  blocked: "Sync cannot change this Project",
+  removal: "remove proven generated files managed by Agent Profile Kit",
 };
+
+const INTERNAL_ONLY_DEFAULT_TERMS = [
+  /Profile Installations?/i,
+  /generated[- ]outputs?/i,
+  /Repository Exclusions?/i,
+  /Installer-owned/i,
+  /reconcil(?:e|es|ed|ing|iation)/i,
+  /Artifact IDs?/i,
+  /Installation Manifests?/i,
+  /desired state/i,
+] as const;
+
+function expectUserFacingVocabulary(view: string): void {
+  for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(view).not.toMatch(term);
+}
 
 function explanationLines(reportText: string): string[] {
   const start = reportText.indexOf("State explanations:\n");
@@ -58,7 +73,123 @@ function explanationLines(reportText: string): string[] {
 }
 
 describe("formatLifecycleReport concise terminology", () => {
-  test("identifies change counts as generated-output units without per-output detail", () => {
+  test("keeps internal vocabulary out of every default lifecycle view", () => {
+    for (const kind of NON_CURRENT_STATE_ORDER) {
+      const report = emptyReport({
+        desired: [{
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        }],
+        items: [{
+          kind,
+          project: "/project-a",
+          reason: "Profile Installation desired state needs reconciliation",
+        }],
+        outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+        repositoryExclusions: [{
+          current: [],
+          next: ["/a.md"],
+          target: "/project-a/.git/info/exclude",
+        }],
+        warnings: [
+          "Installer-owned generated output differs from its Installation Manifest Artifact ID; " +
+          "reconcile reconciles reconciled reconciling reconciliation",
+        ],
+        blockers: kind === "blocked"
+          ? [
+              {
+                message: "/project-a: Cannot reconcile Profile Installation desired state",
+                project: "/project-a",
+              },
+              {
+                message: "Installer-owned generated output has a Repository Exclusion Artifact ID blocker",
+              },
+            ]
+          : [],
+      });
+      const defaultViews = [
+        formatLifecycleReport("preview", report),
+        formatApplyReport(applyResult(report)),
+        formatLifecycleReport("status", report),
+      ];
+
+      for (const view of defaultViews) {
+        expectUserFacingVocabulary(view);
+      }
+    }
+  });
+
+  test("preserves user values that contain internal vocabulary", () => {
+    const project = "/tmp/reconcile/Profile Installation/generated-output";
+    const exclusionTarget = "/tmp/reconcile/Repository Exclusion/info/exclude";
+    const exclusionEntry = "/generated-output/reconcile";
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: ["generated-output/reconcile"],
+        profile: "reconcile",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{
+        kind: "addition",
+        project,
+        reason: `Profile 'reconcile' reads /tmp/reconcile/generated-output`,
+      }],
+      outputs: [{ kind: "addition", path: "generated-output/reconcile", project }],
+      repositoryExclusions: [{
+        current: [],
+        next: [exclusionEntry],
+        target: exclusionTarget,
+      }],
+      warnings: [`Review /tmp/reconcile/generated-output for Profile 'reconcile'`],
+    });
+
+    for (const view of [
+      formatLifecycleReport("preview", report),
+      formatApplyReport(applyResult(report)),
+      formatLifecycleReport("status", report),
+    ]) {
+      expect(view).toContain(`Project: ${project}`);
+      expect(view).toContain("Profile: reconcile");
+      expect(view).toContain(exclusionTarget);
+      expect(view).toContain(exclusionEntry);
+      expect(view).toContain("/tmp/reconcile/generated-output");
+      expect(view).toContain("'reconcile'");
+    }
+  });
+
+  test("layers vocabulary in apply verification failures", () => {
+    const receipt = emptyReport({
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+
+    const view = formatApplyVerificationFailure(
+      receipt,
+      "Cannot reconcile Profile Installation desired state from its Installation Manifest Artifact ID",
+    );
+
+    expectUserFacingVocabulary(view);
+
+    const verbose = formatApplyVerificationFailure(
+      receipt,
+      "Cannot reconcile Profile Installation desired state from its Installation Manifest Artifact ID",
+      { verbose: true },
+    );
+    expect(verbose).toContain(
+      "Cannot reconcile Profile Installation desired state from its Installation Manifest Artifact ID",
+    );
+    expect(verbose).toContain("Repository Exclusions:");
+    expect(verbose).toContain("Desired State:");
+  });
+
+  test("identifies change counts as generated files without per-output detail", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -81,14 +212,14 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("preview", report);
 
-    expect(concise).toContain("Changes: 2 generated-output additions, 1 generated-output update, 1 generated-output repair, 1 generated-output removal, 1 generated-output drift item");
-    expect(concise).toContain("  Changes: 2 generated-output additions, 1 generated-output update, 1 generated-output repair, 1 generated-output removal, 1 generated-output drift item");
+    expect(concise).toContain("Changes: 2 generated file additions, 1 generated file update, 1 generated file repair, 1 generated file removal, 1 generated file drift item");
+    expect(concise).toContain("  Changes: 2 generated file additions, 1 generated file update, 1 generated file repair, 1 generated file removal, 1 generated file drift item");
     expect(concise).not.toContain("a.md");
     expect(concise).not.toContain("Desired State:");
     expect(concise).not.toContain("Outputs:");
   });
 
-  test("explains every non-current Profile Installation state only when present", () => {
+  test("explains every non-current project state only when present", () => {
     for (const kind of NON_CURRENT_STATE_ORDER) {
       const report = emptyReport({
         desired: [{
@@ -135,7 +266,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(allCurrent).not.toContain("State: current");
   });
 
-  test("emits each shared state explanation once across multiple Profile Installations", () => {
+  test("emits each shared state explanation once across multiple projects", () => {
     const report = emptyReport({
       desired: [
         {
@@ -169,16 +300,16 @@ describe("formatLifecycleReport concise terminology", () => {
     });
 
     const concise = formatLifecycleReport("status", report);
-    expect(concise).toContain("Profile Installation: /project-a");
-    expect(concise).toContain("Profile Installation: /project-b");
+    expect(concise).toContain("Project: /project-a");
+    expect(concise).toContain("Project: /project-b");
     expect(concise.match(/^- stale source: /gm)).toHaveLength(1);
     expect(concise.match(/^- blocked: /gm)).toHaveLength(1);
     // Project-specific states, change counts, and blockers stay on each installation.
     expect(concise).toMatch(
-      /Profile Installation: \/project-a\n  Profile: coding\n  State: stale source\n  Changes: 1 generated-output update\n/,
+      /Project: \/project-a\n  Profile: coding\n  State: stale source\n  Changes: 1 generated file update\n/,
     );
     expect(concise).toMatch(
-      /Profile Installation: \/project-b\n  Profile: coding\n  State: stale source\n  State: blocked \(hooks disabled\)\n  Changes: 1 generated-output addition, 1 generated-output update\n  Blocker: hooks disabled\n/,
+      /Project: \/project-b\n  Profile: coding\n  State: stale source\n  State: blocked \(hooks disabled\)\n  Changes: 1 generated file addition, 1 generated file update\n  Blocker: hooks disabled\n/,
     );
   });
 
@@ -219,7 +350,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(explanationLines(concise)).toHaveLength(1);
   });
 
-  test("explains Repository Exclusion deltas as Git-local exclusions while preserving exact paths", () => {
+  test("explains Git exclusion deltas while preserving exact paths", () => {
     const target = "/repo/.git/info/exclude";
     const report = emptyReport({
       desired: [{
@@ -241,9 +372,9 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("preview", report);
 
-    expect(concise).toContain("Repository exclusions:");
+    expect(concise).toContain("Git exclusions:");
     expect(concise).toContain(
-      "Git-local exclusions that keep Installer-owned generated paths untracked",
+      "Git-local exclusions that keep generated paths managed by Agent Profile Kit untracked",
     );
     expect(concise).toContain(
       `- ${target}: add /.agent-profile-kit/codex/context.md, /.codex/hooks.json; remove /.old-path.md`,
@@ -335,7 +466,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("restored 1 recorded Repository Exclusion entry");
   });
 
-  test("apply only expands Profile Installations with receipt work", () => {
+  test("apply only expands projects with receipt work", () => {
     const desired = [
       {
         canonicalProject: "/changed",
@@ -373,8 +504,8 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatApplyReport(applyResult(receipt, resultingState));
 
-    expect(concise).toContain("Profile Installation: /changed");
-    expect(concise).not.toContain("Profile Installation: /untouched");
+    expect(concise).toContain("Project: /changed");
+    expect(concise).not.toContain("Project: /untouched");
   });
 
   test("verified apply blockers change the outcome and preserve a nonzero-worthy state", () => {
@@ -410,7 +541,7 @@ describe("formatLifecycleReport concise terminology", () => {
 
     expect(concise.startsWith("Apply committed; post-apply verification failed: transient read\n")).toBe(true);
     expect(concise).toContain("Apply receipt:");
-    expect(concise).toContain("generated-output addition");
+    expect(concise).toContain("generated file addition");
     expect(concise).not.toContain("Apply complete");
   });
 });
@@ -592,7 +723,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
     const metadataOnly = formatApplyReport(applyResult(metadataOnlyReceipt, metadataOnlyResult));
     expect(metadataOnly).not.toContain("no changes were applied");
-    expect(metadataOnly).toContain("Profile Installation update");
+    expect(metadataOnly).toContain("Project update");
   });
 
   test("mixed multi-project blockers take precedence over actionable peers", () => {
@@ -712,12 +843,12 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
 
     const status = formatLifecycleReport("status", report);
-    expect(status).toContain("All Profile Installations are current");
-    expect(status).toContain("No Profile Installations need attention.");
+    expect(status).toContain("All Projects are current");
+    expect(status).toContain("No Projects need attention.");
     expect(nextActionLines(status)).toEqual([]);
 
     const preview = formatLifecycleReport("preview", report);
-    expect(preview).toContain("Nothing to reconcile; all Profile Installations are current.");
+    expect(preview).toContain("Nothing to sync; all Projects are current.");
     expect(nextActionLines(preview)).toEqual([]);
   });
 
@@ -737,7 +868,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
 
     const status = formatLifecycleReport("status", report);
-    expect(status).toContain("Profile Installation: /project-a");
+    expect(status).toContain("Project: /project-a");
     const next = nextActionLines(status);
     expect(next).toHaveLength(1);
     expect(next[0]).toMatch(/preview/i);
