@@ -291,6 +291,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
       schemaVersion: 3,
     });
     expect(preview.blockers).toEqual([]);
+    expect(preview.desired[0]?.hosts).toEqual(["claude"]);
     expect(preview.desired[0]?.outputs).toContain(CLAUDE_CONTEXT_RULE_PATH);
     expect(preview.desired[0]?.context).toContain("# Agent Profile Kit Context");
     expect(preview.desired[0]?.context).toContain("Profile: coding");

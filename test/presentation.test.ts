@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 import {
   formatApplyReport,
@@ -13,16 +15,27 @@ import type {
   ReconciliationReport,
 } from "../installer/reconcile.js";
 
-function emptyReport(overrides: Partial<ReconciliationReport> = {}): ReconciliationReport {
+type DesiredFixture = Omit<ReconciliationReport["desired"][number], "hosts"> & {
+  readonly hosts?: ReconciliationReport["desired"][number]["hosts"];
+};
+
+function emptyReport(
+  overrides: Omit<Partial<ReconciliationReport>, "desired"> & {
+    readonly desired?: readonly DesiredFixture[];
+  } = {},
+): ReconciliationReport {
   return {
     blockers: [],
-    desired: [],
     items: [],
     outputs: [],
     repositoryExclusionRepairs: [],
     repositoryExclusions: [],
     warnings: [],
     ...overrides,
+    desired: (overrides.desired ?? []).map((installation) => ({
+      hosts: ["codex"],
+      ...installation,
+    })),
   };
 }
 
@@ -31,6 +44,25 @@ function applyResult(
   resultingState: ReconciliationReport = receipt,
 ): ApplyReconciliationResult {
   return { receipt, resultingState };
+}
+
+function identityReport(
+  project: string,
+  hosts: ReconciliationReport["desired"][number]["hosts"] = ["codex"],
+): ReconciliationReport {
+  return emptyReport({
+    desired: [{
+      canonicalProject: project,
+      context: "composed",
+      hosts,
+      outputs: ["a.md"],
+      profile: "coding",
+      project,
+      resolvedArtifacts: [],
+    }],
+    items: [{ kind: "addition", project }],
+    outputs: [{ kind: "addition", path: "a.md", project }],
+  });
 }
 
 /** Distinctive anchor phrases — not a second home for the full gloss table. */
@@ -63,6 +95,126 @@ function explanationLines(reportText: string): string[] {
 }
 
 describe("formatLifecycleReport concise terminology", () => {
+  test("identifies the working-directory project as dot", () => {
+    const project = process.cwd();
+    const report = identityReport(project);
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("Project: .\n");
+    expect(concise).not.toContain(`Project: ${project}\n`);
+  });
+
+  test("identifies an ancestor project relative to the working directory", () => {
+    const project = dirname(process.cwd());
+    const report = identityReport(project);
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("Project: ..\n");
+    expect(concise).not.toContain(`Project: ${project}\n`);
+  });
+
+  test("identifies another home project with a home-relative path", () => {
+    const project = join(homedir(), "another-project");
+    const report = identityReport(project);
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("Project: ~/another-project\n");
+    expect(concise).not.toContain(`Project: ${project}\n`);
+  });
+
+  test("uses the short project identity in the apply receipt", () => {
+    const project = join(homedir(), "receipt-project");
+    const receipt = identityReport(project);
+
+    const concise = formatApplyReport(applyResult(receipt, emptyReport()));
+
+    expect(concise).toContain("- ~/receipt-project: 1 generated file addition\n");
+    expect(concise).not.toContain(`- ${project}:`);
+  });
+
+  test("names the Hosts recorded by each Project Binding", () => {
+    const project = join(homedir(), "multi-host-project");
+    const report = identityReport(project, ["claude", "codex"]);
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain(
+      "Project: ~/multi-host-project\n  Profile: coding\n  Hosts: claude, codex\n",
+    );
+  });
+
+  test("keeps displayed identities distinct for projects with the same basename", () => {
+    const first = join(homedir(), "team-a", "project");
+    const second = join(homedir(), "team-b", "project");
+    const report = emptyReport({
+      desired: [first, second].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      })),
+      items: [first, second].map((project) => ({ kind: "addition" as const, project })),
+      outputs: [first, second].map((project) => ({
+        kind: "addition" as const,
+        path: "a.md",
+        project,
+      })),
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("Project: ~/team-a/project\n");
+    expect(concise).toContain("Project: ~/team-b/project\n");
+  });
+
+  test("keeps an outside-home project absolute", () => {
+    const project = "/var/tmp/outside-home-project";
+    const report = identityReport(project);
+
+    expect(formatLifecycleReport("preview", report)).toContain(`Project: ${project}\n`);
+  });
+
+  test("preserves an authored path when its canonical spelling differs", () => {
+    const canonicalProject = "/private/var/tmp/aliased-project";
+    const authoredProject = "/var/tmp/aliased-project";
+    const report = identityReport(canonicalProject);
+    const aliasedReport = emptyReport({
+      ...report,
+      desired: report.desired.map((installation) => ({
+        ...installation,
+        project: authoredProject,
+      })),
+    });
+
+    const concise = formatLifecycleReport("preview", aliasedReport);
+
+    expect(concise).toContain(`Project: ${authoredProject}\n`);
+    expect(concise).not.toContain(`Project: ${canonicalProject}\n`);
+  });
+
+  test("preserves an authored home-relative path when its canonical spelling differs", () => {
+    const canonicalProject = "/private/var/tmp/aliased-project";
+    const authoredProject = "~/aliased-project";
+    const report = identityReport(canonicalProject);
+    const aliasedReport = emptyReport({
+      ...report,
+      desired: report.desired.map((installation) => ({
+        ...installation,
+        project: authoredProject,
+      })),
+    });
+
+    const concise = formatLifecycleReport("preview", aliasedReport);
+
+    expect(concise).toContain(`Project: ${authoredProject}\n`);
+    expect(concise).not.toContain(`Project: ${canonicalProject}\n`);
+  });
+
   test("keeps internal vocabulary out of every default lifecycle view", () => {
     for (const kind of NON_CURRENT_STATE_ORDER) {
       const report = emptyReport({
@@ -296,10 +448,10 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise.match(/^- blocked: /gm)).toHaveLength(1);
     // Project-specific states, change counts, and blockers stay on each installation.
     expect(concise).toMatch(
-      /Project: \/project-a\n  Profile: coding\n  State: stale source\n  Changes: 1 generated file update\n/,
+      /Project: \/project-a\n  Profile: coding\n  Hosts: codex\n  State: stale source\n  Changes: 1 generated file update\n/,
     );
     expect(concise).toMatch(
-      /Project: \/project-b\n  Profile: coding\n  State: stale source\n  State: blocked \(hooks disabled\)\n  Changes: 1 generated file addition, 1 generated file update\n  Blocker: hooks disabled\n/,
+      /Project: \/project-b\n  Profile: coding\n  Hosts: codex\n  State: stale source\n  State: blocked \(hooks disabled\)\n  Changes: 1 generated file addition, 1 generated file update\n  Blocker: hooks disabled\n/,
     );
   });
 
@@ -376,6 +528,7 @@ describe("formatLifecycleReport concise terminology", () => {
       desired: [{
         canonicalProject: "/project-a",
         context: "Composed context body",
+        hosts: ["claude", "codex"],
         outputs: [".agent-profile-kit/codex/context.md"],
         profile: "coding",
         project: "/project-a",
@@ -411,6 +564,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("/project-a/.git/info/exclude: add /.agent-profile-kit/codex/context.md");
     expect(verbose).toContain("Desired State:");
     expect(verbose).toContain("Profile coding");
+    expect(verbose).toContain("Hosts: claude, codex");
     expect(verbose).toContain("Resolved artifacts:");
     expect(verbose).toContain("context:team-rules");
     expect(verbose).toContain("Composed context body");
