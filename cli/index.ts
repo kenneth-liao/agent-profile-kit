@@ -21,6 +21,7 @@ import {
   validateApplication,
 } from "../installer/commands.js";
 import { ApplyVerificationError } from "../installer/reconcile.js";
+import { COMMAND_NAME } from "../installer/version.js";
 
 function formatError(error: unknown): string {
   if (error instanceof AggregateError) {
@@ -48,7 +49,7 @@ const COMMANDS: readonly { readonly name: string; readonly syntax: string; reado
 ];
 
 function usageLine(command: { readonly syntax: string }): string {
-  return `Usage: agent-profile-kit ${command.syntax}`;
+  return `Usage: ${COMMAND_NAME} ${command.syntax}`;
 }
 
 /** The single line of usage guidance for one named command. */
@@ -66,15 +67,15 @@ function rootHelp(): string {
   ).join("\n");
   return (
     "Agent Profile Kit composes reusable agent material into host-native Profile Installations.\n\n" +
-    "Usage: agent-profile-kit <command> [arguments]\n\n" +
+    `Usage: ${COMMAND_NAME} <command> [arguments]\n\n` +
     "Commands:\n" +
     `${commandLines}\n\n` +
     "Profile Installation quick start:\n" +
-    "  agent-profile-kit init\n" +
-    "  agent-profile-kit bind <profile> --host <host>\n" +
-    "  agent-profile-kit preview\n" +
-    "  agent-profile-kit apply\n\n" +
-    "For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run agent-profile-kit guide.\n"
+    `  ${COMMAND_NAME} init\n` +
+    `  ${COMMAND_NAME} bind <profile> --host <host>\n` +
+    `  ${COMMAND_NAME} preview\n` +
+    `  ${COMMAND_NAME} apply\n\n` +
+    `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide.\n`
   );
 }
 
@@ -83,7 +84,7 @@ function parseOrExit<T>(command: string, parse: () => T): T | undefined {
   try {
     return parse();
   } catch (error) {
-    process.stderr.write(`agent-profile-kit: ${formatError(error)}\n${commandUsage(command)}`);
+    process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n${commandUsage(command)}`);
     process.exitCode = 1;
     return undefined;
   }
@@ -189,11 +190,11 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("init", () => parseInitArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     const result = await initializeWorkspace(home, parsed);
-    for (const warning of result.warnings) process.stderr.write(`agent-profile-kit: warning: ${warning}\n`);
+    for (const warning of result.warnings) process.stderr.write(`${COMMAND_NAME}: warning: ${warning}\n`);
     if (result.outcome === "migrated") {
       process.stdout.write(
         `Migrated Local Configuration and validated the Agent Profile Kit Workspace at ${result.path}\n` +
-          "Next: run agent-profile-kit validate, then preview and apply as needed\n",
+          `Next: run ${COMMAND_NAME} validate, then preview and apply as needed\n`,
       );
       return;
     }
@@ -203,7 +204,7 @@ async function main(): Promise<void> {
     }
     process.stdout.write(
       `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}\n` +
-        "Next: bind a project or edit config.yaml, then run agent-profile-kit validate\n",
+        `Next: bind a project or edit config.yaml, then run ${COMMAND_NAME} validate\n`,
     );
     return;
   }
@@ -221,7 +222,7 @@ async function main(): Promise<void> {
         `Project Binding unchanged for ${result.project}\n` +
           `  Profile: ${result.profile}\n` +
           `  Hosts: ${result.hosts.join(", ")}\n` +
-          "Next: agent-profile-kit preview\n",
+          `Next: ${COMMAND_NAME} preview\n`,
       );
       return;
     }
@@ -229,7 +230,7 @@ async function main(): Promise<void> {
       `Recorded Project Binding for ${result.project}\n` +
         `  Profile: ${result.profile}\n` +
         `  Hosts: ${result.hosts.join(", ")}\n` +
-        "Next: agent-profile-kit preview\n",
+        `Next: ${COMMAND_NAME} preview\n`,
     );
     return;
   }
@@ -256,7 +257,7 @@ async function main(): Promise<void> {
         `  Profile: ${result.profile}\n` +
         `  Hosts: ${result.hosts.join(", ")}\n` +
         `  Local Configuration: ${result.configurationPath}\n` +
-        "Next: agent-profile-kit preview && agent-profile-kit apply\n",
+        `Next: ${COMMAND_NAME} preview && ${COMMAND_NAME} apply\n`,
     );
     return;
   }
@@ -321,11 +322,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  process.stderr.write(`agent-profile-kit: unknown command '${arguments_[0] ?? ""}'\n\n${rootHelp()}`);
+  process.stderr.write(`${COMMAND_NAME}: unknown command '${arguments_[0] ?? ""}'\n\n${rootHelp()}`);
   process.exitCode = 1;
 }
 
 main().catch((error: unknown) => {
-  process.stderr.write(`agent-profile-kit: ${formatError(error)}\n`);
+  process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
   process.exitCode = 1;
 });

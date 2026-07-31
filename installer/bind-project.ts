@@ -23,6 +23,7 @@ import {
   type LocalConfigurationFileSystem,
   withConfigurationLock,
 } from "./local-configuration-publication.js";
+import { COMMAND_NAME } from "./version.js";
 
 /** Compatibility facade for existing bind-project consumers; publication's canonical implementation is separate. */
 export {
@@ -133,7 +134,7 @@ export async function bindProject(
   if (!(await pathExists(fileSystem, configurationPath))) {
     if (!(await hasHeldResidue(configurationPath, fileSystem))) {
       throw new Error(
-        `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
+        `Local Configuration is missing at ${configurationPath}; run ${COMMAND_NAME} init`,
       );
     }
   }
@@ -153,7 +154,7 @@ export async function bindProject(
       } catch (error) {
         if (hasErrorCode(error, "ENOENT")) {
           throw new Error(
-            `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
+            `Local Configuration is missing at ${configurationPath}; run ${COMMAND_NAME} init`,
           );
         }
         throw error;

@@ -732,7 +732,6 @@ export async function previewReconciliation(
         project: installation.binding.project,
       });
     } else if (
-      previous.engineVersion !== installation.engineVersion ||
       previous.adapterVersion !== installation.adapterVersion ||
       !hostVersionsEqual(previous.hostVersions, installation.hostVersions) ||
       previous.hosts.join("\n") !== installation.binding.hosts.join("\n") ||

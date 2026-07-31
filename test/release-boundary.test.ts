@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
+
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 function filesUnder(root: string): readonly string[] {
@@ -62,6 +64,44 @@ test("living engine guidance does not describe removed legacy content as reposit
   expect(agents).toMatch(/personal material belongs in the user's Workspace/i);
   expect(agents).not.toContain("legacy migration input");
   expect(agents).not.toContain("`commands/`, `context/`, and `skills/`");
+});
+
+test("current user guidance invokes the published apkit command", () => {
+  const markdownPaths = execFileSync("git", ["ls-files", "--", "*.md"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  }).trim().split("\n").filter(Boolean);
+  const documents = markdownPaths.map((path) => ({
+    path,
+    source: readFileSync(join(repositoryRoot, path), "utf8"),
+  }));
+
+  expect(findFormerCommandInvocations(documents)).toEqual([]);
+});
+
+test("package identity has one lower-layer manifest reader", () => {
+  const paths = execFileSync(
+    "git",
+    ["ls-files", "--", "cli/*.ts", "installer/*.ts", "schemas/*.ts"],
+    { cwd: repositoryRoot, encoding: "utf8" },
+  ).trim().split("\n").filter(
+    (path) => path !== "" && existsSync(join(repositoryRoot, path)),
+  );
+  const sources = paths.map((path) => ({
+    path,
+    source: readFileSync(join(repositoryRoot, path), "utf8"),
+  }));
+
+  expect(
+    sources.filter(({ source }) => /from ["']\.\.\/package\.json["']/.test(source))
+      .map(({ path }) => path),
+  ).toEqual(["installer/version.ts"]);
+  expect(
+    sources.filter(({ path, source }) =>
+      (path.startsWith("installer/") || path.startsWith("schemas/")) &&
+      /from ["'][^"']*cli\//.test(source)
+    ).map(({ path }) => path),
+  ).toEqual([]);
 });
 
 test("legacy artifact roots stay absent from the engine source tree", () => {

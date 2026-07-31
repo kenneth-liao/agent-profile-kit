@@ -14,10 +14,13 @@ import {
   requireCurrentLocalConfiguration,
   parseLocalConfiguration,
   type LocalConfiguration,
+  type ParsedCurrentLocalConfiguration,
+  type ParsedLocalConfiguration,
   type ParsedProjectBinding,
   type ProjectBinding,
 } from "../schemas/local-configuration.js";
 import { ingestWorkspace, type Workspace } from "./ingest-workspace.js";
+import { COMMAND_NAME } from "./version.js";
 import { validateWorkspaceStructure } from "./workspace.js";
 
 export function localConfigurationPath(home: string): string {
@@ -30,6 +33,13 @@ export function stateDirectory(home: string): string {
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
+}
+
+export function requireCurrentApplicationConfiguration(
+  parsed: ParsedLocalConfiguration,
+  path: string,
+): ParsedCurrentLocalConfiguration {
+  return requireCurrentLocalConfiguration(parsed, path, `${COMMAND_NAME} init`);
 }
 
 /**
@@ -256,7 +266,7 @@ export async function ingestApplicationModelFromSource(
   path: string = localConfigurationPath(home),
   options: { readonly allowMissingProjects?: boolean } = {},
 ): Promise<IngestedApplicationSource> {
-  const parsed = requireCurrentLocalConfiguration(
+  const parsed = requireCurrentApplicationConfiguration(
     parseLocalConfiguration(source, path),
     path,
   );
@@ -374,7 +384,7 @@ export async function ingestApplication(home: string): Promise<{
     source = await readFile(path, "utf8");
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw new Error(`Local Configuration is missing at ${path}; run agent-profile-kit init`);
+      throw new Error(`Local Configuration is missing at ${path}; run ${COMMAND_NAME} init`);
     }
     throw error;
   }

@@ -45,14 +45,14 @@ feature on the backlog.
 
 ## Initialize
 
-`agent-profile-kit init` creates an empty, schema-versioned Workspace at the
+`apkit init` creates an empty, schema-versioned Workspace at the
 fixed default path `~/.agents/agent-profile-kit/workspace/` and a version-2
 machine-local Local Configuration at `~/.agents/agent-profile-kit/config.yaml`
 that explicitly records that path when Local Configuration is absent. Pass one
 explicit absolute or home-relative path to choose another destination:
 
 ```sh
-agent-profile-kit init ~/projects/agent-profile-workspace
+apkit init ~/projects/agent-profile-workspace
 ```
 
 When Local Configuration is absent, an explicit missing or empty non-symlink
@@ -86,9 +86,9 @@ only `schema_version: 1`. Local Configuration schema version is 2 and its
 ### Legacy Local Configuration migration and version compatibility
 
 Version-1 Local Configuration without `workspace` is supported only as migration
-input. Run `agent-profile-kit init` to upgrade it before using `validate`,
+input. Run `apkit init` to upgrade it before using `validate`,
 `preview`, `apply`, `status`, `bind`, or `unbind`. Those commands never migrate
-the file implicitly: they fail closed with actionable `agent-profile-kit init`
+the file implicitly: they fail closed with actionable `apkit init`
 guidance while leaving migration to the explicit `init` command.
 
 For a legacy file that omitted `workspace`, migration records the conventional
@@ -111,11 +111,13 @@ Rollback is unsupported without it. To use the immediately previous CLI release
 (0.20.x), stop using the current CLI, restore the copy, and then run that older
 binary:
 
+<!-- historical-command-excerpts:start -->
 ```sh
 config_dir="$HOME/.agents/agent-profile-kit"
 cp -p "$config_dir/config.yaml.before-schema-v2" "$config_dir/config.yaml"
 agent-profile-kit validate
 ```
+<!-- historical-command-excerpts:end -->
 
 The restored file preserves the pre-migration Workspace selection and Project
 Bindings. This reverses only the Local Configuration schema transition; it does
@@ -275,7 +277,7 @@ Before rolling a machine back to a CLI older than 0.17.0:
    at least one Context Module, or temporarily remove Project Bindings that use
    those Profiles and run `apply` / `uninstall` so owned Skill packages and
    installation metadata are removed while the newer CLI still understands them.
-2. Confirm `agent-profile-kit validate` succeeds after the conversion or cleanup.
+2. Confirm `apkit validate` succeeds after the conversion or cleanup.
 3. Only then install the older CLI binary.
 
 A mixed-version environment is safe only when every shared Workspace Profile
@@ -346,8 +348,8 @@ Hand-edit `config.yaml`, or record one binding with the authoring-only command
 (does not install or reconcile project output):
 
 ```sh
-agent-profile-kit bind coding --host codex
-agent-profile-kit bind coding ~/projects/tools/agent-profile-kit --host codex --host claude --host grok --host pi
+apkit bind coding --host codex
+apkit bind coding ~/projects/tools/agent-profile-kit --host codex --host claude --host grok --host pi
 ```
 
 Omit the project argument to use the current working directory. At least one
@@ -360,8 +362,8 @@ run `validate`, then `preview` and `apply` separately.
 Remove desired state with the recording-only command:
 
 ```sh
-agent-profile-kit unbind
-agent-profile-kit unbind ~/projects/tools/agent-profile-kit
+apkit unbind
+apkit unbind ~/projects/tools/agent-profile-kit
 ```
 
 Omitting the project targets the canonical current working directory. Existing
@@ -399,9 +401,9 @@ precedence over global configuration. If `CODEX_HOME` is set, Codex reads its
 global configuration from `CODEX_HOME/config.toml`; otherwise it uses
 `~/.codex/config.toml`. Skills-only Codex bindings do not require hooks.
 
-Run `agent-profile-kit validate` to check the Workspace and every Project Binding.
+Run `apkit validate` to check the Workspace and every Project Binding.
 Review the concise read-only reconciliation outcome with
-`agent-profile-kit preview`. It leads with whether reconciliation can proceed,
+`apkit preview`. It leads with whether reconciliation can proceed,
 groups changes and blockers by Profile Installation, and summarizes
 generated-output additions, updates, repairs, removals, and drift without
 listing every unchanged output. Non-current Profile Installation states such as
@@ -415,8 +417,8 @@ attention surface as the report body: actionable `status` points to read-only
 tells you to resolve the reported blocker and retry the same command you just
 ran; current status and completed or no-op `apply` results omit a next step.
 Multi-project outcomes emit one conservative instruction for the aggregate. Apply all configured Project Bindings with
-`agent-profile-kit apply`; its result describes what reconciliation completed.
-Use `agent-profile-kit status` to focus on installations needing attention.
+`apkit apply`; its result describes what reconciliation completed.
+Use `apkit status` to focus on installations needing attention.
 These commands operate on the full binding set; they do not filter by Profile,
 Host, or project.
 
@@ -436,8 +438,8 @@ then follows the same lifecycle as any other binding.
 For every bound project root, the ordinary removal order is:
 
 ```sh
-agent-profile-kit unbind /path/to/project
-agent-profile-kit apply
+apkit unbind /path/to/project
+apkit apply
 # Now delete the project directory.
 ```
 
@@ -549,7 +551,7 @@ Invocation-capable Pi `host_versions` are first recorded by Agent Profile Kit
 0.34.0. Unbind Pi or run `apply`/`uninstall` with 0.34.0+ before rolling back
 an invocation-capable installation below 0.34.0.
 
-For installations created before 0.24.2, run one live `agent-profile-kit apply`
+For installations created before 0.24.2, run one live `apkit apply`
 while each bound project root still exists. This records `git_project: false`
 for non-Git installations. Without that classification, deleting a non-Git
 root before `unbind` leaves no durable proof that its missing exclusion record
@@ -562,7 +564,7 @@ outputs and `.agent-profile-kit/installation.json` Markers, then remove only
 the marked block between `# BEGIN Agent Profile Kit generated paths` and
 `# END Agent Profile Kit generated paths` in each affected `.git/info/exclude`.
 Keep every unrelated exclusion byte. Recreate the desired Project Bindings and
-run `agent-profile-kit apply` to establish fresh v3 ownership records. A wiped
+run `apkit apply` to establish fresh v3 ownership records. A wiped
 state cannot safely be reconstructed from output bytes alone.
 
 ### Host Resolution and project-bound Profiles
@@ -600,15 +602,15 @@ planned project destination remain blockers.
 
 ## Status, unbind, and uninstall
 
-Use `agent-profile-kit status` to inspect every bound project. It reports current,
+Use `apkit status` to inspect every bound project. It reports current,
 stale source, repairable missing output, drifted output, missing output, blocked
 and malformed ownership, while keeping Host configuration warnings visible.
 
-Use `agent-profile-kit unbind [project]` to remove desired Project Binding state.
+Use `apkit unbind [project]` to remove desired Project Binding state.
 It does not delete generated output. Run the global `preview` and `apply` to
 review and reconcile the former installation.
 
-To delete generated output directly, use `agent-profile-kit uninstall`. It
+To delete generated output directly, use `apkit uninstall`. It
 removes only Installation Marker- and hash-proven output and preserves the
 Workspace and Local Configuration, including Project Bindings. `unbind` changes
 desired state; `uninstall` removes proven output. Neither command modifies
@@ -618,4 +620,4 @@ Review personal content before publishing this Workspace. Agent Profile Kit does
 not classify private material, and credential values do not belong in a Workspace
 regardless of whether you publish it.
 
-For help authoring with an agent, run `agent-profile-kit guide --agent`.
+For help authoring with an agent, run `apkit guide --agent`.

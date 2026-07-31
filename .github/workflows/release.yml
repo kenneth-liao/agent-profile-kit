@@ -94,7 +94,7 @@ jobs:
         run: |
           INSTALL_ROOT="$(mktemp -d)"
           npm install --ignore-scripts --prefix "$INSTALL_ROOT" "${{ steps.pack.outputs.package_file }}"
-          node "$INSTALL_ROOT/node_modules/agent-profile-kit/dist/cli.js" guide >/dev/null
+          "$INSTALL_ROOT/node_modules/.bin/apkit" guide >/dev/null
 
       - name: Prepare release notes
         run: |

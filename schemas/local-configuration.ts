@@ -158,10 +158,11 @@ export function parseLocalConfiguration(source: string, path: string): ParsedLoc
 export function requireCurrentLocalConfiguration(
   parsed: ParsedLocalConfiguration,
   path: string,
+  migrationCommand: string,
 ): ParsedCurrentLocalConfiguration {
   if (parsed.schemaVersion !== LOCAL_CONFIGURATION_SCHEMA_VERSION) {
     throw new Error(
-      `Local Configuration ${path} uses legacy schema_version ${parsed.schemaVersion}; run agent-profile-kit init to migrate it`,
+      `Local Configuration ${path} uses legacy schema_version ${parsed.schemaVersion}; run ${migrationCommand} to migrate it`,
     );
   }
   if (parsed.workspace === undefined) {

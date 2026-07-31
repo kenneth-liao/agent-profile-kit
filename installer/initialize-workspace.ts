@@ -23,12 +23,12 @@ import {
   LOCAL_CONFIGURATION_SCHEMA_VERSION,
   LOCAL_CONFIGURATION_FILE,
   parseLocalConfiguration,
-  requireCurrentLocalConfiguration,
 } from "../schemas/local-configuration.js";
 import {
   assertWorkspaceSelectionSeparation,
   expandConfiguredPath,
   localConfigurationPath,
+  requireCurrentApplicationConfiguration,
   resolveWorkspaceRoot,
 } from "./local-configuration.js";
 import {
@@ -44,6 +44,7 @@ import {
   WORKSPACE_ARTIFACT_DIRECTORIES,
   workspacePath,
 } from "./workspace.js";
+import { COMMAND_NAME } from "./version.js";
 
 const WORKSPACE_ROOT_FILES = {
   [WORKSPACE_MANIFEST_FILE]: WORKSPACE_MANIFEST,
@@ -51,11 +52,11 @@ const WORKSPACE_ROOT_FILES = {
 
 This Workspace is the canonical source for your Agent Profile Kit material.
 
-Run \`agent-profile-kit guide\` for current authoring guidance.
+Run \`${COMMAND_NAME} guide\` for current authoring guidance.
 `,
   "AGENTS.md": `# Agent Profile Kit Workspace
 
-Before editing this Workspace, run \`agent-profile-kit guide --agent\` and follow the current agent-oriented authoring guidance.
+Before editing this Workspace, run \`${COMMAND_NAME} guide --agent\` and follow the current agent-oriented authoring guidance.
 `,
   ".gitignore": ".DS_Store\n",
 } as const;
@@ -236,7 +237,7 @@ async function initializeWorkspaceAt(
   ensureConfiguration: boolean,
 ): Promise<InitializationResult> {
   const applicationRoot = join(home, ".agents", "agent-profile-kit");
-  const destination = await assertWorkspaceSelectionPath(home, authored, "agent-profile-kit init");
+  const destination = await assertWorkspaceSelectionPath(home, authored, `${COMMAND_NAME} init`);
   const workspaceState = await inspectWorkspace(destination);
 
   let workspaceCreated = false;
@@ -337,7 +338,7 @@ async function initializeWithoutConfiguration(
   options: InitializeWorkspaceOptions,
 ): Promise<InitializationResult> {
   const authored = options.workspace ?? workspacePath(home);
-  const destination = await assertWorkspaceSelectionPath(home, authored, "agent-profile-kit init");
+  const destination = await assertWorkspaceSelectionPath(home, authored, `${COMMAND_NAME} init`);
   await inspectWorkspace(destination);
   await mkdir(dirname(configPath), { recursive: true });
 
@@ -393,7 +394,7 @@ async function migrateLegacyConfiguration(
           const requestedExpanded = expandConfiguredPath(
             requestedWorkspace,
             home,
-            "agent-profile-kit init",
+            `${COMMAND_NAME} init`,
             "workspace",
           );
           if (requestedExpanded !== workspacePath(home)) {
@@ -473,7 +474,7 @@ export async function initializeWorkspace(
     );
     return migrated ?? initializeWorkspace(home, options);
   }
-  const authoredWorkspace = requireCurrentLocalConfiguration(parsed, configPath).workspace;
+  const authoredWorkspace = requireCurrentApplicationConfiguration(parsed, configPath).workspace;
   if (options.workspace !== undefined) {
     return initializeExplicitWorkspaceSelection(
       home,

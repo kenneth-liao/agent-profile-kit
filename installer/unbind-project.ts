@@ -11,6 +11,7 @@ import {
   type LocalConfigurationFileSystem,
   withConfigurationLock,
 } from "./local-configuration-publication.js";
+import { COMMAND_NAME } from "./version.js";
 import {
   expandConfiguredPath,
   ingestApplicationModelFromSource,
@@ -199,7 +200,7 @@ export async function unbindProject(
   if (!(await pathExists(fileSystem, configurationPath))) {
     if (!(await hasHeldResidue(configurationPath, fileSystem))) {
       throw new Error(
-        `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
+        `Local Configuration is missing at ${configurationPath}; run ${COMMAND_NAME} init`,
       );
     }
   }
@@ -218,7 +219,7 @@ export async function unbindProject(
       } catch (error) {
         if (error instanceof Error && "code" in error && error.code === "ENOENT") {
           throw new Error(
-            `Local Configuration is missing at ${configurationPath}; run agent-profile-kit init`,
+            `Local Configuration is missing at ${configurationPath}; run ${COMMAND_NAME} init`,
           );
         }
         throw error;
