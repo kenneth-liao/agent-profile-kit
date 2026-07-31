@@ -1,4 +1,3 @@
-import { COMMAND_NAME } from "./command-name.js";
 import type {
   ApplyReconciliationResult,
   OutputReconciliationItem,
@@ -8,6 +7,7 @@ import type {
   ReconciliationReport,
 } from "../installer/reconcile.js";
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
+import { COMMAND_NAME } from "../installer/version.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
 

@@ -1,6 +1,5 @@
 import { isMap, isSeq, parseDocument } from "yaml";
 
-import { COMMAND_NAME } from "../cli/command-name.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
 import {
   isSupportedHost,
@@ -24,6 +23,7 @@ import {
   type LocalConfigurationFileSystem,
   withConfigurationLock,
 } from "./local-configuration-publication.js";
+import { COMMAND_NAME } from "./version.js";
 
 /** Compatibility facade for existing bind-project consumers; publication's canonical implementation is separate. */
 export {

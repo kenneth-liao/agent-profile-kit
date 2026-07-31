@@ -1,7 +1,6 @@
 import { lstat } from "node:fs/promises";
 import { isSeq, parseDocument } from "yaml";
 
-import { COMMAND_NAME } from "../cli/command-name.js";
 import {
   defaultFileSystem,
   DEFAULT_LOCK_TIMEOUT_MS,
@@ -12,6 +11,7 @@ import {
   type LocalConfigurationFileSystem,
   withConfigurationLock,
 } from "./local-configuration-publication.js";
+import { COMMAND_NAME } from "./version.js";
 import {
   expandConfiguredPath,
   ingestApplicationModelFromSource,

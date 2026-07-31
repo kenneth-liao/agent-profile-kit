@@ -111,11 +111,13 @@ Rollback is unsupported without it. To use the immediately previous CLI release
 (0.20.x), stop using the current CLI, restore the copy, and then run that older
 binary:
 
+<!-- historical-command-excerpts:start -->
 ```sh
 config_dir="$HOME/.agents/agent-profile-kit"
 cp -p "$config_dir/config.yaml.before-schema-v2" "$config_dir/config.yaml"
 agent-profile-kit validate
 ```
+<!-- historical-command-excerpts:end -->
 
 The restored file preserves the pre-migration Workspace selection and Project
 Bindings. This reverses only the Local Configuration schema transition; it does

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
+
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 function filesUnder(root: string): readonly string[] {
@@ -65,28 +67,41 @@ test("living engine guidance does not describe removed legacy content as reposit
 });
 
 test("current user guidance invokes the published apkit command", () => {
-  const guidance = new Map<string, readonly string[]>([
-    ["AGENTS.md", []],
-    ["README.md", []],
-    ["docs/ARCHITECTURE.md", []],
-    ["docs/guides/agent-workflow.md", []],
-    ["docs/guides/workspace.md", ["agent-profile-kit validate"]],
-    ["docs/runbooks/github-release.md", ["agent-profile-kit guide"]],
-  ]);
-  const formerCommand = /\bagent-profile-kit (?=(?:init|guide|bind|unbind|validate|preview|apply|status|uninstall|--help)\b)/;
+  const markdownPaths = execFileSync("git", ["ls-files", "--", "*.md"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  }).trim().split("\n").filter(Boolean);
+  const documents = markdownPaths.map((path) => ({
+    path,
+    source: readFileSync(join(repositoryRoot, path), "utf8"),
+  }));
 
-  for (const [path, versionPinnedInvocations] of guidance) {
-    let source = readFileSync(join(repositoryRoot, path), "utf8");
-    if (path !== "docs/runbooks/github-release.md") expect(source).toContain("apkit");
-    for (const invocation of versionPinnedInvocations) {
-      expect(source.split(invocation)).toHaveLength(2);
-      source = source.replace(invocation, "");
-    }
-    expect(source).not.toMatch(formerCommand);
-  }
+  expect(findFormerCommandInvocations(documents)).toEqual([]);
+});
 
-  const userJourney = readFileSync(join(repositoryRoot, "docs/USER-JOURNEY.md"), "utf8");
-  expect(userJourney).toContain("| 1 | Discover | `apkit`, `--help`");
+test("package identity has one lower-layer manifest reader", () => {
+  const paths = execFileSync(
+    "git",
+    ["ls-files", "--", "cli/*.ts", "installer/*.ts", "schemas/*.ts"],
+    { cwd: repositoryRoot, encoding: "utf8" },
+  ).trim().split("\n").filter(
+    (path) => path !== "" && existsSync(join(repositoryRoot, path)),
+  );
+  const sources = paths.map((path) => ({
+    path,
+    source: readFileSync(join(repositoryRoot, path), "utf8"),
+  }));
+
+  expect(
+    sources.filter(({ source }) => /from ["']\.\.\/package\.json["']/.test(source))
+      .map(({ path }) => path),
+  ).toEqual(["installer/version.ts"]);
+  expect(
+    sources.filter(({ path, source }) =>
+      (path.startsWith("installer/") || path.startsWith("schemas/")) &&
+      /from ["'][^"']*cli\//.test(source)
+    ).map(({ path }) => path),
+  ).toEqual([]);
 });
 
 test("legacy artifact roots stay absent from the engine source tree", () => {

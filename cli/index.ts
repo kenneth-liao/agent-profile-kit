@@ -2,7 +2,6 @@
 
 import { homedir } from "node:os";
 
-import { COMMAND_NAME } from "./command-name.js";
 import { agentGuide, humanGuide } from "./guides.js";
 import {
   formatApplyReport,
@@ -22,6 +21,7 @@ import {
   validateApplication,
 } from "../installer/commands.js";
 import { ApplyVerificationError } from "../installer/reconcile.js";
+import { COMMAND_NAME } from "../installer/version.js";
 
 function formatError(error: unknown): string {
   if (error instanceof AggregateError) {

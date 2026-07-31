@@ -13,7 +13,6 @@ import {
 import { dirname, join } from "node:path";
 import { parseDocument } from "yaml";
 
-import { COMMAND_NAME } from "../cli/command-name.js";
 import {
   WORKSPACE_MANIFEST,
   WORKSPACE_MANIFEST_FILE,
@@ -24,12 +23,12 @@ import {
   LOCAL_CONFIGURATION_SCHEMA_VERSION,
   LOCAL_CONFIGURATION_FILE,
   parseLocalConfiguration,
-  requireCurrentLocalConfiguration,
 } from "../schemas/local-configuration.js";
 import {
   assertWorkspaceSelectionSeparation,
   expandConfiguredPath,
   localConfigurationPath,
+  requireCurrentApplicationConfiguration,
   resolveWorkspaceRoot,
 } from "./local-configuration.js";
 import {
@@ -45,6 +44,7 @@ import {
   WORKSPACE_ARTIFACT_DIRECTORIES,
   workspacePath,
 } from "./workspace.js";
+import { COMMAND_NAME } from "./version.js";
 
 const WORKSPACE_ROOT_FILES = {
   [WORKSPACE_MANIFEST_FILE]: WORKSPACE_MANIFEST,
@@ -474,7 +474,7 @@ export async function initializeWorkspace(
     );
     return migrated ?? initializeWorkspace(home, options);
   }
-  const authoredWorkspace = requireCurrentLocalConfiguration(parsed, configPath).workspace;
+  const authoredWorkspace = requireCurrentApplicationConfiguration(parsed, configPath).workspace;
   if (options.workspace !== undefined) {
     return initializeExplicitWorkspaceSelection(
       home,

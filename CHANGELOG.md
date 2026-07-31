@@ -21,18 +21,19 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Explain concise lifecycle summary terminology: generated-output change units, short non-current Profile Installation state glosses (deduplicated across installations), and Git-local Repository Exclusion purpose while preserving exact path deltas; `--verbose` still exposes complete diagnostics from the same reconciliation report ([#89](https://github.com/kenneth-liao/agent-profile-kit/issues/89)).
 - Install resolved portable Skills for Grok projects under `.grok/skills/<Artifact ID>/`, preserving package bytes/modes, projecting `disable-model-invocation` for disabled model-invocation policy, and fail-closed Skill discovery preflight across native, personal, compatibility, plugin, and configured sources ([#87](https://github.com/kenneth-liao/agent-profile-kit/issues/87)).
 - Add Grok as a project-bound Agent Host for Profile Context via always-scanned `.grok/rules/` and Claude rules compatibility coalescing ([#86](https://github.com/kenneth-liao/agent-profile-kit/issues/86)).
-- Explain every command in root `agent-profile-kit` and `agent-profile-kit --help` output, including a minimal `init` → `bind` → `preview` → `apply` Profile Installation quick start and a pointer to `guide` for deeper authoring; unknown commands and invalid arguments now name the error and show the relevant usage ([#88](https://github.com/kenneth-liao/agent-profile-kit/issues/88)).
+- Explain every command in root `apkit` and `apkit --help` output, including a minimal `init` → `bind` → `preview` → `apply` Profile Installation quick start and a pointer to `guide` for deeper authoring; unknown commands and invalid arguments now name the error and show the relevant usage ([#88](https://github.com/kenneth-liao/agent-profile-kit/issues/88)).
 - Repair wholly absent owned files and complete artifact directories from current Workspace source when the Installation Marker and every surviving output prove ownership ([#79](https://github.com/kenneth-liao/agent-profile-kit/issues/79)).
 - Make Repository Exclusion Records the canonical machine-local ownership source for shared Git exclusion files, including deterministic unions, fail-closed validation, and transactional reconciliation ([#77](https://github.com/kenneth-liao/agent-profile-kit/issues/77)).
 - Add concise, outcome-led `bind`, `preview`, `apply`, and `status` output with
   Profile Installation grouping, actionable ownership blockers, and explicit
   `--verbose` lifecycle diagnostics ([#70](https://github.com/kenneth-liao/agent-profile-kit/issues/70)).
-- Accept an optional explicit Workspace path in `agent-profile-kit init`, provisioning missing or empty destinations, adopting valid existing Workspaces, and failing closed on canonical selection conflicts ([#69](https://github.com/kenneth-liao/agent-profile-kit/issues/69)).
+- Accept an optional explicit Workspace path in `apkit init`, provisioning missing or empty destinations, adopting valid existing Workspaces, and failing closed on canonical selection conflicts ([#69](https://github.com/kenneth-liao/agent-profile-kit/issues/69)).
 - Require an explicit Workspace selection in Local Configuration schema version 2; `init` records the conventional default or migrates supported version-1 configuration without implicit read-time migration ([#68](https://github.com/kenneth-liao/agent-profile-kit/issues/68)).
 
 ### Changed
 
-- Rename the published CLI command to `apkit` while preserving existing Profile Installation ownership paths and records ([#113](https://github.com/kenneth-liao/agent-profile-kit/issues/113)).
+- Rename the published CLI command to `apkit`; the former `agent-profile-kit` executable is no longer installed. Existing Workspace bootstrap docs are not rewritten and may retain the obsolete command ([#113](https://github.com/kenneth-liao/agent-profile-kit/issues/113)).
+- Treat Installation Manifest `engine_version` as provenance rather than desired state, so an engine version bump alone does not re-apply an otherwise-current Profile Installation ([#113](https://github.com/kenneth-liao/agent-profile-kit/issues/113)).
 
 - Require Agent Profile Kit 0.34.0+ to read Pi invocation-capable `host_versions`; unbind Pi or re-apply/uninstall with 0.34.0+ before rolling back an invocation-capable installation ([#104](https://github.com/kenneth-liao/agent-profile-kit/issues/104)).
 

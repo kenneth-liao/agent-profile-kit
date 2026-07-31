@@ -19,7 +19,9 @@ against sandbox `HOME`s, not derived from source. Coverage: cold start; authorin
 bind; validate; preview; apply; stale source; hand-edited drift; deleted output;
 uninstall; unbind; missing and outdated Host CLIs; and a three-project,
 four-Host installation (Claude, Codex, Grok, Pi) including a Skills-only Profile,
-a non-Git project, and a disabled-model-invocation Skill.
+a non-Git project, and a disabled-model-invocation Skill. These captured excerpts
+predate the `apkit` rename and deliberately preserve the executable spelling that
+produced them.
 
 ---
 
@@ -48,6 +50,7 @@ the CLI never speaks to.
 
 ## Stage detail
 
+<!-- historical-command-excerpts:start -->
 ### 1. Discover
 
 A bare invocation and `--help` both print root help: description, command table,
@@ -284,6 +287,7 @@ State explanations:
 apply`, which reports zero installations and no changes.
 
 Gaps: [UJ-03](#uj-03), [UJ-08](#uj-08), [UJ-09](#uj-09).
+<!-- historical-command-excerpts:end -->
 
 ---
 
@@ -344,10 +348,12 @@ misleads. Distinct labels — `Pending` versus `Applied` — carry the same mode
 without the collision.
 
 ### UJ-05
+<!-- historical-command-excerpts:start -->
 A blocked `apply` writes the concise report to stdout, re-runs `preview` as a
 diagnostic, then rethrows so `cli/index.ts` prints the blockers again to stderr.
 The closing line reads `Next: …run agent-profile-kit preview again` because the
 fallback formats a `preview` report — naming a command the user did not run.
+<!-- historical-command-excerpts:end -->
 
 ### UJ-06
 For a single drifted file, the `State:` reason, the path-scoped blocker, and the

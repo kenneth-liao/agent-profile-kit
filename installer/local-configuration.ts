@@ -9,16 +9,18 @@ import {
   sep,
 } from "node:path";
 
-import { COMMAND_NAME } from "../cli/command-name.js";
 import {
   LOCAL_CONFIGURATION_FILE,
   requireCurrentLocalConfiguration,
   parseLocalConfiguration,
   type LocalConfiguration,
+  type ParsedCurrentLocalConfiguration,
+  type ParsedLocalConfiguration,
   type ParsedProjectBinding,
   type ProjectBinding,
 } from "../schemas/local-configuration.js";
 import { ingestWorkspace, type Workspace } from "./ingest-workspace.js";
+import { COMMAND_NAME } from "./version.js";
 import { validateWorkspaceStructure } from "./workspace.js";
 
 export function localConfigurationPath(home: string): string {
@@ -31,6 +33,13 @@ export function stateDirectory(home: string): string {
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
+}
+
+export function requireCurrentApplicationConfiguration(
+  parsed: ParsedLocalConfiguration,
+  path: string,
+): ParsedCurrentLocalConfiguration {
+  return requireCurrentLocalConfiguration(parsed, path, `${COMMAND_NAME} init`);
 }
 
 /**
@@ -257,7 +266,7 @@ export async function ingestApplicationModelFromSource(
   path: string = localConfigurationPath(home),
   options: { readonly allowMissingProjects?: boolean } = {},
 ): Promise<IngestedApplicationSource> {
-  const parsed = requireCurrentLocalConfiguration(
+  const parsed = requireCurrentApplicationConfiguration(
     parseLocalConfiguration(source, path),
     path,
   );

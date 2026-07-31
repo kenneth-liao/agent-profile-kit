@@ -1,6 +1,5 @@
 import { parse, stringify } from "yaml";
 
-import { COMMAND_NAME } from "../cli/command-name.js";
 import { requireArtifactId } from "./dependencies.js";
 
 export const LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION = 1;
@@ -159,10 +158,11 @@ export function parseLocalConfiguration(source: string, path: string): ParsedLoc
 export function requireCurrentLocalConfiguration(
   parsed: ParsedLocalConfiguration,
   path: string,
+  migrationCommand: string,
 ): ParsedCurrentLocalConfiguration {
   if (parsed.schemaVersion !== LOCAL_CONFIGURATION_SCHEMA_VERSION) {
     throw new Error(
-      `Local Configuration ${path} uses legacy schema_version ${parsed.schemaVersion}; run ${COMMAND_NAME} init to migrate it`,
+      `Local Configuration ${path} uses legacy schema_version ${parsed.schemaVersion}; run ${migrationCommand} to migrate it`,
     );
   }
   if (parsed.workspace === undefined) {

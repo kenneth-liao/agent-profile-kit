@@ -15,6 +15,8 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
+import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
+
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
 
@@ -439,21 +441,15 @@ describe("project-bound release candidate", () => {
 
   test("packed distribution excludes credentials, runtime state, and removed commands", () => {
     // Exact file allowlist lives only in release-boundary.test.ts.
-    const packageText = filesUnder(packageRoot)
-      .map((path) => {
-        const source = readFileSync(join(packageRoot, path), "utf8");
-        if (path !== join("docs", "guides", "workspace.md")) return source;
-
-        const versionPinnedInvocation = "agent-profile-kit validate";
-        expect(source.split(versionPinnedInvocation)).toHaveLength(2);
-        return source.replace(versionPinnedInvocation, "");
-      })
-      .join("\n");
+    const packageDocuments = filesUnder(packageRoot).map((path) => ({
+      path,
+      source: readFileSync(join(packageRoot, path), "utf8"),
+    }));
+    const markdownDocuments = packageDocuments.filter(({ path }) => path.endsWith(".md"));
+    const packageText = packageDocuments.map(({ source }) => source).join("\n");
 
     expect(packageText).not.toMatch(/BEGIN (RSA |OPENSSH )?PRIVATE KEY|api[_-]?key\s*[:=]/i);
-    expect(packageText).not.toMatch(
-      /\bagent-profile-kit (?=(?:init|guide|bind|unbind|validate|preview|apply|status|uninstall|--help)\b)/,
-    );
+    expect(findFormerCommandInvocations(markdownDocuments)).toEqual([]);
     expect(packageText).not.toMatch(/apkit (plan|install|update|run)\b/);
     expect(packageText).not.toMatch(/per-session launcher|global Skill projection|process[- ]overlay/i);
     expect(existsSync(join(packageRoot, "node_modules"))).toBe(false);
