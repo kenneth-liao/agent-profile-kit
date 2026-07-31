@@ -13,6 +13,7 @@ This repository is the open-source Agent Profile Kit engine. It contains product
   effective inventories. See ADR-0012.
 - Use test-driven development for behavior changes unless the change is trivial, docs-only, or a throwaway spike.
 - Keep per-issue worktrees under `.worktrees/` and never commit local runtime state.
+- Until 1.0, follow standard SemVer 0.x: breaking changes bump the **minor** version rather than forcing a premature 1.0. Breaking changes are expected pre-launch and carry no compatibility shims. See ADR-0014.
 
 ## Canonical Locations
 
@@ -22,6 +23,7 @@ This repository is the open-source Agent Profile Kit engine. It contains product
 - `schemas/` owns portable Workspace and artifact schemas.
 - `docs/adr/` owns accepted decisions and rationale.
 - `docs/ARCHITECTURE.md` owns living structural facts.
+- `docs/USER-JOURNEY.md` owns user-facing CLI surface behavior and its gap register.
 - `docs/runbooks/` owns operational playbooks.
 - `docs/archive/` owns shipped plans and spent research only.
 
