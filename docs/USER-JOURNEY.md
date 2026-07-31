@@ -458,6 +458,24 @@ could be applied immediately.
 
 ---
 
+## Watch items
+
+Observed concerns that are deliberately **not** registered gaps and not ticketed,
+because their only known instance no longer reproduces. A gate protecting a
+failure that cannot be named concretely is debt, not protection. Promote one to
+the register only when it recurs against current behavior.
+
+**Blocker class repetition.** A pre-#110 `status` reported 21 near-identical
+blockers — 11 Skill-collision and 10 discovery-root — each restating its full
+explanation, for two underlying classes. This is distinct from
+[UJ-06](#uj-06): those are legitimately separate blockers, so deduplication does
+not apply; what they want is grouping into one explanation plus the affected
+list. The instance was removed with the cross-Host collision machinery in #110
+(see closed issue #111), so no current behavior produces it. Any blocker that can
+fire once per selected artifact could reintroduce it.
+
+---
+
 ## Accepted presentation principles
 
 Accepted in ADR-0014. Individual fixes are argued from these rather than from
