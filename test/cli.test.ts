@@ -19,6 +19,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse, stringify } from "yaml";
 
+import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
+
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
 let cliPath = join(repositoryRoot, "dist", "cli.js");
@@ -5282,16 +5284,36 @@ describe("apkit root help", () => {
     { name: "uninstall", syntax: "uninstall" },
   ] as const;
 
-  test("bare invocation and --help print identical root help to stdout and exit successfully", () => {
+  test("--version reports the packaged engine version", () => {
+    const home = isolatedHome();
+    const manifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
+      readonly version: string;
+    };
+    const result = runCli(home, "--version");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(`${manifest.version}\n`);
+  });
+
+  test("bare invocation, --help, -h, and help print identical root help successfully", () => {
     const home = isolatedHome();
     const bare = runCli(home);
     const help = runCli(home, "--help");
+    const shortHelp = runCli(home, "-h");
+    const helpCommand = runCli(home, "help");
 
     expect(bare.status, bare.stderr).toBe(0);
     expect(help.status, help.stderr).toBe(0);
+    expect(shortHelp.status, shortHelp.stderr).toBe(0);
+    expect(helpCommand.status, helpCommand.stderr).toBe(0);
     expect(bare.stderr).toBe("");
     expect(help.stderr).toBe("");
+    expect(shortHelp.stderr).toBe("");
+    expect(helpCommand.stderr).toBe("");
     expect(bare.stdout).toBe(help.stdout);
+    expect(shortHelp.stdout).toBe(help.stdout);
+    expect(helpCommand.stdout).toBe(help.stdout);
     expect(bare.stdout.length).toBeGreaterThan(0);
   });
 
@@ -5300,7 +5322,7 @@ describe("apkit root help", () => {
     const result = runCli(home, "--help");
     expect(result.status, result.stderr).toBe(0);
 
-    const commandsSection = result.stdout.match(/Commands:\n([\s\S]*?)\n\nProfile Installation quick start:/)?.[1];
+    const commandsSection = result.stdout.match(/Commands:\n([\s\S]*?)\n\nProject quick start:/)?.[1];
     expect(commandsSection).toBeDefined();
     const commandLines = commandsSection!.split("\n").filter((line) => line.trim().length > 0);
     expect(commandLines).toHaveLength(COMMANDS.length);
@@ -5313,7 +5335,7 @@ describe("apkit root help", () => {
     }
   });
 
-  test("root help shows the minimal Profile Installation flow and points to guide for deeper authoring", () => {
+  test("root help shows the minimal Project flow and points to guide for deeper authoring", () => {
     const home = isolatedHome();
     const result = runCli(home, "--help");
     expect(result.status, result.stderr).toBe(0);
@@ -5331,6 +5353,32 @@ describe("apkit root help", () => {
     expect(result.stdout.toLowerCase()).toMatch(/workspace authoring/);
   });
 
+  test("every command explains its purpose, syntax, examples, writes, and next action", () => {
+    const home = isolatedHome();
+    const root = runCli(home, "--help");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(root.stdout).not.toMatch(term);
+
+    for (const command of COMMANDS) {
+      const result = runCli(home, command.name, "--help");
+      expect(result.status, `${command.name}: ${result.stderr}`).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toContain(`Usage: apkit ${command.syntax}`);
+      expect(result.stdout).toMatch(/^Purpose: .+/m);
+      expect(result.stdout).toMatch(/^Examples:\n  apkit /m);
+      expect(result.stdout).toMatch(/^Writes: .+/m);
+      expect(result.stdout).toMatch(/^Next: .+/m);
+      for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(result.stdout).not.toMatch(term);
+
+      const rootLine = root.stdout
+        .split("\n")
+        .find((line) => new RegExp(`^\\s*${command.name}\\b`).test(line));
+      expect(rootLine).toBeDefined();
+      const purpose = result.stdout.match(/^Purpose: (.+)$/m)?.[1];
+      expect(purpose).toBeDefined();
+      expect(rootLine).toContain(purpose!);
+    }
+  });
+
   test("an unknown command exits nonzero, names the unknown command, and shows root usage", () => {
     const home = isolatedHome();
     const result = runCli(home, "frobnicate");
@@ -5343,6 +5391,27 @@ describe("apkit root help", () => {
     for (const { name } of COMMANDS) {
       expect(result.stderr).toMatch(new RegExp(`\\b${name}\\b`));
     }
+  });
+
+  test("leading-dash values are never consumed as positional arguments", () => {
+    const home = isolatedHome();
+    const cases = [
+      { arguments: ["init", "--workspace"], message: "init does not accept flag '--workspace' as a Workspace path" },
+      { arguments: ["bind", "--profile"], message: "bind does not accept flag '--profile' as a Profile" },
+      { arguments: ["unbind", "--project"], message: "unbind does not accept flag '--project' as a project path" },
+    ] as const;
+
+    for (const example of cases) {
+      const result = runCli(home, ...example.arguments);
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(example.message);
+      expect(result.stderr).toContain(`Usage: apkit ${example.arguments[0]}`);
+    }
+
+    const hostValue = runCli(home, "bind", "example", "--host", "--codex");
+    expect(hostValue.status).toBe(1);
+    expect(hostValue.stderr).toContain("bind --host requires an Agent Host name");
   });
 
   test("representative invalid arguments exit nonzero, explain the error, and show the relevant command usage", () => {

@@ -42,6 +42,17 @@ const DEFAULT_VIEW_LEXICON = {
   repositoryExclusionRecord: { singular: "Git exclusion record", plural: "Git exclusion records" },
 } as const;
 
+export const INTERNAL_ONLY_DEFAULT_TERMS = [
+  /Profile Installations?/i,
+  /generated[- ]outputs?/i,
+  /Repository Exclusions?/i,
+  /Installer-owned/i,
+  /reconcil(?:e|es|ed|ing|iation)/i,
+  /Artifact IDs?/i,
+  /Installation Manifests?/i,
+  /desired state/i,
+] as const;
+
 function capitalize(text: string): string {
   return `${text[0]?.toUpperCase()}${text.slice(1)}`;
 }
@@ -52,7 +63,7 @@ function preserveInitialCase(source: string, replacement: string): string {
     : replacement;
 }
 
-function defaultViewText(text: string): string {
+export function defaultViewText(text: string): string {
   const replacements: readonly (readonly [RegExp, string, boolean?])[] = [
     [
       /\bInstaller-owned generated outputs\b/gi,

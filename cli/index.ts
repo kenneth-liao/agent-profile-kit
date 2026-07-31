@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 
 import { agentGuide, humanGuide } from "./guides.js";
 import {
+  defaultViewText,
   formatApplyReport,
   formatApplyVerificationFailure,
   formatLifecycleReport,
@@ -21,7 +22,8 @@ import {
   validateApplication,
 } from "../installer/commands.js";
 import { ApplyVerificationError } from "../installer/reconcile.js";
-import { COMMAND_NAME } from "../installer/version.js";
+import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
+import { COMMAND_EXAMPLES } from "./examples.js";
 
 function formatError(error: unknown): string {
   if (error instanceof AggregateError) {
@@ -36,16 +38,88 @@ function formatError(error: unknown): string {
  * and per-command usage guidance are both derived from this table so they
  * cannot drift apart.
  */
-const COMMANDS: readonly { readonly name: string; readonly syntax: string; readonly summary: string }[] = [
-  { name: "init", syntax: "init [workspace]", summary: "Initialize or adopt the canonical Workspace and Local Configuration" },
-  { name: "guide", syntax: "guide [--agent]", summary: "Print Workspace authoring guidance (human-facing by default; --agent for agent-facing)" },
-  { name: "bind", syntax: "bind <profile> [project] --host <host> [--host <host> ...]", summary: "Record a Project Binding to a Profile and Agent Hosts" },
-  { name: "unbind", syntax: "unbind [project]", summary: "Remove a Project Binding" },
-  { name: "validate", syntax: "validate", summary: "Check Workspace and Local Configuration validity" },
-  { name: "preview", syntax: "preview [--verbose]", summary: "Show pending reconciliation changes without writing (read-only)" },
-  { name: "apply", syntax: "apply [--verbose]", summary: "Reconcile Profile Installations to match Local Configuration" },
-  { name: "status", syntax: "status [--verbose]", summary: "Show current Profile Installation lifecycle state" },
-  { name: "uninstall", syntax: "uninstall", summary: "Remove all Profile Installations" },
+interface CommandHelp {
+  readonly name: string;
+  readonly syntax: string;
+  readonly summary: string;
+  readonly examples: readonly string[];
+  readonly writes: string;
+  readonly next: string;
+}
+
+const COMMANDS: readonly CommandHelp[] = [
+  {
+    name: "init",
+    syntax: "init [workspace]",
+    summary: "Initialize or adopt the canonical Workspace and Local Configuration",
+    examples: COMMAND_EXAMPLES.init,
+    writes: "Creates missing Workspace scaffolding and Local Configuration; never overwrites a valid Workspace.",
+    next: `Run ${COMMAND_NAME} guide to learn how to add a Profile.`,
+  },
+  {
+    name: "guide",
+    syntax: "guide [--agent]",
+    summary: "Print Workspace authoring guidance (human-facing by default; --agent for agent-facing)",
+    examples: COMMAND_EXAMPLES.guide,
+    writes: "Nothing; this command is read-only.",
+    next: `Run ${COMMAND_NAME} validate after editing your Workspace.`,
+  },
+  {
+    name: "bind",
+    syntax: "bind <profile> [project] --host <host> [--host <host> ...]",
+    summary: "Record a Project Binding to a Profile and Agent Hosts",
+    examples: COMMAND_EXAMPLES.bind,
+    writes: "Records one Project Binding in Local Configuration; does not install project files.",
+    next: `Run ${COMMAND_NAME} preview.`,
+  },
+  {
+    name: "unbind",
+    syntax: "unbind [project]",
+    summary: "Remove a Project Binding",
+    examples: COMMAND_EXAMPLES.unbind,
+    writes: "Removes one Project Binding from Local Configuration; does not remove installed project files.",
+    next: `Run ${COMMAND_NAME} preview, then ${COMMAND_NAME} apply to remove obsolete generated files.`,
+  },
+  {
+    name: "validate",
+    syntax: "validate",
+    summary: "Check Workspace and Local Configuration validity",
+    examples: COMMAND_EXAMPLES.validate,
+    writes: "Nothing; this command is read-only.",
+    next: `Run ${COMMAND_NAME} preview.`,
+  },
+  {
+    name: "preview",
+    syntax: "preview [--verbose]",
+    summary: "Show pending reconciliation changes without writing (read-only)",
+    examples: COMMAND_EXAMPLES.preview,
+    writes: "Nothing; this command is read-only.",
+    next: `Run ${COMMAND_NAME} apply when the preview is ready.`,
+  },
+  {
+    name: "apply",
+    syntax: "apply [--verbose]",
+    summary: "Reconcile Profile Installations to match Local Configuration",
+    examples: COMMAND_EXAMPLES.apply,
+    writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",
+    next: `Launch a bound Host from the project, or run ${COMMAND_NAME} status.`,
+  },
+  {
+    name: "status",
+    syntax: "status [--verbose]",
+    summary: "Show current Profile Installation lifecycle state",
+    examples: COMMAND_EXAMPLES.status,
+    writes: "Nothing; this command is read-only.",
+    next: `If changes need attention, run ${COMMAND_NAME} preview.`,
+  },
+  {
+    name: "uninstall",
+    syntax: "uninstall",
+    summary: "Remove all Profile Installations",
+    examples: COMMAND_EXAMPLES.uninstall,
+    writes: "Removes owned generated project files and machine-local installation records; keeps the Workspace and Project Bindings.",
+    next: `Run ${COMMAND_NAME} unbind for bindings you no longer want, or ${COMMAND_NAME} apply to reinstall.`,
+  },
 ];
 
 function usageLine(command: { readonly syntax: string }): string {
@@ -54,9 +128,25 @@ function usageLine(command: { readonly syntax: string }): string {
 
 /** The single line of usage guidance for one named command. */
 function commandUsage(name: string): string {
-  const command = COMMANDS.find((candidate) => candidate.name === name);
-  if (!command) throw new Error(`no canonical usage for command '${name}'`);
+  const command = findCommand(name);
   return `${usageLine(command)}\n`;
+}
+
+function findCommand(name: string): CommandHelp {
+  const command = COMMANDS.find((candidate) => candidate.name === name);
+  if (!command) throw new Error(`no canonical help for command '${name}'`);
+  return command;
+}
+
+function perCommandHelp(command: CommandHelp): string {
+  return defaultViewText(
+    `Purpose: ${command.summary}\n\n` +
+    `${usageLine(command)}\n\n` +
+    "Examples:\n" +
+    command.examples.map((example) => `  ${COMMAND_NAME} ${example}\n`).join("") +
+    `\nWrites: ${command.writes}\n\n` +
+    `Next: ${command.next}\n`,
+  );
 }
 
 /** Root help shown for a bare invocation, `--help`, and unknown-command errors. */
@@ -65,7 +155,7 @@ function rootHelp(): string {
   const commandLines = COMMANDS.map(
     (command) => `  ${command.syntax.padEnd(longestSyntax)}  ${command.summary}`,
   ).join("\n");
-  return (
+  return defaultViewText(
     "Agent Profile Kit composes reusable agent material into host-native Profile Installations.\n\n" +
     `Usage: ${COMMAND_NAME} <command> [arguments]\n\n` +
     "Commands:\n" +
@@ -75,7 +165,7 @@ function rootHelp(): string {
     `  ${COMMAND_NAME} bind <profile> --host <host>\n` +
     `  ${COMMAND_NAME} preview\n` +
     `  ${COMMAND_NAME} apply\n\n` +
-    `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide.\n`
+    `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide.\n`,
   );
 }
 
@@ -90,11 +180,20 @@ function parseOrExit<T>(command: string, parse: () => T): T | undefined {
   }
 }
 
+function positionalArgument(command: string, description: string, value: string): string {
+  if (value.startsWith("-")) {
+    throw new Error(`${command} does not accept flag '${value}' as ${description}`);
+  }
+  return value;
+}
+
 function parseInitArguments(arguments_: readonly string[]): { readonly workspace?: string } {
   if (arguments_.length > 1) {
     throw new Error("init accepts at most one Workspace path");
   }
-  return arguments_.length === 0 ? {} : { workspace: arguments_[0]! };
+  return arguments_.length === 0
+    ? {}
+    : { workspace: positionalArgument("init", "a Workspace path", arguments_[0]!) };
 }
 
 /**
@@ -109,7 +208,7 @@ function parseBindArguments(arguments_: readonly string[]): {
   if (arguments_.length === 0) {
     throw new Error("bind requires a Profile Artifact ID");
   }
-  const profile = arguments_[0]!;
+  const profile = positionalArgument("bind", "a Profile", arguments_[0]!);
   let index = 1;
   let project: string | undefined;
   if (index < arguments_.length && !arguments_[index]!.startsWith("-")) {
@@ -144,7 +243,9 @@ function parseUnbindArguments(arguments_: readonly string[]): { readonly project
   if (arguments_.length > 1) {
     throw new Error("unbind accepts at most one project path");
   }
-  return arguments_.length === 0 ? {} : { project: arguments_[0]! };
+  return arguments_.length === 0
+    ? {}
+    : { project: positionalArgument("unbind", "a project path", arguments_[0]!) };
 }
 
 function parseOptionalFlag(command: string, arguments_: readonly string[], flag: string): boolean {
@@ -176,9 +277,23 @@ async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
   const home = homedir();
 
-  if (arguments_.length === 0 || (arguments_.length === 1 && arguments_[0] === "--help")) {
+  if (arguments_.length === 1 && arguments_[0] === "--version") {
+    process.stdout.write(`${ENGINE_VERSION}\n`);
+    return;
+  }
+  if (
+    arguments_.length === 0 ||
+    (arguments_.length === 1 && ["--help", "-h", "help"].includes(arguments_[0]!))
+  ) {
     process.stdout.write(rootHelp());
     return;
+  }
+  if (arguments_.length === 2 && arguments_[1] === "--help") {
+    const command = COMMANDS.find((candidate) => candidate.name === arguments_[0]);
+    if (command) {
+      process.stdout.write(perCommandHelp(command));
+      return;
+    }
   }
   if (arguments_.length >= 1 && arguments_[0] === "guide") {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));

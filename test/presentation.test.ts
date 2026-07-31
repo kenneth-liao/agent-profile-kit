@@ -4,6 +4,7 @@ import {
   formatApplyReport,
   formatApplyVerificationFailure,
   formatLifecycleReport,
+  INTERNAL_ONLY_DEFAULT_TERMS,
   NON_CURRENT_STATE_ORDER,
 } from "../cli/presentation.js";
 import type {
@@ -44,17 +45,6 @@ const STATE_ANCHORS: Readonly<Record<(typeof NON_CURRENT_STATE_ORDER)[number], s
   blocked: "Sync cannot change this Project",
   removal: "remove proven generated files managed by Agent Profile Kit",
 };
-
-const INTERNAL_ONLY_DEFAULT_TERMS = [
-  /Profile Installations?/i,
-  /generated[- ]outputs?/i,
-  /Repository Exclusions?/i,
-  /Installer-owned/i,
-  /reconcil(?:e|es|ed|ing|iation)/i,
-  /Artifact IDs?/i,
-  /Installation Manifests?/i,
-  /desired state/i,
-] as const;
 
 function expectUserFacingVocabulary(view: string): void {
   for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(view).not.toMatch(term);
