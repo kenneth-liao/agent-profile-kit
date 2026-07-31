@@ -20,5 +20,3 @@ export const COMMAND_EXAMPLES = {
   status: ["status", "status --verbose"],
   uninstall: ["uninstall"],
 } as const;
-
-export const EXAMPLE_IDENTITIES = { workspace, project, profile } as const;

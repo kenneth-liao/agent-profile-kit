@@ -29,7 +29,7 @@ produced them.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit`, `--help` | Understand what the tool does and the shortest path to value |
+| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `--version` | Understand what the tool does and the shortest path to value |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
 | 3 | Learn the format | `guide [--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
@@ -53,12 +53,14 @@ the CLI never speaks to.
 <!-- historical-command-excerpts:start -->
 ### 1. Discover
 
-A bare invocation and `--help` both print root help: description, command table,
-a four-step quick start, and a pointer to `guide`. The command table and root
-help derive from one `COMMANDS` table in `cli/index.ts`, so syntax and summaries
-cannot drift apart — the pattern worth extending to examples.
+A bare invocation, `--help`, `-h`, and `help` print root help: description,
+command table, a four-step quick start, and a pointer to `guide`. `--version`
+prints the engine version. Every command has focused `--help` with its purpose,
+syntax, worked examples, write boundary, and next action. Root and per-command
+help derive from one `COMMANDS` table in `cli/index.ts`, while worked commands
+derive from the reusable example set in `cli/examples.ts`.
 
-Gaps: [UJ-16](#uj-16).
+Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
 
 ### 2. Initialize
 
@@ -120,7 +122,7 @@ project defaults to the working directory, and `--host` is explicit with no
 default. This is also the **only** place Hosts are ever echoed — no later command
 mentions them again ([UJ-20](#uj-20)).
 
-Gaps: [UJ-07](#uj-07), [UJ-16](#uj-16), [UJ-20](#uj-20).
+Gaps: [UJ-07](#uj-07), ~~[UJ-16](#uj-16)~~, [UJ-20](#uj-20).
 
 ### 6. Verify
 
@@ -317,7 +319,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | [UJ-23](#uj-23) | Medium | 11 | One aggregate next-action stalls unblocked projects |
 | [UJ-14](#uj-14) | Low-Med | 10 | Happy-path `status` says the same thing three times |
 | [UJ-15](#uj-15) | Low-Med | 7, 10 | State explanations re-teach vocabulary every run |
-| [UJ-16](#uj-16) | Low | 1, 5 | No `--version`, `-h`, `help`, or per-command `--help` |
+| ~~[UJ-16](#uj-16)~~ | ~~Low~~ | ~~1, 5~~ | ~~No `--version`, `-h`, `help`, or per-command `--help`~~ — shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115) |
 | [UJ-17](#uj-17) | Low | 6 | `validate` prints "1 Profiles" and names nothing |
 | [UJ-18](#uj-18) | Low | 7 | `--verbose` inlines composed Context without a separator |
 
@@ -409,12 +411,16 @@ state users hit most often.
 The `State explanations:` block reprints full definitions every invocation.
 Valuable on first encounter, noise by the tenth.
 
-### UJ-16
-`--version` and `-h` are rejected as unknown commands, `help` is not a command,
+### ~~UJ-16~~
+~~`--version` and `-h` are rejected as unknown commands, `help` is not a command,
 and per-command help does not exist. `bind --help` is additionally parsed as a
 Profile named `--help`, because `parseBindArguments` accepts `arguments_[0]`
-without a leading-dash check. `ENGINE_VERSION` already exists in
-`installer/version.ts`.
+without a leading-dash check.~~
+
+Shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115):
+root discovery supports the conventional aliases and engine version, every
+command explains itself through `--help`, and leading-dash values fail before
+positional parsing.
 
 ### UJ-17
 `(1 Profiles, 0 Project Bindings)` has a plural agreement bug — `plural()` in
