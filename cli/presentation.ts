@@ -235,14 +235,6 @@ function repairedRepositoryExclusionLines(report: ReconciliationReport): readonl
   });
 }
 
-function defaultRepairedRepositoryExclusionLines(report: ReconciliationReport): readonly string[] {
-  return report.repositoryExclusionRepairs.map((repair) => {
-    const count = repair.entries.length;
-    return `${repair.target}: restored ${count} recorded ${DEFAULT_VIEW_LEXICON.repositoryExclusion.singular} ` +
-      `${count === 1 ? "entry" : "entries"}`;
-  });
-}
-
 function defaultRepositoryExclusionDescription(): string {
   return `${DEFAULT_VIEW_LEXICON.repositoryExclusion.localPlural} that keep ` +
     `${DEFAULT_VIEW_LEXICON.generatedOutput.paths} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive} untracked.`;
@@ -505,7 +497,7 @@ function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
     return workKinds.length > 0 ? [`- ${group.project}: ${workKinds.join(", ")}`] : [];
   });
   const exclusionChanges = changedRepositoryExclusions(receipt);
-  const exclusionRepairs = defaultRepairedRepositoryExclusionLines(receipt);
+  const exclusionRepairs = repairedRepositoryExclusionLines(receipt).map(defaultViewText);
   if (entries.length === 0 && exclusionChanges.length === 0 && exclusionRepairs.length === 0) {
     return [
       `Apply receipt: no changes were applied; all ` +

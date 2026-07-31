@@ -33,6 +33,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Derive default and verbose Git exclusion repair receipts from one canonical line shape ([#128](https://github.com/kenneth-liao/agent-profile-kit/pull/128)).
+
 - Rename the published CLI command to `apkit`; the former `agent-profile-kit` executable is no longer installed. Existing Workspace bootstrap docs are not rewritten and may retain the obsolete command ([#113](https://github.com/kenneth-liao/agent-profile-kit/issues/113)).
 - Treat Installation Manifest `engine_version` as provenance rather than desired state, so an engine version bump alone does not re-apply an otherwise-current Profile Installation ([#113](https://github.com/kenneth-liao/agent-profile-kit/issues/113)).
 
