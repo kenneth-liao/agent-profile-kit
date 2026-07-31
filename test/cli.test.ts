@@ -436,7 +436,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const statusViaLink = runCli(home, "status");
     expect(statusViaLink.status, statusViaLink.stderr).toBe(0);
-    expect(statusViaLink.stdout).toContain("All Profile Installations are current");
+    expect(statusViaLink.stdout).toContain("All Projects are current");
 
     // Change only the authored alias to the realpath spelling of the same tree.
     writeFileSync(
@@ -446,7 +446,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const statusViaReal = runCli(home, "status");
     expect(statusViaReal.status, statusViaReal.stderr).toBe(0);
-    expect(statusViaReal.stdout).toContain("All Profile Installations are current");
+    expect(statusViaReal.stdout).toContain("All Projects are current");
     expect(statusViaReal.stdout).not.toContain("stale");
 
     const applyViaReal = runCli(home, "apply");
@@ -1286,9 +1286,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.startsWith("Ready to apply\n")).toBe(true);
-    expect(result.stdout).toContain("Profile Installations: 1");
+    expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout).toMatch(/Changes: .*addition/);
-    expect(result.stdout).toContain(`Profile Installation: ${projectPath}`);
+    expect(result.stdout).toContain(`Project: ${projectPath}`);
     expect(result.stdout).not.toContain("Desired State:");
     expect(result.stdout).not.toContain("Context:");
   });
@@ -1304,10 +1304,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "status");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.startsWith("All Profile Installations are current\n")).toBe(true);
+    expect(result.stdout.startsWith("All Projects are current\n")).toBe(true);
     expect(result.stdout).toContain("Changes: none");
-    expect(result.stdout).toContain("No Profile Installations need attention.");
-    expect(result.stdout).not.toContain("unchanged generated output");
+    expect(result.stdout).toContain("No Projects need attention.");
+    expect(result.stdout).not.toContain("unchanged generated file");
     expect(result.stdout).not.toContain("Desired State:");
   });
 
@@ -1327,8 +1327,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "preview");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain(`Profile Installation: ${repository}`);
-    expect(result.stdout).not.toContain(`Profile Installation: ${realpathSync(worktree)}`);
+    expect(result.stdout).toContain(`Project: ${repository}`);
+    expect(result.stdout).not.toContain(`Project: ${realpathSync(worktree)}`);
     expect(result.stdout).toMatch(/Changes: .*update/);
     expect(result.stdout).not.toContain("Desired State:");
   });
@@ -1475,7 +1475,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("State: current");
     expect(result.stdout).not.toContain("State: addition");
     expect(result.stdout).toContain("Apply receipt:");
-    expect(result.stdout).toContain("generated-output addition");
+    expect(result.stdout).toContain("generated file addition");
     expect(result.stdout).not.toContain("Desired State:");
     const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     const hookPath = join(projectPath, ".codex", "hooks.json");
@@ -1518,8 +1518,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Apply receipt:");
-    expect(result.stdout).toContain("1 generated-output update");
-    expect(result.stdout).toContain(`Profile Installation: ${projectPath}`);
+    expect(result.stdout).toContain("1 generated file update");
+    expect(result.stdout).toContain(`Project: ${projectPath}`);
     expect(result.stdout).toContain("State: current");
     expect(result.stdout).not.toContain("State: stale source");
   });
@@ -1547,8 +1547,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain(`Profile Installation: ${changedProject}`);
-    expect(result.stdout).not.toContain(`Profile Installation: ${untouchedProject}`);
+    expect(result.stdout).toContain(`Project: ${changedProject}`);
+    expect(result.stdout).not.toContain(`Project: ${untouchedProject}`);
   });
 
   test("verbose apply labels resulting state and pre-apply receipt separately", () => {
@@ -1637,10 +1637,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Apply complete");
     expect(result.stdout).toContain("Changes: none");
-    expect(result.stdout).toContain("All Profile Installations were already current.");
+    expect(result.stdout).toContain("All Projects were already current.");
     expect(result.stdout).toContain("Apply receipt: no changes were applied");
-    expect(result.stdout).not.toContain("generated-output update");
-    expect(result.stdout).not.toContain("unchanged generated output");
+    expect(result.stdout).not.toContain("generated file update");
+    expect(result.stdout).not.toContain("unchanged generated file");
     expect(paths.map((path) => statSync(path).mtimeMs)).toEqual(before);
   });
 
@@ -1816,16 +1816,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "preview");
 
     expect(result.status, result.stderr).toBe(1);
-    expect(result.stdout).toContain("Profile Installations: 1");
-    expect(result.stdout).toContain(`Profile Installation: ${authoredProject}`);
+    expect(result.stdout).toContain("Projects: 1");
+    expect(result.stdout).toContain(`Project: ${authoredProject}`);
     expect(result.stdout).toContain("Tracked project path '.codex/hooks.json' is repository-owned");
-    expect(result.stdout).toContain("generated Profile Installation output must be exclusively Installer-owned");
+    expect(result.stdout).toContain("generated files must be exclusively managed by Agent Profile Kit");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
 
     const apply = runCli(home, "apply");
     expect(apply.status).toBe(1);
     expect(apply.stdout).toContain("Cannot apply");
-    expect(apply.stdout).toContain("generated Profile Installation output must be exclusively Installer-owned");
+    expect(apply.stdout).toContain("generated files must be exclusively managed by Agent Profile Kit");
   });
 
   test("a Git binding reconciles only its exact root and preserves local exclusions", () => {
@@ -2106,7 +2106,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const preview = runCli(home, "preview");
 
     expect(preview.status).toBe(1);
-    expect(preview.stdout).toContain("missing its Repository Exclusion Record");
+    expect(preview.stdout).toContain("missing its Git exclusion record");
     expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
     expect(runCli(home, "apply").status).toBe(1);
   });
@@ -2151,7 +2151,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const preview = runCli(home, "preview");
 
     expect(preview.status).toBe(1);
-    expect(preview.stdout).toContain("missing its Repository Exclusion Record");
+    expect(preview.stdout).toContain("missing its Git exclusion record");
     expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
     expect(runCli(home, "apply").status).toBe(1);
   });
@@ -2195,7 +2195,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const preview = runCli(home, "preview");
 
     expect(preview.status).toBe(1);
-    expect(preview.stdout).toContain("does not match its recorded Installation Manifest contribution");
+    expect(preview.stdout).toContain("does not match its recorded installation record contribution");
     expect(runCli(home, "apply").status).toBe(1);
   });
 
@@ -2345,7 +2345,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const preview = runCli(home, "preview");
 
     expect(preview.status).toBe(1);
-    expect(preview.stdout).toContain("missing its Repository Exclusion Record");
+    expect(preview.stdout).toContain("missing its Git exclusion record");
     expect(readFileSync(exclude).equals(before)).toBe(true);
   });
 
@@ -2574,8 +2574,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(repaired.status, repaired.stderr).toBe(0);
     expect(repaired.stdout).toContain("State: current");
     expect(repaired.stdout).toContain("Apply receipt:");
-    expect(repaired.stdout).toContain("Repository exclusions completed:");
-    expect(repaired.stdout).toContain("restored 3 recorded Repository Exclusion entries");
+    expect(repaired.stdout).toContain("Git exclusions completed:");
+    expect(repaired.stdout).toContain("restored 3 recorded Git exclusion entries");
     expect(repaired.stdout).not.toContain("apply will restore");
 
     writeFileSync(exclude, "# unrelated local exclusion\n");
@@ -2779,7 +2779,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "status");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("Profile Installations: 1");
+    expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout).toContain("Diagnostics:");
     expect(result.stdout).toContain("malformed ownership state");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
@@ -2829,7 +2829,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.startsWith("Attention required\n")).toBe(true);
-    expect(result.stdout).toContain(`Profile Installation: ${projectPath}`);
+    expect(result.stdout).toContain(`Project: ${projectPath}`);
     expect(result.stdout).toContain("State: blocked");
     expect(result.stdout).toContain("occupied by unowned or drifted output");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
@@ -2847,8 +2847,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "status");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("Profile Installations: 1");
-    expect(result.stdout.match(/Profile Installation:/g)).toHaveLength(1);
+    expect(result.stdout).toContain("Projects: 1");
+    expect(result.stdout.match(/Project:/g)).toHaveLength(1);
     expect(result.stdout).toContain("State: blocked");
   });
 
@@ -2867,13 +2867,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const drift = runCli(home, "status");
     expect(drift.status, drift.stderr).toBe(0);
     expect(drift.stdout).toContain("State: stale source");
-    expect(drift.stdout).toContain("Changes: 1 generated-output update");
+    expect(drift.stdout).toContain("Changes: 1 generated file update");
 
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
     const removal = runCli(home, "preview");
     expect(removal.status, removal.stderr).toBe(0);
     expect(removal.stdout).toContain("State: removal");
-    expect(removal.stdout).toMatch(/Changes: .*generated-output removal/);
+    expect(removal.stdout).toMatch(/Changes: .*generated file removal/);
   });
 
   test("status attributes blockers by canonical project identity instead of path prefix", () => {
@@ -3258,7 +3258,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const concise = runCli(home, "preview");
     expect(concise.status, concise.stderr).toBe(0);
-    expect(concise.stdout).toContain("Changes: 1 generated-output repair");
+    expect(concise.stdout).toContain("Changes: 1 generated file repair");
 
     for (const command of ["preview", "status"] as const) {
       const result = runCli(home, command, "--verbose");
@@ -3410,7 +3410,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const rerun = runCli(home, "apply");
     expect(rerun.status, rerun.stderr).toBe(0);
-    expect(runCli(home, "status").stdout).toContain("All Profile Installations are current");
+    expect(runCli(home, "status").stdout).toContain("All Projects are current");
   });
 
   test("a moved project carries its marker identity to the new binding", () => {
@@ -3887,7 +3887,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = runCliWithPath(home, pathWithClaude, "status");
     expect(status.status, status.stderr).toBe(0);
-    expect(status.stdout).toContain("All Profile Installations are current");
+    expect(status.stdout).toContain("All Projects are current");
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: Array<{ hosts: string[]; host_versions: Record<string, string> }>;
@@ -3970,7 +3970,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = runCliWithPath(home, pathWithGrok, "status");
     expect(status.status, status.stderr).toBe(0);
-    expect(status.stdout).toContain("All Profile Installations are current");
+    expect(status.stdout).toContain("All Projects are current");
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: Array<{ hosts: string[]; host_versions: Record<string, string> }>;
@@ -4156,7 +4156,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = runCliWithPath(home, pathWithClaude, "status");
     expect(status.status, status.stderr).toBe(0);
-    expect(status.stdout).toContain("All Profile Installations are current");
+    expect(status.stdout).toContain("All Projects are current");
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly {

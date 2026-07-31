@@ -712,7 +712,7 @@ describe("project-bound release candidate", () => {
     writeFileSync(join(projectPath, ".pi", "settings.json"), dynamicSettings);
     const resolvedStatus = runCli(home, ["status"], { path: supportedPath });
     expect(resolvedStatus.status, resolvedStatus.stderr).toBe(0);
-    expect(resolvedStatus.stdout).toContain("All Profile Installations are current");
+    expect(resolvedStatus.stdout).toContain("All Projects are current");
     expect(`${resolvedStatus.stdout}${resolvedStatus.stderr}`).not.toMatch(/dynamic\.ts|blocked/i);
     expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe(dynamicSettings);
     expect(readFileSync(join(projectPath, ".pi", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(

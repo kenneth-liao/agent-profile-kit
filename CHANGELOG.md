@@ -10,6 +10,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 - Document the CLI user journey in `docs/USER-JOURNEY.md` with a stable-ID gap register covering 23 observed gaps, and record the placement decision in ADR-0013.
 - Accept user-facing CLI presentation decisions — vocabulary layering, information design, Host Setup Steps, the `apkit` command name, `--json` and uniform exit codes, the teaching surface, and pre-1.0 versioning — in ADR-0014.
+- Add one UI lexicon for task-focused default lifecycle wording, with exhaustive enforcement that keeps internal domain vocabulary in `--verbose` output ([#114](https://github.com/kenneth-liao/agent-profile-kit/issues/114)).
 
 - Project Pi Skill projections now preserve disabled model-invocation policy with Pi-native frontmatter, explicit Artifact ID activation, invocation-specific Capability Contracts, and packed-CLI rejection coverage ([#104](https://github.com/kenneth-liao/agent-profile-kit/issues/104)).
 
@@ -31,6 +32,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Require an explicit Workspace selection in Local Configuration schema version 2; `init` records the conventional default or migrates supported version-1 configuration without implicit read-time migration ([#68](https://github.com/kenneth-liao/agent-profile-kit/issues/68)).
 
 ### Changed
+
+- Derive default and verbose Git exclusion repair receipts from one canonical line shape ([#128](https://github.com/kenneth-liao/agent-profile-kit/pull/128)).
 
 - Rename the published CLI command to `apkit`; the former `agent-profile-kit` executable is no longer installed. Existing Workspace bootstrap docs are not rewritten and may retain the obsolete command ([#113](https://github.com/kenneth-liao/agent-profile-kit/issues/113)).
 - Treat Installation Manifest `engine_version` as provenance rather than desired state, so an engine version bump alone does not re-apply an otherwise-current Profile Installation ([#113](https://github.com/kenneth-liao/agent-profile-kit/issues/113)).
