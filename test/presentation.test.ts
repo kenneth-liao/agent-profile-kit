@@ -95,6 +95,33 @@ function explanationLines(reportText: string): string[] {
 }
 
 describe("formatLifecycleReport concise terminology", () => {
+  test("blocked lifecycle reports lead with the blocker and suppress planned changes", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a", reason: "occupied output" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      blockers: [{
+        message: "/project-a/a.md is occupied by unowned or drifted output",
+        project: "/project-a",
+      }],
+    });
+
+    for (const command of ["preview", "apply", "status"] as const) {
+      const concise = formatLifecycleReport(command, report);
+
+      expect(concise.indexOf("Blocker:")).toBeLessThan(concise.indexOf("Projects:"));
+      expect(concise).not.toContain("Changes:");
+      expect(concise).not.toContain("State:");
+    }
+  });
+
   test("identifies the working-directory project as dot", () => {
     const project = process.cwd();
     const report = identityReport(project);
@@ -383,6 +410,12 @@ describe("formatLifecycleReport concise terminology", () => {
       });
 
       const concise = formatLifecycleReport("status", report);
+      if (kind === "blocked") {
+        expect(concise).toContain("Blocker: hooks disabled");
+        expect(concise).not.toContain("State:");
+        expect(concise).not.toContain("State explanations:");
+        continue;
+      }
       expect(concise).toContain(`State: ${kind}`);
       const glosses = explanationLines(concise);
       expect(glosses).toHaveLength(1);
@@ -408,7 +441,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(allCurrent).not.toContain("State: current");
   });
 
-  test("emits each shared state explanation once across multiple projects", () => {
+  test("blocked reports suppress planned detail for otherwise actionable projects", () => {
     const report = emptyReport({
       desired: [
         {
@@ -442,17 +475,21 @@ describe("formatLifecycleReport concise terminology", () => {
     });
 
     const concise = formatLifecycleReport("status", report);
-    expect(concise).toContain("Project: /project-a");
+    expect(concise).not.toContain("Project: /project-a");
     expect(concise).toContain("Project: /project-b");
-    expect(concise.match(/^- stale source: /gm)).toHaveLength(1);
-    expect(concise.match(/^- blocked: /gm)).toHaveLength(1);
-    // Project-specific states, change counts, and blockers stay on each installation.
+    expect(concise).not.toContain("State explanations:");
+    expect(concise).not.toContain("Changes:");
     expect(concise).toMatch(
-      /Project: \/project-a\n  Profile: coding\n  Hosts: codex\n  State: stale source\n  Changes: 1 generated file update\n/,
+      /Project: \/project-b\n  Profile: coding\n  Hosts: codex\n  Blocker: hooks disabled\n/,
     );
-    expect(concise).toMatch(
-      /Project: \/project-b\n  Profile: coding\n  Hosts: codex\n  State: stale source\n  State: blocked \(hooks disabled\)\n  Changes: 1 generated file addition, 1 generated file update\n  Blocker: hooks disabled\n/,
-    );
+
+    for (const command of ["preview", "apply", "status"] as const) {
+      const verbose = formatLifecycleReport(command, report, { verbose: true });
+      expect(verbose.indexOf("Blockers:\n- /project-b: hooks disabled")).toBeGreaterThan(-1);
+      expect(verbose.indexOf("Blockers:\n- /project-b: hooks disabled")).toBeLessThan(
+        verbose.indexOf("Projects:"),
+      );
+    }
   });
 
   test("orders state explanations stably by NON_CURRENT_STATE_ORDER when several kinds are present", () => {
@@ -471,7 +508,6 @@ describe("formatLifecycleReport concise terminology", () => {
           ? { kind, project: `/p${index}`, reason: "hooks disabled" }
           : { kind, project: `/p${index}` },
       ),
-      blockers: [{ message: "/p1: hooks disabled", project: "/p1" }],
     });
 
     const glosses = explanationLines(formatLifecycleReport("status", report));

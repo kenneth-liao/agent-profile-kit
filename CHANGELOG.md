@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Lead blocked lifecycle reports with one actionable blocker, preserve command-specific retry guidance, and document the safe generated-file drift recovery loop ([#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)).
+
 - Identify project lifecycle blocks with short, unambiguous paths and the Hosts recorded by each Project Binding ([#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116)).
 
 - Add `--version`, conventional root-help aliases, complete per-command help, fail-fast leading-dash argument handling, and one canonical reusable example set ([#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).

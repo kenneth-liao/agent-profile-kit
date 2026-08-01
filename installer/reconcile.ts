@@ -37,8 +37,10 @@ import {
   readMarker,
   stageProvenInstallationRemoval,
   writeInstallationState,
+  type OwnershipProof,
 } from "./installation-state.js";
 import { hasTrackedGitDescendants } from "./git.js";
+import { COMMAND_NAME } from "./version.js";
 import {
   prepareRepositoryExclusionMovePreflight,
   gitExclusionBlockers,
@@ -147,6 +149,17 @@ export interface ReconciliationReport {
 export interface ApplyReconciliationResult {
   readonly receipt: ReconciliationReport;
   readonly resultingState: ReconciliationReport;
+}
+
+/** Raised before writes when apply's preflight report contains actionable blockers. */
+export class ApplyBlockedError extends Error {
+  readonly report: ReconciliationReport;
+
+  constructor(report: ReconciliationReport) {
+    super("Apply blocked before writes");
+    this.name = "ApplyBlockedError";
+    this.report = report;
+  }
 }
 
 /** Raised only after all apply writes have committed but verification could not complete. */
@@ -372,6 +385,15 @@ async function desiredOutputConflicts(
   ];
   for (const output of outputs) {
     const absolute = outputPath(desired.binding.canonicalProject, output);
+    const old = previousOutputs.get(output.path);
+    if (old?.type === output.type) {
+      if (await pathIsTrackedDestination(desired.binding.canonicalProject, output.path)) {
+        blockers.push(`${absolute} is a tracked project path`);
+      }
+      // Recorded outputs are checked once by installation ownership inspection.
+      // This preflight owns only conflicts at new desired destinations.
+      continue;
+    }
     blockers.push(...await parentConflicts(desired.binding.canonicalProject, absolute));
     if (await pathIsTrackedDestination(desired.binding.canonicalProject, output.path)) {
       blockers.push(`${absolute} is a tracked project path`);
@@ -384,24 +406,14 @@ async function desiredOutputConflicts(
         blockers.push(`${absolute} is an occupied ${kind} path`);
         continue;
       }
-      const old = previousOutputs.get(output.path);
-      if (!old || old.type !== "file" || !(await ownedOutputMatches(desired.binding.canonicalProject, old))) {
-        blockers.push(`${absolute} is occupied by unowned or drifted output`);
-      }
+      blockers.push(`${absolute} is occupied by unowned or drifted output`);
       continue;
     }
     if (kind !== "directory") {
       blockers.push(`${absolute} is an occupied ${kind} path`);
       continue;
     }
-    const old = previousOutputs.get(output.path);
-    if (!old || old.type !== "directory") {
-      blockers.push(`${absolute} is an occupied unowned artifact directory`);
-      continue;
-    }
-    if (!(await ownedOutputMatches(desired.binding.canonicalProject, old))) {
-      blockers.push(`${absolute} is occupied by an unowned or drifted artifact directory`);
-    }
+    blockers.push(`${absolute} is an occupied unowned artifact directory`);
   }
   return blockers;
 }
@@ -503,7 +515,15 @@ async function installationRetirementSelection(
   };
 }
 
-function ownershipBlocker(project: string, reason: string): string {
+function ownershipBlocker(project: string, proof: OwnershipProof): string {
+  const reason = proof.reason ?? "ownership could not be proven";
+  if (proof.containsDrift) {
+    return (
+      `Cannot reconcile Profile Installation at ${project}: ${reason}. ` +
+      "Agent Profile Kit will not overwrite your edit. Move the change into the Workspace, " +
+      `or delete the generated file, then run ${COMMAND_NAME} apply to restore it`
+    );
+  }
   return `Cannot reconcile Profile Installation at ${project}: ${reason}`;
 }
 
@@ -670,7 +690,11 @@ export async function previewReconciliation(
         blockers.push({
           message: ownershipBlocker(
             installation.binding.project,
-            "Installation Marker is missing; if this project moved, restore its Manifest-linked Installation Marker at the new root before retrying",
+            {
+              failureKind: "missing",
+              owned: false,
+              reason: "Installation Marker is missing; if this project moved, restore its Manifest-linked Installation Marker at the new root before retrying",
+            },
           ),
           project,
         });
@@ -699,22 +723,25 @@ export async function previewReconciliation(
       repairableMissingMarker = remaining.owned;
       if (!remaining.owned) {
         blockers.push({
-          message: ownershipBlocker(installation.binding.project, `Installation Marker is missing and ${remaining.reason ?? "remaining output ownership cannot be proven"}`),
+          message: ownershipBlocker(installation.binding.project, {
+            ...remaining,
+            reason: `Installation Marker is missing and ${remaining.reason ?? "remaining output ownership cannot be proven"}`,
+          }),
           project,
         });
       }
     } else if (!proof.owned) {
       blockers.push({
-        message: ownershipBlocker(installation.binding.project, proof.reason ?? "ownership could not be proven"),
+        message: ownershipBlocker(installation.binding.project, proof),
         project,
       });
     }
     const repairableMissingOutput = repairableMissingOutputs.size > 0;
     if (!proof.owned && !repairableMissingMarker && !repairableMissingOutput) {
       items.push({
-        kind: proof.reason?.includes("malformed")
+        kind: proof.failureKind === "malformed"
           ? "malformed ownership state"
-          : proof.reason?.includes("missing")
+          : proof.failureKind === "missing"
             ? "missing output"
             : "drifted output",
         project: installation.binding.project,
@@ -994,7 +1021,7 @@ export async function applyReconciliation(
   }
   const report = await previewReconciliation(desired, before);
   if (report.blockers.length > 0) {
-    throw new Error(`Apply blocked before writes:\n${report.blockers.map((blocker) => `- ${blocker.message}`).join("\n")}`);
+    throw new ApplyBlockedError(report);
   }
   const retirement = await installationRetirementSelection(desired, before);
   const currentProjects = new Set(

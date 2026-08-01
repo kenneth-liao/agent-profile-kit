@@ -1439,6 +1439,26 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(second, ".agent-profile-kit"))).toBe(false);
   });
 
+  test("blocked apply renders one apply report without duplicate stderr blockers", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    mkdirSync(join(projectPath, ".codex"));
+    writeFileSync(join(projectPath, ".codex", "hooks.json"), "repository owned\n");
+    writeContextProfile(home);
+    bind(home, projectPath);
+
+    const result = runCli(home, "apply");
+    const blocker = ".codex/hooks.json is occupied by unowned or drifted output";
+
+    expect(result.status).toBe(1);
+    expect(result.stdout.startsWith("Apply blocked\n")).toBe(true);
+    expect(result.stdout.split(blocker)).toHaveLength(2);
+    expect(result.stdout).toContain("Next: Resolve the reported blocker, then run apkit apply again.");
+    expect(result.stderr).toBe("");
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+
   test("preview, apply, and status accept --verbose while rejecting other presentation arguments", () => {
     const home = isolatedHome();
     initialize(home);
@@ -1747,7 +1767,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Apply blocked before writes");
+    expect(result.stdout).toContain("Apply blocked");
+    expect(result.stderr).toBe("");
     expect(existsSync(join(first, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(second, ".agent-profile-kit"))).toBe(false);
     expect(readFileSync(join(first, ".codex", "hooks.json"), "utf8")).toBe("repository-owned hook\n");
@@ -1826,7 +1847,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const apply = runCli(home, "apply");
     expect(apply.status).toBe(1);
-    expect(apply.stdout).toContain("Cannot apply");
+    expect(apply.stdout).toContain("Apply blocked");
     expect(apply.stdout).toContain("generated files must be exclusively managed by Agent Profile Kit");
   });
 
@@ -2231,7 +2252,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(preview.stdout).toContain("missing its Agent Profile Kit exclusion section");
     const applied = runCli(home, "apply");
     expect(applied.status).toBe(1);
-    expect(applied.stderr).toContain("Apply blocked before writes");
+    expect(applied.stdout).toContain("missing its Agent Profile Kit exclusion section");
+    expect(applied.stderr).toBe("");
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly { project: string }[];
     };
@@ -2438,8 +2460,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Git exclusion parent");
-    expect(result.stderr).toContain("must be a real directory");
+    expect(result.stdout).toContain("Git exclusion parent");
+    expect(result.stdout).toContain("must be a real directory");
+    expect(result.stderr).toBe("");
     expect(existsSync(join(external, "exclude"))).toBe(false);
     expect(existsSync(join(repository, ".agent-profile-kit"))).toBe(false);
   });
@@ -2551,7 +2574,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const command of ["apply", "uninstall"]) {
       const result = runCli(home, command);
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("exclusion section is modified");
+      expect(`${result.stdout}${result.stderr}`).toContain("exclusion section is modified");
+      if (command === "apply") expect(result.stderr).toBe("");
       expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
     }
   });
@@ -2766,7 +2790,71 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(status.stdout).toContain(`${projectPath}: drifted output`);
     expect(status.stdout).toContain("mode");
     expect(applied.status).toBe(1);
+    expect(applied.stderr).toBe("");
+    expect(applied.stdout).toContain("will not overwrite your edit");
+    expect(applied.stdout).toContain("Move the change into the Workspace");
+    expect(applied.stdout).toContain("delete the generated file");
     expect(statSync(context).mode & 0o777).toBe(0o600);
+  });
+
+  test("unexpected members in an owned directory receive the same safe drift remedies", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    const source = join(workspacePath(home), "skills", "review-pr");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const unexpected = join(projectPath, ".agents", "skills", "review-pr", "notes.md");
+    writeFileSync(unexpected, "user note\n");
+
+    const blocked = runCli(home, "apply");
+
+    expect(blocked.status).toBe(1);
+    expect(blocked.stderr).toBe("");
+    expect(blocked.stdout).toContain("unexpected:");
+    expect(blocked.stdout).toContain("will not overwrite your edit");
+    expect(blocked.stdout).toContain("Move the change into the Workspace");
+    expect(blocked.stdout).toContain("delete the generated file");
+    expect(readFileSync(unexpected, "utf8")).toBe("user note\n");
+  });
+
+  test("drift names both safe recovery routes once and deleting the file restores current state", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const drifted = join(projectPath, ".codex", "hooks.json");
+    writeFileSync(drifted, "user edit\n");
+
+    const blocked = runCli(home, "apply");
+
+    expect(blocked.status).toBe(1);
+    expect(blocked.stderr).toBe("");
+    expect(blocked.stdout.match(/Blocker:/g)).toHaveLength(1);
+    expect(blocked.stdout).toContain("will not overwrite your edit");
+    expect(blocked.stdout).toContain("Move the change into the Workspace");
+    expect(blocked.stdout).toContain("delete the generated file");
+
+    rmSync(drifted);
+    const repaired = runCli(home, "apply");
+    const current = runCli(home, "status");
+
+    expect(repaired.status, repaired.stderr).toBe(0);
+    expect(current.status, current.stderr).toBe(0);
+    expect(current.stdout.startsWith("All Projects are current\n")).toBe(true);
+    expect(current.stdout).not.toContain("Next:");
   });
 
   test("status reports a malformed machine-local Installation Manifest without writing", () => {
@@ -2782,8 +2870,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Projects: 1");
-    expect(result.stdout).toContain("Diagnostics:");
-    expect(result.stdout).toContain("malformed ownership state");
+    expect(result.stdout).toContain("Global blockers:");
+    expect(result.stdout).toContain("Installation State");
+    expect(result.stdout).toContain("Blockers: 1");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
@@ -2807,7 +2896,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const uninstall = runCli(home, "uninstall");
 
     expect(status.status, status.stderr).toBe(0);
-    expect(status.stdout).toContain("malformed ownership state");
     expect(status.stdout).toContain("schema_version must be 3");
     expect(apply.status).toBe(1);
     expect(apply.stderr).toContain("Apply blocked before writes");
@@ -2832,7 +2920,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.startsWith("Attention required\n")).toBe(true);
     expect(result.stdout).toContain(`Project: ${projectPath}`);
-    expect(result.stdout).toContain("State: blocked");
+    expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
+    expect(result.stdout).not.toContain("State:");
     expect(result.stdout).toContain("occupied by unowned or drifted output");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
@@ -2851,7 +2940,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout.match(/Project:/g)).toHaveLength(1);
-    expect(result.stdout).toContain("State: blocked");
+    expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
   });
 
   test("concise lifecycle output keeps drift reasons and removal intent visible", () => {
@@ -2920,7 +3009,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "status");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("malformed ownership state");
+    expect(result.stdout).toContain("installation record outputs must include the Installation Marker");
+    expect(result.stdout).toContain("Blockers: 1");
   });
 
   test("uninstall refuses to remove drifted output", () => {
@@ -3019,7 +3109,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("owned output");
+    expect(result.stdout).toContain("owned output");
+    expect(result.stderr).toBe("");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex"))).toBe(false);
   });
@@ -3177,7 +3268,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Cannot remove stale Profile Installation");
+    expect(result.stdout).toContain("Cannot remove stale Project");
+    expect(result.stderr).toBe("");
     expect(readFileSync(retainedContext, "utf8")).toBe(before);
     expect(readFileSync(join(removed, ".codex", "hooks.json"), "utf8")).toBe("user drift\n");
   });
@@ -3199,7 +3291,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("symlink parent");
+    expect(result.stdout).toContain("symlink parent");
+    expect(result.stderr).toBe("");
     expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
@@ -3342,7 +3435,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(preview.stdout).toContain(`${projectPath}: missing output`);
     expect(preview.stdout).not.toContain(`${missing}: repair`);
     expect(applied.status).toBe(1);
-    expect(applied.stderr).toContain("Apply blocked before writes");
+    expect(applied.stdout).toContain("Apply blocked");
+    expect(applied.stderr).toBe("");
     expect(existsSync(missing)).toBe(false);
     expect(readFileSync(drifted, "utf8")).toBe("drifted surviving output\n");
   });
@@ -3361,7 +3455,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("copies Installation Marker identity");
+    expect(result.stdout).toContain("copies Installation Marker identity");
+    expect(result.stderr).toBe("");
     expect(readFileSync(join(original, ".agent-profile-kit", "installation.json"), "utf8")).toContain(
       "installation_id",
     );
@@ -3541,9 +3636,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("occupied by unowned or drifted output");
-    expect(result.stderr).toContain("restore its Manifest-linked Installation Marker at the new root");
-    expect(result.stderr).toContain("Apply blocked before writes");
+    expect(result.stdout).toContain("restore its Manifest-linked Installation Marker at the new root");
+    expect(result.stderr).toBe("");
     expect(existsSync(join(moved, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
@@ -3843,8 +3937,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "apply");
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Apply blocked before writes");
-    expect(result.stderr).toMatch(/tracked|unowned/i);
+    expect(result.stdout).toContain("Apply blocked");
+    expect(result.stdout).toMatch(/tracked|unowned/i);
+    expect(result.stderr).toBe("");
     expect(readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toBe(
       "tracked\n",
     );
@@ -3928,8 +4023,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const oldBin = installFakeClaude(home, "2.0.63");
     const old = runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
     expect(old.status).toBe(1);
-    expect(`${old.stdout}${old.stderr}`).toContain("does not support unscoped project rules");
-    expect(`${old.stdout}${old.stderr}`).toContain("2.0.63");
+    expect(old.stdout.startsWith("Cannot apply\n")).toBe(true);
+    expect(old.stdout).toContain("does not support unscoped project rules");
+    expect(old.stdout).toContain("requires 2.0.64+");
+    expect(old.stdout).toContain("upgrade Claude Code before previewing or applying the Profile");
+    expect(old.stderr).toBe("");
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
 
     const boundaryBin = installFakeClaude(home, "2.0.64");

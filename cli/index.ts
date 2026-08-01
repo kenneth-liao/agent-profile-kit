@@ -21,7 +21,7 @@ import {
   uninstallApplication,
   validateApplication,
 } from "../installer/commands.js";
-import { ApplyVerificationError } from "../installer/reconcile.js";
+import { ApplyBlockedError, ApplyVerificationError } from "../installer/reconcile.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { COMMAND_EXAMPLES } from "./examples.js";
 
@@ -407,17 +407,15 @@ async function main(): Promise<void> {
         process.exitCode = 1;
       }
     } catch (error) {
+      if (error instanceof ApplyBlockedError) {
+        process.stdout.write(formatLifecycleReport("apply", error.report, parsed));
+        process.exitCode = 1;
+        return;
+      }
       if (error instanceof ApplyVerificationError) {
         process.stdout.write(formatApplyVerificationFailure(error.receipt, error.message, parsed));
         process.exitCode = 1;
         return;
-      }
-      if (error instanceof Error && error.message.startsWith("Apply blocked before writes:")) {
-        try {
-          process.stdout.write(formatLifecycleReport("preview", await previewApplication(home), parsed));
-        } catch {
-          // Preserve the original apply failure when the diagnostic preview cannot run.
-        }
       }
       throw error;
     }

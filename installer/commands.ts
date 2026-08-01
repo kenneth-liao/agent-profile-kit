@@ -70,14 +70,15 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
     });
     return {
       ...desiredReport,
+      blockers: [{ message: error instanceof Error ? error.message : String(error) }],
       items: [
-        ...desiredReport.items,
         {
           kind: "malformed ownership state",
           project: stateManifestPath(home),
           reason: error instanceof Error ? error.message : String(error),
         },
       ],
+      outputs: [],
     };
   }
   // Resolve Grok multi-Host Context topology from live inspect when possible,
