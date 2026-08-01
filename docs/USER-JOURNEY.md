@@ -119,10 +119,11 @@ Next: agent-profile-kit preview
 
 Correct and well scoped; `unchanged` is distinguished from `Recorded`, the
 project defaults to the working directory, and `--host` is explicit with no
-default. This is also the **only** place Hosts are ever echoed — no later command
-mentions them again ([UJ-20](#uj-20)).
+default. Lifecycle project blocks now echo the selected Hosts, so that identity
+remains visible after `bind`.
 
-Gaps: [UJ-07](#uj-07), ~~[UJ-16](#uj-16)~~, [UJ-20](#uj-20).
+Gaps: [UJ-07](#uj-07), ~~[UJ-16](#uj-16)~~,
+~~[UJ-20](#uj-20)~~ (shipped in [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116)).
 
 ### 6. Verify
 
@@ -153,14 +154,15 @@ Git-local exclusions that keep Installer-owned generated paths untracked.
 - <api>/.git/info/exclude: add /.agent-profile-kit/codex/context.md, /.agent-profile-kit/installation.json, /.agents/skills/code-review, /.agents/skills/deploy, /.claude/rules/agent-profile-kit.md, /.claude/skills/code-review, /.claude/skills/deploy, /.codex/hooks.json, /.grok/skills/code-review, /.grok/skills/deploy, /.pi/APPEND_SYSTEM.md, /.pi/skills/code-review, /.pi/skills/deploy
 ```
 
-Three things break here. The 13 files are never listed as files — the exclusion
-line is the only place any path appears, as one ~500-character comma-separated
-run. The four Hosts that produced them are invisible. And the non-Git project in
-the same run contributes no exclusion entry, so **its output is never shown at
+At capture time, three things broke here. The 13 files were never listed as
+files — the exclusion line was the only place any path appeared, as one
+~500-character comma-separated run. The four Hosts that produced them were
+invisible; project blocks now echo that selection. The non-Git project in the
+same run still contributes no exclusion entry, so **its output is never shown at
 all** ([UJ-22](#uj-22)).
 
 Gaps: [UJ-07](#uj-07), [UJ-11](#uj-11), [UJ-12](#uj-12), [UJ-15](#uj-15),
-[UJ-18](#uj-18), [UJ-20](#uj-20), [UJ-22](#uj-22).
+[UJ-18](#uj-18), ~~[UJ-20](#uj-20)~~, [UJ-22](#uj-22).
 
 ### 8. Apply
 
@@ -184,7 +186,8 @@ above a receipt totalling 19 additions. The journey also ends here: nothing tell
 the user what to do in the Host, and for Codex that silence is load-bearing
 ([UJ-21](#uj-21)).
 
-Gaps: [UJ-04](#uj-04), [UJ-07](#uj-07), [UJ-20](#uj-20), [UJ-21](#uj-21).
+Gaps: [UJ-04](#uj-04), [UJ-07](#uj-07), ~~[UJ-20](#uj-20)~~,
+[UJ-21](#uj-21).
 
 ### 9. Use
 
@@ -306,10 +309,10 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | [UJ-19](#uj-19) | High | 11 | Blocked results lead with a plan that cannot happen |
 | [UJ-21](#uj-21) | High | 8, 9 | No post-apply Host guidance; Codex can break silently |
 | [UJ-05](#uj-05) | Med-High | 11 | Blocked `apply` reports the same blockers three times |
-| [UJ-20](#uj-20) | Med-High | 5, 7, 8 | Hosts are invisible after `bind` |
+| ~~[UJ-20](#uj-20)~~ | ~~Med-High~~ | ~~5, 7, 8~~ | ~~Hosts are invisible after `bind`~~ — shipped in [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) |
 | [UJ-22](#uj-22) | Med-High | 7 | Non-Git project output is never shown at all |
 | [UJ-06](#uj-06) | Medium | 11 | One blocker fact rendered three ways per screen |
-| [UJ-07](#uj-07) | Medium | 5, 7, 8, 11 | Absolute paths repeated on every line |
+| [UJ-07](#uj-07) | Medium | 5, 7, 11 | Absolute paths remain in bind, blocker, exclusion, and diagnostic lines |
 | [UJ-08](#uj-08) | Medium | 12 | `uninstall` output omits what it did and what it kept |
 | [UJ-09](#uj-09) | Medium | 12 | `unbind` recommends a no-op next step |
 | [UJ-10](#uj-10) | Medium | 2, 5 | Missing-Profile error names paths, not available Profiles |
@@ -363,9 +366,10 @@ installation-scoped blocker each restate one fact. The redundancy is upstream of
 presentation, in how blockers are emitted.
 
 ### UJ-07
-Every installation line, blocker, exclusion target, and receipt entry carries the
-full absolute project root, including when it is the working directory. A blocked
-`apply` printed the same path six times in one screen.
+Project headers and apply receipts now use short, unambiguous identities. Bind,
+blocker, exclusion-target, warning, and verbose diagnostic lines can still carry
+the full absolute project root; a blocked run can therefore repeat it several
+times.
 
 ### UJ-08
 `Uninstalled 1 Profile Installation` omits the project, the outputs removed, the
@@ -441,12 +445,14 @@ promising `apply will create its Installer-owned generated outputs` — pushing 
 one remedy-bearing line to eighth position. The plan is hypothetical while a
 blocker stands and should not lead.
 
-### UJ-20
-Hosts are echoed once, by `bind`, and never again. `preview`, `apply`, and
-`status` show `Profile: engineering` and a file count for a project bound to four
-Hosts, with no indication of which Hosts produced which output — despite Host
-being the axis the user chose explicitly and the axis that determines post-apply
-requirements.
+### ~~UJ-20~~
+~~Hosts were echoed once, by `bind`, and never again. `preview`, `apply`, and
+`status` showed `Profile: engineering` and a file count for a project bound to
+four Hosts, with no indication of which Hosts produced which output.~~
+
+Shipped in [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116):
+each lifecycle project block now carries the Hosts recorded by its Project
+Binding through the ReconciliationReport presentation seam.
 
 ### UJ-21
 Nothing after `apply` tells the user what the Host still requires. For Codex this

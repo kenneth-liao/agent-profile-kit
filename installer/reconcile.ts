@@ -123,6 +123,7 @@ export interface ReconciliationReport {
     /** Canonical project identity used to group authored and expanded paths. */
     readonly canonicalProject: string;
     readonly context: string;
+    readonly hosts: DesiredInstallation["binding"]["hosts"];
     readonly outputs: readonly string[];
     readonly profile: string;
     readonly project: string;
@@ -561,6 +562,7 @@ export async function previewReconciliation(
     return {
       canonicalProject: installation.binding.canonicalProject,
       context: composedContextFromOutputs(installation.outputs),
+      hosts: installation.binding.hosts,
       outputs: [
         ...installation.outputs.map((output) => output.path),
         ".agent-profile-kit/installation.json",

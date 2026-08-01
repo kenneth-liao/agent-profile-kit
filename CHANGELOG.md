@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Identify project lifecycle blocks with short, unambiguous paths and the Hosts recorded by each Project Binding ([#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116)).
+
 - Add `--version`, conventional root-help aliases, complete per-command help, fail-fast leading-dash argument handling, and one canonical reusable example set ([#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
 
 - Document the CLI user journey in `docs/USER-JOURNEY.md` with a stable-ID gap register covering 23 observed gaps, and record the placement decision in ADR-0013.

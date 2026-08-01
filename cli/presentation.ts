@@ -1,3 +1,6 @@
+import { homedir } from "node:os";
+import { isAbsolute, join, relative } from "node:path";
+
 import type {
   ApplyReconciliationResult,
   OutputReconciliationItem,
@@ -198,6 +201,38 @@ interface GroupedProjects {
   readonly unscopedItems: ReconciliationItem[];
 }
 
+function containsPath(parent: string, child: string): boolean {
+  const childFromParent = relative(parent, child);
+  return childFromParent === "" || (
+    childFromParent !== ".." &&
+    !childFromParent.startsWith("../") &&
+    !isAbsolute(childFromParent)
+  );
+}
+
+function displayProjectPath(
+  canonicalProject: string,
+  authoredProject = canonicalProject,
+  cwd = process.cwd(),
+  home = homedir(),
+): string {
+  const authoredAbsolute = authoredProject === "~"
+    ? home
+    : authoredProject.startsWith("~/")
+      ? join(home, authoredProject.slice(2))
+      : authoredProject;
+  const projectPaths = [...new Set([canonicalProject, authoredAbsolute])];
+  const cwdRelativeProject = projectPaths.find((project) => containsPath(project, cwd));
+  if (cwdRelativeProject) return relative(cwd, cwdRelativeProject) || ".";
+  if (authoredProject === "~" || authoredProject.startsWith("~/")) return authoredProject;
+  const homeRelativeProject = projectPaths.find((project) => containsPath(home, project));
+  if (homeRelativeProject) {
+    const homeRelativePath = relative(home, homeRelativeProject);
+    return homeRelativePath === "" ? "~" : `~/${homeRelativePath}`;
+  }
+  return authoredProject;
+}
+
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
@@ -392,10 +427,10 @@ function groupProjects(report: ReconciliationReport): GroupedProjects {
   return { groups, unscopedItems };
 }
 
-function desiredProfile(report: ReconciliationReport, project: string): string | undefined {
+function desiredInstallation(report: ReconciliationReport, project: string) {
   return report.desired.find((installation) =>
     installation.canonicalProject === project || installation.project === project,
-  )?.profile;
+  );
 }
 
 function groupNeedsAttention(group: ProjectGroup, command: LifecycleCommand): boolean {
@@ -497,7 +532,9 @@ function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
   const grouped = groupProjects(receipt);
   const entries = grouped.groups.flatMap((group) => {
     const changes = changeParts(summarizeOutputs(group.outputs));
-    if (changes.length > 0) return [`- ${group.project}: ${changes.join(", ")}`];
+    if (changes.length > 0) {
+      return [`- ${displayProjectPath(group.canonicalProject, group.project)}: ${changes.join(", ")}`];
+    }
     const workKinds = [...new Set(
       group.items
         .filter((item) => item.kind !== "current")
@@ -505,7 +542,9 @@ function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
           ? `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} update`
           : `${DEFAULT_VIEW_LEXICON.reconciliation.noun} ${item.kind}`),
     )];
-    return workKinds.length > 0 ? [`- ${group.project}: ${workKinds.join(", ")}`] : [];
+    return workKinds.length > 0
+      ? [`- ${displayProjectPath(group.canonicalProject, group.project)}: ${workKinds.join(", ")}`]
+      : [];
   });
   const exclusionChanges = changedRepositoryExclusions(receipt);
   const exclusionRepairs = repairedRepositoryExclusionLines(receipt).map(defaultViewText);
@@ -573,9 +612,14 @@ function conciseReport(
       const receiptGroup = receiptGroups.get(group.canonicalProject);
       const receiptHasWork = command === "apply" && groupHasReconciliationWork(receiptGroup);
       const showCurrentState = receiptHasWork || showSingleCurrentGroup;
-      lines.push("", `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${group.project}`);
-      const profile = desiredProfile(report, group.project);
-      if (profile) lines.push(`  Profile: ${profile}`);
+      lines.push(
+        "",
+        `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project)}`,
+      );
+      const desired = desiredInstallation(report, group.canonicalProject);
+      if (desired) {
+        lines.push(`  Profile: ${desired.profile}`, `  Hosts: ${desired.hosts.join(", ")}`);
+      }
       for (const item of group.items) {
         if (
           item.kind !== "current" ||
@@ -656,6 +700,7 @@ function verboseSections(command: LifecycleCommand, report: ReconciliationReport
               }).join("\n")}`;
           return (
             `${installation.project}: Profile ${installation.profile}\n` +
+            `  Hosts: ${installation.hosts.join(", ")}\n` +
             `  Outputs: ${installation.outputs.join(", ")}\n` +
             `${resolved}\n` +
             `  Context:\n${installation.context}`
