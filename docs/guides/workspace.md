@@ -476,8 +476,9 @@ authentication, trust, approvals, plugins, or sessions.
 
 Codex receives Profile Context through a native project SessionStart hook and
 discovers selected Skills under `.agents/skills/<Artifact ID>/`. When Context is
-installed, Codex asks you to review the generated hook: approve it, because
-declining it prevents Profile Context from loading. Before launching Codex,
+installed, Codex asks you to review the generated hook: review its contents and
+approve it when they match the expected SessionStart behavior, because declining
+it prevents Profile Context from loading. Before launching Codex,
 trust each bound project in Codex — project trust is Host-owned and is not
 configured by Agent Profile Kit.
 Ordinary launches from a Git project's bound directory or its descendants receive

@@ -162,7 +162,7 @@ describe("Codex project Skill packages", () => {
       {
         consequence: "Declining the hook prevents Profile Context from loading.",
         kind: "approval-required",
-        message: "Approve the generated SessionStart hook when Codex asks.",
+        message: "Review and approve the generated SessionStart hook when Codex asks.",
       },
       {
         consequence: "Profile Context does not load until the project is trusted.",
@@ -170,6 +170,22 @@ describe("Codex project Skill packages", () => {
         message: "Trust the bound project in Codex.",
       },
     ]);
+  });
+
+  test("keeps non-Git launch paths typed for the presentation boundary", async () => {
+    const plan = await planCodexProject(
+      "coding",
+      [{ id: "team-rules", content: "rules\n" }],
+      [],
+      { requiresBoundRootLaunch: true },
+    );
+
+    expect(plan.setupSteps).toContainEqual({
+      consequence: "Launching from a descendant prevents Profile Context from loading.",
+      kind: "launch-constraint",
+      message: "Launch Codex from the exact bound project root:",
+      path: "bound-project",
+    });
   });
 
   test("resolves direct and transitive Skills once for diamond deps, installs by Artifact ID, and omits unselected Skills", async () => {

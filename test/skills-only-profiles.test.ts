@@ -315,7 +315,7 @@ describe("Skills-only Profiles", () => {
         consequence: "Declining the hook prevents Profile Context from loading.",
         host: "codex",
         kind: "approval-required",
-        message: "Approve the generated SessionStart hook when Codex asks.",
+        message: "Review and approve the generated SessionStart hook when Codex asks.",
       },
       {
         consequence: "Profile Context does not load until the project is trusted.",
@@ -327,7 +327,8 @@ describe("Skills-only Profiles", () => {
         consequence: "Launching from a descendant prevents Profile Context from loading.",
         host: "codex",
         kind: "launch-constraint",
-        message: `Launch Codex from the exact bound project root: ${installation.binding.canonicalProject}`,
+        message: "Launch Codex from the exact bound project root:",
+        path: "bound-project",
       },
     ]);
     expect(installation.warnings.some((warning) => warning.includes("not a Git worktree"))).toBe(

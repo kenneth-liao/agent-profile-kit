@@ -578,7 +578,7 @@ export async function buildDesiredState(
           {
             contextPath,
             ...(!gitProject && requireContext
-              ? { launchFromBoundRoot: binding.canonicalProject }
+              ? { requiresBoundRootLaunch: true }
               : {}),
           },
         );

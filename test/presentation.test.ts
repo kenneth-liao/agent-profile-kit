@@ -110,6 +110,32 @@ describe("Host Setup Step presentation", () => {
     expect(verbose).not.toContain("Use the shared path.");
   });
 
+  test("renders typed bound-project paths through the canonical path presenter", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/private/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{
+          host: "codex",
+          kind: "launch-constraint",
+          message: "Launch from the exact bound project root:",
+          path: "bound-project",
+        }],
+      }],
+      items: [{ kind: "addition", project: "/private/project-a" }],
+    });
+
+    const preview = formatLifecycleReport("preview", report);
+
+    expect(preview.split("\n").find((line) => line.startsWith("- Launch from"))).toBe(
+      "- Launch from the exact bound project root: /project-a",
+    );
+  });
+
   test("apply renders every setup kind and closes with next-launch activation guidance", () => {
     const report = emptyReport({
       desired: [{
@@ -126,10 +152,14 @@ describe("Host Setup Step presentation", () => {
           { host: "codex", kind: "shared-path", message: "Use the shared path." },
         ],
       }],
+      items: [{ kind: "addition", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: report.desired,
       items: [{ kind: "current", project: "/project-a" }],
     });
 
-    const apply = formatApplyReport(applyResult(report));
+    const apply = formatApplyReport(applyResult(report, resultingState));
 
     expect(apply).toContain("Approve the hook.");
     expect(apply).toContain("Trust the project.");
@@ -139,11 +169,31 @@ describe("Host Setup Step presentation", () => {
       "After completing the Host setup above, Profile coding becomes active on the next launch " +
         "of each bound Host (codex) from /project-a.",
     );
-    const verbose = formatApplyReport(applyResult(report), { verbose: true });
+    const verbose = formatApplyReport(applyResult(report, resultingState), { verbose: true });
     expect(verbose).toContain("Use the shared path.");
     expect(verbose.trimEnd()).toEndWith(
       "After completing the Host setup above, Profile coding becomes active on the next launch " +
         "of each bound Host (codex) from /project-a.",
+    );
+  });
+
+  test("no-op apply does not claim next-launch activation", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{ host: "codex", kind: "trust-required", message: "Trust it." }],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    expect(formatApplyReport(applyResult(report))).not.toContain("becomes active");
+    expect(formatApplyReport(applyResult(report), { verbose: true })).not.toContain(
+      "becomes active",
     );
   });
 

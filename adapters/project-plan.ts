@@ -58,6 +58,7 @@ export interface AdapterHostSetupStep {
   readonly consequence?: string;
   readonly kind: HostSetupStepKind;
   readonly message: string;
+  readonly path?: "bound-project";
 }
 
 export interface HostSetupStep extends AdapterHostSetupStep {

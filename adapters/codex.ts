@@ -382,12 +382,12 @@ function hooks(contextPath: string): string {
   )}\n`;
 }
 
-function contextSetupSteps(launchFromBoundRoot?: string): readonly AdapterHostSetupStep[] {
+function contextSetupSteps(requiresBoundRootLaunch = false): readonly AdapterHostSetupStep[] {
   const steps: AdapterHostSetupStep[] = [
     {
       consequence: "Declining the hook prevents Profile Context from loading.",
       kind: "approval-required",
-      message: "Approve the generated SessionStart hook when Codex asks.",
+      message: "Review and approve the generated SessionStart hook when Codex asks.",
     },
     {
       consequence: "Profile Context does not load until the project is trusted.",
@@ -395,11 +395,12 @@ function contextSetupSteps(launchFromBoundRoot?: string): readonly AdapterHostSe
       message: "Trust the bound project in Codex.",
     },
   ];
-  if (launchFromBoundRoot !== undefined) {
+  if (requiresBoundRootLaunch) {
     steps.push({
       consequence: "Launching from a descendant prevents Profile Context from loading.",
       kind: "launch-constraint",
-      message: `Launch Codex from the exact bound project root: ${launchFromBoundRoot}`,
+      message: "Launch Codex from the exact bound project root:",
+      path: "bound-project",
     });
   }
   return steps;
@@ -411,7 +412,7 @@ export async function planCodexProject(
   skills: readonly Skill[] = [],
   options: {
     readonly contextPath?: string;
-    readonly launchFromBoundRoot?: string;
+    readonly requiresBoundRootLaunch?: boolean;
   } = {},
 ): Promise<CodexProjectPlan> {
   const skillOutputs = await Promise.all(
@@ -454,7 +455,9 @@ export async function planCodexProject(
       ? CODEX_HOST_VERSION_WITH_INVOCATION
       : CODEX_HOST_VERSION,
     outputs,
-    setupSteps: modules.length > 0 ? contextSetupSteps(options.launchFromBoundRoot) : [],
+    setupSteps: modules.length > 0
+      ? contextSetupSteps(options.requiresBoundRootLaunch)
+      : [],
   };
 }
 

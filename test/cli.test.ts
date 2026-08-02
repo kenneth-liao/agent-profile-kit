@@ -1264,7 +1264,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("Profile coding");
     expect(result.stdout).toContain("Context Module: team-rules");
     expect(result.stdout).toContain(".codex/hooks.json");
-    expect(result.stdout).toContain("Launch Codex from the exact bound project root:");
+    expect(result.stdout).toContain(`Launch Codex from the exact bound project root: ${projectPath}`);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex"))).toBe(false);
     expect(existsSync(statePath(home))).toBe(false);
@@ -1277,7 +1277,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const command of ["status", "apply"]) {
       const output = runCli(home, command);
       expect(output.status, output.stderr).toBe(0);
-      expect(output.stdout).toContain("Launch Codex from the exact bound project root:");
+      expect(output.stdout).toContain(
+        `Launch Codex from the exact bound project root: ${projectPath}`,
+      );
     }
   });
 
@@ -1496,8 +1498,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, projectPath);
     const preview = runCli(home, "preview");
     expect(preview.status, preview.stderr).toBe(0);
-    expect(preview.stdout).toContain("Approve the generated SessionStart hook when Codex asks.");
-    expect(preview.stdout).toContain("Launch Codex from the exact bound project root:");
+    expect(preview.stdout).toContain(
+      "Review and approve the generated SessionStart hook when Codex asks.",
+    );
+    expect(preview.stdout).toContain(
+      `Launch Codex from the exact bound project root: ${projectPath}`,
+    );
     expect(preview.stdout).not.toContain("Trust the bound project in Codex.");
     const result = runCli(home, "apply");
 
@@ -1507,12 +1513,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("State: addition");
     expect(result.stdout).toContain("Apply receipt:");
     expect(result.stdout).toContain("generated file addition");
-    expect(result.stdout).toContain("Approve the generated SessionStart hook when Codex asks.");
+    expect(result.stdout).toContain(
+      "Review and approve the generated SessionStart hook when Codex asks.",
+    );
     expect(result.stdout).toContain("Declining the hook prevents Profile Context from loading.");
     expect(result.stdout).toContain("Trust the bound project in Codex.");
-    expect(result.stdout).toContain("Launch Codex from the exact bound project root:");
+    expect(result.stdout).toContain(
+      `Launch Codex from the exact bound project root: ${projectPath}`,
+    );
     expect(result.stdout.trimEnd()).toEndWith(
-      `Profile coding becomes active on the next launch of each bound Host (codex) from ${projectPath}.`,
+      `After completing the Host setup above, Profile coding becomes active on the next launch ` +
+        `of each bound Host (codex) from ${projectPath}.`,
     );
     expect(result.stdout).not.toContain("Desired State:");
     const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
@@ -1680,6 +1691,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("Changes: none");
     expect(result.stdout).toContain("All Projects were already current.");
     expect(result.stdout).toContain("Apply receipt: no changes were applied");
+    expect(result.stdout).not.toContain("becomes active");
     expect(result.stdout).not.toContain("generated file update");
     expect(result.stdout).not.toContain("unchanged generated file");
     expect(paths.map((path) => statSync(path).mtimeMs)).toEqual(before);
@@ -3948,7 +3960,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const apply = runCliWithPath(home, pathValue, "apply");
     expect(apply.status, apply.stderr).toBe(0);
-    expect(apply.stdout).not.toContain("Approve the generated SessionStart hook");
+    expect(apply.stdout).not.toContain("SessionStart hook");
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);

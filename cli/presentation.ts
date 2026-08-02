@@ -519,11 +519,20 @@ function hostSetupLines(
     ? new Set<HostSetupStepKind>(["approval-required", "launch-constraint"])
     : new Set<HostSetupStepKind>(HOST_SETUP_STEP_ORDER);
   const byHost = new Map<string, Map<string, HostSetupStep>>();
-  for (const step of report.desired.flatMap((installation) => installation.setupSteps)) {
-    if (!visibleKinds.has(step.kind)) continue;
-    const steps = byHost.get(step.host) ?? new Map<string, HostSetupStep>();
-    steps.set(`${step.kind}\0${step.message}\0${step.consequence ?? ""}`, step);
-    byHost.set(step.host, steps);
+  for (const installation of report.desired) {
+    for (const step of installation.setupSteps) {
+      if (!visibleKinds.has(step.kind)) continue;
+      const message = step.path === "bound-project"
+        ? `${step.message} ${displayProjectPath(
+          installation.canonicalProject,
+          installation.project,
+        )}`
+        : step.message;
+      const renderedStep = { ...step, message };
+      const steps = byHost.get(step.host) ?? new Map<string, HostSetupStep>();
+      steps.set(`${step.kind}\0${message}\0${step.consequence ?? ""}`, renderedStep);
+      byHost.set(step.host, steps);
+    }
   }
   return [...byHost.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
@@ -540,8 +549,15 @@ function hostSetupLines(
     ]);
 }
 
-function activationLines(report: ReconciliationReport): readonly string[] {
+function activationLines(
+  report: ReconciliationReport,
+  receipt: ReconciliationReport,
+): readonly string[] {
+  const changedProjects = new Set(
+    receipt.items.filter((item) => item.kind !== "current").map((item) => item.project),
+  );
   return [...report.desired]
+    .filter((installation) => changedProjects.has(installation.project))
     .sort((left, right) => left.canonicalProject.localeCompare(right.canonicalProject))
     .map((installation) => {
       const setupCondition = installation.setupSteps.length > 0
@@ -748,7 +764,7 @@ function conciseReport(
   if (next) lines.push("", next);
   if (receipt) lines.push("", ...applyReceiptLines(receipt));
   if (command === "apply" && report.blockers.length === 0) {
-    const activation = activationLines(report);
+    const activation = receipt ? activationLines(report, receipt) : [];
     if (activation.length > 0) lines.push("", ...activation);
   }
   return `${lines.join("\n")}\n`;
@@ -757,7 +773,6 @@ function conciseReport(
 function verboseSections(
   command: LifecycleCommand,
   report: ReconciliationReport,
-  options: { readonly includeSetup?: boolean } = {},
 ): string {
   const items = report.items.length === 0
     ? "(no Profile Installations)"
@@ -808,26 +823,32 @@ function verboseSections(
   const warnings = presentationWarnings.length === 0
     ? "(none)"
     : presentationWarnings.map((warning) => `- ${warning}`).join("\n");
-  const setup = options.includeSetup === false ? [] : hostSetupLines(command, report);
-  const detail = `Projects:\n${items}\nOutputs:\n${outputs}\nRepository Exclusions:\n${repositoryExclusions}\nRepository Exclusion Repairs:\n${repositoryExclusionRepairs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\nHost Setup:\n${setup.length > 0 ? setup.join("\n") : "(none)"}\n`;
+  const detail = `Projects:\n${items}\nOutputs:\n${outputs}\nRepository Exclusions:\n${repositoryExclusions}\nRepository Exclusion Repairs:\n${repositoryExclusionRepairs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\n`;
   const blockerSection = `Blockers:\n${blockers}\n`;
   return report.blockers.length > 0
     ? `${blockerSection}${detail}`
     : `${detail}${blockerSection}`;
 }
 
+function verboseSetupSection(command: LifecycleCommand, report: ReconciliationReport): string {
+  const setup = hostSetupLines(command, report);
+  return `Host Setup:\n${setup.length > 0 ? setup.join("\n") : "(none)"}\n`;
+}
+
 function verboseReport(command: LifecycleCommand, report: ReconciliationReport): string {
-  return `${outcomeLine(command, report)}\n${verboseSections(command, report)}`;
+  return `${outcomeLine(command, report)}\n${verboseSections(command, report)}` +
+    verboseSetupSection(command, report);
 }
 
 function verboseApplyReport(result: ApplyReconciliationResult): string {
   const report = (
     `${outcomeLine("apply", result.resultingState, true)}\n` +
     `Resulting state:\n${verboseSections("status", result.resultingState)}` +
-    `Apply receipt:\n${verboseSections("apply", result.receipt, { includeSetup: false })}`
+    `Apply receipt:\n${verboseSections("apply", result.receipt)}` +
+    verboseSetupSection("apply", result.resultingState)
   );
   const activation = result.resultingState.blockers.length === 0
-    ? activationLines(result.resultingState)
+    ? activationLines(result.resultingState, result.receipt)
     : [];
   return activation.length > 0 ? `${report}\n${activation.join("\n")}\n` : report;
 }
@@ -847,7 +868,8 @@ export function formatApplyVerificationFailure(
   options: { readonly verbose?: boolean } = {},
 ): string {
   if (options.verbose) {
-    return `${message}\nApply receipt:\n${verboseSections("apply", receipt)}`;
+    return `${message}\nApply receipt:\n${verboseSections("apply", receipt)}` +
+      verboseSetupSection("apply", receipt);
   }
   const lines = [
     defaultDiagnosticText(message),
