@@ -257,6 +257,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const minimalValidate = runCli(home, "validate");
     expect(minimalValidate.status, minimalValidate.stderr).toBe(0);
     expect(minimalValidate.stdout).toContain("Workspace and Local Configuration valid");
+    expect(minimalValidate.stdout).toContain("0 Profiles, 0 Project Bindings");
+    expect(minimalValidate.stdout).toContain("Profiles found: none");
+    expect(minimalValidate.stdout).toContain("Hosts bound: none");
 
     mkdirSync(join(workspace, "context"));
     mkdirSync(join(workspace, "profiles"));
@@ -266,7 +269,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const partialValidate = runCli(home, "validate");
     expect(partialValidate.status, partialValidate.stderr).toBe(0);
-    expect(partialValidate.stdout).toContain("1 Profiles");
+    expect(partialValidate.stdout).toContain("1 Profile");
 
     for (const entry of ["README.md", "AGENTS.md", ".gitignore", "skills", "agents", "hooks", "tools"]) {
       expect(existsSync(join(workspace, entry))).toBe(false);
@@ -364,7 +367,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "validate");
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("1 Profiles");
+    expect(result.stdout).toContain("1 Profile");
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${workspacePath(home)}`);
   });
@@ -392,7 +395,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const absolute = runCli(home, "validate");
     expect(absolute.status, absolute.stderr).toBe(0);
-    expect(absolute.stdout).toContain("1 Profiles");
+    expect(absolute.stdout).toContain("1 Profile");
     expect(existsSync(workspacePath(home))).toBe(false);
 
     const homeRelative = `~/${custom.slice(home.length + 1)}`;
@@ -402,7 +405,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     const relativeHome = runCli(home, "validate");
     expect(relativeHome.status, relativeHome.stderr).toBe(0);
-    expect(relativeHome.stdout).toContain("1 Profiles");
+    expect(relativeHome.stdout).toContain("1 Profile");
   });
 
   test("symlinked configured Workspace aliases keep installation identity across apply and status", () => {
@@ -1161,12 +1164,36 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const validate = runCli(home, "validate");
     expect(validate.status, validate.stderr).toBe(0);
-    expect(validate.stdout).toContain("1 Profiles");
-    expect(validate.stdout).toContain("1 Project Bindings");
+    expect(validate.stdout).toContain("1 Profile, 1 Project Binding");
 
     const apply = runCli(home, "apply");
     expect(apply.status, apply.stderr).toBe(0);
     expect(existsSync(join(projectPath, ".codex", "AGENTS.md")) || existsSync(join(projectPath, "AGENTS.md")) || existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
+  });
+
+  test("validate names the Profiles found and the unique Hosts bound", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    writeFileSync(
+      join(workspacePath(home), "profiles", "writing.yaml"),
+      "id: writing\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const first = project();
+    const second = project();
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${first}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${second}\n    profile: writing\n    hosts: [claude, codex]\n`,
+    );
+
+    const result = runCli(home, "validate");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("2 Profiles, 2 Project Bindings");
+    expect(result.stdout).toContain("Profiles found: coding, writing");
+    expect(result.stdout).toContain("Hosts bound: claude, codex");
   });
 
   test("validate normalizes home-relative project roots and does not invoke Codex", () => {
@@ -1216,7 +1243,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       },
       {
         source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: missing\n    hosts: [codex]\n`,
-        message: "does not exist in Workspace",
+        message: "does not exist in this Workspace",
+        detail: "Available Profiles: coding",
       },
       {
         source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [cursor]\n`,
@@ -1229,6 +1257,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       const result = runCli(home, "validate");
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(invalid.message);
+      if ("detail" in invalid) expect(result.stderr).toContain(invalid.detail);
     }
   });
 
@@ -4671,8 +4700,25 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = runCli(home, "unbind", projectPath);
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toMatch(/does not exist in Workspace/i);
+    expect(result.stderr).toMatch(/does not exist in this Workspace/i);
     expect(result.stderr).toMatch(/edit Local Configuration directly/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(source);
+  });
+
+  test("unbind gives an empty Workspace one recovery for its stale missing Profile", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    const source =
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`;
+    writeFileSync(configPath(home), source);
+
+    const result = runCli(home, "unbind", projectPath);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("No Profiles exist in the Workspace");
+    expect(result.stderr).toMatch(/edit Local Configuration directly/i);
+    expect(result.stderr).not.toContain("apkit guide");
     expect(readFileSync(configPath(home), "utf8")).toBe(source);
   });
 
@@ -4952,7 +4998,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     const validate = runCli(home, "validate");
     expect(validate.status, validate.stderr).toBe(0);
-    expect(validate.stdout).toContain("1 Project Bindings");
+    expect(validate.stdout).toContain("1 Project Binding");
   });
 
   test("bind accepts a home-relative project path and preserves authored spelling", () => {
@@ -5029,12 +5075,19 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const home = isolatedHome();
     initialize(home);
     writeContextProfile(home);
+    writeFileSync(
+      join(workspacePath(home), "profiles", "writing.yaml"),
+      "id: writing\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
     const projectPath = project();
     const before = readFileSync(configPath(home), "utf8");
 
     const unknownProfile = runCli(home, "bind", "missing", projectPath, "--host", "codex");
     expect(unknownProfile.status).toBe(1);
     expect(unknownProfile.stderr).toMatch(/does not exist|profile/i);
+    expect(unknownProfile.stderr).toContain("Available Profiles: coding, writing");
+    expect(unknownProfile.stderr).not.toContain(configPath(home));
+    expect(unknownProfile.stderr).not.toContain(realpathSync(workspacePath(home)));
 
     const badHost = runCli(home, "bind", "coding", projectPath, "--host", "gemini");
     expect(badHost.status).toBe(1);
@@ -5061,6 +5114,19 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(relative.stderr).toMatch(/absolute path or home-relative/i);
 
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
+  });
+
+  test("bind turns an empty Workspace missing-Profile error into an authoring next step", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+
+    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("No Profiles exist in the Workspace");
+    expect(result.stderr).toContain("Run apkit guide to learn how to add a Profile");
+    expect(result.stderr).not.toContain("Available Profiles:");
   });
 
   test("bind never touches project output, Installation Manifests, or Host configuration", () => {

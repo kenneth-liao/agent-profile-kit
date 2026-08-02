@@ -47,6 +47,7 @@ import {
 } from "../schemas/installation-manifest.js";
 import { hashWorkspaceInputs } from "./hashes.js";
 import { ingestApplication, stateDirectory } from "./local-configuration.js";
+import { requireProfile } from "./profile-selection.js";
 import { resolveProfileDependencies, type ResolvedProfile } from "./resolve-dependencies.js";
 import { ENGINE_VERSION } from "./version.js";
 import { findGitProject, type GitProject } from "./git.js";
@@ -463,12 +464,10 @@ export async function buildDesiredState(
   for (const binding of [...configuration.bindings].sort((left, right) =>
     left.canonicalProject.localeCompare(right.canonicalProject)
   )) {
-    const profile = workspace.profiles.get(binding.profile);
-    if (!profile) {
-      throw new Error(
-        `Project Binding for '${binding.project}' selects missing Profile '${binding.profile}'`,
-      );
-    }
+    const profile = requireProfile(
+      workspace.profiles,
+      binding.profile,
+    );
     const resolvedProfile = resolveProfileDependencies(
       profile,
       workspace.contexts,

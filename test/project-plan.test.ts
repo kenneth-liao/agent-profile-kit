@@ -9,6 +9,13 @@ import {
   hashDirectoryMembers,
   normalizeAdapterPlans,
 } from "../installer/project-plan.js";
+import { requireProfile } from "../installer/profile-selection.js";
+
+test("missing Profile errors retain a useful message outside CLI presentation", () => {
+  expect(() => requireProfile(new Map(), "coding")).toThrow(
+    "Profile 'coding' does not exist in this Workspace",
+  );
+});
 
 function fileOutput(
   output: Partial<Extract<ProposedProjectOutput, { type: "file" }>> = {},

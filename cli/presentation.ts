@@ -13,6 +13,8 @@ import type {
 } from "../installer/reconcile.js";
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
 import { COMMAND_NAME } from "../installer/version.js";
+import type { MissingProfileError } from "../installer/profile-selection.js";
+import type { ValidationResult } from "../installer/commands.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
 
@@ -64,6 +66,20 @@ export const INTERNAL_ONLY_DEFAULT_TERMS = [
   /Installation Manifests?/i,
   /desired state/i,
 ] as const;
+
+export function formatMissingProfileError(error: MissingProfileError): string {
+  const heading = `${error.message}.`;
+  const recovery = error.recoverByEditingLocalConfiguration
+    ? " Edit Local Configuration directly if this stale binding must be removed."
+    : "";
+  if (error.availableProfiles.length === 0) {
+    const next = error.recoverByEditingLocalConfiguration
+      ? recovery
+      : ` Run ${COMMAND_NAME} guide to learn how to add a Profile.`;
+    return `${heading} No Profiles exist in the Workspace.${next}`;
+  }
+  return `${heading} Available Profiles: ${error.availableProfiles.join(", ")}.${recovery}`;
+}
 
 function capitalize(text: string): string {
   return `${text[0]?.toUpperCase()}${text.slice(1)}`;
@@ -244,6 +260,15 @@ function displayProjectPath(
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+export function formatValidationResult(result: ValidationResult): string {
+  const profileCount = result.profiles.length;
+  return `Workspace and Local Configuration valid (` +
+    `${plural(profileCount, "Profile")}, ${plural(result.bindings, "Project Binding")})\n` +
+    `Profiles found: ${profileCount === 0 ? "none" : result.profiles.join(", ")}\n` +
+    `Hosts bound: ${result.hosts.length === 0 ? "none" : result.hosts.join(", ")}\n` +
+    result.warnings.map((warning) => `Warning: ${warning}\n`).join("");
 }
 
 function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputSummary {

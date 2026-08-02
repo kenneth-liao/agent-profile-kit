@@ -1096,7 +1096,7 @@ describe("project-bound release candidate", () => {
 
     const partialValidate = runCli(home, ["validate"]);
     expect(partialValidate.status, partialValidate.stderr).toBe(0);
-    expect(partialValidate.stdout).toMatch(/1 Profiles|Profiles/);
+    expect(partialValidate.stdout).toContain("1 Profile");
 
     // Present malformed artifacts still fail at ingestion (scaffolding optional ≠ validation weak).
     mkdirSync(join(workspace, "skills", "bad-skill"), { recursive: true });

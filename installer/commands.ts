@@ -16,15 +16,21 @@ import {
 } from "./installation-state.js";
 import { gitExclusionBlockers, stageGitExclusions } from "./git-exclusions.js";
 
-export async function validateApplication(home: string): Promise<{
+export interface ValidationResult {
   readonly bindings: number;
-  readonly profiles: number;
+  readonly hosts: readonly string[];
+  readonly profiles: readonly string[];
   readonly warnings: readonly string[];
-}> {
+}
+
+export async function validateApplication(home: string): Promise<ValidationResult> {
   const desired = await buildDesiredState(home, { checkHostCapability: false });
   return {
     bindings: desired.bindingCount,
-    profiles: desired.workspace.profiles.size,
+    hosts: [...new Set(
+      desired.installations.flatMap((installation) => installation.binding.hosts),
+    )].sort(),
+    profiles: [...desired.workspace.profiles.keys()].sort(),
     warnings: [...new Set(desired.installations.flatMap((installation) => installation.warnings))].sort(),
   };
 }
