@@ -4,6 +4,7 @@ import type {
   AdapterProjectPlan,
   ProposedProjectOutput,
 } from "../adapters/project-plan.js";
+import type { SupportedHost } from "../schemas/local-configuration.js";
 import {
   hashDirectoryMembers,
   normalizeAdapterPlans,
@@ -54,13 +55,14 @@ function directoryOutput(
 }
 
 function plan(
-  host: string,
+  host: SupportedHost,
   ...outputs: ProposedProjectOutput[]
 ): AdapterProjectPlan {
   return {
     host,
     hostVersion: `${host}-v1`,
     outputs: outputs.length > 0 ? outputs : [fileOutput()],
+    setupSteps: [],
   };
 }
 

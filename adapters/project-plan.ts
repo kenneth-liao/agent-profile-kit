@@ -1,3 +1,5 @@
+import type { SupportedHost } from "../schemas/local-configuration.js";
+
 export type ProjectOutputEntryType = "directory" | "file";
 
 /** A regular file inside an owned artifact directory. Paths are relative to the directory root. */
@@ -46,8 +48,26 @@ export type ProposedProjectOutput =
   | ProposedProjectDirectoryOutput
   | ProposedProjectFileOutput;
 
+export type HostSetupStepKind =
+  | "approval-required"
+  | "launch-constraint"
+  | "shared-path"
+  | "trust-required";
+
+export interface AdapterHostSetupStep {
+  readonly consequence?: string;
+  readonly kind: HostSetupStepKind;
+  readonly message: string;
+  readonly path?: "bound-project";
+}
+
+export interface HostSetupStep extends AdapterHostSetupStep {
+  readonly host: SupportedHost;
+}
+
 export interface AdapterProjectPlan {
-  readonly host: string;
+  readonly host: SupportedHost;
   readonly hostVersion: string;
   readonly outputs: readonly ProposedProjectOutput[];
+  readonly setupSteps: readonly AdapterHostSetupStep[];
 }

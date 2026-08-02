@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import type { HostSetupStep } from "../adapters/project-plan.js";
 import {
   formatBlockedApplyReport,
   formatApplyReport,
@@ -23,8 +24,9 @@ function asBlockedReport(report: ReconciliationReport): BlockedReconciliationRep
   return { ...report, blockers: [blocker, ...remainingBlockers] };
 }
 
-type DesiredFixture = Omit<ReconciliationReport["desired"][number], "hosts"> & {
+type DesiredFixture = Omit<ReconciliationReport["desired"][number], "hosts" | "setupSteps"> & {
   readonly hosts?: ReconciliationReport["desired"][number]["hosts"];
+  readonly setupSteps?: ReconciliationReport["desired"][number]["setupSteps"];
 };
 
 function emptyReport(
@@ -42,6 +44,7 @@ function emptyReport(
     ...overrides,
     desired: (overrides.desired ?? []).map((installation) => ({
       hosts: ["codex"],
+      setupSteps: [],
       ...installation,
     })),
   };
@@ -72,6 +75,224 @@ function identityReport(
     outputs: [{ kind: "addition", path: "a.md", project }],
   });
 }
+
+describe("Host Setup Step presentation", () => {
+  test("preview renders approval and launch constraints but omits other setup steps", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [
+          { host: "codex", kind: "approval-required", message: "Approve the hook." },
+          { host: "codex", kind: "trust-required", message: "Trust the project." },
+          { host: "codex", kind: "launch-constraint", message: "Launch from the root." },
+          { host: "codex", kind: "shared-path", message: "Use the shared path." },
+        ],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+
+    const preview = formatLifecycleReport("preview", report);
+
+    expect(preview).toContain("Approve the hook.");
+    expect(preview).toContain("Launch from the root.");
+    expect(preview).not.toContain("Trust the project.");
+    expect(preview).not.toContain("Use the shared path.");
+    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    expect(verbose).toContain("Approve the hook.");
+    expect(verbose).toContain("Launch from the root.");
+    expect(verbose).not.toContain("Trust the project.");
+    expect(verbose).not.toContain("Use the shared path.");
+  });
+
+  test("renders typed bound-project paths through the canonical path presenter", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/private/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{
+          host: "codex",
+          kind: "launch-constraint",
+          message: "Launch from the exact bound project root:",
+          path: "bound-project",
+        }],
+      }],
+      items: [{ kind: "addition", project: "/private/project-a" }],
+    });
+
+    const preview = formatLifecycleReport("preview", report);
+
+    expect(preview.split("\n").find((line) => line.startsWith("- Launch from"))).toBe(
+      "- Launch from the exact bound project root: /project-a",
+    );
+  });
+
+  test("apply renders every setup kind and closes with next-launch activation guidance", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [
+          { host: "codex", kind: "approval-required", message: "Approve the hook." },
+          { host: "codex", kind: "trust-required", message: "Trust the project." },
+          { host: "codex", kind: "launch-constraint", message: "Launch from the root." },
+          { host: "codex", kind: "shared-path", message: "Use the shared path." },
+        ],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: report.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    const apply = formatApplyReport(applyResult(report, resultingState));
+
+    expect(apply).toContain("Approve the hook.");
+    expect(apply).toContain("Trust the project.");
+    expect(apply).toContain("Launch from the root.");
+    expect(apply).toContain("Use the shared path.");
+    expect(apply.trimEnd()).toEndWith(
+      "After completing the Host setup above, Profile coding becomes active on the next launch " +
+        "of each bound Host (codex) from /project-a.",
+    );
+    const verbose = formatApplyReport(applyResult(report, resultingState), { verbose: true });
+    expect(verbose).toContain("Use the shared path.");
+    expect(verbose.trimEnd()).toEndWith(
+      "After completing the Host setup above, Profile coding becomes active on the next launch " +
+        "of each bound Host (codex) from /project-a.",
+    );
+  });
+
+  test("no-op apply does not claim next-launch activation", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{ host: "codex", kind: "trust-required", message: "Trust it." }],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    expect(formatApplyReport(applyResult(report))).not.toContain("becomes active");
+    expect(formatApplyReport(applyResult(report), { verbose: true })).not.toContain(
+      "becomes active",
+    );
+  });
+
+  test("changed aliased projects retain activation through their authored report identity", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/private/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{ host: "codex", kind: "trust-required", message: "Trust it." }],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: receipt.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    expect(formatApplyReport(applyResult(receipt, resultingState)).trimEnd()).toEndWith(
+      "After completing the Host setup above, Profile coding becomes active on the next launch " +
+        "of each bound Host (codex) from /project-a.",
+    );
+  });
+
+  test("status deduplicates repeated steps into one callout per Host", () => {
+    const repeatedSteps: readonly HostSetupStep[] = [
+      { host: "codex", kind: "approval-required" as const, message: "Approve the hook." },
+      { host: "codex", kind: "trust-required" as const, message: "Trust the project." },
+    ];
+    const report = emptyReport({
+      desired: ["/project-a", "/project-b"].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+        setupSteps: repeatedSteps,
+      })),
+      items: [
+        { kind: "current", project: "/project-a" },
+        { kind: "current", project: "/project-b" },
+      ],
+    });
+
+    const status = formatLifecycleReport("status", report);
+
+    expect(status.match(/Codex setup:/g)).toHaveLength(1);
+    expect(status.match(/Approve the hook\./g)).toHaveLength(1);
+    expect(status.match(/Trust the project\./g)).toHaveLength(1);
+  });
+
+  test("blocked preview and apply suppress post-apply setup while status retains its reminder", () => {
+    const report = emptyReport({
+      blockers: [{ message: "occupied output", project: "/project-a" }],
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [
+          { host: "codex", kind: "approval-required", message: "Approve the hook." },
+        ],
+      }],
+      items: [{ kind: "blocked", project: "/project-a" }],
+    });
+
+    expect(formatLifecycleReport("preview", report)).not.toContain("Approve the hook.");
+    expect(formatBlockedApplyReport(asBlockedReport(report))).not.toContain("Approve the hook.");
+    expect(formatLifecycleReport("status", report)).toContain("Approve the hook.");
+  });
+
+  test("post-commit verification failure retains apply setup without claiming activation", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [
+          { host: "codex", kind: "trust-required", message: "Trust the project." },
+        ],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+    });
+
+    const failure = formatApplyVerificationFailure(report, "Verification failed.");
+
+    expect(failure).toContain("Trust the project.");
+    expect(failure).not.toContain("becomes active");
+  });
+});
 
 /** Distinctive anchor phrases — not a second home for the full gloss table. */
 const STATE_ANCHORS: Readonly<Record<(typeof NON_CURRENT_STATE_ORDER)[number], string>> = {

@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Carry typed Host Setup Steps from Adapters through lifecycle reports, replacing the prior `validate` warning with conditional Codex hook review and approval, project trust, non-Git launch guidance, and next-launch activation messaging ([#118](https://github.com/kenneth-liao/agent-profile-kit/issues/118)).
+
 - Lead blocked lifecycle reports with one actionable blocker, preserve command-specific retry guidance, and document the safe generated-file drift recovery loop ([#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)).
 
 - Identify project lifecycle blocks with short, unambiguous paths and the Hosts recorded by each Project Binding ([#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116)).
@@ -54,6 +56,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Document the 0.24.2 Installation State backup and pre-delete apply required for rollback and safe retirement of pre-0.24.2 non-Git installations ([#78](https://github.com/kenneth-liao/agent-profile-kit/issues/78)).
 
 ### Fixed
+
+- Render Host Setup Step paths through the canonical path presenter, preserve Codex hook review, and suppress activation claims after no-op applies ([#132](https://github.com/kenneth-liao/agent-profile-kit/pull/132)).
 
 - Preserve edited generated output after a Marker-proven project move and keep every blocked apply on the single actionable-report path ([#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)).
 

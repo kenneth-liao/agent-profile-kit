@@ -370,5 +370,6 @@ export async function planClaudeProject(
       ? CLAUDE_HOST_VERSION_WITH_INVOCATION
       : CLAUDE_HOST_VERSION,
     outputs,
+    setupSteps: [],
   };
 }

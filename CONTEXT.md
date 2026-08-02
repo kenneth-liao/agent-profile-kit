@@ -24,6 +24,10 @@ _Avoid_: Agent Profile Kit implementation
 The single boundary that owns all host-specific knowledge for one Agent Host and translates Agent Profile Kit material without a portable native form into concepts that Host supports.
 _Avoid_: Installer, canonical source, duplicate implementation
 
+**Host Setup Step**:
+A typed, Adapter-authored action a user must take in an Agent Host after generated output is applied, including the consequence of skipping it when one exists. Presentation may order, filter, and render these steps but does not derive Host-specific requirements from installed files.
+_Avoid_: Activation, generated output, Installer-derived Host guidance
+
 **Capability Contract**:
 The machine-readable set of behaviors an Adapter can preserve for a detected Agent Host version and surface. The Installer compares artifact requirements against this contract before installation.
 _Avoid_: Best-effort compatibility, version number alone

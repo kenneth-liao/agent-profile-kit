@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AdapterProjectPlan } from "../adapters/project-plan.js";
+import type { SupportedHost } from "../schemas/local-configuration.js";
 import { hasTrackedGitDescendants } from "../installer/git.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
@@ -66,7 +67,7 @@ function temporaryDirectory(prefix: string): string {
 }
 
 function skillDirectoryPlan(
-  host = "codex",
+  host: SupportedHost = "codex",
   overrides: {
     readonly bytes?: string;
     readonly path?: string;
@@ -103,6 +104,7 @@ function skillDirectoryPlan(
         type: "directory",
       },
     ],
+    setupSteps: [],
   };
 }
 
@@ -518,6 +520,7 @@ describe("Installer-owned artifact-directory outputs", () => {
         requirements: ["Host discovers Skill package"],
         type: "directory",
       }],
+      setupSteps: [],
     }])[0]!;
 
     await applyReconciliation(home, [withDirectoryOutput(base, directory)]);
@@ -582,6 +585,7 @@ describe("Installer-owned artifact-directory outputs", () => {
         requirements: ["Host discovers Skill package"],
         type: "directory",
       }],
+      setupSteps: [],
     }])[0]!;
     const stateDirectory = join(home, ".agents", "agent-profile-kit", "state");
     mkdirSync(stateDirectory, { recursive: true });

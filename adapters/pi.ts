@@ -392,5 +392,6 @@ export async function planPiProject(
           : PI_HOST_VERSION_WITH_SKILLS
       : PI_HOST_VERSION,
     outputs,
+    setupSteps: [],
   };
 }
