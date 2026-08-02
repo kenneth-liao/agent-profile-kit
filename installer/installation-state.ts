@@ -353,15 +353,29 @@ async function proveFileOutput(
   }
 }
 
+export type OwnershipFailureKind = "drift" | "malformed" | "missing";
+export type OwnershipDriftKind = "generated-output" | "unexpected-member" | "both";
+
+export interface OwnershipProof {
+  readonly driftKind?: OwnershipDriftKind;
+  readonly failureKind?: OwnershipFailureKind;
+  readonly reason?: string;
+  readonly owned: boolean;
+}
+
 async function proveOutputHashes(
   installation: ProjectInstallationManifest,
   includeMarker: boolean,
-): Promise<{ readonly reason?: string; readonly owned: boolean }> {
+): Promise<OwnershipProof> {
   const outputs = installation.outputs.filter(
     (output) => includeMarker || output.path !== INSTALLATION_MARKER_PATH,
   );
   if (outputs.length === 0) {
-    return { owned: false, reason: "no remaining owned output proves the installation" };
+    return {
+      failureKind: "missing",
+      owned: false,
+      reason: "no remaining owned output proves the installation",
+    };
   }
   const missing: string[] = [];
   const drifted: string[] = [];
@@ -370,7 +384,11 @@ async function proveOutputHashes(
   for (const output of outputs) {
     const unsafeParent = await unsafeOutputParent(installation.project, output.path);
     if (unsafeParent) {
-      return { owned: false, reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}` };
+      return {
+        failureKind: "drift",
+        owned: false,
+        reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
+      };
     }
     if (output.type === "file") {
       const proof = await proveFileOutput(installation.project, output);
@@ -386,13 +404,28 @@ async function proveOutputHashes(
     unexpected.push(...inspection.unexpectedMembers);
   }
   if (missing.length > 0 || drifted.length > 0 || modeDrifted.length > 0 || unexpected.length > 0) {
+    const generatedOutputDrift = drifted.length > 0 || modeDrifted.length > 0;
+    const unexpectedMemberDrift = unexpected.length > 0;
     const reasons = [
       ...(missing.length > 0 ? [`missing: ${missing.join(", ")}`] : []),
       ...(drifted.length > 0 ? [`drifted: ${drifted.join(", ")}`] : []),
       ...(modeDrifted.length > 0 ? [`drifted mode: ${modeDrifted.join(", ")}`] : []),
       ...(unexpected.length > 0 ? [`unexpected: ${unexpected.join(", ")}`] : []),
     ];
-    return { owned: false, reason: `owned output ${reasons.join("; ")}` };
+    return {
+      ...(generatedOutputDrift || unexpectedMemberDrift
+        ? {
+            driftKind: generatedOutputDrift && unexpectedMemberDrift
+              ? "both" as const
+              : generatedOutputDrift
+                ? "generated-output" as const
+                : "unexpected-member" as const,
+          }
+        : {}),
+      failureKind: missing.length > 0 ? "missing" : "drift",
+      owned: false,
+      reason: `owned output ${reasons.join("; ")}`,
+    };
   }
   return { owned: true };
 }
@@ -400,13 +433,11 @@ async function proveOutputHashes(
 /** Prove ownership from non-marker output hashes, for safe marker repair. */
 export async function proveRemainingOwnedOutputs(
   installation: ProjectInstallationManifest,
-): Promise<{ readonly reason?: string; readonly owned: boolean }> {
+): Promise<OwnershipProof> {
   return proveOutputHashes(installation, false);
 }
 
-export interface InstallationOwnershipInspection {
-  readonly owned: boolean;
-  readonly reason?: string;
+export interface InstallationOwnershipInspection extends OwnershipProof {
   readonly repairableMissingOutputs: readonly string[];
 }
 
@@ -421,6 +452,7 @@ export async function inspectInstallationOwnership(
     const markerStats = await lstat(markerPath(installation.project));
     if (markerStats.isSymbolicLink() || !markerStats.isFile()) {
       return {
+        failureKind: "drift",
         owned: false,
         reason: "Installation Marker is not a regular file",
         repairableMissingOutputs: [],
@@ -429,6 +461,7 @@ export async function inspectInstallationOwnership(
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       return {
+        failureKind: "missing",
         owned: false,
         reason: "Installation Marker is missing",
         repairableMissingOutputs: [],
@@ -441,6 +474,7 @@ export async function inspectInstallationOwnership(
     marker = await readMarker(installation.project);
   } catch (error) {
     return {
+      failureKind: "malformed",
       owned: false,
       reason: `Installation Marker is malformed: ${error instanceof Error ? error.message : String(error)}`,
       repairableMissingOutputs: [],
@@ -448,6 +482,7 @@ export async function inspectInstallationOwnership(
   }
   if (!marker) {
     return {
+      failureKind: "missing",
       owned: false,
       reason: "Installation Marker is missing",
       repairableMissingOutputs: [],
@@ -455,6 +490,7 @@ export async function inspectInstallationOwnership(
   }
   if (marker.installationId !== installation.installationId) {
     return {
+      failureKind: "drift",
       owned: false,
       reason: "Installation Marker identity does not match the Manifest",
       repairableMissingOutputs: [],
@@ -467,6 +503,7 @@ export async function inspectInstallationOwnership(
     const unsafeParent = await unsafeOutputParent(installation.project, output.path);
     if (unsafeParent) {
       return {
+        failureKind: "drift",
         owned: false,
         reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
         repairableMissingOutputs: [],
@@ -492,6 +529,8 @@ export async function inspectInstallationOwnership(
   const proof = await proveOutputHashes(surviving, true);
   if (!proof.owned && repairableMissingOutputs.length > 0) {
     return {
+      ...(proof.driftKind ? { driftKind: proof.driftKind } : {}),
+      failureKind: "missing",
       owned: false,
       reason: `owned output missing: ${repairableMissingOutputs.join(", ")}; ${proof.reason ?? "surviving output ownership cannot be proven"}`,
       repairableMissingOutputs: [],
@@ -505,10 +544,11 @@ export async function inspectInstallationOwnership(
 
 export async function proveOwnedInstallation(
   installation: ProjectInstallationManifest,
-): Promise<{ readonly reason?: string; readonly owned: boolean }> {
+): Promise<OwnershipProof> {
   const inspection = await inspectInstallationOwnership(installation);
   if (inspection.repairableMissingOutputs.length > 0) {
     return {
+      failureKind: "missing",
       owned: false,
       reason: `owned output missing: ${inspection.repairableMissingOutputs.join(", ")}`,
     };

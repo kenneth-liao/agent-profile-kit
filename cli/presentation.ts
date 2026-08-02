@@ -3,6 +3,7 @@ import { isAbsolute, join, relative } from "node:path";
 
 import type {
   ApplyReconciliationResult,
+  BlockedReconciliationReport,
   OutputReconciliationItem,
   ReconciliationBlocker,
   ReconciliationItem,
@@ -452,10 +453,14 @@ function groupHasReconciliationWork(group: ProjectGroup | undefined): boolean {
   );
 }
 
-function outcomeLine(command: LifecycleCommand, report: ReconciliationReport): string {
+function outcomeLine(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  applyCompleted = false,
+): string {
   if (command === "preview") return report.blockers.length > 0 ? "Cannot apply" : "Ready to apply";
   if (command === "apply") {
-    if (report.blockers.length > 0) return "Apply completed with blockers";
+    if (report.blockers.length > 0) return applyCompleted ? "Apply completed with blockers" : "Apply blocked";
     if (report.items.some((item) => item.kind !== "current")) return "Apply completed with attention";
     return "Apply complete";
   }
@@ -470,6 +475,12 @@ function outcomeLine(command: LifecycleCommand, report: ReconciliationReport): s
 
 function aggregateLine(report: ReconciliationReport, groups: readonly ProjectGroup[]): string {
   const installations = groups.length;
+  if (report.blockers.length > 0) {
+    return (
+      `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}: ${installations} · ` +
+      `Blockers: ${report.blockers.length}`
+    );
+  }
   const summary = summarizeOutputs(report.outputs);
   const changes = changeParts(summary);
   return (
@@ -580,7 +591,9 @@ function conciseReport(
 ): string {
   const grouped = groupProjects(report);
   const groups = grouped.groups;
-  const lines = [outcomeLine(command, report), aggregateLine(report, groups)];
+  const blocked = report.blockers.length > 0;
+  const lines = [outcomeLine(command, report, receipt !== undefined)];
+  if (!blocked) lines.push(aggregateLine(report, groups));
   const receiptGroups = receipt === undefined
     ? new Map<string, ProjectGroup>()
     : new Map(groupProjects(receipt).groups.map((group) => [group.canonicalProject, group]));
@@ -589,11 +602,13 @@ function conciseReport(
     repairedRepositoryExclusionLines(receipt).length > 0
   );
   const showSingleCurrentGroup = command === "apply" && receiptHasRepositoryWork && groups.length === 1;
-  const activeGroups = groups.filter((group) =>
-    groupNeedsAttention(group, command) ||
-    (command === "apply" && groupHasReconciliationWork(receiptGroups.get(group.canonicalProject))) ||
-    (showSingleCurrentGroup && group.items.every((item) => item.kind === "current")),
-  );
+  const activeGroups = blocked
+    ? groups.filter((group) => group.blockers.length > 0)
+    : groups.filter((group) =>
+        groupNeedsAttention(group, command) ||
+        (command === "apply" && groupHasReconciliationWork(receiptGroups.get(group.canonicalProject))) ||
+        (showSingleCurrentGroup && group.items.every((item) => item.kind === "current")),
+      );
 
   if (activeGroups.length === 0) {
     if (groups.length > 0 && report.blockers.length === 0) {
@@ -620,6 +635,10 @@ function conciseReport(
       if (desired) {
         lines.push(`  Profile: ${desired.profile}`, `  Hosts: ${desired.hosts.join(", ")}`);
       }
+      if (blocked) {
+        for (const blocker of group.blockers) lines.push(`  Blocker: ${formatBlocker(blocker, group.project)}`);
+        continue;
+      }
       for (const item of group.items) {
         if (
           item.kind !== "current" ||
@@ -635,7 +654,7 @@ function conciseReport(
   }
 
   const exclusionChanges = changedRepositoryExclusions(report);
-  if (exclusionChanges.length > 0) {
+  if (!blocked && exclusionChanges.length > 0) {
     lines.push(
       "",
       `${capitalize(DEFAULT_VIEW_LEXICON.repositoryExclusion.plural)}:`,
@@ -651,12 +670,13 @@ function conciseReport(
     lines.push("", "Global blockers:");
     for (const blocker of globalBlockers) lines.push(`- ${formatBlocker(blocker)}`);
   }
-  if (grouped.unscopedItems.length > 0) {
+  if (blocked) lines.push("", aggregateLine(report, groups));
+  if (!blocked && grouped.unscopedItems.length > 0) {
     lines.push("", "Diagnostics:");
     for (const item of grouped.unscopedItems) lines.push(`- ${item.project}: ${itemText(item)}`);
   }
   // After every state line (installations + unscoped diagnostics) so glosses follow the states they explain.
-  const explanations = stateExplanationLines([
+  const explanations = blocked ? [] : stateExplanationLines([
     ...activeGroups.flatMap((group) => group.items),
     ...grouped.unscopedItems,
   ]);
@@ -727,7 +747,11 @@ function verboseSections(command: LifecycleCommand, report: ReconciliationReport
   const warnings = presentationWarnings.length === 0
     ? "(none)"
     : presentationWarnings.map((warning) => `- ${warning}`).join("\n");
-  return `Projects:\n${items}\nOutputs:\n${outputs}\nRepository Exclusions:\n${repositoryExclusions}\nRepository Exclusion Repairs:\n${repositoryExclusionRepairs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\nBlockers:\n${blockers}\n`;
+  const detail = `Projects:\n${items}\nOutputs:\n${outputs}\nRepository Exclusions:\n${repositoryExclusions}\nRepository Exclusion Repairs:\n${repositoryExclusionRepairs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\n`;
+  const blockerSection = `Blockers:\n${blockers}\n`;
+  return report.blockers.length > 0
+    ? `${blockerSection}${detail}`
+    : `${detail}${blockerSection}`;
 }
 
 function verboseReport(command: LifecycleCommand, report: ReconciliationReport): string {
@@ -736,7 +760,7 @@ function verboseReport(command: LifecycleCommand, report: ReconciliationReport):
 
 function verboseApplyReport(result: ApplyReconciliationResult): string {
   return (
-    `${outcomeLine("apply", result.resultingState)}\n` +
+    `${outcomeLine("apply", result.resultingState, true)}\n` +
     `Resulting state:\n${verboseSections("status", result.resultingState)}` +
     `Apply receipt:\n${verboseSections("apply", result.receipt)}`
   );
@@ -763,6 +787,13 @@ export function formatApplyVerificationFailure(
     defaultDiagnosticText(message),
     ...applyReceiptLines(receipt),
   ].join("\n") + "\n";
+}
+
+export function formatBlockedApplyReport(
+  report: BlockedReconciliationReport,
+  options: { readonly verbose?: boolean } = {},
+): string {
+  return options.verbose ? verboseReport("apply", report) : conciseReport("apply", report);
 }
 
 export function formatLifecycleReport(

@@ -337,6 +337,38 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(readFileSync(join(project, directory.path, "SKILL.md"), "utf8")).toBe("foreign\n");
   });
 
+  test("preflight keeps an owned directory-to-file output transition blocked", async () => {
+    const home = temporaryDirectory("agent-profile-kit-dir-type-change-home-");
+    const project = temporaryDirectory("agent-profile-kit-dir-type-change-project-");
+    const base = await contextInstallation(home, project);
+    const directory = normalizedDirectory();
+    await applyReconciliation(home, [withDirectoryOutput(base, directory)]);
+    const bytes = "replacement file\n";
+    const changed: DesiredInstallation = {
+      ...base,
+      outputs: withDirectoryOutput(base, directory).outputs.map((output) =>
+        output.path === directory.path
+          ? {
+              bytes,
+              consumingHosts: ["codex"],
+              hash: hashBytes(bytes),
+              mode: 0o644,
+              path: directory.path,
+              requirements: ["Host reads replacement file"],
+              type: "file" as const,
+            }
+          : output
+      ),
+    };
+
+    const report = await previewReconciliation([changed], await readInstallationState(home));
+
+    expect(report.blockers).toHaveLength(1);
+    expect(report.blockers[0]?.message).toContain(
+      `${directory.path} is an occupied directory path`,
+    );
+  });
+
   test("preflight rejects an unsafe parent for an artifact directory without writing", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-parent-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-parent-project-");

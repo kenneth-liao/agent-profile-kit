@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Lead blocked lifecycle reports with one actionable blocker, preserve command-specific retry guidance, and document the safe generated-file drift recovery loop ([#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)).
+
 - Identify project lifecycle blocks with short, unambiguous paths and the Hosts recorded by each Project Binding ([#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116)).
 
 - Add `--version`, conventional root-help aliases, complete per-command help, fail-fast leading-dash argument handling, and one canonical reusable example set ([#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
@@ -52,6 +54,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Document the 0.24.2 Installation State backup and pre-delete apply required for rollback and safe retirement of pre-0.24.2 non-Git installations ([#78](https://github.com/kenneth-liao/agent-profile-kit/issues/78)).
 
 ### Fixed
+
+- Preserve edited generated output after a Marker-proven project move and keep every blocked apply on the single actionable-report path ([#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)).
 
 - Delegate Skill discovery, precedence, deduplication, and collision handling to Codex, Claude, Grok, and Pi Host Resolution; retain exact output and capability blockers while reporting detectable disabling or malformed Host configuration as warnings. Warning-only lifecycle results remain exit status 0, so automation that requires Host loading guarantees must inspect reported warnings ([#109](https://github.com/kenneth-liao/agent-profile-kit/issues/109)).
 - Complete Pi static collision proof beneath managed Skill trees, cover Installer status preflight, and clarify Pi rollback floors for Context-only versus Skill-capable state ([#102](https://github.com/kenneth-liao/agent-profile-kit/issues/102)).

@@ -23,6 +23,7 @@ import {
   markerPath,
   outputPath,
   ownedMembersFromDesired,
+  stateManifestPath,
   type DesiredInstallation,
   type DesiredProjectDirectoryOutput,
   type DesiredProjectOutput,
@@ -37,8 +38,10 @@ import {
   readMarker,
   stageProvenInstallationRemoval,
   writeInstallationState,
+  type OwnershipProof,
 } from "./installation-state.js";
 import { hasTrackedGitDescendants } from "./git.js";
+import { COMMAND_NAME } from "./version.js";
 import {
   prepareRepositoryExclusionMovePreflight,
   gitExclusionBlockers,
@@ -136,6 +139,10 @@ export interface ReconciliationReport {
   readonly warnings: readonly string[];
 }
 
+export type BlockedReconciliationReport = Omit<ReconciliationReport, "blockers"> & {
+  readonly blockers: readonly [ReconciliationBlocker, ...ReconciliationBlocker[]];
+};
+
 /**
  * The two distinct snapshots produced by a successful apply.
  *
@@ -149,6 +156,17 @@ export interface ApplyReconciliationResult {
   readonly resultingState: ReconciliationReport;
 }
 
+/** Raised before writes when apply's preflight report contains actionable blockers. */
+export class ApplyBlockedError extends Error {
+  readonly report: BlockedReconciliationReport;
+
+  constructor(report: BlockedReconciliationReport) {
+    super("Apply blocked before writes");
+    this.name = "ApplyBlockedError";
+    this.report = report;
+  }
+}
+
 /** Raised only after all apply writes have committed but verification could not complete. */
 export class ApplyVerificationError extends Error {
   readonly receipt: ReconciliationReport;
@@ -159,6 +177,32 @@ export class ApplyVerificationError extends Error {
     this.name = "ApplyVerificationError";
     this.receipt = receipt;
   }
+}
+
+/** Render an unreadable Installation State as one canonical lifecycle blocker. */
+export async function unreadableInstallationStateReport(
+  home: string,
+  desired: readonly DesiredInstallation[],
+  error: unknown,
+): Promise<BlockedReconciliationReport> {
+  const message = error instanceof Error ? error.message : String(error);
+  const desiredReport = await previewReconciliation(desired, {
+    installations: [],
+    repositoryExclusions: [],
+    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+  });
+  return {
+    ...desiredReport,
+    blockers: [{ message }],
+    // Ownership cannot be read, so planned project states and output changes
+    // are not trustworthy diagnostics. Keep only the boundary failure.
+    items: [{
+      kind: "malformed ownership state",
+      project: stateManifestPath(home),
+      reason: message,
+    }],
+    outputs: [],
+  };
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -372,11 +416,18 @@ async function desiredOutputConflicts(
   ];
   for (const output of outputs) {
     const absolute = outputPath(desired.binding.canonicalProject, output);
-    blockers.push(...await parentConflicts(desired.binding.canonicalProject, absolute));
     if (await pathIsTrackedDestination(desired.binding.canonicalProject, output.path)) {
       blockers.push(`${absolute} is a tracked project path`);
       continue;
     }
+    const old = previousOutputs.get(output.path);
+    if (old?.type === output.type) {
+      // Recorded outputs are checked once by ownership inspection at the
+      // current root, including the Marker-proven destination of a move.
+      // This preflight owns only conflicts at new desired destinations.
+      continue;
+    }
+    blockers.push(...await parentConflicts(desired.binding.canonicalProject, absolute));
     const kind = await pathKind(absolute);
     if (kind === "missing") continue;
     if (output.type === "file") {
@@ -384,24 +435,14 @@ async function desiredOutputConflicts(
         blockers.push(`${absolute} is an occupied ${kind} path`);
         continue;
       }
-      const old = previousOutputs.get(output.path);
-      if (!old || old.type !== "file" || !(await ownedOutputMatches(desired.binding.canonicalProject, old))) {
-        blockers.push(`${absolute} is occupied by unowned or drifted output`);
-      }
+      blockers.push(`${absolute} is occupied by unowned or drifted output`);
       continue;
     }
     if (kind !== "directory") {
       blockers.push(`${absolute} is an occupied ${kind} path`);
       continue;
     }
-    const old = previousOutputs.get(output.path);
-    if (!old || old.type !== "directory") {
-      blockers.push(`${absolute} is an occupied unowned artifact directory`);
-      continue;
-    }
-    if (!(await ownedOutputMatches(desired.binding.canonicalProject, old))) {
-      blockers.push(`${absolute} is occupied by an unowned or drifted artifact directory`);
-    }
+    blockers.push(`${absolute} is an occupied unowned artifact directory`);
   }
   return blockers;
 }
@@ -503,7 +544,20 @@ async function installationRetirementSelection(
   };
 }
 
-function ownershipBlocker(project: string, reason: string): string {
+function ownershipBlocker(project: string, proof: OwnershipProof): string {
+  const reason = proof.reason ?? "ownership could not be proven";
+  if (proof.driftKind) {
+    const deletionRoute = proof.driftKind === "unexpected-member"
+      ? "delete the unexpected file"
+      : proof.driftKind === "both"
+        ? "delete the edited generated file and the unexpected file"
+        : "delete the generated file";
+    return (
+      `Cannot reconcile Profile Installation at ${project}: ${reason}. ` +
+      "Agent Profile Kit will not overwrite your edit. Move the change into the Workspace, " +
+      `or ${deletionRoute}, then run ${COMMAND_NAME} apply to restore the generated output`
+    );
+  }
   return `Cannot reconcile Profile Installation at ${project}: ${reason}`;
 }
 
@@ -601,8 +655,11 @@ export async function previewReconciliation(
       },
     ];
     const previousOutputs = new Map(previous?.outputs.map((output) => [output.path, output]) ?? []);
-    const ownership = previous && !moved
-      ? await inspectInstallationOwnership(previous)
+    const ownershipTarget = previous && moved
+      ? { ...previous, project: installation.binding.canonicalProject }
+      : previous;
+    const ownership = ownershipTarget
+      ? await inspectInstallationOwnership(ownershipTarget)
       : undefined;
     const proposedOutputPaths = new Set(proposedOutputs.map((output) => output.path));
     const repairableMissingOutputs = new Set(
@@ -670,7 +727,11 @@ export async function previewReconciliation(
         blockers.push({
           message: ownershipBlocker(
             installation.binding.project,
-            "Installation Marker is missing; if this project moved, restore its Manifest-linked Installation Marker at the new root before retrying",
+            {
+              failureKind: "missing",
+              owned: false,
+              reason: "Installation Marker is missing; if this project moved, restore its Manifest-linked Installation Marker at the new root before retrying",
+            },
           ),
           project,
         });
@@ -684,6 +745,12 @@ export async function previewReconciliation(
       continue;
     }
     if (moved) {
+      if (ownership && !ownership.owned) {
+        blockers.push({
+          message: ownershipBlocker(installation.binding.project, ownership),
+          project,
+        });
+      }
       items.push({
         kind: "update",
         project: installation.binding.project,
@@ -699,22 +766,25 @@ export async function previewReconciliation(
       repairableMissingMarker = remaining.owned;
       if (!remaining.owned) {
         blockers.push({
-          message: ownershipBlocker(installation.binding.project, `Installation Marker is missing and ${remaining.reason ?? "remaining output ownership cannot be proven"}`),
+          message: ownershipBlocker(installation.binding.project, {
+            ...remaining,
+            reason: `Installation Marker is missing and ${remaining.reason ?? "remaining output ownership cannot be proven"}`,
+          }),
           project,
         });
       }
     } else if (!proof.owned) {
       blockers.push({
-        message: ownershipBlocker(installation.binding.project, proof.reason ?? "ownership could not be proven"),
+        message: ownershipBlocker(installation.binding.project, proof),
         project,
       });
     }
     const repairableMissingOutput = repairableMissingOutputs.size > 0;
     if (!proof.owned && !repairableMissingMarker && !repairableMissingOutput) {
       items.push({
-        kind: proof.reason?.includes("malformed")
+        kind: proof.failureKind === "malformed"
           ? "malformed ownership state"
-          : proof.reason?.includes("missing")
+          : proof.failureKind === "missing"
             ? "missing output"
             : "drifted output",
         project: installation.binding.project,
@@ -988,13 +1058,17 @@ export async function applyReconciliation(
     before = loaded.state;
     migratedState = loaded.migrated;
   } catch (error) {
-    throw new Error(
-      `Apply blocked before writes:\n- ${error instanceof Error ? error.message : String(error)}`,
+    throw new ApplyBlockedError(
+      await unreadableInstallationStateReport(home, desired, error),
     );
   }
   const report = await previewReconciliation(desired, before);
-  if (report.blockers.length > 0) {
-    throw new Error(`Apply blocked before writes:\n${report.blockers.map((blocker) => `- ${blocker.message}`).join("\n")}`);
+  const [blocker, ...remainingBlockers] = report.blockers;
+  if (blocker) {
+    throw new ApplyBlockedError({
+      ...report,
+      blockers: [blocker, ...remainingBlockers],
+    });
   }
   const retirement = await installationRetirementSelection(desired, before);
   const currentProjects = new Set(
