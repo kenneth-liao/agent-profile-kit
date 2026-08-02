@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  formatBlockedApplyReport,
   formatApplyReport,
   formatApplyVerificationFailure,
   formatLifecycleReport,
@@ -11,9 +12,16 @@ import {
 } from "../cli/presentation.js";
 import type {
   ApplyReconciliationResult,
+  BlockedReconciliationReport,
   ReconciliationKind,
   ReconciliationReport,
 } from "../installer/reconcile.js";
+
+function asBlockedReport(report: ReconciliationReport): BlockedReconciliationReport {
+  const [blocker, ...remainingBlockers] = report.blockers;
+  if (!blocker) throw new Error("blocked report fixture requires a blocker");
+  return { ...report, blockers: [blocker, ...remainingBlockers] };
+}
 
 type DesiredFixture = Omit<ReconciliationReport["desired"][number], "hosts"> & {
   readonly hosts?: ReconciliationReport["desired"][number]["hosts"];
@@ -114,7 +122,9 @@ describe("formatLifecycleReport concise terminology", () => {
     });
 
     for (const command of ["preview", "apply", "status"] as const) {
-      const concise = formatLifecycleReport(command, report);
+      const concise = command === "apply"
+        ? formatBlockedApplyReport(asBlockedReport(report))
+        : formatLifecycleReport(command, report);
 
       expect(concise.indexOf("Blocker:")).toBeLessThan(concise.indexOf("Projects:"));
       expect(concise).not.toContain("Changes:");
@@ -484,7 +494,9 @@ describe("formatLifecycleReport concise terminology", () => {
     );
 
     for (const command of ["preview", "apply", "status"] as const) {
-      const verbose = formatLifecycleReport(command, report, { verbose: true });
+      const verbose = command === "apply"
+        ? formatBlockedApplyReport(asBlockedReport(report), { verbose: true })
+        : formatLifecycleReport(command, report, { verbose: true });
       expect(verbose.indexOf("Blockers:\n- /project-b: hooks disabled")).toBeGreaterThan(-1);
       expect(verbose.indexOf("Blockers:\n- /project-b: hooks disabled")).toBeLessThan(
         verbose.indexOf("Projects:"),

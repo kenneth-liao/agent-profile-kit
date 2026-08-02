@@ -3,6 +3,7 @@ import { isAbsolute, join, relative } from "node:path";
 
 import type {
   ApplyReconciliationResult,
+  BlockedReconciliationReport,
   OutputReconciliationItem,
   ReconciliationBlocker,
   ReconciliationItem,
@@ -788,8 +789,15 @@ export function formatApplyVerificationFailure(
   ].join("\n") + "\n";
 }
 
+export function formatBlockedApplyReport(
+  report: BlockedReconciliationReport,
+  options: { readonly verbose?: boolean } = {},
+): string {
+  return options.verbose ? verboseReport("apply", report) : conciseReport("apply", report);
+}
+
 export function formatLifecycleReport(
-  command: LifecycleCommand,
+  command: Exclude<LifecycleCommand, "apply">,
   report: ReconciliationReport,
   options: { readonly verbose?: boolean } = {},
 ): string {

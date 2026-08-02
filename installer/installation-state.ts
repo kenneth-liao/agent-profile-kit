@@ -354,9 +354,10 @@ async function proveFileOutput(
 }
 
 export type OwnershipFailureKind = "drift" | "malformed" | "missing";
+export type OwnershipDriftKind = "generated-output" | "unexpected-member" | "both";
 
 export interface OwnershipProof {
-  readonly containsDrift?: boolean;
+  readonly driftKind?: OwnershipDriftKind;
   readonly failureKind?: OwnershipFailureKind;
   readonly reason?: string;
   readonly owned: boolean;
@@ -403,6 +404,8 @@ async function proveOutputHashes(
     unexpected.push(...inspection.unexpectedMembers);
   }
   if (missing.length > 0 || drifted.length > 0 || modeDrifted.length > 0 || unexpected.length > 0) {
+    const generatedOutputDrift = drifted.length > 0 || modeDrifted.length > 0;
+    const unexpectedMemberDrift = unexpected.length > 0;
     const reasons = [
       ...(missing.length > 0 ? [`missing: ${missing.join(", ")}`] : []),
       ...(drifted.length > 0 ? [`drifted: ${drifted.join(", ")}`] : []),
@@ -410,8 +413,14 @@ async function proveOutputHashes(
       ...(unexpected.length > 0 ? [`unexpected: ${unexpected.join(", ")}`] : []),
     ];
     return {
-      ...(drifted.length > 0 || modeDrifted.length > 0 || unexpected.length > 0
-        ? { containsDrift: true }
+      ...(generatedOutputDrift || unexpectedMemberDrift
+        ? {
+            driftKind: generatedOutputDrift && unexpectedMemberDrift
+              ? "both" as const
+              : generatedOutputDrift
+                ? "generated-output" as const
+                : "unexpected-member" as const,
+          }
         : {}),
       failureKind: missing.length > 0 ? "missing" : "drift",
       owned: false,
@@ -520,7 +529,7 @@ export async function inspectInstallationOwnership(
   const proof = await proveOutputHashes(surviving, true);
   if (!proof.owned && repairableMissingOutputs.length > 0) {
     return {
-      ...(proof.containsDrift ? { containsDrift: true } : {}),
+      ...(proof.driftKind ? { driftKind: proof.driftKind } : {}),
       failureKind: "missing",
       owned: false,
       reason: `owned output missing: ${repairableMissingOutputs.join(", ")}; ${proof.reason ?? "surviving output ownership cannot be proven"}`,

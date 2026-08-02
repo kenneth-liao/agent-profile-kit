@@ -7,6 +7,7 @@ import {
   defaultViewText,
   formatApplyReport,
   formatApplyVerificationFailure,
+  formatBlockedApplyReport,
   formatLifecycleReport,
   type LifecycleCommand,
 } from "./presentation.js";
@@ -408,7 +409,7 @@ async function main(): Promise<void> {
       }
     } catch (error) {
       if (error instanceof ApplyBlockedError) {
-        process.stdout.write(formatLifecycleReport("apply", error.report, parsed));
+        process.stdout.write(formatBlockedApplyReport(error.report, parsed));
         process.exitCode = 1;
         return;
       }

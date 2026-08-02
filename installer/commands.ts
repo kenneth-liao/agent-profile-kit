@@ -1,10 +1,11 @@
 import {
   applyReconciliation,
   previewReconciliation,
+  unreadableInstallationStateReport,
   type ApplyReconciliationResult,
   type ReconciliationReport,
 } from "./reconcile.js";
-import { buildDesiredState, stateManifestPath } from "./project-plan.js";
+import { buildDesiredState } from "./project-plan.js";
 import { INSTALLATION_STATE_SCHEMA_VERSION } from "../schemas/installation-manifest.js";
 import {
   proveOwnedInstallation,
@@ -63,23 +64,7 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
     // Probe-free desired state: ownership is already malformed, so topology
     // resolution against prior Manifests is unavailable.
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const desiredReport = await previewReconciliation(desired.installations, {
-      installations: [],
-      repositoryExclusions: [],
-      schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-    });
-    return {
-      ...desiredReport,
-      blockers: [{ message: error instanceof Error ? error.message : String(error) }],
-      items: [
-        {
-          kind: "malformed ownership state",
-          project: stateManifestPath(home),
-          reason: error instanceof Error ? error.message : String(error),
-        },
-      ],
-      outputs: [],
-    };
+    return unreadableInstallationStateReport(home, desired.installations, error);
   }
   // Resolve Grok multi-Host Context topology from live inspect when possible,
   // otherwise preserve the applied delivery paths recorded on the Manifest.

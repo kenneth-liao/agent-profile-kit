@@ -2824,7 +2824,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(blocked.stdout).toContain("unexpected:");
     expect(blocked.stdout).toContain("will not overwrite your edit");
     expect(blocked.stdout).toContain("Move the change into the Workspace");
-    expect(blocked.stdout).toContain("delete the generated file");
+    expect(blocked.stdout).toContain("delete the unexpected file");
+    expect(blocked.stdout).not.toContain("delete the generated file");
     expect(readFileSync(unexpected, "utf8")).toBe("user note\n");
   });
 
@@ -2867,12 +2868,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(statePath(home), "not: a valid installation state\n");
 
     const result = runCli(home, "status");
+    const apply = runCli(home, "apply");
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout).toContain("Global blockers:");
     expect(result.stdout).toContain("Installation State");
     expect(result.stdout).toContain("Blockers: 1");
+    expect(apply.status).toBe(1);
+    expect(apply.stderr).toBe("");
+    expect(apply.stdout).toContain("Apply blocked");
+    expect(apply.stdout).toContain("Global blockers:");
+    expect(apply.stdout).toContain("Installation State");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
@@ -2898,8 +2905,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(status.status, status.stderr).toBe(0);
     expect(status.stdout).toContain("schema_version must be 3");
     expect(apply.status).toBe(1);
-    expect(apply.stderr).toContain("Apply blocked before writes");
-    expect(apply.stderr).toContain("schema_version must be 3");
+    expect(apply.stderr).toBe("");
+    expect(apply.stdout).toContain("Apply blocked");
+    expect(apply.stdout).toContain("schema_version must be 3");
     expect(uninstall.status).toBe(1);
     expect(uninstall.stderr).toContain("schema_version must be 3");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
@@ -3527,6 +3535,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(parse(readFileSync(statePath(home), "utf8")).installations[0].project).toBe(realpathSync(moved));
     expect(existsSync(join(moved, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(original, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("a moved project with edited generated output blocks apply and preserves the edit", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const original = project("agent-profile-kit-move-drift-");
+    const moved = join(home, "moved-project");
+    writeContextProfile(home);
+    bind(home, original);
+    expect(runCli(home, "apply").status).toBe(0);
+    execFileSync("mv", [original, moved]);
+    const edited = join(moved, ".codex", "hooks.json");
+    writeFileSync(edited, "user edit after move\n");
+    bind(home, moved);
+
+    const result = runCli(home, "apply");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
+    expect(result.stdout).toContain("will not overwrite your edit");
+    expect(readFileSync(edited, "utf8")).toBe("user edit after move\n");
   });
 
   test("a moved Git project carries both Marker and exclusion ownership", () => {
