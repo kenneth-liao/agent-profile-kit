@@ -19,6 +19,7 @@ import {
   normalizeProject,
   requireExistingDirectory,
 } from "./local-configuration.js";
+import { MissingProfileError } from "./profile-selection.js";
 
 interface UnbindTarget {
   readonly requested: string;
@@ -234,6 +235,9 @@ export async function unbindProject(
           { allowMissingProjects: true },
         );
       } catch (error) {
+        if (error instanceof MissingProfileError) {
+          throw new MissingProfileError(error.profile, error.availableProfiles, true);
+        }
         const detail = error instanceof Error ? error.message : String(error);
         throw new Error(
           `${detail}; edit Local Configuration directly if this stale or malformed binding must be removed`,

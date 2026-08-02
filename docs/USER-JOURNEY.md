@@ -76,11 +76,12 @@ safe and says so. The Workspace is empty, so the offered next step cannot
 succeed:
 
 ```
-$ agent-profile-kit bind engineering --host claude
-agent-profile-kit: Local Configuration <config> profile 'engineering' does not exist in Workspace <workspace>
+$ apkit bind engineering --host claude
+apkit: Profile 'engineering' does not exist in this Workspace. No Profiles exist in the Workspace. Run apkit guide to learn how to add a Profile.
 ```
 
-Gaps: [UJ-01](#uj-01), [UJ-10](#uj-10).
+Gaps: [UJ-01](#uj-01), ~~[UJ-10](#uj-10)~~ (shipped in
+[#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119)).
 
 ### 3. Learn the format
 
@@ -128,11 +129,14 @@ Gaps: [UJ-07](#uj-07), ~~[UJ-16](#uj-16)~~,
 ### 6. Verify
 
 ```
-$ agent-profile-kit validate
-Workspace and Local Configuration valid (1 Profiles, 0 Project Bindings)
+$ apkit validate
+Workspace and Local Configuration valid (1 Profile, 0 Project Bindings)
+Profiles found: engineering
+Hosts bound: none
 ```
 
-Gaps: [UJ-17](#uj-17).
+Gaps: ~~[UJ-17](#uj-17)~~ (shipped in
+[#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119)).
 
 ### 7. Preview
 
@@ -315,7 +319,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | [UJ-07](#uj-07) | Medium | 5, 7, 11 | Absolute paths remain in bind, blocker, exclusion, and diagnostic lines |
 | [UJ-08](#uj-08) | Medium | 12 | `uninstall` output omits what it did and what it kept |
 | [UJ-09](#uj-09) | Medium | 12 | `unbind` recommends a no-op next step |
-| [UJ-10](#uj-10) | Medium | 2, 5 | Missing-Profile error names paths, not available Profiles |
+| ~~[UJ-10](#uj-10)~~ | ~~Medium~~ | ~~2, 5~~ | ~~Missing-Profile error names paths, not available Profiles~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
 | [UJ-11](#uj-11) | Medium | 7, 11 | Change counter buckets unknown output kinds as drift |
 | [UJ-12](#uj-12) | Medium | 7 | `preview --verbose` contradicts itself on one path |
 | [UJ-13](#uj-13) | Medium | 11 | `status` exits 0 with blockers; `preview` exits 1 |
@@ -323,7 +327,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | [UJ-14](#uj-14) | Low-Med | 10 | Happy-path `status` says the same thing three times |
 | [UJ-15](#uj-15) | Low-Med | 7, 10 | State explanations re-teach vocabulary every run |
 | ~~[UJ-16](#uj-16)~~ | ~~Low~~ | ~~1, 5~~ | ~~No `--version`, `-h`, `help`, or per-command `--help`~~ — shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115) |
-| [UJ-17](#uj-17) | Low | 6 | `validate` prints "1 Profiles" and names nothing |
+| ~~[UJ-17](#uj-17)~~ | ~~Low~~ | ~~6~~ | ~~`validate` prints "1 Profiles" and names nothing~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
 | [UJ-18](#uj-18) | Low | 7 | `--verbose` inlines composed Context without a separator |
 
 ### UJ-01
@@ -382,11 +386,15 @@ only installation and its output was already removed, that sequence reports zero
 installations and no changes. The next step should depend on whether generated
 output actually survives the unbind.
 
-### UJ-10
-`profile 'engineering' does not exist in Workspace <workspace>` leads with the
+### ~~UJ-10~~
+~~`profile 'engineering' does not exist in Workspace <workspace>` leads with the
 config path, carries a second absolute path, and never lists what *does* exist.
 Naming available Profiles — or stating there are none and pointing at the format
-guidance — turns a dead end into a next step.
+guidance — turns a dead end into a next step.~~
+
+Shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119):
+missing-Profile errors now list the Workspace's available Profiles or state that
+none exist and point at `apkit guide`.
 
 ### UJ-11
 `summarizeOutputs` in `cli/presentation.ts` matches `addition`, `update`,
@@ -426,11 +434,15 @@ root discovery supports the conventional aliases and engine version, every
 command explains itself through `--help`, and leading-dash values fail before
 positional parsing.
 
-### UJ-17
-`(1 Profiles, 0 Project Bindings)` has a plural agreement bug — `plural()` in
+### ~~UJ-17~~
+~~`(1 Profiles, 0 Project Bindings)` has a plural agreement bug — `plural()` in
 `cli/presentation.ts` already solves this and is unused here — and reports counts
 without naming the Profiles found or Hosts bound, which is what `validate` is run
-to confirm.
+to confirm.~~
+
+Shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119):
+`validate` now lists the Profiles found and unique Hosts bound while rendering
+Profile and Project Binding counts grammatically.
 
 ### UJ-18
 `--verbose` prints composed Context inline under `Context:` with no delimiter, so

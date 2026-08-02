@@ -9,6 +9,8 @@ import {
   formatApplyVerificationFailure,
   formatBlockedApplyReport,
   formatLifecycleReport,
+  formatMissingProfileError,
+  formatValidationResult,
   type LifecycleCommand,
 } from "./presentation.js";
 import { bindProject } from "../installer/bind-project.js";
@@ -25,8 +27,10 @@ import {
 import { ApplyBlockedError, ApplyVerificationError } from "../installer/reconcile.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { COMMAND_EXAMPLES } from "./examples.js";
+import { MissingProfileError } from "../installer/profile-selection.js";
 
 function formatError(error: unknown): string {
+  if (error instanceof MissingProfileError) return formatMissingProfileError(error);
   if (error instanceof AggregateError) {
     const causes = Array.from(error.errors, formatError);
     return [error.message, ...causes.map((cause) => `caused by: ${cause}`)].join("\n");
@@ -381,10 +385,7 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("validate", () => parseNoArguments("validate", arguments_.slice(1)));
     if (parsed === undefined) return;
     const result = await validateApplication(home);
-    process.stdout.write(
-      `Workspace and Local Configuration valid (${result.profiles} Profiles, ${result.bindings} Project Bindings)\n` +
-      result.warnings.map((warning) => `Warning: ${warning}\n`).join(""),
-    );
+    process.stdout.write(formatValidationResult(result));
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "preview") {

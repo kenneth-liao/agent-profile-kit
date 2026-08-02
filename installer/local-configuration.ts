@@ -21,6 +21,7 @@ import {
 } from "../schemas/local-configuration.js";
 import { ingestWorkspace, type Workspace } from "./ingest-workspace.js";
 import { COMMAND_NAME } from "./version.js";
+import { requireProfile } from "./profile-selection.js";
 import { validateWorkspaceStructure } from "./workspace.js";
 
 export function localConfigurationPath(home: string): string {
@@ -316,11 +317,7 @@ export async function ingestApplicationModelFromSource(
       roots.add(canonicalProject);
     }
 
-    if (!workspaceModel.profiles.has(binding.profile)) {
-      throw new Error(
-        `${description} profile '${binding.profile}' does not exist in Workspace ${workspaceModel.path}`,
-      );
-    }
+    requireProfile(workspaceModel.profiles, binding.profile);
     bindings.push({
       index,
       project: binding.project,

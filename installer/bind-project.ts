@@ -24,6 +24,7 @@ import {
   withConfigurationLock,
 } from "./local-configuration-publication.js";
 import { COMMAND_NAME } from "./version.js";
+import { requireProfile } from "./profile-selection.js";
 
 /** Compatibility facade for existing bind-project consumers; publication's canonical implementation is separate. */
 export {
@@ -166,11 +167,7 @@ export async function bindProject(
         source,
         configurationPath,
       );
-      if (!workspace.profiles.has(profile)) {
-        throw new Error(
-          `${description} profile '${profile}' does not exist in Workspace ${workspace.path}`,
-        );
-      }
+      requireProfile(workspace.profiles, profile);
 
       const existing = configuration.bindings.find(
         (binding) => binding.canonicalProject === canonicalProject,
