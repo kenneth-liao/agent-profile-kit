@@ -197,6 +197,30 @@ describe("Host Setup Step presentation", () => {
     );
   });
 
+  test("changed aliased projects retain activation through their authored report identity", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/private/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{ host: "codex", kind: "trust-required", message: "Trust it." }],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: receipt.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    expect(formatApplyReport(applyResult(receipt, resultingState)).trimEnd()).toEndWith(
+      "After completing the Host setup above, Profile coding becomes active on the next launch " +
+        "of each bound Host (codex) from /project-a.",
+    );
+  });
+
   test("status deduplicates repeated steps into one callout per Host", () => {
     const repeatedSteps: readonly HostSetupStep[] = [
       { host: "codex", kind: "approval-required" as const, message: "Approve the hook." },
