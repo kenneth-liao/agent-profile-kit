@@ -158,6 +158,18 @@ describe("Codex project Skill packages", () => {
     expect(plan.outputs.some((output) => output.path === ".agent-profile-kit/codex/context.md")).toBe(
       true,
     );
+    expect(plan.setupSteps).toEqual([
+      {
+        consequence: "Declining the hook prevents Profile Context from loading.",
+        kind: "approval-required",
+        message: "Approve the generated SessionStart hook when Codex asks.",
+      },
+      {
+        consequence: "Profile Context does not load until the project is trusted.",
+        kind: "trust-required",
+        message: "Trust the bound project in Codex.",
+      },
+    ]);
   });
 
   test("resolves direct and transitive Skills once for diamond deps, installs by Artifact ID, and omits unselected Skills", async () => {

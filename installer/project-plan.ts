@@ -30,6 +30,7 @@ import {
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
   AdapterProjectPlan,
+  HostSetupStep,
   ProposedDirectoryMember,
   ProposedProjectOutput,
   ProjectOutputEntryType,
@@ -105,6 +106,7 @@ export interface DesiredInstallation {
   readonly profile: Profile;
   readonly resolvedProfile: ResolvedProfile;
   readonly sourceHash: string;
+  readonly setupSteps: readonly HostSetupStep[];
   readonly warnings: readonly string[];
 }
 
@@ -573,16 +575,15 @@ export async function buildDesiredState(
           profile.id,
           resolvedProfile.contexts,
           resolvedProfile.skills,
-          { contextPath },
+          {
+            contextPath,
+            ...(!gitProject && requireContext
+              ? { launchFromBoundRoot: binding.canonicalProject }
+              : {}),
+          },
         );
         plans.push(adapterPlan);
         hostVersions.codex = adapterPlan.hostVersion;
-        // Context snapshot path is Git-root-relative; Skills-only installs need no launch warning.
-        if (!gitProject && requireContext) {
-          warnings.push(
-            `${binding.project} is not a Git worktree; Codex must start at the exact bound project root for native Context discovery`,
-          );
-        }
         continue;
       }
       if (host === "claude") {
@@ -661,6 +662,9 @@ export async function buildDesiredState(
       outputs: normalizeAdapterPlans(plans),
       profile,
       resolvedProfile,
+      setupSteps: plans.flatMap((plan) =>
+        plan.setupSteps.map((step) => ({ ...step, host: plan.host }))
+      ),
       sourceHash,
       warnings,
     });

@@ -765,5 +765,6 @@ export async function planGrokProject(
         ? GROK_HOST_VERSION_WITH_SKILLS
         : GROK_HOST_VERSION,
     outputs,
+    setupSteps: [],
   };
 }

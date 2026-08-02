@@ -208,6 +208,7 @@ describe("Skills-only Profiles", () => {
     expect(installation.outputs.map((output) => output.path).sort()).toEqual([
       ".agents/skills/review-pr",
     ]);
+    expect(installation.setupSteps).toEqual([]);
     expect(installation.warnings.some((warning) => /Context discovery/i.test(warning))).toBe(
       false,
     );
@@ -309,6 +310,35 @@ describe("Skills-only Profiles", () => {
     expect(paths).toContain(".agent-profile-kit/codex/context.md");
     expect(paths).toContain(".codex/hooks.json");
     expect(paths).toContain(".agents/skills/review-pr");
+    expect(installation.setupSteps).toEqual([
+      {
+        consequence: "Declining the hook prevents Profile Context from loading.",
+        host: "codex",
+        kind: "approval-required",
+        message: "Approve the generated SessionStart hook when Codex asks.",
+      },
+      {
+        consequence: "Profile Context does not load until the project is trusted.",
+        host: "codex",
+        kind: "trust-required",
+        message: "Trust the bound project in Codex.",
+      },
+      {
+        consequence: "Launching from a descendant prevents Profile Context from loading.",
+        host: "codex",
+        kind: "launch-constraint",
+        message: `Launch Codex from the exact bound project root: ${installation.binding.canonicalProject}`,
+      },
+    ]);
+    expect(installation.warnings.some((warning) => warning.includes("not a Git worktree"))).toBe(
+      false,
+    );
+    const report = await previewReconciliation(desired.installations, {
+      installations: [],
+      repositoryExclusions: [],
+      schemaVersion: 3,
+    });
+    expect(report.desired[0]?.setupSteps).toEqual(installation.setupSteps);
 
     const context = installation.outputs.find(
       (output) => output.path === ".agent-profile-kit/codex/context.md",

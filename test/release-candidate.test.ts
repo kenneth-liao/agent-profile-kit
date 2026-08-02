@@ -490,7 +490,7 @@ describe("project-bound release candidate", () => {
     expect(preview.stdout).toContain(combined);
     expect(preview.stdout).toContain(gitRoot);
     expect(preview.stdout).not.toContain(existingWorktree);
-    expect(preview.stdout).toContain("Codex must start at the exact bound project root");
+    expect(preview.stdout).toContain("Launch Codex from the exact bound project root:");
 
     const apply = runCli(home, ["apply"], { path: pathWithClaude });
     expect(apply.status, apply.stderr).toBe(0);

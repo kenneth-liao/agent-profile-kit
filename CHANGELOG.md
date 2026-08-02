@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Carry typed Host Setup Steps from Adapters through lifecycle reports, with conditional Codex hook approval, project trust, non-Git launch guidance, and next-launch activation messaging ([#118](https://github.com/kenneth-liao/agent-profile-kit/issues/118)).
+
 - Lead blocked lifecycle reports with one actionable blocker, preserve command-specific retry guidance, and document the safe generated-file drift recovery loop ([#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)).
 
 - Identify project lifecycle blocks with short, unambiguous paths and the Hosts recorded by each Project Binding ([#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116)).

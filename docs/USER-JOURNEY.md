@@ -182,17 +182,17 @@ Apply receipt:
 
 Separating verified resulting state from the Apply Receipt is architecturally
 correct (`CONTEXT.md`, *Apply Receipt*), but `Changes: none` sits nine lines
-above a receipt totalling 19 additions. The journey also ends here: nothing tells
-the user what to do in the Host, and for Codex that silence is load-bearing
-([UJ-21](#uj-21)).
+above a receipt totalling 19 additions. Codex guidance now carries this journey
+into the Host; equivalent setup guidance for the remaining Hosts is still tracked
+by [UJ-21](#uj-21).
 
 Gaps: [UJ-04](#uj-04), [UJ-07](#uj-07), ~~[UJ-20](#uj-20)~~,
 [UJ-21](#uj-21).
 
 ### 9. Use
 
-The CLI says nothing, but Hosts have real post-apply requirements that differ by
-Host *and* by what was installed:
+Codex setup requirements are now reported conditionally by the CLI. Equivalent
+guidance for the remaining Hosts still differs by Host *and* by what was installed:
 
 | Host | Requirement after `apply` |
 |------|---------------------------|
@@ -455,12 +455,12 @@ each lifecycle project block now carries the Hosts recorded by its Project
 Binding through the ReconciliationReport presentation seam.
 
 ### UJ-21
-Nothing after `apply` tells the user what the Host still requires. For Codex this
-is load-bearing: Context arrives via a generated `SessionStart` hook that Codex
-asks the user to review, and a user who declines it gets an installation that
-reports `current` forever while Context never loads. The Grok case is quieter but
-equally confusing — a Claude co-bound project gets **no** `.grok/rules/` file by
-design, verified in a four-Host run.
+Codex guidance shipped in [#118](https://github.com/kenneth-liao/agent-profile-kit/issues/118):
+Host Setup Steps now warn about generated `SessionStart` hook approval, project
+trust, and the non-Git exact-root launch constraint, while Skills-only Profiles
+emit no hook guidance. The remaining gap is cross-Host coverage. In particular,
+a Claude co-bound Grok project gets **no** `.grok/rules/` file by design, verified
+in a four-Host run, but the CLI does not yet explain that shared path.
 
 ### UJ-22
 A non-Git project's generated output appears nowhere. Because file paths surface

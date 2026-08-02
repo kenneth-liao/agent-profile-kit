@@ -131,6 +131,7 @@ export interface ReconciliationReport {
     readonly profile: string;
     readonly project: string;
     readonly resolvedArtifacts: readonly DesiredResolvedArtifactPreview[];
+    readonly setupSteps: DesiredInstallation["setupSteps"];
   }[];
   readonly items: readonly ReconciliationItem[];
   readonly outputs: readonly OutputReconciliationItem[];
@@ -631,6 +632,7 @@ export async function previewReconciliation(
         })),
         type: artifact.reference.type,
       })),
+      setupSteps: installation.setupSteps,
     };
   });
   let projectedExclusions = state.repositoryExclusions;
