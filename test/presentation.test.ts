@@ -383,13 +383,13 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).not.toContain(`Project: ${project}\n`);
   });
 
-  test("uses the short project identity in the apply receipt", () => {
+  test("lists committed paths under the short project identity in the apply receipt", () => {
     const project = join(homedir(), "receipt-project");
     const receipt = identityReport(project);
 
     const concise = formatApplyReport(applyResult(receipt, emptyReport()));
 
-    expect(concise).toContain("- ~/receipt-project: 1 generated file addition\n");
+    expect(concise).toContain("- ~/receipt-project:\n  + a.md\n");
     expect(concise).not.toContain(`- ${project}:`);
   });
 
@@ -557,11 +557,14 @@ describe("formatLifecycleReport concise terminology", () => {
     ]) {
       expect(view).toContain(`Project: ${project}`);
       expect(view).toContain("Profile: reconcile");
-      expect(view).toContain(exclusionTarget);
-      expect(view).toContain(exclusionEntry);
+      expect(view).toContain("generated-output/reconcile");
       expect(view).toContain("/tmp/reconcile/generated-output");
       expect(view).toContain("'reconcile'");
     }
+
+    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    expect(verbose).toContain(exclusionTarget);
+    expect(verbose).toContain(exclusionEntry);
   });
 
   test("layers vocabulary in apply verification failures", () => {
@@ -589,7 +592,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("Desired State:");
   });
 
-  test("identifies change counts as generated files without per-output detail", () => {
+  test("non-Git preview lists reconciliation-plan paths with action markers", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -612,11 +615,125 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("preview", report);
 
-    expect(concise).toContain("Changes: 2 generated file additions, 1 generated file update, 1 generated file repair, 1 generated file removal, 1 generated file drift item");
-    expect(concise).toContain("  Changes: 2 generated file additions, 1 generated file update, 1 generated file repair, 1 generated file removal, 1 generated file drift item");
-    expect(concise).not.toContain("a.md");
+    expect(concise).toContain(
+      "  Files:\n" +
+      "  ! f.md (drifted member)\n" +
+      "  - e.md\n" +
+      "  ~ c.md\n" +
+      "  + a.md\n" +
+      "  + b.md\n" +
+      "  + d.md",
+    );
     expect(concise).not.toContain("Desired State:");
     expect(concise).not.toContain("Outputs:");
+  });
+
+  test("orders path priority groups deterministically", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["z.md", "a.md", "m.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [
+        { kind: "removal", path: "z.md", project: "/project-a" },
+        { kind: "addition", path: "a.md", project: "/project-a" },
+        { kind: "update", path: "m.md", project: "/project-a" },
+      ],
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise.indexOf("- z.md")).toBeLessThan(concise.indexOf("~ m.md"));
+    expect(concise.indexOf("~ m.md")).toBeLessThan(concise.indexOf("+ a.md"));
+  });
+
+  test("caps generated file paths with an overflow pointer to --verbose", () => {
+    const project = "/project-a";
+    const paths = Array.from({ length: 12 }, (_, index) => `file-${String(index + 1).padStart(2, "0")}.md`);
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: paths,
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project }],
+      outputs: paths.map((path) => ({ kind: "addition" as const, path, project })),
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("+ file-10.md");
+    expect(concise).not.toContain("+ file-11.md");
+    expect(concise).toContain("… 2 more files; use --verbose to see all paths");
+
+    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    expect(verbose).toContain("/project-a/file-11.md: addition");
+    expect(verbose).toContain("/project-a/file-12.md: addition");
+  });
+
+  test("keeps attention paths and removals visible ahead of ordinary capped changes", () => {
+    const project = "/project-a";
+    const additions = Array.from(
+      { length: 10 },
+      (_, index) => ({ kind: "addition" as const, path: `a-${index + 1}.md`, project }),
+    );
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: additions.map((output) => output.path),
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "update", project }],
+      outputs: [
+        ...additions,
+        { kind: "missing member", path: "z-attention.md", project },
+        { kind: "removal", path: "z-removal.md", project },
+      ],
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("! z-attention.md (missing member)");
+    expect(concise).toContain("- z-removal.md");
+    expect(concise.indexOf("! z-attention.md")).toBeLessThan(concise.indexOf("+ a-1.md"));
+    expect(concise.indexOf("- z-removal.md")).toBeLessThan(concise.indexOf("+ a-1.md"));
+    expect(concise).toContain("… 2 more files; use --verbose to see all paths");
+  });
+
+  test("summarizes a missing directory member as missing rather than drift", () => {
+    const project = "/project-a";
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: ["skill"],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "missing output", project }],
+      outputs: [
+        { kind: "unchanged", path: "skill", project },
+        { kind: "missing member", path: "skill/SKILL.md", project },
+      ],
+    });
+
+    const concise = formatLifecycleReport("status", report);
+
+    expect(concise).toContain("Changes: 1 generated file missing");
+    expect(concise).not.toContain("generated file drift item");
+    expect(concise).toContain("! skill/SKILL.md (missing member)");
   });
 
   test("explains every non-current project state only when present", () => {
@@ -761,7 +878,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(explanationLines(concise)).toHaveLength(1);
   });
 
-  test("explains Git exclusion deltas while preserving exact paths", () => {
+  test("summarizes Git exclusions in one default clause and keeps exact deltas in --verbose", () => {
     const target = "/repo/.git/info/exclude";
     const report = emptyReport({
       desired: [{
@@ -783,13 +900,42 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("preview", report);
 
-    expect(concise).toContain("Git exclusions:");
-    expect(concise).toContain(
-      "Git-local exclusions that keep generated paths managed by Agent Profile Kit untracked",
-    );
-    expect(concise).toContain(
+    expect(concise).toContain("Git exclusions: 2 entries to add, 1 entry to remove.");
+    expect(concise).not.toContain(target);
+    expect(concise).not.toContain("/.old-path.md");
+
+    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    expect(verbose).toContain(
       `- ${target}: add /.agent-profile-kit/codex/context.md, /.codex/hooks.json; remove /.old-path.md`,
     );
+  });
+
+  test("blocked reports retain the pending Git exclusion repair clause", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/repo",
+        context: "composed",
+        outputs: ["context.md"],
+        profile: "coding",
+        project: "/repo",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/repo", reason: "occupied output" }],
+      blockers: [{ message: "/repo: occupied output", project: "/repo" }],
+      repositoryExclusionRepairs: [{
+        entries: ["/.agent-profile-kit/codex/context.md"],
+        target: "/repo/.git/info/exclude",
+      }],
+      warnings: [
+        "/repo/.git/info/exclude is missing its Agent Profile Kit exclusion section; apply will restore recorded exact entries",
+      ],
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("Blocker: occupied output");
+    expect(concise).toContain("Git exclusions: 1 recorded entry to restore.");
+    expect(concise).not.toContain("/repo/.git/info/exclude");
   });
 
   test("--verbose still renders complete diagnostics from the same ReconciliationReport", () => {
@@ -871,6 +1017,26 @@ describe("formatLifecycleReport concise terminology", () => {
       repositoryExclusionRepairs: [],
       warnings: [],
     });
+
+    const preview = formatLifecycleReport("preview", receipt);
+    expect(preview).toContain("Git exclusions: 1 recorded entry to restore.");
+    expect(preview).not.toContain("/repo/.git/info/exclude");
+    expect(preview).not.toContain("/.agent-profile-kit/codex/context.md");
+
+    for (const command of ["preview", "status"] as const) {
+      const verbosePending = formatLifecycleReport(command, receipt, { verbose: true });
+      expect(verbosePending).toContain(
+        "/repo/.git/info/exclude: will restore 1 recorded Repository Exclusion entry",
+      );
+      expect(verbosePending).not.toContain(
+        "/repo/.git/info/exclude: restored 1 recorded Repository Exclusion entry",
+      );
+    }
+
+    const concise = formatApplyReport(applyResult(receipt, result));
+    expect(concise).toContain("Git exclusions: 1 recorded entry restored.");
+    expect(concise).not.toContain("/repo/.git/info/exclude");
+    expect(concise).not.toContain("/.agent-profile-kit/codex/context.md");
 
     const verbose = formatApplyReport(applyResult(receipt, result), { verbose: true });
 
@@ -954,7 +1120,7 @@ describe("formatLifecycleReport concise terminology", () => {
 
     expect(concise.startsWith("Apply committed; post-apply verification failed: transient read\n")).toBe(true);
     expect(concise).toContain("Apply receipt:");
-    expect(concise).toContain("generated file addition");
+    expect(concise).toContain("+ a.md");
     expect(concise).not.toContain("Apply complete");
   });
 });

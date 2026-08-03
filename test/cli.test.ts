@@ -1541,7 +1541,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("State: current");
     expect(result.stdout).not.toContain("State: addition");
     expect(result.stdout).toContain("Apply receipt:");
-    expect(result.stdout).toContain("generated file addition");
+    expect(result.stdout).toContain("+ .agent-profile-kit/codex/context.md");
+    expect(result.stdout).toContain("+ .agent-profile-kit/installation.json");
+    expect(result.stdout).toContain("+ .codex/hooks.json");
     expect(result.stdout).toContain(
       "Review and approve the generated SessionStart hook when Codex asks.",
     );
@@ -1599,7 +1601,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Apply receipt:");
-    expect(result.stdout).toContain("1 generated file update");
+    expect(result.stdout).toContain("~ .agent-profile-kit/codex/context.md");
     expect(result.stdout).toContain(`Project: ${projectPath}`);
     expect(result.stdout).toContain("State: current");
     expect(result.stdout).not.toContain("State: stale source");
@@ -1987,8 +1989,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const preview = runCli(home, "preview");
     expect(preview.status, preview.stderr).toBe(0);
-    expect(preview.stdout).toContain(`${join(repository, ".git", "info", "exclude")}: add`);
-    expect(preview.stdout).toContain("/nested/.codex/hooks.json");
+    expect(preview.stdout).toContain("Git exclusions: 6 entries to add.");
+    expect(preview.stdout).not.toContain(join(repository, ".git", "info", "exclude"));
+
+    const verbosePreview = runCli(home, "preview", "--verbose");
+    expect(verbosePreview.status, verbosePreview.stderr).toBe(0);
+    expect(verbosePreview.stdout).toContain(`${join(repository, ".git", "info", "exclude")}: add`);
+    expect(verbosePreview.stdout).toContain("/nested/.codex/hooks.json");
 
     expect(runCli(home, "apply").status).toBe(0);
     const target = join(repository, ".git", "info", "exclude");
@@ -2640,7 +2647,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("preview and status warn before apply repairs a missing Git exclusion section", () => {
+  test("preview and status summarize a pending Git exclusion repair before apply", () => {
     const home = isolatedHome();
     initialize(home);
     const repository = gitRepository("agent-profile-kit-missing-exclude-");
@@ -2653,15 +2660,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const command of ["preview", "status"]) {
       const result = runCli(home, command);
       expect(result.status, result.stderr).toBe(0);
-      expect(result.stdout).toContain("is missing its Agent Profile Kit exclusion section");
+      expect(result.stdout).toContain("Git exclusions: 3 recorded entries to restore.");
+      expect(result.stdout).not.toContain(exclude);
     }
 
     const repaired = runCli(home, "apply");
     expect(repaired.status, repaired.stderr).toBe(0);
     expect(repaired.stdout).toContain("State: current");
     expect(repaired.stdout).toContain("Apply receipt:");
-    expect(repaired.stdout).toContain("Git exclusions completed:");
-    expect(repaired.stdout).toContain("restored 3 recorded Git exclusion entries");
+    expect(repaired.stdout).toContain("Git exclusions: 3 recorded entries restored.");
+    expect(repaired.stdout).not.toContain(exclude);
     expect(repaired.stdout).not.toContain("apply will restore");
 
     writeFileSync(exclude, "# unrelated local exclusion\n");

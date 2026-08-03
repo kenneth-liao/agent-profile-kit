@@ -85,14 +85,15 @@ Use this workflow when helping a person author their Workspace and bind projects
    user that Codex must launch from the exact bound root.
 8. Use `apkit status` to focus on Profile Installations needing attention; its concise
    result reports all-current state when nothing needs action, labels change
-   counts as generated-output units, explains non-current states when they
-   appear, preserves warnings and blockers, and ends with one next-action line
+   paths with `+`, `~`, `-`, or `!` markers, caps long lists with a pointer to
+   `--verbose`, explains non-current states when they appear, preserves warnings
+   and blockers, and ends with one next-action line
    when useful (preview before apply; resolve blocker and retry the same command
-   when blocked; omit when already current). Repository Exclusion lines are
-   Git-local exclusions for Installer-owned generated paths. A ready `preview`
-   likewise recommends `apply`; blocked `preview` or `apply` retries that same
-   command after the blocker. Add `--verbose` to distinguish current, stale, drifted,
-   missing, and blocked installations in the complete per-output report.
+   when blocked; omit when already current). Pending Git exclusion work appears
+   as one concise clause. A ready `preview` likewise recommends `apply`; blocked
+   `preview` or `apply` retries that same command after the blocker. Add
+   `--verbose` to distinguish current, stale, drifted, missing, and blocked
+   installations and inspect exact Git exclusion paths in the complete report.
    `apkit unbind` removes desired
    Project Binding state but leaves generated output for global `preview` and
    `apply`. `apkit uninstall` instead removes only output whose Installation Marker
