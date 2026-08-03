@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- List reconciliation-plan paths with action markers in concise lifecycle reports, cap long lists with a `--verbose` overflow pointer, summarize Git exclusions in one clause, and make output-kind summaries exhaustive ([#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)).
+
 - Name available Profiles in missing-Profile errors, turn empty Workspaces into an authoring next step, and make `validate` list Profiles and bound Hosts with grammatical counts ([#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119)).
 
 - Carry typed Host Setup Steps from Adapters through lifecycle reports, replacing the prior `validate` warning with conditional Codex hook review and approval, project trust, non-Git launch guidance, and next-launch activation messaging ([#118](https://github.com/kenneth-liao/agent-profile-kit/issues/118)).

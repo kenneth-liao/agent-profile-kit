@@ -106,16 +106,17 @@ requested project no longer exists. `preview` is read-only and leads with a
 ready-to-apply or cannot-apply outcome; `apply` reports the verified resulting
 state separately from an Apply Receipt describing the pre-apply work that was
 committed; and `status` emphasizes Profile Installations that need attention.
-These default views group details by Profile Installation, summarize
-generated-output changes (additions, updates, repairs, removals, and drift),
-explain non-current Profile Installation states when they appear, describe
-Repository Exclusion deltas as Git-local exclusions for Installer-owned
-generated paths, keep warnings and blockers visible, and when useful end with
+These default views group details by Profile Installation, list changed file
+paths with `+`, `~`, `-`, or `!` markers (capped with an overflow pointer to
+`--verbose`), explain non-current Profile Installation states when they appear,
+summarize pending Git exclusion work in one clause, keep warnings and blockers
+visible, and when useful end with
 one next-action instruction (status → read-only preview before apply; ready
 preview → apply; blocked → resolve and retry the same command; current or
 completed/no-op results omit a next step). Add `--verbose` to
 `preview`, `apply`, or `status` for complete per-output and desired-state
-diagnostics, including resolved artifact inclusion reasons and composed Context.
+diagnostics, including exact Git exclusion paths, resolved artifact inclusion
+reasons, and composed Context.
 `uninstall` is different: it removes proven generated Profile Installation
 output while preserving bindings.
 

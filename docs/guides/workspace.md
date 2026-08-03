@@ -405,12 +405,12 @@ Run `apkit validate` to check the Workspace and every Project Binding.
 Review the concise read-only reconciliation outcome with
 `apkit preview`. It leads with whether reconciliation can proceed,
 groups changes and blockers by Profile Installation, and summarizes
-generated-output additions, updates, repairs, removals, and drift without
-listing every unchanged output. Non-current Profile Installation states such as
-`stale source`, `blocked`, or `removal` get a short explanation when present
-(once per distinct state across installations). Repository Exclusion deltas are
-Git-local exclusions that keep Installer-owned generated paths untracked; the
-exact exclusion target and added or removed paths remain listed. When action is
+changed file paths with `+`, `~`, `-`, or `!` markers without listing unchanged
+output. Long lists are capped with an overflow pointer to `--verbose`.
+Non-current Profile Installation states such as `stale source`, `blocked`, or
+`removal` get a short explanation when present (once per distinct state across
+installations). Pending Git exclusion work appears as one concise clause; exact
+targets and path changes are reserved for `--verbose`. When action is
 useful, concise results end with one next-action line derived from the same
 attention surface as the report body: actionable `status` points to read-only
 `preview` before `apply`; a ready `preview` recommends `apply`; a blocked result

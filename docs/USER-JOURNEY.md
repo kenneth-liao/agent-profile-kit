@@ -160,13 +160,15 @@ Git-local exclusions that keep Installer-owned generated paths untracked.
 
 At capture time, three things broke here. The 13 files were never listed as
 files — the exclusion line was the only place any path appeared, as one
-~500-character comma-separated run. The four Hosts that produced them were
-invisible; project blocks now echo that selection. The non-Git project in the
-same run still contributes no exclusion entry, so **its output is never shown at
-all** ([UJ-22](#uj-22)).
+~500-character comma-separated run. Project blocks now echo the four Hosts that
+produced the files, and changed paths now appear directly beneath each project,
+including non-Git projects.
 
-Gaps: [UJ-07](#uj-07), [UJ-11](#uj-11), [UJ-12](#uj-12), [UJ-15](#uj-15),
-[UJ-18](#uj-18), ~~[UJ-20](#uj-20)~~, [UJ-22](#uj-22).
+Gaps: [UJ-07](#uj-07), ~~[UJ-11](#uj-11)~~ (shipped in
+[#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
+[UJ-12](#uj-12), [UJ-15](#uj-15), [UJ-18](#uj-18),
+~~[UJ-20](#uj-20)~~, ~~[UJ-22](#uj-22)~~ (shipped in
+[#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)).
 
 ### 8. Apply
 
@@ -272,7 +274,9 @@ reported blockers` — hiding that `api` could be applied right now
 ([UJ-23](#uj-23)).
 
 Gaps: [UJ-02](#uj-02), [UJ-05](#uj-05), [UJ-06](#uj-06), [UJ-07](#uj-07),
-[UJ-11](#uj-11), [UJ-13](#uj-13), [UJ-19](#uj-19), [UJ-23](#uj-23).
+~~[UJ-11](#uj-11)~~ (shipped in
+[#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
+[UJ-13](#uj-13), [UJ-19](#uj-19), [UJ-23](#uj-23).
 
 ### 12. Tear down
 
@@ -314,13 +318,13 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | [UJ-21](#uj-21) | High | 8, 9 | No post-apply Host guidance; Codex can break silently |
 | [UJ-05](#uj-05) | Med-High | 11 | Blocked `apply` reports the same blockers three times |
 | ~~[UJ-20](#uj-20)~~ | ~~Med-High~~ | ~~5, 7, 8~~ | ~~Hosts are invisible after `bind`~~ — shipped in [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) |
-| [UJ-22](#uj-22) | Med-High | 7 | Non-Git project output is never shown at all |
+| ~~[UJ-22](#uj-22)~~ | ~~Med-High~~ | ~~7~~ | ~~Non-Git project output is never shown at all~~ — shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120) |
 | [UJ-06](#uj-06) | Medium | 11 | One blocker fact rendered three ways per screen |
 | [UJ-07](#uj-07) | Medium | 5, 7, 11 | Absolute paths remain in bind, blocker, exclusion, and diagnostic lines |
 | [UJ-08](#uj-08) | Medium | 12 | `uninstall` output omits what it did and what it kept |
 | [UJ-09](#uj-09) | Medium | 12 | `unbind` recommends a no-op next step |
 | ~~[UJ-10](#uj-10)~~ | ~~Medium~~ | ~~2, 5~~ | ~~Missing-Profile error names paths, not available Profiles~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
-| [UJ-11](#uj-11) | Medium | 7, 11 | Change counter buckets unknown output kinds as drift |
+| ~~[UJ-11](#uj-11)~~ | ~~Medium~~ | ~~7, 11~~ | ~~Change counter buckets unknown output kinds as drift~~ — shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120) |
 | [UJ-12](#uj-12) | Medium | 7 | `preview --verbose` contradicts itself on one path |
 | [UJ-13](#uj-13) | Medium | 11 | `status` exits 0 with blockers; `preview` exits 1 |
 | [UJ-23](#uj-23) | Medium | 11 | One aggregate next-action stalls unblocked projects |
@@ -396,13 +400,17 @@ Shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119):
 missing-Profile errors now list the Workspace's available Profiles or state that
 none exist and point at `apkit guide`.
 
-### UJ-11
-`summarizeOutputs` in `cli/presentation.ts` matches `addition`, `update`,
+### ~~UJ-11~~
+~~`summarizeOutputs` in `cli/presentation.ts` matches `addition`, `update`,
 `removal`, `repair`, and `unchanged`, then counts every remaining kind as drift.
 A `missing member` is therefore reported as a "drift item", so one missing Skill
 plus one drifted rule renders as `2 generated-output drift items`. The
 fall-through is also the shape that lets a future output kind silently
-mis-render.
+mis-render.~~
+
+Shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120):
+output kinds are summarized exhaustively and changed paths render with an
+explicit marker in concise reports.
 
 ### UJ-12
 `preview --verbose` lists the same Skill path as both `unchanged` and `missing
@@ -474,11 +482,15 @@ emit no hook guidance. The remaining gap is cross-Host coverage. In particular,
 a Claude co-bound Grok project gets **no** `.grok/rules/` file by design, verified
 in a four-Host run, but the CLI does not yet explain that shared path.
 
-### UJ-22
-A non-Git project's generated output appears nowhere. Because file paths surface
+### ~~UJ-22~~
+~~A non-Git project's generated output appears nowhere. Because file paths surface
 only inside the Repository Exclusion block, and non-Git projects contribute no
 exclusion entries, a bound non-Git project shows a bare count and nothing else —
-even under `preview`, whose entire job is to say what will be written.
+even under `preview`, whose entire job is to say what will be written.~~
+
+Shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120):
+concise reports list changed paths from the reconciliation plan for Git and
+non-Git projects alike.
 
 ### UJ-23
 The next-action line is deliberately one conservative aggregate. Across projects

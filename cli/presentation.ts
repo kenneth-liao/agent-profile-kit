@@ -6,6 +6,7 @@ import type {
   ApplyReconciliationResult,
   BlockedReconciliationReport,
   OutputReconciliationItem,
+  OutputReconciliationKind,
   ReconciliationBlocker,
   ReconciliationItem,
   ReconciliationKind,
@@ -15,6 +16,7 @@ import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exc
 import { COMMAND_NAME } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { ValidationResult } from "../installer/commands.js";
+import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
 
@@ -49,12 +51,22 @@ const DEFAULT_VIEW_LEXICON = {
     thirdPerson: "syncs",
   },
   repositoryExclusion: {
-    localPlural: "Git-local exclusions",
     plural: "Git exclusions",
     singular: "Git exclusion",
   },
   repositoryExclusionRecord: { singular: "Git exclusion record", plural: "Git exclusion records" },
 } as const;
+
+const OUTPUT_PATH_PRIORITY = {
+  "drifted member": 0,
+  "missing member": 0,
+  "unexpected member": 0,
+  removal: 1,
+  update: 2,
+  addition: 3,
+  repair: 3,
+  unchanged: 4,
+} as const satisfies Readonly<Record<OutputReconciliationKind, number>>;
 
 export const INTERNAL_ONLY_DEFAULT_TERMS = [
   /Profile Installations?/i,
@@ -207,10 +219,12 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
 
 interface OutputSummary {
   readonly additions: number;
-  readonly updates: number;
-  readonly repairs: number;
-  readonly removals: number;
   readonly drift: number;
+  readonly missing: number;
+  readonly removals: number;
+  readonly repairs: number;
+  readonly unexpected: number;
+  readonly updates: number;
 }
 
 interface ProjectGroup {
@@ -225,6 +239,8 @@ interface GroupedProjects {
   readonly groups: ProjectGroup[];
   readonly unscopedItems: ReconciliationItem[];
 }
+
+const DEFAULT_OUTPUT_PATH_LIMIT = 10;
 
 function containsPath(parent: string, child: string): boolean {
   const childFromParent = relative(parent, child);
@@ -262,6 +278,10 @@ function plural(count: number, singular: string, pluralForm = `${singular}s`): s
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
+function assertNever(value: never): never {
+  throw new Error(`Unhandled output kind: ${String(value)}`);
+}
+
 export function formatValidationResult(result: ValidationResult): string {
   const profileCount = result.profiles.length;
   return `Workspace and Local Configuration valid (` +
@@ -274,14 +294,28 @@ export function formatValidationResult(result: ValidationResult): string {
 function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputSummary {
   return outputs.reduce<OutputSummary>(
     (summary, output) => {
-      if (output.kind === "addition") return { ...summary, additions: summary.additions + 1 };
-      if (output.kind === "update") return { ...summary, updates: summary.updates + 1 };
-      if (output.kind === "removal") return { ...summary, removals: summary.removals + 1 };
-      if (output.kind === "repair") return { ...summary, repairs: summary.repairs + 1 };
-      if (output.kind === "unchanged") return summary;
-      return { ...summary, drift: summary.drift + 1 };
+      switch (output.kind) {
+        case "addition":
+          return { ...summary, additions: summary.additions + 1 };
+        case "drifted member":
+          return { ...summary, drift: summary.drift + 1 };
+        case "missing member":
+          return { ...summary, missing: summary.missing + 1 };
+        case "removal":
+          return { ...summary, removals: summary.removals + 1 };
+        case "repair":
+          return { ...summary, repairs: summary.repairs + 1 };
+        case "unchanged":
+          return summary;
+        case "unexpected member":
+          return { ...summary, unexpected: summary.unexpected + 1 };
+        case "update":
+          return { ...summary, updates: summary.updates + 1 };
+        default:
+          return assertNever(output.kind);
+      }
     },
-    { additions: 0, updates: 0, repairs: 0, removals: 0, drift: 0 },
+    { additions: 0, drift: 0, missing: 0, removals: 0, repairs: 0, unexpected: 0, updates: 0 },
   );
 }
 
@@ -294,11 +328,60 @@ function changeParts(summary: OutputSummary): string[] {
   if (summary.repairs > 0) parts.push(plural(summary.repairs, `${generatedFile} repair`));
   if (summary.removals > 0) parts.push(plural(summary.removals, `${generatedFile} removal`));
   if (summary.drift > 0) parts.push(plural(summary.drift, `${generatedFile} drift item`));
+  if (summary.missing > 0) {
+    parts.push(`${summary.missing} generated ${summary.missing === 1 ? "file" : "files"} missing`);
+  }
+  if (summary.unexpected > 0) {
+    parts.push(plural(summary.unexpected, `unexpected ${generatedFile}`));
+  }
   return parts;
 }
 
 function changeCount(summary: OutputSummary): number {
-  return summary.additions + summary.updates + summary.repairs + summary.removals + summary.drift;
+  return summary.additions + summary.updates + summary.repairs + summary.removals + summary.drift +
+    summary.missing + summary.unexpected;
+}
+
+function outputPathLine(output: OutputReconciliationItem): string | undefined {
+  switch (output.kind) {
+    case "addition":
+    case "repair":
+      return `+ ${output.path}`;
+    case "update":
+      return `~ ${output.path}`;
+    case "removal":
+      return `- ${output.path}`;
+    case "drifted member":
+    case "missing member":
+    case "unexpected member":
+      return `! ${output.path} (${output.kind})`;
+    case "unchanged":
+      return undefined;
+    default:
+      return assertNever(output.kind);
+  }
+}
+
+function outputPathLines(outputs: readonly OutputReconciliationItem[]): readonly string[] {
+  const paths = [...outputs]
+    // Protect attention and destructive changes from the concise-view cap, then
+    // use canonical byte ordering so the visible path set is locale-independent.
+    .sort((left, right) =>
+      OUTPUT_PATH_PRIORITY[left.kind] - OUTPUT_PATH_PRIORITY[right.kind] ||
+      compareCanonicalStrings(left.path, right.path) ||
+      compareCanonicalStrings(left.kind, right.kind)
+    )
+    .flatMap((output) => {
+      const line = outputPathLine(output);
+      return line === undefined ? [] : [line];
+    });
+  const overflow = paths.length - DEFAULT_OUTPUT_PATH_LIMIT;
+  return overflow > 0
+    ? [
+        ...paths.slice(0, DEFAULT_OUTPUT_PATH_LIMIT),
+        `… ${overflow} more ${overflow === 1 ? "file" : "files"}; use --verbose to see all paths`,
+      ]
+    : paths;
 }
 
 function changedRepositoryExclusions(report: ReconciliationReport): readonly ReconciliationReport["repositoryExclusions"][number][] {
@@ -308,16 +391,15 @@ function changedRepositoryExclusions(report: ReconciliationReport): readonly Rec
   );
 }
 
-function repairedRepositoryExclusionLines(report: ReconciliationReport): readonly string[] {
+function repositoryExclusionRepairLines(
+  report: ReconciliationReport,
+  completed = false,
+): readonly string[] {
   return report.repositoryExclusionRepairs.map((repair) => {
     const count = repair.entries.length;
-    return `${repair.target}: restored ${count} recorded Repository Exclusion ${count === 1 ? "entry" : "entries"}`;
+    const action = completed ? "restored" : "will restore";
+    return `${repair.target}: ${action} ${count} recorded Repository Exclusion ${count === 1 ? "entry" : "entries"}`;
   });
-}
-
-function defaultRepositoryExclusionDescription(): string {
-  return `${DEFAULT_VIEW_LEXICON.repositoryExclusion.localPlural} that keep ` +
-    `${DEFAULT_VIEW_LEXICON.generatedOutput.paths} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive} untracked.`;
 }
 
 function exclusionDelta(change: ReconciliationReport["repositoryExclusions"][number]): {
@@ -338,6 +420,38 @@ function exclusionDeltaText(change: ReconciliationReport["repositoryExclusions"]
   if (delta.additions.length > 0) parts.push(`add ${delta.additions.join(", ")}`);
   if (delta.removals.length > 0) parts.push(`remove ${delta.removals.join(", ")}`);
   return parts.join("; ");
+}
+
+function repositoryExclusionClause(
+  report: ReconciliationReport,
+  completed: boolean,
+): string | undefined {
+  const delta = changedRepositoryExclusions(report)
+    .map(exclusionDelta)
+    .reduce(
+      (total, change) => ({
+        additions: total.additions + change.additions.length,
+        removals: total.removals + change.removals.length,
+      }),
+      { additions: 0, removals: 0 },
+    );
+  const repairs = report.repositoryExclusionRepairs.reduce(
+    (count, repair) => count + repair.entries.length,
+    0,
+  );
+  const parts: string[] = [];
+  if (delta.additions > 0) {
+    parts.push(`${plural(delta.additions, "entry", "entries")} ${completed ? "added" : "to add"}`);
+  }
+  if (delta.removals > 0) {
+    parts.push(`${plural(delta.removals, "entry", "entries")} ${completed ? "removed" : "to remove"}`);
+  }
+  if (repairs > 0) {
+    parts.push(`${plural(repairs, "recorded entry", "recorded entries")} ${completed ? "restored" : "to restore"}`);
+  }
+  return parts.length === 0
+    ? undefined
+    : `${capitalize(DEFAULT_VIEW_LEXICON.repositoryExclusion.plural)}: ${parts.join(", ")}.`;
 }
 
 function itemText(item: ReconciliationItem): string {
@@ -524,12 +638,11 @@ function aggregateLine(report: ReconciliationReport, groups: readonly ProjectGro
 }
 
 function warningsForPresentation(
-  command: LifecycleCommand,
   warnings: readonly string[],
 ): readonly string[] {
-  if (command !== "apply") return warnings;
-  // A successful apply has repaired this preflight condition; omit the stale
-  // completion guidance while leaving the canonical report unchanged.
+  // The dedicated exclusion clause/verbose repair section owns this fact.
+  // Keeping the raw warning too would duplicate it and leak exact paths into
+  // the default view.
   return warnings.filter(
     (warning) => !warning.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX),
   );
@@ -634,9 +747,12 @@ function nextActionLine(
 function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
   const grouped = groupProjects(receipt);
   const entries = grouped.groups.flatMap((group) => {
-    const changes = changeParts(summarizeOutputs(group.outputs));
-    if (changes.length > 0) {
-      return [`- ${displayProjectPath(group.canonicalProject, group.project)}: ${changes.join(", ")}`];
+    const paths = outputPathLines(group.outputs);
+    if (paths.length > 0) {
+      return [
+        `- ${displayProjectPath(group.canonicalProject, group.project)}:`,
+        ...paths.map((line) => `  ${line}`),
+      ];
     }
     const workKinds = [...new Set(
       group.items
@@ -649,9 +765,8 @@ function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
       ? [`- ${displayProjectPath(group.canonicalProject, group.project)}: ${workKinds.join(", ")}`]
       : [];
   });
-  const exclusionChanges = changedRepositoryExclusions(receipt);
-  const exclusionRepairs = repairedRepositoryExclusionLines(receipt).map(defaultViewText);
-  if (entries.length === 0 && exclusionChanges.length === 0 && exclusionRepairs.length === 0) {
+  const exclusionClause = repositoryExclusionClause(receipt, true);
+  if (entries.length === 0 && exclusionClause === undefined) {
     return [
       `Apply receipt: no changes were applied; all ` +
       `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
@@ -662,17 +777,7 @@ function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
     "Apply receipt:",
     ...(entries.length > 0 ? entries : [`- No ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} changes`]),
   ];
-  if (exclusionChanges.length > 0 || exclusionRepairs.length > 0) {
-    lines.push(
-      "",
-      `${capitalize(DEFAULT_VIEW_LEXICON.repositoryExclusion.plural)} completed:`,
-      defaultRepositoryExclusionDescription(),
-    );
-    for (const change of exclusionChanges) {
-      lines.push(`- ${change.target}: ${exclusionDeltaText(change)}`);
-    }
-    for (const repair of exclusionRepairs) lines.push(`- ${repair}`);
-  }
+  if (exclusionClause !== undefined) lines.push("", exclusionClause);
   return lines;
 }
 
@@ -691,7 +796,7 @@ function conciseReport(
     : new Map(groupProjects(receipt).groups.map((group) => [group.canonicalProject, group]));
   const receiptHasRepositoryWork = receipt !== undefined && (
     changedRepositoryExclusions(receipt).length > 0 ||
-    repairedRepositoryExclusionLines(receipt).length > 0
+    receipt.repositoryExclusionRepairs.length > 0
   );
   const showSingleCurrentGroup = command === "apply" && receiptHasRepositoryWork && groups.length === 1;
   const activeGroups = blocked
@@ -715,7 +820,6 @@ function conciseReport(
     }
   } else {
     for (const group of activeGroups) {
-      const summary = summarizeOutputs(group.outputs);
       const receiptGroup = receiptGroups.get(group.canonicalProject);
       const receiptHasWork = command === "apply" && groupHasReconciliationWork(receiptGroup);
       const showCurrentState = receiptHasWork || showSingleCurrentGroup;
@@ -739,23 +843,14 @@ function conciseReport(
           lines.push(`  State: ${itemText(item)}`);
         }
       }
-      const changes = changeParts(summary);
-      if (changes.length > 0) lines.push(`  Changes: ${changes.join(", ")}`);
+      const outputLines = outputPathLines(group.outputs);
+      if (outputLines.length > 0) lines.push("  Files:", ...outputLines.map((line) => `  ${line}`));
       for (const blocker of group.blockers) lines.push(`  Blocker: ${formatBlocker(blocker, group.project)}`);
     }
   }
 
-  const exclusionChanges = changedRepositoryExclusions(report);
-  if (!blocked && exclusionChanges.length > 0) {
-    lines.push(
-      "",
-      `${capitalize(DEFAULT_VIEW_LEXICON.repositoryExclusion.plural)}:`,
-      defaultRepositoryExclusionDescription(),
-    );
-    for (const change of exclusionChanges) {
-      lines.push(`- ${change.target}: ${exclusionDeltaText(change)}`);
-    }
-  }
+  const exclusionClause = repositoryExclusionClause(report, false);
+  if (exclusionClause !== undefined) lines.push("", exclusionClause);
 
   const globalBlockers = report.blockers.filter((blocker) => !blocker.project);
   if (globalBlockers.length > 0) {
@@ -775,7 +870,7 @@ function conciseReport(
   if (explanations.length > 0) {
     lines.push("", ...explanations);
   }
-  const warnings = warningsForPresentation(command, report.warnings);
+  const warnings = warningsForPresentation(report.warnings);
   if (warnings.length > 0) {
     lines.push("", "Warnings:");
     for (const warning of warnings) lines.push(`- ${defaultDiagnosticText(warning)}`);
@@ -795,10 +890,7 @@ function conciseReport(
   return `${lines.join("\n")}\n`;
 }
 
-function verboseSections(
-  command: LifecycleCommand,
-  report: ReconciliationReport,
-): string {
+function verboseSections(report: ReconciliationReport, completedRepositoryExclusions = false): string {
   const items = report.items.length === 0
     ? "(no Profile Installations)"
     : report.items
@@ -843,8 +935,10 @@ function verboseSections(
         .join("\n");
   const repositoryExclusionRepairs = report.repositoryExclusionRepairs.length === 0
     ? "(none)"
-    : repairedRepositoryExclusionLines(report).map((repair) => `- ${repair}`).join("\n");
-  const presentationWarnings = warningsForPresentation(command, report.warnings);
+    : repositoryExclusionRepairLines(report, completedRepositoryExclusions)
+        .map((repair) => `- ${repair}`)
+        .join("\n");
+  const presentationWarnings = warningsForPresentation(report.warnings);
   const warnings = presentationWarnings.length === 0
     ? "(none)"
     : presentationWarnings.map((warning) => `- ${warning}`).join("\n");
@@ -861,15 +955,15 @@ function verboseSetupSection(command: LifecycleCommand, report: ReconciliationRe
 }
 
 function verboseReport(command: LifecycleCommand, report: ReconciliationReport): string {
-  return `${outcomeLine(command, report)}\n${verboseSections(command, report)}` +
+  return `${outcomeLine(command, report)}\n${verboseSections(report)}` +
     verboseSetupSection(command, report);
 }
 
 function verboseApplyReport(result: ApplyReconciliationResult): string {
   const report = (
     `${outcomeLine("apply", result.resultingState, true)}\n` +
-    `Resulting state:\n${verboseSections("status", result.resultingState)}` +
-    `Apply receipt:\n${verboseSections("apply", result.receipt)}` +
+    `Resulting state:\n${verboseSections(result.resultingState)}` +
+    `Apply receipt:\n${verboseSections(result.receipt, true)}` +
     verboseSetupSection("apply", result.resultingState)
   );
   const activation = result.resultingState.blockers.length === 0
@@ -893,7 +987,7 @@ export function formatApplyVerificationFailure(
   options: { readonly verbose?: boolean } = {},
 ): string {
   if (options.verbose) {
-    return `${message}\nApply receipt:\n${verboseSections("apply", receipt)}` +
+    return `${message}\nApply receipt:\n${verboseSections(receipt, true)}` +
       verboseSetupSection("apply", receipt);
   }
   const lines = [
