@@ -120,8 +120,9 @@ completed/no-op results omit a next step). Add `--verbose` to
 `preview`, `apply`, or `status` for complete per-output and desired-state
 diagnostics, including exact Git exclusion paths, resolved artifact inclusion
 reasons, and composed Context.
-`uninstall` is different: it removes proven generated Profile Installation
-output while preserving bindings.
+`uninstall` is different: it names and removes proven generated Profile
+Installation output while preserving bindings. A following `status` identifies
+that deliberate teardown without treating it as unexplained missing output.
 
 Older version-1 configuration without `workspace` is migration input only. Run
 `apkit init` to record the effective Workspace and upgrade it;

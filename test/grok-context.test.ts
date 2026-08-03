@@ -368,9 +368,10 @@ describe("Grok-only Profile Installation lifecycle", () => {
     expect(installation.outputs.some((output) => output.path.includes("codex"))).toBe(false);
 
     const preview = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(preview.blockers).toEqual([]);
     expect(preview.desired[0]?.outputs).toContain(GROK_CONTEXT_RULE_PATH);
@@ -411,7 +412,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
     const status = await previewReconciliation(current.installations, state);
     expect(status.items).toContainEqual({ kind: "current", project });
 
-    expect(await uninstallApplication(home)).toBe(1);
+    expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(rulePath)).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(project, "AGENTS.md"), "utf8")).toBe("repository-owned instructions\n");
@@ -439,9 +440,10 @@ describe("Grok-only Profile Installation lifecycle", () => {
       ).toBe(true);
 
       const report = await previewReconciliation(desired.installations, {
+        intendedTeardowns: [],
         installations: [],
         repositoryExclusions: [],
-        schemaVersion: 3,
+        schemaVersion: 4,
       });
       expect(
         report.blockers.some((blocker) => blocker.message.includes("is a file, not a directory")),
@@ -472,9 +474,10 @@ describe("Grok-only Profile Installation lifecycle", () => {
     );
 
     const report = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(report.blockers).toEqual([]);
     await applyReconciliation(home, desired.installations);
@@ -535,7 +538,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
       grok: GROK_HOST_VERSION,
     });
 
-    expect(await uninstallApplication(home)).toBe(1);
+    expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
     expect(readFileSync(join(project, "CLAUDE.md"), "utf8")).toBe("project-owned\n");
   });
@@ -776,7 +779,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     expect(raw.installations[0]?.hosts).toEqual(["claude", "codex", "grok"]);
     expect(raw.installations[0]?.host_versions.grok).toBe(GROK_HOST_VERSION);
 
-    expect(await uninstallApplication(home)).toBe(1);
+    expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);

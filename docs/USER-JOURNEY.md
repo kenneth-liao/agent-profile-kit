@@ -311,7 +311,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 |----|----------|-------|-----|
 | ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
 | [UJ-02](#uj-02) | High | 11 | Drifted output has no stated remedy anywhere |
-| [UJ-03](#uj-03) | High | 12 | Post-`uninstall` `status` warns about an intended state |
+| ~~[UJ-03](#uj-03)~~ | ~~High~~ | ~~12~~ | ~~Post-`uninstall` `status` warns about an intended state~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
 | ~~[UJ-04](#uj-04)~~ | ~~High~~ | ~~8~~ | ~~"Changes" means two things on one `apply` screen~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | [UJ-19](#uj-19) | High | 11 | Blocked results lead with a plan that cannot happen |
 | [UJ-21](#uj-21) | High | 8, 9 | No post-apply Host guidance; Codex can break silently |
@@ -320,8 +320,8 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ~~[UJ-22](#uj-22)~~ | ~~Med-High~~ | ~~7~~ | ~~Non-Git project output is never shown at all~~ — shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120) |
 | [UJ-06](#uj-06) | Medium | 11 | One blocker fact rendered three ways per screen |
 | [UJ-07](#uj-07) | Medium | 5, 7, 11 | Absolute paths remain in bind, blocker, exclusion, and diagnostic lines |
-| [UJ-08](#uj-08) | Medium | 12 | `uninstall` output omits what it did and what it kept |
-| [UJ-09](#uj-09) | Medium | 12 | `unbind` recommends a no-op next step |
+| ~~[UJ-08](#uj-08)~~ | ~~Medium~~ | ~~12~~ | ~~`uninstall` output omits what it did and what it kept~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
+| ~~[UJ-09](#uj-09)~~ | ~~Medium~~ | ~~12~~ | ~~`unbind` recommends a no-op next step~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
 | ~~[UJ-10](#uj-10)~~ | ~~Medium~~ | ~~2, 5~~ | ~~Missing-Profile error names paths, not available Profiles~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
 | ~~[UJ-11](#uj-11)~~ | ~~Medium~~ | ~~7, 11~~ | ~~Change counter buckets unknown output kinds as drift~~ — shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120) |
 | ~~[UJ-12](#uj-12)~~ | ~~Medium~~ | ~~7~~ | ~~`preview --verbose` contradicts itself on one path~~ — shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123) |
@@ -353,6 +353,10 @@ After a successful `uninstall` the binding remains by design, so the next
 missing)`, and `this is not a safe automatic repair`. Deliberate teardown and
 unexplained loss render identically, though a Marker removed by the Installer
 itself is a distinguishable state.
+
+Shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124):
+`uninstall` now records intended teardown, and `status` renders it without the
+unsafe missing-output framing.
 
 ### ~~UJ-04~~
 ~~`apply` prints `Changes: none` (pending work against post-apply state) above
@@ -389,11 +393,19 @@ times.
 exclusion entries cleaned, and that bindings were preserved — so `status` will
 immediately report pending additions. Compare `unbind`, which names its effects.
 
+Shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124):
+`uninstall` now lists each project, removed generated path, cleaned Git exclusion
+entry, and the preserved Project Bindings.
+
 ### UJ-09
 `unbind` closes with `Next: preview && apply`. When the unbound project was the
 only installation and its output was already removed, that sequence reports zero
 installations and no changes. The next step should depend on whether generated
 output actually survives the unbind.
+
+Shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124):
+`unbind` now recommends global reconciliation only while an installed Manifest
+remains for the removed binding.
 
 ### ~~UJ-10~~
 ~~`profile 'engineering' does not exist in Workspace <workspace>` leads with the

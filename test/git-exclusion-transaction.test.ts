@@ -23,6 +23,7 @@ function gitRepository(): string {
 function installationState(project: string): InstallationState {
   const hash = `sha256:${"0".repeat(64)}`;
   return {
+    intendedTeardowns: [],
     installations: [{
       adapterVersion: "test-adapter",
       engineVersion: "test-engine",
@@ -50,7 +51,7 @@ function installationState(project: string): InstallationState {
       }],
       entries: ["/.agent-profile-kit/installation.json"],
     }],
-    schemaVersion: 3,
+    schemaVersion: 4,
   };
 }
 
@@ -61,9 +62,10 @@ describe("Git exclusion transaction", () => {
     const authored = Buffer.from("# authored exclusion\n");
     writeFileSync(exclude, authored);
     const empty: InstallationState = {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     };
 
     const transaction = await stageGitExclusions(empty, installationState(repository));

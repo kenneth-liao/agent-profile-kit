@@ -13,12 +13,14 @@ import {
 } from "./local-configuration-publication.js";
 import { COMMAND_NAME } from "./version.js";
 import {
+  canonicalizePathForComparison,
   expandConfiguredPath,
   ingestApplicationModelFromSource,
   localConfigurationPath,
   normalizeProject,
   requireExistingDirectory,
 } from "./local-configuration.js";
+import { readInstallationState } from "./installation-state.js";
 import { MissingProfileError } from "./profile-selection.js";
 
 interface UnbindTarget {
@@ -183,6 +185,25 @@ export type UnbindProjectResult =
       readonly requestedProject: string;
       readonly canonicalProject?: string;
     };
+
+export async function generatedOutputSurvivesUnbind(
+  home: string,
+  result: Extract<UnbindProjectResult, { outcome: "removed" }>,
+): Promise<boolean> {
+  try {
+    const project = result.recovery === "canonical"
+      ? result.canonicalProject
+      : await canonicalizePathForComparison(
+          expandConfiguredPath(result.project, home, "Project Binding", "project"),
+        );
+    const state = await readInstallationState(home);
+    return state.installations.some((installation) => installation.project === project);
+  } catch {
+    // Binding removal remains independent from readable installation state.
+    // Status will surface malformed state; uncertain output cannot justify a next step here.
+    return false;
+  }
+}
 
 /**
  * Remove one Project Binding from Local Configuration without reconciling output.

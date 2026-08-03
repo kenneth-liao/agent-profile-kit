@@ -15,7 +15,7 @@ import type {
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
 import { COMMAND_NAME } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
-import type { ValidationResult } from "../installer/commands.js";
+import type { UninstallResult, ValidationResult } from "../installer/commands.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
@@ -164,6 +164,7 @@ function defaultDiagnosticText(text: string): string {
  */
 export const NON_CURRENT_STATE_ORDER = [
   "addition",
+  "intended teardown",
   "missing output",
   "update",
   "stale source",
@@ -190,6 +191,9 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
   addition:
     `The ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} is not installed yet; apply will create its ` +
     `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`,
+  "intended teardown":
+    `Generated files were deliberately removed by uninstall while the Project Binding was preserved; ` +
+    "apply will reinstall the current Profile.",
   update:
     `${capitalize(DEFAULT_VIEW_LEXICON.desiredState)} changed for this ` +
     `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}; apply will rewrite ` +
@@ -289,6 +293,36 @@ export function formatValidationResult(result: ValidationResult): string {
     `Profiles found: ${profileCount === 0 ? "none" : result.profiles.join(", ")}\n` +
     `Hosts bound: ${result.hosts.length === 0 ? "none" : result.hosts.join(", ")}\n` +
     result.warnings.map((warning) => `Warning: ${warning}\n`).join("");
+}
+
+export function formatUninstallResult(result: UninstallResult): string {
+  const projectCount = result.projects.length;
+  const lines = [
+    projectCount === 0
+      ? "No installed Projects to uninstall."
+      : `Uninstalled ${plural(projectCount, "Project")}.`,
+  ];
+  for (const project of result.projects) {
+    lines.push(
+      "",
+      `Project: ${displayProjectPath(project.project)}`,
+      "  Removed generated paths:",
+      ...project.outputs.map((path) => `  - ${path}`),
+    );
+    if (project.repositoryExclusions.length > 0) {
+      lines.push(
+        "  Cleaned Git exclusions:",
+        ...project.repositoryExclusions.flatMap((exclusion) =>
+          exclusion.entries.map((entry) => `  - ${entry} (${exclusion.target})`)
+        ),
+      );
+    }
+  }
+  lines.push("", "Project Bindings preserved.");
+  if (projectCount > 0) {
+    lines.push(`Next: Run ${COMMAND_NAME} unbind for bindings you no longer want, or ${COMMAND_NAME} apply to reinstall.`);
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputSummary {
@@ -645,6 +679,16 @@ function outcomeLine(
     if (report.items.some((item) => item.kind !== "current")) return "Apply completed with attention";
     return "Apply complete";
   }
+  if (
+    report.blockers.length === 0 &&
+    report.items.length > 0 &&
+    report.items.some((item) => item.kind === "intended teardown") &&
+    report.items.every((item) => item.kind === "current" || item.kind === "intended teardown")
+  ) {
+    return report.items.some((item) => item.kind === "current")
+      ? "Some Projects intentionally uninstalled"
+      : "Intentionally uninstalled";
+  }
   const currentProjects = fullyCurrentProjectCount(report);
   if (currentProjects === undefined && report.items.length > 0) {
     return "Attention required";
@@ -698,7 +742,18 @@ function hostSetupLines(
     ? new Set<HostSetupStepKind>(["approval-required", "launch-constraint"])
     : new Set<HostSetupStepKind>(HOST_SETUP_STEP_ORDER);
   const byHost = new Map<string, Map<string, HostSetupStep>>();
+  const intentionallyUninstalledProjects = new Set(
+    report.items
+      .filter((item) => item.kind === "intended teardown")
+      .map((item) => item.project),
+  );
   for (const installation of report.desired) {
+    if (
+      command === "status" &&
+      intentionallyUninstalledProjects.has(installation.project)
+    ) {
+      continue;
+    }
     for (const step of installation.setupSteps) {
       if (!visibleKinds.has(step.kind)) continue;
       const message = step.path === "bound-project"

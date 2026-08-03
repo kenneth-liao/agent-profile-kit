@@ -6,6 +6,7 @@ import {
   formatInstallationManifest,
   parseLegacyInstallationState,
   parseInstallationState,
+  parsePreviousInstallationState,
   type InstallationState,
 } from "../schemas/installation-manifest.js";
 import { replaceRepositoryExclusionContribution } from "../installer/git-exclusions.js";
@@ -31,6 +32,7 @@ function installation(installationId: string, project: string) {
 
 function validState(): InstallationState {
   return {
+    intendedTeardowns: [],
     installations: [
       installation("install-a", "/repo/a"),
       installation("install-b", "/repo/b"),
@@ -43,7 +45,7 @@ function validState(): InstallationState {
       entries: ["/repo/a/.owned", "/repo/b/.owned", "/shared"],
       target: "/repo/.git/info/exclude",
     }],
-    schemaVersion: 3,
+    schemaVersion: 4,
   };
 }
 
@@ -58,7 +60,7 @@ describe("Repository Exclusion Record schema", () => {
       installations: [installation("install-a", "/repo/a")],
       schemaVersion: 2,
     });
-    expect(() => parseInstallationState(source)).toThrow(/schema_version must be 3/);
+    expect(() => parseInstallationState(source)).toThrow(/schema_version must be 4/);
   });
 
   test("round-trips contributions and formats their union deterministically", () => {
@@ -72,6 +74,37 @@ describe("Repository Exclusion Record schema", () => {
       entries: ["/repo/a/.owned", "/repo/b/.owned", "/shared"],
       target: "/repo/.git/info/exclude",
     }]);
+  });
+
+  test("keeps schema-v3 state available to the intended-teardown migration boundary", () => {
+    const current = parseInstallationState(formatInstallationState(validState()));
+    const previous = parse(formatInstallationState(current)) as Record<string, unknown>;
+    previous.schema_version = 3;
+    delete previous.intended_teardowns;
+
+    expect(parsePreviousInstallationState(stringify(previous))).toEqual({
+      installations: current.installations,
+      repositoryExclusions: current.repositoryExclusions,
+      schemaVersion: 3,
+    });
+  });
+
+  test("round-trips intended teardown provenance and rejects installed overlap", () => {
+    const teardownState: InstallationState = {
+      intendedTeardowns: [{ hosts: ["codex", "claude"], installationId: "install-c", profileId: "coding", project: "/repo/c" }],
+      installations: [],
+      repositoryExclusions: [],
+      schemaVersion: 4,
+    };
+
+    expect(parseInstallationState(formatInstallationState(teardownState))).toEqual({
+      ...teardownState,
+      intendedTeardowns: [{ ...teardownState.intendedTeardowns[0]!, hosts: ["claude", "codex"] }],
+    });
+    expect(() => formatInstallationState({
+      ...validState(),
+      intendedTeardowns: [{ hosts: ["codex"], installationId: "install-a", profileId: "coding", project: "/repo/a" }],
+    })).toThrow(/both installed and intentionally uninstalled/);
   });
 
   test.each([

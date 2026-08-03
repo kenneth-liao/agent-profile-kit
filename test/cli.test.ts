@@ -1681,7 +1681,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       schema_version: number;
       installations: Array<{ outputs: Array<{ mode: number; type: string }> }>;
     };
-    expect(state.schema_version).toBe(3);
+    expect(state.schema_version).toBe(4);
     expect(state.installations).toHaveLength(1);
     expect(state.installations[0]!.outputs.every((output) =>
       output.type === "file" && output.mode === 0o644
@@ -1797,7 +1797,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         entries: readonly string[];
       }[];
     };
-    expect(migrated.schema_version).toBe(3);
+    expect(migrated.schema_version).toBe(4);
     expect(migrated.repository_exclusions).toEqual([{
       target: join(realpathSync(repository), ".git", "info", "exclude"),
       contributions: [{
@@ -1806,6 +1806,33 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       }],
       entries: ["/.agent-profile-kit/codex/context.md", "/.agent-profile-kit/installation.json", "/.codex/hooks.json"],
     }]);
+  });
+
+  test("reads schema-v3 installation state and rewrites intended teardown support on apply", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    const previous = parse(readFileSync(statePath(home), "utf8")) as Record<string, unknown>;
+    previous.schema_version = 3;
+    delete previous.intended_teardowns;
+    writeFileSync(statePath(home), stringify(previous));
+
+    const preview = runCli(home, "preview");
+    expect(preview.status, preview.stderr).toBe(0);
+    expect((parse(readFileSync(statePath(home), "utf8")) as { schema_version: number }).schema_version)
+      .toBe(3);
+
+    const applied = runCli(home, "apply");
+    expect(applied.status, applied.stderr).toBe(0);
+    const migrated = parse(readFileSync(statePath(home), "utf8")) as {
+      intended_teardowns: readonly unknown[];
+      schema_version: number;
+    };
+    expect(migrated.schema_version).toBe(4);
+    expect(migrated.intended_teardowns).toEqual([]);
   });
 
   test("apply leaves current installation outputs and state untouched", () => {
@@ -3079,13 +3106,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const uninstall = runCli(home, "uninstall");
 
     expect(status.status, status.stderr).toBe(0);
-    expect(status.stdout).toContain("schema_version must be 3");
+    expect(status.stdout).toContain("schema_version must be 4");
     expect(apply.status).toBe(1);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
-    expect(apply.stdout).toContain("schema_version must be 3");
+    expect(apply.stdout).toContain("schema_version must be 4");
     expect(uninstall.status).toBe(1);
-    expect(uninstall.stderr).toContain("schema_version must be 3");
+    expect(uninstall.stderr).toContain("schema_version must be 4");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
   });
@@ -3280,6 +3307,85 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
   });
 
+  test("status reports output deliberately removed by uninstall as intended teardown", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    expect(runCli(home, "uninstall").status).toBe(0);
+
+    const result = runCli(home, "status");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Intentionally uninstalled");
+    expect(result.stdout).toContain("Project Binding was preserved");
+    expect(result.stdout).not.toContain("Attention required");
+    expect(result.stdout).not.toContain("missing output");
+    expect(result.stdout).not.toContain("not a safe automatic repair");
+    expect(result.stdout).not.toContain("Codex setup:");
+  });
+
+  test("uninstall names removed project files, cleaned Git exclusions, and preserved bindings", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = gitRepository("agent-profile-kit-uninstall-receipt-");
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+
+    const result = runCli(home, "uninstall");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Project: ${realpathSync(projectPath)}`);
+    expect(result.stdout).toContain("Removed generated paths:");
+    expect(result.stdout).toContain("- .agent-profile-kit/codex/context.md");
+    expect(result.stdout).toContain("- .agent-profile-kit/installation.json");
+    expect(result.stdout).toContain("- .codex/hooks.json");
+    expect(result.stdout).toContain("Cleaned Git exclusions:");
+    expect(result.stdout).toContain("- /.agent-profile-kit/codex/context.md");
+    expect(result.stdout).toContain("Project Bindings preserved.");
+  });
+
+  test("apply reinstalls an intended teardown and clears its teardown provenance", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    expect(runCli(home, "uninstall").status).toBe(0);
+
+    const applied = runCli(home, "apply");
+
+    expect(applied.status, applied.stderr).toBe(0);
+    expect(runCli(home, "status").stdout).toContain("All Projects are current");
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      intended_teardowns: readonly unknown[];
+    };
+    expect(state.intended_teardowns).toEqual([]);
+  });
+
+  test("a different binding at the same project does not inherit teardown provenance", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    expect(runCli(home, "uninstall").status).toBe(0);
+    expect(runCli(home, "unbind", projectPath).status).toBe(0);
+    const rebound = runCli(home, "bind", "coding", projectPath, "--host", "claude");
+    expect(rebound.status, rebound.stderr).toBe(0);
+
+    const status = runCli(home, "status");
+
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).not.toContain("Intentionally uninstalled");
+    expect(status.stdout).not.toContain("intended teardown");
+  });
+
   test("apply does not recreate an installation after all owned proof disappears", () => {
     const home = isolatedHome();
     initialize(home);
@@ -3335,6 +3441,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const unbound = runCli(home, "unbind", projectPath);
 
     expect(unbound.status, unbound.stderr).toBe(0);
+    expect(unbound.stdout).toContain("Next: apkit preview && apkit apply");
     const preview = runCli(home, "preview", "--verbose");
     expect(preview.status, preview.stderr).toBe(0);
     expect(preview.stdout).toContain(`${projectPath}: removal`);
@@ -4816,8 +4923,8 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
     expect(result.stdout).toContain(configPath(home));
-    expect(result.stdout).toContain("apkit preview");
-    expect(result.stdout).toContain("apkit apply");
+    expect(result.stdout).not.toContain("Next:");
+    expect(result.stdout).not.toContain("apkit apply");
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
@@ -5031,6 +5138,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     const removed = runCli(home, "unbind", projectPath);
     expect(removed.status, removed.stderr).toBe(0);
+    expect(removed.stdout).toContain("Next: apkit preview && apkit apply");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
 
     const preview = runCli(home, "preview");
@@ -5043,6 +5151,24 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+  });
+
+  test("unbind omits reconciliation guidance when uninstall already removed generated output", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+    expect(runCli(home, "apply").status).toBe(0);
+    expect(runCli(home, "uninstall").status).toBe(0);
+
+    const result = runCli(home, "unbind", projectPath);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Removed Project Binding");
+    expect(result.stdout).not.toContain("Next:");
+    expect(result.stdout).not.toContain("preview");
+    expect(result.stdout).not.toContain("apply");
   });
 
   test("unbind preserves Local Configuration line endings and file mode", () => {

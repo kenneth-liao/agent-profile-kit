@@ -233,9 +233,10 @@ describe("Grok project Skill packages", () => {
     expect(sharedResolved?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
 
     const preview = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(preview.blockers).toEqual([]);
     expect(
@@ -324,9 +325,10 @@ describe("Grok project Skill packages", () => {
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const preview = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(preview.blockers.some((blocker) =>
       blocker.message.includes(".grok/skills/review-pr") &&
@@ -431,7 +433,7 @@ describe("Grok project Skill packages", () => {
       "leave me\n",
     );
 
-    expect(await uninstallApplication(home)).toBe(1);
+    expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(false);
     expect(existsSync(join(project, ".grok", "skills", "write-notes"))).toBe(false);
     expect(readFileSync(join(project, ".grok", "skills", "foreign-skill", "SKILL.md"), "utf8")).toBe(
@@ -514,9 +516,10 @@ describe("Grok project Skill packages", () => {
     });
 
     const preview = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(preview.blockers).toEqual([]);
     await applyReconciliation(home, desired.installations);
@@ -535,7 +538,7 @@ describe("Grok project Skill packages", () => {
       "team-rules",
     ]);
 
-    expect(await uninstallApplication(home)).toBe(1);
+    expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(join(project, ".claude", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, ".grok", "skills", "review-pr"))).toBe(false);

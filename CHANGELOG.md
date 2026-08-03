@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Clarify mixed-fleet intended teardown status, canonicalize teardown Hosts, and keep uninstall Git-exclusion receipts concise ([#144](https://github.com/kenneth-liao/agent-profile-kit/pull/144)).
+
 - Deduplicate combined content-and-mode member drift at reconciliation and make verbose Context fences collision-safe ([#143](https://github.com/kenneth-liao/agent-profile-kit/pull/143)).
 
 - Make mixed-project guidance reflect the all-project apply gate, normalize global blocker scope, deduplicate verbose state explanations, and retain the current Project count ([#142](https://github.com/kenneth-liao/agent-profile-kit/pull/142)).
@@ -15,6 +17,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Keep `init` next steps valid when adopting an existing Workspace, make example binding guidance project-scoped, and diagnose partial example removal ([#141](https://github.com/kenneth-liao/agent-profile-kit/pull/141)).
 
 ### Added
+
+- Make deliberate teardown explicit: `uninstall` lists affected projects, removed generated paths, cleaned Git exclusions, and preserved Project Bindings; subsequent `status` reports intended teardown; and `unbind` recommends reconciliation only while installed output remains ([#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124)).
 
 - Scaffold a bindable example Profile and Context Module on first `init`, add short `guide profile`, `guide context`, and `guide skill` topics, and prove the example through packed-CLI apply ([#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121)).
 
@@ -54,6 +58,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Require an explicit Workspace selection in Local Configuration schema version 2; `init` records the conventional default or migrates supported version-1 configuration without implicit read-time migration ([#68](https://github.com/kenneth-liao/agent-profile-kit/issues/68)).
 
 ### Changed
+
+- Add intended-teardown provenance to Installation State schema 4, retaining schemas 2 and 3 as non-mutating migration inputs until the next successful `apply` or `uninstall` ([#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124)).
 
 - Make member-level attention statuses authoritative in verbose output, deduplicate combined content-and-mode member drift at reconciliation, and delimit composed Context with collision-avoiding fences ([#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123)).
 

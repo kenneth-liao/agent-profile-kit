@@ -10,11 +10,15 @@ import {
   formatBlockedApplyReport,
   formatLifecycleReport,
   formatMissingProfileError,
+  formatUninstallResult,
   formatValidationResult,
   type LifecycleCommand,
 } from "./presentation.js";
 import { bindProject } from "../installer/bind-project.js";
-import { unbindProject } from "../installer/unbind-project.js";
+import {
+  generatedOutputSurvivesUnbind,
+  unbindProject,
+} from "../installer/unbind-project.js";
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import {
@@ -392,13 +396,16 @@ async function main(): Promise<void> {
     const recovery = result.recovery === "authored-path"
       ? "  Recovery: exact authored path match; canonical project identity could not be proven\n"
       : `  Canonical project: ${result.canonicalProject}\n`;
+    const next = await generatedOutputSurvivesUnbind(home, result)
+      ? `Next: ${COMMAND_NAME} preview && ${COMMAND_NAME} apply\n`
+      : "";
     process.stdout.write(
       `Removed Project Binding for ${result.project}\n` +
         recovery +
         `  Profile: ${result.profile}\n` +
         `  Hosts: ${result.hosts.join(", ")}\n` +
         `  Local Configuration: ${result.configurationPath}\n` +
-        `Next: ${COMMAND_NAME} preview && ${COMMAND_NAME} apply\n`,
+        next,
     );
     return;
   }
@@ -453,8 +460,7 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "uninstall") {
     const parsed = parseOrExit("uninstall", () => parseNoArguments("uninstall", arguments_.slice(1)));
     if (parsed === undefined) return;
-    const count = await uninstallApplication(home);
-    process.stdout.write(`Uninstalled ${count} Profile Installation${count === 1 ? "" : "s"}\n`);
+    process.stdout.write(formatUninstallResult(await uninstallApplication(home)));
     return;
   }
 

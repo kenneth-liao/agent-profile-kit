@@ -54,3 +54,19 @@ project's entire exclusion record is missing. Preview, status, apply, and
 uninstall never reconstruct the missing target from ancestors or Git
 worktree topology; a non-Git installation remains eligible for ordinary
 intentional-deletion retirement when it has no exclusion record.
+
+### Amendment: retain intended teardown provenance
+
+Installation State schema v4 adds one `intended_teardowns` collection. A
+successful `uninstall` atomically replaces each removed Installation Manifest
+with a minimal record containing its Installation ID, canonical project,
+Profile, and Hosts. Binding identity prevents a later, different binding at the
+same project from inheriting the earlier provenance. This is the canonical proof that absent output was removed by the Installer,
+allowing `status` to distinguish intended teardown from unexplained ownership
+loss without inferring intent from missing files or Project Bindings.
+
+An installation and an intended-teardown record cannot share an Installation ID
+or project. A successful reinstall replaces the teardown record with the new
+Manifest. Schema v3 remains a read-only migration input alongside schema v2;
+the next successful `apply` or `uninstall` publishes schema v4. This supersedes
+the earlier consequence that schema v3 was the canonical write contract.

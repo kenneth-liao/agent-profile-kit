@@ -339,9 +339,10 @@ describe("Skill model-invocation policy", () => {
       codex: CODEX_HOST_VERSION_WITH_INVOCATION,
     });
     const preview = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(preview.blockers).toEqual([]);
     await applyReconciliation(home, desired.installations);
@@ -494,9 +495,10 @@ describe("Skill model-invocation policy", () => {
         blocker.includes("cannot enforce disabled model invocation"),
       )).toBe(true);
       const preview = await previewReconciliation(desired.installations, {
+        intendedTeardowns: [],
         installations: [],
         repositoryExclusions: [],
-        schemaVersion: 3,
+        schemaVersion: 4,
       });
       expect(preview.blockers.length).toBeGreaterThan(0);
       expect(existsSync(join(project, ".agents", "skills", "to-spec"))).toBe(false);

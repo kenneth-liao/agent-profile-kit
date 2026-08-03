@@ -17,6 +17,7 @@ import {
   compareCanonicalStrings,
   INSTALLATION_MARKER_PATH,
   parseLegacyInstallationState,
+  parsePreviousInstallationState,
   INSTALLATION_STATE_SCHEMA_VERSION,
   parseInstallationMarker,
   parseInstallationState,
@@ -99,6 +100,7 @@ async function migrateLegacyInstallationState(
     .sort(([left], [right]) => compareCanonicalStrings(left, right))
     .map(([target, contributions]) => canonicalRepositoryExclusionRecord(target, contributions));
   return {
+    intendedTeardowns: [],
     installations: legacy.installations,
     repositoryExclusions,
     schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
@@ -112,13 +114,23 @@ export async function readInstallationStateWithMigration(home: string): Promise<
     try {
       state = parseInstallationState(source);
     } catch (error) {
-      let legacy;
       try {
-        legacy = parseLegacyInstallationState(source);
+        const previous = parsePreviousInstallationState(source);
+        state = {
+          intendedTeardowns: [],
+          installations: previous.installations,
+          repositoryExclusions: previous.repositoryExclusions,
+          schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+        };
       } catch {
-        throw error;
+        let legacy;
+        try {
+          legacy = parseLegacyInstallationState(source);
+        } catch {
+          throw error;
+        }
+        state = await migrateLegacyInstallationState(legacy);
       }
-      state = await migrateLegacyInstallationState(legacy);
       return {
         migrated: true,
         state: {
@@ -139,6 +151,7 @@ export async function readInstallationStateWithMigration(home: string): Promise<
       return {
         migrated: false,
         state: {
+          intendedTeardowns: [],
           installations: [],
           repositoryExclusions: [],
           schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
@@ -165,6 +178,8 @@ export async function writeInstallationState(
     temporary,
     formatInstallationState({
       ...state,
+      intendedTeardowns: [...state.intendedTeardowns]
+        .sort((left, right) => left.project.localeCompare(right.project)),
       installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
     }),
     { flag: "wx" },

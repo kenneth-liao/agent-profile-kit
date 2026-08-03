@@ -335,9 +335,10 @@ describe("Skills-only Profiles", () => {
       false,
     );
     const report = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(report.desired[0]?.setupSteps).toEqual(installation.setupSteps);
 
