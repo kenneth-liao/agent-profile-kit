@@ -1,14 +1,13 @@
-/**
- * One canonical command-example set for CLI help and future teaching surfaces.
- * Ticket #121 will add the authoring formats used by guides and init scaffolding.
- */
+import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+
+/** One canonical command-example set for CLI help. */
 const workspace = "~/agent-profile-workspace";
 const project = "~/projects/example-project";
-const profile = "example";
+const profile = AUTHORING_EXAMPLES.profile.id;
 
 export const COMMAND_EXAMPLES = {
   init: ["init", `init ${workspace}`],
-  guide: ["guide", "guide --agent"],
+  guide: ["guide", "guide profile", "guide context", "guide skill", "guide --agent"],
   bind: [
     `bind ${profile} --host codex`,
     `bind ${profile} ${project} --host codex --host claude`,

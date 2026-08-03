@@ -2,7 +2,7 @@
 
 import { homedir } from "node:os";
 
-import { agentGuide, humanGuide } from "./guides.js";
+import { agentGuide, focusedGuide, humanGuide, type GuideTopic } from "./guides.js";
 import {
   defaultViewText,
   formatApplyReport,
@@ -26,6 +26,7 @@ import {
 } from "../installer/commands.js";
 import { ApplyBlockedError, ApplyVerificationError } from "../installer/reconcile.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
+import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { COMMAND_EXAMPLES } from "./examples.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 
@@ -59,12 +60,12 @@ const COMMANDS: readonly CommandHelp[] = [
     summary: "Initialize or adopt the canonical Workspace and Local Configuration",
     examples: COMMAND_EXAMPLES.init,
     writes: "Creates missing Workspace scaffolding and Local Configuration; never overwrites a valid Workspace.",
-    next: `Run ${COMMAND_NAME} guide to learn how to add a Profile.`,
+    next: `Run ${COMMAND_NAME} guide profile.`,
   },
   {
     name: "guide",
-    syntax: "guide [--agent]",
-    summary: "Print Workspace authoring guidance (human-facing by default; --agent for agent-facing)",
+    syntax: "guide [profile|context|skill|--agent]",
+    summary: "Print full Workspace guidance or one focused authoring example",
     examples: COMMAND_EXAMPLES.guide,
     writes: "Nothing; this command is read-only.",
     next: `Run ${COMMAND_NAME} validate after editing your Workspace.`,
@@ -260,7 +261,19 @@ function parseOptionalFlag(command: string, arguments_: readonly string[], flag:
   throw new Error(`${command} does not accept argument '${invalidArgument}'`);
 }
 
-function parseGuideArguments(arguments_: readonly string[]): { readonly agent: boolean } {
+function parseGuideArguments(arguments_: readonly string[]): {
+  readonly agent: boolean;
+  readonly topic?: GuideTopic;
+} {
+  const topic = arguments_[0];
+  if (topic === "profile" || topic === "context" || topic === "skill") {
+    if (arguments_.length > 1) {
+      throw new Error(
+        `guide does not accept argument '${arguments_[1]}' after topic '${topic}'`,
+      );
+    }
+    return { agent: false, topic };
+  }
   return { agent: parseOptionalFlag("guide", arguments_, "--agent") };
 }
 
@@ -303,7 +316,13 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "guide") {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
-    process.stdout.write(parsed.agent ? await agentGuide() : await humanGuide());
+    process.stdout.write(
+      parsed.topic !== undefined
+        ? focusedGuide(parsed.topic)
+        : parsed.agent
+          ? await agentGuide()
+          : await humanGuide(),
+    );
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "init") {
@@ -322,9 +341,11 @@ async function main(): Promise<void> {
       process.stdout.write(`Workspace and Local Configuration already initialized at ${result.path}; unchanged.\n`);
       return;
     }
+    const next = result.workspaceScaffolded
+      ? `Next: from the project you want to try, run ${COMMAND_NAME} bind ${AUTHORING_EXAMPLES.profile.id} --host codex\n`
+      : `Next: run ${COMMAND_NAME} validate\n`;
     process.stdout.write(
-      `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}\n` +
-        `Next: bind a project or edit config.yaml, then run ${COMMAND_NAME} validate\n`,
+      `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}\n` + next,
     );
     return;
   }

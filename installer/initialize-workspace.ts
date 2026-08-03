@@ -44,6 +44,7 @@ import {
   WORKSPACE_ARTIFACT_DIRECTORIES,
   workspacePath,
 } from "./workspace.js";
+import { AUTHORING_EXAMPLES } from "./authoring-examples.js";
 import { COMMAND_NAME } from "./version.js";
 
 const WORKSPACE_ROOT_FILES = {
@@ -68,6 +69,7 @@ export { workspacePath } from "./workspace.js";
 export interface InitializationResult {
   readonly outcome: "created" | "migrated" | "unchanged";
   readonly path: string;
+  readonly workspaceScaffolded: boolean;
   readonly warnings: readonly string[];
 }
 
@@ -181,6 +183,7 @@ async function initializeConfiguredWorkspace(
   return {
     outcome: "unchanged",
     path: resolved.path,
+    workspaceScaffolded: false,
     warnings: [],
   };
 }
@@ -202,6 +205,7 @@ async function initializeExplicitWorkspaceSelection(
   return {
     outcome: "unchanged",
     path: requestedWorkspace.path,
+    workspaceScaffolded: false,
     warnings: [],
   };
 }
@@ -240,7 +244,6 @@ async function initializeWorkspaceAt(
   const destination = await assertWorkspaceSelectionPath(home, authored, `${COMMAND_NAME} init`);
   const workspaceState = await inspectWorkspace(destination);
 
-  let workspaceCreated = false;
   if (workspaceState === "valid") {
     if (ensureConfiguration) {
       await mkdir(applicationRoot, { recursive: true });
@@ -248,10 +251,16 @@ async function initializeWorkspaceAt(
       return {
         outcome: configurationCreated ? "created" : "unchanged",
         path: await realpath(destination),
+        workspaceScaffolded: false,
         warnings: [],
       };
     }
-    return { outcome: "unchanged", path: await realpath(destination), warnings: [] };
+    return {
+      outcome: "unchanged",
+      path: await realpath(destination),
+      workspaceScaffolded: false,
+      warnings: [],
+    };
   }
 
   await Promise.all([
@@ -273,6 +282,11 @@ async function initializeWorkspaceAt(
         await writeFile(join(path, ".gitkeep"), "");
       }),
     ]);
+    await Promise.all(
+      [AUTHORING_EXAMPLES.profile, AUTHORING_EXAMPLES.context].map((example) =>
+        writeFile(join(stagingDirectory, example.path), example.contents),
+      ),
+    );
     await rename(stagingDirectory, destination);
   } catch (error) {
     const followUpErrors: unknown[] = [];
@@ -295,6 +309,7 @@ async function initializeWorkspaceAt(
           return {
             outcome: configurationCreated ? "created" : "unchanged",
             path: await realpath(destination),
+            workspaceScaffolded: false,
             warnings: cleanupWarnings,
           };
         }
@@ -312,13 +327,13 @@ async function initializeWorkspaceAt(
     throw error;
   }
 
-  workspaceCreated = true;
   const configurationCreated = ensureConfiguration
     ? await ensureLocalConfiguration(applicationRoot, authored)
     : false;
   return {
-    outcome: workspaceCreated || configurationCreated ? "created" : "unchanged",
+    outcome: "created",
     path: await realpath(destination),
+    workspaceScaffolded: true,
     warnings: [],
   };
 }
@@ -433,6 +448,7 @@ async function migrateLegacyConfiguration(
       return {
         outcome: "migrated",
         path: workspaceResult.path,
+        workspaceScaffolded: workspaceResult.workspaceScaffolded,
         warnings: workspaceResult.warnings,
       };
     },

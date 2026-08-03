@@ -87,7 +87,7 @@ export function formatMissingProfileError(error: MissingProfileError): string {
   if (error.availableProfiles.length === 0) {
     const next = error.recoverByEditingLocalConfiguration
       ? recovery
-      : ` Run ${COMMAND_NAME} guide to learn how to add a Profile.`;
+      : ` Run ${COMMAND_NAME} guide profile to learn how to add a Profile.`;
     return `${heading} No Profiles exist in the Workspace.${next}`;
   }
   return `${heading} Available Profiles: ${error.availableProfiles.join(", ")}.${recovery}`;
