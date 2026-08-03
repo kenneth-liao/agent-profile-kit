@@ -151,10 +151,11 @@ you can discover where material belongs:
 - a starter `.gitignore`
 
 The example gives a new user one complete `bind` → `preview` → `apply` path.
-Delete it, unused empty directories, or bootstrap docs if you prefer a minimal
-tree; later `init` runs do not restore removed optional scaffolding, and
-validation, preview, status, apply, and uninstall keep working. Do not treat
-generated Host output as source material.
+Delete both `profiles/example.yaml` and `context/example-context.md` together,
+unused empty directories, or bootstrap docs if you prefer a minimal tree;
+later `init` runs do not restore removed optional scaffolding, and validation,
+preview, status, apply, and uninstall keep working. Do not treat generated Host
+output as source material.
 
 ### CLI compatibility for minimal Workspaces
 

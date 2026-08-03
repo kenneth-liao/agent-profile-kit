@@ -1,7 +1,5 @@
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 
-export { AUTHORING_EXAMPLES };
-
 /** One canonical command-example set for CLI help. */
 const workspace = "~/agent-profile-workspace";
 const project = "~/projects/example-project";

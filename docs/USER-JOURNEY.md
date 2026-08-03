@@ -67,7 +67,7 @@ Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/age
 ```
 $ apkit init
 Initialized Agent Profile Kit Workspace and Local Configuration at <workspace>
-Next: run apkit bind example --host codex
+Next: from the project you want to try, run apkit bind example --host codex
 ```
 
 Scaffolds `workspace.yaml`, six artifact directories, a bindable `example`

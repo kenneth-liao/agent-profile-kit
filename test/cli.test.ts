@@ -22,6 +22,7 @@ import { parse, stringify } from "yaml";
 import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const FOCUSED_GUIDE_MAX_LINES = 30;
 const temporaryDirectories: string[] = [];
 let cliPath = join(repositoryRoot, "dist", "cli.js");
 
@@ -288,7 +289,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const init = runCli(home, "init");
 
     expect(init.status, init.stderr).toBe(0);
-    expect(init.stdout).toContain("Next: run apkit bind example --host codex");
+    expect(init.stdout).toContain(
+      "Next: from the project you want to try, run apkit bind example --host codex",
+    );
     const bind = runCliAt(home, projectPath, "bind", "example", "--host", "codex");
     expect(bind.status, bind.stderr).toBe(0);
   });
@@ -307,6 +310,20 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(readFileSync(config, "utf8")).toBe(originalConfig);
     expect(readFileSync(join(workspace, "README.md"), "utf8")).toBe("# authored\n");
+  });
+
+  test("validate explains how to recover from removing only half of the scaffolded example", () => {
+    const home = isolatedHome();
+    initialize(home);
+    rmSync(join(workspacePath(home), "context", "example-context.md"));
+
+    const result = runCli(home, "validate");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "Profile 'example' selects missing Context Module 'example-context'",
+    );
+    expect(result.stderr).toContain("Restore the Context Module, or remove or update Profile 'example'");
   });
 
   test("manifest-only and partial Workspaces validate; re-init does not restore optional scaffolding", () => {
@@ -766,6 +783,30 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readdirSync(custom).sort()).toEqual(before);
     expect(readFileSync(join(custom, "NOTES.md"), "utf8")).toBe("user-owned source\n");
     expect(existsSync(workspacePath(home))).toBe(false);
+  });
+
+  test("init adoption does not recommend the scaffold-only example Profile", () => {
+    const home = isolatedHome();
+    const custom = join(home, "existing-workspace");
+    mkdirSync(join(custom, "profiles"), { recursive: true });
+    mkdirSync(join(custom, "context"));
+    writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(
+      join(custom, "context", "existing-context.md"),
+      "---\nid: existing-context\ndependencies: []\n---\nExisting guidance.\n",
+    );
+    writeFileSync(
+      join(custom, "profiles", "existing.yaml"),
+      "id: existing\ncontext: [existing-context]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+
+    const result = runCli(home, "init", custom);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).not.toContain("bind example");
+    expect(result.stdout).toContain("Next: run apkit validate");
+    const validate = runCli(home, "validate");
+    expect(validate.status, validate.stderr).toBe(0);
   });
 
   test("init accepts an explicit home-relative Workspace path", () => {
@@ -4566,7 +4607,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout.split("\n").length).toBeLessThanOrEqual(30);
+    expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
     const profile = result.stdout.match(
       /Create `profiles\/example\.yaml`:\n\n```yaml\n([\s\S]*?)```/,
     )?.[1];
@@ -4594,7 +4635,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout.split("\n").length).toBeLessThanOrEqual(30);
+    expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
     expect(result.stdout).toContain("context/example-context.md");
     expect(result.stdout).toContain(`\`\`\`md\n${scaffolded}\`\`\``);
   });
@@ -4607,7 +4648,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout.split("\n").length).toBeLessThanOrEqual(30);
+    expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
     expect(result.stdout).toContain("skills/example-skill/SKILL.md");
     const example = result.stdout.match(/```md\n([\s\S]*?)```/)?.[1];
     expect(example).toBeDefined();
@@ -5284,7 +5325,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("No Profiles exist in the Workspace");
-    expect(result.stderr).toContain("Run apkit guide to learn how to add a Profile");
+    expect(result.stderr).toContain("Run apkit guide profile to learn how to add a Profile");
     expect(result.stderr).not.toContain("Available Profiles:");
   });
 
@@ -5773,6 +5814,10 @@ describe("apkit root help", () => {
     for (const topic of ["profile", "context", "skill"]) {
       expect(result.stdout).toContain(`apkit guide ${topic}`);
     }
+
+    const initHelp = runCli(home, "init", "--help");
+    expect(initHelp.status, initHelp.stderr).toBe(0);
+    expect(initHelp.stdout).toContain("Next: Run apkit guide profile.");
   });
 
   test("an unknown command exits nonzero, names the unknown command, and shows root usage", () => {
@@ -5844,6 +5889,10 @@ describe("apkit root help", () => {
     expect(badGuideFlag.status).toBe(1);
     expect(badGuideFlag.stderr).toContain("guide does not accept argument '--json'");
     expect(badGuideFlag.stderr).toContain("Usage: apkit guide [profile|context|skill|--agent]");
+
+    const agentAfterTopic = runCli(home, "guide", "profile", "--agent");
+    expect(agentAfterTopic.status).toBe(1);
+    expect(agentAfterTopic.stderr).toContain("guide does not accept argument '--agent' after topic 'profile'");
 
     const badValidateFlag = runCli(home, "validate", "--json");
     expect(badValidateFlag.status).toBe(1);

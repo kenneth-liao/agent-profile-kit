@@ -153,7 +153,8 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
     for (const contextId of profile.context) {
       if (!contexts.has(contextId)) {
         throw new Error(
-          `Profile '${profile.id}' selects missing Context Module '${contextId}'`,
+          `Profile '${profile.id}' selects missing Context Module '${contextId}'. ` +
+            `Restore the Context Module, or remove or update Profile '${profile.id}'`,
         );
       }
     }

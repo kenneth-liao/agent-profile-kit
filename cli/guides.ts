@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import { AUTHORING_EXAMPLES } from "./examples.js";
+import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 
 function guidePath(name: string): URL {
   return new URL(`../docs/guides/${name}`, import.meta.url);

@@ -26,7 +26,8 @@ import {
 } from "../installer/commands.js";
 import { ApplyBlockedError, ApplyVerificationError } from "../installer/reconcile.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
-import { AUTHORING_EXAMPLES, COMMAND_EXAMPLES } from "./examples.js";
+import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+import { COMMAND_EXAMPLES } from "./examples.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 
 function formatError(error: unknown): string {
@@ -59,7 +60,7 @@ const COMMANDS: readonly CommandHelp[] = [
     summary: "Initialize or adopt the canonical Workspace and Local Configuration",
     examples: COMMAND_EXAMPLES.init,
     writes: "Creates missing Workspace scaffolding and Local Configuration; never overwrites a valid Workspace.",
-    next: `Run ${COMMAND_NAME} bind ${AUTHORING_EXAMPLES.profile.id} --host codex.`,
+    next: `Run ${COMMAND_NAME} guide profile.`,
   },
   {
     name: "guide",
@@ -264,13 +265,14 @@ function parseGuideArguments(arguments_: readonly string[]): {
   readonly agent: boolean;
   readonly topic?: GuideTopic;
 } {
-  if (
-    arguments_.length === 1 &&
-    (arguments_[0] === "profile" ||
-      arguments_[0] === "context" ||
-      arguments_[0] === "skill")
-  ) {
-    return { agent: false, topic: arguments_[0] };
+  const topic = arguments_[0];
+  if (topic === "profile" || topic === "context" || topic === "skill") {
+    if (arguments_.length > 1) {
+      throw new Error(
+        `guide does not accept argument '${arguments_[1]}' after topic '${topic}'`,
+      );
+    }
+    return { agent: false, topic };
   }
   return { agent: parseOptionalFlag("guide", arguments_, "--agent") };
 }
@@ -339,9 +341,11 @@ async function main(): Promise<void> {
       process.stdout.write(`Workspace and Local Configuration already initialized at ${result.path}; unchanged.\n`);
       return;
     }
+    const next = result.workspaceScaffolded
+      ? `Next: from the project you want to try, run ${COMMAND_NAME} bind ${AUTHORING_EXAMPLES.profile.id} --host codex\n`
+      : `Next: run ${COMMAND_NAME} validate\n`;
     process.stdout.write(
-      `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}\n` +
-        `Next: run ${COMMAND_NAME} bind ${AUTHORING_EXAMPLES.profile.id} --host codex\n`,
+      `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}\n` + next,
     );
     return;
   }
