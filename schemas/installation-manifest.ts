@@ -11,7 +11,8 @@ import { isSupportedHost, SUPPORTED_HOSTS } from "./local-configuration.js";
 
 export const INSTALLATION_MANIFEST_SCHEMA_VERSION = 2;
 export const INSTALLATION_STATE_LEGACY_SCHEMA_VERSION = 2;
-export const INSTALLATION_STATE_SCHEMA_VERSION = 3;
+export const INSTALLATION_STATE_PREVIOUS_SCHEMA_VERSION = 3;
+export const INSTALLATION_STATE_SCHEMA_VERSION = 4;
 export const INSTALLATION_MARKER_SCHEMA_VERSION = 1;
 export const INSTALLATION_MARKER_PATH = ".agent-profile-kit/installation.json";
 
@@ -100,10 +101,19 @@ export interface RepositoryExclusionRecord {
   readonly entries: readonly string[];
 }
 
+/** Provenance retained after uninstall removes an owned Profile Installation. */
+export interface IntendedTeardown {
+  readonly hosts: readonly string[];
+  readonly installationId: string;
+  readonly profileId: string;
+  readonly project: string;
+}
+
 export interface InstallationState {
+  readonly intendedTeardowns: readonly IntendedTeardown[];
   readonly installations: readonly ProjectInstallationManifest[];
   readonly repositoryExclusions: readonly RepositoryExclusionRecord[];
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
 }
 
 /** Stable byte-order comparator shared by canonical state and on-disk unions. */
@@ -533,10 +543,10 @@ function parseManifestMapping(value: unknown): ProjectInstallationManifest {
   };
 }
 
-function requireAbsoluteProject(value: unknown): string {
-  const project = requireString(value, "Installation Manifest project");
+function requireAbsoluteProject(value: unknown, description = "Installation Manifest project"): string {
+  const project = requireString(value, description);
   if (!isAbsolute(project) || normalize(project) !== project) {
-    throw new Error("Installation Manifest project must be a normalized absolute path");
+    throw new Error(`${description} must be a normalized absolute path`);
   }
   return project;
 }
@@ -559,6 +569,37 @@ function parseInstallations(value: unknown): readonly ProjectInstallationManifes
     throw new Error("Installation State must not contain a project more than once");
   }
   return installations;
+}
+
+function requireKnownRepositoryExclusionContributors(
+  installations: readonly ProjectInstallationManifest[],
+  repositoryExclusions: readonly RepositoryExclusionRecord[],
+): void {
+  const installationIds = new Set(installations.map((installation) => installation.installationId));
+  for (const record of repositoryExclusions) {
+    for (const contribution of record.contributions) {
+      if (!installationIds.has(contribution.installationId)) {
+        throw new Error(
+          `Installation State repository_exclusions target ${record.target} references unknown Installation ID ${contribution.installationId}`,
+        );
+      }
+    }
+  }
+}
+
+function requireDistinctInstalledAndTeardownState(
+  installations: readonly ProjectInstallationManifest[],
+  intendedTeardowns: readonly IntendedTeardown[],
+): void {
+  const installationIds = new Set(installations.map((installation) => installation.installationId));
+  const installationProjects = new Set(installations.map((installation) => installation.project));
+  for (const teardown of intendedTeardowns) {
+    if (installationIds.has(teardown.installationId) || installationProjects.has(teardown.project)) {
+      throw new Error(
+        "Installation State cannot record one installation as both installed and intentionally uninstalled",
+      );
+    }
+  }
 }
 
 export function formatInstallationManifest(
@@ -625,25 +666,71 @@ export function parseInstallationState(source: string): InstallationState {
   const state = requireMapping(value, "Installation State");
   requireExactFields(
     state,
-    ["schema_version", "installations", "repository_exclusions"],
+    ["schema_version", "intended_teardowns", "installations", "repository_exclusions"],
     "Installation State",
   );
   if (state.schema_version !== INSTALLATION_STATE_SCHEMA_VERSION) {
     throw new Error(`Installation State schema_version must be ${INSTALLATION_STATE_SCHEMA_VERSION}`);
   }
   const installations = parseInstallations(state.installations);
+  const intendedTeardowns = parseIntendedTeardowns(state.intended_teardowns);
   const repositoryExclusions = parseRepositoryExclusionRecords(state.repository_exclusions);
-  const installationIds = new Set(installations.map((installation) => installation.installationId));
-  for (const record of repositoryExclusions) {
-    for (const contribution of record.contributions) {
-      if (!installationIds.has(contribution.installationId)) {
-        throw new Error(
-          `Installation State repository_exclusions target ${record.target} references unknown Installation ID ${contribution.installationId}`,
-        );
-      }
-    }
+  requireDistinctInstalledAndTeardownState(installations, intendedTeardowns);
+  requireKnownRepositoryExclusionContributors(installations, repositoryExclusions);
+  return {
+    intendedTeardowns,
+    installations,
+    repositoryExclusions,
+    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+  };
+}
+
+function parseIntendedTeardowns(value: unknown): readonly IntendedTeardown[] {
+  if (!Array.isArray(value)) {
+    throw new Error("Installation State intended_teardowns must be an array");
   }
-  return { installations, repositoryExclusions, schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION };
+  const teardowns = value.map((entry, index) => {
+    const description = `Installation State intended_teardowns[${index}]`;
+    const teardown = requireMapping(entry, description);
+    requireExactFields(teardown, ["installation_id", "project", "profile_id", "hosts"], description);
+    return {
+      hosts: parseHosts(teardown.hosts),
+      installationId: requireString(teardown.installation_id, `${description} installation_id`),
+      profileId: requireArtifactId(teardown.profile_id, `${description} profile_id`),
+      project: requireAbsoluteProject(teardown.project, `${description} project`),
+    };
+  });
+  if (new Set(teardowns.map((teardown) => teardown.installationId)).size !== teardowns.length) {
+    throw new Error("Installation State must not contain an intended teardown Installation ID more than once");
+  }
+  if (new Set(teardowns.map((teardown) => teardown.project)).size !== teardowns.length) {
+    throw new Error("Installation State must not contain an intended teardown project more than once");
+  }
+  return teardowns;
+}
+
+/** Parse schema v3 before intended teardown provenance was retained. */
+export function parsePreviousInstallationState(source: string): {
+  readonly installations: readonly ProjectInstallationManifest[];
+  readonly repositoryExclusions: readonly RepositoryExclusionRecord[];
+  readonly schemaVersion: 3;
+} {
+  const value = parseYaml(source, "Installation State");
+  const state = requireMapping(value, "Installation State");
+  requireExactFields(
+    state,
+    ["schema_version", "installations", "repository_exclusions"],
+    "Installation State",
+  );
+  if (state.schema_version !== INSTALLATION_STATE_PREVIOUS_SCHEMA_VERSION) {
+    throw new Error(
+      `Installation State previous schema_version must be ${INSTALLATION_STATE_PREVIOUS_SCHEMA_VERSION}`,
+    );
+  }
+  const installations = parseInstallations(state.installations);
+  const repositoryExclusions = parseRepositoryExclusionRecords(state.repository_exclusions);
+  requireKnownRepositoryExclusionContributors(installations, repositoryExclusions);
+  return { installations, repositoryExclusions, schemaVersion: 3 };
 }
 
 /** Parse the pre-Repository-Exclusion-Record state shape for the migration boundary only. */
@@ -679,18 +766,26 @@ export function formatInstallationState(state: InstallationState): string {
       entries: record.entries,
     })),
   );
-  const installationIds = new Set(state.installations.map((installation) => installation.installationId));
-  for (const record of repositoryExclusions) {
-    for (const contribution of record.contributions) {
-      if (!installationIds.has(contribution.installationId)) {
-        throw new Error(
-          `Installation State repository_exclusions target ${record.target} references unknown Installation ID ${contribution.installationId}`,
-        );
-      }
-    }
-  }
+  const intendedTeardowns = parseIntendedTeardowns(
+    state.intendedTeardowns.map((teardown) => ({
+      hosts: teardown.hosts,
+      installation_id: teardown.installationId,
+      profile_id: teardown.profileId,
+      project: teardown.project,
+    })),
+  );
+  requireDistinctInstalledAndTeardownState(state.installations, intendedTeardowns);
+  requireKnownRepositoryExclusionContributors(state.installations, repositoryExclusions);
   return stringify({
     schema_version: state.schemaVersion,
+    intended_teardowns: [...intendedTeardowns]
+      .sort((left, right) => compareCanonicalStrings(left.project, right.project))
+      .map((teardown) => ({
+        hosts: teardown.hosts,
+        installation_id: teardown.installationId,
+        profile_id: teardown.profileId,
+        project: teardown.project,
+      })),
     installations: state.installations.map(manifestValue),
     repository_exclusions: [...repositoryExclusions]
       .sort((left, right) => compareCanonicalStrings(left.target, right.target))

@@ -61,9 +61,10 @@ describe("Host Resolution", () => {
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const preview = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(preview.blockers).toEqual([]);
     expect(preview.warnings).toEqual([]);

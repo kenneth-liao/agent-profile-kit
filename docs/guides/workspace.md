@@ -534,6 +534,13 @@ state_dir="$HOME/.agents/agent-profile-kit/state"
 cp -p "$state_dir/manifest.yaml" "$state_dir/manifest.yaml.before-schema-v3"
 ```
 
+Agent Profile Kit 0.46.0 adds intended-teardown records in Installation State
+schema 4. Schemas 2 and 3 remain non-mutating migration inputs for `preview` and
+`status`; the next successful `apply` or `uninstall` publishes schema 4. Binaries
+older than 0.46.0 cannot read schema 4. Before the first write with 0.46.0, retain
+`manifest.yaml` if rollback may be needed; restore that backup before starting an
+older binary.
+
 Agent Profile Kit 0.24.2 also records the installation-time `git_project`
 classification in each Installation Manifest without changing the Manifest
 schema version. It reads older Manifests that omit this field, but older
@@ -609,18 +616,23 @@ planned project destination remain blockers.
 
 ## Status, unbind, and uninstall
 
-Use `apkit status` to inspect every bound project. It reports current,
-stale source, repairable missing output, drifted output, missing output, blocked
-and malformed ownership, while keeping Host configuration warnings visible.
+Use `apkit status` to inspect every bound project. It reports current, intended
+teardown, stale source, repairable missing output, drifted output, missing
+output, blocked and malformed ownership, while keeping Host configuration
+warnings visible.
 
 Use `apkit unbind [project]` to remove desired Project Binding state.
-It does not delete generated output. Run the global `preview` and `apply` to
-review and reconcile the former installation.
+It does not delete generated output. When an installed Manifest remains, its
+output recommends the global `preview` and `apply` needed to review and
+reconcile the former installation; after `uninstall`, it omits that no-op step.
 
-To delete generated output directly, use `apkit uninstall`. It
+To delete generated output directly, use `apkit uninstall`. It names each
+affected project, removed generated path, and cleaned Git exclusion entry. It
 removes only Installation Marker- and hash-proven output and preserves the
-Workspace and Local Configuration, including Project Bindings. `unbind` changes
-desired state; `uninstall` removes proven output. Neither command modifies
+Workspace and Local Configuration, including Project Bindings. The next
+`status` reports that Installer-recorded state as intended teardown rather than
+unexplained missing output. `unbind` changes desired state; `uninstall` removes
+proven output. Neither command modifies
 personal/global Host configuration or repository-owned files.
 
 Review personal content before publishing this Workspace. Agent Profile Kit does

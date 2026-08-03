@@ -16,6 +16,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Make deliberate teardown explicit: `uninstall` lists affected projects, removed generated paths, cleaned Git exclusions, and preserved Project Bindings; subsequent `status` reports intended teardown; and `unbind` recommends reconciliation only while installed output remains ([#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124)).
+
 - Scaffold a bindable example Profile and Context Module on first `init`, add short `guide profile`, `guide context`, and `guide skill` topics, and prove the example through packed-CLI apply ([#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121)).
 
 - List reconciliation-plan paths with action markers in concise lifecycle reports, cap long lists with a `--verbose` overflow pointer, summarize Git exclusions in one clause, and make output-kind summaries exhaustive ([#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)).
@@ -54,6 +56,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Require an explicit Workspace selection in Local Configuration schema version 2; `init` records the conventional default or migrates supported version-1 configuration without implicit read-time migration ([#68](https://github.com/kenneth-liao/agent-profile-kit/issues/68)).
 
 ### Changed
+
+- Add intended-teardown provenance to Installation State schema 4, retaining schemas 2 and 3 as non-mutating migration inputs until the next successful `apply` or `uninstall` ([#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124)).
 
 - Make member-level attention statuses authoritative in verbose output, deduplicate combined content-and-mode member drift at reconciliation, and delimit composed Context with collision-avoiding fences ([#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123)).
 

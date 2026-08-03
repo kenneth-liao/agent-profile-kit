@@ -10,6 +10,7 @@ import {
   formatBlockedApplyReport,
   formatLifecycleReport,
   formatMissingProfileError,
+  formatUninstallResult,
   formatValidationResult,
   type LifecycleCommand,
 } from "./presentation.js";
@@ -29,6 +30,11 @@ import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { COMMAND_EXAMPLES } from "./examples.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
+import { readInstallationState } from "../installer/installation-state.js";
+import {
+  canonicalizePathForComparison,
+  expandConfiguredPath,
+} from "../installer/local-configuration.js";
 
 function formatError(error: unknown): string {
   if (error instanceof MissingProfileError) return formatMissingProfileError(error);
@@ -37,6 +43,27 @@ function formatError(error: unknown): string {
     return [error.message, ...causes.map((cause) => `caused by: ${cause}`)].join("\n");
   }
   return errorMessage(error);
+}
+
+async function generatedOutputSurvivesUnbind(
+  home: string,
+  result: Extract<Awaited<ReturnType<typeof unbindProject>>, { outcome: "removed" }>,
+): Promise<boolean> {
+  try {
+    const project = result.recovery === "canonical"
+      ? result.canonicalProject
+      : await canonicalizePathForComparison(
+          expandConfiguredPath(result.project, home, "Project Binding", "project"),
+        );
+    const state = await readInstallationState(home);
+    return state.installations.some(
+      (installation) => installation.project === project,
+    );
+  } catch {
+    // Binding removal remains independent from readable installation state.
+    // Status will surface malformed state; uncertain output cannot justify a next step here.
+    return false;
+  }
 }
 
 /**
@@ -392,13 +419,16 @@ async function main(): Promise<void> {
     const recovery = result.recovery === "authored-path"
       ? "  Recovery: exact authored path match; canonical project identity could not be proven\n"
       : `  Canonical project: ${result.canonicalProject}\n`;
+    const next = await generatedOutputSurvivesUnbind(home, result)
+      ? `Next: ${COMMAND_NAME} preview && ${COMMAND_NAME} apply\n`
+      : "";
     process.stdout.write(
       `Removed Project Binding for ${result.project}\n` +
         recovery +
         `  Profile: ${result.profile}\n` +
         `  Hosts: ${result.hosts.join(", ")}\n` +
         `  Local Configuration: ${result.configurationPath}\n` +
-        `Next: ${COMMAND_NAME} preview && ${COMMAND_NAME} apply\n`,
+        next,
     );
     return;
   }
@@ -453,8 +483,7 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "uninstall") {
     const parsed = parseOrExit("uninstall", () => parseNoArguments("uninstall", arguments_.slice(1)));
     if (parsed === undefined) return;
-    const count = await uninstallApplication(home);
-    process.stdout.write(`Uninstalled ${count} Profile Installation${count === 1 ? "" : "s"}\n`);
+    process.stdout.write(formatUninstallResult(await uninstallApplication(home)));
     return;
   }
 

@@ -237,9 +237,10 @@ describe("Codex project Skill packages", () => {
     expect(sharedResolved?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
 
     const preview = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(preview.desired[0]?.resolvedArtifacts.some((artifact) => artifact.id === "top-skill")).toBe(
       true,
@@ -316,9 +317,10 @@ describe("Codex project Skill packages", () => {
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const preview = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(preview.blockers.some((blocker) =>
       blocker.message.includes(".agents/skills/review-pr") &&

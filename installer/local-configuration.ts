@@ -83,7 +83,7 @@ function isSameOrDescendant(path: string, ancestor: string): boolean {
   );
 }
 
-async function canonicalizePathForComparison(path: string): Promise<string> {
+export async function canonicalizePathForComparison(path: string): Promise<string> {
   const original = resolve(path);
   let candidate = original;
   const suffix: string[] = [];

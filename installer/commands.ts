@@ -23,6 +23,17 @@ export interface ValidationResult {
   readonly warnings: readonly string[];
 }
 
+export interface UninstallResult {
+  readonly projects: readonly {
+    readonly project: string;
+    readonly outputs: readonly string[];
+    readonly repositoryExclusions: readonly {
+      readonly entries: readonly string[];
+      readonly target: string;
+    }[];
+  }[];
+}
+
 export async function validateApplication(home: string): Promise<ValidationResult> {
   const desired = await buildDesiredState(home, { checkHostCapability: false });
   return {
@@ -42,6 +53,7 @@ export async function previewApplication(home: string): Promise<ReconciliationRe
     state = await readInstallationState(home);
   } catch (error) {
     const desiredReport = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
       schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
@@ -106,12 +118,12 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
   };
 }
 
-export async function uninstallApplication(home: string): Promise<number> {
+export async function uninstallApplication(home: string): Promise<UninstallResult> {
   const loaded = await readInstallationStateWithMigration(home);
   const state = loaded.state;
   if (state.installations.length === 0) {
     if (loaded.migrated) await writeInstallationState(home, state);
-    return 0;
+    return { projects: [] };
   }
   const failures: string[] = [];
   for (const installation of state.installations) {
@@ -129,6 +141,20 @@ export async function uninstallApplication(home: string): Promise<number> {
     );
   }
   const transactions: Awaited<ReturnType<typeof stageProvenInstallationRemoval>>[] = [];
+  const result: UninstallResult = {
+    projects: state.installations.map((installation) => ({
+      outputs: installation.outputs.map((output) => output.path),
+      project: installation.project,
+      repositoryExclusions: state.repositoryExclusions.flatMap((record) => {
+        const contribution = record.contributions.find(
+          (candidate) => candidate.installationId === installation.installationId,
+        );
+        return contribution === undefined
+          ? []
+          : [{ entries: contribution.entries, target: record.target }];
+      }),
+    })),
+  };
   let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
   let stateWriteAttempted = false;
   try {
@@ -136,6 +162,15 @@ export async function uninstallApplication(home: string): Promise<number> {
       transactions.push(await stageProvenInstallationRemoval(installation));
     }
     const emptyState = {
+      intendedTeardowns: [
+        ...state.intendedTeardowns,
+        ...state.installations.map((installation) => ({
+          hosts: installation.hosts,
+          installationId: installation.installationId,
+          profileId: installation.profileId,
+          project: installation.project,
+        })),
+      ],
       installations: [],
       repositoryExclusions: [],
       schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
@@ -178,5 +213,5 @@ export async function uninstallApplication(home: string): Promise<number> {
     }
     throw error;
   }
-  return state.installations.length;
+  return result;
 }

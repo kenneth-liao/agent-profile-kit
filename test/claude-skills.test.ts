@@ -218,9 +218,10 @@ describe("Claude project Skill packages", () => {
     expect(sharedResolved?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
 
     const preview = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(preview.items.some((item) => item.kind === "addition")).toBe(true);
     expect(
@@ -313,9 +314,10 @@ describe("Claude project Skill packages", () => {
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const preview = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(preview.blockers.some((blocker) =>
       blocker.message.includes(".claude/skills/review-pr") &&
@@ -423,7 +425,7 @@ describe("Claude project Skill packages", () => {
       "leave me\n",
     );
 
-    expect(await uninstallApplication(home)).toBe(1);
+    expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
     expect(existsSync(join(project, ".claude", "skills", "write-notes"))).toBe(false);
     expect(readFileSync(join(project, ".claude", "skills", "foreign-skill", "SKILL.md"), "utf8")).toBe(
@@ -469,9 +471,10 @@ describe("Claude project Skill packages", () => {
     expect(installation.outputs.some((output) => output.path === ".codex/hooks.json")).toBe(true);
 
     const preview = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(preview.blockers).toEqual([]);
     await applyReconciliation(home, desired.installations);
@@ -492,7 +495,7 @@ describe("Claude project Skill packages", () => {
       "team-rules",
     ]);
 
-    expect(await uninstallApplication(home)).toBe(1);
+    expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(join(project, ".claude", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
