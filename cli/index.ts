@@ -15,7 +15,10 @@ import {
   type LifecycleCommand,
 } from "./presentation.js";
 import { bindProject } from "../installer/bind-project.js";
-import { unbindProject } from "../installer/unbind-project.js";
+import {
+  generatedOutputSurvivesUnbind,
+  unbindProject,
+} from "../installer/unbind-project.js";
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import {
@@ -30,11 +33,6 @@ import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { COMMAND_EXAMPLES } from "./examples.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
-import { readInstallationState } from "../installer/installation-state.js";
-import {
-  canonicalizePathForComparison,
-  expandConfiguredPath,
-} from "../installer/local-configuration.js";
 
 function formatError(error: unknown): string {
   if (error instanceof MissingProfileError) return formatMissingProfileError(error);
@@ -43,27 +41,6 @@ function formatError(error: unknown): string {
     return [error.message, ...causes.map((cause) => `caused by: ${cause}`)].join("\n");
   }
   return errorMessage(error);
-}
-
-async function generatedOutputSurvivesUnbind(
-  home: string,
-  result: Extract<Awaited<ReturnType<typeof unbindProject>>, { outcome: "removed" }>,
-): Promise<boolean> {
-  try {
-    const project = result.recovery === "canonical"
-      ? result.canonicalProject
-      : await canonicalizePathForComparison(
-          expandConfiguredPath(result.project, home, "Project Binding", "project"),
-        );
-    const state = await readInstallationState(home);
-    return state.installations.some(
-      (installation) => installation.project === project,
-    );
-  } catch {
-    // Binding removal remains independent from readable installation state.
-    // Status will surface malformed state; uncertain output cannot justify a next step here.
-    return false;
-  }
 }
 
 /**

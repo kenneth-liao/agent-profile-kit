@@ -382,7 +382,7 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("status", report);
 
-    expect(concise).toStartWith("Intentionally uninstalled\n");
+    expect(concise).toStartWith("Some Projects intentionally uninstalled\n");
     expect(concise).not.toContain("Attention required");
   });
 
@@ -391,16 +391,23 @@ describe("formatLifecycleReport concise terminology", () => {
       projects: [{
         outputs: [".agent-profile-kit/installation.json", ".codex/hooks.json"],
         project: "/project-a",
-        repositoryExclusions: [{
-          entries: ["/.agent-profile-kit/installation.json", "/.codex/hooks.json"],
-          target: "/project-a/.git/info/exclude",
-        }],
+        repositoryExclusions: [
+          {
+            entries: ["/.agent-profile-kit/installation.json", "/.codex/hooks.json"],
+            target: "/project-a/.git/info/exclude",
+          },
+          {
+            entries: ["/.agent-profile-kit/installation.json"],
+            target: "/shared/.git/info/exclude",
+          },
+        ],
       }],
     });
 
     expect(receipt).toContain("Project: /project-a");
     expect(receipt).toContain("Removed generated paths:");
     expect(receipt).toContain("Cleaned Git exclusions:");
+    expect(receipt.match(/Cleaned Git exclusions:/g)).toHaveLength(1);
     expect(receipt).toContain("Project Bindings preserved.");
   });
 

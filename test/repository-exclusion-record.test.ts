@@ -91,13 +91,16 @@ describe("Repository Exclusion Record schema", () => {
 
   test("round-trips intended teardown provenance and rejects installed overlap", () => {
     const teardownState: InstallationState = {
-      intendedTeardowns: [{ hosts: ["codex"], installationId: "install-c", profileId: "coding", project: "/repo/c" }],
+      intendedTeardowns: [{ hosts: ["codex", "claude"], installationId: "install-c", profileId: "coding", project: "/repo/c" }],
       installations: [],
       repositoryExclusions: [],
       schemaVersion: 4,
     };
 
-    expect(parseInstallationState(formatInstallationState(teardownState))).toEqual(teardownState);
+    expect(parseInstallationState(formatInstallationState(teardownState))).toEqual({
+      ...teardownState,
+      intendedTeardowns: [{ ...teardownState.intendedTeardowns[0]!, hosts: ["claude", "codex"] }],
+    });
     expect(() => formatInstallationState({
       ...validState(),
       intendedTeardowns: [{ hosts: ["codex"], installationId: "install-a", profileId: "coding", project: "/repo/a" }],

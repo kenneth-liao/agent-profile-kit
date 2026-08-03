@@ -479,7 +479,7 @@ function parseHosts(value: unknown): readonly string[] {
       `Installation Manifest hosts must contain only supported Hosts: ${SUPPORTED_HOSTS.join(", ")}`,
     );
   }
-  return hosts;
+  return SUPPORTED_HOSTS.filter((host) => hosts.includes(host));
 }
 
 function parseManifestMapping(value: unknown): ProjectInstallationManifest {

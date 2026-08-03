@@ -309,10 +309,12 @@ export function formatUninstallResult(result: UninstallResult): string {
       "  Removed generated paths:",
       ...project.outputs.map((path) => `  - ${path}`),
     );
-    for (const exclusion of project.repositoryExclusions) {
+    if (project.repositoryExclusions.length > 0) {
       lines.push(
         "  Cleaned Git exclusions:",
-        ...exclusion.entries.map((entry) => `  - ${entry} (${exclusion.target})`),
+        ...project.repositoryExclusions.flatMap((exclusion) =>
+          exclusion.entries.map((entry) => `  - ${entry} (${exclusion.target})`)
+        ),
       );
     }
   }
@@ -683,7 +685,9 @@ function outcomeLine(
     report.items.some((item) => item.kind === "intended teardown") &&
     report.items.every((item) => item.kind === "current" || item.kind === "intended teardown")
   ) {
-    return "Intentionally uninstalled";
+    return report.items.some((item) => item.kind === "current")
+      ? "Some Projects intentionally uninstalled"
+      : "Intentionally uninstalled";
   }
   const currentProjects = fullyCurrentProjectCount(report);
   if (currentProjects === undefined && report.items.length > 0) {
