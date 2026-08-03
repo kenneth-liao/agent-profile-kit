@@ -31,7 +31,7 @@ produced them.
 |---|-------|---------|------------------------|
 | 1 | Discover | `apkit`, `--help`, `-h`, `help`, `--version` | Understand what the tool does and the shortest path to value |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
-| 3 | Learn the format | `guide [--agent]` | Enough to author a first Context Module, Skill, and Profile |
+| 3 | Learn the format | `guide [profile\|context\|skill\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
 | 5 | Bind | `bind <profile> [project] --host <host>` | One project associated with one Profile and its Hosts |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed |
@@ -65,33 +65,26 @@ Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/age
 ### 2. Initialize
 
 ```
-$ agent-profile-kit init
+$ apkit init
 Initialized Agent Profile Kit Workspace and Local Configuration at <workspace>
-Next: bind a project or edit config.yaml, then run agent-profile-kit validate
+Next: run apkit bind example --host codex
 ```
 
-Scaffolds `workspace.yaml`, six empty artifact directories, `README.md`,
-`AGENTS.md`, `.gitignore`, and a `schema_version: 2` `config.yaml`. Re-running is
-safe and says so. The Workspace is empty, so the offered next step cannot
-succeed:
+Scaffolds `workspace.yaml`, six artifact directories, a bindable `example`
+Profile and its Context Module, `README.md`, `AGENTS.md`, `.gitignore`, and a
+`schema_version: 2` `config.yaml`. Re-running is safe, and does not restore a
+removed example or overwrite any valid existing Workspace.
 
-```
-$ apkit bind engineering --host claude
-apkit: Profile 'engineering' does not exist in this Workspace. No Profiles exist in the Workspace. Run apkit guide to learn how to add a Profile.
-```
-
-Gaps: [UJ-01](#uj-01), ~~[UJ-10](#uj-10)~~ (shipped in
+Gaps: ~~[UJ-01](#uj-01)~~ (shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121)), ~~[UJ-10](#uj-10)~~ (shipped in
 [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119)).
 
 ### 3. Learn the format
 
-`guide` prints `docs/guides/workspace.md` (621 lines); `guide --agent` prints
-`docs/guides/agent-workflow.md`. Content is complete and current. The problems
-are granularity and discovery: there is no way to ask only "what does a Profile
-look like," and `guide` is never named in the `init` next-step a new user reads
-first.
+`guide` and `guide --agent` retain the complete human- and agent-facing guides.
+`guide profile`, `guide context`, and `guide skill` each return short focused
+guidance with a complete copyable example.
 
-Gaps: [UJ-01](#uj-01).
+Gaps: ~~[UJ-01](#uj-01)~~ (shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121)).
 
 ### 4. Author
 
@@ -103,10 +96,9 @@ skills/<name>/SKILL.md      name (= Artifact ID) + description in frontmatter
 profiles/<id>.yaml          id, context[], skills[], and three mandatorily empty arrays
 ```
 
-Learning that a Profile needs all five arrays with three empty, that a Context
-Module's identity is frontmatter `id`, and that a Skill's `name` *is* its
-Artifact ID currently requires reading the long guide. This is the root of
-[UJ-01](#uj-01).
+The focused guide topics show that a Profile needs all five arrays with three
+empty, that a Context Module's identity is frontmatter `id`, and that a Skill's
+`name` is its Artifact ID without requiring the full guide.
 
 ### 5. Bind
 
@@ -310,7 +302,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 
 | ID | Severity | Stage | Gap |
 |----|----------|-------|-----|
-| [UJ-01](#uj-01) | High | 2, 3, 4 | `init` next-step dead-ends on an empty Workspace |
+| ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
 | [UJ-02](#uj-02) | High | 11 | Drifted output has no stated remedy anywhere |
 | [UJ-03](#uj-03) | High | 12 | Post-`uninstall` `status` warns about an intended state |
 | [UJ-04](#uj-04) | High | 8 | "Changes" means two things on one `apply` screen |
@@ -334,11 +326,13 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ~~[UJ-17](#uj-17)~~ | ~~Low~~ | ~~6~~ | ~~`validate` prints "1 Profiles" and names nothing~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
 | [UJ-18](#uj-18) | Low | 7 | `--verbose` inlines composed Context without a separator |
 
-### UJ-01
-`init` closes with `Next: bind a project or edit config.yaml`, but a fresh
-Workspace holds zero Profiles, so `bind` fails and `validate` reports `0
-Profiles` as success. The route to a first Profile runs through stage 4, which
-has no CLI surface, and through a 621-line guide the next-step never names.
+### ~~UJ-01~~
+~~`init` closes with an unusable next step because a fresh Workspace holds zero
+Profiles, while the only authoring route is the full guide.~~
+
+Shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121):
+`init` now scaffolds a bindable example and names its successful bind command;
+focused Profile, Context Module, and Skill guides provide copyable examples.
 
 ### UJ-02
 A hand-edited generated file blocks `apply` *and* `uninstall`, leaving no

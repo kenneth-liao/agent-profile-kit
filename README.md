@@ -39,7 +39,10 @@ destination, adopts a valid existing Workspace without rewriting it, and never
 overwrites the current Local Configuration. An explicit path must resolve to the
 same canonical Workspace already selected by Local Configuration; a different
 selection fails closed. Supported legacy configuration is upgraded only by this
-explicit `init` command.
+explicit `init` command. A new Workspace includes a bindable `example` Profile
+and Context Module; follow the printed `apkit bind example --host codex` next
+step from the project you want to try. If you remove the example, later `init`
+runs do not restore it.
 
 ## Project-bound Context and Skills
 
@@ -128,9 +131,9 @@ Workspace source, and a custom authored Workspace path is preserved.
 
 Run `apkit` with no arguments or `apkit --help` for a
 concise summary of every command and the minimal `init` → `bind` → `preview` →
-`apply` flow. See `apkit guide` for the Context Module, Skill,
-Profile, and binding formats, and `apkit guide --agent` for
-agent-facing authoring boundaries.
+`apply` flow. Use `apkit guide profile`, `apkit guide context`, or `apkit guide
+skill` for a short copyable example, `apkit guide` for the full Workspace guide,
+and `apkit guide --agent` for agent-facing authoring boundaries.
 
 ## Product layout
 
@@ -158,18 +161,19 @@ path live in `config.yaml`; disposable Installation
 Manifests live under `state/`. Generated Context, hooks, rules, and Skills live
 only in bound project-owned paths.
 
-`apkit init` creates an empty default Workspace with a schema marker,
-artifact directories, short human/agent bootstrap files, and a version-2
-configuration that records the default path when configuration is absent. With
-an explicit path, it applies the same scaffold to a missing or empty non-symlink
-destination, or adopts a valid existing Workspace without changing its source.
+`apkit init` creates a default Workspace with a schema marker, artifact
+directories, a bindable example Profile and Context Module, short human/agent
+bootstrap files, and a version-2 configuration that records the default path
+when configuration is absent. With an explicit path, it applies the same
+scaffold to a missing or empty non-symlink destination, or adopts a valid
+existing Workspace without changing its source.
 When configuration already selects a Workspace, an explicit path must be an
 equivalent canonical alias; `init` never switches the selection. When it finds
 supported legacy configuration, it upgrades only the local configuration after
 validating the effective target. Current authoring guidance remains
-owned by the CLI through `apkit guide` and
-`apkit guide --agent`; initialization does not copy personal or
-opinionated starter content.
+owned by the CLI through its focused and full `apkit guide` forms;
+initialization copies only the neutral canonical example, never personal
+material.
 
 ## Working Principles
 

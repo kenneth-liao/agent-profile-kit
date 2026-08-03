@@ -146,13 +146,15 @@ you can discover where material belongs:
 
 - artifact directories `profiles/`, `context/`, `skills/`, `agents/`, `hooks/`,
   and `tools/` (with `.gitkeep` placeholders)
+- a bindable `profiles/example.yaml` and its `context/example-context.md`
 - short bootstrap `README.md` and `AGENTS.md` pointers to the current guides
 - a starter `.gitignore`
 
-Those scaffolded entries are for discoverability only. Delete unused empty
-directories or bootstrap docs if you prefer a minimal tree; validation, preview,
-status, apply, and uninstall keep working. Do not treat generated Host output as
-source material.
+The example gives a new user one complete `bind` → `preview` → `apply` path.
+Delete it, unused empty directories, or bootstrap docs if you prefer a minimal
+tree; later `init` runs do not restore removed optional scaffolding, and
+validation, preview, status, apply, and uninstall keep working. Do not treat
+generated Host output as source material.
 
 ### CLI compatibility for minimal Workspaces
 
@@ -625,3 +627,5 @@ not classify private material, and credential values do not belong in a Workspac
 regardless of whether you publish it.
 
 For help authoring with an agent, run `apkit guide --agent`.
+For a short copyable example, run `apkit guide profile`, `apkit guide context`,
+or `apkit guide skill`.

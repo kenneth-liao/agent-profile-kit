@@ -149,6 +149,12 @@ function initialize(home: string): void {
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
 }
 
+function removeScaffoldedExample(home: string): void {
+  const workspace = workspacePath(home);
+  rmSync(join(workspace, "profiles", "example.yaml"), { force: true });
+  rmSync(join(workspace, "context", "example-context.md"), { force: true });
+}
+
 /** Put a controlled Claude Code stub first on PATH for Host capability preflight. */
 function installFakeClaude(home: string, version = "2.1.0"): string {
   const bin = join(home, "bin");
@@ -230,6 +236,63 @@ function runCliWithPath(
 }
 
 describe("agent-profile-kit project-bound lifecycle", () => {
+  test("a fresh Workspace includes a bindable example Profile and Context Module", () => {
+    const home = isolatedHome();
+    const projectPath = project();
+
+    const init = runCli(home, "init");
+    expect(init.status, init.stderr).toBe(0);
+
+    const workspace = workspacePath(home);
+    expect(readFileSync(join(workspace, "profiles", "example.yaml"), "utf8")).toContain(
+      "id: example\n",
+    );
+    expect(readFileSync(join(workspace, "context", "example-context.md"), "utf8")).toContain(
+      "id: example-context\n",
+    );
+
+    const bind = runCli(home, "bind", "example", projectPath, "--host", "codex");
+    expect(bind.status, bind.stderr).toBe(0);
+    expect(bind.stdout).toContain("Profile: example");
+
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+    const preview = runCli(home, "preview");
+    expect(preview.status, preview.stderr).toBe(0);
+    const apply = runCli(home, "apply");
+    expect(apply.status, apply.stderr).toBe(0);
+    expect(
+      readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"),
+    ).toContain("Keep project-specific instructions in the project repository.");
+  });
+
+  test("re-running init does not restore a removed example", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const workspace = workspacePath(home);
+    const exampleProfile = join(workspace, "profiles", "example.yaml");
+    const exampleContext = join(workspace, "context", "example-context.md");
+    removeScaffoldedExample(home);
+
+    const result = runCli(home, "init");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(existsSync(exampleProfile)).toBe(false);
+    expect(existsSync(exampleContext)).toBe(false);
+  });
+
+  test("init names a next bind command that succeeds with the scaffolded Profile", () => {
+    const home = isolatedHome();
+    const projectPath = project();
+
+    const init = runCli(home, "init");
+
+    expect(init.status, init.stderr).toBe(0);
+    expect(init.stdout).toContain("Next: run apkit bind example --host codex");
+    const bind = runCliAt(home, projectPath, "bind", "example", "--host", "codex");
+    expect(bind.status, bind.stderr).toBe(0);
+  });
+
   test("init creates both canonical inputs and never overwrites either", () => {
     const home = isolatedHome();
     initialize(home);
@@ -367,7 +430,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "validate");
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("1 Profile");
+    expect(result.stdout).toContain("2 Profiles");
+    expect(result.stdout).toContain("Profiles found: coding, example");
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${workspacePath(home)}`);
   });
@@ -1191,8 +1255,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "validate");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("2 Profiles, 2 Project Bindings");
-    expect(result.stdout).toContain("Profiles found: coding, writing");
+    expect(result.stdout).toContain("3 Profiles, 2 Project Bindings");
+    expect(result.stdout).toContain("Profiles found: coding, example, writing");
     expect(result.stdout).toContain("Hosts bound: claude, codex");
   });
 
@@ -4487,6 +4551,91 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(Math.abs(trustIndex - launchIndex)).toBeLessThan(120);
   });
 
+  test("guide profile supplies everything a minimal Workspace needs to bind its example", () => {
+    const home = isolatedHome();
+    const workspace = workspacePath(home);
+    mkdirSync(join(workspace, "profiles"), { recursive: true });
+    mkdirSync(join(workspace, "context"));
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings: []\n`,
+    );
+
+    const result = runCli(home, "guide", "profile");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.split("\n").length).toBeLessThanOrEqual(30);
+    const profile = result.stdout.match(
+      /Create `profiles\/example\.yaml`:\n\n```yaml\n([\s\S]*?)```/,
+    )?.[1];
+    const context = result.stdout.match(
+      /Create `context\/example-context\.md`:\n\n```md\n([\s\S]*?)```/,
+    )?.[1];
+    expect(profile).toBeDefined();
+    expect(context).toBeDefined();
+    writeFileSync(join(workspace, "profiles", "example.yaml"), profile!);
+    writeFileSync(join(workspace, "context", "example-context.md"), context!);
+
+    const bind = runCli(home, "bind", "example", project(), "--host", "codex");
+    expect(bind.status, bind.stderr).toBe(0);
+  });
+
+  test("guide context returns the short scaffolded Context Module example", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const scaffolded = readFileSync(
+      join(workspacePath(home), "context", "example-context.md"),
+      "utf8",
+    );
+
+    const result = runCli(home, "guide", "context");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.split("\n").length).toBeLessThanOrEqual(30);
+    expect(result.stdout).toContain("context/example-context.md");
+    expect(result.stdout).toContain(`\`\`\`md\n${scaffolded}\`\`\``);
+  });
+
+  test("guide skill returns a short complete Skill example that validates when copied", () => {
+    const home = isolatedHome();
+    initialize(home);
+
+    const result = runCli(home, "guide", "skill");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.split("\n").length).toBeLessThanOrEqual(30);
+    expect(result.stdout).toContain("skills/example-skill/SKILL.md");
+    const example = result.stdout.match(/```md\n([\s\S]*?)```/)?.[1];
+    expect(example).toBeDefined();
+    const skillDirectory = join(workspacePath(home), "skills", "example-skill");
+    mkdirSync(skillDirectory, { recursive: true });
+    writeFileSync(join(skillDirectory, "SKILL.md"), example!);
+
+    const validate = runCli(home, "validate");
+    expect(validate.status, validate.stderr).toBe(0);
+  });
+
+  test("bare guide and --agent still serve the maintained full guides byte-for-byte", () => {
+    const home = isolatedHome();
+    const packageRoot = resolve(cliPath, "..", "..");
+
+    const human = runCli(home, "guide");
+    const agent = runCli(home, "guide", "--agent");
+
+    expect(human.status, human.stderr).toBe(0);
+    expect(agent.status, agent.stderr).toBe(0);
+    expect(human.stdout).toBe(
+      readFileSync(join(packageRoot, "docs", "guides", "workspace.md"), "utf8"),
+    );
+    expect(agent.stdout).toBe(
+      readFileSync(join(packageRoot, "docs", "guides", "agent-workflow.md"), "utf8"),
+    );
+  });
+
   test("packed CLI serves the final project-bound agent workflow", () => {
     const home = isolatedHome();
     const result = runCli(home, "guide", "--agent");
@@ -4716,6 +4865,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
   test("unbind gives an empty Workspace one recovery for its stale missing Profile", () => {
     const home = isolatedHome();
     initialize(home);
+    removeScaffoldedExample(home);
     const projectPath = project();
     const source =
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`;
@@ -5093,7 +5243,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const unknownProfile = runCli(home, "bind", "missing", projectPath, "--host", "codex");
     expect(unknownProfile.status).toBe(1);
     expect(unknownProfile.stderr).toMatch(/does not exist|profile/i);
-    expect(unknownProfile.stderr).toContain("Available Profiles: coding, writing");
+    expect(unknownProfile.stderr).toContain("Available Profiles: coding, example, writing");
     expect(unknownProfile.stderr).not.toContain(configPath(home));
     expect(unknownProfile.stderr).not.toContain(realpathSync(workspacePath(home)));
 
@@ -5127,6 +5277,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
   test("bind turns an empty Workspace missing-Profile error into an authoring next step", () => {
     const home = isolatedHome();
     initialize(home);
+    removeScaffoldedExample(home);
     const projectPath = project();
 
     const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
@@ -5508,7 +5659,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 describe("apkit root help", () => {
   const COMMANDS = [
     { name: "init", syntax: "init [workspace]" },
-    { name: "guide", syntax: "guide [--agent]" },
+    { name: "guide", syntax: "guide [profile|context|skill|--agent]" },
     { name: "bind", syntax: "bind <profile> [project] --host <host> [--host <host> ...]" },
     { name: "unbind", syntax: "unbind [project]" },
     { name: "validate", syntax: "validate" },
@@ -5613,6 +5764,17 @@ describe("apkit root help", () => {
     }
   });
 
+  test("guide help advertises every focused authoring topic", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "guide", "--help");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Usage: apkit guide [profile|context|skill|--agent]");
+    for (const topic of ["profile", "context", "skill"]) {
+      expect(result.stdout).toContain(`apkit guide ${topic}`);
+    }
+  });
+
   test("an unknown command exits nonzero, names the unknown command, and shows root usage", () => {
     const home = isolatedHome();
     const result = runCli(home, "frobnicate");
@@ -5681,7 +5843,7 @@ describe("apkit root help", () => {
     const badGuideFlag = runCli(home, "guide", "--json");
     expect(badGuideFlag.status).toBe(1);
     expect(badGuideFlag.stderr).toContain("guide does not accept argument '--json'");
-    expect(badGuideFlag.stderr).toContain("Usage: apkit guide [--agent]");
+    expect(badGuideFlag.stderr).toContain("Usage: apkit guide [profile|context|skill|--agent]");
 
     const badValidateFlag = runCli(home, "validate", "--json");
     expect(badValidateFlag.status).toBe(1);

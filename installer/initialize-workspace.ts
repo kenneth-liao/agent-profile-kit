@@ -44,6 +44,7 @@ import {
   WORKSPACE_ARTIFACT_DIRECTORIES,
   workspacePath,
 } from "./workspace.js";
+import { AUTHORING_EXAMPLES } from "./authoring-examples.js";
 import { COMMAND_NAME } from "./version.js";
 
 const WORKSPACE_ROOT_FILES = {
@@ -273,6 +274,11 @@ async function initializeWorkspaceAt(
         await writeFile(join(path, ".gitkeep"), "");
       }),
     ]);
+    await Promise.all(
+      [AUTHORING_EXAMPLES.profile, AUTHORING_EXAMPLES.context].map((example) =>
+        writeFile(join(stagingDirectory, example.path), example.contents),
+      ),
+    );
     await rename(stagingDirectory, destination);
   } catch (error) {
     const followUpErrors: unknown[] = [];
