@@ -384,6 +384,33 @@ function outputPathLines(outputs: readonly OutputReconciliationItem[]): readonly
     : paths;
 }
 
+function authoritativeVerboseOutputs(
+  outputs: readonly OutputReconciliationItem[],
+): readonly OutputReconciliationItem[] {
+  const byProjectAndPath = new Map<string, Map<string, OutputReconciliationItem>>();
+  for (const output of outputs) {
+    const byPath = byProjectAndPath.get(output.project) ??
+      new Map<string, OutputReconciliationItem>();
+    const current = byPath.get(output.path);
+    if (current === undefined || OUTPUT_PATH_PRIORITY[output.kind] < OUTPUT_PATH_PRIORITY[current.kind]) {
+      byPath.set(output.path, output);
+    }
+    byProjectAndPath.set(output.project, byPath);
+  }
+  const unique = [...byProjectAndPath.values()].flatMap((byPath) => [...byPath.values()]);
+  return unique.filter((output) =>
+    output.kind !== "unchanged" || !unique.some((candidate) =>
+      candidate.project === output.project &&
+      (
+        candidate.kind === "drifted member" ||
+        candidate.kind === "missing member" ||
+        candidate.kind === "unexpected member"
+      ) &&
+      (candidate.path === output.path || candidate.path.startsWith(`${output.path}/`))
+    )
+  );
+}
+
 function changedRepositoryExclusions(report: ReconciliationReport): readonly ReconciliationReport["repositoryExclusions"][number][] {
   return report.repositoryExclusions.filter((change) =>
     change.current.length !== change.next.length ||
@@ -931,6 +958,11 @@ interface VerboseSectionOptions {
   readonly stateExplanationItems?: readonly ReconciliationItem[];
 }
 
+function delimitedContext(context: string): string {
+  const body = context.length > 0 && !context.endsWith("\n") ? `${context}\n` : context;
+  return `----- BEGIN COMPOSED CONTEXT -----\n${body}----- END COMPOSED CONTEXT -----`;
+}
+
 function verboseSections(
   report: ReconciliationReport,
   options: VerboseSectionOptions = {},
@@ -965,7 +997,7 @@ function verboseSections(
             `  Hosts: ${installation.hosts.join(", ")}\n` +
             `  Outputs: ${installation.outputs.join(", ")}\n` +
             `${resolved}\n` +
-            `  Context:\n${installation.context}`
+            `  Context:\n${delimitedContext(installation.context)}`
           );
         })
         .join("\n");
@@ -974,7 +1006,7 @@ function verboseSections(
     : report.blockers.map((blocker) => `- ${blocker.message}`).join("\n");
   const outputs = report.outputs.length === 0
     ? "(none)"
-    : report.outputs
+    : authoritativeVerboseOutputs(report.outputs)
         .map((output) => `${output.project}/${output.path}: ${output.kind}`)
         .join("\n");
   const repositoryExclusions = changedRepositoryExclusions(report).length === 0

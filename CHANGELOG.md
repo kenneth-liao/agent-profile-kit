@@ -53,6 +53,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Make member-level attention statuses authoritative in verbose output and delimit composed Context for clean scanning and copying ([#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123)).
+
 - Map apply output from `Changes:` and `Resulting state:` to `Pending:`, map `Apply receipt:` to `Applied:`, remove the duplicate `No Projects need attention.` current-status line, keep state definitions behind `--verbose`, and name per-project next actions ([#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
 
 - Derive default and verbose Git exclusion repair receipts from one canonical line shape ([#128](https://github.com/kenneth-liao/agent-profile-kit/pull/128)).

@@ -756,6 +756,38 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).toContain("Changes: 1 generated file missing");
     expect(concise).not.toContain("generated file drift item");
     expect(concise).toContain("! skill/SKILL.md (missing member)");
+
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    expect(verbose).toContain("/project-a/skill/SKILL.md: missing member");
+    expect(verbose).not.toContain("/project-a/skill: unchanged");
+  });
+
+  test("verbose output keeps member attention statuses authoritative", () => {
+    const project = "/project-a";
+    const report = emptyReport({
+      outputs: [
+        { kind: "unchanged", path: "skill", project },
+        { kind: "drifted member", path: "skill/SKILL.md", project },
+        { kind: "missing member", path: "skill/scripts/run.sh", project },
+        { kind: "unexpected member", path: "skill/notes.txt", project },
+        { kind: "unchanged", path: "mode-only-skill", project },
+        { kind: "drifted member", path: "mode-only-skill", project },
+        { kind: "drifted member", path: "duplicate-skill/SKILL.md", project },
+        { kind: "drifted member", path: "duplicate-skill/SKILL.md", project },
+        { kind: "unchanged", path: "context.md", project },
+      ],
+    });
+
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+
+    expect(verbose).not.toContain("/project-a/skill: unchanged");
+    expect(verbose).toContain("/project-a/skill/SKILL.md: drifted member");
+    expect(verbose).toContain("/project-a/skill/scripts/run.sh: missing member");
+    expect(verbose).toContain("/project-a/skill/notes.txt: unexpected member");
+    expect(verbose).not.toContain("/project-a/mode-only-skill: unchanged");
+    expect(verbose).toContain("/project-a/mode-only-skill: drifted member");
+    expect(verbose.match(/\/project-a\/duplicate-skill\/SKILL\.md: drifted member/g)).toHaveLength(1);
+    expect(verbose).toContain("/project-a/context.md: unchanged");
   });
 
   test("keeps every present non-current state definition available in verbose output", () => {
@@ -987,7 +1019,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
-        context: "Composed context body",
+        context: "First Context Module\nSecond Context Module\n",
         hosts: ["claude", "codex"],
         outputs: [".agent-profile-kit/codex/context.md"],
         profile: "coding",
@@ -1027,7 +1059,13 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("Hosts: claude, codex");
     expect(verbose).toContain("Resolved artifacts:");
     expect(verbose).toContain("context:team-rules");
-    expect(verbose).toContain("Composed context body");
+    expect(verbose).toContain(
+      "  Context:\n" +
+      "----- BEGIN COMPOSED CONTEXT -----\n" +
+      "First Context Module\n" +
+      "Second Context Module\n" +
+      "----- END COMPOSED CONTEXT -----\n",
+    );
     expect(verbose).toContain("Warnings:");
     expect(verbose).toContain("example warning");
     expect(verbose).toContain("Blockers:");
