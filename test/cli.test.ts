@@ -1446,7 +1446,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "status");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.startsWith("All Projects are current\n")).toBe(true);
+    expect(result.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
     expect(result.stdout.match(/All Projects are current/g)).toHaveLength(1);
     expect(result.stdout).not.toContain("Changes:");
     expect(result.stdout).not.toContain("No Projects need attention.");
@@ -3030,7 +3030,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(repaired.status, repaired.stderr).toBe(0);
     expect(current.status, current.stderr).toBe(0);
-    expect(current.stdout.startsWith("All Projects are current\n")).toBe(true);
+    expect(current.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
     expect(current.stdout).not.toContain("Next:");
   });
 

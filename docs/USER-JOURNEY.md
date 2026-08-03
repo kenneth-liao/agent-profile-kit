@@ -263,9 +263,9 @@ additions`, lists exclusions that will never be written, and glosses a state tha
 cannot be reached, leaving the one actionable line in eighth position
 ([UJ-19](#uj-19)).
 
-**Mixed states across projects** now retain per-project guidance. With `api`
-cleanly appliable and `web` blocked, the run names `api` as ready and gives
-`web` its blocker remedy.
+**Mixed states across projects** now retain per-project guidance. With pending
+work for `api` and `web` blocked, the run preserves `api`'s next step after the
+all-project blocker is resolved and gives `web` its blocker remedy.
 
 Gaps: [UJ-02](#uj-02), [UJ-05](#uj-05), [UJ-06](#uj-06), [UJ-07](#uj-07),
 ~~[UJ-11](#uj-11)~~ (shipped in
@@ -502,13 +502,14 @@ non-Git projects alike.
 
 ### ~~UJ-23~~
 ~~The next-action line is deliberately one conservative aggregate. Across projects
-that behaves poorly: with one project cleanly appliable and another blocked, the
-run instructs the user to resolve blockers, concealing that the first project
-could be applied immediately.~~
+that behaves poorly: with one project carrying otherwise-actionable pending work
+and another blocked, the run instructs the user only to resolve blockers and
+conceals the first project's next step after the all-project blocker is resolved.~~
 
 Shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122):
-next-action guidance is derived per project, names ready work alongside blocked
-work, and is omitted for projects with nothing to change.
+next-action guidance is derived per project, preserves otherwise-actionable work
+alongside blocked work without claiming it can apply independently, and is
+omitted for projects with nothing to change.
 
 ---
 

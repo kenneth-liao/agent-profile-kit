@@ -1089,6 +1089,23 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("restored 1 recorded Repository Exclusion entry");
   });
 
+  test("verbose apply explains non-current states once across pending and applied sections", () => {
+    const receipt = emptyReport({
+      items: [{ kind: "stale source", project: "/repo" }],
+    });
+    const resultingState = emptyReport({
+      items: [{ kind: "repairable missing output", project: "/repo" }],
+    });
+
+    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+
+    expect(verbose.match(/State explanations:/g)).toHaveLength(1);
+    expect(explanationLines(verbose)).toEqual([
+      expect.stringContaining("stale source: Workspace source changed"),
+      expect.stringContaining("repairable missing output: An owned generated file is wholly missing, but ownership is proven"),
+    ]);
+  });
+
   test("apply only expands projects with receipt work", () => {
     const desired = [
       {
@@ -1330,7 +1347,7 @@ describe("formatLifecycleReport next-action guidance", () => {
 
     const status = formatLifecycleReport("status", current);
 
-    expect(status).toBe("All Projects are current\n");
+    expect(status).toBe("All Projects are current (1 Project)\n");
   });
 
   test("completed or no-op apply without blockers emits no next action", () => {
@@ -1413,7 +1430,8 @@ describe("formatLifecycleReport next-action guidance", () => {
 
     expect(status).toContain(
       "Next:\n" +
-        "- /project-a: Ready to apply.\n" +
+        "- /project-a: After all blockers are resolved, run apkit preview to review its planned changes " +
+        "(read-only), then apply when ready.\n" +
         "- /project-b: Resolve the reported blocker, then run apkit status again.",
     );
   });
@@ -1430,7 +1448,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       }],
       items: [{ kind: "stale source", project: "/project-a" }],
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
-      blockers: [{ message: "Installation State is unreadable" }],
+      blockers: [{ message: "Installation State is unreadable", project: "" }],
     });
 
     const status = formatLifecycleReport("status", globallyBlocked);
@@ -1516,8 +1534,8 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
 
     const status = formatLifecycleReport("status", report);
-    expect(status).toContain("All Projects are current");
-    expect(status).toContain("No Projects need attention.");
+    expect(status).toContain("All Projects are current (1 Project)");
+    expect(status).not.toContain("No Projects need attention.");
     expect(nextActionLines(status)).toEqual([]);
 
     const preview = formatLifecycleReport("preview", report);

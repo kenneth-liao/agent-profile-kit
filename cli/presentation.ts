@@ -479,8 +479,12 @@ function stateExplanationLines(items: readonly ReconciliationItem[]): readonly s
   ];
 }
 
+function blockerProject(blocker: ReconciliationBlocker): string | undefined {
+  return blocker.project || undefined;
+}
+
 function projectCandidates(blocker: ReconciliationBlocker, displayProject?: string): string[] {
-  return [...new Set([blocker.project, displayProject].filter((project): project is string => project !== undefined))];
+  return [...new Set([blockerProject(blocker), displayProject].filter((project): project is string => project !== undefined))];
 }
 
 function stripProjectPrefix(message: string, projects: readonly string[]): string {
@@ -566,9 +570,10 @@ function groupProjects(report: ReconciliationReport): GroupedProjects {
     ensureGroup(canonicalProject, item.project).items.push(item);
   }
   for (const blocker of report.blockers) {
-    if (blocker.project) {
-      const canonicalProject = canonicalByProject.get(blocker.project) ?? blocker.project;
-      ensureGroup(canonicalProject, blocker.project).blockers.push(blocker);
+    const project = blockerProject(blocker);
+    if (project !== undefined) {
+      const canonicalProject = canonicalByProject.get(project) ?? project;
+      ensureGroup(canonicalProject, project).blockers.push(blocker);
     }
   }
   const groups = [...groupsByCanonical.values()].sort((left, right) => left.project.localeCompare(right.project));
@@ -600,6 +605,17 @@ function groupHasReconciliationWork(group: ProjectGroup | undefined): boolean {
   );
 }
 
+function fullyCurrentProjectCount(report: ReconciliationReport): number | undefined {
+  if (
+    report.items.length === 0 ||
+    report.blockers.length > 0 ||
+    report.items.some((item) => item.kind !== "current")
+  ) {
+    return undefined;
+  }
+  return new Set(report.items.map((item) => item.project)).size;
+}
+
 function outcomeLine(
   command: LifecycleCommand,
   report: ReconciliationReport,
@@ -611,13 +627,14 @@ function outcomeLine(
     if (report.items.some((item) => item.kind !== "current")) return "Apply completed with attention";
     return "Apply complete";
   }
-  if (report.blockers.length > 0 || report.items.some((item) => item.kind !== "current")) {
+  const currentProjects = fullyCurrentProjectCount(report);
+  if (currentProjects === undefined && report.items.length > 0) {
     return "Attention required";
   }
   const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-  return report.items.length === 0
+  return currentProjects === undefined
     ? `No ${projects} are configured`
-    : `All ${projects} are current`;
+    : `All ${projects} are current (${plural(currentProjects, capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular))})`;
 }
 
 function aggregateLine(
@@ -723,7 +740,7 @@ function nextActionLines(
 ): readonly string[] {
   if (command === "apply" && report.blockers.length === 0) return [];
 
-  const globalBlockers = report.blockers.filter((blocker) => blocker.project === undefined);
+  const globalBlockers = report.blockers.filter((blocker) => blockerProject(blocker) === undefined);
   const actions = surface.groups.flatMap((group) => {
     const project = displayProjectPath(group.canonicalProject, group.project);
     if (group.blockers.length > 0) {
@@ -732,7 +749,16 @@ function nextActionLines(
     }
     if (!groupNeedsAttention(group, command)) return [];
     if (report.blockers.length > 0 && globalBlockers.length === 0) {
-      return [`${project}: Ready to apply.`];
+      if (command === "status") {
+        return [
+          `${project}: After all blockers are resolved, run ${COMMAND_NAME} preview to review its ` +
+          "planned changes (read-only), then apply when ready.",
+        ];
+      }
+      return [
+        `${project}: After all blockers are resolved, run ${COMMAND_NAME} apply` +
+        `${command === "apply" ? " again" : ""}.`,
+      ];
     }
     if (globalBlockers.length > 0) return [];
     if (command === "status") {
@@ -805,12 +831,7 @@ function conciseReport(
   const grouped = groupProjects(report);
   const groups = grouped.groups;
   const blocked = report.blockers.length > 0;
-  const fullyCurrentStatus = command === "status" &&
-    report.items.length > 0 &&
-    report.items.every((item) => item.kind === "current") &&
-    changeCount(summarizeOutputs(report.outputs)) === 0 &&
-    changedRepositoryExclusions(report).length === 0 &&
-    report.repositoryExclusionRepairs.length === 0;
+  const fullyCurrentStatus = command === "status" && fullyCurrentProjectCount(report) !== undefined;
   const lines = [outcomeLine(command, report, receipt !== undefined)];
   if (!blocked && !fullyCurrentStatus) lines.push(aggregateLine(command, report, groups));
   const receiptGroups = receipt === undefined
@@ -874,7 +895,7 @@ function conciseReport(
   const exclusionClause = repositoryExclusionClause(report, false);
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
 
-  const globalBlockers = report.blockers.filter((blocker) => !blocker.project);
+  const globalBlockers = report.blockers.filter((blocker) => blockerProject(blocker) === undefined);
   if (globalBlockers.length > 0) {
     lines.push("", "Global blockers:");
     for (const blocker of globalBlockers) lines.push(`- ${formatBlocker(blocker)}`);
@@ -904,7 +925,21 @@ function conciseReport(
   return `${lines.join("\n")}\n`;
 }
 
-function verboseSections(report: ReconciliationReport, completedRepositoryExclusions = false): string {
+interface VerboseSectionOptions {
+  readonly completedRepositoryExclusions?: boolean;
+  readonly includeStateExplanations?: boolean;
+  readonly stateExplanationItems?: readonly ReconciliationItem[];
+}
+
+function verboseSections(
+  report: ReconciliationReport,
+  options: VerboseSectionOptions = {},
+): string {
+  const {
+    completedRepositoryExclusions = false,
+    includeStateExplanations = true,
+    stateExplanationItems = report.items,
+  } = options;
   const items = report.items.length === 0
     ? "(no Profile Installations)"
     : report.items
@@ -956,7 +991,7 @@ function verboseSections(report: ReconciliationReport, completedRepositoryExclus
   const warnings = presentationWarnings.length === 0
     ? "(none)"
     : presentationWarnings.map((warning) => `- ${warning}`).join("\n");
-  const explanations = stateExplanationLines(report.items);
+  const explanations = includeStateExplanations ? stateExplanationLines(stateExplanationItems) : [];
   const explanationSection = explanations.length > 0 ? `${explanations.join("\n")}\n` : "";
   const detail = `Projects:\n${items}\n${explanationSection}Outputs:\n${outputs}\nRepository Exclusions:\n${repositoryExclusions}\nRepository Exclusion Repairs:\n${repositoryExclusionRepairs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\n`;
   const blockerSection = `Blockers:\n${blockers}\n`;
@@ -978,8 +1013,13 @@ function verboseReport(command: LifecycleCommand, report: ReconciliationReport):
 function verboseApplyReport(result: ApplyReconciliationResult): string {
   const report = (
     `${outcomeLine("apply", result.resultingState, true)}\n` +
-    `Pending:\n${verboseSections(result.resultingState)}` +
-    `Applied:\n${verboseSections(result.receipt, true)}` +
+    `Pending:\n${verboseSections(result.resultingState, {
+      stateExplanationItems: [...result.resultingState.items, ...result.receipt.items],
+    })}` +
+    `Applied:\n${verboseSections(result.receipt, {
+      completedRepositoryExclusions: true,
+      includeStateExplanations: false,
+    })}` +
     verboseSetupSection("apply", result.resultingState)
   );
   const activation = result.resultingState.blockers.length === 0
@@ -1003,7 +1043,9 @@ export function formatApplyVerificationFailure(
   options: { readonly verbose?: boolean } = {},
 ): string {
   if (options.verbose) {
-    return `${message}\nApplied:\n${verboseSections(receipt, true)}` +
+    return `${message}\nApplied:\n${verboseSections(receipt, {
+      completedRepositoryExclusions: true,
+    })}` +
       verboseSetupSection("apply", receipt);
   }
   const lines = [
