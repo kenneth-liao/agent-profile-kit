@@ -49,7 +49,7 @@ A condition where reconciling a planned Profile Installation output would overwr
 _Avoid_: Host Skill collision, precedence conflict
 
 **Apply Receipt**:
-The pre-apply ReconciliationReport retained after a successful apply. It records the generated-output and Repository Exclusion work committed by that invocation, while a separate post-commit reconciliation snapshot is authoritative for the resulting Profile Installation state.
+The pre-apply ReconciliationReport retained after a successful apply. It represents `Applied` generated-output and Repository Exclusion work; a separate post-commit reconciliation snapshot is authoritative for the resulting Profile Installation state and represents `Pending` work.
 _Avoid_: Resulting state, pending report
 
 **Host Bundle**:
