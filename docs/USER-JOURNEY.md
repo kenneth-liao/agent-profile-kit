@@ -158,7 +158,8 @@ including non-Git projects.
 
 Gaps: [UJ-07](#uj-07), ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
-[UJ-12](#uj-12), [UJ-15](#uj-15), [UJ-18](#uj-18),
+[UJ-12](#uj-12), ~~[UJ-15](#uj-15)~~ (shipped in
+[#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)), [UJ-18](#uj-18),
 ~~[UJ-20](#uj-20)~~, ~~[UJ-22](#uj-22)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)).
 
@@ -184,7 +185,8 @@ above a receipt totalling 19 additions. Codex guidance now carries this journey
 into the Host; equivalent setup guidance for the remaining Hosts is still tracked
 by [UJ-21](#uj-21).
 
-Gaps: [UJ-04](#uj-04), [UJ-07](#uj-07), ~~[UJ-20](#uj-20)~~,
+Gaps: ~~[UJ-04](#uj-04)~~ (shipped in
+[#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)), [UJ-07](#uj-07), ~~[UJ-20](#uj-20)~~,
 [UJ-21](#uj-21).
 
 ### 9. Use
@@ -218,7 +220,8 @@ Profile Installations: 3 · Changes: none · Blockers: 0
 No Profile Installations need attention.
 ```
 
-Gaps: [UJ-14](#uj-14), [UJ-15](#uj-15).
+Gaps: ~~[UJ-14](#uj-14)~~, ~~[UJ-15](#uj-15)~~ (shipped in
+[#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
 
 ### 11. Recover
 
@@ -260,15 +263,15 @@ additions`, lists exclusions that will never be written, and glosses a state tha
 cannot be reached, leaving the one actionable line in eighth position
 ([UJ-19](#uj-19)).
 
-**Mixed states across projects** collapse to one conservative instruction. With
-`api` cleanly appliable and `web` blocked, the run closes with `Next: Resolve the
-reported blockers` — hiding that `api` could be applied right now
-([UJ-23](#uj-23)).
+**Mixed states across projects** now retain per-project guidance. With `api`
+cleanly appliable and `web` blocked, the run names `api` as ready and gives
+`web` its blocker remedy.
 
 Gaps: [UJ-02](#uj-02), [UJ-05](#uj-05), [UJ-06](#uj-06), [UJ-07](#uj-07),
 ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
-[UJ-13](#uj-13), [UJ-19](#uj-19), [UJ-23](#uj-23).
+[UJ-13](#uj-13), [UJ-19](#uj-19), ~~[UJ-23](#uj-23)~~ (shipped in
+[#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
 
 ### 12. Tear down
 
@@ -305,7 +308,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
 | [UJ-02](#uj-02) | High | 11 | Drifted output has no stated remedy anywhere |
 | [UJ-03](#uj-03) | High | 12 | Post-`uninstall` `status` warns about an intended state |
-| [UJ-04](#uj-04) | High | 8 | "Changes" means two things on one `apply` screen |
+| ~~[UJ-04](#uj-04)~~ | ~~High~~ | ~~8~~ | ~~"Changes" means two things on one `apply` screen~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | [UJ-19](#uj-19) | High | 11 | Blocked results lead with a plan that cannot happen |
 | [UJ-21](#uj-21) | High | 8, 9 | No post-apply Host guidance; Codex can break silently |
 | [UJ-05](#uj-05) | Med-High | 11 | Blocked `apply` reports the same blockers three times |
@@ -319,9 +322,9 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ~~[UJ-11](#uj-11)~~ | ~~Medium~~ | ~~7, 11~~ | ~~Change counter buckets unknown output kinds as drift~~ — shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120) |
 | [UJ-12](#uj-12) | Medium | 7 | `preview --verbose` contradicts itself on one path |
 | [UJ-13](#uj-13) | Medium | 11 | `status` exits 0 with blockers; `preview` exits 1 |
-| [UJ-23](#uj-23) | Medium | 11 | One aggregate next-action stalls unblocked projects |
-| [UJ-14](#uj-14) | Low-Med | 10 | Happy-path `status` says the same thing three times |
-| [UJ-15](#uj-15) | Low-Med | 7, 10 | State explanations re-teach vocabulary every run |
+| ~~[UJ-23](#uj-23)~~ | ~~Medium~~ | ~~11~~ | ~~One aggregate next-action stalls unblocked projects~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
+| ~~[UJ-14](#uj-14)~~ | ~~Low-Med~~ | ~~10~~ | ~~Happy-path `status` says the same thing three times~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
+| ~~[UJ-15](#uj-15)~~ | ~~Low-Med~~ | ~~7, 10~~ | ~~State explanations re-teach vocabulary every run~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | ~~[UJ-16](#uj-16)~~ | ~~Low~~ | ~~1, 5~~ | ~~No `--version`, `-h`, `help`, or per-command `--help`~~ — shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115) |
 | ~~[UJ-17](#uj-17)~~ | ~~Low~~ | ~~6~~ | ~~`validate` prints "1 Profiles" and names nothing~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
 | [UJ-18](#uj-18) | Low | 7 | `--verbose` inlines composed Context without a separator |
@@ -347,12 +350,16 @@ missing)`, and `this is not a safe automatic repair`. Deliberate teardown and
 unexplained loss render identically, though a Marker removed by the Installer
 itself is a distinguishable state.
 
-### UJ-04
-`apply` prints `Changes: none` (pending work against post-apply state) above
+### ~~UJ-04~~
+~~`apply` prints `Changes: none` (pending work against post-apply state) above
 `Apply receipt: … 19 generated-output additions` (work just committed). Both are
 correct per the Apply Receipt model; sharing the bare word "Changes" is what
 misleads. Distinct labels — `Pending` versus `Applied` — carry the same model
-without the collision.
+without the collision.~~
+
+Shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122):
+concise and verbose apply reports label verified remaining work `Pending` and
+committed receipt work `Applied`.
 
 ### UJ-05
 <!-- historical-command-excerpts:start -->
@@ -416,14 +423,21 @@ list. A reader cannot tell which is authoritative.
 exits 1 on the same state. Automation cannot gate on `status`, and the two
 read-only commands disagree about what a blocker means.
 
-### UJ-14
-A fully-current `status` prints the outcome line, the aggregate line, and `No
+### ~~UJ-14~~
+~~A fully-current `status` prints the outcome line, the aggregate line, and `No
 Profile Installations need attention.` — three renderings of one fact, in the
-state users hit most often.
+state users hit most often.~~
 
-### UJ-15
-The `State explanations:` block reprints full definitions every invocation.
-Valuable on first encounter, noise by the tenth.
+Shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122):
+a fully current concise status states that fact once.
+
+### ~~UJ-15~~
+~~The `State explanations:` block reprints full definitions every invocation.
+Valuable on first encounter, noise by the tenth.~~
+
+Shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122):
+concise reports retain state names while state definitions appear only under
+the explicit `--verbose` view.
 
 ### ~~UJ-16~~
 ~~`--version` and `-h` are rejected as unknown commands, `help` is not a command,
@@ -486,11 +500,15 @@ Shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120):
 concise reports list changed paths from the reconciliation plan for Git and
 non-Git projects alike.
 
-### UJ-23
-The next-action line is deliberately one conservative aggregate. Across projects
+### ~~UJ-23~~
+~~The next-action line is deliberately one conservative aggregate. Across projects
 that behaves poorly: with one project cleanly appliable and another blocked, the
 run instructs the user to resolve blockers, concealing that the first project
-could be applied immediately.
+could be applied immediately.~~
+
+Shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122):
+next-action guidance is derived per project, names ready work alongside blocked
+work, and is omitted for projects with nothing to change.
 
 ---
 
