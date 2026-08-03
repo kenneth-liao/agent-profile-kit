@@ -412,6 +412,26 @@ describe("Installer-owned artifact-directory outputs", () => {
     )).toBe(true);
   });
 
+  test("preview reports combined content and mode member drift once", async () => {
+    const home = temporaryDirectory("agent-profile-kit-dir-combined-drift-home-");
+    const project = temporaryDirectory("agent-profile-kit-dir-combined-drift-project-");
+    const base = await contextInstallation(home, project);
+    const directory = normalizedDirectory();
+    await applyReconciliation(home, [withDirectoryOutput(base, directory)]);
+    const memberPath = `${directory.path}/SKILL.md`;
+    writeFileSync(join(project, memberPath), "# Drifted\n");
+    chmodSync(join(project, memberPath), 0o600);
+
+    const report = await previewReconciliation(
+      [withDirectoryOutput(base, directory)],
+      await readInstallationState(home),
+    );
+
+    expect(report.outputs.filter((output) =>
+      output.kind === "drifted member" && output.path === memberPath
+    )).toHaveLength(1);
+  });
+
   test("apply rolls back a mid-directory publication failure", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-rollback-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-rollback-project-");

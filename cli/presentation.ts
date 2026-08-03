@@ -384,6 +384,24 @@ function outputPathLines(outputs: readonly OutputReconciliationItem[]): readonly
     : paths;
 }
 
+function authoritativeVerboseOutputs(
+  outputs: readonly OutputReconciliationItem[],
+): readonly OutputReconciliationItem[] {
+  return outputs.filter((output) =>
+    output.kind !== "unchanged" || !outputs.some((candidate) =>
+      candidate.project === output.project &&
+      (
+        candidate.kind === "drifted member" ||
+        candidate.kind === "missing member" ||
+        candidate.kind === "unexpected member"
+      ) &&
+      // Directory member labels are constructed as `<output.path>/<member.path>`
+      // at ownership inspection, while root-mode drift uses the exact output path.
+      (candidate.path === output.path || candidate.path.startsWith(`${output.path}/`))
+    )
+  );
+}
+
 function changedRepositoryExclusions(report: ReconciliationReport): readonly ReconciliationReport["repositoryExclusions"][number][] {
   return report.repositoryExclusions.filter((change) =>
     change.current.length !== change.next.length ||
@@ -931,6 +949,18 @@ interface VerboseSectionOptions {
   readonly stateExplanationItems?: readonly ReconciliationItem[];
 }
 
+function delimitedContext(context: string): string {
+  const body = context.length > 0 && !context.endsWith("\n") ? `${context}\n` : context;
+  let fence = "---";
+  while (
+    context.includes(`${fence} begin Context ${fence}`) ||
+    context.includes(`${fence} end Context ${fence}`)
+  ) {
+    fence += "-";
+  }
+  return `${fence} begin Context ${fence}\n${body}${fence} end Context ${fence}`;
+}
+
 function verboseSections(
   report: ReconciliationReport,
   options: VerboseSectionOptions = {},
@@ -965,7 +995,7 @@ function verboseSections(
             `  Hosts: ${installation.hosts.join(", ")}\n` +
             `  Outputs: ${installation.outputs.join(", ")}\n` +
             `${resolved}\n` +
-            `  Context:\n${installation.context}`
+            `  Context:\n${delimitedContext(installation.context)}`
           );
         })
         .join("\n");
@@ -974,7 +1004,7 @@ function verboseSections(
     : report.blockers.map((blocker) => `- ${blocker.message}`).join("\n");
   const outputs = report.outputs.length === 0
     ? "(none)"
-    : report.outputs
+    : authoritativeVerboseOutputs(report.outputs)
         .map((output) => `${output.project}/${output.path}: ${output.kind}`)
         .join("\n");
   const repositoryExclusions = changedRepositoryExclusions(report).length === 0

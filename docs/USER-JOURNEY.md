@@ -158,8 +158,12 @@ including non-Git projects.
 
 Gaps: [UJ-07](#uj-07), ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
-[UJ-12](#uj-12), ~~[UJ-15](#uj-15)~~ (shipped in
-[#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)), [UJ-18](#uj-18),
+~~[UJ-12](#uj-12)~~ (shipped in
+[#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123)),
+~~[UJ-15](#uj-15)~~ (shipped in
+[#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)),
+~~[UJ-18](#uj-18)~~ (shipped in
+[#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123)),
 ~~[UJ-20](#uj-20)~~, ~~[UJ-22](#uj-22)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)).
 
@@ -320,14 +324,14 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | [UJ-09](#uj-09) | Medium | 12 | `unbind` recommends a no-op next step |
 | ~~[UJ-10](#uj-10)~~ | ~~Medium~~ | ~~2, 5~~ | ~~Missing-Profile error names paths, not available Profiles~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
 | ~~[UJ-11](#uj-11)~~ | ~~Medium~~ | ~~7, 11~~ | ~~Change counter buckets unknown output kinds as drift~~ — shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120) |
-| [UJ-12](#uj-12) | Medium | 7 | `preview --verbose` contradicts itself on one path |
+| ~~[UJ-12](#uj-12)~~ | ~~Medium~~ | ~~7~~ | ~~`preview --verbose` contradicts itself on one path~~ — shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123) |
 | [UJ-13](#uj-13) | Medium | 11 | `status` exits 0 with blockers; `preview` exits 1 |
 | ~~[UJ-23](#uj-23)~~ | ~~Medium~~ | ~~11~~ | ~~One aggregate next-action stalls unblocked projects~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | ~~[UJ-14](#uj-14)~~ | ~~Low-Med~~ | ~~10~~ | ~~Happy-path `status` says the same thing three times~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | ~~[UJ-15](#uj-15)~~ | ~~Low-Med~~ | ~~7, 10~~ | ~~State explanations re-teach vocabulary every run~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | ~~[UJ-16](#uj-16)~~ | ~~Low~~ | ~~1, 5~~ | ~~No `--version`, `-h`, `help`, or per-command `--help`~~ — shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115) |
 | ~~[UJ-17](#uj-17)~~ | ~~Low~~ | ~~6~~ | ~~`validate` prints "1 Profiles" and names nothing~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
-| [UJ-18](#uj-18) | Low | 7 | `--verbose` inlines composed Context without a separator |
+| ~~[UJ-18](#uj-18)~~ | ~~Low~~ | ~~7~~ | ~~`--verbose` inlines composed Context without a separator~~ — shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123) |
 
 ### ~~UJ-01~~
 ~~`init` closes with an unusable next step because a fresh Workspace holds zero
@@ -413,10 +417,14 @@ Shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120):
 output kinds are summarized exhaustively and changed paths render with an
 explicit marker in concise reports.
 
-### UJ-12
-`preview --verbose` lists the same Skill path as both `unchanged` and `missing
+### ~~UJ-12~~
+~~`preview --verbose` lists the same Skill path as both `unchanged` and `missing
 member`, because directory-level and member-level records print into one flat
-list. A reader cannot tell which is authoritative.
+list. A reader cannot tell which is authoritative.~~
+
+Shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123):
+member-level attention records now replace the enclosing directory's
+`unchanged` record in verbose output.
 
 ### UJ-13
 `status` exits 0 while printing `Attention required` and two blockers; `preview`
@@ -460,10 +468,16 @@ Shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119):
 `validate` now lists the Profiles found and unique Hosts bound while rendering
 Profile and Project Binding counts grammatically.
 
-### UJ-18
-`--verbose` prints composed Context inline under `Context:` with no delimiter, so
-multi-module Context runs together with surrounding report structure and cannot
-be scanned or copied cleanly.
+### ~~UJ-18~~
+~~`--verbose` prints composed Context inline under `Context:` with no delimiter,
+so multi-module Context runs together with surrounding report structure and
+cannot be scanned or copied cleanly.~~
+
+Shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123):
+sentence-case `--- begin Context ---` / `--- end Context ---`-style fences
+delimit each composed Context in verbose output. The fence grows when its text
+appears inside the Context, so scanners can identify the outer boundary without
+escaping Workspace content.
 
 ### UJ-19
 When a run is blocked, the report still leads with work that cannot happen. A
