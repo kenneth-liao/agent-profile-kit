@@ -479,8 +479,12 @@ function stateExplanationLines(items: readonly ReconciliationItem[]): readonly s
   ];
 }
 
+function blockerProject(blocker: ReconciliationBlocker): string | undefined {
+  return blocker.project || undefined;
+}
+
 function projectCandidates(blocker: ReconciliationBlocker, displayProject?: string): string[] {
-  return [...new Set([blocker.project, displayProject].filter((project): project is string => project !== undefined))];
+  return [...new Set([blockerProject(blocker), displayProject].filter((project): project is string => project !== undefined))];
 }
 
 function stripProjectPrefix(message: string, projects: readonly string[]): string {
@@ -566,9 +570,10 @@ function groupProjects(report: ReconciliationReport): GroupedProjects {
     ensureGroup(canonicalProject, item.project).items.push(item);
   }
   for (const blocker of report.blockers) {
-    if (blocker.project) {
-      const canonicalProject = canonicalByProject.get(blocker.project) ?? blocker.project;
-      ensureGroup(canonicalProject, blocker.project).blockers.push(blocker);
+    const project = blockerProject(blocker);
+    if (project !== undefined) {
+      const canonicalProject = canonicalByProject.get(project) ?? project;
+      ensureGroup(canonicalProject, project).blockers.push(blocker);
     }
   }
   const groups = [...groupsByCanonical.values()].sort((left, right) => left.project.localeCompare(right.project));
@@ -600,6 +605,17 @@ function groupHasReconciliationWork(group: ProjectGroup | undefined): boolean {
   );
 }
 
+function fullyCurrentProjectCount(report: ReconciliationReport): number | undefined {
+  if (
+    report.items.length === 0 ||
+    report.blockers.length > 0 ||
+    report.items.some((item) => item.kind !== "current")
+  ) {
+    return undefined;
+  }
+  return new Set(report.items.map((item) => item.project)).size;
+}
+
 function outcomeLine(
   command: LifecycleCommand,
   report: ReconciliationReport,
@@ -611,28 +627,35 @@ function outcomeLine(
     if (report.items.some((item) => item.kind !== "current")) return "Apply completed with attention";
     return "Apply complete";
   }
-  if (report.blockers.length > 0 || report.items.some((item) => item.kind !== "current")) {
+  const currentProjects = fullyCurrentProjectCount(report);
+  if (currentProjects === undefined && report.items.length > 0) {
     return "Attention required";
   }
   const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-  return report.items.length === 0
+  return currentProjects === undefined
     ? `No ${projects} are configured`
-    : `All ${projects} are current`;
+    : `All ${projects} are current (${plural(currentProjects, capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular))})`;
 }
 
-function aggregateLine(report: ReconciliationReport, groups: readonly ProjectGroup[]): string {
+function aggregateLine(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  groups: readonly ProjectGroup[],
+): string {
   const installations = groups.length;
   if (report.blockers.length > 0) {
+    const pending = command === "apply" ? " · Pending: blocked" : "";
     return (
-      `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}: ${installations} · ` +
+      `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}: ${installations}${pending} · ` +
       `Blockers: ${report.blockers.length}`
     );
   }
   const summary = summarizeOutputs(report.outputs);
   const changes = changeParts(summary);
+  const workLabel = command === "apply" ? "Pending" : "Changes";
   return (
     `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}: ${installations} · ` +
-    `Changes: ${changes.length === 0 ? "none" : changes.join(", ")} · ` +
+    `${workLabel}: ${changes.length === 0 ? "none" : changes.join(", ")} · ` +
     `Blockers: ${report.blockers.length}`
   );
 }
@@ -707,41 +730,60 @@ function activationLines(
     });
 }
 
-/**
- * One aggregate next-action instruction for concise lifecycle results.
- * Derives from the same attention surface already computed for the report body
- * (active groups + unscoped diagnostics + blockers) — not a third "actionable" predicate.
- * Blockers take precedence; completed/no-op apply is silent after the blocker branch.
- */
-function nextActionLine(
+function nextActionLines(
   command: LifecycleCommand,
   report: ReconciliationReport,
   surface: {
-    readonly activeGroups: readonly ProjectGroup[];
+    readonly groups: readonly ProjectGroup[];
     readonly unscopedItems: readonly ReconciliationItem[];
   },
-): string | undefined {
-  if (report.blockers.length > 0) {
-    const blockerWord = report.blockers.length === 1 ? "blocker" : "blockers";
-    // Same command the user just ran (status, preview, or apply) so the retry
-    // invariant is structural — not parallel prose strings that can drift.
-    return `Next: Resolve the reported ${blockerWord}, then run ${COMMAND_NAME} ${command} again.`;
+): readonly string[] {
+  if (command === "apply" && report.blockers.length === 0) return [];
+
+  const globalBlockers = report.blockers.filter((blocker) => blockerProject(blocker) === undefined);
+  const actions = surface.groups.flatMap((group) => {
+    const project = displayProjectPath(group.canonicalProject, group.project);
+    if (group.blockers.length > 0) {
+      const blockerWord = group.blockers.length === 1 ? "blocker" : "blockers";
+      return [`${project}: Resolve the reported ${blockerWord}, then run ${COMMAND_NAME} ${command} again.`];
+    }
+    if (!groupNeedsAttention(group, command)) return [];
+    if (report.blockers.length > 0 && globalBlockers.length === 0) {
+      if (command === "status") {
+        return [
+          `${project}: After all blockers are resolved, run ${COMMAND_NAME} preview to review its ` +
+          "planned changes (read-only), then apply when ready.",
+        ];
+      }
+      return [
+        `${project}: After all blockers are resolved, run ${COMMAND_NAME} apply` +
+        `${command === "apply" ? " again" : ""}.`,
+      ];
+    }
+    if (globalBlockers.length > 0) return [];
+    if (command === "status") {
+      return [
+        `${project}: Run ${COMMAND_NAME} preview to review its planned changes (read-only), then apply when ready.`,
+      ];
+    }
+    return [`${project}: Run ${COMMAND_NAME} apply.`];
+  });
+
+  if (globalBlockers.length > 0) {
+    const blockerWord = globalBlockers.length === 1 ? "blocker" : "blockers";
+    actions.push(`Resolve the reported global ${blockerWord}, then run ${COMMAND_NAME} ${command} again.`);
   }
-
-  // Completed or no-op apply: reconciliation already ran; do not recommend more work.
-  if (command === "apply") return undefined;
-
-  const hasActionableWork =
-    surface.activeGroups.length > 0 ||
-    surface.unscopedItems.some((item) => item.kind !== "current");
-
-  if (!hasActionableWork) return undefined;
-
-  if (command === "status") {
-    return `Next: Run ${COMMAND_NAME} preview to review the planned changes (read-only), then apply when ready.`;
+  if (
+    report.blockers.length === 0 &&
+    surface.unscopedItems.some((item) => item.kind !== "current")
+  ) {
+    actions.push(
+      command === "status"
+        ? `Run ${COMMAND_NAME} preview to review the planned changes (read-only), then apply when ready.`
+        : `Run ${COMMAND_NAME} apply.`,
+    );
   }
-  return `Next: Run ${COMMAND_NAME} apply to ${DEFAULT_VIEW_LEXICON.reconciliation.base} ` +
-    `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}.`;
+  return actions.length === 0 ? [] : ["Next:", ...actions.map((action) => `- ${action}`)];
 }
 
 function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
@@ -768,13 +810,13 @@ function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
   const exclusionClause = repositoryExclusionClause(receipt, true);
   if (entries.length === 0 && exclusionClause === undefined) {
     return [
-      `Apply receipt: no changes were applied; all ` +
+      `Applied: none; all ` +
       `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
     ];
   }
 
   const lines = [
-    "Apply receipt:",
+    "Applied:",
     ...(entries.length > 0 ? entries : [`- No ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} changes`]),
   ];
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
@@ -789,8 +831,9 @@ function conciseReport(
   const grouped = groupProjects(report);
   const groups = grouped.groups;
   const blocked = report.blockers.length > 0;
+  const fullyCurrentStatus = command === "status" && fullyCurrentProjectCount(report) !== undefined;
   const lines = [outcomeLine(command, report, receipt !== undefined)];
-  if (!blocked) lines.push(aggregateLine(report, groups));
+  if (!blocked && !fullyCurrentStatus) lines.push(aggregateLine(command, report, groups));
   const receiptGroups = receipt === undefined
     ? new Map<string, ProjectGroup>()
     : new Map(groupProjects(receipt).groups.map((group) => [group.canonicalProject, group]));
@@ -808,7 +851,7 @@ function conciseReport(
       );
 
   if (activeGroups.length === 0) {
-    if (groups.length > 0 && report.blockers.length === 0) {
+    if (groups.length > 0 && report.blockers.length === 0 && !fullyCurrentStatus) {
       const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
       lines.push(
         command === "apply"
@@ -852,23 +895,15 @@ function conciseReport(
   const exclusionClause = repositoryExclusionClause(report, false);
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
 
-  const globalBlockers = report.blockers.filter((blocker) => !blocker.project);
+  const globalBlockers = report.blockers.filter((blocker) => blockerProject(blocker) === undefined);
   if (globalBlockers.length > 0) {
     lines.push("", "Global blockers:");
     for (const blocker of globalBlockers) lines.push(`- ${formatBlocker(blocker)}`);
   }
-  if (blocked) lines.push("", aggregateLine(report, groups));
+  if (blocked) lines.push("", aggregateLine(command, report, groups));
   if (!blocked && grouped.unscopedItems.length > 0) {
     lines.push("", "Diagnostics:");
     for (const item of grouped.unscopedItems) lines.push(`- ${item.project}: ${itemText(item)}`);
-  }
-  // After every state line (installations + unscoped diagnostics) so glosses follow the states they explain.
-  const explanations = blocked ? [] : stateExplanationLines([
-    ...activeGroups.flatMap((group) => group.items),
-    ...grouped.unscopedItems,
-  ]);
-  if (explanations.length > 0) {
-    lines.push("", ...explanations);
   }
   const warnings = warningsForPresentation(report.warnings);
   if (warnings.length > 0) {
@@ -877,11 +912,11 @@ function conciseReport(
   }
   const setup = hostSetupLines(command, report);
   if (setup.length > 0) lines.push("", ...setup);
-  const next = nextActionLine(command, report, {
-    activeGroups,
+  const next = nextActionLines(command, report, {
+    groups,
     unscopedItems: grouped.unscopedItems,
   });
-  if (next) lines.push("", next);
+  if (next.length > 0) lines.push("", ...next);
   if (receipt) lines.push("", ...applyReceiptLines(receipt));
   if (command === "apply" && report.blockers.length === 0) {
     const activation = receipt ? activationLines(report, receipt) : [];
@@ -890,7 +925,21 @@ function conciseReport(
   return `${lines.join("\n")}\n`;
 }
 
-function verboseSections(report: ReconciliationReport, completedRepositoryExclusions = false): string {
+interface VerboseSectionOptions {
+  readonly completedRepositoryExclusions?: boolean;
+  readonly includeStateExplanations?: boolean;
+  readonly stateExplanationItems?: readonly ReconciliationItem[];
+}
+
+function verboseSections(
+  report: ReconciliationReport,
+  options: VerboseSectionOptions = {},
+): string {
+  const {
+    completedRepositoryExclusions = false,
+    includeStateExplanations = true,
+    stateExplanationItems = report.items,
+  } = options;
   const items = report.items.length === 0
     ? "(no Profile Installations)"
     : report.items
@@ -942,7 +991,9 @@ function verboseSections(report: ReconciliationReport, completedRepositoryExclus
   const warnings = presentationWarnings.length === 0
     ? "(none)"
     : presentationWarnings.map((warning) => `- ${warning}`).join("\n");
-  const detail = `Projects:\n${items}\nOutputs:\n${outputs}\nRepository Exclusions:\n${repositoryExclusions}\nRepository Exclusion Repairs:\n${repositoryExclusionRepairs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\n`;
+  const explanations = includeStateExplanations ? stateExplanationLines(stateExplanationItems) : [];
+  const explanationSection = explanations.length > 0 ? `${explanations.join("\n")}\n` : "";
+  const detail = `Projects:\n${items}\n${explanationSection}Outputs:\n${outputs}\nRepository Exclusions:\n${repositoryExclusions}\nRepository Exclusion Repairs:\n${repositoryExclusionRepairs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\n`;
   const blockerSection = `Blockers:\n${blockers}\n`;
   return report.blockers.length > 0
     ? `${blockerSection}${detail}`
@@ -962,8 +1013,13 @@ function verboseReport(command: LifecycleCommand, report: ReconciliationReport):
 function verboseApplyReport(result: ApplyReconciliationResult): string {
   const report = (
     `${outcomeLine("apply", result.resultingState, true)}\n` +
-    `Resulting state:\n${verboseSections(result.resultingState)}` +
-    `Apply receipt:\n${verboseSections(result.receipt, true)}` +
+    `Pending:\n${verboseSections(result.resultingState, {
+      stateExplanationItems: [...result.resultingState.items, ...result.receipt.items],
+    })}` +
+    `Applied:\n${verboseSections(result.receipt, {
+      completedRepositoryExclusions: true,
+      includeStateExplanations: false,
+    })}` +
     verboseSetupSection("apply", result.resultingState)
   );
   const activation = result.resultingState.blockers.length === 0
@@ -987,7 +1043,9 @@ export function formatApplyVerificationFailure(
   options: { readonly verbose?: boolean } = {},
 ): string {
   if (options.verbose) {
-    return `${message}\nApply receipt:\n${verboseSections(receipt, true)}` +
+    return `${message}\nApplied:\n${verboseSections(receipt, {
+      completedRepositoryExclusions: true,
+    })}` +
       verboseSetupSection("apply", receipt);
   }
   const lines = [

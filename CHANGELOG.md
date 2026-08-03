@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Make mixed-project guidance reflect the all-project apply gate, normalize global blocker scope, deduplicate verbose state explanations, and retain the current Project count ([#142](https://github.com/kenneth-liao/agent-profile-kit/pull/142)).
+
 - Keep `init` next steps valid when adopting an existing Workspace, make example binding guidance project-scoped, and diagnose partial example removal ([#141](https://github.com/kenneth-liao/agent-profile-kit/pull/141)).
 
 ### Added
@@ -50,6 +52,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Require an explicit Workspace selection in Local Configuration schema version 2; `init` records the conventional default or migrates supported version-1 configuration without implicit read-time migration ([#68](https://github.com/kenneth-liao/agent-profile-kit/issues/68)).
 
 ### Changed
+
+- Map apply output from `Changes:` and `Resulting state:` to `Pending:`, map `Apply receipt:` to `Applied:`, remove the duplicate `No Projects need attention.` current-status line, keep state definitions behind `--verbose`, and name per-project next actions ([#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
 
 - Derive default and verbose Git exclusion repair receipts from one canonical line shape ([#128](https://github.com/kenneth-liao/agent-profile-kit/pull/128)).
 

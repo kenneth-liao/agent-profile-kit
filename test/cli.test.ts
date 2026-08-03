@@ -538,7 +538,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const applyViaReal = runCli(home, "apply");
     expect(applyViaReal.status, applyViaReal.stderr).toBe(0);
     expect(applyViaReal.stdout).toContain("Apply complete");
-    expect(applyViaReal.stdout).toContain("Changes: none");
+    expect(applyViaReal.stdout).toContain("Pending: none");
     // Installation identity/state must not rewrite solely because the authored alias changed.
     expect(readFileSync(statePath(home), "utf8")).toBe(stateAfterApply);
 
@@ -1446,9 +1446,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "status");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.startsWith("All Projects are current\n")).toBe(true);
-    expect(result.stdout).toContain("Changes: none");
-    expect(result.stdout).toContain("No Projects need attention.");
+    expect(result.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
+    expect(result.stdout.match(/All Projects are current/g)).toHaveLength(1);
+    expect(result.stdout).not.toContain("Changes:");
+    expect(result.stdout).not.toContain("No Projects need attention.");
     expect(result.stdout).not.toContain("unchanged generated file");
     expect(result.stdout).not.toContain("Desired State:");
   });
@@ -1594,7 +1595,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status).toBe(1);
     expect(result.stdout.startsWith("Apply blocked\n")).toBe(true);
     expect(result.stdout.split(blocker)).toHaveLength(2);
-    expect(result.stdout).toContain("Next: Resolve the reported blocker, then run apkit apply again.");
+    expect(result.stdout).toContain(
+      `Next:\n- ${projectPath}: Resolve the reported blocker, then run apkit apply again.`,
+    );
     expect(result.stderr).toBe("");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
@@ -1645,7 +1648,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout.startsWith("Apply complete\n")).toBe(true);
     expect(result.stdout).toContain("State: current");
     expect(result.stdout).not.toContain("State: addition");
-    expect(result.stdout).toContain("Apply receipt:");
+    expect(result.stdout).toContain("Applied:");
     expect(result.stdout).toContain("+ .agent-profile-kit/codex/context.md");
     expect(result.stdout).toContain("+ .agent-profile-kit/installation.json");
     expect(result.stdout).toContain("+ .codex/hooks.json");
@@ -1705,7 +1708,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("Apply receipt:");
+    expect(result.stdout).toContain("Applied:");
     expect(result.stdout).toContain("~ .agent-profile-kit/codex/context.md");
     expect(result.stdout).toContain(`Project: ${projectPath}`);
     expect(result.stdout).toContain("State: current");
@@ -1739,7 +1742,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain(`Project: ${untouchedProject}`);
   });
 
-  test("verbose apply labels resulting state and pre-apply receipt separately", () => {
+  test("verbose apply labels pending and applied work separately", () => {
     const home = isolatedHome();
     initialize(home);
     const projectPath = project();
@@ -1754,13 +1757,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply", "--verbose");
 
     expect(result.status, result.stderr).toBe(0);
-    const resultingState = result.stdout.indexOf("Resulting state:");
-    const receipt = result.stdout.indexOf("Apply receipt:");
-    expect(resultingState).toBeGreaterThanOrEqual(0);
-    expect(receipt).toBeGreaterThan(resultingState);
-    expect(result.stdout.slice(resultingState, receipt)).toContain(`${projectPath}: current`);
-    expect(result.stdout.slice(resultingState, receipt)).not.toContain(`${projectPath}: stale source`);
-    expect(result.stdout.slice(receipt)).toContain(`${projectPath}: stale source`);
+    const pending = result.stdout.indexOf("Pending:");
+    const applied = result.stdout.indexOf("Applied:");
+    expect(pending).toBeGreaterThanOrEqual(0);
+    expect(applied).toBeGreaterThan(pending);
+    expect(result.stdout.slice(pending, applied)).toContain(`${projectPath}: current`);
+    expect(result.stdout.slice(pending, applied)).not.toContain(`${projectPath}: stale source`);
+    expect(result.stdout.slice(applied)).toContain(`${projectPath}: stale source`);
   });
 
   test("reads schema-v2 installation state for preview and rewrites canonical records on apply", () => {
@@ -1824,9 +1827,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Apply complete");
-    expect(result.stdout).toContain("Changes: none");
+    expect(result.stdout).toContain("Pending: none");
     expect(result.stdout).toContain("All Projects were already current.");
-    expect(result.stdout).toContain("Apply receipt: no changes were applied");
+    expect(result.stdout).toContain("Applied: none");
     expect(result.stdout).not.toContain("becomes active");
     expect(result.stdout).not.toContain("generated file update");
     expect(result.stdout).not.toContain("unchanged generated file");
@@ -1860,7 +1863,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const applied = runCli(home, "apply");
     expect(applied.status, applied.stderr).toBe(0);
-    expect(applied.stdout).toContain("Apply receipt: no changes were applied");
+    expect(applied.stdout).toContain("Applied: none");
     expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
     expect(outputPaths.map((path) => statSync(path).mtimeMs)).toEqual(outputTimesBefore);
   });
@@ -2772,7 +2775,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const repaired = runCli(home, "apply");
     expect(repaired.status, repaired.stderr).toBe(0);
     expect(repaired.stdout).toContain("State: current");
-    expect(repaired.stdout).toContain("Apply receipt:");
+    expect(repaired.stdout).toContain("Applied:");
     expect(repaired.stdout).toContain("Git exclusions: 3 recorded entries restored.");
     expect(repaired.stdout).not.toContain(exclude);
     expect(repaired.stdout).not.toContain("apply will restore");
@@ -3027,7 +3030,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(repaired.status, repaired.stderr).toBe(0);
     expect(current.status, current.stderr).toBe(0);
-    expect(current.stdout.startsWith("All Projects are current\n")).toBe(true);
+    expect(current.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
     expect(current.stdout).not.toContain("Next:");
   });
 

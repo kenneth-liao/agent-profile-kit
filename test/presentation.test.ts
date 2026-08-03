@@ -393,6 +393,28 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).not.toContain(`- ${project}:`);
   });
 
+  test("labels remaining and committed apply work distinctly", () => {
+    const receipt = identityReport("/project-a");
+    const resultingState = emptyReport({
+      desired: receipt.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    const concise = formatApplyReport(applyResult(receipt, resultingState));
+
+    expect(concise).toContain("Pending: none");
+    expect(concise).toContain("Applied:\n- /project-a:\n  + a.md");
+    expect(concise).not.toContain("Changes:");
+    expect(concise).not.toContain("Apply receipt:");
+
+    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+    expect(verbose).toContain("Pending:\n");
+    expect(verbose).toContain("Applied:\n");
+    expect(verbose).not.toContain("Resulting state:");
+    expect(verbose).not.toContain("Apply receipt:");
+  });
+
   test("names the Hosts recorded by each Project Binding", () => {
     const project = join(homedir(), "multi-host-project");
     const report = identityReport(project, ["claude", "codex"]);
@@ -736,7 +758,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).toContain("! skill/SKILL.md (missing member)");
   });
 
-  test("explains every non-current project state only when present", () => {
+  test("keeps every present non-current state definition available in verbose output", () => {
     for (const kind of NON_CURRENT_STATE_ORDER) {
       const report = emptyReport({
         desired: [{
@@ -758,14 +780,14 @@ describe("formatLifecycleReport concise terminology", () => {
       });
 
       const concise = formatLifecycleReport("status", report);
+      expect(concise).not.toContain("State explanations:");
       if (kind === "blocked") {
         expect(concise).toContain("Blocker: hooks disabled");
         expect(concise).not.toContain("State:");
-        expect(concise).not.toContain("State explanations:");
-        continue;
+      } else {
+        expect(concise).toContain(`State: ${kind}`);
       }
-      expect(concise).toContain(`State: ${kind}`);
-      const glosses = explanationLines(concise);
+      const glosses = explanationLines(formatLifecycleReport("status", report, { verbose: true }));
       expect(glosses).toHaveLength(1);
       expect(glosses[0]).toMatch(new RegExp(`^- ${kind.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: .+`));
       expect(glosses[0]!.length).toBeGreaterThan(`- ${kind}: `.length);
@@ -787,6 +809,29 @@ describe("formatLifecycleReport concise terminology", () => {
     const allCurrent = formatLifecycleReport("status", currentOnly);
     expect(allCurrent).not.toContain("State explanations:");
     expect(allCurrent).not.toContain("State: current");
+  });
+
+  test("keeps state definitions behind the explicit verbose view", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "stale source", project: "/project-a" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
+    });
+
+    const concise = formatLifecycleReport("status", report);
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+
+    expect(concise).not.toContain("State explanations:");
+    expect(verbose).toContain(
+      "State explanations:\n- stale source: Workspace source changed since the last apply",
+    );
   });
 
   test("blocked reports suppress planned detail for otherwise actionable projects", () => {
@@ -842,7 +887,7 @@ describe("formatLifecycleReport concise terminology", () => {
     }
   });
 
-  test("orders state explanations stably by NON_CURRENT_STATE_ORDER when several kinds are present", () => {
+  test("orders verbose state definitions stably by NON_CURRENT_STATE_ORDER", () => {
     const present: readonly ReconciliationKind[] = ["removal", "blocked", "addition", "stale source"];
     const report = emptyReport({
       desired: present.map((kind, index) => ({
@@ -860,22 +905,22 @@ describe("formatLifecycleReport concise terminology", () => {
       ),
     });
 
-    const glosses = explanationLines(formatLifecycleReport("status", report));
+    const glosses = explanationLines(formatLifecycleReport("status", report, { verbose: true }));
     const kinds = glosses.map((line) => line.slice(2, line.indexOf(":")));
     expect(kinds).toEqual(NON_CURRENT_STATE_ORDER.filter((kind) => present.includes(kind)));
   });
 
-  test("places state explanations after Diagnostics for unscoped items", () => {
+  test("places verbose state definitions after Projects for unscoped items", () => {
     const report = emptyReport({
       items: [{ kind: "removal", project: "/orphan" }],
     });
-    const concise = formatLifecycleReport("status", report);
-    const diagnosticsAt = concise.indexOf("Diagnostics:");
-    const explanationsAt = concise.indexOf("State explanations:");
-    expect(diagnosticsAt).toBeGreaterThan(-1);
-    expect(explanationsAt).toBeGreaterThan(diagnosticsAt);
-    expect(concise).toContain("- /orphan: removal");
-    expect(explanationLines(concise)).toHaveLength(1);
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    const projectsAt = verbose.indexOf("Projects:");
+    const explanationsAt = verbose.indexOf("State explanations:");
+    expect(projectsAt).toBeGreaterThan(-1);
+    expect(explanationsAt).toBeGreaterThan(projectsAt);
+    expect(verbose).toContain("/orphan: removal");
+    expect(explanationLines(verbose)).toHaveLength(1);
   });
 
   test("summarizes Git exclusions in one default clause and keeps exact deltas in --verbose", () => {
@@ -987,8 +1032,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("example warning");
     expect(verbose).toContain("Blockers:");
     expect(verbose).toContain("/project-a: example blocker");
-    // Verbose remains the complete diagnostic view, not the concise glosses.
-    expect(verbose).not.toContain("State explanations:");
+    expect(verbose).toContain("State explanations:");
     expect(verbose).not.toContain("generated-output");
     expect(verbose).not.toContain("Git-local exclusions that keep Installer-owned generated paths untracked");
   });
@@ -1041,8 +1085,25 @@ describe("formatLifecycleReport concise terminology", () => {
     const verbose = formatApplyReport(applyResult(receipt, result), { verbose: true });
 
     expect(verbose).not.toContain("apply will restore");
-    expect(verbose).toContain("Apply receipt:");
+    expect(verbose).toContain("Applied:");
     expect(verbose).toContain("restored 1 recorded Repository Exclusion entry");
+  });
+
+  test("verbose apply explains non-current states once across pending and applied sections", () => {
+    const receipt = emptyReport({
+      items: [{ kind: "stale source", project: "/repo" }],
+    });
+    const resultingState = emptyReport({
+      items: [{ kind: "repairable missing output", project: "/repo" }],
+    });
+
+    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+
+    expect(verbose.match(/State explanations:/g)).toHaveLength(1);
+    expect(explanationLines(verbose)).toEqual([
+      expect.stringContaining("stale source: Workspace source changed"),
+      expect.stringContaining("repairable missing output: An owned generated file is wholly missing, but ownership is proven"),
+    ]);
   });
 
   test("apply only expands projects with receipt work", () => {
@@ -1104,7 +1165,8 @@ describe("formatLifecycleReport concise terminology", () => {
     const concise = formatApplyReport(applyResult(emptyReport(), resultingState));
 
     expect(concise.startsWith("Apply completed with blockers\n")).toBe(true);
-    expect(concise).toContain("Next: Resolve the reported blocker");
+    expect(concise).toContain("Pending: blocked");
+    expect(concise).toContain("- /project-a: Resolve the reported blocker");
   });
 
   test("verification failures print the completed receipt without claiming current state", () => {
@@ -1119,7 +1181,7 @@ describe("formatLifecycleReport concise terminology", () => {
     );
 
     expect(concise.startsWith("Apply committed; post-apply verification failed: transient read\n")).toBe(true);
-    expect(concise).toContain("Apply receipt:");
+    expect(concise).toContain("Applied:");
     expect(concise).toContain("+ a.md");
     expect(concise).not.toContain("Apply complete");
   });
@@ -1127,10 +1189,17 @@ describe("formatLifecycleReport concise terminology", () => {
 
 describe("formatLifecycleReport next-action guidance", () => {
   function nextActionLines(reportText: string): string[] {
-    return reportText.split("\n").filter((line) => line.startsWith("Next:"));
+    const next = reportText.indexOf("Next:\n");
+    if (next < 0) return [];
+    return reportText
+      .slice(next + "Next:\n".length)
+      .split("\n\n", 1)[0]!
+      .split("\n")
+      .filter((line) => line.startsWith("- "))
+      .map((line) => line.slice(2));
   }
 
-  test("actionable status recommends read-only preview before apply without rebinding", () => {
+  test("stale source status reports what changed and what to run", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -1152,6 +1221,8 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(next[0]).toMatch(/read-only/i);
     expect(next[0]).not.toMatch(/bind/i);
     expect(concise).toContain("Attention required");
+    expect(concise).toContain("State: stale source");
+    expect(concise).toContain("~ a.md");
   });
 
   test("ready preview recommends apply", () => {
@@ -1260,6 +1331,25 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(nextActionLines(formatLifecycleReport("preview", current))).toEqual([]);
   });
 
+  test("fully current status states that fact once", () => {
+    const current = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    const status = formatLifecycleReport("status", current);
+
+    expect(status).toBe("All Projects are current (1 Project)\n");
+  });
+
   test("completed or no-op apply without blockers emits no next action", () => {
     const current = emptyReport({
       desired: [{
@@ -1305,7 +1395,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(metadataOnly).toContain("Project update");
   });
 
-  test("mixed multi-project blockers take precedence over actionable peers", () => {
+  test("mixed multi-project guidance names ready work alongside blocked work", () => {
     const mixedBlocked = emptyReport({
       desired: [
         {
@@ -1336,19 +1426,40 @@ describe("formatLifecycleReport next-action guidance", () => {
       blockers: [{ message: "/project-b: hooks disabled", project: "/project-b" }],
     });
 
-    const statusNext = nextActionLines(formatLifecycleReport("status", mixedBlocked));
-    expect(statusNext).toHaveLength(1);
-    expect(statusNext[0]).toMatch(/resolve/i);
-    expect(statusNext[0]).toMatch(/apkit status/);
-    expect(statusNext[0]).not.toMatch(/apply/i);
+    const status = formatLifecycleReport("status", mixedBlocked);
 
-    const previewNext = nextActionLines(formatLifecycleReport("preview", mixedBlocked));
-    expect(previewNext).toHaveLength(1);
-    expect(previewNext[0]).toMatch(/apkit preview/);
-    expect(previewNext[0]).not.toMatch(/apply/i);
+    expect(status).toContain(
+      "Next:\n" +
+        "- /project-a: After all blockers are resolved, run apkit preview to review its planned changes " +
+        "(read-only), then apply when ready.\n" +
+        "- /project-b: Resolve the reported blocker, then run apkit status again.",
+    );
   });
 
-  test("mixed multi-project actionable outcomes emit one aggregate next action", () => {
+  test("global blockers suppress ready guidance for every project", () => {
+    const globallyBlocked = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "stale source", project: "/project-a" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
+      blockers: [{ message: "Installation State is unreadable", project: "" }],
+    });
+
+    const status = formatLifecycleReport("status", globallyBlocked);
+
+    expect(status).toContain(
+      "Next:\n- Resolve the reported global blocker, then run apkit status again.",
+    );
+    expect(status).not.toContain("Ready to apply.");
+  });
+
+  test("mixed actionable outcomes name only projects with work", () => {
     const mixedActionable = emptyReport({
       desired: [
         {
@@ -1380,6 +1491,7 @@ describe("formatLifecycleReport next-action guidance", () => {
 
     const mixedStatus = formatLifecycleReport("status", mixedActionable);
     expect(nextActionLines(mixedStatus)).toHaveLength(1);
+    expect(nextActionLines(mixedStatus)[0]).toMatch(/^\/project-b:/);
     expect(nextActionLines(mixedStatus)[0]).toMatch(/preview/i);
     expect(nextActionLines(mixedStatus)[0]).not.toMatch(/bind/i);
   });
@@ -1422,8 +1534,8 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
 
     const status = formatLifecycleReport("status", report);
-    expect(status).toContain("All Projects are current");
-    expect(status).toContain("No Projects need attention.");
+    expect(status).toContain("All Projects are current (1 Project)");
+    expect(status).not.toContain("No Projects need attention.");
     expect(nextActionLines(status)).toEqual([]);
 
     const preview = formatLifecycleReport("preview", report);
@@ -1454,7 +1566,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(next[0]).not.toMatch(/bind/i);
   });
 
-  test("plural blockers wording when more than one blocker is present", () => {
+  test("multiple blocked projects each receive their own guidance", () => {
     const report = emptyReport({
       desired: [
         {
@@ -1485,8 +1597,9 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
 
     const next = nextActionLines(formatLifecycleReport("status", report));
-    expect(next).toHaveLength(1);
-    expect(next[0]).toMatch(/blockers/);
-    expect(next[0]).not.toMatch(/blocker,/);
+    expect(next).toEqual([
+      "/a: Resolve the reported blocker, then run apkit status again.",
+      "/b: Resolve the reported blocker, then run apkit status again.",
+    ]);
   });
 });
