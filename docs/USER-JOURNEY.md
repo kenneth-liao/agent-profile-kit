@@ -474,7 +474,10 @@ so multi-module Context runs together with surrounding report structure and
 cannot be scanned or copied cleanly.~~
 
 Shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123):
-explicit begin/end markers delimit each composed Context in verbose output.
+sentence-case `--- begin Context ---` / `--- end Context ---`-style fences
+delimit each composed Context in verbose output. The fence grows when its text
+appears inside the Context, so scanners can identify the outer boundary without
+escaping Workspace content.
 
 ### UJ-19
 When a run is blocked, the report still leads with work that cannot happen. A

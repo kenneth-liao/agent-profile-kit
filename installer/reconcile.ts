@@ -582,7 +582,7 @@ function pushDirectoryMemberItems(
   for (const path of inspection.missingMembers) {
     outputItems.push({ kind: "missing member", path, project });
   }
-  for (const path of [...inspection.driftedMembers, ...inspection.modeDriftedMembers]) {
+  for (const path of new Set([...inspection.driftedMembers, ...inspection.modeDriftedMembers])) {
     outputItems.push({ kind: "drifted member", path, project });
   }
   for (const path of inspection.unexpectedMembers) {

@@ -387,25 +387,16 @@ function outputPathLines(outputs: readonly OutputReconciliationItem[]): readonly
 function authoritativeVerboseOutputs(
   outputs: readonly OutputReconciliationItem[],
 ): readonly OutputReconciliationItem[] {
-  const byProjectAndPath = new Map<string, Map<string, OutputReconciliationItem>>();
-  for (const output of outputs) {
-    const byPath = byProjectAndPath.get(output.project) ??
-      new Map<string, OutputReconciliationItem>();
-    const current = byPath.get(output.path);
-    if (current === undefined || OUTPUT_PATH_PRIORITY[output.kind] < OUTPUT_PATH_PRIORITY[current.kind]) {
-      byPath.set(output.path, output);
-    }
-    byProjectAndPath.set(output.project, byPath);
-  }
-  const unique = [...byProjectAndPath.values()].flatMap((byPath) => [...byPath.values()]);
-  return unique.filter((output) =>
-    output.kind !== "unchanged" || !unique.some((candidate) =>
+  return outputs.filter((output) =>
+    output.kind !== "unchanged" || !outputs.some((candidate) =>
       candidate.project === output.project &&
       (
         candidate.kind === "drifted member" ||
         candidate.kind === "missing member" ||
         candidate.kind === "unexpected member"
       ) &&
+      // Directory member labels are constructed as `<output.path>/<member.path>`
+      // at ownership inspection, while root-mode drift uses the exact output path.
       (candidate.path === output.path || candidate.path.startsWith(`${output.path}/`))
     )
   );
@@ -960,7 +951,14 @@ interface VerboseSectionOptions {
 
 function delimitedContext(context: string): string {
   const body = context.length > 0 && !context.endsWith("\n") ? `${context}\n` : context;
-  return `----- BEGIN COMPOSED CONTEXT -----\n${body}----- END COMPOSED CONTEXT -----`;
+  let fence = "---";
+  while (
+    context.includes(`${fence} begin Context ${fence}`) ||
+    context.includes(`${fence} end Context ${fence}`)
+  ) {
+    fence += "-";
+  }
+  return `${fence} begin Context ${fence}\n${body}${fence} end Context ${fence}`;
 }
 
 function verboseSections(

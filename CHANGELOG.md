@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Deduplicate combined content-and-mode member drift at reconciliation and make verbose Context fences collision-safe ([#143](https://github.com/kenneth-liao/agent-profile-kit/pull/143)).
+
 - Make mixed-project guidance reflect the all-project apply gate, normalize global blocker scope, deduplicate verbose state explanations, and retain the current Project count ([#142](https://github.com/kenneth-liao/agent-profile-kit/pull/142)).
 
 - Keep `init` next steps valid when adopting an existing Workspace, make example binding guidance project-scoped, and diagnose partial example removal ([#141](https://github.com/kenneth-liao/agent-profile-kit/pull/141)).
@@ -53,7 +55,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
-- Make member-level attention statuses authoritative in verbose output and delimit composed Context for clean scanning and copying ([#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123)).
+- Make member-level attention statuses authoritative in verbose output, deduplicate combined content-and-mode member drift at reconciliation, and delimit composed Context with collision-avoiding fences ([#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123)).
 
 - Map apply output from `Changes:` and `Resulting state:` to `Pending:`, map `Apply receipt:` to `Applied:`, remove the duplicate `No Projects need attention.` current-status line, keep state definitions behind `--verbose`, and name per-project next actions ([#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
 

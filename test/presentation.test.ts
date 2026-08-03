@@ -772,8 +772,8 @@ describe("formatLifecycleReport concise terminology", () => {
         { kind: "unexpected member", path: "skill/notes.txt", project },
         { kind: "unchanged", path: "mode-only-skill", project },
         { kind: "drifted member", path: "mode-only-skill", project },
-        { kind: "drifted member", path: "duplicate-skill/SKILL.md", project },
-        { kind: "drifted member", path: "duplicate-skill/SKILL.md", project },
+        { kind: "missing member", path: "ambiguous-member", project },
+        { kind: "unexpected member", path: "ambiguous-member", project },
         { kind: "unchanged", path: "context.md", project },
       ],
     });
@@ -786,7 +786,8 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("/project-a/skill/notes.txt: unexpected member");
     expect(verbose).not.toContain("/project-a/mode-only-skill: unchanged");
     expect(verbose).toContain("/project-a/mode-only-skill: drifted member");
-    expect(verbose.match(/\/project-a\/duplicate-skill\/SKILL\.md: drifted member/g)).toHaveLength(1);
+    expect(verbose).toContain("/project-a/ambiguous-member: missing member");
+    expect(verbose).toContain("/project-a/ambiguous-member: unexpected member");
     expect(verbose).toContain("/project-a/context.md: unchanged");
   });
 
@@ -1019,7 +1020,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
-        context: "First Context Module\nSecond Context Module\n",
+        context: "First Context Module\n--- end Context ---\nSecond Context Module\n",
         hosts: ["claude", "codex"],
         outputs: [".agent-profile-kit/codex/context.md"],
         profile: "coding",
@@ -1061,10 +1062,11 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("context:team-rules");
     expect(verbose).toContain(
       "  Context:\n" +
-      "----- BEGIN COMPOSED CONTEXT -----\n" +
+      "---- begin Context ----\n" +
       "First Context Module\n" +
+      "--- end Context ---\n" +
       "Second Context Module\n" +
-      "----- END COMPOSED CONTEXT -----\n",
+      "---- end Context ----\n",
     );
     expect(verbose).toContain("Warnings:");
     expect(verbose).toContain("example warning");
