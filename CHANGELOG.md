@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Add conditional Grok shared-rule and Pi project-trust Host Setup Steps, and explicitly confirm when a changed installation requires no further Host setup ([#125](https://github.com/kenneth-liao/agent-profile-kit/issues/125)).
+
 - Make deliberate teardown explicit: `uninstall` lists affected projects, removed generated paths, cleaned Git exclusions, and preserved Project Bindings; subsequent `status` reports intended teardown; and `unbind` recommends reconciliation only while installed output remains ([#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124)).
 
 - Scaffold a bindable example Profile and Context Module on first `init`, add short `guide profile`, `guide context`, and `guide skill` topics, and prove the example through packed-CLI apply ([#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121)).

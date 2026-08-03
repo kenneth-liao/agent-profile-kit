@@ -178,6 +178,31 @@ describe("Host Setup Step presentation", () => {
     );
   });
 
+  test("setup-free apply says no further Host setup is required", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["claude"],
+        outputs: [".claude/rules/agent-profile-kit.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: report.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    expect(formatApplyReport(applyResult(report, resultingState)).trimEnd()).toEndWith(
+      "No further Host setup is required. Profile coding becomes active on the next launch " +
+        "of each bound Host (claude) from /project-a.",
+    );
+  });
+
   test("no-op apply does not claim next-launch activation", () => {
     const report = emptyReport({
       desired: [{

@@ -796,7 +796,7 @@ function activationLines(
     .map((installation) => {
       const setupCondition = installation.setupSteps.length > 0
         ? "After completing the Host setup above, "
-        : "";
+        : "No further Host setup is required. ";
       return `${setupCondition}Profile ${installation.profile} becomes active on the next launch ` +
         `of each bound Host (${installation.hosts.join(", ")}) from ` +
         `${displayProjectPath(installation.canonicalProject, installation.project)}.`;

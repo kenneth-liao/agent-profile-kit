@@ -224,6 +224,7 @@ describe("Grok Adapter planner", () => {
     expect(String(output.bytes)).toContain("Profile: coding");
     expect(String(output.bytes)).toContain("Repository-owned project instructions");
     expect(String(output.bytes)).toContain("<!-- Context Module: team-rules -->");
+    expect(plan.setupSteps).toEqual([]);
   });
 
   test("selects the Claude rule path when Claude is co-selected and Claude rules are enabled", async () => {
@@ -243,6 +244,11 @@ describe("Grok Adapter planner", () => {
     expect(plan.outputs[0]?.path).toBe(CLAUDE_CONTEXT_RULE_PATH);
     if (plan.outputs[0]?.type !== "file") throw new Error("expected file");
     expect(plan.outputs[0].bytes).toBe(composeContextEnvelope("coding", modules));
+    expect(plan.setupSteps).toEqual([{
+      kind: "shared-path",
+      message:
+        `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
+    }]);
   });
 
   test("rejects non-directory .grok or .grok/rules project surfaces", async () => {
@@ -521,6 +527,12 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     expect(paths).toEqual([CLAUDE_CONTEXT_RULE_PATH]);
     expect(installation.outputs[0]?.consumingHosts).toEqual(["claude", "grok"]);
     expect(paths).not.toContain(GROK_CONTEXT_RULE_PATH);
+    expect(installation.setupSteps).toContainEqual({
+      host: "grok",
+      kind: "shared-path",
+      message:
+        `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
+    });
 
     await applyReconciliation(home, desired.installations);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(true);
@@ -567,6 +579,9 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
       );
       expect(grokOutput?.consumingHosts).toEqual(["grok"]);
       expect(claudeOutput?.consumingHosts).toEqual(["claude"]);
+      expect(desired.installations[0]?.setupSteps).not.toContainEqual(
+        expect.objectContaining({ host: "grok", kind: "shared-path" }),
+      );
     } finally {
       process.env.PATH = previousPath;
     }
@@ -700,6 +715,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
           blocker.includes("Claude rules compatibility could not be inspected"),
         ) ?? [];
       expect(topologyBlockers).toEqual([]);
+      expect(desired.installations[0]?.setupSteps).toEqual([]);
       // Skills-only Claude+Grok plans Skill packages without Context rule topology.
       expect(
         desired.installations[0]?.outputs.some((output) =>

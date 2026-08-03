@@ -300,6 +300,11 @@ describe("Pi Adapter", () => {
 
     const skillsOnly = await planPiProject("coding", [], [disabled]);
     expect(skillsOnly.hostVersion).toBe(PI_HOST_VERSION_WITH_INVOCATION);
+    expect(skillsOnly.setupSteps).toEqual([{
+      consequence: "The Profile does not load until the project is trusted.",
+      kind: "trust-required",
+      message: "Trust the bound project in Pi.",
+    }]);
     const skillOutput = skillsOnly.outputs[0];
     if (!skillOutput || skillOutput.type !== "directory") throw new Error("expected Skill directory output");
     const skillMarkdown = skillOutput.members.find(
@@ -336,9 +341,15 @@ describe("Pi Adapter", () => {
     if (output?.type !== "file") throw new Error("expected Pi Context file output");
     expect(output.bytes).toBe(composeContextEnvelope("coding", modules));
     expect(output.requirements).toContain("Pi loads project APPEND_SYSTEM.md as additive system Context");
+    expect(plan.setupSteps).toEqual([{
+      consequence: "The Profile does not load until the project is trusted.",
+      kind: "trust-required",
+      message: "Trust the bound project in Pi.",
+    }]);
 
     const contextFree = await planPiProject("coding", []);
     expect(contextFree.outputs).toEqual([]);
+    expect(contextFree.setupSteps).toEqual([]);
   });
 
   test("Pi-only and multi-Host bindings reconcile Context through one Installation lifecycle", async () => {
@@ -364,6 +375,12 @@ describe("Pi Adapter", () => {
     expect(piDesired!.outputs.map((output) => output.path)).toEqual([
       PI_CONTEXT_PATH,
     ]);
+    expect(piDesired!.setupSteps).toEqual([{
+      host: "pi",
+      consequence: "The Profile does not load until the project is trusted.",
+      kind: "trust-required",
+      message: "Trust the bound project in Pi.",
+    }]);
 
     const applied = await applyReconciliation(home, desired.installations);
     expect(applied.resultingState.blockers).toEqual([]);
