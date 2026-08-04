@@ -41,6 +41,7 @@ import {
   type OwnershipProof,
 } from "./installation-state.js";
 import { hasTrackedGitDescendants } from "./git.js";
+import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import { COMMAND_NAME } from "./version.js";
 import {
   prepareRepositoryExclusionMovePreflight,
@@ -62,7 +63,7 @@ export interface ReconciliationFileSystem {
   readonly writeFile: typeof writeFile;
 }
 
-const nodeFileSystem: ReconciliationFileSystem = {
+export const nodeFileSystem: ReconciliationFileSystem = {
   chmod,
   mkdir,
   mkdtemp,
@@ -1062,6 +1063,24 @@ export async function stageProjectOutputs(
 }
 
 export async function applyReconciliation(
+  home: string,
+  desired: readonly DesiredInstallation[],
+  options: {
+    readonly fileSystem?: Partial<ReconciliationFileSystem>;
+    readonly lockTimeoutMs?: number;
+    readonly verifyReconciliation?: typeof previewReconciliation;
+    readonly writeInstallationState?: typeof writeInstallationState;
+  } = {},
+): Promise<ApplyReconciliationResult> {
+  return withInstallationLifecycleLock(
+    home,
+    "apply",
+    () => applyReconciliationLocked(home, desired, options),
+    options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs },
+  );
+}
+
+async function applyReconciliationLocked(
   home: string,
   desired: readonly DesiredInstallation[],
   options: {

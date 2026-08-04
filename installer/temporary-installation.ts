@@ -20,11 +20,11 @@ import {
 } from "./git-exclusions.js";
 import { findGitProject } from "./git.js";
 import { hashWorkspaceInputs } from "./hashes.js";
+import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import {
   newInstallationId,
-  proveOwnedInstallation,
   readInstallationStateWithMigration,
-  stageProvenInstallationRemoval,
+  stageDisposableOutputRemoval,
   writeInstallationState,
 } from "./installation-state.js";
 import {
@@ -41,7 +41,9 @@ import { resolveProfileDependencies } from "./resolve-dependencies.js";
 import {
   desiredOutputConflicts,
   manifestFor,
+  nodeFileSystem,
   stageProjectOutputs,
+  type ReconciliationFileSystem,
 } from "./reconcile.js";
 import { ENGINE_VERSION } from "./version.js";
 
@@ -62,6 +64,21 @@ export class TemporaryInstallationBlockedError extends Error {
     super(blockers.join("\n"));
     this.name = "TemporaryInstallationBlockedError";
     this.blockers = blockers;
+  }
+}
+
+/**
+ * Installation failed after a recoverable Temporary Profile Installation
+ * identity was published. Callers must run `remove-temp` with the identity.
+ */
+export class TemporaryInstallationRecoverableError extends Error {
+  readonly removalRequired = true as const;
+  readonly temporaryInstallationId: string;
+
+  constructor(temporaryInstallationId: string, message: string) {
+    super(message);
+    this.name = "TemporaryInstallationRecoverableError";
+    this.temporaryInstallationId = temporaryInstallationId;
   }
 }
 
@@ -86,6 +103,17 @@ export interface TemporaryInstallationReceipt {
   /** Configuration warnings that do not block install but can prevent Host loading. */
   readonly warnings: readonly string[];
   readonly workspaceInputHash: string;
+}
+
+/** Test-only hooks for failure injection at Installer transaction boundaries. */
+export interface TemporaryInstallationHooks {
+  readonly fileSystem?: Partial<ReconciliationFileSystem>;
+  readonly lockTimeoutMs?: number;
+  readonly onAfterDurableRecord?: () => Promise<void>;
+  readonly onAfterExclusionCommit?: () => Promise<void>;
+  readonly onAfterOutputsPublished?: () => Promise<void>;
+  readonly onBeforeTerminalStateWrite?: () => Promise<void>;
+  readonly writeInstallationState?: typeof writeInstallationState;
 }
 
 function receiptFromRecord(
@@ -213,6 +241,32 @@ async function planTemporaryDesiredInstallation(options: {
   };
 }
 
+function projectConflictBlockers(
+  state: Awaited<ReturnType<typeof readInstallationStateWithMigration>>["state"],
+  canonicalProject: string,
+): string[] {
+  const blockers: string[] = [];
+  const ordinary = state.installations.find(
+    (installation) => installation.project === canonicalProject,
+  );
+  if (ordinary) {
+    blockers.push(
+      `${canonicalProject} already has an ordinary Profile Installation; remove it before installing a temporary Profile`,
+    );
+  }
+  const activeTemporary = state.temporaryInstallations.find(
+    (installation) =>
+      installation.completionState === "installed" &&
+      installation.project === canonicalProject,
+  );
+  if (activeTemporary) {
+    blockers.push(
+      `${canonicalProject} already has an active Temporary Profile Installation (${activeTemporary.temporaryInstallationId})`,
+    );
+  }
+  return blockers;
+}
+
 /**
  * Install one Profile temporarily into one explicit Project for one Host.
  * Does not create a Project Binding or run global reconciliation.
@@ -222,6 +276,7 @@ export async function installTemporaryProfile(options: {
   readonly host: string;
   readonly profile: string;
   readonly project: string;
+  readonly hooks?: TemporaryInstallationHooks;
 }): Promise<TemporaryInstallationReceipt> {
   if (!isSupportedHost(options.host)) {
     throw new Error(
@@ -246,228 +301,242 @@ export async function installTemporaryProfile(options: {
     profileId,
     project: canonicalProject,
   });
-  const loaded = await readInstallationStateWithMigration(options.home);
-  const state = loaded.state;
-  const blockers = [...desired.blockers];
+  const writeState = options.hooks?.writeInstallationState ?? writeInstallationState;
 
-  const ordinary = state.installations.find(
-    (installation) => installation.project === canonicalProject,
-  );
-  if (ordinary) {
-    blockers.push(
-      `${canonicalProject} already has an ordinary Profile Installation; remove it before installing a temporary Profile`,
-    );
-  }
-  const activeTemporary = state.temporaryInstallations.find(
-    (installation) =>
-      installation.completionState === "installed" &&
-      installation.project === canonicalProject,
-  );
-  if (activeTemporary) {
-    blockers.push(
-      `${canonicalProject} already has an active Temporary Profile Installation (${activeTemporary.temporaryInstallationId})`,
-    );
-  }
+  return withInstallationLifecycleLock(
+    options.home,
+    "install-temp",
+    async () => {
+      const loaded = await readInstallationStateWithMigration(options.home);
+      const state = loaded.state;
+      const blockers = [
+        ...desired.blockers,
+        ...projectConflictBlockers(state, canonicalProject),
+      ];
 
-  const temporaryInstallationId = newInstallationId();
-  blockers.push(
-    ...(await desiredOutputConflicts(desired, undefined, temporaryInstallationId)),
-  );
-  if (blockers.length > 0) {
-    throw new TemporaryInstallationBlockedError(blockers);
-  }
-
-  const manifest = manifestFor(desired, temporaryInstallationId);
-  const temporaryRecord: TemporaryProfileInstallation = {
-    adapterVersion: manifest.adapterVersion,
-    completionState: "installed",
-    engineVersion: manifest.engineVersion,
-    ...(manifest.gitProject === undefined ? {} : { gitProject: manifest.gitProject }),
-    host: options.host,
-    hostVersion: manifest.hostVersions[options.host]!,
-    outputs: manifest.outputs,
-    profileId: manifest.profileId,
-    project: manifest.project,
-    temporaryInstallationId,
-    workspaceInputHash: manifest.workspaceInputHash,
-  };
-
-  const nextState = {
-    intendedTeardowns: state.intendedTeardowns,
-    installations: state.installations,
-    repositoryExclusions: replaceRepositoryExclusionContribution(
-      state.repositoryExclusions,
-      temporaryInstallationId,
-      desired.gitProject,
-      manifest.outputs,
-    ),
-    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION as 5,
-    temporaryInstallations: [
-      ...state.temporaryInstallations.filter(
-        (installation) => installation.temporaryInstallationId !== temporaryInstallationId,
-      ),
-      temporaryRecord,
-    ],
-  };
-
-  let transaction: Awaited<ReturnType<typeof stageProjectOutputs>> | undefined;
-  let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
-  let stateWriteAttempted = false;
-  try {
-    transaction = await stageProjectOutputs(desired, manifest, undefined);
-    exclusions = await stageGitExclusions(state, nextState);
-    stateWriteAttempted = true;
-    await writeInstallationState(options.home, nextState);
-    await exclusions.commit();
-    await transaction.commit();
-  } catch (error) {
-    if (exclusions) {
-      try {
-        await exclusions.rollback();
-      } catch {
-        // Preserve the primary failure; exclusion rollback is best-effort.
+      const temporaryInstallationId = newInstallationId();
+      blockers.push(
+        ...(await desiredOutputConflicts(desired, undefined, temporaryInstallationId)),
+      );
+      if (blockers.length > 0) {
+        throw new TemporaryInstallationBlockedError(blockers);
       }
-    }
-    if (transaction) await transaction.rollback();
-    if (stateWriteAttempted) {
-      try {
-        await writeInstallationState(options.home, state);
-      } catch {
-        // Preserve the primary failure.
-      }
-    }
-    throw error;
-  }
 
-  return receiptFromRecord(
-    temporaryRecord,
-    exclusionContributionFor(nextState, temporaryInstallationId),
-    {
-      setupSteps: desired.setupSteps,
-      warnings: desired.warnings,
+      const manifest = manifestFor(desired, temporaryInstallationId);
+      const temporaryRecord: TemporaryProfileInstallation = {
+        adapterVersion: manifest.adapterVersion,
+        completionState: "installed",
+        engineVersion: manifest.engineVersion,
+        ...(manifest.gitProject === undefined ? {} : { gitProject: manifest.gitProject }),
+        host: options.host,
+        hostVersion: manifest.hostVersions[options.host]!,
+        outputs: manifest.outputs,
+        profileId: manifest.profileId,
+        project: manifest.project,
+        temporaryInstallationId,
+        workspaceInputHash: manifest.workspaceInputHash,
+      };
+
+      const nextState = {
+        intendedTeardowns: state.intendedTeardowns,
+        installations: state.installations,
+        repositoryExclusions: replaceRepositoryExclusionContribution(
+          state.repositoryExclusions,
+          temporaryInstallationId,
+          desired.gitProject,
+          manifest.outputs,
+        ),
+        schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION as 5,
+        temporaryInstallations: [
+          ...state.temporaryInstallations.filter(
+            (installation) =>
+              installation.temporaryInstallationId !== temporaryInstallationId,
+          ),
+          temporaryRecord,
+        ],
+      };
+
+      let durableRecorded = false;
+      let stagingStarted = false;
+      let outputsPublished = false;
+      let exclusionsCommitted = false;
+      let transaction: Awaited<ReturnType<typeof stageProjectOutputs>> | undefined;
+      let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
+
+      try {
+        // Durable recovery identity before any owned project mutation can be orphaned.
+        await writeState(options.home, nextState);
+        durableRecorded = true;
+        await options.hooks?.onAfterDurableRecord?.();
+
+        stagingStarted = true;
+        const fileSystem: ReconciliationFileSystem = {
+          ...nodeFileSystem,
+          ...options.hooks?.fileSystem,
+        };
+        transaction = await stageProjectOutputs(
+          desired,
+          manifest,
+          undefined,
+          fileSystem,
+        );
+        outputsPublished = true;
+        await options.hooks?.onAfterOutputsPublished?.();
+
+        exclusions = await stageGitExclusions(state, nextState);
+        await exclusions.commit();
+        exclusionsCommitted = true;
+        await options.hooks?.onAfterExclusionCommit?.();
+
+        await transaction.commit();
+      } catch (error) {
+        if (exclusions && !exclusionsCommitted) {
+          try {
+            await exclusions.rollback();
+          } catch {
+            // Preserve the primary failure; exclusion rollback is best-effort.
+          }
+        }
+        if (transaction && outputsPublished) {
+          try {
+            await transaction.rollback();
+          } catch {
+            // Preserve the primary failure.
+          }
+        }
+
+        const failureMessage = error instanceof Error ? error.message : String(error);
+        const removalRequired = durableRecorded && stagingStarted;
+        if (removalRequired) {
+          throw new TemporaryInstallationRecoverableError(
+            temporaryInstallationId,
+            `Temporary Profile Installation ${temporaryInstallationId} requires removal after a partial publication failure: ${failureMessage}`,
+          );
+        }
+        if (durableRecorded) {
+          try {
+            await writeState(options.home, state);
+          } catch {
+            // Preserve the primary failure.
+          }
+        }
+        throw error;
+      }
+
+      return receiptFromRecord(
+        temporaryRecord,
+        exclusionContributionFor(nextState, temporaryInstallationId),
+        {
+          setupSteps: desired.setupSteps,
+          warnings: desired.warnings,
+        },
+      );
     },
+    options.hooks?.lockTimeoutMs === undefined
+      ? {}
+      : { lockTimeoutMs: options.hooks.lockTimeoutMs },
   );
 }
 
 /**
  * Remove one Temporary Profile Installation by durable identity.
- * Idempotent for a successfully removed identity.
+ * Idempotent for a successfully removed identity. Discards modifications and
+ * new members inside complete temporary-owned directories without traversing
+ * outside recorded roots.
  */
 export async function removeTemporaryProfile(options: {
   readonly home: string;
   readonly temporaryInstallationId: string;
+  readonly hooks?: TemporaryInstallationHooks;
 }): Promise<TemporaryInstallationReceipt> {
   const temporaryInstallationId = options.temporaryInstallationId.trim();
   if (temporaryInstallationId.length === 0) {
     throw new Error("remove-temp requires a temporary installation identity");
   }
-  const loaded = await readInstallationStateWithMigration(options.home);
-  const state = loaded.state;
-  const existing = state.temporaryInstallations.find(
-    (installation) => installation.temporaryInstallationId === temporaryInstallationId,
+  const writeState = options.hooks?.writeInstallationState ?? writeInstallationState;
+
+  return withInstallationLifecycleLock(
+    options.home,
+    "remove-temp",
+    async () => {
+      const loaded = await readInstallationStateWithMigration(options.home);
+      const state = loaded.state;
+      const existing = state.temporaryInstallations.find(
+        (installation) => installation.temporaryInstallationId === temporaryInstallationId,
+      );
+      if (!existing) {
+        throw new Error(
+          `unknown temporary installation identity '${temporaryInstallationId}'`,
+        );
+      }
+      if (existing.completionState === "removed") {
+        return receiptFromRecord(existing, undefined);
+      }
+
+      const removedRecord: TemporaryProfileInstallation = {
+        adapterVersion: existing.adapterVersion,
+        completionState: "removed",
+        engineVersion: existing.engineVersion,
+        ...(existing.gitProject === undefined ? {} : { gitProject: existing.gitProject }),
+        host: existing.host,
+        hostVersion: existing.hostVersion,
+        outputs: [],
+        profileId: existing.profileId,
+        project: existing.project,
+        temporaryInstallationId: existing.temporaryInstallationId,
+        workspaceInputHash: existing.workspaceInputHash,
+      };
+      const nextState = {
+        intendedTeardowns: state.intendedTeardowns,
+        installations: state.installations,
+        repositoryExclusions: replaceRepositoryExclusionContribution(
+          state.repositoryExclusions,
+          temporaryInstallationId,
+          undefined,
+          [],
+        ),
+        schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION as 5,
+        temporaryInstallations: state.temporaryInstallations.map((installation) =>
+          installation.temporaryInstallationId === temporaryInstallationId
+            ? removedRecord
+            : installation
+        ),
+      };
+
+      let transaction: Awaited<ReturnType<typeof stageDisposableOutputRemoval>> | undefined;
+      let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
+      try {
+        transaction = await stageDisposableOutputRemoval({
+          installationId: existing.temporaryInstallationId,
+          outputs: existing.outputs,
+          project: existing.project,
+        });
+        exclusions = await stageGitExclusions(state, nextState);
+        // Commit filesystem and exclusion cleanup before the terminal state write so
+        // an interrupted remove leaves an `installed` record that retry can finish.
+        await exclusions.commit();
+        await transaction.commit();
+        await options.hooks?.onBeforeTerminalStateWrite?.();
+        await writeState(options.home, nextState);
+      } catch (error) {
+        if (exclusions) {
+          try {
+            await exclusions.rollback();
+          } catch {
+            // Preserve the primary failure.
+          }
+        }
+        if (transaction) await transaction.rollback();
+        if (error instanceof Error && error.message.startsWith("Cannot remove Temporary")) {
+          throw new TemporaryInstallationBlockedError([error.message]);
+        }
+        throw error;
+      }
+
+      return receiptFromRecord(removedRecord, undefined);
+    },
+    options.hooks?.lockTimeoutMs === undefined
+      ? {}
+      : { lockTimeoutMs: options.hooks.lockTimeoutMs },
   );
-  if (!existing) {
-    throw new Error(
-      `unknown temporary installation identity '${temporaryInstallationId}'`,
-    );
-  }
-  if (existing.completionState === "removed") {
-    return receiptFromRecord(existing, undefined);
-  }
-
-  const proof = await proveOwnedInstallation({
-    adapterVersion: existing.adapterVersion,
-    engineVersion: existing.engineVersion,
-    ...(existing.gitProject === undefined ? {} : { gitProject: existing.gitProject }),
-    hosts: [existing.host],
-    hostVersions: { [existing.host]: existing.hostVersion },
-    installationId: existing.temporaryInstallationId,
-    outputs: existing.outputs,
-    profileId: existing.profileId,
-    project: existing.project,
-    resolvedArtifacts: [],
-    schemaVersion: 2,
-    selectedContext: [],
-    workspaceInputHash: existing.workspaceInputHash,
-  });
-  if (!proof.owned) {
-    throw new TemporaryInstallationBlockedError([
-      `${existing.project}: ${proof.reason ?? "ownership could not be proven"}`,
-    ]);
-  }
-
-  const removedRecord: TemporaryProfileInstallation = {
-    adapterVersion: existing.adapterVersion,
-    completionState: "removed",
-    engineVersion: existing.engineVersion,
-    ...(existing.gitProject === undefined ? {} : { gitProject: existing.gitProject }),
-    host: existing.host,
-    hostVersion: existing.hostVersion,
-    outputs: [],
-    profileId: existing.profileId,
-    project: existing.project,
-    temporaryInstallationId: existing.temporaryInstallationId,
-    workspaceInputHash: existing.workspaceInputHash,
-  };
-  const nextState = {
-    intendedTeardowns: state.intendedTeardowns,
-    installations: state.installations,
-    repositoryExclusions: replaceRepositoryExclusionContribution(
-      state.repositoryExclusions,
-      temporaryInstallationId,
-      undefined,
-      [],
-    ),
-    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION as 5,
-    temporaryInstallations: state.temporaryInstallations.map((installation) =>
-      installation.temporaryInstallationId === temporaryInstallationId
-        ? removedRecord
-        : installation
-    ),
-  };
-
-  let transaction: Awaited<ReturnType<typeof stageProvenInstallationRemoval>> | undefined;
-  let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
-  let stateWriteAttempted = false;
-  try {
-    transaction = await stageProvenInstallationRemoval({
-      adapterVersion: existing.adapterVersion,
-      engineVersion: existing.engineVersion,
-      ...(existing.gitProject === undefined ? {} : { gitProject: existing.gitProject }),
-      hosts: [existing.host],
-      hostVersions: { [existing.host]: existing.hostVersion },
-      installationId: existing.temporaryInstallationId,
-      outputs: existing.outputs,
-      profileId: existing.profileId,
-      project: existing.project,
-      resolvedArtifacts: [],
-      schemaVersion: 2,
-      selectedContext: [],
-      workspaceInputHash: existing.workspaceInputHash,
-    });
-    exclusions = await stageGitExclusions(state, nextState);
-    stateWriteAttempted = true;
-    await writeInstallationState(options.home, nextState);
-    await exclusions.commit();
-    await transaction.commit();
-  } catch (error) {
-    if (exclusions) {
-      try {
-        await exclusions.rollback();
-      } catch {
-        // Preserve the primary failure.
-      }
-    }
-    if (transaction) await transaction.rollback();
-    if (stateWriteAttempted) {
-      try {
-        await writeInstallationState(options.home, state);
-      } catch {
-        // Preserve the primary failure.
-      }
-    }
-    throw error;
-  }
-
-  return receiptFromRecord(removedRecord, undefined);
 }

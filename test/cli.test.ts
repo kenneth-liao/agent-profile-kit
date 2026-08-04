@@ -6484,4 +6484,108 @@ describe("apkit temporary Profile installation (Codex)", () => {
     // Other bound project was never applied; temporary install must not apply it.
     expect(existsSync(join(otherProject, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
+
+  test("remove-temp discards agent modifications inside owned roots and preserves adjacent unowned files", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const skillSource = join(workspacePath(home), "skills", "review-pr");
+    mkdirSync(skillSource, { recursive: true });
+    writeFileSync(
+      join(skillSource, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\nReview the change carefully.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-dispose-cli-"));
+    writeFileSync(join(tempProject, "user-notes.md"), "keep me\n");
+
+    const install = runCli(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expect(install.status, install.stderr).toBe(0);
+    const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
+
+    writeFileSync(
+      join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"),
+      "agent mutated skill\n",
+    );
+    writeFileSync(
+      join(tempProject, ".agents", "skills", "review-pr", "extra.md"),
+      "unexpected member\n",
+    );
+    writeFileSync(join(tempProject, ".agent-profile-kit", "codex", "context.md"), "mutated\n");
+
+    const remove = runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    expect(remove.status, remove.stderr).toBe(0);
+    expect(JSON.parse(remove.stdout).completionState).toBe("removed");
+    expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(readFileSync(join(tempProject, "user-notes.md"), "utf8")).toBe("keep me\n");
+  });
+
+  test("linked worktrees can hold independent temporary installations with contributor-safe exclusions", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const primary = realpathSync(gitRepository("agent-profile-kit-temp-wt-primary-"));
+    const first = realpathSync(addWorktree(primary, "trial-a"));
+    const second = realpathSync(addWorktree(primary, "trial-b"));
+
+    const installA = runCli(home, "install-temp", "coding", first, "--host", "codex", "--json");
+    const installB = runCli(home, "install-temp", "coding", second, "--host", "codex", "--json");
+    expect(installA.status, installA.stderr).toBe(0);
+    expect(installB.status, installB.stderr).toBe(0);
+    const idA = JSON.parse(installA.stdout).temporaryInstallationId as string;
+    const idB = JSON.parse(installB.stdout).temporaryInstallationId as string;
+    expect(idA).not.toBe(idB);
+    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
+
+    const removeA = runCli(home, "remove-temp", idA, "--json");
+    expect(removeA.status, removeA.stderr).toBe(0);
+    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(readFileSync(join(primary, ".git", "info", "exclude"), "utf8")).toContain(
+      "# BEGIN Agent Profile Kit generated paths",
+    );
+
+    const removeB = runCli(home, "remove-temp", idB, "--json");
+    expect(removeB.status, removeB.stderr).toBe(0);
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(readFileSync(join(primary, ".git", "info", "exclude"), "utf8")).not.toContain(
+      "# BEGIN Agent Profile Kit generated paths",
+    );
+  });
+
+  test("install-temp rejects a second active temporary installation for the same Project before writes", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-second-cli-"));
+
+    const first = runCli(home, "install-temp", "coding", tempProject, "--host", "codex", "--json");
+    expect(first.status, first.stderr).toBe(0);
+
+    const second = runCli(home, "install-temp", "coding", tempProject, "--host", "codex", "--json");
+    expect(second.status).toBe(2);
+    const blocked = JSON.parse(second.stdout) as {
+      readonly outcome: string;
+      readonly blockers: readonly { readonly message: string }[];
+    };
+    expect(blocked.outcome).toBe("blocked");
+    expect(blocked.blockers.some((blocker) => /active Temporary Profile Installation/i.test(blocker.message)))
+      .toBe(true);
+  });
 });
