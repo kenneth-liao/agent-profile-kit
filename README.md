@@ -71,7 +71,20 @@ configuration; when `CODEX_HOME` is set, Codex's global configuration is
 The deprecated `codex_hooks` alias remains supported.
 When Host configuration warnings are the only diagnostics, `preview`, `apply`,
 and `status` still exit successfully. Automation that needs loading guarantees
-must inspect the `Warnings` section rather than relying on the exit code alone.
+must inspect the `Warnings` section (or JSON `warnings`) rather than relying on
+the exit code alone.
+
+Lifecycle commands share a machine-readable contract:
+
+- `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 1`
+  object with `outcome`, per-installation state, planned or committed paths,
+  blockers, warnings, Host Setup Steps, and repository-exclusion evidence.
+  Combined with `--verbose`, machine output wins.
+- Exit codes: `0` no tool error and no blockers (JSON `outcome` may still be
+  `attention` for pending work), `1` tool error (JSON `outcome: "error"` with
+  an `error` string when `--json` was accepted), `2` blockers present.
+  Parse stdout as JSON only on exit `0` or `2`, or when exit `1` still emitted
+  a JSON object under `--json`.
 
 Launch Codex, Claude, Grok, or Pi from the bound project. For a non-Git project
 with Context, use the exact bound root so Codex can discover the generated
@@ -86,6 +99,7 @@ apkit preview
 apkit apply
 apkit status
 apkit preview --verbose   # complete reconciliation diagnostics
+apkit preview --json      # machine-readable report + uniform exit codes
 apkit uninstall
 ```
 

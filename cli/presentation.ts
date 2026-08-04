@@ -1163,3 +1163,289 @@ export function formatLifecycleReport(
 ): string {
   return options.verbose ? verboseReport(command, report) : conciseReport(command, report);
 }
+
+/**
+ * Uniform machine-surface exit codes for preview, apply, and status:
+ * - `0` — no tool error and no blockers (may still be `outcome: "attention"`)
+ * - `2` — blockers present
+ * Tool errors stay exit `1` and use {@link formatLifecycleToolErrorJson} under `--json`.
+ */
+export function lifecycleExitCode(
+  report: { readonly blockers: readonly unknown[] },
+): 0 | 2 {
+  return report.blockers.length > 0 ? 2 : 0;
+}
+
+type MachineOutcome = "attention" | "blocked" | "clean" | "error";
+
+interface MachineInstallation {
+  readonly canonicalProject: string;
+  readonly hosts?: readonly string[];
+  readonly profile?: string;
+  readonly project: string;
+  readonly reason?: string;
+  readonly state: ReconciliationKind | "unknown";
+}
+
+interface MachineOutput {
+  readonly kind: OutputReconciliationKind;
+  readonly path: string;
+  readonly project: string;
+}
+
+interface MachineBlocker {
+  readonly message: string;
+  readonly project?: string;
+}
+
+interface MachineSetupStep {
+  readonly consequence?: string;
+  readonly host: string;
+  readonly kind: HostSetupStepKind;
+  readonly message: string;
+  readonly path?: "bound-project";
+  readonly project?: string;
+}
+
+interface MachineRepositoryExclusion {
+  readonly current: readonly string[];
+  readonly next: readonly string[];
+  readonly target: string;
+}
+
+interface MachineRepositoryExclusionRepair {
+  readonly entries: readonly string[];
+  readonly target: string;
+}
+
+interface LifecycleMachineSnapshot {
+  readonly installations: readonly MachineInstallation[];
+  readonly outputs: readonly MachineOutput[];
+  readonly repositoryExclusionRepairs: readonly MachineRepositoryExclusionRepair[];
+  readonly repositoryExclusions: readonly MachineRepositoryExclusion[];
+}
+
+interface LifecycleMachinePayload extends LifecycleMachineSnapshot {
+  readonly applied?: LifecycleMachineSnapshot;
+  readonly blockers: readonly MachineBlocker[];
+  readonly command: LifecycleCommand;
+  readonly error?: string;
+  readonly outcome: MachineOutcome;
+  readonly schemaVersion: 1;
+  readonly setupSteps: readonly MachineSetupStep[];
+  readonly warnings: readonly string[];
+}
+
+function machineOutcome(report: ReconciliationReport): Exclude<MachineOutcome, "error"> {
+  if (report.blockers.length > 0) return "blocked";
+  if (
+    report.items.some((item) => item.kind !== "current") ||
+    report.outputs.some((output) => output.kind !== "unchanged")
+  ) {
+    return "attention";
+  }
+  return "clean";
+}
+
+/**
+ * Map every authored or canonical project spelling onto one canonical identity
+ * at this boundary, so downstream readers never need a dual-key fallback.
+ */
+function canonicalProjectMap(
+  report: ReconciliationReport,
+): ReadonlyMap<string, string> {
+  const canonicalByProject = new Map<string, string>();
+  for (const installation of report.desired) {
+    canonicalByProject.set(installation.canonicalProject, installation.canonicalProject);
+    canonicalByProject.set(installation.project, installation.canonicalProject);
+  }
+  for (const item of report.items) {
+    if (!canonicalByProject.has(item.project)) {
+      canonicalByProject.set(item.project, item.project);
+    }
+  }
+  for (const output of report.outputs) {
+    if (!canonicalByProject.has(output.project)) {
+      canonicalByProject.set(output.project, output.project);
+    }
+  }
+  return canonicalByProject;
+}
+
+function machineInstallations(report: ReconciliationReport): readonly MachineInstallation[] {
+  const canonicalByProject = canonicalProjectMap(report);
+  const itemsByCanonical = new Map<string, ReconciliationItem>();
+  for (const item of report.items) {
+    const canonical = canonicalByProject.get(item.project) ?? item.project;
+    if (!itemsByCanonical.has(canonical)) itemsByCanonical.set(canonical, item);
+  }
+  const desiredCanonicals = new Set(
+    report.desired.map((installation) => installation.canonicalProject),
+  );
+  const installations: MachineInstallation[] = report.desired.map((installation) => {
+    const item = itemsByCanonical.get(installation.canonicalProject);
+    return {
+      canonicalProject: installation.canonicalProject,
+      hosts: installation.hosts,
+      profile: installation.profile,
+      project: installation.project,
+      ...(item?.reason === undefined ? {} : { reason: item.reason }),
+      state: item?.kind ?? "unknown",
+    };
+  });
+  for (const [canonical, item] of itemsByCanonical) {
+    if (desiredCanonicals.has(canonical)) continue;
+    installations.push({
+      canonicalProject: canonical,
+      project: item.project,
+      ...(item.reason === undefined ? {} : { reason: item.reason }),
+      state: item.kind,
+    });
+  }
+  return installations.sort((left, right) =>
+    left.canonicalProject.localeCompare(right.canonicalProject)
+  );
+}
+
+function machineOutputs(report: ReconciliationReport): readonly MachineOutput[] {
+  return [...report.outputs]
+    .map((output) => ({
+      kind: output.kind,
+      path: output.path,
+      project: output.project,
+    }))
+    .sort((left, right) =>
+      left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
+    );
+}
+
+function machineBlockers(report: ReconciliationReport): readonly MachineBlocker[] {
+  return report.blockers.map((blocker) => (
+    blocker.project === undefined
+      ? { message: blocker.message }
+      : { message: blocker.message, project: blocker.project }
+  ));
+}
+
+function machineSetupSteps(report: ReconciliationReport): readonly MachineSetupStep[] {
+  const steps: MachineSetupStep[] = [];
+  for (const installation of report.desired) {
+    for (const step of installation.setupSteps) {
+      steps.push({
+        host: step.host,
+        kind: step.kind,
+        message: step.message,
+        ...(step.consequence === undefined ? {} : { consequence: step.consequence }),
+        ...(step.path === undefined ? {} : { path: step.path, project: installation.project }),
+      });
+    }
+  }
+  return steps.sort((left, right) =>
+    left.host.localeCompare(right.host) ||
+    HOST_SETUP_STEP_ORDER.indexOf(left.kind) - HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
+    left.message.localeCompare(right.message)
+  );
+}
+
+function machineRepositoryExclusions(
+  report: ReconciliationReport,
+): readonly MachineRepositoryExclusion[] {
+  return [...report.repositoryExclusions]
+    .map((change) => ({
+      current: [...change.current],
+      next: [...change.next],
+      target: change.target,
+    }))
+    .sort((left, right) => left.target.localeCompare(right.target));
+}
+
+function machineRepositoryExclusionRepairs(
+  report: ReconciliationReport,
+): readonly MachineRepositoryExclusionRepair[] {
+  return [...report.repositoryExclusionRepairs]
+    .map((repair) => ({
+      entries: [...repair.entries],
+      target: repair.target,
+    }))
+    .sort((left, right) => left.target.localeCompare(right.target));
+}
+
+function machineSnapshot(report: ReconciliationReport): LifecycleMachineSnapshot {
+  return {
+    installations: machineInstallations(report),
+    outputs: machineOutputs(report),
+    repositoryExclusions: machineRepositoryExclusions(report),
+    repositoryExclusionRepairs: machineRepositoryExclusionRepairs(report),
+  };
+}
+
+function lifecycleMachinePayload(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  applied?: ReconciliationReport,
+): LifecycleMachinePayload {
+  return {
+    schemaVersion: 1,
+    command,
+    outcome: machineOutcome(report),
+    ...machineSnapshot(report),
+    ...(applied === undefined ? {} : { applied: machineSnapshot(applied) }),
+    blockers: machineBlockers(report),
+    warnings: [...report.warnings],
+    setupSteps: machineSetupSteps(report),
+  };
+}
+
+function serializeMachinePayload(payload: LifecycleMachinePayload): string {
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+export function formatLifecycleJson(
+  command: Exclude<LifecycleCommand, "apply">,
+  report: ReconciliationReport,
+): string {
+  return serializeMachinePayload(lifecycleMachinePayload(command, report));
+}
+
+export function formatApplyJson(result: ApplyReconciliationResult): string {
+  return serializeMachinePayload(
+    lifecycleMachinePayload("apply", result.resultingState, result.receipt),
+  );
+}
+
+export function formatBlockedApplyJson(report: BlockedReconciliationReport): string {
+  return serializeMachinePayload(lifecycleMachinePayload("apply", report));
+}
+
+export function formatApplyVerificationFailureJson(
+  receipt: ReconciliationReport,
+  message: string,
+): string {
+  return serializeMachinePayload({
+    ...lifecycleMachinePayload("apply", receipt, receipt),
+    outcome: "error",
+    error: message,
+  });
+}
+
+/** Machine envelope for tool failures under `--json` (exit `1`). Parse stdout only when present. */
+export function formatLifecycleToolErrorJson(
+  command: LifecycleCommand,
+  message: string,
+): string {
+  return serializeMachinePayload({
+    schemaVersion: 1,
+    command,
+    outcome: "error",
+    error: message,
+    installations: [],
+    outputs: [],
+    repositoryExclusions: [],
+    repositoryExclusionRepairs: [],
+    blockers: [],
+    warnings: [],
+    setupSteps: [],
+  });
+}
+
+

@@ -75,7 +75,10 @@ Use this workflow when helping a person author their Workspace and bind projects
    all configured Project Bindings with `apkit apply`. Use
    `apkit preview --verbose`, `apkit apply --verbose`, or `apkit status --verbose` when complete
    per-output diagnostics, resolved artifact reasons, or composed Context are
-   needed. The current Workspace schema version is 1.
+   needed. For automation, add `--json` on those three commands: exit `0` means
+   no tool error and no blockers (JSON `outcome` may still be `attention`),
+   exit `1` is a tool error, and exit `2` means blockers. The current Workspace
+   schema version is 1.
 7. After apply, the user launches Codex, Claude, Grok, or Pi natively in the
    bound project. Do not claim that Agent Profile Kit manages Host
    authentication, trust, approvals, plugins, or sessions. Pi bindings load the

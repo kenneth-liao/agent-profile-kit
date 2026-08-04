@@ -5,13 +5,19 @@ import { homedir } from "node:os";
 import { agentGuide, focusedGuide, humanGuide, type GuideTopic } from "./guides.js";
 import {
   defaultViewText,
+  formatApplyJson,
   formatApplyReport,
   formatApplyVerificationFailure,
+  formatApplyVerificationFailureJson,
+  formatBlockedApplyJson,
   formatBlockedApplyReport,
+  formatLifecycleJson,
   formatLifecycleReport,
+  formatLifecycleToolErrorJson,
   formatMissingProfileError,
   formatUninstallResult,
   formatValidationResult,
+  lifecycleExitCode,
   type LifecycleCommand,
 } from "./presentation.js";
 import { bindProject } from "../installer/bind-project.js";
@@ -100,7 +106,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "preview",
-    syntax: "preview [--verbose]",
+    syntax: "preview [--verbose] [--json]",
     summary: "Show pending reconciliation changes without writing (read-only)",
     examples: COMMAND_EXAMPLES.preview,
     writes: "Nothing; this command is read-only.",
@@ -108,7 +114,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "apply",
-    syntax: "apply [--verbose]",
+    syntax: "apply [--verbose] [--json]",
     summary: "Reconcile Profile Installations to match Local Configuration",
     examples: COMMAND_EXAMPLES.apply,
     writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",
@@ -116,7 +122,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "status",
-    syntax: "status [--verbose]",
+    syntax: "status [--verbose] [--json]",
     summary: "Show current Profile Installation lifecycle state",
     examples: COMMAND_EXAMPLES.status,
     writes: "Nothing; this command is read-only.",
@@ -258,11 +264,24 @@ function parseUnbindArguments(arguments_: readonly string[]): { readonly project
     : { project: positionalArgument("unbind", "a project path", arguments_[0]!) };
 }
 
+function parseOptionalFlags(
+  command: string,
+  arguments_: readonly string[],
+  flags: readonly string[],
+): Readonly<Record<string, boolean>> {
+  const accepted = new Set(flags);
+  const present = Object.fromEntries(flags.map((flag) => [flag, false])) as Record<string, boolean>;
+  for (const argument of arguments_) {
+    if (!accepted.has(argument)) {
+      throw new Error(`${command} does not accept argument '${argument}'`);
+    }
+    present[argument] = true;
+  }
+  return present;
+}
+
 function parseOptionalFlag(command: string, arguments_: readonly string[], flag: string): boolean {
-  if (arguments_.length === 0) return false;
-  if (arguments_.every((argument) => argument === flag)) return true;
-  const invalidArgument = arguments_.find((argument) => argument !== flag) ?? arguments_[0] ?? "";
-  throw new Error(`${command} does not accept argument '${invalidArgument}'`);
+  return parseOptionalFlags(command, arguments_, [flag])[flag] === true;
 }
 
 function parseGuideArguments(arguments_: readonly string[]): {
@@ -291,8 +310,12 @@ function parseNoArguments(command: string, arguments_: readonly string[]): { rea
 function parseLifecycleArguments(
   command: LifecycleCommand,
   arguments_: readonly string[],
-): { readonly verbose: boolean } {
-  return { verbose: parseOptionalFlag(command, arguments_, "--verbose") };
+): { readonly json: boolean; readonly verbose: boolean } {
+  const flags = parseOptionalFlags(command, arguments_, ["--verbose", "--json"]);
+  return {
+    json: flags["--json"] === true,
+    verbose: flags["--verbose"] === true,
+  };
 }
 
 async function main(): Promise<void> {
@@ -419,9 +442,22 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "preview") {
     const parsed = parseOrExit("preview", () => parseLifecycleArguments("preview", arguments_.slice(1)));
     if (parsed === undefined) return;
-    const report = await previewApplication(home);
-    process.stdout.write(formatLifecycleReport("preview", report, parsed));
-    if (report.blockers.length > 0) process.exitCode = 1;
+    try {
+      const report = await previewApplication(home);
+      process.stdout.write(
+        parsed.json
+          ? formatLifecycleJson("preview", report)
+          : formatLifecycleReport("preview", report, parsed),
+      );
+      process.exitCode = lifecycleExitCode(report);
+    } catch (error) {
+      if (parsed.json) {
+        process.stdout.write(formatLifecycleToolErrorJson("preview", formatError(error)));
+      } else {
+        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+      }
+      process.exitCode = 1;
+    }
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "apply") {
@@ -429,32 +465,59 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     try {
       const applied = await applyApplication(home);
-      process.stdout.write(formatApplyReport(applied, parsed));
-      if (
-        applied.resultingState.blockers.length > 0 ||
-        applied.resultingState.items.some((item) => item.kind !== "current")
-      ) {
-        process.exitCode = 1;
-      }
+      process.stdout.write(
+        parsed.json ? formatApplyJson(applied) : formatApplyReport(applied, parsed),
+      );
+      // Exit 0 whenever apply completed without blockers, including remaining
+      // non-current work (outcome "attention"). Gate on blockers only — DEC-024.
+      process.exitCode = lifecycleExitCode(applied.resultingState);
     } catch (error) {
       if (error instanceof ApplyBlockedError) {
-        process.stdout.write(formatBlockedApplyReport(error.report, parsed));
-        process.exitCode = 1;
+        process.stdout.write(
+          parsed.json
+            ? formatBlockedApplyJson(error.report)
+            : formatBlockedApplyReport(error.report, parsed),
+        );
+        process.exitCode = lifecycleExitCode(error.report);
         return;
       }
       if (error instanceof ApplyVerificationError) {
-        process.stdout.write(formatApplyVerificationFailure(error.receipt, error.message, parsed));
+        process.stdout.write(
+          parsed.json
+            ? formatApplyVerificationFailureJson(error.receipt, error.message)
+            : formatApplyVerificationFailure(error.receipt, error.message, parsed),
+        );
         process.exitCode = 1;
         return;
       }
-      throw error;
+      if (parsed.json) {
+        process.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
+      } else {
+        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+      }
+      process.exitCode = 1;
     }
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "status") {
     const parsed = parseOrExit("status", () => parseLifecycleArguments("status", arguments_.slice(1)));
     if (parsed === undefined) return;
-    process.stdout.write(formatLifecycleReport("status", await statusApplication(home), parsed));
+    try {
+      const report = await statusApplication(home);
+      process.stdout.write(
+        parsed.json
+          ? formatLifecycleJson("status", report)
+          : formatLifecycleReport("status", report, parsed),
+      );
+      process.exitCode = lifecycleExitCode(report);
+    } catch (error) {
+      if (parsed.json) {
+        process.stdout.write(formatLifecycleToolErrorJson("status", formatError(error)));
+      } else {
+        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+      }
+      process.exitCode = 1;
+    }
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "uninstall") {

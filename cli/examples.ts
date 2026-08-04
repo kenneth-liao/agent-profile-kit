@@ -14,8 +14,8 @@ export const COMMAND_EXAMPLES = {
   ],
   unbind: ["unbind", `unbind ${project}`],
   validate: ["validate"],
-  preview: ["preview", "preview --verbose"],
-  apply: ["apply", "apply --verbose"],
-  status: ["status", "status --verbose"],
+  preview: ["preview", "preview --verbose", "preview --json"],
+  apply: ["apply", "apply --verbose", "apply --json"],
+  status: ["status", "status --verbose", "status --json"],
   uninstall: ["uninstall"],
 } as const;
