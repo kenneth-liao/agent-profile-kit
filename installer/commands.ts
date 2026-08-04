@@ -15,6 +15,7 @@ import {
   writeInstallationState,
 } from "./installation-state.js";
 import { gitExclusionBlockers, stageGitExclusions } from "./git-exclusions.js";
+import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import { canonicalRepositoryExclusionRecord } from "../schemas/installation-manifest.js";
 
 export interface ValidationResult {
@@ -121,6 +122,10 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
 }
 
 export async function uninstallApplication(home: string): Promise<UninstallResult> {
+  return withInstallationLifecycleLock(home, "uninstall", () => uninstallApplicationLocked(home));
+}
+
+async function uninstallApplicationLocked(home: string): Promise<UninstallResult> {
   const loaded = await readInstallationStateWithMigration(home);
   const state = loaded.state;
   if (state.installations.length === 0) {

@@ -43,6 +43,7 @@ import {
   installTemporaryProfile,
   removeTemporaryProfile,
   TemporaryInstallationBlockedError,
+  TemporaryInstallationRecoverableError,
 } from "../installer/temporary-installation.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
@@ -645,6 +646,23 @@ async function main(): Promise<void> {
           process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
         }
         process.exitCode = 2;
+        return;
+      }
+      if (error instanceof TemporaryInstallationRecoverableError) {
+        if (parsed.json) {
+          process.stdout.write(
+            formatTemporaryInstallationToolErrorJson("install-temp", formatError(error), {
+              removalRequired: true,
+              temporaryInstallationId: error.temporaryInstallationId,
+            }),
+          );
+        } else {
+          process.stderr.write(
+            `${COMMAND_NAME}: ${formatError(error)}\n` +
+              `${COMMAND_NAME}: removal is required; run ${COMMAND_NAME} remove-temp ${error.temporaryInstallationId}\n`,
+          );
+        }
+        process.exitCode = 1;
         return;
       }
       if (parsed.json) {

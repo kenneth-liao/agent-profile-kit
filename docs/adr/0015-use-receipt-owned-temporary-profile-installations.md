@@ -47,7 +47,10 @@ ADR-0010's binding-owned model:
 - Installation State schema v5 is required once any temporary record is written.
   Older engines cannot read a v5 state file; operators who may downgrade must
   retain a pre-upgrade state backup (see CHANGELOG and ARCHITECTURE).
-- Concurrent temporary installations, crash recovery after partial publication,
-  and Claude Code parity are separate follow-on work.
+- Crash recovery after partial publication, disposable removal of modified
+  temporary-owned roots, linked-worktree contributor safety, and the shared
+  Installation State lifecycle lock are delivered with the recovery slice
+  (#137). Claude Code temporary-install Host parity remains separate follow-on
+  work.
 - This does not restore session launchers or managed overlays superseded by
   ADR-0010; Hosts still load project material natively after install-temp.

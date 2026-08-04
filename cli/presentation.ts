@@ -1583,6 +1583,10 @@ export function formatTemporaryInstallationBlockedJson(
 export function formatTemporaryInstallationToolErrorJson(
   command: TemporaryInstallCommand,
   message: string,
+  options: {
+    readonly removalRequired?: boolean;
+    readonly temporaryInstallationId?: string;
+  } = {},
 ): string {
   return `${JSON.stringify(
     {
@@ -1590,6 +1594,12 @@ export function formatTemporaryInstallationToolErrorJson(
       command,
       outcome: "error",
       error: message,
+      ...(options.removalRequired
+        ? {
+            removalRequired: true,
+            temporaryInstallationId: options.temporaryInstallationId,
+          }
+        : {}),
     },
     null,
     2,

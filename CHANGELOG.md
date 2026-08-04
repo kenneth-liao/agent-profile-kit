@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Make Temporary Profile Installations recoverable and contributor-safe: durable recovery identity before owned mutations, structured install failures that report `removalRequired` + `temporaryInstallationId`, disposable removal of modified owned roots, linked-worktree independence, and an Installation State lifecycle lock shared with `apply`/`uninstall` ([#137](https://github.com/kenneth-liao/agent-profile-kit/issues/137)).
+
 - Add `install-temp` and `remove-temp` for temporary Codex Profile installation into one explicit Project, with a versioned JSON receipt (including Host Setup Steps and warnings) and idempotent removal ([#135](https://github.com/kenneth-liao/agent-profile-kit/issues/135)). Installation State advances to schema **v5** (`temporary_installations`). **Rollback:** 0.49.x and earlier cannot read a v5 state file. Before the first 0.50.0+ write that upgrades state, retain a copy of `~/.agents/agent-profile-kit/state/manifest.yaml`. To downgrade, stop the newer CLI, restore that backup, and only then run the older binary. Without a backup, restore is unsupported—do not hand-edit the state file; remove only known Installer-owned project outputs and temporary receipt-owned paths after verifying no other tool depends on them.
 
 - Add `--json` machine output for `preview`, `apply`, and `status`, covering outcome, per-installation state, planned or committed paths, blockers, warnings, and Host Setup Steps ([#126](https://github.com/kenneth-liao/agent-profile-kit/issues/126)).
@@ -19,6 +21,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Require Codex CLI `0.145.0+` for Context-bearing Profile Installations and emit SessionStart hooks with `additionalContextLimit: 0` so complete Context is delivered directly ([#138](https://github.com/kenneth-liao/agent-profile-kit/issues/138)). Previously-working installs on older Codex (or without `codex` on `PATH`) fail preflight before writes; Skills-only Codex bindings are unchanged. `apply` remains all-project: one blocked Codex binding blocks writes for every other binding in the fleet. Recovery: upgrade Codex to `0.145.0+` and re-apply, or temporarily remove `codex` from the Project Binding, apply other Hosts, then restore the binding after upgrade.
 
 ### Fixed
+
+- Use Darwin `O_EXLOCK` for the Installation State lifecycle lock so exclusive publication is kernel-identity-bound (no pathname stale-reclaim TOCTOU), require a matching Installation Marker before deleting extant temporary-owned roots, and delete disposable temporary roots in place without orphan stages ([#137](https://github.com/kenneth-liao/agent-profile-kit/issues/137)).
 
 - Exclude `resume` from the Codex SessionStart Context Hook matcher so resumed conversations no longer duplicate Profile Context already present in rollout history; injection remains on `startup`, `clear`, and `compact` ([#139](https://github.com/kenneth-liao/agent-profile-kit/issues/139)). A resumed session keeps the Context it started with — start a new session or `/clear` (or wait for compact) to pick up an updated Profile. Existing installs keep the old matcher until the next `apply`, which rewrites `hooks.json`.
 
