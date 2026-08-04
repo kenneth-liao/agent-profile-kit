@@ -6184,6 +6184,16 @@ describe("apkit temporary Profile installation (Codex)", () => {
     initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home, "coding");
+    const skillSource = join(workspacePath(home), "skills", "review-pr");
+    mkdirSync(skillSource, { recursive: true });
+    writeFileSync(
+      join(skillSource, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\nReview the change carefully.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\nagents: []\nhooks: []\ntools: []\n",
+    );
     const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-"));
     const boundProject = realpathSync(gitRepository("agent-profile-kit-bound-"));
     bind(home, boundProject, "coding");
@@ -6220,6 +6230,13 @@ describe("apkit temporary Profile installation (Codex)", () => {
       readonly outputs: readonly string[];
       readonly repositoryExclusion: { readonly target: string; readonly entries: readonly string[] } | null;
       readonly completionState: string;
+      readonly setupSteps: readonly {
+        readonly host: string;
+        readonly kind: string;
+        readonly message: string;
+        readonly consequence?: string;
+      }[];
+      readonly warnings: readonly string[];
     };
     expect(receipt.schemaVersion).toBe(1);
     expect(receipt.command).toBe("install-temp");
@@ -6235,13 +6252,31 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(receipt.hostVersion).toBeTruthy();
     expect(receipt.outputs).toContain(".agent-profile-kit/installation.json");
     expect(receipt.outputs).toContain(".agent-profile-kit/codex/context.md");
+    expect(receipt.outputs).toContain(".agents/skills/review-pr");
     expect(receipt.repositoryExclusion).not.toBeNull();
-    expect(receipt.repositoryExclusion!.entries.length).toBeGreaterThan(0);
+    expect(receipt.repositoryExclusion!.entries).toEqual(
+      expect.arrayContaining([
+        "/.agent-profile-kit/codex/context.md",
+        "/.agent-profile-kit/installation.json",
+        "/.agents/skills/review-pr",
+        "/.codex/hooks.json",
+      ]),
+    );
+    expect(receipt.setupSteps.some((step) => step.kind === "approval-required")).toBe(true);
+    expect(receipt.setupSteps.some((step) => step.kind === "trust-required")).toBe(true);
+    expect(receipt.setupSteps.some((step) => /SessionStart hook/i.test(step.message))).toBe(true);
+    expect(receipt.setupSteps.some((step) => /Trust the bound project/i.test(step.message))).toBe(true);
+    expect(Array.isArray(receipt.warnings)).toBe(true);
 
     expect(existsSync(join(tempProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(readFileSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"), "utf8"))
+      .toContain("Review the change carefully.");
     const exclude = join(tempProject, ".git", "info", "exclude");
-    expect(readFileSync(exclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
+    const excludeText = readFileSync(exclude, "utf8");
+    expect(excludeText).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(excludeText).toContain("/.agents/skills/review-pr");
     expect(existsSync(join(tempProject, ".gitignore"))).toBe(false);
 
     expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
@@ -6258,13 +6293,18 @@ describe("apkit temporary Profile installation (Codex)", () => {
       readonly completionState: string;
       readonly temporaryInstallationId: string;
       readonly outputs: readonly string[];
+      readonly setupSteps: readonly unknown[];
+      readonly warnings: readonly unknown[];
     };
     expect(removed.outcome).toBe("success");
     expect(removed.completionState).toBe("removed");
     expect(removed.temporaryInstallationId).toBe(receipt.temporaryInstallationId);
     expect(removed.outputs).toEqual([]);
+    expect(removed.setupSteps).toEqual([]);
+    expect(removed.warnings).toEqual([]);
     expect(existsSync(join(tempProject, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
     expect(readFileSync(exclude, "utf8")).not.toContain("# BEGIN Agent Profile Kit generated paths");
 
     const removeAgain = runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
@@ -6284,6 +6324,69 @@ describe("apkit temporary Profile installation (Codex)", () => {
     ).toBe(true);
     // Ordinary Profile Installation remains after temporary lifecycle.
     expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
+  test("install-temp surfaces Codex Host Setup Steps and hooks-disabled warnings", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    // Override the init-provided hooks-enabled Codex config so warnings fire.
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
+    const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-warn-"));
+
+    const install = runCli(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expect(install.status, install.stderr).toBe(0);
+    const receipt = JSON.parse(install.stdout) as {
+      readonly warnings: readonly string[];
+      readonly setupSteps: readonly {
+        readonly kind: string;
+        readonly message: string;
+        readonly consequence?: string;
+      }[];
+    };
+    expect(receipt.warnings.some((warning) => /hooks are not enabled/i.test(warning))).toBe(true);
+    expect(receipt.setupSteps.some((step) => step.kind === "approval-required")).toBe(true);
+    expect(receipt.setupSteps.some((step) => step.kind === "trust-required")).toBe(true);
+    expect(
+      receipt.setupSteps.some((step) =>
+        /SessionStart hook/i.test(step.message) &&
+        step.consequence !== undefined &&
+        /Profile Context/i.test(step.consequence)
+      ),
+    ).toBe(true);
+
+    const human = runCli(
+      home,
+      "remove-temp",
+      JSON.parse(install.stdout).temporaryInstallationId,
+    );
+    expect(human.status, human.stderr).toBe(0);
+
+    // Reinstall for human install output with the same hooks warning.
+    const humanInstall = runCli(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "codex",
+    );
+    expect(humanInstall.status, humanInstall.stderr).toBe(0);
+    expect(humanInstall.stdout).toContain("Installed Profile temporarily");
+    expect(humanInstall.stdout).toContain("Warnings:");
+    expect(humanInstall.stdout).toMatch(/hooks are not enabled/i);
+    expect(humanInstall.stdout).toContain("Codex setup:");
+    expect(humanInstall.stdout).toMatch(/SessionStart hook/i);
+    expect(humanInstall.stdout).toContain("Trust the bound project in Codex.");
   });
 
   test("install-temp rejects unknown Profile, unsupported Host, missing Project, and tracked destinations before writes", () => {

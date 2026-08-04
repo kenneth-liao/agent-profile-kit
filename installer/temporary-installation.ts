@@ -3,6 +3,7 @@ import {
   detectCodexProjectConfigurationWarnings,
   planCodexProject,
 } from "../adapters/codex.js";
+import type { HostSetupStep } from "../adapters/project-plan.js";
 import {
   isSupportedHost,
   type SupportedHost,
@@ -79,7 +80,11 @@ export interface TemporaryInstallationReceipt {
         readonly target: string;
       }
     | undefined;
+  /** Adapter-authored Host Setup Steps required after successful temporary install. */
+  readonly setupSteps: readonly HostSetupStep[];
   readonly temporaryInstallationId: string;
+  /** Configuration warnings that do not block install but can prevent Host loading. */
+  readonly warnings: readonly string[];
   readonly workspaceInputHash: string;
 }
 
@@ -88,6 +93,10 @@ function receiptFromRecord(
   repositoryExclusion:
     | TemporaryInstallationReceipt["repositoryExclusion"]
     | undefined,
+  options: {
+    readonly setupSteps?: readonly HostSetupStep[];
+    readonly warnings?: readonly string[];
+  } = {},
 ): TemporaryInstallationReceipt {
   return {
     adapterVersion: record.adapterVersion,
@@ -99,7 +108,9 @@ function receiptFromRecord(
     profileId: record.profileId,
     project: record.project,
     repositoryExclusion,
+    setupSteps: options.setupSteps ?? [],
     temporaryInstallationId: record.temporaryInstallationId,
+    warnings: options.warnings ?? [],
     workspaceInputHash: record.workspaceInputHash,
   };
 }
@@ -331,6 +342,10 @@ export async function installTemporaryProfile(options: {
   return receiptFromRecord(
     temporaryRecord,
     exclusionContributionFor(nextState, temporaryInstallationId),
+    {
+      setupSteps: desired.setupSteps,
+      warnings: desired.warnings,
+    },
   );
 }
 

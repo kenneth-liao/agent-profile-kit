@@ -1465,8 +1465,27 @@ export interface TemporaryInstallationReceiptView {
         readonly target: string;
       }
     | undefined;
+  readonly setupSteps: readonly HostSetupStep[];
   readonly temporaryInstallationId: string;
+  readonly warnings: readonly string[];
   readonly workspaceInputHash: string;
+}
+
+function temporarySetupStepMessage(
+  step: HostSetupStep,
+  project: string,
+): string {
+  return step.path === "bound-project" ? `${step.message} ${project}` : step.message;
+}
+
+function temporarySetupStepJson(step: HostSetupStep, project: string) {
+  return {
+    host: step.host,
+    kind: step.kind,
+    message: temporarySetupStepMessage(step, project),
+    ...(step.consequence === undefined ? {} : { consequence: step.consequence }),
+    ...(step.path === undefined ? {} : { path: step.path }),
+  };
 }
 
 /** Versioned temporary-installation receipt for automation. */
@@ -1490,6 +1509,10 @@ export function formatTemporaryInstallationJson(
       outputs: receipt.outputs,
       repositoryExclusion: receipt.repositoryExclusion ?? null,
       completionState: receipt.completionState,
+      warnings: [...receipt.warnings],
+      setupSteps: receipt.setupSteps.map((step) =>
+        temporarySetupStepJson(step, receipt.project)
+      ),
     },
     null,
     2,
@@ -1501,21 +1524,43 @@ export function formatTemporaryInstallationHuman(
   receipt: TemporaryInstallationReceiptView,
 ): string {
   if (command === "install-temp") {
+    const warningLines = receipt.warnings.length === 0
+      ? []
+      : [
+          "Warnings:",
+          ...receipt.warnings.map((warning) => `- ${warning}`),
+        ];
+    const setupLines = receipt.setupSteps.length === 0
+      ? []
+      : [
+          `${capitalize(receipt.host)} setup:`,
+          ...[...receipt.setupSteps]
+            .sort((left, right) =>
+              HOST_SETUP_STEP_ORDER.indexOf(left.kind) -
+                HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
+              left.message.localeCompare(right.message)
+            )
+            .map((step) => {
+              const message = temporarySetupStepMessage(step, receipt.project);
+              return `- ${message}${
+                step.consequence ? ` Consequence: ${step.consequence}` : ""
+              }`;
+            }),
+        ];
     return (
       `Installed Profile temporarily\n` +
       `  Profile: ${receipt.profileId}\n` +
       `  Host: ${receipt.host}\n` +
       `  Project: ${receipt.project}\n` +
-      `  Temporary installation: ${receipt.temporaryInstallationId}\n`
+      `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
+      (warningLines.length > 0 ? `${warningLines.join("\n")}\n` : "") +
+      (setupLines.length > 0 ? `${setupLines.join("\n")}\n` : "")
     );
   }
   return (
     `Removed temporary Profile installation\n` +
     `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
-    `  Project: ${receipt.project}\n` +
-    (receipt.completionState === "removed" && receipt.outputs.length === 0
-      ? ""
-      : "")
+    `  Project: ${receipt.project}\n`
   );
 }
 
