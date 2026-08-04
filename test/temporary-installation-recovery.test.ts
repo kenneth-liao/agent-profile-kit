@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -12,6 +13,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  formatLifecycleLockBody,
+  installationLifecycleLockPath,
+  withInstallationLifecycleLock,
+} from "../installer/installation-lifecycle-lock.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { nodeFileSystem } from "../installer/reconcile.js";
@@ -224,7 +230,7 @@ describe("Temporary Profile Installation recovery", () => {
     });
   });
 
-  test("interrupted remove before terminal state write is finished by retry", async () => {
+  test("interrupted remove before terminal state write is finished by retry without orphan stages", async () => {
     const home = await prepareHome();
     const project = gitRepository("agent-profile-kit-temp-remove-interrupt-");
     const receipt = await installTemporaryProfile({
@@ -239,15 +245,17 @@ describe("Temporary Profile Installation recovery", () => {
         home,
         temporaryInstallationId: receipt.temporaryInstallationId,
         hooks: {
-          onBeforeTerminalStateWrite: async () => {
-            throw new Error("injected remove interruption before terminal state");
+          onAfterRootDeletes: async () => {
+            throw new Error("injected remove interruption after root deletes");
           },
         },
       }),
-    ).rejects.toThrow(/injected remove interruption/);
+    ).rejects.toThrow(/injected remove interruption after root deletes/);
 
-    // Owned outputs already cleaned; state still active so retry can converge.
+    // Owned outputs already cleaned; no process-private remove stage remains.
     expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
+    const projectEntries = readdirSync(project);
+    expect(projectEntries.some((name) => name.startsWith(".agent-profile-kit-remove-"))).toBe(false);
     const mid = await readInstallationState(home);
     expect(
       mid.temporaryInstallations.find(
@@ -263,6 +271,63 @@ describe("Temporary Profile Installation recovery", () => {
     expect(removed.completionState).toBe("removed");
     // Adjacent unrelated project content remains.
     expect(existsSync(join(project, "README.md"))).toBe(true);
+  });
+
+  test("remove blocks when extant owned roots lack a matching Installation Marker", async () => {
+    const home = await prepareHome();
+    const project = gitRepository("agent-profile-kit-temp-no-marker-");
+    const receipt = await installTemporaryProfile({
+      home,
+      host: "codex",
+      profile: "coding",
+      project,
+    });
+    rmSync(join(project, ".agent-profile-kit", "installation.json"), { force: true });
+    writeFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), "still here\n");
+
+    await expect(
+      removeTemporaryProfile({
+        home,
+        temporaryInstallationId: receipt.temporaryInstallationId,
+      }),
+    ).rejects.toBeInstanceOf(TemporaryInstallationBlockedError);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
+  });
+
+  test("ownership token published first allows remove after partial publication failure", async () => {
+    const home = await prepareHome();
+    const project = gitRepository("agent-profile-kit-temp-token-first-");
+
+    let failure: unknown;
+    try {
+      await installTemporaryProfile({
+        home,
+        host: "codex",
+        profile: "coding",
+        project,
+        hooks: {
+          onAfterOwnershipToken: async () => {
+            throw new Error("injected failure after ownership token");
+          },
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(TemporaryInstallationRecoverableError);
+    const recoverable = failure as TemporaryInstallationRecoverableError;
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(
+      JSON.parse(readFileSync(join(project, ".agent-profile-kit", "installation.json"), "utf8"))
+        .installation_id,
+    ).toBe(recoverable.temporaryInstallationId);
+
+    const removed = await removeTemporaryProfile({
+      home,
+      temporaryInstallationId: recoverable.temporaryInstallationId,
+    });
+    expect(removed.completionState).toBe("removed");
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("linked worktrees hold independent temporary installations and contributor-safe exclusion removal", async () => {
@@ -341,9 +406,6 @@ describe("Temporary Profile Installation recovery", () => {
   test("lifecycle lock rejects concurrent install-temp while another operation holds the lock", async () => {
     const home = await prepareHome();
     const project = gitRepository("agent-profile-kit-temp-lock-");
-    const { withInstallationLifecycleLock } = await import(
-      "../installer/installation-lifecycle-lock.js"
-    );
 
     await withInstallationLifecycleLock(home, "apply", async () => {
       await expect(
@@ -356,5 +418,43 @@ describe("Temporary Profile Installation recovery", () => {
         }),
       ).rejects.toThrow(/Installation lifecycle is busy/i);
     });
+  });
+
+  test("stale-lock reclaim serializes contenders so only one body enters at a time", async () => {
+    const home = temporaryDirectory("agent-profile-kit-lifecycle-lock-home-");
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const lockPath = installationLifecycleLockPath(home);
+    // Dead owner PID is unlikely to be alive; plant a reclaimable stale lock.
+    writeFileSync(lockPath, formatLifecycleLockBody(2_147_483_646, "stale-token"));
+
+    let active = 0;
+    let maxActive = 0;
+    const body = async (): Promise<void> => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      active -= 1;
+    };
+
+    await Promise.all([
+      withInstallationLifecycleLock(home, "apply", body, { lockTimeoutMs: 2_000 }),
+      withInstallationLifecycleLock(home, "install-temp", body, { lockTimeoutMs: 2_000 }),
+      withInstallationLifecycleLock(home, "remove-temp", body, { lockTimeoutMs: 2_000 }),
+    ]);
+    expect(maxActive).toBe(1);
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  test("release unlinks only the uniquely owned lock token", async () => {
+    const home = temporaryDirectory("agent-profile-kit-lifecycle-release-home-");
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const lockPath = installationLifecycleLockPath(home);
+
+    await withInstallationLifecycleLock(home, "apply", async () => {
+      // Simulate a successor that already replaced this contender's lock body.
+      writeFileSync(lockPath, formatLifecycleLockBody(process.pid, "successor-token"));
+    });
+    // Successor body must remain; release must not delete another owner's lock.
+    expect(readFileSync(lockPath, "utf8")).toContain("successor-token");
   });
 });

@@ -1,3 +1,6 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
 import {
   assertCodexProjectCapability,
   detectCodexProjectConfigurationWarnings,
@@ -9,6 +12,7 @@ import {
   type SupportedHost,
 } from "../schemas/local-configuration.js";
 import {
+  formatInstallationMarker,
   INSTALLATION_STATE_SCHEMA_VERSION,
   type TemporaryProfileInstallation,
 } from "../schemas/installation-manifest.js";
@@ -24,7 +28,7 @@ import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js"
 import {
   newInstallationId,
   readInstallationStateWithMigration,
-  stageDisposableOutputRemoval,
+  removeDisposableOutputs,
   writeInstallationState,
 } from "./installation-state.js";
 import {
@@ -34,6 +38,7 @@ import {
 import { requireProfile } from "./profile-selection.js";
 import {
   adapterVersionFor,
+  markerPath,
   normalizeAdapterPlans,
   type DesiredInstallation,
 } from "./project-plan.js";
@@ -111,9 +116,28 @@ export interface TemporaryInstallationHooks {
   readonly lockTimeoutMs?: number;
   readonly onAfterDurableRecord?: () => Promise<void>;
   readonly onAfterExclusionCommit?: () => Promise<void>;
+  readonly onAfterOwnershipToken?: () => Promise<void>;
   readonly onAfterOutputsPublished?: () => Promise<void>;
+  readonly onAfterRootDeletes?: () => Promise<void>;
   readonly onBeforeTerminalStateWrite?: () => Promise<void>;
   readonly writeInstallationState?: typeof writeInstallationState;
+}
+
+/** First owned project mutation: durable recovery ownership token (Installation Marker). */
+async function writeTemporaryOwnershipToken(
+  project: string,
+  temporaryInstallationId: string,
+): Promise<void> {
+  const destination = markerPath(project);
+  await mkdir(dirname(destination), { recursive: true });
+  await writeFile(
+    destination,
+    formatInstallationMarker({
+      installationId: temporaryInstallationId,
+      schemaVersion: 1,
+    }),
+    { flag: "wx" },
+  );
 }
 
 function receiptFromRecord(
@@ -357,7 +381,7 @@ export async function installTemporaryProfile(options: {
       };
 
       let durableRecorded = false;
-      let stagingStarted = false;
+      let ownershipTokenPublished = false;
       let outputsPublished = false;
       let exclusionsCommitted = false;
       let transaction: Awaited<ReturnType<typeof stageProjectOutputs>> | undefined;
@@ -369,7 +393,12 @@ export async function installTemporaryProfile(options: {
         durableRecorded = true;
         await options.hooks?.onAfterDurableRecord?.();
 
-        stagingStarted = true;
+        // First owned project mutation: Installation Marker as recovery ownership token
+        // so later partial publication (or marker-last staging) still proves ownership.
+        await writeTemporaryOwnershipToken(canonicalProject, temporaryInstallationId);
+        ownershipTokenPublished = true;
+        await options.hooks?.onAfterOwnershipToken?.();
+
         const fileSystem: ReconciliationFileSystem = {
           ...nodeFileSystem,
           ...options.hooks?.fileSystem,
@@ -406,7 +435,7 @@ export async function installTemporaryProfile(options: {
         }
 
         const failureMessage = error instanceof Error ? error.message : String(error);
-        const removalRequired = durableRecorded && stagingStarted;
+        const removalRequired = durableRecorded && ownershipTokenPublished;
         if (removalRequired) {
           throw new TemporaryInstallationRecoverableError(
             temporaryInstallationId,
@@ -503,30 +532,31 @@ export async function removeTemporaryProfile(options: {
         ),
       };
 
-      let transaction: Awaited<ReturnType<typeof stageDisposableOutputRemoval>> | undefined;
       let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
+      let exclusionsCommitted = false;
       try {
-        transaction = await stageDisposableOutputRemoval({
+        // Direct idempotent deletes — no process-private stage that can be orphaned.
+        await removeDisposableOutputs({
           installationId: existing.temporaryInstallationId,
           outputs: existing.outputs,
           project: existing.project,
         });
+        await options.hooks?.onAfterRootDeletes?.();
         exclusions = await stageGitExclusions(state, nextState);
-        // Commit filesystem and exclusion cleanup before the terminal state write so
-        // an interrupted remove leaves an `installed` record that retry can finish.
+        // Commit exclusion cleanup before the terminal state write so an interrupted
+        // remove leaves an `installed` record that retry can finish.
         await exclusions.commit();
-        await transaction.commit();
+        exclusionsCommitted = true;
         await options.hooks?.onBeforeTerminalStateWrite?.();
         await writeState(options.home, nextState);
       } catch (error) {
-        if (exclusions) {
+        if (exclusions && !exclusionsCommitted) {
           try {
             await exclusions.rollback();
           } catch {
             // Preserve the primary failure.
           }
         }
-        if (transaction) await transaction.rollback();
         if (error instanceof Error && error.message.startsWith("Cannot remove Temporary")) {
           throw new TemporaryInstallationBlockedError([error.message]);
         }

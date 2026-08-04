@@ -657,26 +657,54 @@ export async function stageProvenInstallationRemoval(
   };
 }
 
+async function pathExistsAt(project: string, relativePath: string): Promise<boolean> {
+  try {
+    await lstat(join(project, relativePath));
+    return true;
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return false;
+    throw error;
+  }
+}
+
 /**
- * Remove complete recorded owned roots without hash-strict ownership proof.
- * Used for Temporary Profile Installations whose contents are intentionally
- * disposable (agent edits and unexpected members inside owned directories).
- * Never traverses outside recorded project-relative roots.
+ * Idempotently delete complete recorded temporary-owned roots without hash-strict
+ * ownership proof and without a process-private staging tree. Extant roots require
+ * a matching Installation Marker (the durable recovery ownership token). Missing
+ * roots converge so interrupted deletes can finish on retry. Never traverses
+ * outside recorded project-relative roots.
  */
-export async function stageDisposableOutputRemoval(options: {
+export async function removeDisposableOutputs(options: {
   readonly installationId: string;
   readonly outputs: readonly OwnedOutput[];
   readonly project: string;
-}): Promise<ProvenInstallationRemovalTransaction> {
+}): Promise<void> {
   const project = options.project;
   const marker = await readMarker(project);
-  if (marker && marker.installationId !== options.installationId) {
+
+  const extantRoots: string[] = [];
+  for (const output of options.outputs) {
+    if (await pathExistsAt(project, output.path)) extantRoots.push(output.path);
+  }
+
+  if (extantRoots.length > 0) {
+    if (!marker) {
+      throw new Error(
+        `Cannot remove Temporary Profile Installation at ${project}: Installation Marker is missing while owned output still exists (${extantRoots.join(", ")})`,
+      );
+    }
+    if (marker.installationId !== options.installationId) {
+      throw new Error(
+        `Cannot remove Temporary Profile Installation at ${project}: Installation Marker identity does not match the temporary installation`,
+      );
+    }
+  } else if (marker && marker.installationId !== options.installationId) {
     throw new Error(
       `Cannot remove Temporary Profile Installation at ${project}: Installation Marker identity does not match the temporary installation`,
     );
   }
 
-  // Deepest paths first so nested owned roots move before their parents when both are listed.
+  // Deepest paths first so nested owned roots are removed before ancestors when both are listed.
   const outputs = [...options.outputs].sort(
     (left, right) =>
       right.path.split("/").length - left.path.split("/").length ||
@@ -690,54 +718,20 @@ export async function stageDisposableOutputRemoval(options: {
         `Cannot remove Temporary Profile Installation at ${project}: owned output ${output.path} has unsafe parent: ${unsafeParent}`,
       );
     }
-  }
-
-  const stage = await mkdtemp(join(project, ".agent-profile-kit-remove-"));
-  const moved: string[] = [];
-  let settled = false;
-  const cleanup = async (): Promise<void> => {
-    await rm(stage, { recursive: true, force: true }).catch(() => undefined);
-  };
-  const rollback = async (): Promise<void> => {
-    if (settled) return;
-    settled = true;
-    for (const path of moved.reverse()) {
-      const staged = join(stage, path.slice(project.length + 1));
-      await rename(staged, path).catch(() => undefined);
+    const path = join(project, output.path);
+    let stats;
+    try {
+      stats = await lstat(path);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) continue;
+      throw error;
     }
-    await cleanup();
-  };
-  try {
-    for (const output of outputs) {
-      const path = join(project, output.path);
-      let stats;
-      try {
-        stats = await lstat(path);
-      } catch (error) {
-        if (hasErrorCode(error, "ENOENT")) continue;
-        throw error;
-      }
-      // Refuse to follow a recorded root that is now a symlink pointing elsewhere.
-      if (stats.isSymbolicLink()) {
-        throw new Error(
-          `Cannot remove Temporary Profile Installation at ${project}: owned output ${output.path} is a symlink`,
-        );
-      }
-      const staged = join(stage, output.path);
-      await mkdir(dirname(staged), { recursive: true });
-      await rename(path, staged);
-      moved.push(path);
+    // Refuse to follow a recorded root that is now a symlink pointing elsewhere.
+    if (stats.isSymbolicLink()) {
+      throw new Error(
+        `Cannot remove Temporary Profile Installation at ${project}: owned output ${output.path} is a symlink`,
+      );
     }
-  } catch (error) {
-    await rollback();
-    throw error;
+    await rm(path, { recursive: true, force: true });
   }
-  return {
-    rollback,
-    commit: async () => {
-      if (settled) return;
-      settled = true;
-      await cleanup();
-    },
-  };
 }
