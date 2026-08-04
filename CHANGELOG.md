@@ -10,6 +10,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 - Make root help responsive with workflow groups, width-aware two-line command entries, and terminal-aware wrapping ([#156](https://github.com/kenneth-liao/agent-profile-kit/issues/156)).
 
+### Fixed
+
+- Harden root-help width guarantees and keep command/group metadata canonical across rendering and tests ([#156](https://github.com/kenneth-liao/agent-profile-kit/issues/156)).
+
 ### Changed
 
 - Expand the shared blocker contract with normalized structured evidence while preserving legacy lifecycle and temporary-installation output ([#155](https://github.com/kenneth-liao/agent-profile-kit/issues/155)).

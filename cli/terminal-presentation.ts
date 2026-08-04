@@ -9,6 +9,11 @@ export const MIN_HUMAN_WIDTH = 40;
 /** The largest readable measure used for prose in a wide terminal. */
 export const MAX_HUMAN_WIDTH = 100;
 
+/**
+ * Width context for human CLI presentation. Root help consumes this context
+ * for prose wrapping; focused command and lifecycle renderers retain their
+ * established output contracts until a separate surface decision changes them.
+ */
 export interface TerminalPresentationContext {
   readonly interactive: boolean;
   readonly width: number;

@@ -19,6 +19,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse, stringify } from "yaml";
 
+import { COMMANDS, COMMAND_GROUPS } from "../cli/command-help.js";
 import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -124,8 +125,11 @@ function cleanPtyResult(result: {
   };
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function runCliInPty(home: string, columns: number, ...arguments_: string[]) {
-  const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
   const command = [
     `stty cols ${columns};`,
     "exec",
@@ -148,9 +152,16 @@ function runCliInPty(home: string, columns: number, ...arguments_: string[]) {
 }
 
 function runCliInPtyWithColumnsFallback(home: string, columns: number, ...arguments_: string[]) {
+  // `script` starts this macOS test PTY at zero columns; keep that property
+  // explicit so this test exercises the documented COLUMNS fallback.
+  const command = [
+    "stty cols 0;",
+    "exec",
+    ...[process.env.NODE_BINARY ?? "node", cliPath, ...arguments_].map(shellQuote),
+  ].join(" ");
   const result = spawnSync(
     "script",
-    ["-q", "/dev/null", process.env.NODE_BINARY ?? "node", cliPath, ...arguments_],
+    ["-q", "/dev/null", "sh", "-c", command],
     {
       encoding: "utf8" as const,
       env: {
@@ -6092,20 +6103,6 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 });
 
 describe("apkit root help", () => {
-  const COMMANDS = [
-    { name: "init", syntax: "init [workspace]" },
-    { name: "guide", syntax: "guide [profile|context|skill|--agent]" },
-    { name: "bind", syntax: "bind <profile> [project] --host <host> [--host <host> ...]" },
-    { name: "unbind", syntax: "unbind [project]" },
-    { name: "validate", syntax: "validate" },
-    { name: "preview", syntax: "preview [--verbose] [--json]" },
-    { name: "apply", syntax: "apply [--verbose] [--json]" },
-    { name: "status", syntax: "status [--verbose] [--json]" },
-    { name: "uninstall", syntax: "uninstall" },
-    { name: "install-temp", syntax: "install-temp <profile> <project> --host <host> [--json]" },
-    { name: "remove-temp", syntax: "remove-temp <temporary-installation-id> [--json]" },
-  ] as const;
-
   test("--version reports the packaged engine version", () => {
     const home = isolatedHome();
     const manifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
@@ -6168,30 +6165,17 @@ describe("apkit root help", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("Onboarding");
-    expect(result.stdout).toContain("Workspace and discovery");
-    expect(result.stdout).toContain("Project lifecycle");
-    expect(result.stdout).toContain("Temporary installations");
-
-    const commandNames = [
-      "init",
-      "guide",
-      "bind",
-      "unbind",
-      "validate",
-      "preview",
-      "apply",
-      "status",
-      "uninstall",
-      "install-temp",
-      "remove-temp",
-    ] as const;
     let previousIndex = -1;
-    for (const command of commandNames) {
-      const syntaxIndex = result.stdout.indexOf(`  ${command}`);
-      expect(syntaxIndex).toBeGreaterThan(previousIndex);
-      expect(result.stdout.slice(syntaxIndex).split("\n")[1]).toMatch(/^    \S/);
-      previousIndex = syntaxIndex;
+    for (const [group, label] of COMMAND_GROUPS) {
+      const groupIndex = result.stdout.indexOf(`  ${label}`);
+      expect(groupIndex).toBeGreaterThan(previousIndex);
+      previousIndex = groupIndex;
+      for (const command of COMMANDS.filter((candidate) => candidate.group === group)) {
+        const syntaxIndex = result.stdout.indexOf(`  ${command.syntax}\n`, previousIndex);
+        expect(syntaxIndex).toBeGreaterThan(previousIndex);
+        expect(result.stdout.slice(syntaxIndex).split("\n")[1]).toMatch(/^    \S/);
+        previousIndex = syntaxIndex;
+      }
     }
 
     for (const line of result.stdout.split("\n")) {

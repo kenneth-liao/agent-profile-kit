@@ -54,10 +54,13 @@ the CLI never speaks to.
 ### 1. Discover
 
 A bare invocation, `--help`, `-h`, and `help` print root help: description,
-command table, a four-step quick start, and a pointer to `guide`. `--version`
+workflow-grouped commands with two-line syntax and wrapped descriptions, a
+four-step quick start, and a pointer to `guide`. Interactive output selects
+the tty width (falling back to `COLUMNS`) and clamps readable prose to 40–100
+columns; redirected output uses a deterministic 80-column measure. `--version`
 prints the engine version. Every command has focused `--help` with its purpose,
 syntax, worked examples, write boundary, and next action. Root and per-command
-help derive from one `COMMANDS` table in `cli/index.ts`, while worked commands
+help derive from one `COMMANDS` table in `cli/command-help.ts`, while worked commands
 derive from the reusable example set in `cli/examples.ts`.
 
 Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
