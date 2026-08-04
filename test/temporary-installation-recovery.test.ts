@@ -86,6 +86,34 @@ async function prepareHome(): Promise<string> {
   return home;
 }
 
+
+async function prepareClaudeHome(): Promise<string> {
+  const home = temporaryDirectory("agent-profile-kit-temp-claude-home-");
+  await initializeWorkspace(home);
+  const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+  rmSync(join(workspace, "profiles", "example.yaml"), { force: true });
+  rmSync(join(workspace, "context", "example-context.md"), { force: true });
+  writeFileSync(
+    join(workspace, "context", "team-rules.md"),
+    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+  );
+  mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+  writeFileSync(
+    join(workspace, "skills", "review-pr", "SKILL.md"),
+    "---\nname: review-pr\ndescription: Review a pull request.\n---\n\nReview the change carefully.\n",
+  );
+  writeFileSync(
+    join(workspace, "profiles", "coding.yaml"),
+    "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\nagents: []\nhooks: []\ntools: []\n",
+  );
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "claude"), "#!/bin/sh\necho \"2.1.0 (Claude Code)\"\n");
+  execFileSync("chmod", ["+x", join(bin, "claude")]);
+  process.env.PATH = `${bin}:${process.env.PATH ?? ""}`;
+  return home;
+}
+
 describe("Temporary Profile Installation recovery", () => {
   test("removal discards modifications inside owned directories and preserves adjacent unowned files", async () => {
     const home = await prepareHome();
@@ -526,5 +554,54 @@ describe("Temporary Profile Installation recovery", () => {
     ]);
     expect(maxActive).toBe(1);
     expect(opens).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("Temporary Profile Installation Claude Host parity", () => {
+  test("installs a Context-and-Skills Profile through the Claude Adapter plan and removes by receipt identity", async () => {
+    const home = await prepareClaudeHome();
+    const project = gitRepository("agent-profile-kit-temp-claude-");
+
+    const receipt = await installTemporaryProfile({
+      home,
+      host: "claude",
+      profile: "coding",
+      project,
+    });
+
+    expect(receipt.host).toBe("claude");
+    expect(receipt.profileId).toBe("coding");
+    expect(receipt.completionState).toBe("installed");
+    expect(receipt.adapterVersion).toContain("claude");
+    expect(receipt.hostVersion).toMatch(/native-project-unscoped-rules-skills/);
+    expect(receipt.outputs).toContain(".claude/rules/agent-profile-kit.md");
+    expect(receipt.outputs).toContain(".claude/skills/review-pr");
+    expect(receipt.outputs).toContain(".agent-profile-kit/installation.json");
+    expect(receipt.repositoryExclusion?.entries).toEqual(
+      expect.arrayContaining([
+        "/.claude/rules/agent-profile-kit.md",
+        "/.claude/skills/review-pr",
+        "/.agent-profile-kit/installation.json",
+      ]),
+    );
+    expect(existsSync(join(project, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(readFileSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"), "utf8"))
+      .toContain("Review the change carefully.");
+    expect(existsSync(join(project, ".agent-profile-kit", "codex"))).toBe(false);
+
+    const removed = await removeTemporaryProfile({
+      home,
+      temporaryInstallationId: receipt.temporaryInstallationId,
+    });
+    expect(removed.completionState).toBe("removed");
+    expect(removed.temporaryInstallationId).toBe(receipt.temporaryInstallationId);
+    expect(removed.host).toBe("claude");
+    expect(existsSync(join(project, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
+    expect(existsSync(join(project, ".claude", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(readFileSync(join(project, ".git", "info", "exclude"), "utf8")).not.toContain(
+      "# BEGIN Agent Profile Kit generated paths",
+    );
   });
 });

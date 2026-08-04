@@ -6172,11 +6172,28 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(installHelp.status, installHelp.stderr).toBe(0);
     expect(installHelp.stdout).toContain("Install a Profile temporarily into one Project");
     expect(installHelp.stdout).toContain("Usage: apkit install-temp <profile> <project> --host <host> [--json]");
+    expect(installHelp.stdout).toContain("Next: Run apkit remove-temp <temporary-installation-id> when finished.");
+    expect(installHelp.stdout).toContain("--host claude");
+    expect(installHelp.stdout).toContain("--host codex");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
+      expect(installHelp.stdout).not.toMatch(term);
+    }
 
     const removeHelp = runCli(home, "remove-temp", "--help");
     expect(removeHelp.status, removeHelp.stderr).toBe(0);
-    expect(removeHelp.stdout).toContain("Remove one temporary Profile");
+    expect(removeHelp.stdout).toContain("Remove one temporary Profile installation");
+    expect(removeHelp.stdout).not.toContain("Remove one temporary project");
     expect(removeHelp.stdout).toContain("Usage: apkit remove-temp <temporary-installation-id> [--json]");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
+      expect(removeHelp.stdout).not.toMatch(term);
+    }
+
+    const root = runCli(home);
+    expect(root.stdout).toContain("Install a Profile temporarily into one Project");
+    expect(root.stdout).toContain("Remove one temporary Profile installation");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
+      expect(root.stdout).not.toMatch(term);
+    }
   });
 
   test("install-temp / remove-temp complete Codex lifecycle with a versioned receipt and isolation", () => {
@@ -6415,12 +6432,14 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "coding",
       projectPath,
       "--host",
-      "claude",
+      "grok",
       "--json",
     );
     expect(unsupportedHost.status).toBe(1);
     expect(JSON.parse(unsupportedHost.stdout).outcome).toBe("error");
-    expect(JSON.parse(unsupportedHost.stdout).error).toMatch(/does not yet support|supported Hosts: codex/i);
+    expect(JSON.parse(unsupportedHost.stdout).error).toMatch(
+      /does not yet support|supported Hosts: claude, codex/i,
+    );
 
     const missingProject = runCli(
       home,
@@ -6586,6 +6605,302 @@ describe("apkit temporary Profile installation (Codex)", () => {
     };
     expect(blocked.outcome).toBe("blocked");
     expect(blocked.blockers.some((blocker) => /active Temporary Profile Installation/i.test(blocker.message)))
+      .toBe(true);
+  });
+});
+
+describe("apkit temporary Profile installation (Claude Code parity)", () => {
+  function prepareClaudeTempWorkspace(home: string): void {
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const skillSource = join(workspacePath(home), "skills", "review-pr");
+    mkdirSync(skillSource, { recursive: true });
+    writeFileSync(
+      join(skillSource, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\nReview the change carefully.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\nagents: []\nhooks: []\ntools: []\n",
+    );
+  }
+
+  function runCliWithClaude(home: string, ...arguments_: string[]) {
+    const pathValue = `${installFakeClaude(home)}:${installFakeCodex(home)}:${process.env.PATH ?? ""}`;
+    return spawnSync(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
+      encoding: "utf8" as const,
+      env: { ...process.env, HOME: home, PATH: pathValue },
+    });
+  }
+
+  test("install-temp / remove-temp complete Claude lifecycle with versioned receipt and Claude Adapter outputs", () => {
+    const home = isolatedHome();
+    prepareClaudeTempWorkspace(home);
+    const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-claude-cli-"));
+    const boundProject = realpathSync(gitRepository("agent-profile-kit-bound-claude-cli-"));
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${boundProject}\n    profile: coding\n    hosts:\n      - claude\n`,
+    );
+    const applyBound = runCliWithClaude(home, "apply");
+    expect(applyBound.status, applyBound.stderr).toBe(0);
+    const configBefore = readFileSync(configPath(home));
+    const boundRuleBefore = readFileSync(
+      join(boundProject, ".claude", "rules", "agent-profile-kit.md"),
+    );
+
+    const install = runCliWithClaude(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "claude",
+      "--json",
+    );
+    expect(install.status, install.stderr).toBe(0);
+    const receipt = JSON.parse(install.stdout) as {
+      readonly schemaVersion: number;
+      readonly command: string;
+      readonly outcome: string;
+      readonly temporaryInstallationId: string;
+      readonly profileId: string;
+      readonly host: string;
+      readonly project: string;
+      readonly workspaceInputHash: string;
+      readonly engineVersion: string;
+      readonly adapterVersion: string;
+      readonly hostVersion: string;
+      readonly outputs: readonly string[];
+      readonly repositoryExclusion: {
+        readonly target: string;
+        readonly entries: readonly string[];
+      } | null;
+      readonly completionState: string;
+      readonly setupSteps: readonly unknown[];
+      readonly warnings: readonly string[];
+    };
+    expect(receipt.schemaVersion).toBe(1);
+    expect(receipt.command).toBe("install-temp");
+    expect(receipt.outcome).toBe("success");
+    expect(receipt.profileId).toBe("coding");
+    expect(receipt.host).toBe("claude");
+    expect(receipt.project).toBe(tempProject);
+    expect(receipt.completionState).toBe("installed");
+    expect(receipt.temporaryInstallationId.length).toBeGreaterThan(0);
+    expect(receipt.workspaceInputHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(receipt.engineVersion).toBeTruthy();
+    expect(receipt.adapterVersion).toMatch(/claude/i);
+    expect(receipt.hostVersion).toMatch(/native-project-unscoped-rules-skills/);
+    expect(receipt.outputs).toContain(".agent-profile-kit/installation.json");
+    expect(receipt.outputs).toContain(".claude/rules/agent-profile-kit.md");
+    expect(receipt.outputs).toContain(".claude/skills/review-pr");
+    expect(receipt.outputs).not.toContain(".agent-profile-kit/codex/context.md");
+    expect(receipt.repositoryExclusion).not.toBeNull();
+    expect(receipt.repositoryExclusion!.entries).toEqual(
+      expect.arrayContaining([
+        "/.claude/rules/agent-profile-kit.md",
+        "/.claude/skills/review-pr",
+        "/.agent-profile-kit/installation.json",
+      ]),
+    );
+    expect(Array.isArray(receipt.setupSteps)).toBe(true);
+    expect(Array.isArray(receipt.warnings)).toBe(true);
+
+    expect(existsSync(join(tempProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(existsSync(join(tempProject, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(tempProject, ".gitignore"))).toBe(false);
+    expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
+    expect(
+      readFileSync(join(boundProject, ".claude", "rules", "agent-profile-kit.md")).equals(
+        boundRuleBefore,
+      ),
+    ).toBe(true);
+
+    const humanInstall = runCliWithClaude(
+      home,
+      "remove-temp",
+      receipt.temporaryInstallationId,
+    );
+    // Already installed — re-install after remove for human summary, then assert jargon-free.
+    expect(humanInstall.status, humanInstall.stderr).toBe(0);
+    expect(humanInstall.stdout).toContain("Removed temporary Profile installation");
+    expect(humanInstall.stdout).toContain(`Temporary installation: ${receipt.temporaryInstallationId}`);
+    expect(humanInstall.stdout).not.toMatch(/Project Binding|reconcil|materializ|cleanup/i);
+
+    const reinstall = runCliWithClaude(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "claude",
+    );
+    expect(reinstall.status, reinstall.stderr).toBe(0);
+    expect(reinstall.stdout).toContain("Installed Profile temporarily");
+    expect(reinstall.stdout).toContain("Host: claude");
+    expect(reinstall.stdout).toContain("Profile: coding");
+    expect(reinstall.stdout).not.toMatch(/Project Binding|reconcil|materializ|cleanup/i);
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
+      expect(reinstall.stdout).not.toMatch(term);
+    }
+    const reinstallIdMatch = reinstall.stdout.match(/Temporary installation: (\S+)/);
+    expect(reinstallIdMatch?.[1]).toBeTruthy();
+    const reinstallId = reinstallIdMatch![1]!;
+
+    const remove = runCliWithClaude(home, "remove-temp", reinstallId, "--json");
+    expect(remove.status, remove.stderr).toBe(0);
+    const removed = JSON.parse(remove.stdout) as {
+      readonly outcome: string;
+      readonly completionState: string;
+      readonly temporaryInstallationId: string;
+      readonly host: string;
+      readonly outputs: readonly string[];
+      readonly setupSteps: readonly unknown[];
+      readonly warnings: readonly unknown[];
+    };
+    expect(removed.outcome).toBe("success");
+    expect(removed.completionState).toBe("removed");
+    expect(removed.temporaryInstallationId).toBe(reinstallId);
+    expect(removed.host).toBe("claude");
+    expect(removed.outputs).toEqual([]);
+    expect(removed.setupSteps).toEqual([]);
+    expect(removed.warnings).toEqual([]);
+    expect(existsSync(join(tempProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
+    expect(existsSync(join(tempProject, ".claude", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
+
+    const removeAgain = runCliWithClaude(home, "remove-temp", reinstallId, "--json");
+    expect(removeAgain.status, removeAgain.stderr).toBe(0);
+    expect(JSON.parse(removeAgain.stdout).completionState).toBe("removed");
+    expect(JSON.parse(removeAgain.stdout).outcome).toBe("success");
+
+    // Ordinary Claude Profile Installation remains after temporary lifecycle.
+    expect(existsSync(join(boundProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
+  });
+
+  test("Claude and Codex receipts share protocol shape with Host-truthful provenance", () => {
+    const home = isolatedHome();
+    prepareClaudeTempWorkspace(home);
+    const claudeProject = realpathSync(gitRepository("agent-profile-kit-temp-proto-claude-"));
+    const codexProject = realpathSync(gitRepository("agent-profile-kit-temp-proto-codex-"));
+
+    const claudeInstall = runCliWithClaude(
+      home,
+      "install-temp",
+      "coding",
+      claudeProject,
+      "--host",
+      "claude",
+      "--json",
+    );
+    const codexInstall = runCliWithClaude(
+      home,
+      "install-temp",
+      "coding",
+      codexProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expect(claudeInstall.status, claudeInstall.stderr).toBe(0);
+    expect(codexInstall.status, codexInstall.stderr).toBe(0);
+    const claude = JSON.parse(claudeInstall.stdout) as Record<string, unknown>;
+    const codex = JSON.parse(codexInstall.stdout) as Record<string, unknown>;
+    const requiredKeys = [
+      "schemaVersion",
+      "command",
+      "outcome",
+      "temporaryInstallationId",
+      "profileId",
+      "host",
+      "project",
+      "workspaceInputHash",
+      "engineVersion",
+      "adapterVersion",
+      "hostVersion",
+      "outputs",
+      "repositoryExclusion",
+      "completionState",
+      "warnings",
+      "setupSteps",
+    ] as const;
+    for (const key of requiredKeys) {
+      expect(claude).toHaveProperty(key);
+      expect(codex).toHaveProperty(key);
+    }
+    expect(claude.schemaVersion).toBe(codex.schemaVersion);
+    expect(claude.command).toBe("install-temp");
+    expect(codex.command).toBe("install-temp");
+    expect(claude.host).toBe("claude");
+    expect(codex.host).toBe("codex");
+    expect(claude.adapterVersion).not.toBe(codex.adapterVersion);
+    expect(claude.hostVersion).not.toBe(codex.hostVersion);
+    expect(claude.temporaryInstallationId).not.toBe(codex.temporaryInstallationId);
+    expect(claude.profileId).toBe("coding");
+    expect(codex.profileId).toBe("coding");
+    const claudeOutputs = claude.outputs as readonly string[];
+    const codexOutputs = codex.outputs as readonly string[];
+    expect(claudeOutputs).toContain(".claude/rules/agent-profile-kit.md");
+    expect(claudeOutputs).toContain(".claude/skills/review-pr");
+    expect(claudeOutputs).not.toContain(".agent-profile-kit/codex/context.md");
+    expect(codexOutputs).toContain(".agent-profile-kit/codex/context.md");
+    expect(codexOutputs).toContain(".agents/skills/review-pr");
+    expect(codexOutputs).not.toContain(".claude/rules/agent-profile-kit.md");
+  });
+
+  test("Claude install-temp exit codes: 0 success, 1 tool error, 2 capability blocker", () => {
+    const home = isolatedHome();
+    prepareClaudeTempWorkspace(home);
+    const projectPath = realpathSync(gitRepository("agent-profile-kit-temp-claude-exits-"));
+
+    const success = runCliWithClaude(
+      home,
+      "install-temp",
+      "coding",
+      projectPath,
+      "--host",
+      "claude",
+      "--json",
+    );
+    expect(success.status).toBe(0);
+
+    const missingProfile = runCliWithClaude(
+      home,
+      "install-temp",
+      "no-such-profile",
+      projectPath,
+      "--host",
+      "claude",
+      "--json",
+    );
+    expect(missingProfile.status).toBe(1);
+    expect(JSON.parse(missingProfile.stdout).outcome).toBe("error");
+
+    const invalidInvocation = runCliWithClaude(home, "install-temp", "--json");
+    expect(invalidInvocation.status).toBe(1);
+
+    // Capability blocker: old Claude CLI floor.
+    const oldBin = installFakeClaude(home, "2.0.63");
+    const pathValue = `${oldBin}:${process.env.PATH ?? ""}`;
+    const blocked = spawnSync(
+      process.env.NODE_BINARY ?? "node",
+      [cliPath, "install-temp", "coding", gitRepository("agent-profile-kit-temp-claude-old-"), "--host", "claude", "--json"],
+      {
+        encoding: "utf8" as const,
+        env: { ...process.env, HOME: home, PATH: pathValue },
+      },
+    );
+    expect(blocked.status).toBe(2);
+    const payload = JSON.parse(blocked.stdout) as {
+      readonly outcome: string;
+      readonly blockers: readonly { readonly message: string }[];
+    };
+    expect(payload.outcome).toBe("blocked");
+    expect(payload.blockers.some((blocker) => /Claude CLI|requires 2\.0\.64/i.test(blocker.message)))
       .toBe(true);
   });
 });

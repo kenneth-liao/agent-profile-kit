@@ -20,6 +20,7 @@ export const COMMAND_EXAMPLES = {
   uninstall: ["uninstall"],
   "install-temp": [
     `install-temp ${profile} ${project} --host codex --json`,
+    `install-temp ${profile} ${project} --host claude --json`,
   ],
   "remove-temp": ["remove-temp <temporary-installation-id> --json"],
 } as const;

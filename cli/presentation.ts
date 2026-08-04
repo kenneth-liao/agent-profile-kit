@@ -74,7 +74,8 @@ const OUTPUT_PATH_PRIORITY = {
 } as const satisfies Readonly<Record<OutputReconciliationKind, number>>;
 
 export const INTERNAL_ONLY_DEFAULT_TERMS = [
-  /Profile Installations?/i,
+  // Ordinary Profile Installation vocabulary — not the temporary-lifetime phrase.
+  /(?<!temporary )Profile Installations?/i,
   /generated[- ]outputs?/i,
   /Repository Exclusions?/i,
   /Installer-owned/i,
@@ -127,8 +128,9 @@ export function defaultViewText(text: string): string {
     ],
     [/\bRepository Exclusion Records\b/gi, DEFAULT_VIEW_LEXICON.repositoryExclusionRecord.plural],
     [/\bRepository Exclusion Record\b/gi, DEFAULT_VIEW_LEXICON.repositoryExclusionRecord.singular],
-    [/\bProfile Installations\b/gi, DEFAULT_VIEW_LEXICON.profileInstallation.plural],
-    [/\bProfile Installation\b/gi, DEFAULT_VIEW_LEXICON.profileInstallation.singular],
+    // Preserve "temporary Profile installation" (receipt-owned lifetime) as newcomer vocabulary.
+    [/(?<!temporary )\bProfile Installations\b/gi, DEFAULT_VIEW_LEXICON.profileInstallation.plural],
+    [/(?<!temporary )\bProfile Installation\b/gi, DEFAULT_VIEW_LEXICON.profileInstallation.singular],
     [/\bgenerated[- ]outputs\b/gi, DEFAULT_VIEW_LEXICON.generatedOutput.plural],
     [/\bgenerated[- ]output\b/gi, DEFAULT_VIEW_LEXICON.generatedOutput.singular],
     [/\bRepository Exclusions\b/gi, DEFAULT_VIEW_LEXICON.repositoryExclusion.plural],
