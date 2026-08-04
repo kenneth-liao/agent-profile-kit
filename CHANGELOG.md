@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Expand the shared blocker contract with normalized structured evidence while preserving legacy lifecycle and temporary-installation output ([#155](https://github.com/kenneth-liao/agent-profile-kit/issues/155)).
+
 ### Added
 
 - Add Claude Code Host parity for `install-temp` / `remove-temp`: temporary Profile preparation reuses the Claude Adapter plan, shares the versioned receipt protocol with Codex, and qualifies both Hosts through the packed CLI without launching either agent ([#136](https://github.com/kenneth-liao/agent-profile-kit/issues/136)).

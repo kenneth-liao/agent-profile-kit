@@ -18,6 +18,7 @@ import {
   INTERNAL_ONLY_DEFAULT_TERMS,
   NON_CURRENT_STATE_ORDER,
 } from "../cli/presentation.js";
+import { normalizeBlocker } from "../installer/blockers.js";
 import type {
   ApplyReconciliationResult,
   BlockedReconciliationReport,
@@ -501,6 +502,31 @@ describe("formatLifecycleReport concise terminology", () => {
       expect(concise).not.toContain("Changes:");
       expect(concise).not.toContain("State:");
     }
+  });
+
+  test("structured blocker evidence preserves legacy human and JSON output", () => {
+    const legacy = emptyReport({
+      blockers: [{ message: "Codex CLI is unavailable", project: "/project-a" }],
+    });
+    const structured = emptyReport({
+      blockers: [normalizeBlocker({
+        affectedItems: [{ kind: "host", value: "codex" }],
+        kind: "host-capability",
+        message: "Codex CLI is unavailable",
+        problem: "Codex CLI is unavailable",
+        remedy: "Install a supported Codex CLI, then retry",
+        requirement: "The selected Profile requires Codex project delivery",
+        project: "/project-a",
+        scope: "project",
+      })],
+    });
+
+    expect(formatLifecycleReport("preview", structured)).toBe(
+      formatLifecycleReport("preview", legacy),
+    );
+    expect(JSON.parse(formatLifecycleJson("preview", structured))).toEqual(
+      JSON.parse(formatLifecycleJson("preview", legacy)),
+    );
   });
 
   test("identifies the working-directory project as dot", () => {

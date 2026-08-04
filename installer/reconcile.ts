@@ -53,6 +53,13 @@ import {
   type RepositoryExclusionChange,
   type RepositoryExclusionRepair,
 } from "./git-exclusions.js";
+import {
+  normalizeBlocker,
+  type BlockerInput,
+  type ReconciliationBlocker,
+} from "./blockers.js";
+
+export type { ReconciliationBlocker } from "./blockers.js";
 
 export interface ReconciliationFileSystem {
   readonly chmod: typeof chmod;
@@ -105,12 +112,6 @@ export interface OutputReconciliationItem {
   readonly kind: OutputReconciliationKind;
   readonly path: string;
   readonly project: string;
-}
-
-export interface ReconciliationBlocker {
-  readonly message: string;
-  /** Canonical project identity; absent only for application-state blockers. */
-  readonly project?: string;
 }
 
 export interface DesiredResolvedArtifactPreview {
@@ -198,7 +199,7 @@ export async function unreadableInstallationStateReport(
   });
   return {
     ...desiredReport,
-    blockers: [{ message }],
+    blockers: [normalizeBlocker(message)],
     // Ownership cannot be read, so planned project states and output changes
     // are not trustworthy diagnostics. Keep only the boundary failure.
     items: [{
@@ -611,11 +612,10 @@ export async function previewReconciliation(
     intentionallyDeletedProjects,
     movedPreviousProjects,
   } = await installationRetirementSelection(desired, state);
-  const blockers: ReconciliationBlocker[] = desired.flatMap((installation) =>
-    installation.blockers.map((message) => ({
-      message,
-      project: installation.binding.canonicalProject,
-    }))
+  const blockers: BlockerInput[] = desired.flatMap((installation) =>
+    installation.blockers.map((message) =>
+      normalizeBlocker(message, installation.binding.canonicalProject)
+    )
   );
   blockers.push(...(await gitExclusionBlockers(state, desired, {
     retiringInstallationIds: intentionallyDeletedInstallationIds,
@@ -902,7 +902,23 @@ export async function previewReconciliation(
   };
   return {
     blockers: [...new Map(
-      blockers.map((blocker) => [`${blocker.project ?? ""}\0${blocker.message}`, blocker]),
+      blockers.map((input) => {
+        const blocker = normalizeBlocker(input);
+        const structured = "kind" in blocker
+          ? JSON.stringify({
+              affectedItems: blocker.affectedItems,
+              kind: blocker.kind,
+              problem: blocker.problem,
+              remedy: blocker.remedy,
+              requirement: blocker.requirement,
+              scope: blocker.scope,
+            })
+          : "";
+        return [
+          `${blocker.project ?? ""}\0${blocker.message}\0${structured}`,
+          blocker,
+        ] as const;
+      }),
     ).values()].sort((left, right) =>
       (left.project ?? "").localeCompare(right.project ?? "") || left.message.localeCompare(right.message)
     ),

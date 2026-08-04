@@ -31,6 +31,7 @@ import {
   CODEX_HOST_VERSION_WITH_INVOCATION,
   CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION,
 } from "../adapters/codex.js";
+import { blockerMessage } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
   applyReconciliation,
@@ -495,7 +496,7 @@ describe("Skill model-invocation policy", () => {
       // Context floor (0.145.0) is checked before the invocation floor (0.99.0)
       // so one upgrade message covers Profiles that need both capabilities.
       expect(desired.installations[0]?.blockers.some((blocker) =>
-        blocker.includes("cannot deliver complete Context"),
+        blockerMessage(blocker).includes("cannot deliver complete Context"),
       )).toBe(true);
       const preview = await previewReconciliation(desired.installations, {
         intendedTeardowns: [],

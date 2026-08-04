@@ -29,6 +29,7 @@ import {
   planGrokProject,
   resolveGrokContextRulePath,
 } from "../adapters/grok.js";
+import { blockerMessage } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import {
@@ -448,7 +449,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
       const desired = await buildDesiredState(home);
       expect(
         desired.installations[0]?.blockers.some((blocker) =>
-          blocker.includes("is a file, not a directory"),
+          blockerMessage(blocker).includes("is a file, not a directory"),
         ),
       ).toBe(true);
 
@@ -721,7 +722,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
       });
       const topologyBlockers =
         desired.installations[0]?.blockers.filter((blocker) =>
-          blocker.includes("Claude rules compatibility could not be inspected"),
+          blockerMessage(blocker).includes("Claude rules compatibility could not be inspected"),
         ) ?? [];
       expect(topologyBlockers).toEqual([]);
       expect(desired.installations[0]?.setupSteps).toEqual([]);
