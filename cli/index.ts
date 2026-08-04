@@ -51,6 +51,11 @@ import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { COMMAND_EXAMPLES } from "./examples.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
+import {
+  terminalPresentationContext,
+  wrapPresentationText,
+  type TerminalPresentationContext,
+} from "./terminal-presentation.js";
 
 function formatError(error: unknown): string {
   if (error instanceof MissingProfileError) return formatMissingProfileError(error);
@@ -68,6 +73,7 @@ function formatError(error: unknown): string {
  */
 interface CommandHelp {
   readonly name: string;
+  readonly group: CommandGroup;
   readonly syntax: string;
   readonly summary: string;
   readonly examples: readonly string[];
@@ -75,9 +81,19 @@ interface CommandHelp {
   readonly next: string;
 }
 
+type CommandGroup = "onboarding" | "workspace" | "lifecycle" | "temporary";
+
+const COMMAND_GROUPS: readonly (readonly [CommandGroup, string])[] = [
+  ["onboarding", "Onboarding"],
+  ["workspace", "Workspace and discovery"],
+  ["lifecycle", "Project lifecycle"],
+  ["temporary", "Temporary installations"],
+];
+
 const COMMANDS: readonly CommandHelp[] = [
   {
     name: "init",
+    group: "onboarding",
     syntax: "init [workspace]",
     summary: "Initialize or adopt the canonical Workspace and Local Configuration",
     examples: COMMAND_EXAMPLES.init,
@@ -86,6 +102,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "guide",
+    group: "onboarding",
     syntax: "guide [profile|context|skill|--agent]",
     summary: "Print full Workspace guidance or one focused authoring example",
     examples: COMMAND_EXAMPLES.guide,
@@ -94,6 +111,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "bind",
+    group: "workspace",
     syntax: "bind <profile> [project] --host <host> [--host <host> ...]",
     summary: "Record a Project Binding to a Profile and Agent Hosts",
     examples: COMMAND_EXAMPLES.bind,
@@ -102,6 +120,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "unbind",
+    group: "workspace",
     syntax: "unbind [project]",
     summary: "Remove a Project Binding",
     examples: COMMAND_EXAMPLES.unbind,
@@ -110,6 +129,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "validate",
+    group: "workspace",
     syntax: "validate",
     summary: "Check Workspace and Local Configuration validity",
     examples: COMMAND_EXAMPLES.validate,
@@ -118,6 +138,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "preview",
+    group: "lifecycle",
     syntax: "preview [--verbose] [--json]",
     summary: "Show pending reconciliation changes without writing (read-only)",
     examples: COMMAND_EXAMPLES.preview,
@@ -126,6 +147,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "apply",
+    group: "lifecycle",
     syntax: "apply [--verbose] [--json]",
     summary: "Reconcile Profile Installations to match Local Configuration",
     examples: COMMAND_EXAMPLES.apply,
@@ -134,6 +156,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "status",
+    group: "lifecycle",
     syntax: "status [--verbose] [--json]",
     summary: "Show current Profile Installation lifecycle state",
     examples: COMMAND_EXAMPLES.status,
@@ -142,6 +165,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "uninstall",
+    group: "lifecycle",
     syntax: "uninstall",
     summary: "Remove all Profile Installations",
     examples: COMMAND_EXAMPLES.uninstall,
@@ -150,6 +174,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "install-temp",
+    group: "temporary",
     syntax: "install-temp <profile> <project> --host <host> [--json]",
     summary: "Install a Profile temporarily into one Project",
     examples: COMMAND_EXAMPLES["install-temp"],
@@ -158,6 +183,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "remove-temp",
+    group: "temporary",
     syntax: "remove-temp <temporary-installation-id> [--json]",
     // "temporary Profile installation" is protected from ordinary Profile Installation
     // default-view rewriting (see defaultViewText) so this temporary lifetime stays distinct.
@@ -196,22 +222,42 @@ function perCommandHelp(command: CommandHelp): string {
 }
 
 /** Root help shown for a bare invocation, `--help`, and unknown-command errors. */
-function rootHelp(): string {
-  const longestSyntax = Math.max(...COMMANDS.map((command) => command.syntax.length));
-  const commandLines = COMMANDS.map(
-    (command) => `  ${command.syntax.padEnd(longestSyntax)}  ${command.summary}`,
+function rootHelp(context: TerminalPresentationContext): string {
+  const proseWidth = Math.max(1, context.width - 4);
+  const commandLines: string[] = [];
+  for (const [group, label] of COMMAND_GROUPS) {
+    commandLines.push(`  ${label}`);
+    for (const command of COMMANDS.filter((candidate) => candidate.group === group)) {
+      commandLines.push(`  ${command.syntax}`);
+      commandLines.push(
+        ...wrapPresentationText(defaultViewText(command.summary), proseWidth)
+          .map((line) => `    ${line}`),
+      );
+    }
+  }
+  const intro = wrapPresentationText(
+    defaultViewText(
+      "Agent Profile Kit composes reusable agent material into host-native Profile Installations.",
+    ),
+    context.width,
+  ).join("\n");
+  const guidance = wrapPresentationText(
+    defaultViewText(
+      `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide.`,
+    ),
+    context.width,
   ).join("\n");
   return defaultViewText(
-    "Agent Profile Kit composes reusable agent material into host-native Profile Installations.\n\n" +
+    `${intro}\n\n` +
     `Usage: ${COMMAND_NAME} <command> [arguments]\n\n` +
     "Commands:\n" +
-    `${commandLines}\n\n` +
+    `${commandLines.join("\n")}\n\n` +
     "Profile Installation quick start:\n" +
     `  ${COMMAND_NAME} init\n` +
     `  ${COMMAND_NAME} bind <profile> --host <host>\n` +
     `  ${COMMAND_NAME} preview\n` +
     `  ${COMMAND_NAME} apply\n\n` +
-    `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide.\n`,
+    `${guidance}\n`,
   );
 }
 
@@ -426,7 +472,7 @@ async function main(): Promise<void> {
     arguments_.length === 0 ||
     (arguments_.length === 1 && ["--help", "-h", "help"].includes(arguments_[0]!))
   ) {
-    process.stdout.write(rootHelp());
+    process.stdout.write(rootHelp(terminalPresentationContext(process.stdout)));
     return;
   }
   if (arguments_.length === 2 && arguments_[1] === "--help") {
@@ -716,7 +762,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  process.stderr.write(`${COMMAND_NAME}: unknown command '${arguments_[0] ?? ""}'\n\n${rootHelp()}`);
+  const errorHelp = rootHelp(terminalPresentationContext(process.stderr));
+  process.stderr.write(`${COMMAND_NAME}: unknown command '${arguments_[0] ?? ""}'\n\n${errorHelp}`);
   process.exitCode = 1;
 }
 

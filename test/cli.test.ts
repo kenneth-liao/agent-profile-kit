@@ -96,6 +96,74 @@ function runCliAt(home: string, cwd: string | undefined, ...arguments_: string[]
   });
 }
 
+function runCliWithEnvironment(
+  home: string,
+  environment: NodeJS.ProcessEnv,
+  ...arguments_: string[]
+) {
+  return spawnSync(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
+    encoding: "utf8" as const,
+    env: {
+      ...process.env,
+      ...environment,
+      HOME: home,
+      PATH: defaultCliPath(home),
+    },
+  });
+}
+
+function cleanPtyResult(result: {
+  readonly status: number | null;
+  readonly stdout: string | null;
+  readonly stderr: string | null;
+}) {
+  return {
+    ...result,
+    stdout: (result.stdout ?? "").replace(/[\u0004\u0008]/g, "").replace(/\r/g, ""),
+    stderr: (result.stderr ?? "").replace(/[\u0004\u0008]/g, "").replace(/\r/g, ""),
+  };
+}
+
+function runCliInPty(home: string, columns: number, ...arguments_: string[]) {
+  const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  const command = [
+    `stty cols ${columns};`,
+    "exec",
+    ...[process.env.NODE_BINARY ?? "node", cliPath, ...arguments_].map(shellQuote),
+  ].join(" ");
+  const result = spawnSync(
+    "script",
+    ["-q", "/dev/null", "sh", "-c", command],
+    {
+      encoding: "utf8" as const,
+      env: {
+        ...process.env,
+        COLUMNS: String(columns),
+        HOME: home,
+        PATH: defaultCliPath(home),
+      },
+    },
+  );
+  return cleanPtyResult(result);
+}
+
+function runCliInPtyWithColumnsFallback(home: string, columns: number, ...arguments_: string[]) {
+  const result = spawnSync(
+    "script",
+    ["-q", "/dev/null", process.env.NODE_BINARY ?? "node", cliPath, ...arguments_],
+    {
+      encoding: "utf8" as const,
+      env: {
+        ...process.env,
+        COLUMNS: String(columns),
+        HOME: home,
+        PATH: defaultCliPath(home),
+      },
+    },
+  );
+  return cleanPtyResult(result);
+}
+
 function runCliAsync(
   home: string,
   ...arguments_: string[]
@@ -6078,15 +6146,67 @@ describe("apkit root help", () => {
 
     const commandsSection = result.stdout.match(/Commands:\n([\s\S]*?)\n\nProject quick start:/)?.[1];
     expect(commandsSection).toBeDefined();
-    const commandLines = commandsSection!.split("\n").filter((line) => line.trim().length > 0);
+    const menuLines = commandsSection!.split("\n");
+    const commandLines = menuLines.filter((line) =>
+      COMMANDS.some((command) => line.trimStart().startsWith(command.syntax)),
+    );
     expect(commandLines).toHaveLength(COMMANDS.length);
     for (const command of COMMANDS) {
       const line = commandLines.find((candidate) => new RegExp(`^\\s*${command.name}\\b`).test(candidate));
       expect(line).toBeDefined();
       expect(line).toContain(command.syntax);
-      const purpose = line!.slice(line!.indexOf(command.syntax) + command.syntax.length).trim();
-      expect(purpose.length).toBeGreaterThan(0);
+      const description = menuLines
+        .slice(menuLines.indexOf(line!) + 1)
+        .find((candidate) => candidate.startsWith("    "));
+      expect(description?.trim().length).toBeGreaterThan(0);
     }
+  });
+
+  test("root help groups commands and keeps its two-line menu within the deterministic width", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "--help");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Onboarding");
+    expect(result.stdout).toContain("Workspace and discovery");
+    expect(result.stdout).toContain("Project lifecycle");
+    expect(result.stdout).toContain("Temporary installations");
+
+    const commandNames = [
+      "init",
+      "guide",
+      "bind",
+      "unbind",
+      "validate",
+      "preview",
+      "apply",
+      "status",
+      "uninstall",
+      "install-temp",
+      "remove-temp",
+    ] as const;
+    let previousIndex = -1;
+    for (const command of commandNames) {
+      const syntaxIndex = result.stdout.indexOf(`  ${command}`);
+      expect(syntaxIndex).toBeGreaterThan(previousIndex);
+      expect(result.stdout.slice(syntaxIndex).split("\n")[1]).toMatch(/^    \S/);
+      previousIndex = syntaxIndex;
+    }
+
+    for (const line of result.stdout.split("\n")) {
+      expect(line.length, `line exceeds deterministic width: ${line}`).toBeLessThanOrEqual(80);
+    }
+  });
+
+  test("redirected root help ignores ambient COLUMNS and remains deterministic", () => {
+    const home = isolatedHome();
+    const narrowEnvironment = runCliWithEnvironment(home, { COLUMNS: "40" }, "--help");
+    const wideEnvironment = runCliWithEnvironment(home, { COLUMNS: "160" }, "--help");
+
+    expect(narrowEnvironment.status, narrowEnvironment.stderr).toBe(0);
+    expect(wideEnvironment.status, wideEnvironment.stderr).toBe(0);
+    expect(narrowEnvironment.stdout).toBe(wideEnvironment.stdout);
   });
 
   test("root help shows the minimal Project flow and points to guide for deeper authoring", () => {
@@ -6129,7 +6249,39 @@ describe("apkit root help", () => {
       expect(rootLine).toBeDefined();
       const purpose = result.stdout.match(/^Purpose: (.+)$/m)?.[1];
       expect(purpose).toBeDefined();
-      expect(rootLine).toContain(purpose!);
+      const rootLines = root.stdout.split("\n");
+      const rootLineIndex = rootLines.indexOf(rootLine!);
+      const descriptionLines: string[] = [];
+      for (const line of rootLines.slice(rootLineIndex + 1)) {
+        if (!line.startsWith("    ")) break;
+        descriptionLines.push(line.trim());
+      }
+      const rootDescription = descriptionLines.join(" ");
+      expect(rootDescription).toBe(purpose!);
+    }
+  });
+
+  test("interactive root help adapts to narrow terminals and caps wide prose", () => {
+    const home = isolatedHome();
+    const clamped = runCliInPty(home, 20, "--help");
+    const narrow = runCliInPty(home, 40, "--help");
+    const fallback = runCliInPtyWithColumnsFallback(home, 40, "--help");
+    const wide = runCliInPty(home, 160, "--help");
+
+    expect(clamped.status, clamped.stderr).toBe(0);
+    expect(narrow.status, narrow.stderr).toBe(0);
+    expect(fallback.status, fallback.stderr).toBe(0);
+    expect(wide.status, wide.stderr).toBe(0);
+    expect(clamped.stdout).toBe(narrow.stdout);
+    expect(fallback.stdout).toBe(narrow.stdout);
+    expect(wide.stdout).not.toBe(narrow.stdout);
+    const isUnbreakableSyntax = (line: string) =>
+      COMMANDS.some((command) => line.trimStart().startsWith(command.syntax));
+    for (const line of clamped.stdout.split("\n")) {
+      if (!isUnbreakableSyntax(line)) expect(line.length).toBeLessThanOrEqual(40);
+    }
+    for (const line of wide.stdout.split("\n")) {
+      if (!isUnbreakableSyntax(line)) expect(line.length).toBeLessThanOrEqual(100);
     }
   });
 
