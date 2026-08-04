@@ -14,7 +14,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  formatLifecycleLockBody,
   installationLifecycleLockPath,
   withInstallationLifecycleLock,
 } from "../installer/installation-lifecycle-lock.js";
@@ -420,12 +419,9 @@ describe("Temporary Profile Installation recovery", () => {
     });
   });
 
-  test("stale-lock reclaim serializes contenders so only one body enters at a time", async () => {
+  test("kernel exclusive lock serializes contenders so only one body enters at a time", async () => {
     const home = temporaryDirectory("agent-profile-kit-lifecycle-lock-home-");
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
-    const lockPath = installationLifecycleLockPath(home);
-    // Dead owner PID is unlikely to be alive; plant a reclaimable stale lock.
-    writeFileSync(lockPath, formatLifecycleLockBody(2_147_483_646, "stale-token"));
 
     let active = 0;
     let maxActive = 0;
@@ -442,19 +438,93 @@ describe("Temporary Profile Installation recovery", () => {
       withInstallationLifecycleLock(home, "remove-temp", body, { lockTimeoutMs: 2_000 }),
     ]);
     expect(maxActive).toBe(1);
-    expect(existsSync(lockPath)).toBe(false);
   });
 
-  test("release unlinks only the uniquely owned lock token", async () => {
-    const home = temporaryDirectory("agent-profile-kit-lifecycle-release-home-");
+  test("lock handoff: a held exclusive open blocks successors until close, without pathname reclaim", async () => {
+    const home = temporaryDirectory("agent-profile-kit-lifecycle-handoff-home-");
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
     const lockPath = installationLifecycleLockPath(home);
 
+    // Pre-create a leftover lock *file* (simulates prior dead process residue).
+    // Kernel O_EXLOCK cares about open holders, not pathname body identity.
+    writeFileSync(lockPath, "stale pathname residue\n");
+
+    let holderEntered = false;
+    let contenderSawBusy = false;
+    let contenderEnteredAfterRelease = false;
+
     await withInstallationLifecycleLock(home, "apply", async () => {
-      // Simulate a successor that already replaced this contender's lock body.
-      writeFileSync(lockPath, formatLifecycleLockBody(process.pid, "successor-token"));
+      holderEntered = true;
+      await expect(
+        withInstallationLifecycleLock(home, "install-temp", async () => {
+          contenderEnteredAfterRelease = true;
+        }, { lockTimeoutMs: 80 }),
+      ).rejects.toThrow(/Installation lifecycle is busy/i);
+      contenderSawBusy = true;
     });
-    // Successor body must remain; release must not delete another owner's lock.
-    expect(readFileSync(lockPath, "utf8")).toContain("successor-token");
+
+    await withInstallationLifecycleLock(home, "install-temp", async () => {
+      contenderEnteredAfterRelease = true;
+    }, { lockTimeoutMs: 500 });
+
+    expect(holderEntered).toBe(true);
+    expect(contenderSawBusy).toBe(true);
+    expect(contenderEnteredAfterRelease).toBe(true);
+  });
+
+  test("injectable openExclusiveLock forces successor handoff races to remain serialized", async () => {
+    const home = temporaryDirectory("agent-profile-kit-lifecycle-inject-home-");
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+
+    // Simulate the old pathname race: between "inspect" and "takeover", ownership
+    // changes. With openExclusiveLock as the only acquire primitive, a second open
+    // while the first handle is live must fail busy — never enter concurrently.
+    let held: { close: () => Promise<void> } | undefined;
+    let opens = 0;
+    const fileSystem = {
+      openExclusiveLock: async () => {
+        opens += 1;
+        if (opens === 1) {
+          held = {
+            close: async () => {
+              held = undefined;
+            },
+          };
+          return held;
+        }
+        if (held) {
+          const error = new Error("EAGAIN: resource temporarily unavailable") as Error & {
+            code?: string;
+          };
+          error.code = "EAGAIN";
+          throw error;
+        }
+        return {
+          close: async () => undefined,
+        };
+      },
+    };
+
+    let active = 0;
+    let maxActive = 0;
+    const body = async (): Promise<void> => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      active -= 1;
+    };
+
+    await Promise.all([
+      withInstallationLifecycleLock(home, "apply", body, {
+        fileSystem,
+        lockTimeoutMs: 1_000,
+      }),
+      withInstallationLifecycleLock(home, "install-temp", body, {
+        fileSystem,
+        lockTimeoutMs: 1_000,
+      }),
+    ]);
+    expect(maxActive).toBe(1);
+    expect(opens).toBeGreaterThanOrEqual(2);
   });
 });

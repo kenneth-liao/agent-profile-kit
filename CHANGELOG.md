@@ -22,6 +22,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Use Darwin `O_EXLOCK` for the Installation State lifecycle lock so exclusive publication is kernel-identity-bound (no pathname stale-reclaim TOCTOU), require a matching Installation Marker before deleting extant temporary-owned roots, and delete disposable temporary roots in place without orphan stages ([#137](https://github.com/kenneth-liao/agent-profile-kit/issues/137)).
+
 - Exclude `resume` from the Codex SessionStart Context Hook matcher so resumed conversations no longer duplicate Profile Context already present in rollout history; injection remains on `startup`, `clear`, and `compact` ([#139](https://github.com/kenneth-liao/agent-profile-kit/issues/139)). A resumed session keeps the Context it started with — start a new session or `/clear` (or wait for compact) to pick up an updated Profile. Existing installs keep the old matcher until the next `apply`, which rewrites `hooks.json`.
 
 - Treat informational Host Setup Steps as requiring no user action and lock Grok's compatibility-disabled path at the Adapter seam ([#145](https://github.com/kenneth-liao/agent-profile-kit/pull/145)).
