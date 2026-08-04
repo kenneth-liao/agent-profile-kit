@@ -411,10 +411,11 @@ the full absolute project root; a blocked run can therefore repeat it several
 times.~~
 
 Shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116)
-and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152): all
-human project references use one shortest-unambiguous path presenter, while
-Local Configuration, Installation State, and JSON retain their canonical or
-authored paths.
+and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152): `bind`,
+lifecycle project blocks, blockers, warnings, Git exclusions, and verbose
+diagnostics use one shortest-unambiguous path presenter, while Local
+Configuration, Installation State, JSON, and unrelated authoring output retain
+their canonical or authored paths.
 
 ### UJ-08
 `Uninstalled 1 Profile Installation` omits the project, the outputs removed, the

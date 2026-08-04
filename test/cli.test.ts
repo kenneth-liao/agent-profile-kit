@@ -3751,10 +3751,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     bind(home, retained);
 
-    const result = runCli(home, "apply");
+    const result = runCliAt(home, removed, "apply");
 
     expect(result.status).toBe(2);
     expect(result.stdout).toContain("Cannot remove stale Project");
+    expect(result.stdout).not.toContain(removed);
+    expect(result.stdout).not.toContain(realpathSync(removed));
     expect(result.stderr).toBe("");
     expect(readFileSync(retainedContext, "utf8")).toBe(before);
     expect(readFileSync(join(removed, ".codex", "hooks.json"), "utf8")).toBe("user drift\n");

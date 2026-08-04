@@ -993,7 +993,9 @@ function conciseReport(
         lines.push(`  Profile: ${desired.profile}`, `  Hosts: ${desired.hosts.join(", ")}`);
       }
       if (blocked) {
-        for (const blocker of group.blockers) lines.push(`  Blocker: ${formatBlocker(blocker, group.project)}`);
+        for (const blocker of group.blockers) {
+          lines.push(`  Blocker: ${shortenProjectReferences(formatBlocker(blocker, group.project), groups)}`);
+        }
         continue;
       }
       for (const item of group.items) {
@@ -1006,7 +1008,9 @@ function conciseReport(
       }
       const outputLines = outputPathLines(group.outputs);
       if (outputLines.length > 0) lines.push("  Files:", ...outputLines.map((line) => `  ${line}`));
-      for (const blocker of group.blockers) lines.push(`  Blocker: ${formatBlocker(blocker, group.project)}`);
+      for (const blocker of group.blockers) {
+        lines.push(`  Blocker: ${shortenProjectReferences(formatBlocker(blocker, group.project), groups)}`);
+      }
     }
   }
 
