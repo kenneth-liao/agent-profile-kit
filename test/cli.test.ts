@@ -1788,7 +1788,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(contextPath, "utf8")).toContain("Context Module: team-rules");
     expect(readFileSync(contextPath, "utf8")).toContain("Repository-owned project instructions");
     const hook = JSON.parse(readFileSync(hookPath, "utf8")) as { hooks: { SessionStart: readonly { matcher: string; hooks: readonly { command: string }[] }[] } };
-    expect(hook.hooks.SessionStart[0]?.matcher).toBe("startup|resume|clear|compact");
+    expect(hook.hooks.SessionStart[0]?.matcher).toBe("startup|clear|compact");
+    expect(hook.hooks.SessionStart[0]?.matcher).not.toContain("resume");
     expect(hook.hooks.SessionStart[0]?.hooks[0]?.command).toContain("git rev-parse --show-toplevel");
     expect(hook.hooks.SessionStart[0]?.hooks[0]?.command).not.toContain(projectPath);
     const marker = JSON.parse(readFileSync(markerPath, "utf8")) as Record<string, unknown>;

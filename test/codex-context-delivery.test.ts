@@ -65,8 +65,15 @@ describe("Codex complete Context delivery", () => {
     const document = JSON.parse(hook.bytes as string) as {
       hooks: { SessionStart: Array<{ matcher: string; hooks: Array<Record<string, unknown>> }> };
     };
-    expect(document.hooks.SessionStart[0]?.matcher).toBe("startup|resume|clear|compact");
+    expect(document.hooks.SessionStart[0]?.matcher).toBe("startup|clear|compact");
+    expect(document.hooks.SessionStart[0]?.matcher).not.toContain("resume");
     expect(document.hooks.SessionStart[0]?.hooks[0]?.additionalContextLimit).toBe(0);
+    expect(hook.requirements).toContain(
+      "Codex SessionStart runs on startup, clear, and compact",
+    );
+    expect(hook.requirements).not.toContain(
+      "Codex SessionStart runs on startup, resume, clear, and compact",
+    );
     expect(hook.requirements).toContain(
       "Codex SessionStart passes complete additionalContext directly to the model",
     );
@@ -204,9 +211,16 @@ describe("Codex complete Context delivery", () => {
     await applyReconciliation(home, desired.installations);
     const hookPath = join(project, ".codex", "hooks.json");
     const currentHook = JSON.parse(readFileSync(hookPath, "utf8")) as {
-      hooks: { SessionStart: Array<{ hooks: Array<Record<string, unknown>> }> };
+      hooks: {
+        SessionStart: Array<{
+          matcher?: string;
+          hooks: Array<Record<string, unknown>>;
+        }>;
+      };
     };
+    // Seed the pre-#138 + pre-#139 shape: no complete-delivery limit and resume matcher.
     delete currentHook.hooks.SessionStart[0]!.hooks[0]!.additionalContextLimit;
+    currentHook.hooks.SessionStart[0]!.matcher = "startup|resume|clear|compact";
     const legacyHook = `${JSON.stringify(currentHook, null, 2)}\n`;
     writeFileSync(hookPath, legacyHook);
     const state = await readInstallationState(home);
@@ -234,9 +248,16 @@ describe("Codex complete Context delivery", () => {
       reason: "desired output changed",
     });
     const installedHook = JSON.parse(readFileSync(hookPath, "utf8")) as {
-      hooks: { SessionStart: Array<{ hooks: Array<Record<string, unknown>> }> };
+      hooks: {
+        SessionStart: Array<{
+          matcher?: string;
+          hooks: Array<Record<string, unknown>>;
+        }>;
+      };
     };
     expect(installedHook.hooks.SessionStart[0]?.hooks[0]?.additionalContextLimit).toBe(0);
+    expect(installedHook.hooks.SessionStart[0]?.matcher).toBe("startup|clear|compact");
+    expect(installedHook.hooks.SessionStart[0]?.matcher).not.toContain("resume");
     const migrated = await readInstallationState(home);
     expect(migrated.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
     expect(migrated.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
