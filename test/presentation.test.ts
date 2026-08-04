@@ -203,6 +203,38 @@ describe("Host Setup Step presentation", () => {
     );
   });
 
+  test("informational Host setup does not imply an action is required", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["claude", "grok"],
+        outputs: [".claude/rules/agent-profile-kit.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{
+          host: "grok",
+          kind: "shared-path",
+          message: "Grok uses Claude's shared rule path.",
+        }],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: report.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    const apply = formatApplyReport(applyResult(report, resultingState));
+
+    expect(apply).toContain("Grok uses Claude's shared rule path.");
+    expect(apply.trimEnd()).toEndWith(
+      "No further Host setup is required. Profile coding becomes active on the next launch " +
+        "of each bound Host (claude, grok) from /project-a.",
+    );
+  });
+
   test("no-op apply does not claim next-launch activation", () => {
     const report = emptyReport({
       desired: [{

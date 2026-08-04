@@ -26,6 +26,11 @@ const HOST_SETUP_STEP_ORDER: readonly HostSetupStepKind[] = [
   "launch-constraint",
   "shared-path",
 ];
+const ACTIONABLE_HOST_SETUP_STEP_KINDS: ReadonlySet<HostSetupStepKind> = new Set([
+  "approval-required",
+  "trust-required",
+  "launch-constraint",
+]);
 
 type NonCurrentKind = Exclude<ReconciliationKind, "current">;
 
@@ -794,7 +799,9 @@ function activationLines(
     .filter((installation) => changedProjects.has(installation.project))
     .sort((left, right) => left.canonicalProject.localeCompare(right.canonicalProject))
     .map((installation) => {
-      const setupCondition = installation.setupSteps.length > 0
+      const setupCondition = installation.setupSteps.some((step) =>
+          ACTIONABLE_HOST_SETUP_STEP_KINDS.has(step.kind)
+        )
         ? "After completing the Host setup above, "
         : "No further Host setup is required. ";
       return `${setupCondition}Profile ${installation.profile} becomes active on the next launch ` +

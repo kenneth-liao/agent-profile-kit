@@ -249,6 +249,12 @@ describe("Grok Adapter planner", () => {
       message:
         `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
     }]);
+
+    const compatibilityDisabled = await planGrokProject("coding", modules, [], {
+      claudeCoSelected: true,
+      claudeRulesEnabled: false,
+    });
+    expect(compatibilityDisabled.setupSteps).toEqual([]);
   });
 
   test("rejects non-directory .grok or .grok/rules project surfaces", async () => {
