@@ -166,7 +166,7 @@ function installFakeClaude(home: string, version = "2.1.0"): string {
 }
 
 /** Put a controlled Codex CLI stub first on PATH for version capability preflight. */
-function installFakeCodex(home: string, version = "0.99.0"): string {
+function installFakeCodex(home: string, version = "0.145.0"): string {
   const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });
   writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "codex-cli ${version}"\n`);

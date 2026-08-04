@@ -199,7 +199,7 @@ Setup guidance is reported conditionally by Host *and* by what was installed:
 | Host | Requirement after `apply` |
 |------|---------------------------|
 | Claude Code | None. Rule + Skills load on next launch; no Git dependency. |
-| Codex | Project trust **and** native review/trust of the generated `SessionStart` hook — only when Context is installed. Non-Git projects must be launched from the exact bound root. |
+| Codex | Codex CLI 0.145.0+ for complete Context delivery, plus project trust **and** native review/trust of the generated `SessionStart` hook — only when Context is installed. Non-Git projects must be launched from the exact bound root. |
 | Grok | None, except when co-bound with Claude and rules compatibility is on: Grok reads Claude's rule file and **no `.grok/rules/` is created**. |
 | Pi | Native project trust; `--skill` / `--no-skills` runtime overrides fall outside the guarantee. |
 

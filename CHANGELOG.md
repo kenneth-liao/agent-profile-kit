@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Deliver oversized Codex SessionStart Context completely with capability preflight, deterministic legacy-hook reconciliation, and Context-free contracts ([#138](https://github.com/kenneth-liao/agent-profile-kit/issues/138)).
+
 - Treat informational Host Setup Steps as requiring no user action and lock Grok's compatibility-disabled path at the Adapter seam ([#145](https://github.com/kenneth-liao/agent-profile-kit/pull/145)).
 
 - Clarify mixed-fleet intended teardown status, canonicalize teardown Hosts, and keep uninstall Git-exclusion receipts concise ([#144](https://github.com/kenneth-liao/agent-profile-kit/pull/144)).
