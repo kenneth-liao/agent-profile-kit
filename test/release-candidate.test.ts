@@ -366,8 +366,9 @@ describe("project-bound release candidate", () => {
     writeWorkspaceAuthoring(home);
     const projectPath = project();
     writeBindings(home, [{ project: projectPath, hosts: ["codex"] }]);
+    const pathWithHosts = installControlledHosts(home);
 
-    expect(runCli(home, ["apply"]).status).toBe(0);
+    expect(runCli(home, ["apply"], { path: pathWithHosts }).status).toBe(0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: Array<{ engine_version: string; adapter_version: string }>;
     };
