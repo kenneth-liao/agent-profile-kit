@@ -12,7 +12,6 @@ import type {
   ReconciliationKind,
   ReconciliationReport,
 } from "../installer/reconcile.js";
-import { blockerMessage, normalizeBlocker, type BlockerInput } from "../installer/blockers.js";
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
 import { COMMAND_NAME } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
@@ -1615,14 +1614,14 @@ export function formatTemporaryInstallationHuman(
 
 export function formatTemporaryInstallationBlockedJson(
   command: TemporaryInstallCommand,
-  blockers: readonly BlockerInput[],
+  blockers: readonly string[],
 ): string {
   return `${JSON.stringify(
     {
       schemaVersion: 1,
       command,
       outcome: "blocked",
-      blockers: blockers.map((blocker) => ({ message: blockerMessage(blocker) })),
+      blockers: blockers.map((message) => ({ message })),
     },
     null,
     2,

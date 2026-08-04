@@ -49,41 +49,67 @@ export type ReconciliationBlocker = LegacyBlocker | StructuredReconciliationBloc
 
 export type BlockerInput = string | LegacyBlocker | StructuredBlockerInput;
 
-function isStructuredBlocker(input: BlockerInput): input is StructuredReconciliationBlocker {
+export function isStructuredBlocker(input: unknown): input is StructuredReconciliationBlocker {
   return input !== null && typeof input === "object" && STRUCTURED_BLOCKER in input;
 }
 
-function isStructuredInput(input: BlockerInput): input is StructuredBlockerInput {
+/** Classify untrusted raw input before normalization; consumers use the brand predicate above. */
+function isStructuredInput(input: unknown): input is StructuredBlockerInput {
   if (input === null || typeof input !== "object") return false;
   return ["affectedItems", "kind", "problem", "remedy", "requirement", "scope"]
     .some((key) => key in input);
 }
 
-function requireText(value: unknown, field: string): asserts value is string {
+function blockerContext(input: unknown): string {
+  if (input === null || typeof input !== "object") return "";
+  const record = input as Record<string, unknown>;
+  const details = ["kind", "project", "message", "scope"]
+    .flatMap((field) => {
+      const value = record[field];
+      return typeof value === "string" && value.length > 0
+        ? [`${field}=${JSON.stringify(value)}`]
+        : [];
+    });
+  return details.length === 0 ? "" : ` (${details.join(", ")})`;
+}
+
+function requireText(
+  value: unknown,
+  field: string,
+  input: unknown,
+): asserts value is string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new TypeError(`Structured blocker ${field} must be a non-empty string`);
+    throw new TypeError(
+      `Structured blocker ${field} must be a non-empty string${blockerContext(input)}`,
+    );
   }
 }
 
 function validateStructuredInput(input: StructuredBlockerInput): void {
-  requireText(input.message, "message");
-  requireText(input.kind, "kind");
-  requireText(input.problem, "problem");
-  requireText(input.requirement, "requirement");
-  requireText(input.remedy, "remedy");
+  requireText(input.message, "message", input);
+  requireText(input.kind, "kind", input);
+  requireText(input.problem, "problem", input);
+  requireText(input.requirement, "requirement", input);
+  requireText(input.remedy, "remedy", input);
   if (input.scope !== "global" && input.scope !== "project") {
-    throw new TypeError("Structured blocker scope must be 'global' or 'project'");
+    throw new TypeError(
+      `Structured blocker scope must be 'global' or 'project'${blockerContext(input)}`,
+    );
   }
-  if (input.scope === "project") requireText(input.project, "project");
+  if (input.scope === "project") requireText(input.project, "project", input);
   if (input.scope === "global" && input.project !== undefined) {
-    throw new TypeError("Global structured blockers cannot carry a project");
+    throw new TypeError(
+      `Global structured blockers cannot carry a project${blockerContext(input)}`,
+    );
   }
   if (!Array.isArray(input.affectedItems)) {
-    throw new TypeError("Structured blocker affectedItems must be an array");
+    throw new TypeError(
+      `Structured blocker affectedItems must be an array${blockerContext(input)}`,
+    );
   }
   for (const item of input.affectedItems) {
-    requireText(item?.kind, "affectedItems.kind");
-    requireText(item?.value, "affectedItems.value");
+    requireText(item?.kind, "affectedItems.kind", input);
+    requireText(item?.value, "affectedItems.value", input);
   }
 }
 
@@ -98,6 +124,7 @@ function canonicalStructuredBlocker(input: StructuredBlockerInput): StructuredRe
     problem: input.problem,
     remedy: input.remedy,
     requirement: input.requirement,
+    scope: input.scope,
   };
   if (input.scope === "global") {
     return Object.freeze({
@@ -112,6 +139,12 @@ function canonicalStructuredBlocker(input: StructuredBlockerInput): StructuredRe
     scope: "project" as const,
     [STRUCTURED_BLOCKER]: true as const,
   });
+}
+
+function scopeMismatch(input: StructuredBlockerInput, fallbackProject: string): never {
+  throw new Error(
+    `Structured blocker scope does not match its fallback project ${JSON.stringify(fallbackProject)}${blockerContext(input)}`,
+  );
 }
 
 /**
@@ -146,29 +179,15 @@ export function normalizeBlocker(
       : { message: input.message, project };
   }
 
-  if (isStructuredBlocker(input)) {
-    validateStructuredInput(input);
-    if (input.scope === "global" && fallbackProject !== undefined) {
-      throw new Error("Structured blocker scope does not match its fallback project");
-    }
-    if (input.scope === "project" && fallbackProject !== undefined && input.project !== fallbackProject) {
-      throw new Error("Structured blocker scope does not match its fallback project");
-    }
-    return input;
-  }
-
   validateStructuredInput(input);
-  if (input.scope === "global") {
-    if (fallbackProject !== undefined) {
-      throw new Error("Structured blocker scope does not match its fallback project");
-    }
-    return canonicalStructuredBlocker(input);
+  if (
+    input.scope === "project" &&
+    fallbackProject !== undefined &&
+    input.project !== fallbackProject
+  ) {
+    scopeMismatch(input, fallbackProject);
   }
-
-  if (fallbackProject !== undefined && input.project !== fallbackProject) {
-    throw new Error("Structured blocker scope does not match its fallback project");
-  }
-  return canonicalStructuredBlocker(input);
+  return isStructuredBlocker(input) ? input : canonicalStructuredBlocker(input);
 }
 
 export function blockerMessage(input: BlockerInput): string {

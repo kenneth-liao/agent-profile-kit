@@ -52,6 +52,10 @@ _Avoid_: Project Binding, ordinary Profile Installation, global apply
 A condition where reconciling a planned Profile Installation output would overwrite, adopt, or conflict with project material not proven to be owned by that installation. Same-identity material at a different Host-visible location is Host Resolution, not an Output Ownership Conflict.
 _Avoid_: Host Skill collision, precedence conflict
 
+**Blocker**:
+A condition that prevents a lifecycle operation from proceeding. A Blocker always has a legacy `message` projection and may carry structured evidence (`kind`, `problem`, `requirement`, `remedy`, `scope`, and `affectedItems`) normalized at the Installer boundary. `scope: global` applies independently of one project; `scope: project` carries one canonical project identity. Public lifecycle presentation retains the legacy message/project projection until the later schema migration.
+_Avoid_: Warning, reconciliation item, Output Ownership Conflict
+
 **Apply Receipt**:
 The pre-apply ReconciliationReport retained after a successful apply. It represents `Applied` generated-output and Repository Exclusion work; a separate post-commit reconciliation snapshot is authoritative for the resulting Profile Installation state and represents `Pending` work.
 _Avoid_: Resulting state, pending report

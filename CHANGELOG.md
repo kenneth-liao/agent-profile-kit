@@ -9,6 +9,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 ### Changed
 
 - Expand the shared blocker contract with normalized structured evidence while preserving legacy lifecycle and temporary-installation output ([#155](https://github.com/kenneth-liao/agent-profile-kit/issues/155)).
+- Harden structured blocker fallback, validation diagnostics, migration deduplication, and blocked-report projection ([#155](https://github.com/kenneth-liao/agent-profile-kit/issues/155)).
 
 ### Added
 

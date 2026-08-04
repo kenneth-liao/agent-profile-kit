@@ -54,6 +54,7 @@ import {
   type RepositoryExclusionRepair,
 } from "./git-exclusions.js";
 import {
+  isStructuredBlocker,
   normalizeBlocker,
   type BlockerInput,
   type ReconciliationBlocker,
@@ -599,6 +600,21 @@ function pushDirectoryMemberItems(
   }
 }
 
+function normalizePreviewBlocker(
+  input: BlockerInput,
+  fallbackProject: string,
+): ReconciliationBlocker {
+  try {
+    return normalizeBlocker(input, fallbackProject);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      message: `Invalid blocker: ${message}`,
+      project: fallbackProject,
+    };
+  }
+}
+
 export async function previewReconciliation(
   desired: readonly DesiredInstallation[],
   state: InstallationState,
@@ -612,9 +628,9 @@ export async function previewReconciliation(
     intentionallyDeletedProjects,
     movedPreviousProjects,
   } = await installationRetirementSelection(desired, state);
-  const blockers: BlockerInput[] = desired.flatMap((installation) =>
-    installation.blockers.map((message) =>
-      normalizeBlocker(message, installation.binding.canonicalProject)
+  const blockers: ReconciliationBlocker[] = desired.flatMap((installation) =>
+    installation.blockers.map((input) =>
+      normalizePreviewBlocker(input, installation.binding.canonicalProject)
     )
   );
   blockers.push(...(await gitExclusionBlockers(state, desired, {
@@ -900,26 +916,21 @@ export async function previewReconciliation(
     schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
     temporaryInstallations: state.temporaryInstallations,
   };
+  const deduplicated = new Map<string, ReconciliationBlocker>();
+  for (const blocker of blockers) {
+    const key = `${blocker.project ?? ""}\0${blocker.message}`;
+    const previous = deduplicated.get(key);
+    if (
+      previous === undefined ||
+      (!isStructuredBlocker(previous) && isStructuredBlocker(blocker))
+    ) {
+      // During emitter migration, structured evidence wins over its legacy twin
+      // while public presentation still deduplicates on the legacy projection.
+      deduplicated.set(key, blocker);
+    }
+  }
   return {
-    blockers: [...new Map(
-      blockers.map((input) => {
-        const blocker = normalizeBlocker(input);
-        const structured = "kind" in blocker
-          ? JSON.stringify({
-              affectedItems: blocker.affectedItems,
-              kind: blocker.kind,
-              problem: blocker.problem,
-              remedy: blocker.remedy,
-              requirement: blocker.requirement,
-              scope: blocker.scope,
-            })
-          : "";
-        return [
-          `${blocker.project ?? ""}\0${blocker.message}\0${structured}`,
-          blocker,
-        ] as const;
-      }),
-    ).values()].sort((left, right) =>
+    blockers: [...deduplicated.values()].sort((left, right) =>
       (left.project ?? "").localeCompare(right.project ?? "") || left.message.localeCompare(right.message)
     ),
     desired: desiredReport,
