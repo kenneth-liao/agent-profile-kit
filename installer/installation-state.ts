@@ -18,6 +18,7 @@ import {
   INSTALLATION_MARKER_PATH,
   parseLegacyInstallationState,
   parsePreviousInstallationState,
+  parseV4InstallationState,
   INSTALLATION_STATE_SCHEMA_VERSION,
   parseInstallationMarker,
   parseInstallationState,
@@ -104,6 +105,17 @@ async function migrateLegacyInstallationState(
     installations: legacy.installations,
     repositoryExclusions,
     schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+    temporaryInstallations: [],
+  };
+}
+
+export function emptyInstallationState(): InstallationState {
+  return {
+    intendedTeardowns: [],
+    installations: [],
+    repositoryExclusions: [],
+    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+    temporaryInstallations: [],
   };
 }
 
@@ -115,27 +127,42 @@ export async function readInstallationStateWithMigration(home: string): Promise<
       state = parseInstallationState(source);
     } catch (error) {
       try {
-        const previous = parsePreviousInstallationState(source);
+        const v4 = parseV4InstallationState(source);
         state = {
-          intendedTeardowns: [],
-          installations: previous.installations,
-          repositoryExclusions: previous.repositoryExclusions,
+          intendedTeardowns: v4.intendedTeardowns,
+          installations: v4.installations,
+          repositoryExclusions: v4.repositoryExclusions,
           schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+          temporaryInstallations: [],
         };
       } catch {
-        let legacy;
         try {
-          legacy = parseLegacyInstallationState(source);
+          const previous = parsePreviousInstallationState(source);
+          state = {
+            intendedTeardowns: [],
+            installations: previous.installations,
+            repositoryExclusions: previous.repositoryExclusions,
+            schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+            temporaryInstallations: [],
+          };
         } catch {
-          throw error;
+          let legacy;
+          try {
+            legacy = parseLegacyInstallationState(source);
+          } catch {
+            throw error;
+          }
+          state = await migrateLegacyInstallationState(legacy);
         }
-        state = await migrateLegacyInstallationState(legacy);
       }
       return {
         migrated: true,
         state: {
           ...state,
           installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
+          temporaryInstallations: [...state.temporaryInstallations].sort((left, right) =>
+            left.temporaryInstallationId.localeCompare(right.temporaryInstallationId)
+          ),
         },
       };
     }
@@ -144,18 +171,16 @@ export async function readInstallationStateWithMigration(home: string): Promise<
       state: {
         ...state,
         installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
+        temporaryInstallations: [...state.temporaryInstallations].sort((left, right) =>
+          left.temporaryInstallationId.localeCompare(right.temporaryInstallationId)
+        ),
       },
     };
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       return {
         migrated: false,
-        state: {
-          intendedTeardowns: [],
-          installations: [],
-          repositoryExclusions: [],
-          schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-        },
+        state: emptyInstallationState(),
       };
     }
     throw error;
@@ -181,6 +206,9 @@ export async function writeInstallationState(
       intendedTeardowns: [...state.intendedTeardowns]
         .sort((left, right) => left.project.localeCompare(right.project)),
       installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
+      temporaryInstallations: [...state.temporaryInstallations].sort((left, right) =>
+        left.temporaryInstallationId.localeCompare(right.temporaryInstallationId)
+      ),
     }),
     { flag: "wx" },
   );

@@ -1448,4 +1448,152 @@ export function formatLifecycleToolErrorJson(
   });
 }
 
+export type TemporaryInstallCommand = "install-temp" | "remove-temp";
+
+export interface TemporaryInstallationReceiptView {
+  readonly adapterVersion: string;
+  readonly completionState: "installed" | "removed";
+  readonly engineVersion: string;
+  readonly host: string;
+  readonly hostVersion: string;
+  readonly outputs: readonly string[];
+  readonly profileId: string;
+  readonly project: string;
+  readonly repositoryExclusion:
+    | {
+        readonly entries: readonly string[];
+        readonly target: string;
+      }
+    | undefined;
+  readonly setupSteps: readonly HostSetupStep[];
+  readonly temporaryInstallationId: string;
+  readonly warnings: readonly string[];
+  readonly workspaceInputHash: string;
+}
+
+function temporarySetupStepMessage(
+  step: HostSetupStep,
+  project: string,
+): string {
+  return step.path === "bound-project" ? `${step.message} ${project}` : step.message;
+}
+
+function temporarySetupStepJson(step: HostSetupStep, project: string) {
+  return {
+    host: step.host,
+    kind: step.kind,
+    message: temporarySetupStepMessage(step, project),
+    ...(step.consequence === undefined ? {} : { consequence: step.consequence }),
+    ...(step.path === undefined ? {} : { path: step.path }),
+  };
+}
+
+/** Versioned temporary-installation receipt for automation. */
+export function formatTemporaryInstallationJson(
+  command: TemporaryInstallCommand,
+  receipt: TemporaryInstallationReceiptView,
+): string {
+  return `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      command,
+      outcome: "success",
+      temporaryInstallationId: receipt.temporaryInstallationId,
+      profileId: receipt.profileId,
+      host: receipt.host,
+      project: receipt.project,
+      workspaceInputHash: receipt.workspaceInputHash,
+      engineVersion: receipt.engineVersion,
+      adapterVersion: receipt.adapterVersion,
+      hostVersion: receipt.hostVersion,
+      outputs: receipt.outputs,
+      repositoryExclusion: receipt.repositoryExclusion ?? null,
+      completionState: receipt.completionState,
+      warnings: [...receipt.warnings],
+      setupSteps: receipt.setupSteps.map((step) =>
+        temporarySetupStepJson(step, receipt.project)
+      ),
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+export function formatTemporaryInstallationHuman(
+  command: TemporaryInstallCommand,
+  receipt: TemporaryInstallationReceiptView,
+): string {
+  if (command === "install-temp") {
+    const warningLines = receipt.warnings.length === 0
+      ? []
+      : [
+          "Warnings:",
+          ...receipt.warnings.map((warning) => `- ${warning}`),
+        ];
+    const setupLines = receipt.setupSteps.length === 0
+      ? []
+      : [
+          `${capitalize(receipt.host)} setup:`,
+          ...[...receipt.setupSteps]
+            .sort((left, right) =>
+              HOST_SETUP_STEP_ORDER.indexOf(left.kind) -
+                HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
+              left.message.localeCompare(right.message)
+            )
+            .map((step) => {
+              const message = temporarySetupStepMessage(step, receipt.project);
+              return `- ${message}${
+                step.consequence ? ` Consequence: ${step.consequence}` : ""
+              }`;
+            }),
+        ];
+    return (
+      `Installed Profile temporarily\n` +
+      `  Profile: ${receipt.profileId}\n` +
+      `  Host: ${receipt.host}\n` +
+      `  Project: ${receipt.project}\n` +
+      `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
+      (warningLines.length > 0 ? `${warningLines.join("\n")}\n` : "") +
+      (setupLines.length > 0 ? `${setupLines.join("\n")}\n` : "")
+    );
+  }
+  return (
+    `Removed temporary Profile installation\n` +
+    `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
+    `  Project: ${receipt.project}\n`
+  );
+}
+
+export function formatTemporaryInstallationBlockedJson(
+  command: TemporaryInstallCommand,
+  blockers: readonly string[],
+): string {
+  return `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      command,
+      outcome: "blocked",
+      blockers: blockers.map((message) => ({ message })),
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+export function formatTemporaryInstallationToolErrorJson(
+  command: TemporaryInstallCommand,
+  message: string,
+): string {
+  return `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      command,
+      outcome: "error",
+      error: message,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
 

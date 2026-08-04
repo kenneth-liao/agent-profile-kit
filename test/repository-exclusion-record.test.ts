@@ -7,6 +7,7 @@ import {
   parseLegacyInstallationState,
   parseInstallationState,
   parsePreviousInstallationState,
+  parseV4InstallationState,
   type InstallationState,
 } from "../schemas/installation-manifest.js";
 import { replaceRepositoryExclusionContribution } from "../installer/git-exclusions.js";
@@ -45,7 +46,8 @@ function validState(): InstallationState {
       entries: ["/repo/a/.owned", "/repo/b/.owned", "/shared"],
       target: "/repo/.git/info/exclude",
     }],
-    schemaVersion: 4,
+    temporaryInstallations: [],
+    schemaVersion: 5,
   };
 }
 
@@ -60,7 +62,7 @@ describe("Repository Exclusion Record schema", () => {
       installations: [installation("install-a", "/repo/a")],
       schemaVersion: 2,
     });
-    expect(() => parseInstallationState(source)).toThrow(/schema_version must be 4/);
+    expect(() => parseInstallationState(source)).toThrow(/schema_version must be 5/);
   });
 
   test("round-trips contributions and formats their union deterministically", () => {
@@ -81,6 +83,7 @@ describe("Repository Exclusion Record schema", () => {
     const previous = parse(formatInstallationState(current)) as Record<string, unknown>;
     previous.schema_version = 3;
     delete previous.intended_teardowns;
+    delete previous.temporary_installations;
 
     expect(parsePreviousInstallationState(stringify(previous))).toEqual({
       installations: current.installations,
@@ -89,12 +92,27 @@ describe("Repository Exclusion Record schema", () => {
     });
   });
 
+  test("keeps schema-v4 state available to the temporary-installation migration boundary", () => {
+    const current = parseInstallationState(formatInstallationState(validState()));
+    const previous = parse(formatInstallationState(current)) as Record<string, unknown>;
+    previous.schema_version = 4;
+    delete previous.temporary_installations;
+
+    expect(parseV4InstallationState(stringify(previous))).toEqual({
+      intendedTeardowns: current.intendedTeardowns,
+      installations: current.installations,
+      repositoryExclusions: current.repositoryExclusions,
+      schemaVersion: 4,
+    });
+  });
+
   test("round-trips intended teardown provenance and rejects installed overlap", () => {
     const teardownState: InstallationState = {
       intendedTeardowns: [{ hosts: ["codex", "claude"], installationId: "install-c", profileId: "coding", project: "/repo/c" }],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     };
 
     expect(parseInstallationState(formatInstallationState(teardownState))).toEqual({

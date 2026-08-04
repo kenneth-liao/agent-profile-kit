@@ -15,6 +15,7 @@ import {
   writeInstallationState,
 } from "./installation-state.js";
 import { gitExclusionBlockers, stageGitExclusions } from "./git-exclusions.js";
+import { canonicalRepositoryExclusionRecord } from "../schemas/installation-manifest.js";
 
 export interface ValidationResult {
   readonly bindings: number;
@@ -56,6 +57,7 @@ export async function previewApplication(home: string): Promise<ReconciliationRe
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
+      temporaryInstallations: [],
       schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
     });
     return {
@@ -161,7 +163,22 @@ export async function uninstallApplication(home: string): Promise<UninstallResul
     for (const installation of state.installations) {
       transactions.push(await stageProvenInstallationRemoval(installation));
     }
-    const emptyState = {
+    // Ordinary uninstall must not erase Temporary Profile Installations or their
+    // Repository Exclusion contributions; those lifetimes are receipt-owned.
+    const activeTemporaryIds = new Set(
+      state.temporaryInstallations
+        .filter((installation) => installation.completionState === "installed")
+        .map((installation) => installation.temporaryInstallationId),
+    );
+    const temporaryExclusions = state.repositoryExclusions.flatMap((record) => {
+      const contributions = record.contributions.filter((contribution) =>
+        activeTemporaryIds.has(contribution.installationId),
+      );
+      return contributions.length === 0
+        ? []
+        : [canonicalRepositoryExclusionRecord(record.target, contributions)];
+    });
+    const afterOrdinaryUninstall = {
       intendedTeardowns: [
         ...state.intendedTeardowns,
         ...state.installations.map((installation) => ({
@@ -172,12 +189,13 @@ export async function uninstallApplication(home: string): Promise<UninstallResul
         })),
       ],
       installations: [],
-      repositoryExclusions: [],
+      repositoryExclusions: temporaryExclusions,
       schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+      temporaryInstallations: state.temporaryInstallations,
     } as const;
-    exclusions = await stageGitExclusions(state, emptyState);
+    exclusions = await stageGitExclusions(state, afterOrdinaryUninstall);
     stateWriteAttempted = true;
-    await writeInstallationState(home, emptyState);
+    await writeInstallationState(home, afterOrdinaryUninstall);
     await exclusions.commit();
     for (const transaction of transactions) await transaction.commit();
   } catch (error) {

@@ -383,7 +383,8 @@ describe("Grok-only Profile Installation lifecycle", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(preview.blockers).toEqual([]);
     expect(preview.desired[0]?.outputs).toContain(GROK_CONTEXT_RULE_PATH);
@@ -455,7 +456,8 @@ describe("Grok-only Profile Installation lifecycle", () => {
         intendedTeardowns: [],
         installations: [],
         repositoryExclusions: [],
-        schemaVersion: 4,
+        temporaryInstallations: [],
+        schemaVersion: 5,
       });
       expect(
         report.blockers.some((blocker) => blocker.message.includes("is a file, not a directory")),
@@ -489,7 +491,8 @@ describe("Grok-only Profile Installation lifecycle", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(report.blockers).toEqual([]);
     await applyReconciliation(home, desired.installations);

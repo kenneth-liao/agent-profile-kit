@@ -12,7 +12,9 @@ import { isSupportedHost, SUPPORTED_HOSTS } from "./local-configuration.js";
 export const INSTALLATION_MANIFEST_SCHEMA_VERSION = 2;
 export const INSTALLATION_STATE_LEGACY_SCHEMA_VERSION = 2;
 export const INSTALLATION_STATE_PREVIOUS_SCHEMA_VERSION = 3;
-export const INSTALLATION_STATE_SCHEMA_VERSION = 4;
+/** Schema version that introduced intended teardown provenance without temporary installations. */
+export const INSTALLATION_STATE_V4_SCHEMA_VERSION = 4;
+export const INSTALLATION_STATE_SCHEMA_VERSION = 5;
 export const INSTALLATION_MARKER_SCHEMA_VERSION = 1;
 export const INSTALLATION_MARKER_PATH = ".agent-profile-kit/installation.json";
 
@@ -109,11 +111,40 @@ export interface IntendedTeardown {
   readonly project: string;
 }
 
+/**
+ * Temporary Profile Installation completion state.
+ * `installed` is active and owns outputs/exclusions; `removed` is a terminal
+ * identity retained only so idempotent remove-temp can succeed without recreating state.
+ */
+export type TemporaryInstallationCompletionState = "installed" | "removed";
+
+/**
+ * Durable Temporary Profile Installation record. Lifetime is owned by this receipt
+ * identity rather than a Project Binding. Active records contribute to Repository
+ * Exclusion ownership via `temporaryInstallationId`.
+ */
+export interface TemporaryProfileInstallation {
+  readonly adapterVersion: string;
+  readonly completionState: TemporaryInstallationCompletionState;
+  readonly engineVersion: string;
+  /** Whether the installation was planned from a Git project boundary. */
+  readonly gitProject?: boolean;
+  readonly host: string;
+  readonly hostVersion: string;
+  /** Owned outputs; empty once removed. */
+  readonly outputs: readonly OwnedOutput[];
+  readonly profileId: string;
+  readonly project: string;
+  readonly temporaryInstallationId: string;
+  readonly workspaceInputHash: string;
+}
+
 export interface InstallationState {
   readonly intendedTeardowns: readonly IntendedTeardown[];
   readonly installations: readonly ProjectInstallationManifest[];
   readonly repositoryExclusions: readonly RepositoryExclusionRecord[];
-  readonly schemaVersion: 4;
+  readonly schemaVersion: 5;
+  readonly temporaryInstallations: readonly TemporaryProfileInstallation[];
 }
 
 /** Stable byte-order comparator shared by canonical state and on-disk unions. */
@@ -571,11 +602,25 @@ function parseInstallations(value: unknown): readonly ProjectInstallationManifes
   return installations;
 }
 
+function activeTemporaryInstallationIds(
+  temporaryInstallations: readonly TemporaryProfileInstallation[],
+): ReadonlySet<string> {
+  return new Set(
+    temporaryInstallations
+      .filter((installation) => installation.completionState === "installed")
+      .map((installation) => installation.temporaryInstallationId),
+  );
+}
+
 function requireKnownRepositoryExclusionContributors(
   installations: readonly ProjectInstallationManifest[],
   repositoryExclusions: readonly RepositoryExclusionRecord[],
+  temporaryInstallations: readonly TemporaryProfileInstallation[] = [],
 ): void {
-  const installationIds = new Set(installations.map((installation) => installation.installationId));
+  const installationIds = new Set([
+    ...installations.map((installation) => installation.installationId),
+    ...activeTemporaryInstallationIds(temporaryInstallations),
+  ]);
   for (const record of repositoryExclusions) {
     for (const contribution of record.contributions) {
       if (!installationIds.has(contribution.installationId)) {
@@ -583,6 +628,180 @@ function requireKnownRepositoryExclusionContributors(
           `Installation State repository_exclusions target ${record.target} references unknown Installation ID ${contribution.installationId}`,
         );
       }
+    }
+  }
+}
+
+function parseTemporaryInstallations(
+  value: unknown,
+): readonly TemporaryProfileInstallation[] {
+  if (!Array.isArray(value)) {
+    throw new Error("Installation State temporary_installations must be an array");
+  }
+  const installations = value.map((entry, index) => {
+    const description = `Installation State temporary_installations[${index}]`;
+    const record = requireMapping(entry, description);
+    const allowedFields = [
+      "temporary_installation_id",
+      "completion_state",
+      "profile_id",
+      "host",
+      "project",
+      "adapter_version",
+      "engine_version",
+      "host_version",
+      "workspace_input_hash",
+      "outputs",
+      "git_project",
+    ] as const;
+    requireExactFields(record, allowedFields, description);
+    for (const field of [
+      "temporary_installation_id",
+      "completion_state",
+      "profile_id",
+      "host",
+      "project",
+      "adapter_version",
+      "engine_version",
+      "host_version",
+      "workspace_input_hash",
+      "outputs",
+    ] as const) {
+      if (!(field in record)) {
+        throw new Error(`${description} requires field '${field}'`);
+      }
+    }
+    const completionState = requireString(
+      record.completion_state,
+      `${description} completion_state`,
+    );
+    if (completionState !== "installed" && completionState !== "removed") {
+      throw new Error(`${description} completion_state must be 'installed' or 'removed'`);
+    }
+    const host = requireString(record.host, `${description} host`);
+    if (!isSupportedHost(host)) {
+      throw new Error(
+        `${description} host must be one of: ${SUPPORTED_HOSTS.join(", ")}`,
+      );
+    }
+    const outputs = Array.isArray(record.outputs)
+      ? record.outputs.map((output, outputIndex) =>
+        parseOwnedOutput(output, `${description} outputs[${outputIndex}]`),
+      )
+      : (() => {
+        throw new Error(`${description} outputs must be an array`);
+      })();
+    if (completionState === "installed") {
+      if (outputs.length === 0) {
+        throw new Error(`${description} outputs must be non-empty while installed`);
+      }
+      const paths = outputs.map((output) => output.path);
+      if (new Set(paths).size !== paths.length) {
+        throw new Error(`${description} outputs must not contain a path more than once`);
+      }
+      if (!paths.includes(INSTALLATION_MARKER_PATH)) {
+        throw new Error(`${description} outputs must include the Installation Marker while installed`);
+      }
+    } else if (outputs.length !== 0) {
+      throw new Error(`${description} outputs must be empty once removed`);
+    }
+    return {
+      adapterVersion: requireString(record.adapter_version, `${description} adapter_version`),
+      completionState: completionState as TemporaryInstallationCompletionState,
+      engineVersion: requireString(record.engine_version, `${description} engine_version`),
+      ...(record.git_project === undefined
+        ? {}
+        : { gitProject: requireBoolean(record.git_project, `${description} git_project`) }),
+      host,
+      hostVersion: requireString(record.host_version, `${description} host_version`),
+      outputs,
+      profileId: requireArtifactId(record.profile_id, `${description} profile_id`),
+      project: requireAbsoluteProject(record.project, `${description} project`),
+      temporaryInstallationId: requireString(
+        record.temporary_installation_id,
+        `${description} temporary_installation_id`,
+      ),
+      workspaceInputHash: requireHash(
+        record.workspace_input_hash,
+        `${description} workspace_input_hash`,
+      ),
+    };
+  });
+  if (
+    new Set(installations.map((installation) => installation.temporaryInstallationId)).size !==
+      installations.length
+  ) {
+    throw new Error(
+      "Installation State must not contain a temporary installation more than once",
+    );
+  }
+  const activeProjects = installations
+    .filter((installation) => installation.completionState === "installed")
+    .map((installation) => installation.project);
+  if (new Set(activeProjects).size !== activeProjects.length) {
+    throw new Error(
+      "Installation State must not contain more than one active temporary installation per project",
+    );
+  }
+  return installations;
+}
+
+function temporaryInstallationValue(
+  installation: TemporaryProfileInstallation,
+): Record<string, unknown> {
+  return {
+    temporary_installation_id: installation.temporaryInstallationId,
+    completion_state: installation.completionState,
+    profile_id: installation.profileId,
+    host: installation.host,
+    project: installation.project,
+    adapter_version: installation.adapterVersion,
+    engine_version: installation.engineVersion,
+    host_version: installation.hostVersion,
+    workspace_input_hash: installation.workspaceInputHash,
+    outputs: installation.outputs.map((output) =>
+      output.type === "file"
+        ? {
+            path: output.path,
+            type: output.type,
+            mode: output.mode,
+            hash: output.hash,
+          }
+        : {
+            path: output.path,
+            type: output.type,
+            mode: output.mode,
+            hash: output.hash,
+            members: output.members.map((member) =>
+              member.type === "file"
+                ? {
+                    path: member.path,
+                    type: member.type,
+                    mode: member.mode,
+                    hash: member.hash,
+                  }
+                : {
+                    path: member.path,
+                    type: member.type,
+                    mode: member.mode,
+                  },
+            ),
+          },
+    ),
+    ...(installation.gitProject === undefined ? {} : { git_project: installation.gitProject }),
+  };
+}
+
+function requireDistinctTemporaryAndOrdinaryIds(
+  installations: readonly ProjectInstallationManifest[],
+  temporaryInstallations: readonly TemporaryProfileInstallation[],
+): void {
+  const ordinaryIds = new Set(installations.map((installation) => installation.installationId));
+  for (const temporary of temporaryInstallations) {
+    if (ordinaryIds.has(temporary.temporaryInstallationId)) {
+      throw new Error(
+        "Installation State temporary installation IDs must not collide with ordinary Installation IDs",
+      );
     }
   }
 }
@@ -666,11 +885,56 @@ export function parseInstallationState(source: string): InstallationState {
   const state = requireMapping(value, "Installation State");
   requireExactFields(
     state,
-    ["schema_version", "intended_teardowns", "installations", "repository_exclusions"],
+    [
+      "schema_version",
+      "intended_teardowns",
+      "installations",
+      "repository_exclusions",
+      "temporary_installations",
+    ],
     "Installation State",
   );
   if (state.schema_version !== INSTALLATION_STATE_SCHEMA_VERSION) {
     throw new Error(`Installation State schema_version must be ${INSTALLATION_STATE_SCHEMA_VERSION}`);
+  }
+  const installations = parseInstallations(state.installations);
+  const intendedTeardowns = parseIntendedTeardowns(state.intended_teardowns);
+  const temporaryInstallations = parseTemporaryInstallations(state.temporary_installations);
+  const repositoryExclusions = parseRepositoryExclusionRecords(state.repository_exclusions);
+  requireDistinctInstalledAndTeardownState(installations, intendedTeardowns);
+  requireDistinctTemporaryAndOrdinaryIds(installations, temporaryInstallations);
+  requireKnownRepositoryExclusionContributors(
+    installations,
+    repositoryExclusions,
+    temporaryInstallations,
+  );
+  return {
+    intendedTeardowns,
+    installations,
+    repositoryExclusions,
+    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+    temporaryInstallations,
+  };
+}
+
+/** Parse schema v4 before temporary installations were retained. */
+export function parseV4InstallationState(source: string): {
+  readonly intendedTeardowns: readonly IntendedTeardown[];
+  readonly installations: readonly ProjectInstallationManifest[];
+  readonly repositoryExclusions: readonly RepositoryExclusionRecord[];
+  readonly schemaVersion: 4;
+} {
+  const value = parseYaml(source, "Installation State");
+  const state = requireMapping(value, "Installation State");
+  requireExactFields(
+    state,
+    ["schema_version", "intended_teardowns", "installations", "repository_exclusions"],
+    "Installation State",
+  );
+  if (state.schema_version !== INSTALLATION_STATE_V4_SCHEMA_VERSION) {
+    throw new Error(
+      `Installation State v4 schema_version must be ${INSTALLATION_STATE_V4_SCHEMA_VERSION}`,
+    );
   }
   const installations = parseInstallations(state.installations);
   const intendedTeardowns = parseIntendedTeardowns(state.intended_teardowns);
@@ -681,7 +945,7 @@ export function parseInstallationState(source: string): InstallationState {
     intendedTeardowns,
     installations,
     repositoryExclusions,
-    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+    schemaVersion: 4,
   };
 }
 
@@ -756,6 +1020,9 @@ export function formatInstallationState(state: InstallationState): string {
   if (state.schemaVersion !== INSTALLATION_STATE_SCHEMA_VERSION) {
     throw new Error(`Installation State schema_version must be ${INSTALLATION_STATE_SCHEMA_VERSION}`);
   }
+  const temporaryInstallations = parseTemporaryInstallations(
+    state.temporaryInstallations.map(temporaryInstallationValue),
+  );
   const repositoryExclusions = parseRepositoryExclusionRecords(
     state.repositoryExclusions.map((record) => ({
       target: record.target,
@@ -775,7 +1042,12 @@ export function formatInstallationState(state: InstallationState): string {
     })),
   );
   requireDistinctInstalledAndTeardownState(state.installations, intendedTeardowns);
-  requireKnownRepositoryExclusionContributors(state.installations, repositoryExclusions);
+  requireDistinctTemporaryAndOrdinaryIds(state.installations, temporaryInstallations);
+  requireKnownRepositoryExclusionContributors(
+    state.installations,
+    repositoryExclusions,
+    temporaryInstallations,
+  );
   return stringify({
     schema_version: state.schemaVersion,
     intended_teardowns: [...intendedTeardowns]
@@ -787,6 +1059,11 @@ export function formatInstallationState(state: InstallationState): string {
         project: teardown.project,
       })),
     installations: state.installations.map(manifestValue),
+    temporary_installations: [...temporaryInstallations]
+      .sort((left, right) =>
+        compareCanonicalStrings(left.temporaryInstallationId, right.temporaryInstallationId),
+      )
+      .map(temporaryInstallationValue),
     repository_exclusions: [...repositoryExclusions]
       .sort((left, right) => compareCanonicalStrings(left.target, right.target))
       .map((record) => ({

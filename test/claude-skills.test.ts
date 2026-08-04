@@ -221,7 +221,8 @@ describe("Claude project Skill packages", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(preview.items.some((item) => item.kind === "addition")).toBe(true);
     expect(
@@ -317,7 +318,8 @@ describe("Claude project Skill packages", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(preview.blockers.some((blocker) =>
       blocker.message.includes(".claude/skills/review-pr") &&
@@ -474,7 +476,8 @@ describe("Claude project Skill packages", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(preview.blockers).toEqual([]);
     await applyReconciliation(home, desired.installations);
