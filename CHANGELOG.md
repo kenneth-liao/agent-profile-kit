@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Treat informational Host Setup Steps as requiring no user action and lock Grok's compatibility-disabled path at the Adapter seam ([#145](https://github.com/kenneth-liao/agent-profile-kit/pull/145)).
+
 - Clarify mixed-fleet intended teardown status, canonicalize teardown Hosts, and keep uninstall Git-exclusion receipts concise ([#144](https://github.com/kenneth-liao/agent-profile-kit/pull/144)).
 
 - Deduplicate combined content-and-mode member drift at reconciliation and make verbose Context fences collision-safe ([#143](https://github.com/kenneth-liao/agent-profile-kit/pull/143)).
@@ -17,6 +19,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Keep `init` next steps valid when adopting an existing Workspace, make example binding guidance project-scoped, and diagnose partial example removal ([#141](https://github.com/kenneth-liao/agent-profile-kit/pull/141)).
 
 ### Added
+
+- Add conditional Grok shared-rule and Pi project-trust Host Setup Steps, and explicitly confirm when a changed installation requires no further Host setup ([#125](https://github.com/kenneth-liao/agent-profile-kit/issues/125)).
 
 - Make deliberate teardown explicit: `uninstall` lists affected projects, removed generated paths, cleaned Git exclusions, and preserved Project Bindings; subsequent `status` reports intended teardown; and `unbind` recommends reconciliation only while installed output remains ([#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124)).
 

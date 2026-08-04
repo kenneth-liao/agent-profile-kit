@@ -14,6 +14,7 @@ import {
   type SkillPackageProjection,
 } from "./skill-package.js";
 import type {
+  AdapterHostSetupStep,
   AdapterProjectPlan,
   ProposedDirectoryFileMember,
   ProposedDirectoryMember,
@@ -380,6 +381,13 @@ export async function planPiProject(
   const outputs: readonly ProposedProjectOutput[] = modules.length > 0
     ? [contextOutput(profileId, modules), ...packages]
     : packages;
+  const setupSteps: readonly AdapterHostSetupStep[] = outputs.length > 0
+    ? [{
+        consequence: "The Profile does not load until the project is trusted.",
+        kind: "trust-required",
+        message: "Trust the bound project in Pi.",
+      }]
+    : [];
   return {
     host: "pi",
     hostVersion: skills.length > 0
@@ -392,6 +400,6 @@ export async function planPiProject(
           : PI_HOST_VERSION_WITH_SKILLS
       : PI_HOST_VERSION,
     outputs,
-    setupSteps: [],
+    setupSteps,
   };
 }

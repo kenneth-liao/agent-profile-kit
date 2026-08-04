@@ -11,6 +11,7 @@ import {
 } from "./claude.js";
 import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
 import type {
+  AdapterHostSetupStep,
   AdapterProjectPlan,
   ProposedDirectoryFileMember,
   ProposedDirectoryMember,
@@ -757,6 +758,14 @@ export async function planGrokProject(
   // Omit the Context rule when the Profile selects no Context Modules.
   const outputs: ProposedProjectOutput[] =
     modules.length > 0 ? [contextRule(profileId, modules, path), ...skillOutputs] : [...skillOutputs];
+  const setupSteps: readonly AdapterHostSetupStep[] =
+    modules.length > 0 && path === CLAUDE_CONTEXT_RULE_PATH
+      ? [{
+          kind: "shared-path",
+          message:
+            `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
+        }]
+      : [];
   return {
     host: "grok",
     hostVersion: skillsRequireDisabledModelInvocation(skills)
@@ -765,6 +774,6 @@ export async function planGrokProject(
         ? GROK_HOST_VERSION_WITH_SKILLS
         : GROK_HOST_VERSION,
     outputs,
-    setupSteps: [],
+    setupSteps,
   };
 }

@@ -185,18 +185,16 @@ Apply receipt:
 
 Separating verified resulting state from the Apply Receipt is architecturally
 correct (`CONTEXT.md`, *Apply Receipt*), but `Changes: none` sits nine lines
-above a receipt totalling 19 additions. Codex guidance now carries this journey
-into the Host; equivalent setup guidance for the remaining Hosts is still tracked
-by [UJ-21](#uj-21).
+above a receipt totalling 19 additions. Conditional Host guidance now carries
+this journey into Codex, Claude Code, Grok, and Pi.
 
 Gaps: ~~[UJ-04](#uj-04)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)), [UJ-07](#uj-07), ~~[UJ-20](#uj-20)~~,
-[UJ-21](#uj-21).
+~~[UJ-21](#uj-21)~~.
 
 ### 9. Use
 
-Codex setup requirements are now reported conditionally by the CLI. Equivalent
-guidance for the remaining Hosts still differs by Host *and* by what was installed:
+Setup guidance is reported conditionally by Host *and* by what was installed:
 
 | Host | Requirement after `apply` |
 |------|---------------------------|
@@ -210,7 +208,9 @@ Verified: a four-Host `api` project produced `.codex/hooks.json`, and its
 Codex project produced no hook at all, so Codex approval guidance must be
 conditional on installed Context, not on the Host alone.
 
-Gaps: [UJ-21](#uj-21).
+Gaps: ~~[UJ-21](#uj-21)~~ (shipped across
+[#118](https://github.com/kenneth-liao/agent-profile-kit/issues/118) and
+[#125](https://github.com/kenneth-liao/agent-profile-kit/issues/125)).
 
 ### 10. Re-sync after a Workspace edit
 
@@ -314,7 +314,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ~~[UJ-03](#uj-03)~~ | ~~High~~ | ~~12~~ | ~~Post-`uninstall` `status` warns about an intended state~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
 | ~~[UJ-04](#uj-04)~~ | ~~High~~ | ~~8~~ | ~~"Changes" means two things on one `apply` screen~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | [UJ-19](#uj-19) | High | 11 | Blocked results lead with a plan that cannot happen |
-| [UJ-21](#uj-21) | High | 8, 9 | No post-apply Host guidance; Codex can break silently |
+| ~~[UJ-21](#uj-21)~~ | ~~High~~ | ~~8, 9~~ | ~~No post-apply Host guidance; Codex can break silently~~ — shipped across [#118](https://github.com/kenneth-liao/agent-profile-kit/issues/118) and [#125](https://github.com/kenneth-liao/agent-profile-kit/issues/125) |
 | [UJ-05](#uj-05) | Med-High | 11 | Blocked `apply` reports the same blockers three times |
 | ~~[UJ-20](#uj-20)~~ | ~~Med-High~~ | ~~5, 7, 8~~ | ~~Hosts are invisible after `bind`~~ — shipped in [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) |
 | ~~[UJ-22](#uj-22)~~ | ~~Med-High~~ | ~~7~~ | ~~Non-Git project output is never shown at all~~ — shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120) |
@@ -508,13 +508,15 @@ Shipped in [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116):
 each lifecycle project block now carries the Hosts recorded by its Project
 Binding through the ReconciliationReport presentation seam.
 
-### UJ-21
-Codex guidance shipped in [#118](https://github.com/kenneth-liao/agent-profile-kit/issues/118):
-Host Setup Steps now warn about generated `SessionStart` hook approval, project
-trust, and the non-Git exact-root launch constraint, while Skills-only Profiles
-emit no hook guidance. The remaining gap is cross-Host coverage. In particular,
-a Claude co-bound Grok project gets **no** `.grok/rules/` file by design, verified
-in a four-Host run, but the CLI does not yet explain that shared path.
+### ~~UJ-21~~
+~~No post-apply Host guidance was available.~~ Codex guidance shipped in
+[#118](https://github.com/kenneth-liao/agent-profile-kit/issues/118): Host Setup
+Steps warn about generated `SessionStart` hook approval, project trust, and the
+non-Git exact-root launch constraint, while Skills-only Profiles emit no hook
+guidance. Cross-Host guidance shipped in
+[#125](https://github.com/kenneth-liao/agent-profile-kit/issues/125): Grok names
+Claude's coalesced rule path, Pi names native project trust, and setup-free
+installs state that no further Host setup is required.
 
 ### ~~UJ-22~~
 ~~A non-Git project's generated output appears nowhere. Because file paths surface
