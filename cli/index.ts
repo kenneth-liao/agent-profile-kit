@@ -5,13 +5,18 @@ import { homedir } from "node:os";
 import { agentGuide, focusedGuide, humanGuide, type GuideTopic } from "./guides.js";
 import {
   defaultViewText,
+  formatApplyJson,
   formatApplyReport,
   formatApplyVerificationFailure,
+  formatApplyVerificationFailureJson,
+  formatBlockedApplyJson,
   formatBlockedApplyReport,
+  formatLifecycleJson,
   formatLifecycleReport,
   formatMissingProfileError,
   formatUninstallResult,
   formatValidationResult,
+  lifecycleExitCode,
   type LifecycleCommand,
 } from "./presentation.js";
 import { bindProject } from "../installer/bind-project.js";
@@ -100,7 +105,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "preview",
-    syntax: "preview [--verbose]",
+    syntax: "preview [--verbose] [--json]",
     summary: "Show pending reconciliation changes without writing (read-only)",
     examples: COMMAND_EXAMPLES.preview,
     writes: "Nothing; this command is read-only.",
@@ -108,7 +113,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "apply",
-    syntax: "apply [--verbose]",
+    syntax: "apply [--verbose] [--json]",
     summary: "Reconcile Profile Installations to match Local Configuration",
     examples: COMMAND_EXAMPLES.apply,
     writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",
@@ -116,7 +121,7 @@ const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "status",
-    syntax: "status [--verbose]",
+    syntax: "status [--verbose] [--json]",
     summary: "Show current Profile Installation lifecycle state",
     examples: COMMAND_EXAMPLES.status,
     writes: "Nothing; this command is read-only.",
@@ -265,6 +270,22 @@ function parseOptionalFlag(command: string, arguments_: readonly string[], flag:
   throw new Error(`${command} does not accept argument '${invalidArgument}'`);
 }
 
+function parseOptionalFlags(
+  command: string,
+  arguments_: readonly string[],
+  flags: readonly string[],
+): Readonly<Record<string, boolean>> {
+  const accepted = new Set(flags);
+  const present = Object.fromEntries(flags.map((flag) => [flag, false])) as Record<string, boolean>;
+  for (const argument of arguments_) {
+    if (!accepted.has(argument)) {
+      throw new Error(`${command} does not accept argument '${argument}'`);
+    }
+    present[argument] = true;
+  }
+  return present;
+}
+
 function parseGuideArguments(arguments_: readonly string[]): {
   readonly agent: boolean;
   readonly topic?: GuideTopic;
@@ -291,8 +312,12 @@ function parseNoArguments(command: string, arguments_: readonly string[]): { rea
 function parseLifecycleArguments(
   command: LifecycleCommand,
   arguments_: readonly string[],
-): { readonly verbose: boolean } {
-  return { verbose: parseOptionalFlag(command, arguments_, "--verbose") };
+): { readonly json: boolean; readonly verbose: boolean } {
+  const flags = parseOptionalFlags(command, arguments_, ["--verbose", "--json"]);
+  return {
+    json: flags["--json"] === true,
+    verbose: flags["--verbose"] === true,
+  };
 }
 
 async function main(): Promise<void> {
@@ -420,8 +445,12 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("preview", () => parseLifecycleArguments("preview", arguments_.slice(1)));
     if (parsed === undefined) return;
     const report = await previewApplication(home);
-    process.stdout.write(formatLifecycleReport("preview", report, parsed));
-    if (report.blockers.length > 0) process.exitCode = 1;
+    process.stdout.write(
+      parsed.json
+        ? formatLifecycleJson("preview", report)
+        : formatLifecycleReport("preview", report, parsed),
+    );
+    process.exitCode = lifecycleExitCode(report);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "apply") {
@@ -429,21 +458,26 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     try {
       const applied = await applyApplication(home);
-      process.stdout.write(formatApplyReport(applied, parsed));
-      if (
-        applied.resultingState.blockers.length > 0 ||
-        applied.resultingState.items.some((item) => item.kind !== "current")
-      ) {
-        process.exitCode = 1;
-      }
+      process.stdout.write(
+        parsed.json ? formatApplyJson(applied) : formatApplyReport(applied, parsed),
+      );
+      process.exitCode = lifecycleExitCode(applied.resultingState);
     } catch (error) {
       if (error instanceof ApplyBlockedError) {
-        process.stdout.write(formatBlockedApplyReport(error.report, parsed));
-        process.exitCode = 1;
+        process.stdout.write(
+          parsed.json
+            ? formatBlockedApplyJson(error.report)
+            : formatBlockedApplyReport(error.report, parsed),
+        );
+        process.exitCode = lifecycleExitCode(error.report);
         return;
       }
       if (error instanceof ApplyVerificationError) {
-        process.stdout.write(formatApplyVerificationFailure(error.receipt, error.message, parsed));
+        process.stdout.write(
+          parsed.json
+            ? formatApplyVerificationFailureJson(error.receipt, error.message)
+            : formatApplyVerificationFailure(error.receipt, error.message, parsed),
+        );
         process.exitCode = 1;
         return;
       }
@@ -454,7 +488,13 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "status") {
     const parsed = parseOrExit("status", () => parseLifecycleArguments("status", arguments_.slice(1)));
     if (parsed === undefined) return;
-    process.stdout.write(formatLifecycleReport("status", await statusApplication(home), parsed));
+    const report = await statusApplication(home);
+    process.stdout.write(
+      parsed.json
+        ? formatLifecycleJson("status", report)
+        : formatLifecycleReport("status", report, parsed),
+    );
+    process.exitCode = lifecycleExitCode(report);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "uninstall") {

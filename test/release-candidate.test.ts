@@ -661,7 +661,7 @@ describe("project-bound release candidate", () => {
     writeBindings(unsupportedHome, [{ project: unsupportedProject, hosts: ["pi"] }]);
     const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
     const oldPreview = runCli(unsupportedHome, ["preview"], { path: oldPath });
-    expect(oldPreview.status).toBe(1);
+    expect(oldPreview.status).toBe(2);
     expect(`${oldPreview.stdout}${oldPreview.stderr}`).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
 
@@ -673,7 +673,7 @@ describe("project-bound release candidate", () => {
     installControlledHosts(missingHome);
     const noPiPath = join(missingHome, "bin");
     const missingPreview = runCli(missingHome, ["preview"], { path: noPiPath });
-    expect(missingPreview.status).toBe(1);
+    expect(missingPreview.status).toBe(2);
     expect(`${missingPreview.stdout}${missingPreview.stderr}`).toMatch(/Pi CLI was not found/i);
     expect(existsSync(join(missingProject, ".pi"))).toBe(false);
   });
@@ -803,7 +803,7 @@ describe("project-bound release candidate", () => {
     writeBindings(unsupportedHome, [{ project: unsupportedProject, hosts: ["pi"] }]);
     const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
     const oldPreview = runCli(unsupportedHome, ["preview"], { path: oldPath });
-    expect(oldPreview.status).toBe(1);
+    expect(oldPreview.status).toBe(2);
     expect(`${oldPreview.stdout}${oldPreview.stderr}`).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
 
@@ -859,7 +859,7 @@ describe("project-bound release candidate", () => {
       return `${bin}:${process.env.PATH ?? ""}`;
     })();
     const oldClaude = runCli(home, ["apply"], { path: oldClaudePath });
-    expect(oldClaude.status).toBe(1);
+    expect(oldClaude.status).toBe(2);
     expect(`${oldClaude.stdout}${oldClaude.stderr}`).toMatch(
       /does not support unscoped project rules|requires 2\.0\.64/i,
     );
@@ -869,7 +869,7 @@ describe("project-bound release candidate", () => {
     writeFileSync(join(projectPath, ".claude"), "not a directory\n");
     const goodClaudePath = installFakeClaude(home);
     const surface = runCli(home, ["apply"], { path: goodClaudePath });
-    expect(surface.status).toBe(1);
+    expect(surface.status).toBe(2);
     expect(`${surface.stdout}${surface.stderr}`).toMatch(/\.claude/i);
     expect(readFileSync(join(projectPath, ".claude"), "utf8")).toBe("not a directory\n");
     expect(existsSync(join(projectPath, ".claude", "rules"))).toBe(false);

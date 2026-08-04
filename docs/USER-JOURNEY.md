@@ -35,10 +35,10 @@ produced them.
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
 | 5 | Bind | `bind <profile> [project] --host <host>` | One project associated with one Profile and its Hosts |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed |
-| 7 | Preview | `preview [--verbose]` | Know exactly what `apply` will write, before it writes |
-| 8 | Apply | `apply [--verbose]` | Generated output on disk, and proof of what changed |
+| 7 | Preview | `preview [--verbose] [--json]` | Know exactly what `apply` will write, before it writes |
+| 8 | Apply | `apply [--verbose] [--json]` | Generated output on disk, and proof of what changed |
 | 9 | Use | *(launch Codex/Claude/Grok/Pi)* | Material loads through native Host discovery |
-| 10 | Re-sync | `status` → `preview` → `apply` | Notice Workspace drift and reconcile it |
+| 10 | Re-sync | `status [--json]` → `preview` → `apply` | Notice Workspace drift and reconcile it |
 | 11 | Recover | `status`, `apply`, `uninstall` | Get unstuck from drifted, missing, or malformed state |
 | 12 | Tear down | `uninstall`, `unbind` | Remove output and/or desired state, with the boundary made clear |
 
@@ -284,7 +284,9 @@ all-project blocker is resolved and gives `web` its blocker remedy.
 Gaps: [UJ-02](#uj-02), [UJ-05](#uj-05), [UJ-06](#uj-06), [UJ-07](#uj-07),
 ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
-[UJ-13](#uj-13), [UJ-19](#uj-19), ~~[UJ-23](#uj-23)~~ (shipped in
+~~[UJ-13](#uj-13)~~ (shipped in
+[#126](https://github.com/kenneth-liao/agent-profile-kit/issues/126)),
+[UJ-19](#uj-19), ~~[UJ-23](#uj-23)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
 
 ### 12. Tear down
@@ -335,7 +337,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ~~[UJ-10](#uj-10)~~ | ~~Medium~~ | ~~2, 5~~ | ~~Missing-Profile error names paths, not available Profiles~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
 | ~~[UJ-11](#uj-11)~~ | ~~Medium~~ | ~~7, 11~~ | ~~Change counter buckets unknown output kinds as drift~~ — shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120) |
 | ~~[UJ-12](#uj-12)~~ | ~~Medium~~ | ~~7~~ | ~~`preview --verbose` contradicts itself on one path~~ — shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123) |
-| [UJ-13](#uj-13) | Medium | 11 | `status` exits 0 with blockers; `preview` exits 1 |
+| ~~[UJ-13](#uj-13)~~ | ~~Medium~~ | ~~11~~ | ~~`status` exits 0 with blockers; `preview` exits 1~~ — shipped in [#126](https://github.com/kenneth-liao/agent-profile-kit/issues/126) |
 | ~~[UJ-23](#uj-23)~~ | ~~Medium~~ | ~~11~~ | ~~One aggregate next-action stalls unblocked projects~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | ~~[UJ-14](#uj-14)~~ | ~~Low-Med~~ | ~~10~~ | ~~Happy-path `status` says the same thing three times~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | ~~[UJ-15](#uj-15)~~ | ~~Low-Med~~ | ~~7, 10~~ | ~~State explanations re-teach vocabulary every run~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
@@ -448,10 +450,14 @@ Shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123):
 member-level attention records now replace the enclosing directory's
 `unchanged` record in verbose output.
 
-### UJ-13
-`status` exits 0 while printing `Attention required` and two blockers; `preview`
+### ~~UJ-13~~
+~~`status` exits 0 while printing `Attention required` and two blockers; `preview`
 exits 1 on the same state. Automation cannot gate on `status`, and the two
-read-only commands disagree about what a blocker means.
+read-only commands disagree about what a blocker means.~~
+
+Shipped in [#126](https://github.com/kenneth-liao/agent-profile-kit/issues/126):
+`preview`, `apply`, and `status` share exit codes `0` clean / `1` tool error /
+`2` blockers, and accept `--json` for machine-readable reports.
 
 ### ~~UJ-14~~
 ~~A fully-current `status` prints the outcome line, the aggregate line, and `No

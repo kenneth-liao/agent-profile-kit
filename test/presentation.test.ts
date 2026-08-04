@@ -7,8 +7,13 @@ import {
   formatBlockedApplyReport,
   formatApplyReport,
   formatApplyVerificationFailure,
+  formatApplyJson,
+  formatApplyVerificationFailureJson,
+  formatBlockedApplyJson,
+  formatLifecycleJson,
   formatLifecycleReport,
   formatUninstallResult,
+  lifecycleExitCode,
   INTERNAL_ONLY_DEFAULT_TERMS,
   NON_CURRENT_STATE_ORDER,
 } from "../cli/presentation.js";
@@ -1785,5 +1790,237 @@ describe("formatLifecycleReport next-action guidance", () => {
       "/a: Resolve the reported blocker, then run apkit status again.",
       "/b: Resolve the reported blocker, then run apkit status again.",
     ]);
+  });
+});
+
+describe("Machine surface JSON and exit codes", () => {
+  test("lifecycle JSON covers outcome, installations, paths, blockers, warnings, and setup steps", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["codex", "claude"],
+        outputs: [".codex/skills/demo", "AGENTS.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [
+          { host: "codex", kind: "approval-required", message: "Approve the hook." },
+          { host: "codex", kind: "trust-required", message: "Trust the project." },
+          {
+            host: "codex",
+            kind: "launch-constraint",
+            message: "Launch from the exact bound project root:",
+            path: "bound-project",
+          },
+        ],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [
+        { kind: "addition", path: ".codex/skills/demo", project: "/project-a" },
+        { kind: "addition", path: "AGENTS.md", project: "/project-a" },
+      ],
+      blockers: [{ message: "Claude CLI missing", project: "/project-a" }],
+      warnings: ["workspace source is large"],
+    });
+
+    const payload = JSON.parse(formatLifecycleJson("preview", report)) as Record<string, unknown>;
+
+    expect(payload).toMatchObject({
+      schemaVersion: 1,
+      command: "preview",
+      outcome: "blocked",
+      blockers: [{ message: "Claude CLI missing", project: "/project-a" }],
+      warnings: ["workspace source is large"],
+    });
+    expect(payload.installations).toEqual([{
+      project: "/project-a",
+      canonicalProject: "/project-a",
+      profile: "coding",
+      hosts: ["codex", "claude"],
+      state: "addition",
+    }]);
+    expect(payload.outputs).toEqual([
+      { kind: "addition", path: ".codex/skills/demo", project: "/project-a" },
+      { kind: "addition", path: "AGENTS.md", project: "/project-a" },
+    ]);
+    expect(payload.setupSteps).toEqual([
+      {
+        host: "codex",
+        kind: "approval-required",
+        message: "Approve the hook.",
+      },
+      {
+        host: "codex",
+        kind: "trust-required",
+        message: "Trust the project.",
+      },
+      {
+        host: "codex",
+        kind: "launch-constraint",
+        message: "Launch from the exact bound project root:",
+        path: "bound-project",
+        project: "/project-a",
+      },
+    ]);
+    expect(lifecycleExitCode(report)).toBe(2);
+  });
+
+  test("lifecycle exit code is 0 when clean or only pending work exists", () => {
+    expect(lifecycleExitCode(emptyReport())).toBe(0);
+    expect(lifecycleExitCode(identityReport("/project-a"))).toBe(0);
+    expect(lifecycleExitCode(emptyReport({
+      items: [{ kind: "current", project: "/project-a" }],
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+    }))).toBe(0);
+  });
+
+  test("status and preview share the same blocked outcome and exit code semantics", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a", reason: "tracked path" }],
+      blockers: [{ message: "tracked path", project: "/project-a" }],
+    });
+
+    for (const command of ["status", "preview"] as const) {
+      const payload = JSON.parse(formatLifecycleJson(command, report)) as {
+        readonly outcome: string;
+        readonly command: string;
+      };
+      expect(payload.command).toBe(command);
+      expect(payload.outcome).toBe("blocked");
+      expect(lifecycleExitCode(report)).toBe(2);
+    }
+  });
+
+  test("apply JSON separates committed receipt paths from pending resulting state", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [
+          { host: "codex", kind: "approval-required", message: "Approve the hook." },
+        ],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: receipt.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    const payload = JSON.parse(formatApplyJson(applyResult(receipt, resultingState))) as Record<string, unknown>;
+
+    expect(payload).toMatchObject({
+      schemaVersion: 1,
+      command: "apply",
+      outcome: "clean",
+      installations: [{
+        project: "/project-a",
+        canonicalProject: "/project-a",
+        profile: "coding",
+        hosts: ["codex"],
+        state: "current",
+      }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+      applied: {
+        installations: [{
+          project: "/project-a",
+          state: "addition",
+        }],
+        outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      },
+      setupSteps: [{
+        host: "codex",
+        kind: "approval-required",
+        message: "Approve the hook.",
+      }],
+    });
+    expect(lifecycleExitCode(resultingState)).toBe(0);
+  });
+
+  test("blocked apply JSON reports blocked outcome without an applied receipt", () => {
+    const report = asBlockedReport(emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a", reason: "CLI missing" }],
+      blockers: [{ message: "CLI missing", project: "/project-a" }],
+    }));
+
+    const payload = JSON.parse(formatBlockedApplyJson(report)) as Record<string, unknown>;
+
+    expect(payload).toMatchObject({
+      schemaVersion: 1,
+      command: "apply",
+      outcome: "blocked",
+      blockers: [{ message: "CLI missing", project: "/project-a" }],
+    });
+    expect(payload.applied).toBeUndefined();
+    expect(lifecycleExitCode(report)).toBe(2);
+  });
+
+  test("apply verification-failure JSON keeps the receipt and error without claiming clean", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+
+    const payload = JSON.parse(
+      formatApplyVerificationFailureJson(receipt, "post-apply verification failed: boom"),
+    ) as Record<string, unknown>;
+
+    expect(payload).toMatchObject({
+      schemaVersion: 1,
+      command: "apply",
+      outcome: "attention",
+      error: "post-apply verification failed: boom",
+      applied: {
+        outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      },
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+  });
+
+  test("pending work without blockers is attention with exit code 0", () => {
+    const report = identityReport("/project-a");
+    const payload = JSON.parse(formatLifecycleJson("preview", report)) as {
+      readonly outcome: string;
+    };
+    expect(payload.outcome).toBe("attention");
+    expect(lifecycleExitCode(report)).toBe(0);
   });
 });

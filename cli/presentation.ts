@@ -1163,3 +1163,198 @@ export function formatLifecycleReport(
 ): string {
   return options.verbose ? verboseReport(command, report) : conciseReport(command, report);
 }
+
+/** Uniform machine-surface exit codes: 0 clean, 2 blockers present. Tool errors stay 1. */
+export function lifecycleExitCode(
+  report: { readonly blockers: readonly unknown[] },
+): 0 | 2 {
+  return report.blockers.length > 0 ? 2 : 0;
+}
+
+type MachineOutcome = "attention" | "blocked" | "clean";
+
+interface MachineInstallation {
+  readonly canonicalProject: string;
+  readonly hosts: readonly string[];
+  readonly profile: string;
+  readonly project: string;
+  readonly reason?: string;
+  readonly state: ReconciliationKind | "unknown";
+}
+
+interface MachineOutput {
+  readonly kind: OutputReconciliationKind;
+  readonly path: string;
+  readonly project: string;
+}
+
+interface MachineBlocker {
+  readonly message: string;
+  readonly project?: string;
+}
+
+interface MachineSetupStep {
+  readonly consequence?: string;
+  readonly host: string;
+  readonly kind: HostSetupStepKind;
+  readonly message: string;
+  readonly path?: "bound-project";
+  readonly project?: string;
+}
+
+interface LifecycleMachineSnapshot {
+  readonly installations: readonly MachineInstallation[];
+  readonly outputs: readonly MachineOutput[];
+}
+
+interface LifecycleMachinePayload extends LifecycleMachineSnapshot {
+  readonly applied?: LifecycleMachineSnapshot;
+  readonly blockers: readonly MachineBlocker[];
+  readonly command: LifecycleCommand;
+  readonly outcome: MachineOutcome;
+  readonly schemaVersion: 1;
+  readonly setupSteps: readonly MachineSetupStep[];
+  readonly warnings: readonly string[];
+}
+
+function machineOutcome(report: ReconciliationReport): MachineOutcome {
+  if (report.blockers.length > 0) return "blocked";
+  if (
+    report.items.some((item) => item.kind !== "current") ||
+    report.outputs.some((output) => output.kind !== "unchanged")
+  ) {
+    return "attention";
+  }
+  return "clean";
+}
+
+function machineInstallations(report: ReconciliationReport): readonly MachineInstallation[] {
+  const itemsByProject = new Map<string, ReconciliationItem>();
+  for (const item of report.items) {
+    if (!itemsByProject.has(item.project)) itemsByProject.set(item.project, item);
+  }
+  const desiredKeys = new Set<string>();
+  const installations: MachineInstallation[] = report.desired.map((installation) => {
+    desiredKeys.add(installation.canonicalProject);
+    desiredKeys.add(installation.project);
+    const item = itemsByProject.get(installation.canonicalProject)
+      ?? itemsByProject.get(installation.project);
+    return {
+      canonicalProject: installation.canonicalProject,
+      hosts: installation.hosts,
+      profile: installation.profile,
+      project: installation.project,
+      ...(item?.reason === undefined ? {} : { reason: item.reason }),
+      state: item?.kind ?? "unknown",
+    };
+  });
+  for (const item of report.items) {
+    if (desiredKeys.has(item.project)) continue;
+    installations.push({
+      canonicalProject: item.project,
+      hosts: [],
+      profile: "",
+      project: item.project,
+      ...(item.reason === undefined ? {} : { reason: item.reason }),
+      state: item.kind,
+    });
+  }
+  return installations.sort((left, right) =>
+    left.canonicalProject.localeCompare(right.canonicalProject)
+  );
+}
+
+function machineOutputs(report: ReconciliationReport): readonly MachineOutput[] {
+  return [...report.outputs]
+    .map((output) => ({
+      kind: output.kind,
+      path: output.path,
+      project: output.project,
+    }))
+    .sort((left, right) =>
+      left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
+    );
+}
+
+function machineBlockers(report: ReconciliationReport): readonly MachineBlocker[] {
+  return report.blockers.map((blocker) => (
+    blocker.project === undefined
+      ? { message: blocker.message }
+      : { message: blocker.message, project: blocker.project }
+  ));
+}
+
+function machineSetupSteps(report: ReconciliationReport): readonly MachineSetupStep[] {
+  const steps: MachineSetupStep[] = [];
+  for (const installation of report.desired) {
+    for (const step of installation.setupSteps) {
+      steps.push({
+        host: step.host,
+        kind: step.kind,
+        message: step.message,
+        ...(step.consequence === undefined ? {} : { consequence: step.consequence }),
+        ...(step.path === undefined ? {} : { path: step.path, project: installation.project }),
+      });
+    }
+  }
+  return steps.sort((left, right) =>
+    left.host.localeCompare(right.host) ||
+    HOST_SETUP_STEP_ORDER.indexOf(left.kind) - HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
+    left.message.localeCompare(right.message)
+  );
+}
+
+function machineSnapshot(report: ReconciliationReport): LifecycleMachineSnapshot {
+  return {
+    installations: machineInstallations(report),
+    outputs: machineOutputs(report),
+  };
+}
+
+function lifecycleMachinePayload(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  applied?: ReconciliationReport,
+): LifecycleMachinePayload {
+  return {
+    schemaVersion: 1,
+    command,
+    outcome: machineOutcome(report),
+    ...machineSnapshot(report),
+    ...(applied === undefined ? {} : { applied: machineSnapshot(applied) }),
+    blockers: machineBlockers(report),
+    warnings: [...report.warnings],
+    setupSteps: machineSetupSteps(report),
+  };
+}
+
+export function formatLifecycleJson(
+  command: Exclude<LifecycleCommand, "apply">,
+  report: ReconciliationReport,
+): string {
+  return `${JSON.stringify(lifecycleMachinePayload(command, report), null, 2)}\n`;
+}
+
+export function formatApplyJson(result: ApplyReconciliationResult): string {
+  return `${JSON.stringify(
+    lifecycleMachinePayload("apply", result.resultingState, result.receipt),
+    null,
+    2,
+  )}\n`;
+}
+
+export function formatBlockedApplyJson(report: BlockedReconciliationReport): string {
+  return `${JSON.stringify(lifecycleMachinePayload("apply", report), null, 2)}\n`;
+}
+
+export function formatApplyVerificationFailureJson(
+  receipt: ReconciliationReport,
+  message: string,
+): string {
+  return `${JSON.stringify({
+    ...lifecycleMachinePayload("apply", receipt, receipt),
+    outcome: "attention",
+    error: message,
+  } satisfies LifecycleMachinePayload & { readonly error: string }, null, 2)}\n`;
+}
+

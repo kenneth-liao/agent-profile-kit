@@ -1584,7 +1584,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "preview");
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout.match(/SessionStart hooks are not enabled/g)).toHaveLength(2);
     expect(result.stdout).toContain(".codex/hooks.json is occupied by unowned or drifted output");
     expect(existsSync(join(first, ".agent-profile-kit"))).toBe(false);
@@ -1603,7 +1603,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "apply");
     const blocker = ".codex/hooks.json is occupied by unowned or drifted output";
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout.startsWith("Apply blocked\n")).toBe(true);
     expect(result.stdout.split(blocker)).toHaveLength(2);
     expect(result.stdout).toContain(
@@ -1613,7 +1613,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("preview, apply, and status accept --verbose while rejecting other presentation arguments", () => {
+  test("preview, apply, and status accept --verbose and --json while rejecting other presentation arguments", () => {
     const home = isolatedHome();
     initialize(home);
     const projectPath = project();
@@ -1631,9 +1631,77 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(duplicateVerbose.status, `${command} duplicate flag: ${duplicateVerbose.stderr}`).toBe(0);
       expect(duplicateVerbose.stderr).toBe("");
 
-      const unsupported = runCli(home, command, "--json");
+      const json = runCli(home, command, "--json");
+      expect(json.status, `${command} --json: ${json.stderr}`).toBe(0);
+      expect(json.stderr).toBe("");
+      const payload = JSON.parse(json.stdout) as {
+        readonly command: string;
+        readonly schemaVersion: number;
+      };
+      expect(payload.schemaVersion).toBe(1);
+      expect(payload.command).toBe(command);
+
+      const both = runCli(home, command, "--verbose", "--json");
+      expect(both.status, `${command} both flags: ${both.stderr}`).toBe(0);
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 1 });
+
+      const unsupported = runCli(home, command, "--yaml");
       expect(unsupported.status).toBe(1);
-      expect(unsupported.stderr).toContain(`${command} does not accept argument '--json'`);
+      expect(unsupported.stderr).toContain(`${command} does not accept argument '--yaml'`);
+    }
+  });
+
+  test("preview, apply, and status share a uniform exit-code matrix for clean, blocked, and tool-error states", () => {
+    const cleanHome = isolatedHome();
+    initialize(cleanHome);
+    const cleanProject = project();
+    writeContextProfile(cleanHome);
+    bind(cleanHome, cleanProject);
+    expect(runCli(cleanHome, "apply").status, "seed apply").toBe(0);
+
+    for (const command of ["preview", "apply", "status"] as const) {
+      const clean = runCli(cleanHome, command);
+      expect(clean.status, `${command} clean text: ${clean.stderr}`).toBe(0);
+      const cleanJson = runCli(cleanHome, command, "--json");
+      expect(cleanJson.status, `${command} clean json: ${cleanJson.stderr}`).toBe(0);
+      expect(JSON.parse(cleanJson.stdout)).toMatchObject({
+        command,
+        outcome: "clean",
+        schemaVersion: 1,
+      });
+    }
+
+    const blockedHome = isolatedHome();
+    initialize(blockedHome);
+    const blockedProject = project();
+    mkdirSync(join(blockedProject, ".codex"));
+    writeFileSync(join(blockedProject, ".codex", "hooks.json"), "repository owned\n");
+    writeContextProfile(blockedHome);
+    bind(blockedHome, blockedProject);
+
+    for (const command of ["preview", "apply", "status"] as const) {
+      const blocked = runCli(blockedHome, command);
+      expect(blocked.status, `${command} blocked text: ${blocked.stderr}`).toBe(2);
+      expect(blocked.stdout).toMatch(/Blocker:|blocked/i);
+      const blockedJson = runCli(blockedHome, command, "--json");
+      expect(blockedJson.status, `${command} blocked json: ${blockedJson.stderr}`).toBe(2);
+      const payload = JSON.parse(blockedJson.stdout) as {
+        readonly blockers: readonly unknown[];
+        readonly outcome: string;
+      };
+      expect(payload.outcome).toBe("blocked");
+      expect(payload.blockers.length).toBeGreaterThan(0);
+    }
+
+    const toolErrorHome = isolatedHome();
+    // No init: Local Configuration is missing, so desired-state commands fail as tool errors.
+    for (const command of ["preview", "apply", "status"] as const) {
+      const failed = runCli(toolErrorHome, command);
+      expect(failed.status, `${command} tool error: ${failed.stdout}`).toBe(1);
+      expect(failed.stderr.length).toBeGreaterThan(0);
+      const failedJson = runCli(toolErrorHome, command, "--json");
+      expect(failedJson.status, `${command} tool error json: ${failedJson.stdout}`).toBe(1);
+      expect(failedJson.stderr.length).toBeGreaterThan(0);
     }
   });
 
@@ -1974,7 +2042,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "apply");
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout).toContain("Apply blocked");
     expect(result.stderr).toBe("");
     expect(existsSync(join(first, ".agent-profile-kit"))).toBe(false);
@@ -2046,7 +2114,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "preview");
 
-    expect(result.status, result.stderr).toBe(1);
+    expect(result.status, result.stderr).toBe(2);
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout).toContain(`Project: ${authoredProject}`);
     expect(result.stdout).toContain("Tracked project path '.codex/hooks.json' is repository-owned");
@@ -2054,7 +2122,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
 
     const apply = runCli(home, "apply");
-    expect(apply.status).toBe(1);
+    expect(apply.status).toBe(2);
     expect(apply.stdout).toContain("Apply blocked");
     expect(apply.stdout).toContain("generated files must be exclusively managed by Agent Profile Kit");
   });
@@ -2341,10 +2409,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const preview = runCli(home, "preview");
 
-    expect(preview.status).toBe(1);
+    expect(preview.status).toBe(2);
     expect(preview.stdout).toContain("missing its Git exclusion record");
     expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
-    expect(runCli(home, "apply").status).toBe(1);
+    expect(runCli(home, "apply").status).toBe(2);
   });
 
   test("blocks intentional-deletion retirement when its exclusion contribution is missing", () => {
@@ -2386,10 +2454,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const preview = runCli(home, "preview");
 
-    expect(preview.status).toBe(1);
+    expect(preview.status).toBe(2);
     expect(preview.stdout).toContain("missing its Git exclusion record");
     expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
-    expect(runCli(home, "apply").status).toBe(1);
+    expect(runCli(home, "apply").status).toBe(2);
   });
 
   test("blocks intentional-deletion retirement when its recorded exclusion contribution is modified", () => {
@@ -2430,9 +2498,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const preview = runCli(home, "preview");
 
-    expect(preview.status).toBe(1);
+    expect(preview.status).toBe(2);
     expect(preview.stdout).toContain("does not match its recorded installation record contribution");
-    expect(runCli(home, "apply").status).toBe(1);
+    expect(runCli(home, "apply").status).toBe(2);
   });
 
   test("blocks intentional-deletion retirement when the surviving exclusion section is missing", () => {
@@ -2461,10 +2529,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(unbound.status, unbound.stderr).toBe(0);
     const preview = runCli(home, "preview");
 
-    expect(preview.status).toBe(1);
+    expect(preview.status).toBe(2);
     expect(preview.stdout).toContain("missing its Agent Profile Kit exclusion section");
     const applied = runCli(home, "apply");
-    expect(applied.status).toBe(1);
+    expect(applied.status).toBe(2);
     expect(applied.stdout).toContain("missing its Agent Profile Kit exclusion section");
     expect(applied.stderr).toBe("");
     const state = parse(readFileSync(statePath(home), "utf8")) as {
@@ -2491,9 +2559,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const preview = runCli(home, "preview");
 
-    expect(preview.status).toBe(1);
+    expect(preview.status).toBe(2);
     expect(preview.stdout).toContain("missing its Agent Profile Kit exclusion section");
-    expect(runCli(home, "apply").status).toBe(1);
+    expect(runCli(home, "apply").status).toBe(2);
   });
 
   test("blocks intentional-deletion retirement when the Git exclusion parent is missing", () => {
@@ -2515,9 +2583,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const preview = runCli(home, "preview");
 
-    expect(preview.status).toBe(1);
+    expect(preview.status).toBe(2);
     expect(preview.stdout).toContain("missing its Agent Profile Kit exclusion section");
-    expect(runCli(home, "apply").status).toBe(1);
+    expect(runCli(home, "apply").status).toBe(2);
     expect(existsSync(info)).toBe(false);
   });
 
@@ -2581,7 +2649,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const preview = runCli(home, "preview");
 
-    expect(preview.status).toBe(1);
+    expect(preview.status).toBe(2);
     expect(preview.stdout).toContain("missing its Git exclusion record");
     expect(readFileSync(exclude).equals(before)).toBe(true);
   });
@@ -2672,7 +2740,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "apply");
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout).toContain("Git exclusion parent");
     expect(result.stdout).toContain("must be a real directory");
     expect(result.stderr).toBe("");
@@ -2784,9 +2852,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readFileSync(exclude).toString("utf8").replace("/.codex/hooks.json", "/unexpected"),
     );
 
-    for (const command of ["apply", "uninstall"]) {
+    for (const command of ["apply", "uninstall"] as const) {
       const result = runCli(home, command);
-      expect(result.status).toBe(1);
+      // apply reports ownership blockers as exit 2; uninstall remains a tool-failure exit 1.
+      expect(result.status).toBe(command === "apply" ? 2 : 1);
       expect(`${result.stdout}${result.stderr}`).toContain("exclusion section is modified");
       if (command === "apply") expect(result.stderr).toBe("");
       expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
@@ -2881,7 +2950,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const failed = runCli(home, "apply");
 
-    expect(failed.status).toBe(1);
+    expect(failed.status).toBe(2);
     expect(readFileSync(exclude).equals(before)).toBe(true);
     expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(repository, "nested", ".agent-profile-kit", "installation.json"))).toBe(true);
@@ -3000,10 +3069,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = runCli(home, "status", "--verbose");
     const applied = runCli(home, "apply");
 
-    expect(status.status, status.stderr).toBe(0);
+    expect(status.status, status.stderr).toBe(2);
     expect(status.stdout).toContain(`${projectPath}: drifted output`);
     expect(status.stdout).toContain("mode");
-    expect(applied.status).toBe(1);
+    expect(applied.status).toBe(2);
     expect(applied.stderr).toBe("");
     expect(applied.stdout).toContain("will not overwrite your edit");
     expect(applied.stdout).toContain("Move the change into the Workspace");
@@ -3033,7 +3102,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const blocked = runCli(home, "apply");
 
-    expect(blocked.status).toBe(1);
+    expect(blocked.status).toBe(2);
     expect(blocked.stderr).toBe("");
     expect(blocked.stdout).toContain("unexpected:");
     expect(blocked.stdout).toContain("will not overwrite your edit");
@@ -3055,7 +3124,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const blocked = runCli(home, "apply");
 
-    expect(blocked.status).toBe(1);
+    expect(blocked.status).toBe(2);
     expect(blocked.stderr).toBe("");
     expect(blocked.stdout.match(/Blocker:/g)).toHaveLength(1);
     expect(blocked.stdout).toContain("will not overwrite your edit");
@@ -3084,12 +3153,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "status");
     const apply = runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status, result.stderr).toBe(2);
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout).toContain("Global blockers:");
     expect(result.stdout).toContain("Installation State");
     expect(result.stdout).toContain("Blockers: 1");
-    expect(apply.status).toBe(1);
+    expect(apply.status).toBe(2);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
     expect(apply.stdout).toContain("Global blockers:");
@@ -3116,9 +3185,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const apply = runCli(home, "apply");
     const uninstall = runCli(home, "uninstall");
 
-    expect(status.status, status.stderr).toBe(0);
+    expect(status.status, status.stderr).toBe(2);
     expect(status.stdout).toContain("schema_version must be 4");
-    expect(apply.status).toBe(1);
+    expect(apply.status).toBe(2);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
     expect(apply.stdout).toContain("schema_version must be 4");
@@ -3139,7 +3208,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "status");
 
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status, result.stderr).toBe(2);
     expect(result.stdout.startsWith("Attention required\n")).toBe(true);
     expect(result.stdout).toContain(`Project: ${projectPath}`);
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
@@ -3159,7 +3228,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "status");
 
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status, result.stderr).toBe(2);
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout.match(/Project:/g)).toHaveLength(1);
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
@@ -3207,7 +3276,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "status", "--verbose");
 
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status, result.stderr).toBe(2);
     expect(result.stdout).toContain(`${first}: missing output (Profile Installation is missing)`);
     expect(result.stdout).not.toContain(`${first}: blocked`);
     expect(result.stdout).toContain(`${second}: blocked`);
@@ -3230,7 +3299,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "status");
 
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status, result.stderr).toBe(2);
     expect(result.stdout).toContain("installation record outputs must include the Installation Marker");
     expect(result.stdout).toContain("Blockers: 1");
   });
@@ -3409,7 +3478,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "apply");
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout).toContain("owned output");
     expect(result.stderr).toBe("");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
@@ -3569,7 +3638,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "apply");
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout).toContain("Cannot remove stale Project");
     expect(result.stderr).toBe("");
     expect(readFileSync(retainedContext, "utf8")).toBe(before);
@@ -3592,7 +3661,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "apply");
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout).toContain("symlink parent");
     expect(result.stderr).toBe("");
     expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
@@ -3733,10 +3802,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const preview = runCli(home, "preview", "--verbose");
     const applied = runCli(home, "apply");
 
-    expect(preview.status).toBe(1);
+    expect(preview.status).toBe(2);
     expect(preview.stdout).toContain(`${projectPath}: missing output`);
     expect(preview.stdout).not.toContain(`${missing}: repair`);
-    expect(applied.status).toBe(1);
+    expect(applied.status).toBe(2);
     expect(applied.stdout).toContain("Apply blocked");
     expect(applied.stderr).toBe("");
     expect(existsSync(missing)).toBe(false);
@@ -3756,7 +3825,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "apply");
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout).toContain("copies Installation Marker identity");
     expect(result.stderr).toBe("");
     expect(readFileSync(join(original, ".agent-profile-kit", "installation.json"), "utf8")).toContain(
@@ -3846,7 +3915,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "apply");
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stderr).toBe("");
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
     expect(result.stdout).toContain("will not overwrite your edit");
@@ -3959,7 +4028,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = runCli(home, "apply");
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout).toContain("restore its Manifest-linked Installation Marker at the new root");
     expect(result.stderr).toBe("");
     expect(existsSync(join(moved, ".agent-profile-kit", "installation.json"))).toBe(false);
@@ -4261,7 +4330,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, projectPath);
 
     const result = runCli(home, "apply");
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout).toContain("Apply blocked");
     expect(result.stdout).toMatch(/tracked|unowned/i);
     expect(result.stderr).toBe("");
@@ -4342,12 +4411,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(emptyBin, { recursive: true });
     // PATH with only empty-bin so the real Claude is not discoverable.
     const missing = runCliWithPath(home, emptyBin, "preview");
-    expect(missing.status).toBe(1);
+    expect(missing.status).toBe(2);
     expect(`${missing.stdout}${missing.stderr}`).toContain("Claude Code CLI was not found");
 
     const oldBin = installFakeClaude(home, "2.0.63");
     const old = runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
-    expect(old.status).toBe(1);
+    expect(old.status).toBe(2);
     expect(old.stdout.startsWith("Cannot apply\n")).toBe(true);
     expect(old.stdout).toContain("does not support unscoped project rules");
     expect(old.stdout).toContain("requires 2.0.64+");
@@ -4425,19 +4494,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const emptyBin = join(home, "empty-bin");
     mkdirSync(emptyBin, { recursive: true });
     const missing = runCliWithPath(home, emptyBin, "preview");
-    expect(missing.status).toBe(1);
+    expect(missing.status).toBe(2);
     expect(`${missing.stdout}${missing.stderr}`).toContain("Grok CLI was not found");
 
     const oldBin = installFakeGrok(home, { version: "0.1.0" });
     const old = runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
-    expect(old.status).toBe(1);
+    expect(old.status).toBe(2);
     expect(`${old.stdout}${old.stderr}`).toContain("does not support project rules inspection");
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
 
     writeFileSync(join(projectPath, ".grok"), "occupied\n");
     const surfaceBin = installFakeGrok(home);
     const surface = runCliWithPath(home, `${surfaceBin}:${process.env.PATH ?? ""}`, "preview");
-    expect(surface.status).toBe(1);
+    expect(surface.status).toBe(2);
     expect(`${surface.stdout}${surface.stderr}`).toMatch(/\.grok/);
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
 
@@ -5844,9 +5913,9 @@ describe("apkit root help", () => {
     { name: "bind", syntax: "bind <profile> [project] --host <host> [--host <host> ...]" },
     { name: "unbind", syntax: "unbind [project]" },
     { name: "validate", syntax: "validate" },
-    { name: "preview", syntax: "preview [--verbose]" },
-    { name: "apply", syntax: "apply [--verbose]" },
-    { name: "status", syntax: "status [--verbose]" },
+    { name: "preview", syntax: "preview [--verbose] [--json]" },
+    { name: "apply", syntax: "apply [--verbose] [--json]" },
+    { name: "status", syntax: "status [--verbose] [--json]" },
     { name: "uninstall", syntax: "uninstall" },
   ] as const;
 
@@ -6015,15 +6084,15 @@ describe("apkit root help", () => {
     expect(tooManyInitPaths.stderr).toContain("Usage: apkit init [workspace]");
     expect(tooManyInitPaths.stderr).not.toContain("Usage: apkit bind");
 
-    const badLifecycleFlag = runCli(home, "preview", "--json");
+    const badLifecycleFlag = runCli(home, "preview", "--yaml");
     expect(badLifecycleFlag.status).toBe(1);
-    expect(badLifecycleFlag.stderr).toContain("preview does not accept argument '--json'");
-    expect(badLifecycleFlag.stderr).toContain("Usage: apkit preview [--verbose]");
+    expect(badLifecycleFlag.stderr).toContain("preview does not accept argument '--yaml'");
+    expect(badLifecycleFlag.stderr).toContain("Usage: apkit preview [--verbose] [--json]");
 
-    const badAfterValidLifecycleFlag = runCli(home, "preview", "--verbose", "--json");
+    const badAfterValidLifecycleFlag = runCli(home, "preview", "--verbose", "--yaml");
     expect(badAfterValidLifecycleFlag.status).toBe(1);
-    expect(badAfterValidLifecycleFlag.stderr).toContain("preview does not accept argument '--json'");
-    expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: apkit preview [--verbose]");
+    expect(badAfterValidLifecycleFlag.stderr).toContain("preview does not accept argument '--yaml'");
+    expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: apkit preview [--verbose] [--json]");
 
     const badGuideFlag = runCli(home, "guide", "--json");
     expect(badGuideFlag.status).toBe(1);
