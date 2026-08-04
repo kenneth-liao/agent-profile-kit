@@ -424,6 +424,8 @@ function hooks(contextPath: string): string {
       hooks: {
         SessionStart: [
           {
+            // Omit resume: Codex reconstructs from the rollout, which already
+            // holds any prior injection, so re-firing would duplicate Context.
             matcher: "startup|clear|compact",
             hooks: [{
               additionalContextLimit: 0,
