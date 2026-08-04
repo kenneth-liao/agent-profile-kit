@@ -262,17 +262,21 @@ function containsPath(parent: string, child: string): boolean {
   );
 }
 
-function displayProjectPath(
+function absoluteAuthoredProject(authoredProject: string, home: string): string {
+  return authoredProject === "~"
+    ? home
+    : authoredProject.startsWith("~/")
+      ? join(home, authoredProject.slice(2))
+      : authoredProject;
+}
+
+export function displayProjectPath(
   canonicalProject: string,
   authoredProject = canonicalProject,
   cwd = process.cwd(),
   home = homedir(),
 ): string {
-  const authoredAbsolute = authoredProject === "~"
-    ? home
-    : authoredProject.startsWith("~/")
-      ? join(home, authoredProject.slice(2))
-      : authoredProject;
+  const authoredAbsolute = absoluteAuthoredProject(authoredProject, home);
   const projectPaths = [...new Set([canonicalProject, authoredAbsolute])];
   const cwdRelativeProject = projectPaths.find((project) => containsPath(project, cwd));
   if (cwdRelativeProject) return relative(cwd, cwdRelativeProject) || ".";
@@ -572,6 +576,38 @@ function removeProjectPathPrefix(message: string, project: string): string {
     cursor = index + prefix.length;
   }
   return formatted;
+}
+
+function shortenProjectReferences(message: string, groups: readonly ProjectGroup[]): string {
+  const references = groups.flatMap((group) => {
+    const authoredAbsolute = absoluteAuthoredProject(group.project, homedir());
+    const replacement = displayProjectPath(group.canonicalProject, group.project);
+    return [...new Set([group.canonicalProject, authoredAbsolute])].map((project) => ({ project, replacement }));
+  }).sort((left, right) =>
+    right.project.length - left.project.length || left.project.localeCompare(right.project)
+  );
+  return references.reduce((rendered, reference) => {
+    const { project, replacement } = reference;
+    let cursor = 0;
+    let formatted = "";
+    while (cursor < rendered.length) {
+      const index = rendered.indexOf(project, cursor);
+      if (index < 0) return formatted + rendered.slice(cursor);
+      const previous = rendered[index - 1];
+      const next = rendered[index + project.length];
+      const startsAtBoundary = index === 0 || previous === undefined || /[\s("'=:/]/.test(previous);
+      const endsAtBoundary = next === undefined || /[\s)"':/,;]/.test(next);
+      if (!startsAtBoundary || !endsAtBoundary) {
+        formatted += rendered.slice(cursor, index + 1);
+        cursor = index + 1;
+        continue;
+      }
+      const cwdChild = replacement === "." && next === "/";
+      formatted += rendered.slice(cursor, index) + (cwdChild ? "" : replacement);
+      cursor = index + project.length + (cwdChild ? 1 : 0);
+    }
+    return formatted;
+  }, message);
 }
 
 function formatProjectPaths(message: string, projects: readonly string[]): string {
@@ -957,7 +993,9 @@ function conciseReport(
         lines.push(`  Profile: ${desired.profile}`, `  Hosts: ${desired.hosts.join(", ")}`);
       }
       if (blocked) {
-        for (const blocker of group.blockers) lines.push(`  Blocker: ${formatBlocker(blocker, group.project)}`);
+        for (const blocker of group.blockers) {
+          lines.push(`  Blocker: ${shortenProjectReferences(formatBlocker(blocker, group.project), groups)}`);
+        }
         continue;
       }
       for (const item of group.items) {
@@ -970,7 +1008,9 @@ function conciseReport(
       }
       const outputLines = outputPathLines(group.outputs);
       if (outputLines.length > 0) lines.push("  Files:", ...outputLines.map((line) => `  ${line}`));
-      for (const blocker of group.blockers) lines.push(`  Blocker: ${formatBlocker(blocker, group.project)}`);
+      for (const blocker of group.blockers) {
+        lines.push(`  Blocker: ${shortenProjectReferences(formatBlocker(blocker, group.project), groups)}`);
+      }
     }
   }
 
@@ -980,7 +1020,9 @@ function conciseReport(
   const globalBlockers = report.blockers.filter((blocker) => blockerProject(blocker) === undefined);
   if (globalBlockers.length > 0) {
     lines.push("", "Global blockers:");
-    for (const blocker of globalBlockers) lines.push(`- ${formatBlocker(blocker)}`);
+    for (const blocker of globalBlockers) {
+      lines.push(`- ${shortenProjectReferences(formatBlocker(blocker), groups)}`);
+    }
   }
   if (blocked) lines.push("", aggregateLine(command, report, groups));
   if (!blocked && grouped.unscopedItems.length > 0) {
@@ -990,7 +1032,9 @@ function conciseReport(
   const warnings = warningsForPresentation(report.warnings);
   if (warnings.length > 0) {
     lines.push("", "Warnings:");
-    for (const warning of warnings) lines.push(`- ${defaultDiagnosticText(warning)}`);
+    for (const warning of warnings) {
+      lines.push(`- ${defaultDiagnosticText(shortenProjectReferences(warning, groups))}`);
+    }
   }
   const setup = hostSetupLines(command, report);
   if (setup.length > 0) lines.push("", ...setup);
@@ -1034,10 +1078,12 @@ function verboseSections(
     includeStateExplanations = true,
     stateExplanationItems = report.items,
   } = options;
+  const groups = groupProjects(report).groups;
+  const shorten = (text: string): string => shortenProjectReferences(text, groups);
   const items = report.items.length === 0
     ? "(no Profile Installations)"
     : report.items
-        .map((item) => `${item.project}: ${item.kind}${item.reason ? ` (${item.reason})` : ""}`)
+        .map((item) => shorten(`${item.project}: ${item.kind}${item.reason ? ` (${item.reason})` : ""}`))
         .join("\n");
   const desired = report.desired.length === 0
     ? "(none)"
@@ -1055,7 +1101,7 @@ function verboseSections(
                 return `    - ${artifact.type}:${artifact.id} (${reasons})`;
               }).join("\n")}`;
           return (
-            `${installation.project}: Profile ${installation.profile}\n` +
+            `${shorten(`${installation.project}: Profile ${installation.profile}`)}\n` +
             `  Hosts: ${installation.hosts.join(", ")}\n` +
             `  Outputs: ${installation.outputs.join(", ")}\n` +
             `${resolved}\n` +
@@ -1065,26 +1111,26 @@ function verboseSections(
         .join("\n");
   const blockers = report.blockers.length === 0
     ? "(none)"
-    : report.blockers.map((blocker) => `- ${blocker.message}`).join("\n");
+    : report.blockers.map((blocker) => `- ${shorten(blocker.message)}`).join("\n");
   const outputs = report.outputs.length === 0
     ? "(none)"
     : authoritativeVerboseOutputs(report.outputs)
-        .map((output) => `${output.project}/${output.path}: ${output.kind}`)
+        .map((output) => shorten(`${output.project}/${output.path}: ${output.kind}`))
         .join("\n");
   const repositoryExclusions = changedRepositoryExclusions(report).length === 0
     ? "(none)"
     : changedRepositoryExclusions(report)
-        .map((change) => `- ${change.target}: ${exclusionDeltaText(change)}`)
+        .map((change) => `- ${shorten(`${change.target}: ${exclusionDeltaText(change)}`)}`)
         .join("\n");
   const repositoryExclusionRepairs = report.repositoryExclusionRepairs.length === 0
     ? "(none)"
     : repositoryExclusionRepairLines(report, completedRepositoryExclusions)
-        .map((repair) => `- ${repair}`)
+        .map((repair) => `- ${shorten(repair)}`)
         .join("\n");
   const presentationWarnings = warningsForPresentation(report.warnings);
   const warnings = presentationWarnings.length === 0
     ? "(none)"
-    : presentationWarnings.map((warning) => `- ${warning}`).join("\n");
+    : presentationWarnings.map((warning) => `- ${shorten(warning)}`).join("\n");
   const explanations = includeStateExplanations ? stateExplanationLines(stateExplanationItems) : [];
   const explanationSection = explanations.length > 0 ? `${explanations.join("\n")}\n` : "";
   const detail = `Projects:\n${items}\n${explanationSection}Outputs:\n${outputs}\nRepository Exclusions:\n${repositoryExclusions}\nRepository Exclusion Repairs:\n${repositoryExclusionRepairs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\n`;
@@ -1607,5 +1653,3 @@ export function formatTemporaryInstallationToolErrorJson(
     2,
   )}\n`;
 }
-
-
