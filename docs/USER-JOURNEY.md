@@ -310,7 +310,8 @@ State explanations:
 `unbind` then closes with `Next: agent-profile-kit preview && agent-profile-kit
 apply`, which reports zero installations and no changes.
 
-Gaps: [UJ-03](#uj-03), [UJ-08](#uj-08), [UJ-09](#uj-09).
+Gaps: ~~[UJ-03](#uj-03)~~, ~~[UJ-08](#uj-08)~~, ~~[UJ-09](#uj-09)~~
+(shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124)).
 <!-- historical-command-excerpts:end -->
 
 ---
@@ -363,12 +364,12 @@ Shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117):
 drift blockers protect the edit, state both recovery routes once, and name the
 same lifecycle command to retry.
 
-### UJ-03
-After a successful `uninstall` the binding remains by design, so the next
+### ~~UJ-03~~
+~~After a successful `uninstall` the binding remains by design, so the next
 `status` reports `Attention required`, `missing output (Profile Installation is
 missing)`, and `this is not a safe automatic repair`. Deliberate teardown and
 unexplained loss render identically, though a Marker removed by the Installer
-itself is a distinguishable state.
+itself is a distinguishable state.~~
 
 Shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124):
 `uninstall` now records intended teardown, and `status` renders it without the
@@ -417,20 +418,20 @@ diagnostics use one shortest-unambiguous path presenter, while Local
 Configuration, Installation State, JSON, and unrelated authoring output retain
 their canonical or authored paths.
 
-### UJ-08
-`Uninstalled 1 Profile Installation` omits the project, the outputs removed, the
+### ~~UJ-08~~
+~~`Uninstalled 1 Profile Installation` omits the project, the outputs removed, the
 exclusion entries cleaned, and that bindings were preserved — so `status` will
-immediately report pending additions. Compare `unbind`, which names its effects.
+immediately report pending additions. Compare `unbind`, which names its effects.~~
 
 Shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124):
 `uninstall` now lists each project, removed generated path, cleaned Git exclusion
 entry, and the preserved Project Bindings.
 
-### UJ-09
-`unbind` closes with `Next: preview && apply`. When the unbound project was the
+### ~~UJ-09~~
+~~`unbind` closes with `Next: preview && apply`. When the unbound project was the
 only installation and its output was already removed, that sequence reports zero
 installations and no changes. The next step should depend on whether generated
-output actually survives the unbind.
+output actually survives the unbind.~~
 
 Shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124):
 `unbind` now recommends global reconciliation only while an installed Manifest
