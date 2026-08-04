@@ -17,6 +17,7 @@ import {
 import { gitExclusionBlockers, stageGitExclusions } from "./git-exclusions.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import { canonicalRepositoryExclusionRecord } from "../schemas/installation-manifest.js";
+import { normalizeBlocker } from "./blockers.js";
 
 export interface ValidationResult {
   readonly bindings: number;
@@ -64,7 +65,7 @@ export async function previewApplication(home: string): Promise<ReconciliationRe
     return {
       ...desiredReport,
       blockers: [
-        { message: error instanceof Error ? error.message : String(error) },
+        normalizeBlocker(error instanceof Error ? error.message : String(error)),
         ...desiredReport.blockers,
       ],
     };

@@ -53,6 +53,7 @@ import { ENGINE_VERSION } from "./version.js";
 import { findGitProject, type GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
+import type { BlockerInput } from "./blockers.js";
 
 export interface DesiredDirectoryFileMember {
   readonly bytes: string | Uint8Array;
@@ -99,7 +100,7 @@ export type DesiredProjectOutput =
 export interface DesiredInstallation {
   readonly adapterVersion: string;
   readonly binding: ProjectBinding;
-  readonly blockers: readonly string[];
+  readonly blockers: readonly BlockerInput[];
   readonly engineVersion: string;
   readonly gitProject: GitProject | undefined;
   readonly hostVersions: Readonly<Record<string, string>>;
@@ -480,7 +481,7 @@ export async function buildDesiredState(
     }
     const gitProject = await findGitProject(binding.canonicalProject);
     const sourceHash = await hashWorkspaceInputs(profile, resolvedProfile);
-    const blockers: string[] = [];
+    const blockers: BlockerInput[] = [];
     const plans: AdapterProjectPlan[] = [];
     const hostVersions: Record<string, string> = {};
     const warnings: string[] = [];

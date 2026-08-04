@@ -24,6 +24,7 @@ import {
 } from "../adapters/claude.js";
 import { composeContextEnvelope } from "../adapters/context-envelope.js";
 import { CODEX_ADAPTER_VERSION, CODEX_HOST_VERSION } from "../adapters/codex.js";
+import { blockerMessage } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import {
@@ -353,7 +354,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
     try {
       const desired = await buildDesiredState(home);
       expect(desired.installations[0]?.blockers.some((blocker) =>
-        blocker.includes("is a file, not a directory")
+        blockerMessage(blocker).includes("is a file, not a directory")
       )).toBe(true);
 
       const report = await previewReconciliation(desired.installations, {

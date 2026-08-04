@@ -56,6 +56,7 @@ import {
   stageProjectOutputs,
   type ReconciliationFileSystem,
 } from "./reconcile.js";
+import { blockerMessage } from "./blockers.js";
 import { ENGINE_VERSION } from "./version.js";
 
 /** Hosts accepted by install-temp (Codex and Claude Code). */
@@ -395,7 +396,7 @@ export async function installTemporaryProfile(options: {
       const loaded = await readInstallationStateWithMigration(options.home);
       const state = loaded.state;
       const blockers = [
-        ...desired.blockers,
+        ...desired.blockers.map(blockerMessage),
         ...projectConflictBlockers(state, canonicalProject),
       ];
 

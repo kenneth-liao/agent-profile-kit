@@ -53,6 +53,14 @@ import {
   type RepositoryExclusionChange,
   type RepositoryExclusionRepair,
 } from "./git-exclusions.js";
+import {
+  isStructuredBlocker,
+  normalizeBlocker,
+  type BlockerInput,
+  type ReconciliationBlocker,
+} from "./blockers.js";
+
+export type { ReconciliationBlocker } from "./blockers.js";
 
 export interface ReconciliationFileSystem {
   readonly chmod: typeof chmod;
@@ -105,12 +113,6 @@ export interface OutputReconciliationItem {
   readonly kind: OutputReconciliationKind;
   readonly path: string;
   readonly project: string;
-}
-
-export interface ReconciliationBlocker {
-  readonly message: string;
-  /** Canonical project identity; absent only for application-state blockers. */
-  readonly project?: string;
 }
 
 export interface DesiredResolvedArtifactPreview {
@@ -198,7 +200,7 @@ export async function unreadableInstallationStateReport(
   });
   return {
     ...desiredReport,
-    blockers: [{ message }],
+    blockers: [normalizeBlocker(message)],
     // Ownership cannot be read, so planned project states and output changes
     // are not trustworthy diagnostics. Keep only the boundary failure.
     items: [{
@@ -598,6 +600,21 @@ function pushDirectoryMemberItems(
   }
 }
 
+function normalizePreviewBlocker(
+  input: BlockerInput,
+  fallbackProject: string,
+): ReconciliationBlocker {
+  try {
+    return normalizeBlocker(input, fallbackProject);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      message: `Invalid blocker: ${message}`,
+      project: fallbackProject,
+    };
+  }
+}
+
 export async function previewReconciliation(
   desired: readonly DesiredInstallation[],
   state: InstallationState,
@@ -612,10 +629,9 @@ export async function previewReconciliation(
     movedPreviousProjects,
   } = await installationRetirementSelection(desired, state);
   const blockers: ReconciliationBlocker[] = desired.flatMap((installation) =>
-    installation.blockers.map((message) => ({
-      message,
-      project: installation.binding.canonicalProject,
-    }))
+    installation.blockers.map((input) =>
+      normalizePreviewBlocker(input, installation.binding.canonicalProject)
+    )
   );
   blockers.push(...(await gitExclusionBlockers(state, desired, {
     retiringInstallationIds: intentionallyDeletedInstallationIds,
@@ -900,10 +916,21 @@ export async function previewReconciliation(
     schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
     temporaryInstallations: state.temporaryInstallations,
   };
+  const deduplicated = new Map<string, ReconciliationBlocker>();
+  for (const blocker of blockers) {
+    const key = `${blocker.project ?? ""}\0${blocker.message}`;
+    const previous = deduplicated.get(key);
+    if (
+      previous === undefined ||
+      (!isStructuredBlocker(previous) && isStructuredBlocker(blocker))
+    ) {
+      // During emitter migration, structured evidence wins over its legacy twin
+      // while public presentation still deduplicates on the legacy projection.
+      deduplicated.set(key, blocker);
+    }
+  }
   return {
-    blockers: [...new Map(
-      blockers.map((blocker) => [`${blocker.project ?? ""}\0${blocker.message}`, blocker]),
-    ).values()].sort((left, right) =>
+    blockers: [...deduplicated.values()].sort((left, right) =>
       (left.project ?? "").localeCompare(right.project ?? "") || left.message.localeCompare(right.message)
     ),
     desired: desiredReport,
