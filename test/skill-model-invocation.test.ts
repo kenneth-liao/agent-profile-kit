@@ -491,8 +491,10 @@ describe("Skill model-invocation policy", () => {
     process.env.PATH = `${bin}:${previousPath ?? ""}`;
     try {
       const desired = await buildDesiredState(home);
+      // Context floor (0.145.0) is checked before the invocation floor (0.99.0)
+      // so one upgrade message covers Profiles that need both capabilities.
       expect(desired.installations[0]?.blockers.some((blocker) =>
-        blocker.includes("cannot enforce disabled model invocation"),
+        blocker.includes("cannot deliver complete Context"),
       )).toBe(true);
       const preview = await previewReconciliation(desired.installations, {
         intendedTeardowns: [],

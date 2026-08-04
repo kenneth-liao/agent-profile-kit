@@ -47,7 +47,13 @@ export const CODEX_SKILLS_HOST_VERSION = "native-project-skills-v1";
 export const CODEX_SKILLS_HOST_VERSION_WITH_INVOCATION =
   "native-project-skills-invocation-v1";
 
-/** Minimum Codex CLI version that passes complete SessionStart Context directly to the model. */
+/**
+ * Minimum Codex CLI version that passes complete SessionStart Context directly to the model.
+ * Evidence: OpenAI added `additionalContextLimit` on command SessionStart handlers in
+ * rust-v0.145.0 (https://github.com/openai/codex/releases/tag/rust-v0.145.0). The value
+ * `0` is the Codex contract for unlimited direct delivery (not "none"). Earlier CLIs omit
+ * the field and spill oversized hook output into a head-and-tail preview.
+ */
 export const CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT = "0.145.0";
 
 /**
@@ -133,19 +139,29 @@ function resolveCodexHome(home: string, env: NodeJS.ProcessEnv = process.env): s
   return configured ? resolve(configured) : join(home, ".codex");
 }
 
-/** Parse a Codex version line (e.g. `codex-cli 0.144.4` or `0.144.4`). */
+/**
+ * Parse a Codex version from `codex --version` output into a core `MAJOR.MINOR.PATCH`.
+ * Accepts an optional leading `codex-cli`/`codex` label, optional `v` prefix, optional
+ * prerelease/build suffix on the triple, and an ignored trailing decoration
+ * (e.g. `(rust-v0.145.0)`). Skips non-version leading lines. Rejects text that only
+ * mentions a semver mid-line (e.g. `error: latest release is 0.145.0`).
+ */
 export function parseCodexCliVersion(source: string): string {
-  const firstLine = source
+  const lines = source
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? "";
-  const match = firstLine.match(/^(?:(?:codex-cli|codex)\s+)?v?(\d+)\.(\d+)\.(\d+)$/i);
-  if (!match) {
-    throw new Error(
-      `Codex CLI version is unreadable from '${source.trim()}'; install a supported Codex release`,
+    .filter((line) => line.length > 0);
+  for (const line of lines) {
+    const match = line.match(
+      /^(?:(?:codex-cli|codex)\s+)?v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?(?:\s+.*)?$/i,
     );
+    if (match) {
+      return `${match[1]}.${match[2]}.${match[3]}`;
+    }
   }
-  return `${match[1]}.${match[2]}.${match[3]}`;
+  throw new Error(
+    `Codex CLI version is unreadable from '${source.trim()}'; install a supported Codex release`,
+  );
 }
 
 function compareSemver(left: string, right: string): number {
@@ -158,15 +174,19 @@ function compareSemver(left: string, right: string): number {
   return 0;
 }
 
+/** Assert a normalized core semver against the disabled-invocation floor. */
 export function assertCodexCliVersionSupportsDisabledModelInvocation(version: string): void {
-  const normalized = parseCodexCliVersion(version);
-  if (compareSemver(normalized, CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION) < 0) {
+  if (compareSemver(version, CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION) < 0) {
     throw new Error(
-      `Codex CLI ${normalized} cannot enforce disabled model invocation via agents/openai.yaml policy.allow_implicit_invocation (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION}+); upgrade Codex before previewing or applying the Profile`,
+      `Codex CLI ${version} cannot enforce disabled model invocation via agents/openai.yaml policy.allow_implicit_invocation (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION}+); upgrade Codex before previewing or applying the Profile`,
     );
   }
 }
 
+/**
+ * Resolve and normalize the Codex CLI version at one boundary.
+ * Callers of assert helpers receive only this normalized core semver.
+ */
 async function resolveCodexCliVersion(
   options: CodexCapabilityOptions,
 ): Promise<string> {
@@ -211,20 +231,22 @@ export async function assertCodexProjectCapability(
   // portable semantics that Codex must be able to represent.
   if (options.requireContext || options.requireDisabledModelInvocation) {
     const version = await resolveCodexCliVersion(options);
-    if (options.requireDisabledModelInvocation) {
-      assertCodexCliVersionSupportsDisabledModelInvocation(version);
-    }
+    // Check the higher Context floor first so a single upgrade message covers
+    // Profiles that also need disabled model invocation (0.99.0 ⊂ 0.145.0+).
     if (options.requireContext) {
       assertCodexCliVersionSupportsCompleteContext(version);
+    }
+    if (options.requireDisabledModelInvocation) {
+      assertCodexCliVersionSupportsDisabledModelInvocation(version);
     }
   }
 }
 
+/** Assert a normalized core semver against the complete-Context floor. */
 export function assertCodexCliVersionSupportsCompleteContext(version: string): void {
-  const normalized = parseCodexCliVersion(version);
-  if (compareSemver(normalized, CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT) < 0) {
+  if (compareSemver(version, CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT) < 0) {
     throw new Error(
-      `Codex CLI ${normalized} cannot deliver complete Context through SessionStart hooks (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT}+); upgrade Codex before previewing or applying the Profile`,
+      `Codex CLI ${version} cannot deliver complete Context through SessionStart hooks (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT}+); upgrade Codex before previewing or applying the Profile`,
     );
   }
 }

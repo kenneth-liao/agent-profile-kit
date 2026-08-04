@@ -10,11 +10,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
 
 import { composeContextEnvelope } from "../adapters/context-envelope.js";
 import {
   assertCodexProjectCapability,
+  CODEX_ADAPTER_VERSION,
+  CODEX_HOST_VERSION,
   CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT,
   CODEX_SKILLS_HOST_VERSION,
   parseCodexCliVersion,
@@ -61,7 +62,7 @@ describe("Codex complete Context delivery", () => {
 
     expect(hook?.type).toBe("file");
     if (!hook || hook.type !== "file") throw new Error("expected hook output");
-    const document = parse(hook.bytes as string) as {
+    const document = JSON.parse(hook.bytes as string) as {
       hooks: { SessionStart: Array<{ matcher: string; hooks: Array<Record<string, unknown>> }> };
     };
     expect(document.hooks.SessionStart[0]?.matcher).toBe("startup|resume|clear|compact");
@@ -80,8 +81,8 @@ describe("Codex complete Context delivery", () => {
   });
 
   test("preflights complete Context support only when Context is selected", async () => {
-    const home = "/tmp/apkit-codex-capability-home";
-    const project = "/tmp/apkit-codex-capability-project";
+    const home = temporaryDirectory("apkit-codex-capability-home-");
+    const project = temporaryDirectory("apkit-codex-capability-project-");
 
     expect(CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT).toBe("0.145.0");
     await expect(
@@ -115,15 +116,28 @@ describe("Codex complete Context delivery", () => {
     expect(probed).toBe(false);
   });
 
-  test("rejects version text that only mentions a semver", () => {
+  test("parses decorated and prerelease Codex versions; rejects mid-text semver only", () => {
     expect(parseCodexCliVersion("codex-cli 0.145.0")).toBe("0.145.0");
     expect(parseCodexCliVersion("0.145.0")).toBe("0.145.0");
+    expect(parseCodexCliVersion("codex-cli 0.145.0 (rust-v0.145.0)")).toBe("0.145.0");
+    expect(parseCodexCliVersion("codex 0.146.0-alpha.1")).toBe("0.146.0");
+    expect(parseCodexCliVersion("warning: checking updates\ncodex-cli 0.145.0\n")).toBe("0.145.0");
     expect(() => parseCodexCliVersion("error: latest release is 0.145.0")).toThrow(
       "Codex CLI version is unreadable",
     );
-    expect(() => parseCodexCliVersion("codex-cli 0.145.0-beta.1")).toThrow(
-      "Codex CLI version is unreadable",
-    );
+  });
+
+  test("reports the complete-Context floor before the invocation floor when both are unmet", async () => {
+    const home = temporaryDirectory("apkit-codex-dual-floor-home-");
+    const project = temporaryDirectory("apkit-codex-dual-floor-project-");
+
+    await expect(
+      assertCodexProjectCapability(home, project, {
+        requireContext: true,
+        requireDisabledModelInvocation: true,
+        resolveVersion: async () => "0.98.0",
+      }),
+    ).rejects.toThrow("cannot deliver complete Context");
   });
 
   test("blocks Context installation before writes when the Codex Host is too old", async () => {
@@ -165,7 +179,7 @@ describe("Codex complete Context delivery", () => {
     }
   });
 
-  test("reconciles an owned legacy hook to complete Context delivery", async () => {
+  test("reconciles a genuine v1 Context install to complete Context delivery", async () => {
     const home = temporaryDirectory("apkit-codex-context-migration-home-");
     const project = temporaryDirectory("apkit-codex-context-migration-project-");
     await initializeWorkspace(home);
@@ -184,6 +198,8 @@ describe("Codex complete Context delivery", () => {
       `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [codex]\n`,
     );
 
+    // Seed owned project output via a capability-free apply, then rewrite state
+    // and hooks to a genuine pre-complete-Context (v1) installation shape.
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, desired.installations);
     const hookPath = join(project, ".codex", "hooks.json");
@@ -198,6 +214,8 @@ describe("Codex complete Context delivery", () => {
       ...state,
       installations: state.installations.map((installation) => ({
         ...installation,
+        adapterVersion: "codex-project-v1",
+        hostVersions: { codex: "native-project-sessionstart-v1" },
         outputs: installation.outputs.map((output) =>
           output.path === ".codex/hooks.json"
             ? { ...output, hash: hashBytes(legacyHook) }
@@ -207,6 +225,8 @@ describe("Codex complete Context delivery", () => {
     });
 
     const corrected = await buildDesiredState(home, { checkHostCapability: false });
+    expect(corrected.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
+    expect(corrected.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
     const report = await applyReconciliation(home, corrected.installations);
     expect(report.receipt.items).toContainEqual({
       kind: "update",
@@ -217,5 +237,8 @@ describe("Codex complete Context delivery", () => {
       hooks: { SessionStart: Array<{ hooks: Array<Record<string, unknown>> }> };
     };
     expect(installedHook.hooks.SessionStart[0]?.hooks[0]?.additionalContextLimit).toBe(0);
+    const migrated = await readInstallationState(home);
+    expect(migrated.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
+    expect(migrated.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
   });
 });
