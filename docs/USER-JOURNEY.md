@@ -115,7 +115,7 @@ project defaults to the working directory, and `--host` is explicit with no
 default. Lifecycle project blocks now echo the selected Hosts, so that identity
 remains visible after `bind`.
 
-Gaps: [UJ-07](#uj-07), ~~[UJ-16](#uj-16)~~,
+Gaps: ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-16](#uj-16)~~,
 ~~[UJ-20](#uj-20)~~ (shipped in [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116)).
 
 ### 6. Verify
@@ -156,7 +156,7 @@ files — the exclusion line was the only place any path appeared, as one
 produced the files, and changed paths now appear directly beneath each project,
 including non-Git projects.
 
-Gaps: [UJ-07](#uj-07), ~~[UJ-11](#uj-11)~~ (shipped in
+Gaps: ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
 ~~[UJ-12](#uj-12)~~ (shipped in
 [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123)),
@@ -189,7 +189,7 @@ above a receipt totalling 19 additions. Conditional Host guidance now carries
 this journey into Codex, Claude Code, Grok, and Pi.
 
 Gaps: ~~[UJ-04](#uj-04)~~ (shipped in
-[#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)), [UJ-07](#uj-07), ~~[UJ-20](#uj-20)~~,
+[#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)), ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-20](#uj-20)~~,
 ~~[UJ-21](#uj-21)~~.
 
 ### 9. Use
@@ -275,18 +275,18 @@ Problem, requirement, remedy — the target shape for every blocker. The frame
 buries them: the same screen still leads with `Changes: 2 generated-output
 additions`, lists exclusions that will never be written, and glosses a state that
 cannot be reached, leaving the one actionable line in eighth position
-([UJ-19](#uj-19)).
+(~~[UJ-19](#uj-19)~~, shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)).
 
 **Mixed states across projects** now retain per-project guidance. With pending
 work for `api` and `web` blocked, the run preserves `api`'s next step after the
 all-project blocker is resolved and gives `web` its blocker remedy.
 
-Gaps: [UJ-02](#uj-02), [UJ-05](#uj-05), [UJ-06](#uj-06), [UJ-07](#uj-07),
+Gaps: ~~[UJ-02](#uj-02)~~, ~~[UJ-05](#uj-05)~~, ~~[UJ-06](#uj-06)~~ (shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)), ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)),
 ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
 ~~[UJ-13](#uj-13)~~ (shipped in
 [#126](https://github.com/kenneth-liao/agent-profile-kit/issues/126)),
-[UJ-19](#uj-19), ~~[UJ-23](#uj-23)~~ (shipped in
+~~[UJ-19](#uj-19)~~ (shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)), ~~[UJ-23](#uj-23)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
 
 ### 12. Tear down
@@ -322,16 +322,16 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ID | Severity | Stage | Gap |
 |----|----------|-------|-----|
 | ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
-| [UJ-02](#uj-02) | High | 11 | Drifted output has no stated remedy anywhere |
+| ~~[UJ-02](#uj-02)~~ | ~~High~~ | ~~11~~ | ~~Drifted output has no stated remedy anywhere~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-03](#uj-03)~~ | ~~High~~ | ~~12~~ | ~~Post-`uninstall` `status` warns about an intended state~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
 | ~~[UJ-04](#uj-04)~~ | ~~High~~ | ~~8~~ | ~~"Changes" means two things on one `apply` screen~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
-| [UJ-19](#uj-19) | High | 11 | Blocked results lead with a plan that cannot happen |
+| ~~[UJ-19](#uj-19)~~ | ~~High~~ | ~~11~~ | ~~Blocked results lead with a plan that cannot happen~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-21](#uj-21)~~ | ~~High~~ | ~~8, 9~~ | ~~No post-apply Host guidance; Codex can break silently~~ — shipped across [#118](https://github.com/kenneth-liao/agent-profile-kit/issues/118) and [#125](https://github.com/kenneth-liao/agent-profile-kit/issues/125) |
-| [UJ-05](#uj-05) | Med-High | 11 | Blocked `apply` reports the same blockers three times |
+| ~~[UJ-05](#uj-05)~~ | ~~Med-High~~ | ~~11~~ | ~~Blocked `apply` reports the same blockers three times~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-20](#uj-20)~~ | ~~Med-High~~ | ~~5, 7, 8~~ | ~~Hosts are invisible after `bind`~~ — shipped in [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) |
 | ~~[UJ-22](#uj-22)~~ | ~~Med-High~~ | ~~7~~ | ~~Non-Git project output is never shown at all~~ — shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120) |
-| [UJ-06](#uj-06) | Medium | 11 | One blocker fact rendered three ways per screen |
-| [UJ-07](#uj-07) | Medium | 5, 7, 11 | Absolute paths remain in bind, blocker, exclusion, and diagnostic lines |
+| ~~[UJ-06](#uj-06)~~ | ~~Medium~~ | ~~11~~ | ~~One blocker fact rendered three ways per screen~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
+| ~~[UJ-07](#uj-07)~~ | ~~Medium~~ | ~~5, 7, 11~~ | ~~Absolute paths remain in bind, blocker, exclusion, and diagnostic lines~~ — shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152) |
 | ~~[UJ-08](#uj-08)~~ | ~~Medium~~ | ~~12~~ | ~~`uninstall` output omits what it did and what it kept~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
 | ~~[UJ-09](#uj-09)~~ | ~~Medium~~ | ~~12~~ | ~~`unbind` recommends a no-op next step~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
 | ~~[UJ-10](#uj-10)~~ | ~~Medium~~ | ~~2, 5~~ | ~~Missing-Profile error names paths, not available Profiles~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
@@ -353,11 +353,15 @@ Shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121):
 `init` now scaffolds a bindable example and names its successful bind command;
 focused Profile, Context Module, and Skill guides provide copyable examples.
 
-### UJ-02
-A hand-edited generated file blocks `apply` *and* `uninstall`, leaving no
+### ~~UJ-02~~
+~~A hand-edited generated file blocks `apply` *and* `uninstall`, leaving no
 CLI-reachable exit. The working remedy — delete the file, then `apply`, which
 reclassifies it as a proven `repairable missing output` — is stated by neither
-the blocker text, the state gloss, nor the guide.
+the blocker text, the state gloss, nor the guide.~~
+
+Shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117):
+drift blockers protect the edit, state both recovery routes once, and name the
+same lifecycle command to retry.
 
 ### UJ-03
 After a successful `uninstall` the binding remains by design, so the next
@@ -381,24 +385,36 @@ Shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122):
 concise and verbose apply reports label verified remaining work `Pending` and
 committed receipt work `Applied`.
 
-### UJ-05
+### ~~UJ-05~~
 <!-- historical-command-excerpts:start -->
-A blocked `apply` writes the concise report to stdout, re-runs `preview` as a
+~~A blocked `apply` writes the concise report to stdout, re-runs `preview` as a
 diagnostic, then rethrows so `cli/index.ts` prints the blockers again to stderr.
 The closing line reads `Next: …run agent-profile-kit preview again` because the
-fallback formats a `preview` report — naming a command the user did not run.
+fallback formats a `preview` report — naming a command the user did not run.~~
 <!-- historical-command-excerpts:end -->
 
-### UJ-06
-For a single drifted file, the `State:` reason, the path-scoped blocker, and the
-installation-scoped blocker each restate one fact. The redundancy is upstream of
-presentation, in how blockers are emitted.
+Shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117):
+a blocked `apply` emits one report and command-specific retry guidance.
 
-### UJ-07
-Project headers and apply receipts now use short, unambiguous identities. Bind,
+### ~~UJ-06~~
+~~For a single drifted file, the `State:` reason, the path-scoped blocker, and the
+installation-scoped blocker each restate one fact. The redundancy is upstream of
+presentation, in how blockers are emitted.~~
+
+Shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117):
+the underlying condition emits one blocker before presentation.
+
+### ~~UJ-07~~
+~~Project headers and apply receipts now use short, unambiguous identities. Bind,
 blocker, exclusion-target, warning, and verbose diagnostic lines can still carry
 the full absolute project root; a blocked run can therefore repeat it several
-times.
+times.~~
+
+Shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116)
+and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152): all
+human project references use one shortest-unambiguous path presenter, while
+Local Configuration, Installation State, and JSON retain their canonical or
+authored paths.
 
 ### UJ-08
 `Uninstalled 1 Profile Installation` omits the project, the outputs removed, the
@@ -508,13 +524,17 @@ delimit each composed Context in verbose output. The fence grows when its text
 appears inside the Context, so scanners can identify the outer boundary without
 escaping Workspace content.
 
-### UJ-19
-When a run is blocked, the report still leads with work that cannot happen. A
+### ~~UJ-19~~
+~~When a run is blocked, the report still leads with work that cannot happen. A
 missing Claude CLI yields a header of `Changes: 2 generated-output additions`, an
 exclusions block listing files that will never be written, and a state gloss
 promising `apply will create its Installer-owned generated outputs` — pushing the
 one remedy-bearing line to eighth position. The plan is hypothetical while a
-blocker stands and should not lead.
+blocker stands and should not lead.~~
+
+Shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117):
+blocked lifecycle reports lead with the blocker and suppress hypothetical plan
+detail.
 
 ### ~~UJ-20~~
 ~~Hosts were echoed once, by `bind`, and never again. `preview`, `apply`, and

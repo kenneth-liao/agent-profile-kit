@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { agentGuide, focusedGuide, humanGuide, type GuideTopic } from "./guides.js";
 import {
   defaultViewText,
+  displayProjectPath,
   formatApplyJson,
   formatApplyReport,
   formatApplyVerificationFailure,
@@ -482,7 +483,7 @@ async function main(): Promise<void> {
     });
     if (result.outcome === "unchanged") {
       process.stdout.write(
-        `Project Binding unchanged for ${result.project}\n` +
+        `Project Binding unchanged for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
           `  Profile: ${result.profile}\n` +
           `  Hosts: ${result.hosts.join(", ")}\n` +
           `Next: ${COMMAND_NAME} preview\n`,
@@ -490,7 +491,7 @@ async function main(): Promise<void> {
       return;
     }
     process.stdout.write(
-      `Recorded Project Binding for ${result.project}\n` +
+      `Recorded Project Binding for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
         `  Profile: ${result.profile}\n` +
         `  Hosts: ${result.hosts.join(", ")}\n` +
         `Next: ${COMMAND_NAME} preview\n`,

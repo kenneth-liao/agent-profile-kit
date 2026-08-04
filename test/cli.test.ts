@@ -1531,7 +1531,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const projectDisabled = runCli(home, "preview", "--verbose");
     expect(projectDisabled.status, projectDisabled.stderr).toBe(0);
     expect(projectDisabled.stdout).toContain("Warnings:");
-    expect(projectDisabled.stdout).toContain(realpathSync(projectConfig));
+    expect(projectDisabled.stdout).toContain(projectConfig);
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
     writeFileSync(projectConfig, "[features]\nhooks = true\n");
@@ -1544,6 +1544,59 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(projectEnabled.status, projectEnabled.stderr).toBe(0);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+  });
+
+  test("default warnings shorten the bound project root from the working directory", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    mkdirSync(join(projectPath, ".codex"));
+    writeFileSync(join(projectPath, ".codex", "config.toml"), "[features]\nhooks = false\n");
+
+    const result = runCliAt(home, projectPath, "preview");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("enabled by .codex/config.toml;");
+    expect(result.stdout).not.toContain("./.codex/config.toml");
+    expect(result.stdout).not.toContain(projectPath);
+  });
+
+  test("verbose diagnostics shorten the bound project root from the working directory", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    mkdirSync(join(projectPath, ".codex"));
+    writeFileSync(join(projectPath, ".codex", "config.toml"), "[features]\nhooks = false\n");
+
+    const result = runCliAt(home, projectPath, "preview", "--verbose");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(".codex/config.toml");
+    expect(result.stdout).not.toContain("./.codex/config.toml");
+    expect(result.stdout).toContain(".agent-profile-kit/codex/context.md: addition");
+    expect(result.stdout).not.toContain("./.agent-profile-kit/codex/context.md");
+    expect(result.stdout).not.toContain(projectPath);
+    expect(result.stdout).not.toContain(realpathSync(projectPath));
+  });
+
+  test("verbose Git exclusions shorten the bound project root from the working directory", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = gitRepository();
+    writeContextProfile(home);
+    bind(home, projectPath);
+
+    const result = runCliAt(home, projectPath, "preview", "--verbose");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("- .git/info/exclude:");
+    expect(result.stdout).not.toContain("./.git/info/exclude");
+    expect(result.stdout).not.toContain(projectPath);
+    expect(result.stdout).not.toContain(realpathSync(projectPath));
   });
 
   test("apply and status preserve Codex configuration warnings without blocking installation", () => {
@@ -1611,6 +1664,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     expect(result.stderr).toBe("");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("blocked default output does not repeat the working-directory project root", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = project();
+    mkdirSync(join(projectPath, ".codex"));
+    writeFileSync(join(projectPath, ".codex", "hooks.json"), "repository owned\n");
+    writeContextProfile(home);
+    bind(home, projectPath);
+
+    const result = runCliAt(home, projectPath, "apply");
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("Project: .");
+    expect(result.stdout).not.toContain(projectPath);
+    expect(result.stdout).not.toContain(realpathSync(projectPath));
   });
 
   test("preview, apply, and status accept --verbose and --json while rejecting other presentation arguments", () => {
@@ -2690,10 +2760,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     state.repository_exclusions = [];
     writeFileSync(statePath(home), stringify(state));
 
-    const preview = runCli(home, "preview");
+    const preview = runCliAt(home, repository, "preview");
 
     expect(preview.status).toBe(2);
     expect(preview.stdout).toContain("missing its Git exclusion record");
+    expect(preview.stdout).not.toContain(repository);
+    expect(preview.stdout).not.toContain(realpathSync(repository));
     expect(readFileSync(exclude).equals(before)).toBe(true);
   });
 
@@ -5409,8 +5481,8 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const result = runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("Recorded Project Binding");
-    expect(result.stdout).toContain(realpathSync(projectPath));
+    expect(result.stdout).toContain("Recorded Project Binding for .\n");
+    expect(result.stdout).not.toContain(realpathSync(projectPath));
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
     expect(result.stdout).not.toContain(configPath(home));
