@@ -1448,4 +1448,107 @@ export function formatLifecycleToolErrorJson(
   });
 }
 
+export type TemporaryInstallCommand = "install-temp" | "remove-temp";
+
+export interface TemporaryInstallationReceiptView {
+  readonly adapterVersion: string;
+  readonly completionState: "installed" | "removed";
+  readonly engineVersion: string;
+  readonly host: string;
+  readonly hostVersion: string;
+  readonly outputs: readonly string[];
+  readonly profileId: string;
+  readonly project: string;
+  readonly repositoryExclusion:
+    | {
+        readonly entries: readonly string[];
+        readonly target: string;
+      }
+    | undefined;
+  readonly temporaryInstallationId: string;
+  readonly workspaceInputHash: string;
+}
+
+/** Versioned temporary-installation receipt for automation. */
+export function formatTemporaryInstallationJson(
+  command: TemporaryInstallCommand,
+  receipt: TemporaryInstallationReceiptView,
+): string {
+  return `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      command,
+      outcome: "success",
+      temporaryInstallationId: receipt.temporaryInstallationId,
+      profileId: receipt.profileId,
+      host: receipt.host,
+      project: receipt.project,
+      workspaceInputHash: receipt.workspaceInputHash,
+      engineVersion: receipt.engineVersion,
+      adapterVersion: receipt.adapterVersion,
+      hostVersion: receipt.hostVersion,
+      outputs: receipt.outputs,
+      repositoryExclusion: receipt.repositoryExclusion ?? null,
+      completionState: receipt.completionState,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+export function formatTemporaryInstallationHuman(
+  command: TemporaryInstallCommand,
+  receipt: TemporaryInstallationReceiptView,
+): string {
+  if (command === "install-temp") {
+    return (
+      `Installed Profile temporarily\n` +
+      `  Profile: ${receipt.profileId}\n` +
+      `  Host: ${receipt.host}\n` +
+      `  Project: ${receipt.project}\n` +
+      `  Temporary installation: ${receipt.temporaryInstallationId}\n`
+    );
+  }
+  return (
+    `Removed temporary Profile installation\n` +
+    `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
+    `  Project: ${receipt.project}\n` +
+    (receipt.completionState === "removed" && receipt.outputs.length === 0
+      ? ""
+      : "")
+  );
+}
+
+export function formatTemporaryInstallationBlockedJson(
+  command: TemporaryInstallCommand,
+  blockers: readonly string[],
+): string {
+  return `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      command,
+      outcome: "blocked",
+      blockers: blockers.map((message) => ({ message })),
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+export function formatTemporaryInstallationToolErrorJson(
+  command: TemporaryInstallCommand,
+  message: string,
+): string {
+  return `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      command,
+      outcome: "error",
+      error: message,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
 

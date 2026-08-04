@@ -1797,7 +1797,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       schema_version: number;
       installations: Array<{ outputs: Array<{ mode: number; type: string }> }>;
     };
-    expect(state.schema_version).toBe(4);
+    expect(state.schema_version).toBe(5);
+    expect(state).toHaveProperty("temporary_installations");
     expect(state.installations).toHaveLength(1);
     expect(state.installations[0]!.outputs.every((output) =>
       output.type === "file" && output.mode === 0o644
@@ -1907,13 +1908,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(applied.status, applied.stderr).toBe(0);
     const migrated = parse(readFileSync(statePath(home), "utf8")) as {
       schema_version: number;
+      temporary_installations: readonly unknown[];
       repository_exclusions: readonly {
         target: string;
         contributions: readonly { installation_id: string; entries: readonly string[] }[];
         entries: readonly string[];
       }[];
     };
-    expect(migrated.schema_version).toBe(4);
+    expect(migrated.schema_version).toBe(5);
+    expect(migrated.temporary_installations).toEqual([]);
     expect(migrated.repository_exclusions).toEqual([{
       target: join(realpathSync(repository), ".git", "info", "exclude"),
       contributions: [{
@@ -1934,6 +1937,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const previous = parse(readFileSync(statePath(home), "utf8")) as Record<string, unknown>;
     previous.schema_version = 3;
     delete previous.intended_teardowns;
+    delete previous.temporary_installations;
     writeFileSync(statePath(home), stringify(previous));
 
     const preview = runCli(home, "preview");
@@ -1946,9 +1950,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const migrated = parse(readFileSync(statePath(home), "utf8")) as {
       intended_teardowns: readonly unknown[];
       schema_version: number;
+      temporary_installations: readonly unknown[];
     };
-    expect(migrated.schema_version).toBe(4);
+    expect(migrated.schema_version).toBe(5);
     expect(migrated.intended_teardowns).toEqual([]);
+    expect(migrated.temporary_installations).toEqual([]);
   });
 
   test("apply leaves current installation outputs and state untouched", () => {
@@ -3223,13 +3229,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const uninstall = runCli(home, "uninstall");
 
     expect(status.status, status.stderr).toBe(2);
-    expect(status.stdout).toContain("schema_version must be 4");
+    expect(status.stdout).toContain("schema_version must be 5");
     expect(apply.status).toBe(2);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
-    expect(apply.stdout).toContain("schema_version must be 4");
+    expect(apply.stdout).toContain("schema_version must be 5");
     expect(uninstall.status).toBe(1);
-    expect(uninstall.stderr).toContain("schema_version must be 4");
+    expect(uninstall.stderr).toContain("schema_version must be 5");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
   });
@@ -5954,6 +5960,8 @@ describe("apkit root help", () => {
     { name: "apply", syntax: "apply [--verbose] [--json]" },
     { name: "status", syntax: "status [--verbose] [--json]" },
     { name: "uninstall", syntax: "uninstall" },
+    { name: "install-temp", syntax: "install-temp <profile> <project> --host <host> [--json]" },
+    { name: "remove-temp", syntax: "remove-temp <temporary-installation-id> [--json]" },
   ] as const;
 
   test("--version reports the packaged engine version", () => {
@@ -5989,7 +5997,7 @@ describe("apkit root help", () => {
     expect(bare.stdout.length).toBeGreaterThan(0);
   });
 
-  test("root help lists all nine supported commands with usable syntax and concise purposes", () => {
+  test("root help lists all supported commands with usable syntax and concise purposes", () => {
     const home = isolatedHome();
     const result = runCli(home, "--help");
     expect(result.status, result.stderr).toBe(0);
@@ -6154,5 +6162,223 @@ describe("apkit root help", () => {
     expect(tooManyUnbindPaths.status).toBe(1);
     expect(tooManyUnbindPaths.stderr).toContain("unbind accepts at most one project path");
     expect(tooManyUnbindPaths.stderr).toContain("Usage: apkit unbind [project]");
+  });
+});
+
+describe("apkit temporary Profile installation (Codex)", () => {
+  test("install-temp and remove-temp help use the settled temporary-install vocabulary", () => {
+    const home = isolatedHome();
+    const installHelp = runCli(home, "install-temp", "--help");
+    expect(installHelp.status, installHelp.stderr).toBe(0);
+    expect(installHelp.stdout).toContain("Install a Profile temporarily into one Project");
+    expect(installHelp.stdout).toContain("Usage: apkit install-temp <profile> <project> --host <host> [--json]");
+
+    const removeHelp = runCli(home, "remove-temp", "--help");
+    expect(removeHelp.status, removeHelp.stderr).toBe(0);
+    expect(removeHelp.stdout).toContain("Remove one temporary Profile");
+    expect(removeHelp.stdout).toContain("Usage: apkit remove-temp <temporary-installation-id> [--json]");
+  });
+
+  test("install-temp / remove-temp complete Codex lifecycle with a versioned receipt and isolation", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-"));
+    const boundProject = realpathSync(gitRepository("agent-profile-kit-bound-"));
+    bind(home, boundProject, "coding");
+    const applyBound = runCli(home, "apply");
+    expect(applyBound.status, applyBound.stderr).toBe(0);
+
+    const configBefore = readFileSync(configPath(home));
+    const boundContextBefore = readFileSync(
+      join(boundProject, ".agent-profile-kit", "codex", "context.md"),
+    );
+
+    const install = runCli(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expect(install.status, install.stderr).toBe(0);
+    const receipt = JSON.parse(install.stdout) as {
+      readonly schemaVersion: number;
+      readonly command: string;
+      readonly outcome: string;
+      readonly temporaryInstallationId: string;
+      readonly profileId: string;
+      readonly host: string;
+      readonly project: string;
+      readonly workspaceInputHash: string;
+      readonly engineVersion: string;
+      readonly adapterVersion: string;
+      readonly hostVersion: string;
+      readonly outputs: readonly string[];
+      readonly repositoryExclusion: { readonly target: string; readonly entries: readonly string[] } | null;
+      readonly completionState: string;
+    };
+    expect(receipt.schemaVersion).toBe(1);
+    expect(receipt.command).toBe("install-temp");
+    expect(receipt.outcome).toBe("success");
+    expect(receipt.profileId).toBe("coding");
+    expect(receipt.host).toBe("codex");
+    expect(receipt.project).toBe(tempProject);
+    expect(receipt.completionState).toBe("installed");
+    expect(receipt.temporaryInstallationId.length).toBeGreaterThan(0);
+    expect(receipt.workspaceInputHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(receipt.engineVersion).toBeTruthy();
+    expect(receipt.adapterVersion).toBeTruthy();
+    expect(receipt.hostVersion).toBeTruthy();
+    expect(receipt.outputs).toContain(".agent-profile-kit/installation.json");
+    expect(receipt.outputs).toContain(".agent-profile-kit/codex/context.md");
+    expect(receipt.repositoryExclusion).not.toBeNull();
+    expect(receipt.repositoryExclusion!.entries.length).toBeGreaterThan(0);
+
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    const exclude = join(tempProject, ".git", "info", "exclude");
+    expect(readFileSync(exclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(existsSync(join(tempProject, ".gitignore"))).toBe(false);
+
+    expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
+    expect(
+      readFileSync(join(boundProject, ".agent-profile-kit", "codex", "context.md")).equals(
+        boundContextBefore,
+      ),
+    ).toBe(true);
+
+    const remove = runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    expect(remove.status, remove.stderr).toBe(0);
+    const removed = JSON.parse(remove.stdout) as {
+      readonly outcome: string;
+      readonly completionState: string;
+      readonly temporaryInstallationId: string;
+      readonly outputs: readonly string[];
+    };
+    expect(removed.outcome).toBe("success");
+    expect(removed.completionState).toBe("removed");
+    expect(removed.temporaryInstallationId).toBe(receipt.temporaryInstallationId);
+    expect(removed.outputs).toEqual([]);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(readFileSync(exclude, "utf8")).not.toContain("# BEGIN Agent Profile Kit generated paths");
+
+    const removeAgain = runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    expect(removeAgain.status, removeAgain.stderr).toBe(0);
+    const removedAgain = JSON.parse(removeAgain.stdout) as {
+      readonly outcome: string;
+      readonly completionState: string;
+    };
+    expect(removedAgain.outcome).toBe("success");
+    expect(removedAgain.completionState).toBe("removed");
+
+    expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
+    expect(
+      readFileSync(join(boundProject, ".agent-profile-kit", "codex", "context.md")).equals(
+        boundContextBefore,
+      ),
+    ).toBe(true);
+    // Ordinary Profile Installation remains after temporary lifecycle.
+    expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
+  test("install-temp rejects unknown Profile, unsupported Host, missing Project, and tracked destinations before writes", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const projectPath = gitRepository("agent-profile-kit-temp-block-");
+
+    const unknownProfile = runCli(
+      home,
+      "install-temp",
+      "missing-profile",
+      projectPath,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expect(unknownProfile.status).toBe(1);
+    expect(JSON.parse(unknownProfile.stdout).outcome).toBe("error");
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+
+    const unsupportedHost = runCli(
+      home,
+      "install-temp",
+      "coding",
+      projectPath,
+      "--host",
+      "claude",
+      "--json",
+    );
+    expect(unsupportedHost.status).toBe(1);
+    expect(JSON.parse(unsupportedHost.stdout).outcome).toBe("error");
+    expect(JSON.parse(unsupportedHost.stdout).error).toMatch(/does not yet support|supported Hosts: codex/i);
+
+    const missingProject = runCli(
+      home,
+      "install-temp",
+      "coding",
+      join(home, "no-such-project"),
+      "--host",
+      "codex",
+      "--json",
+    );
+    expect(missingProject.status).toBe(1);
+    expect(JSON.parse(missingProject.stdout).outcome).toBe("error");
+
+    mkdirSync(join(projectPath, ".agent-profile-kit", "codex"), { recursive: true });
+    writeFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "tracked\n");
+    execFileSync("git", ["-C", projectPath, "add", ".agent-profile-kit/codex/context.md"]);
+    execFileSync("git", ["-C", projectPath, "commit", "-qm", "track destination"]);
+
+    const tracked = runCli(
+      home,
+      "install-temp",
+      "coding",
+      projectPath,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expect(tracked.status).toBe(2);
+    const blocked = JSON.parse(tracked.stdout) as {
+      readonly outcome: string;
+      readonly blockers: readonly { readonly message: string }[];
+    };
+    expect(blocked.outcome).toBe("blocked");
+    expect(blocked.blockers.some((blocker) => /tracked project path/i.test(blocker.message))).toBe(true);
+    // Marker must not be published when blocked.
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+  });
+
+  test("install-temp does not create Project Bindings or invoke global apply side effects", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const tempProject = gitRepository("agent-profile-kit-temp-only-");
+    const otherProject = gitRepository("agent-profile-kit-other-bound-");
+    bind(home, otherProject, "coding");
+    const configBefore = readFileSync(configPath(home), "utf8");
+
+    const install = runCli(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expect(install.status, install.stderr).toBe(0);
+    expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
+    expect(parse(configBefore).bindings).toHaveLength(1);
+    // Other bound project was never applied; temporary install must not apply it.
+    expect(existsSync(join(otherProject, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 });

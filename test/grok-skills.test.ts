@@ -236,7 +236,8 @@ describe("Grok project Skill packages", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(preview.blockers).toEqual([]);
     expect(
@@ -328,7 +329,8 @@ describe("Grok project Skill packages", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(preview.blockers.some((blocker) =>
       blocker.message.includes(".grok/skills/review-pr") &&
@@ -519,7 +521,8 @@ describe("Grok project Skill packages", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(preview.blockers).toEqual([]);
     await applyReconciliation(home, desired.installations);

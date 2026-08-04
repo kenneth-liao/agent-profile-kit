@@ -192,6 +192,7 @@ export async function unreadableInstallationStateReport(
     intendedTeardowns: [],
     installations: [],
     repositoryExclusions: [],
+    temporaryInstallations: [],
     schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
   });
   return {
@@ -273,7 +274,7 @@ function ownedOutputFromDesired(output: DesiredProjectOutput): OwnedOutput {
   };
 }
 
-function manifestFor(
+export function manifestFor(
   desired: DesiredInstallation,
   installationId: string,
 ): ProjectInstallationManifest {
@@ -322,6 +323,7 @@ function stateWithInstallationExclusion(
       installation.outputs,
     ),
     schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+    temporaryInstallations: state.temporaryInstallations,
   };
 }
 
@@ -404,7 +406,7 @@ async function pathIsTrackedDestination(project: string, relativePath: string): 
   return hasTrackedGitDescendants(project, relativePath);
 }
 
-async function desiredOutputConflicts(
+export async function desiredOutputConflicts(
   desired: DesiredInstallation,
   previous: ProjectInstallationManifest | undefined,
   installationId: string,
@@ -895,6 +897,7 @@ export async function previewReconciliation(
     installations: state.installations,
     repositoryExclusions: projectedExclusions,
     schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+    temporaryInstallations: state.temporaryInstallations,
   };
   return {
     blockers: [...new Map(
@@ -916,11 +919,11 @@ export async function previewReconciliation(
   };
 }
 
-async function stageProjectOutputs(
+export async function stageProjectOutputs(
   desired: DesiredInstallation,
   manifest: ProjectInstallationManifest,
   previous: ProjectInstallationManifest | undefined,
-  fileSystem: ReconciliationFileSystem,
+  fileSystem: ReconciliationFileSystem = nodeFileSystem,
 ): Promise<{ readonly commit: () => Promise<void>; readonly rollback: () => Promise<void> }> {
   const project = desired.binding.canonicalProject;
   const stage = await fileSystem.mkdtemp(join(project, ".agent-profile-kit-stage-"));
@@ -1120,6 +1123,7 @@ export async function applyReconciliation(
           installations: [...installationsByProject.values()],
           repositoryExclusions: workingState.repositoryExclusions,
           schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+          temporaryInstallations: workingState.temporaryInstallations,
         },
         manifest,
         item.gitProject,
@@ -1209,6 +1213,7 @@ export async function applyReconciliation(
           [],
         ),
         schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+        temporaryInstallations: workingState.temporaryInstallations,
       };
       exclusions = await stageGitExclusions(
         workingState,

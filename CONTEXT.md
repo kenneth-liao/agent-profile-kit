@@ -42,7 +42,11 @@ _Avoid_: Adapter, runtime router
 
 **Profile Installation**:
 A generated, host-native snapshot of one Workspace Profile installed into one bound project for all Agent Hosts selected by its Project Binding. The Installer exclusively owns its normalized output set; the Profile Installation is disposable output with no authority independent of its Workspace source.
-_Avoid_: Canonical source, live link
+_Avoid_: Canonical source, live link, Temporary Profile Installation
+
+**Temporary Profile Installation**:
+Generated Host-native output for one Profile, one Host, and one explicit Project whose desired lifetime is owned by a temporary installation receipt rather than a Project Binding. It reuses Adapter planning, output ownership, and Repository Exclusion contribution records, creates no Local Configuration change, and is removed only through `remove-temp` by durable temporary installation identity.
+_Avoid_: Project Binding, ordinary Profile Installation, global apply
 
 **Output Ownership Conflict**:
 A condition where reconciling a planned Profile Installation output would overwrite, adopt, or conflict with project material not proven to be owned by that installation. Same-identity material at a different Host-visible location is Host Resolution, not an Output Ownership Conflict.

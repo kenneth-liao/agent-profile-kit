@@ -338,7 +338,8 @@ describe("Skills-only Profiles", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(report.desired[0]?.setupSteps).toEqual(installation.setupSteps);
 

@@ -289,7 +289,8 @@ describe("Claude-only Profile Installation lifecycle", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(preview.blockers).toEqual([]);
     expect(preview.desired[0]?.hosts).toEqual(["claude"]);
@@ -359,7 +360,8 @@ describe("Claude-only Profile Installation lifecycle", () => {
         intendedTeardowns: [],
         installations: [],
         repositoryExclusions: [],
-        schemaVersion: 4,
+        temporaryInstallations: [],
+        schemaVersion: 5,
       });
       expect(report.blockers.some((blocker) => blocker.message.includes("is a file, not a directory"))).toBe(true);
       expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);

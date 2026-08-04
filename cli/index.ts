@@ -15,6 +15,10 @@ import {
   formatLifecycleReport,
   formatLifecycleToolErrorJson,
   formatMissingProfileError,
+  formatTemporaryInstallationBlockedJson,
+  formatTemporaryInstallationHuman,
+  formatTemporaryInstallationJson,
+  formatTemporaryInstallationToolErrorJson,
   formatUninstallResult,
   formatValidationResult,
   lifecycleExitCode,
@@ -35,6 +39,11 @@ import {
   validateApplication,
 } from "../installer/commands.js";
 import { ApplyBlockedError, ApplyVerificationError } from "../installer/reconcile.js";
+import {
+  installTemporaryProfile,
+  removeTemporaryProfile,
+  TemporaryInstallationBlockedError,
+} from "../installer/temporary-installation.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { COMMAND_EXAMPLES } from "./examples.js";
@@ -135,6 +144,24 @@ const COMMANDS: readonly CommandHelp[] = [
     examples: COMMAND_EXAMPLES.uninstall,
     writes: "Removes owned generated project files and machine-local installation records; keeps the Workspace and Project Bindings.",
     next: `Run ${COMMAND_NAME} unbind for bindings you no longer want, or ${COMMAND_NAME} apply to reinstall.`,
+  },
+  {
+    name: "install-temp",
+    syntax: "install-temp <profile> <project> --host <host> [--json]",
+    summary: "Install a Profile temporarily into one Project",
+    examples: COMMAND_EXAMPLES["install-temp"],
+    writes: "Writes temporary Agent Profile Kit-owned project files and machine-local temporary installation state; does not change Local Configuration or Project Bindings.",
+    next: `Run ${COMMAND_NAME} remove-temp <temporary-installation-id> when finished.`,
+  },
+  {
+    name: "remove-temp",
+    syntax: "remove-temp <temporary-installation-id> [--json]",
+    // Avoid the "Profile Installation" compound so default-view rewriting does not
+    // collapse this temporary lifetime into ordinary "project" vocabulary.
+    summary: "Remove one temporary Profile",
+    examples: COMMAND_EXAMPLES["remove-temp"],
+    writes: "Removes only the receipt-owned temporary project files and exclusion contribution.",
+    next: "Nothing further is required for this temporary installation.",
   },
 ];
 
@@ -262,6 +289,72 @@ function parseUnbindArguments(arguments_: readonly string[]): { readonly project
   return arguments_.length === 0
     ? {}
     : { project: positionalArgument("unbind", "a project path", arguments_[0]!) };
+}
+
+function parseInstallTempArguments(arguments_: readonly string[]): {
+  readonly host: string;
+  readonly json: boolean;
+  readonly profile: string;
+  readonly project: string;
+} {
+  if (arguments_.length < 2) {
+    throw new Error("install-temp requires a Profile Artifact ID and a Project path");
+  }
+  const profile = positionalArgument("install-temp", "a Profile", arguments_[0]!);
+  const project = positionalArgument("install-temp", "a Project path", arguments_[1]!);
+  let host: string | undefined;
+  let json = false;
+  let index = 2;
+  while (index < arguments_.length) {
+    const flag = arguments_[index]!;
+    if (flag === "--host") {
+      const value = arguments_[index + 1];
+      if (value === undefined || value.startsWith("-")) {
+        throw new Error("install-temp --host requires an Agent Host name");
+      }
+      if (host !== undefined) {
+        throw new Error("install-temp accepts exactly one --host value");
+      }
+      host = value;
+      index += 2;
+      continue;
+    }
+    if (flag === "--json") {
+      json = true;
+      index += 1;
+      continue;
+    }
+    throw new Error(`install-temp does not accept argument '${flag}'`);
+  }
+  if (host === undefined) {
+    throw new Error(
+      "install-temp requires --host <host>; temporary installation supports: codex",
+    );
+  }
+  return { host, json, profile, project };
+}
+
+function parseRemoveTempArguments(arguments_: readonly string[]): {
+  readonly json: boolean;
+  readonly temporaryInstallationId: string;
+} {
+  if (arguments_.length === 0) {
+    throw new Error("remove-temp requires a temporary installation identity");
+  }
+  const temporaryInstallationId = positionalArgument(
+    "remove-temp",
+    "a temporary installation identity",
+    arguments_[0]!,
+  );
+  let json = false;
+  for (const argument of arguments_.slice(1)) {
+    if (argument === "--json") {
+      json = true;
+      continue;
+    }
+    throw new Error(`remove-temp does not accept argument '${argument}'`);
+  }
+  return { json, temporaryInstallationId };
 }
 
 function parseOptionalFlags(
@@ -524,6 +617,82 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("uninstall", () => parseNoArguments("uninstall", arguments_.slice(1)));
     if (parsed === undefined) return;
     process.stdout.write(formatUninstallResult(await uninstallApplication(home)));
+    return;
+  }
+  if (arguments_.length >= 1 && arguments_[0] === "install-temp") {
+    const parsed = parseOrExit("install-temp", () => parseInstallTempArguments(arguments_.slice(1)));
+    if (parsed === undefined) return;
+    try {
+      const receipt = await installTemporaryProfile({
+        home,
+        host: parsed.host,
+        profile: parsed.profile,
+        project: parsed.project,
+      });
+      process.stdout.write(
+        parsed.json
+          ? formatTemporaryInstallationJson("install-temp", receipt)
+          : formatTemporaryInstallationHuman("install-temp", receipt),
+      );
+      process.exitCode = 0;
+    } catch (error) {
+      if (error instanceof TemporaryInstallationBlockedError) {
+        if (parsed.json) {
+          process.stdout.write(
+            formatTemporaryInstallationBlockedJson("install-temp", error.blockers),
+          );
+        } else {
+          process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+        }
+        process.exitCode = 2;
+        return;
+      }
+      if (parsed.json) {
+        process.stdout.write(
+          formatTemporaryInstallationToolErrorJson("install-temp", formatError(error)),
+        );
+      } else {
+        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+      }
+      process.exitCode = 1;
+    }
+    return;
+  }
+  if (arguments_.length >= 1 && arguments_[0] === "remove-temp") {
+    const parsed = parseOrExit("remove-temp", () => parseRemoveTempArguments(arguments_.slice(1)));
+    if (parsed === undefined) return;
+    try {
+      const receipt = await removeTemporaryProfile({
+        home,
+        temporaryInstallationId: parsed.temporaryInstallationId,
+      });
+      process.stdout.write(
+        parsed.json
+          ? formatTemporaryInstallationJson("remove-temp", receipt)
+          : formatTemporaryInstallationHuman("remove-temp", receipt),
+      );
+      process.exitCode = 0;
+    } catch (error) {
+      if (error instanceof TemporaryInstallationBlockedError) {
+        if (parsed.json) {
+          process.stdout.write(
+            formatTemporaryInstallationBlockedJson("remove-temp", error.blockers),
+          );
+        } else {
+          process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+        }
+        process.exitCode = 2;
+        return;
+      }
+      if (parsed.json) {
+        process.stdout.write(
+          formatTemporaryInstallationToolErrorJson("remove-temp", formatError(error)),
+        );
+      } else {
+        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+      }
+      process.exitCode = 1;
+    }
     return;
   }
 

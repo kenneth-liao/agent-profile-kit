@@ -64,7 +64,8 @@ describe("Host Resolution", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(preview.blockers).toEqual([]);
     expect(preview.warnings).toEqual([]);

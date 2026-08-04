@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Add `install-temp` and `remove-temp` for temporary Codex Profile installation into one explicit Project, with a versioned JSON receipt and idempotent removal ([#135](https://github.com/kenneth-liao/agent-profile-kit/issues/135)).
+
 - Add `--json` machine output for `preview`, `apply`, and `status`, covering outcome, per-installation state, planned or committed paths, blockers, warnings, and Host Setup Steps ([#126](https://github.com/kenneth-liao/agent-profile-kit/issues/126)).
 
 ### Changed

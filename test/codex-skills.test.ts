@@ -240,7 +240,8 @@ describe("Codex project Skill packages", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(preview.desired[0]?.resolvedArtifacts.some((artifact) => artifact.id === "top-skill")).toBe(
       true,
@@ -320,7 +321,8 @@ describe("Codex project Skill packages", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      temporaryInstallations: [],
+      schemaVersion: 5,
     });
     expect(preview.blockers.some((blocker) =>
       blocker.message.includes(".agents/skills/review-pr") &&

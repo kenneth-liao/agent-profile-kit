@@ -51,7 +51,8 @@ function installationState(project: string): InstallationState {
       }],
       entries: ["/.agent-profile-kit/installation.json"],
     }],
-    schemaVersion: 4,
+    temporaryInstallations: [],
+    schemaVersion: 5,
   };
 }
 
@@ -65,7 +66,8 @@ describe("Git exclusion transaction", () => {
       intendedTeardowns: [],
       installations: [],
       repositoryExclusions: [],
-      schemaVersion: 4,
+      schemaVersion: 5,
+      temporaryInstallations: [],
     };
 
     const transaction = await stageGitExclusions(empty, installationState(repository));

@@ -104,14 +104,18 @@ Commands separate binding authoring from global reconciliation:
   a verification failure still reports applied work and exits `1`. `--json`
   includes both the resulting-state snapshot and an `applied` receipt snapshot.
 - `status` reports current, intended teardown, stale source, repairable missing output, drifted output, missing output, malformed ownership, and blocked installations. Intended teardown is Installer-recorded provenance, not inferred from absent files. A fully current concise status states that fact once; non-current state definitions are available through `--verbose`. `--json` uses the same machine payload and exit-code matrix as `preview` and `apply`.
-- `uninstall` safely removes all owned Profile Installations without deleting the Workspace or bindings, and reports each affected project, removed path, and cleaned Git exclusion entry. (`uninstall` is outside the lifecycle machine surface and keeps its own exit semantics.)
+- `uninstall` safely removes all owned Profile Installations without deleting the Workspace or bindings, and reports each affected project, removed path, and cleaned Git exclusion entry. (`uninstall` is outside the lifecycle machine surface and keeps its own exit semantics.) Temporary Profile Installations and their Repository Exclusion contributions are preserved.
+- `install-temp <profile> <project> --host <host>` installs one Profile temporarily into one explicit Project for one Host (Codex in the first slice). It reuses Adapter planning, ownership preflight, transactional publication, and contributor-aware Repository Exclusion records, writes durable temporary installation state under the ordinary state root (Installation State schema v5 `temporary_installations`), and never creates a Project Binding or runs global reconciliation. `--json` emits a versioned temporary-installation receipt.
+- `remove-temp <temporary-installation-id>` removes only that Temporary Profile Installation's owned outputs and exclusion contribution. A successful removal leaves a terminal removed identity so repeated calls remain idempotent.
 
 `preview`, `apply`, and `status` share one machine-surface exit matrix and one
 JSON serializer in `cli/presentation.ts`: exit `0` means no tool error and no
 blockers (JSON `outcome` may still be `attention` for pending work), exit `1`
 is a tool error (`outcome: "error"` under `--json` when flags were accepted),
 and exit `2` means blockers are present. The JSON contract is versioned
-(`schemaVersion: 1`) and is not stability-guaranteed before 1.0.
+(`schemaVersion: 1`) and is not stability-guaranteed before 1.0. Temporary
+installation receipts use the same exit matrix (`0` / `1` / `2`) with their own
+versioned JSON schema.
 
 `unbind` changes desired Project Binding state and directs the user to global
 `preview`/`apply` only when an Installation Manifest shows that generated output

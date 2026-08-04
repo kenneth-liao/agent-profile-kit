@@ -18,4 +18,8 @@ export const COMMAND_EXAMPLES = {
   apply: ["apply", "apply --verbose", "apply --json"],
   status: ["status", "status --verbose", "status --json"],
   uninstall: ["uninstall"],
+  "install-temp": [
+    `install-temp ${profile} ${project} --host codex --json`,
+  ],
+  "remove-temp": ["remove-temp <temporary-installation-id> --json"],
 } as const;
