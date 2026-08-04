@@ -199,9 +199,19 @@ Setup guidance is reported conditionally by Host *and* by what was installed:
 | Host | Requirement after `apply` |
 |------|---------------------------|
 | Claude Code | None. Rule + Skills load on next launch; no Git dependency. |
-| Codex | Project trust **and** native review/trust of the generated `SessionStart` hook — only when Context is installed. Non-Git projects must be launched from the exact bound root. |
+| Codex | Codex CLI 0.145.0+ for complete Context delivery, plus project trust **and** native review/trust of the generated `SessionStart` hook — only when Context is installed. Non-Git projects must be launched from the exact bound root. |
 | Grok | None, except when co-bound with Claude and rules compatibility is on: Grok reads Claude's rule file and **no `.grok/rules/` is created**. |
 | Pi | Native project trust; `--skill` / `--no-skills` runtime overrides fall outside the guarantee. |
+
+**Codex Context floor (0.145.0+).** Context-bearing Codex installs probe
+`codex --version` on `preview`/`apply` and refuse writes below the floor (or when
+`codex` is missing from `PATH`). Skills-only Codex bindings do not probe. `apply`
+is still all-project: one blocked Codex binding blocks every other binding in the
+fleet. Recovery when other Hosts must proceed first: drop `codex` from the
+Project Binding, re-apply, upgrade Codex to `0.145.0+`, restore the binding, and
+apply again. `status`, `validate`, and `uninstall` do not re-probe the CLI, so a
+post-apply Codex downgrade is not reported there — upgrade back or re-apply after
+restoring a supported CLI if Context stops loading.
 
 Verified: a four-Host `api` project produced `.codex/hooks.json`, and its
 `.grok/` directory contained `skills/` **only** — no `rules/`. A Skills-only

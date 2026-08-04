@@ -46,7 +46,8 @@ runs do not restore it.
 
 ## Project-bound Context and Skills
 
-Codex loads Context through a native project SessionStart hook and discovers
+Codex loads complete Context through a native project SessionStart hook (the
+Adapter requires Codex CLI 0.145.0 or newer for direct delivery) and discovers
 selected Skills under `.agents/skills/`. Claude Code loads Context as an unscoped
 project rule and discovers selected Skills under `.claude/skills/`. Grok loads
 Context as an unscoped project rule under `.grok/rules/` (or, when Claude is also

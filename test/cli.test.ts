@@ -75,6 +75,15 @@ function addWorktree(repository: string, name: string): string {
   return path;
 }
 
+/**
+ * Default PATH for lifecycle CLI runs: a controlled Codex ≥0.145.0 stub first so
+ * Context-bearing preview/apply is hermetic when ambient `codex` is absent (CI).
+ * Tests that need a missing/old/broken CLI use `runCliWithPath` with an explicit PATH.
+ */
+function defaultCliPath(home: string): string {
+  return `${installFakeCodex(home)}:${process.env.PATH ?? ""}`;
+}
+
 function runCli(home: string, ...arguments_: string[]) {
   return runCliAt(home, undefined, ...arguments_);
 }
@@ -83,7 +92,7 @@ function runCliAt(home: string, cwd: string | undefined, ...arguments_: string[]
   return spawnSync(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
     encoding: "utf8" as const,
     cwd,
-    env: { ...process.env, HOME: home },
+    env: { ...process.env, HOME: home, PATH: defaultCliPath(home) },
   });
 }
 
@@ -93,7 +102,7 @@ function runCliAsync(
 ): Promise<{ readonly status: number | null; readonly stdout: string; readonly stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
-      env: { ...process.env, HOME: home },
+      env: { ...process.env, HOME: home, PATH: defaultCliPath(home) },
     });
     let stdout = "";
     let stderr = "";
@@ -166,7 +175,7 @@ function installFakeClaude(home: string, version = "2.1.0"): string {
 }
 
 /** Put a controlled Codex CLI stub first on PATH for version capability preflight. */
-function installFakeCodex(home: string, version = "0.99.0"): string {
+function installFakeCodex(home: string, version = "0.145.0"): string {
   const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });
   writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "codex-cli ${version}"\n`);
@@ -1310,7 +1319,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, `~/${projectPath.slice(home.length + 1)}`);
     const invoked = join(home, "codex-invoked");
     const bin = join(home, "bin");
-    mkdirSync(bin);
+    // `bind` already stages a controlled Codex stub under home/bin; overwrite it
+    // so validate must not call this trap (validate is capability-free).
+    mkdirSync(bin, { recursive: true });
     writeFileSync(join(bin, "codex"), `#!/bin/sh\nprintf invoked > ${invoked}\nexit 1\n`);
     execFileSync("chmod", ["+x", join(bin, "codex")]);
 

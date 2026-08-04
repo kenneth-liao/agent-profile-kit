@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Require Codex CLI `0.145.0+` for Context-bearing Profile Installations and emit SessionStart hooks with `additionalContextLimit: 0` so complete Context is delivered directly ([#138](https://github.com/kenneth-liao/agent-profile-kit/issues/138)). Previously-working installs on older Codex (or without `codex` on `PATH`) fail preflight before writes; Skills-only Codex bindings are unchanged. `apply` remains all-project: one blocked Codex binding blocks writes for every other binding in the fleet. Recovery: upgrade Codex to `0.145.0+` and re-apply, or temporarily remove `codex` from the Project Binding, apply other Hosts, then restore the binding after upgrade.
+
 ### Fixed
 
 - Treat informational Host Setup Steps as requiring no user action and lock Grok's compatibility-disabled path at the Adapter seam ([#145](https://github.com/kenneth-liao/agent-profile-kit/pull/145)).

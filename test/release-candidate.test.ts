@@ -199,7 +199,8 @@ function enableCodexHooks(home: string): void {
 
 /**
  * Prepend controlled Host CLI stubs on PATH so packed RC gates stay hermetic
- * (no ambient Codex/Claude versions). Disabled model-invocation requires Codex ≥0.99.
+ * (no ambient Codex/Claude versions). Complete Context requires Codex ≥0.145.0;
+ * disabled model-invocation requires Codex ≥0.99.0.
  */
 function installControlledHosts(
   home: string,
@@ -212,7 +213,7 @@ function installControlledHosts(
   const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });
   const claudeVersion = options.claudeVersion ?? "2.1.0";
-  const codexVersion = options.codexVersion ?? "0.99.0";
+  const codexVersion = options.codexVersion ?? "0.145.0";
   writeFileSync(join(bin, "claude"), `#!/bin/sh\necho "${claudeVersion} (Claude Code)"\n`);
   writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "codex-cli ${codexVersion}"\n`);
   const executables = [join(bin, "claude"), join(bin, "codex")];
@@ -365,14 +366,15 @@ describe("project-bound release candidate", () => {
     writeWorkspaceAuthoring(home);
     const projectPath = project();
     writeBindings(home, [{ project: projectPath, hosts: ["codex"] }]);
+    const pathWithHosts = installControlledHosts(home);
 
-    expect(runCli(home, ["apply"]).status).toBe(0);
+    expect(runCli(home, ["apply"], { path: pathWithHosts }).status).toBe(0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: Array<{ engine_version: string; adapter_version: string }>;
     };
     expect(state.installations).toHaveLength(1);
     expect(state.installations[0]?.engine_version).toBe(packageVersion);
-    expect(state.installations[0]?.adapter_version).toBe("codex-project-v1");
+    expect(state.installations[0]?.adapter_version).toBe("codex-project-v2");
   });
 
   test("installing the package alone changes no Workspace, Local Configuration, project, Git, or Host state", () => {
@@ -564,7 +566,9 @@ describe("project-bound release candidate", () => {
     expect(combinedInstallation?.host_versions.claude).toBe(
       "native-project-unscoped-rules-skills-v1",
     );
-    expect(combinedInstallation?.host_versions.codex).toBe("native-project-sessionstart-v1");
+    expect(combinedInstallation?.host_versions.codex).toBe(
+      "native-project-sessionstart-complete-context-v1",
+    );
 
     // Binding removal: drop Claude-only, combined, and the explicit linked checkout.
     writeBindings(home, [
@@ -883,7 +887,7 @@ describe("project-bound release candidate", () => {
     const codexOnly = project("agent-profile-kit-rc-mi-codex-");
     const claudeOnly = project("agent-profile-kit-rc-mi-claude-");
     const combined = project("agent-profile-kit-rc-mi-combined-");
-    // Controlled Codex stub (≥0.99) required once disabled model-invocation is selected.
+    // Controlled Codex stub (≥0.145.0) satisfies Context and disabled invocation floors.
     const pathWithHosts = installControlledHosts(home);
 
     writeBindings(home, [

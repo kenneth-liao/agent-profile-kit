@@ -23,14 +23,14 @@ import { parseTomlTable } from "./toml.js";
 
 const execFileAsync = promisify(execFile);
 
-export const CODEX_ADAPTER_VERSION = "codex-project-v1";
+export const CODEX_ADAPTER_VERSION = "codex-project-v2";
 
 /**
- * Capability-contract token for Codex project Context via SessionStart hooks and
- * portable Skill package discovery under `.agents/skills/` when no Skill requires
- * disabled model invocation.
+ * Capability-contract token for Codex project Context via SessionStart hooks
+ * with complete direct delivery and portable Skill package discovery under
+ * `.agents/skills/` when no Skill requires disabled model invocation.
  */
-export const CODEX_HOST_VERSION = "native-project-sessionstart-v1";
+export const CODEX_HOST_VERSION = "native-project-sessionstart-complete-context-v1";
 
 /**
  * Capability-contract token when a selected Skill requires disabled model invocation.
@@ -38,7 +38,23 @@ export const CODEX_HOST_VERSION = "native-project-sessionstart-v1";
  * `policy.allow_implicit_invocation`, plus SessionStart hooks for Context.
  */
 export const CODEX_HOST_VERSION_WITH_INVOCATION =
-  "native-project-sessionstart-skills-invocation-v1";
+  "native-project-sessionstart-complete-context-skills-invocation-v1";
+
+/** Capability-contract token for Codex Skills-only installations. */
+export const CODEX_SKILLS_HOST_VERSION = "native-project-skills-v1";
+
+/** Capability-contract token for Codex Skills-only installations with invocation policy. */
+export const CODEX_SKILLS_HOST_VERSION_WITH_INVOCATION =
+  "native-project-skills-invocation-v1";
+
+/**
+ * Minimum Codex CLI version that passes complete SessionStart Context directly to the model.
+ * Evidence: OpenAI added `additionalContextLimit` on command SessionStart handlers in
+ * rust-v0.145.0 (https://github.com/openai/codex/releases/tag/rust-v0.145.0). The value
+ * `0` is the Codex contract for unlimited direct delivery (not "none"). Earlier CLIs omit
+ * the field and spill oversized hook output into a head-and-tail preview.
+ */
+export const CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT = "0.145.0";
 
 /**
  * Minimum Codex CLI version that enforces `policy.allow_implicit_invocation: false`.
@@ -60,6 +76,8 @@ export type CodexProjectPlan = AdapterProjectPlan;
 
 export interface CodexCapabilityOptions {
   readonly env?: NodeJS.ProcessEnv;
+  /** When true, prove Host can deliver complete SessionStart Context directly. */
+  readonly requireContext?: boolean;
   /** When true, prove Host can enforce disabled model invocation. */
   readonly requireDisabledModelInvocation?: boolean;
   /** Injectable version probe for tests; defaults to `codex --version`. */
@@ -121,15 +139,29 @@ function resolveCodexHome(home: string, env: NodeJS.ProcessEnv = process.env): s
   return configured ? resolve(configured) : join(home, ".codex");
 }
 
-/** Parse the leading semver from `codex --version` output (e.g. `codex-cli 0.144.4`). */
+/**
+ * Parse a Codex version from `codex --version` output into a core `MAJOR.MINOR.PATCH`.
+ * Accepts an optional leading `codex-cli`/`codex` label, optional `v` prefix, optional
+ * prerelease/build suffix on the triple, and an ignored trailing decoration
+ * (e.g. `(rust-v0.145.0)`). Skips non-version leading lines. Rejects text that only
+ * mentions a semver mid-line (e.g. `error: latest release is 0.145.0`).
+ */
 export function parseCodexCliVersion(source: string): string {
-  const match = source.match(/(\d+)\.(\d+)\.(\d+)/);
-  if (!match) {
-    throw new Error(
-      `Codex CLI version is unreadable from '${source.trim()}'; install a supported Codex release`,
+  const lines = source
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  for (const line of lines) {
+    const match = line.match(
+      /^(?:(?:codex-cli|codex)\s+)?v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?(?:\s+.*)?$/i,
     );
+    if (match) {
+      return `${match[1]}.${match[2]}.${match[3]}`;
+    }
   }
-  return `${match[1]}.${match[2]}.${match[3]}`;
+  throw new Error(
+    `Codex CLI version is unreadable from '${source.trim()}'; install a supported Codex release`,
+  );
 }
 
 function compareSemver(left: string, right: string): number {
@@ -142,6 +174,7 @@ function compareSemver(left: string, right: string): number {
   return 0;
 }
 
+/** Assert a normalized core semver against the disabled-invocation floor. */
 export function assertCodexCliVersionSupportsDisabledModelInvocation(version: string): void {
   if (compareSemver(version, CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION) < 0) {
     throw new Error(
@@ -150,10 +183,14 @@ export function assertCodexCliVersionSupportsDisabledModelInvocation(version: st
   }
 }
 
+/**
+ * Resolve and normalize the Codex CLI version at one boundary.
+ * Callers of assert helpers receive only this normalized core semver.
+ */
 async function resolveCodexCliVersion(
   options: CodexCapabilityOptions,
 ): Promise<string> {
-  if (options.resolveVersion) return options.resolveVersion();
+  if (options.resolveVersion) return parseCodexCliVersion(await options.resolveVersion());
   try {
     const { stdout, stderr } = await execFileAsync("codex", ["--version"], {
       env: options.env ?? process.env,
@@ -164,7 +201,7 @@ async function resolveCodexCliVersion(
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       throw new Error(
-        "Codex CLI was not found on PATH; install Codex and ensure `codex --version` works before previewing or applying Profiles that disable model invocation",
+        "Codex CLI was not found on PATH; install Codex and ensure `codex --version` works before previewing or applying Profiles that require Codex Host capabilities",
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -179,7 +216,7 @@ async function resolveCodexCliVersion(
       }
     }
     throw new Error(
-      `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)}); install a supported Codex release before previewing or applying Profiles that disable model invocation`,
+      `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)}); install a supported Codex release before previewing or applying Profiles that require Codex Host capabilities`,
     );
   }
 }
@@ -192,9 +229,25 @@ export async function assertCodexProjectCapability(
   // SessionStart configuration is advisory and is reported separately by
   // detectCodexProjectConfigurationWarnings. Capability preflight proves only
   // portable semantics that Codex must be able to represent.
-  if (options.requireDisabledModelInvocation) {
+  if (options.requireContext || options.requireDisabledModelInvocation) {
     const version = await resolveCodexCliVersion(options);
-    assertCodexCliVersionSupportsDisabledModelInvocation(version);
+    // Check the higher Context floor first so a single upgrade message covers
+    // Profiles that also need disabled model invocation (0.99.0 ⊂ 0.145.0+).
+    if (options.requireContext) {
+      assertCodexCliVersionSupportsCompleteContext(version);
+    }
+    if (options.requireDisabledModelInvocation) {
+      assertCodexCliVersionSupportsDisabledModelInvocation(version);
+    }
+  }
+}
+
+/** Assert a normalized core semver against the complete-Context floor. */
+export function assertCodexCliVersionSupportsCompleteContext(version: string): void {
+  if (compareSemver(version, CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT) < 0) {
+    throw new Error(
+      `Codex CLI ${version} cannot deliver complete Context through SessionStart hooks (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT}+); upgrade Codex before previewing or applying the Profile`,
+    );
   }
 }
 
@@ -372,7 +425,11 @@ function hooks(contextPath: string): string {
         SessionStart: [
           {
             matcher: "startup|resume|clear|compact",
-            hooks: [{ command: sessionStartCommandFor(contextPath), type: "command" }],
+            hooks: [{
+              additionalContextLimit: 0,
+              command: sessionStartCommandFor(contextPath),
+              type: "command",
+            }],
           },
         ],
       },
@@ -437,14 +494,17 @@ export async function planCodexProject(
         bytes: composeContextEnvelope(profileId, modules),
         mode: 0o644,
         path: join(".agent-profile-kit", "codex", "context.md"),
-        requirements: ["Codex SessionStart prints composed Context"],
+        requirements: ["Codex SessionStart delivers complete composed Context"],
         type: "file",
       },
       {
         bytes: hooks(contextPath),
         mode: 0o644,
         path: join(".codex", "hooks.json"),
-        requirements: ["Codex SessionStart runs on startup, resume, clear, and compact"],
+        requirements: [
+          "Codex SessionStart runs on startup, resume, clear, and compact",
+          "Codex SessionStart passes complete additionalContext directly to the model",
+        ],
         type: "file",
       },
     );
@@ -452,8 +512,12 @@ export async function planCodexProject(
   return {
     host: "codex",
     hostVersion: skillsRequireDisabledModelInvocation(skills)
-      ? CODEX_HOST_VERSION_WITH_INVOCATION
-      : CODEX_HOST_VERSION,
+      ? modules.length > 0
+        ? CODEX_HOST_VERSION_WITH_INVOCATION
+        : CODEX_SKILLS_HOST_VERSION_WITH_INVOCATION
+      : modules.length > 0
+        ? CODEX_HOST_VERSION
+        : CODEX_SKILLS_HOST_VERSION,
     outputs,
     setupSteps: modules.length > 0
       ? contextSetupSteps(options.requiresBoundRootLaunch)

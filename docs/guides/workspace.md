@@ -393,9 +393,16 @@ bindings:
 
 ## Validate, preview, and apply
 
-For Codex bindings that select Context, review and trust the generated project
-SessionStart hook in Codex for each bound project. Lifecycle hooks are enabled by
-default. Agent Profile Kit checks the effective global and project configuration
+For Codex bindings that select Context, the Adapter requires Codex CLI 0.145.0 or
+newer so the generated SessionStart handler can deliver the complete Context
+envelope without Codex's default head-and-tail spill. Older, missing, or
+unreadable Codex versions fail capability preflight before any project or
+Installation State writes. Because `apply` is all-project, one blocked Codex
+binding also blocks every other Host in the fleet. To unblock other Hosts while
+upgrading: remove `codex` from the Project Binding, re-apply, upgrade Codex to
+0.145.0+, restore the binding, and apply again. Skills-only Codex bindings do
+not require this floor. Review and trust the generated project SessionStart hook
+in Codex for each bound project. Lifecycle hooks are enabled by default. Agent Profile Kit checks the effective global and project configuration
 during preflight and warns when hooks are explicitly disabled, when relevant
 configuration is malformed or unreadable, or when `hooks` or the deprecated
 `codex_hooks` alias is not a boolean. These warnings do not block installation,
@@ -477,7 +484,7 @@ authentication, trust, approvals, plugins, or sessions.
 
 ### Codex
 
-Codex receives Profile Context through a native project SessionStart hook and
+Codex receives the complete Profile Context through a native project SessionStart hook and
 discovers selected Skills under `.agents/skills/<Artifact ID>/`. When Context is
 installed, Codex asks you to review the generated hook: review its contents and
 approve it when they match the expected SessionStart behavior, because declining

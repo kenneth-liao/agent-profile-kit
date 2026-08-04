@@ -156,10 +156,10 @@ describe("Installer-owned artifact-directory outputs", () => {
     const directory = normalizedDirectory();
     if (directory.type !== "directory") throw new Error("expected directory");
     const manifest: ProjectInstallationManifest = {
-      adapterVersion: "codex-project-v1",
+      adapterVersion: "codex-project-v2",
       engineVersion: "0.0.0-test",
       hosts: ["codex"],
-      hostVersions: { codex: "native-project-sessionstart-v1" },
+      hostVersions: { codex: "native-project-sessionstart-complete-context-v1" },
       installationId: "11111111-1111-1111-1111-111111111111",
       outputs: [
         {
