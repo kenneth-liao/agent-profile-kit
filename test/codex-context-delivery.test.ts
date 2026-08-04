@@ -65,8 +65,11 @@ describe("Codex complete Context delivery", () => {
     const document = JSON.parse(hook.bytes as string) as {
       hooks: { SessionStart: Array<{ matcher: string; hooks: Array<Record<string, unknown>> }> };
     };
-    expect(document.hooks.SessionStart[0]?.matcher).toBe("startup|resume|clear|compact");
+    expect(document.hooks.SessionStart[0]?.matcher).toBe("startup|clear|compact");
     expect(document.hooks.SessionStart[0]?.hooks[0]?.additionalContextLimit).toBe(0);
+    expect(hook.requirements).toContain(
+      "Codex SessionStart runs on startup, clear, and compact",
+    );
     expect(hook.requirements).toContain(
       "Codex SessionStart passes complete additionalContext directly to the model",
     );
@@ -204,8 +207,14 @@ describe("Codex complete Context delivery", () => {
     await applyReconciliation(home, desired.installations);
     const hookPath = join(project, ".codex", "hooks.json");
     const currentHook = JSON.parse(readFileSync(hookPath, "utf8")) as {
-      hooks: { SessionStart: Array<{ hooks: Array<Record<string, unknown>> }> };
+      hooks: {
+        SessionStart: Array<{
+          matcher?: string;
+          hooks: Array<Record<string, unknown>>;
+        }>;
+      };
     };
+    // Seed the pre-#138 shape: no complete-delivery limit (version markers also downgraded).
     delete currentHook.hooks.SessionStart[0]!.hooks[0]!.additionalContextLimit;
     const legacyHook = `${JSON.stringify(currentHook, null, 2)}\n`;
     writeFileSync(hookPath, legacyHook);
@@ -234,11 +243,92 @@ describe("Codex complete Context delivery", () => {
       reason: "desired output changed",
     });
     const installedHook = JSON.parse(readFileSync(hookPath, "utf8")) as {
-      hooks: { SessionStart: Array<{ hooks: Array<Record<string, unknown>> }> };
+      hooks: {
+        SessionStart: Array<{
+          matcher?: string;
+          hooks: Array<Record<string, unknown>>;
+        }>;
+      };
     };
     expect(installedHook.hooks.SessionStart[0]?.hooks[0]?.additionalContextLimit).toBe(0);
     const migrated = await readInstallationState(home);
     expect(migrated.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
     expect(migrated.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
+  });
+
+  test("reconciles a same-version install whose only drift is the resume matcher", async () => {
+    // #139 deliberately does not bump CODEX_ADAPTER_VERSION / CODEX_HOST_VERSION:
+    // lifecycle policy is not a Host capability. Detection must therefore be pure
+    // output-hash drift against current version markers (the real 0.49.0 → 0.49.1 path).
+    const home = temporaryDirectory("apkit-codex-resume-matcher-home-");
+    const project = temporaryDirectory("apkit-codex-resume-matcher-project-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "rules.md"),
+      "---\nid: rules\ndependencies: []\n---\nResume matcher rules.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: [rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [codex]\n`,
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, desired.installations);
+    const state = await readInstallationState(home);
+    expect(state.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
+    expect(state.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
+
+    const hookPath = join(project, ".codex", "hooks.json");
+    const currentHook = JSON.parse(readFileSync(hookPath, "utf8")) as {
+      hooks: {
+        SessionStart: Array<{
+          matcher?: string;
+          hooks: Array<Record<string, unknown>>;
+        }>;
+      };
+    };
+    expect(currentHook.hooks.SessionStart[0]?.matcher).toBe("startup|clear|compact");
+    expect(currentHook.hooks.SessionStart[0]?.hooks[0]?.additionalContextLimit).toBe(0);
+    currentHook.hooks.SessionStart[0]!.matcher = "startup|resume|clear|compact";
+    const legacyResumeHook = `${JSON.stringify(currentHook, null, 2)}\n`;
+    writeFileSync(hookPath, legacyResumeHook);
+    await writeInstallationState(home, {
+      ...state,
+      installations: state.installations.map((installation) => ({
+        ...installation,
+        // Keep current version markers so only the hooks.json hash can trigger update.
+        outputs: installation.outputs.map((output) =>
+          output.path === ".codex/hooks.json"
+            ? { ...output, hash: hashBytes(legacyResumeHook) }
+            : output,
+        ),
+      })),
+    });
+
+    const corrected = await buildDesiredState(home, { checkHostCapability: false });
+    expect(corrected.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
+    expect(corrected.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
+    const report = await applyReconciliation(home, corrected.installations);
+    expect(report.receipt.items).toContainEqual({
+      kind: "update",
+      project,
+      reason: "desired output changed",
+    });
+    const installedHook = JSON.parse(readFileSync(hookPath, "utf8")) as {
+      hooks: {
+        SessionStart: Array<{
+          matcher?: string;
+          hooks: Array<Record<string, unknown>>;
+        }>;
+      };
+    };
+    expect(installedHook.hooks.SessionStart[0]?.matcher).toBe("startup|clear|compact");
+    expect(installedHook.hooks.SessionStart[0]?.hooks[0]?.additionalContextLimit).toBe(0);
   });
 });

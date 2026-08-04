@@ -424,7 +424,9 @@ function hooks(contextPath: string): string {
       hooks: {
         SessionStart: [
           {
-            matcher: "startup|resume|clear|compact",
+            // Omit resume: Codex reconstructs from the rollout, which already
+            // holds any prior injection, so re-firing would duplicate Context.
+            matcher: "startup|clear|compact",
             hooks: [{
               additionalContextLimit: 0,
               command: sessionStartCommandFor(contextPath),
@@ -502,7 +504,7 @@ export async function planCodexProject(
         mode: 0o644,
         path: join(".codex", "hooks.json"),
         requirements: [
-          "Codex SessionStart runs on startup, resume, clear, and compact",
+          "Codex SessionStart runs on startup, clear, and compact",
           "Codex SessionStart passes complete additionalContext directly to the model",
         ],
         type: "file",

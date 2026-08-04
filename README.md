@@ -61,7 +61,10 @@ Codex hooks, or Claude/Grok Context rule—and do not require Context-related Ho
 capability.
 
 When a Profile includes Context for Codex, review and trust the generated project
-SessionStart hook in Codex for each bound project. Lifecycle hooks are enabled by
+SessionStart hook in Codex for each bound project. Codex injects that Context on
+session start, clear, and compact — not on resume — so a reopened conversation
+keeps the Context it started with; start a new session or clear to pick up a
+changed Profile after `apply`. Lifecycle hooks are enabled by
 default. Agent Profile Kit warns when the effective global or project
 configuration explicitly disables them, or when the relevant configuration is
 malformed or unreadable, because generated Context may not load; the warning
