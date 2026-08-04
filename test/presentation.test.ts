@@ -12,6 +12,7 @@ import {
   formatBlockedApplyJson,
   formatLifecycleJson,
   formatLifecycleReport,
+  formatLifecycleToolErrorJson,
   formatUninstallResult,
   lifecycleExitCode,
   INTERNAL_ONLY_DEFAULT_TERMS,
@@ -1985,7 +1986,7 @@ describe("Machine surface JSON and exit codes", () => {
     expect(lifecycleExitCode(report)).toBe(2);
   });
 
-  test("apply verification-failure JSON keeps the receipt and error without claiming clean", () => {
+  test("apply verification-failure JSON uses outcome error with a typed error field", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -1997,6 +1998,7 @@ describe("Machine surface JSON and exit codes", () => {
       }],
       items: [{ kind: "addition", project: "/project-a" }],
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      blockers: [{ message: "still blocked", project: "/project-a" }],
     });
 
     const payload = JSON.parse(
@@ -2006,8 +2008,9 @@ describe("Machine surface JSON and exit codes", () => {
     expect(payload).toMatchObject({
       schemaVersion: 1,
       command: "apply",
-      outcome: "attention",
+      outcome: "error",
       error: "post-apply verification failed: boom",
+      blockers: [{ message: "still blocked", project: "/project-a" }],
       applied: {
         outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
       },
@@ -2015,12 +2018,102 @@ describe("Machine surface JSON and exit codes", () => {
     });
   });
 
-  test("pending work without blockers is attention with exit code 0", () => {
+  test("pending work without blockers is attention with exit code 0 for every lifecycle command", () => {
     const report = identityReport("/project-a");
-    const payload = JSON.parse(formatLifecycleJson("preview", report)) as {
-      readonly outcome: string;
-    };
-    expect(payload.outcome).toBe("attention");
+    for (const command of ["preview", "status"] as const) {
+      const payload = JSON.parse(formatLifecycleJson(command, report)) as {
+        readonly outcome: string;
+      };
+      expect(payload.outcome).toBe("attention");
+    }
+    const applyPayload = JSON.parse(
+      formatApplyJson(applyResult(report, report)),
+    ) as { readonly outcome: string };
+    expect(applyPayload.outcome).toBe("attention");
     expect(lifecycleExitCode(report)).toBe(0);
+  });
+
+  test("JSON includes repository exclusion evidence and omits empty profile hosts for removals", () => {
+    const report = emptyReport({
+      desired: [],
+      items: [{ kind: "removal", project: "/retired", reason: "unbound" }],
+      outputs: [{ kind: "removal", path: "a.md", project: "/retired" }],
+      repositoryExclusions: [{
+        current: ["/.agent-profile-kit/"],
+        next: [],
+        target: "/retired/.git/info/exclude",
+      }],
+      repositoryExclusionRepairs: [{
+        entries: ["/.agent-profile-kit/"],
+        target: "/retired/.git/info/exclude",
+      }],
+    });
+
+    const payload = JSON.parse(formatLifecycleJson("status", report)) as {
+      readonly installations: readonly Record<string, unknown>[];
+      readonly repositoryExclusions: readonly unknown[];
+      readonly repositoryExclusionRepairs: readonly unknown[];
+    };
+
+    expect(payload.installations).toEqual([{
+      canonicalProject: "/retired",
+      project: "/retired",
+      reason: "unbound",
+      state: "removal",
+    }]);
+    expect(payload.installations[0]).not.toHaveProperty("profile");
+    expect(payload.installations[0]).not.toHaveProperty("hosts");
+    expect(payload.repositoryExclusions).toEqual([{
+      current: ["/.agent-profile-kit/"],
+      next: [],
+      target: "/retired/.git/info/exclude",
+    }]);
+    expect(payload.repositoryExclusionRepairs).toEqual([{
+      entries: ["/.agent-profile-kit/"],
+      target: "/retired/.git/info/exclude",
+    }]);
+  });
+
+  test("tool-error JSON uses outcome error for every lifecycle command", () => {
+    for (const command of ["preview", "apply", "status"] as const) {
+      const payload = JSON.parse(
+        formatLifecycleToolErrorJson(command, "Local Configuration is missing"),
+      ) as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        schemaVersion: 1,
+        command,
+        outcome: "error",
+        error: "Local Configuration is missing",
+        blockers: [],
+        installations: [],
+        outputs: [],
+      });
+    }
+  });
+
+  test("aliases authored project items onto the canonical identity without dual-key fallback", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/private/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+
+    const payload = JSON.parse(formatLifecycleJson("preview", report)) as {
+      readonly installations: readonly Record<string, unknown>[];
+    };
+    expect(payload.installations).toEqual([{
+      project: "/project-a",
+      canonicalProject: "/private/project-a",
+      profile: "coding",
+      hosts: ["codex"],
+      state: "addition",
+    }]);
   });
 });

@@ -12,7 +12,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
-- Make lifecycle exit codes uniform across `preview`, `apply`, and `status`: `0` clean, `1` tool error, `2` blockers present. `status` no longer exits `0` while reporting blockers ([#126](https://github.com/kenneth-liao/agent-profile-kit/issues/126)).
+- Make lifecycle exit codes uniform across `preview`, `apply`, and `status`: `0` no tool error and no blockers (JSON `outcome` may still be `attention`), `1` tool error, `2` blockers present. `status` no longer exits `0` while reporting blockers ([#126](https://github.com/kenneth-liao/agent-profile-kit/issues/126)).
 
 - Require Codex CLI `0.145.0+` for Context-bearing Profile Installations and emit SessionStart hooks with `additionalContextLimit: 0` so complete Context is delivered directly ([#138](https://github.com/kenneth-liao/agent-profile-kit/issues/138)). Previously-working installs on older Codex (or without `codex` on `PATH`) fail preflight before writes; Skills-only Codex bindings are unchanged. `apply` remains all-project: one blocked Codex binding blocks writes for every other binding in the fleet. Recovery: upgrade Codex to `0.145.0+` and re-apply, or temporarily remove `codex` from the Project Binding, apply other Hosts, then restore the binding after upgrade.
 

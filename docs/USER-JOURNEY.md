@@ -456,7 +456,8 @@ exits 1 on the same state. Automation cannot gate on `status`, and the two
 read-only commands disagree about what a blocker means.~~
 
 Shipped in [#126](https://github.com/kenneth-liao/agent-profile-kit/issues/126):
-`preview`, `apply`, and `status` share exit codes `0` clean / `1` tool error /
+`preview`, `apply`, and `status` share exit codes `0` (no tool error and no
+blockers; JSON `outcome` may still be `attention`) / `1` tool error /
 `2` blockers, and accept `--json` for machine-readable reports.
 
 ### ~~UJ-14~~

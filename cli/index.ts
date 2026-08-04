@@ -13,6 +13,7 @@ import {
   formatBlockedApplyReport,
   formatLifecycleJson,
   formatLifecycleReport,
+  formatLifecycleToolErrorJson,
   formatMissingProfileError,
   formatUninstallResult,
   formatValidationResult,
@@ -263,13 +264,6 @@ function parseUnbindArguments(arguments_: readonly string[]): { readonly project
     : { project: positionalArgument("unbind", "a project path", arguments_[0]!) };
 }
 
-function parseOptionalFlag(command: string, arguments_: readonly string[], flag: string): boolean {
-  if (arguments_.length === 0) return false;
-  if (arguments_.every((argument) => argument === flag)) return true;
-  const invalidArgument = arguments_.find((argument) => argument !== flag) ?? arguments_[0] ?? "";
-  throw new Error(`${command} does not accept argument '${invalidArgument}'`);
-}
-
 function parseOptionalFlags(
   command: string,
   arguments_: readonly string[],
@@ -284,6 +278,10 @@ function parseOptionalFlags(
     present[argument] = true;
   }
   return present;
+}
+
+function parseOptionalFlag(command: string, arguments_: readonly string[], flag: string): boolean {
+  return parseOptionalFlags(command, arguments_, [flag])[flag] === true;
 }
 
 function parseGuideArguments(arguments_: readonly string[]): {
@@ -444,13 +442,22 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "preview") {
     const parsed = parseOrExit("preview", () => parseLifecycleArguments("preview", arguments_.slice(1)));
     if (parsed === undefined) return;
-    const report = await previewApplication(home);
-    process.stdout.write(
-      parsed.json
-        ? formatLifecycleJson("preview", report)
-        : formatLifecycleReport("preview", report, parsed),
-    );
-    process.exitCode = lifecycleExitCode(report);
+    try {
+      const report = await previewApplication(home);
+      process.stdout.write(
+        parsed.json
+          ? formatLifecycleJson("preview", report)
+          : formatLifecycleReport("preview", report, parsed),
+      );
+      process.exitCode = lifecycleExitCode(report);
+    } catch (error) {
+      if (parsed.json) {
+        process.stdout.write(formatLifecycleToolErrorJson("preview", formatError(error)));
+      } else {
+        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+      }
+      process.exitCode = 1;
+    }
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "apply") {
@@ -461,6 +468,8 @@ async function main(): Promise<void> {
       process.stdout.write(
         parsed.json ? formatApplyJson(applied) : formatApplyReport(applied, parsed),
       );
+      // Exit 0 whenever apply completed without blockers, including remaining
+      // non-current work (outcome "attention"). Gate on blockers only — DEC-024.
       process.exitCode = lifecycleExitCode(applied.resultingState);
     } catch (error) {
       if (error instanceof ApplyBlockedError) {
@@ -481,20 +490,34 @@ async function main(): Promise<void> {
         process.exitCode = 1;
         return;
       }
-      throw error;
+      if (parsed.json) {
+        process.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
+      } else {
+        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+      }
+      process.exitCode = 1;
     }
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "status") {
     const parsed = parseOrExit("status", () => parseLifecycleArguments("status", arguments_.slice(1)));
     if (parsed === undefined) return;
-    const report = await statusApplication(home);
-    process.stdout.write(
-      parsed.json
-        ? formatLifecycleJson("status", report)
-        : formatLifecycleReport("status", report, parsed),
-    );
-    process.exitCode = lifecycleExitCode(report);
+    try {
+      const report = await statusApplication(home);
+      process.stdout.write(
+        parsed.json
+          ? formatLifecycleJson("status", report)
+          : formatLifecycleReport("status", report, parsed),
+      );
+      process.exitCode = lifecycleExitCode(report);
+    } catch (error) {
+      if (parsed.json) {
+        process.stdout.write(formatLifecycleToolErrorJson("status", formatError(error)));
+      } else {
+        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+      }
+      process.exitCode = 1;
+    }
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "uninstall") {

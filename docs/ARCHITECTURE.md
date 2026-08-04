@@ -96,14 +96,22 @@ Commands separate binding authoring from global reconciliation:
 - `bind` appends one validated Project Binding to Local Configuration only. It serializes other `bind` processes with a sidecar lock, rechecks the exact source snapshot, and publishes with an atomic replacement. It does not preview, apply, or touch Host, Workspace, project, or installation state.
 - `unbind` removes one Project Binding from Local Configuration only. Existing paths match by canonical identity; a missing path may match only its exact authored spelling. It uses the same lock, snapshot recheck, and atomic publication boundary as `bind`, and never removes generated output.
 - `validate` checks the Workspace and Project Bindings.
-- `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states.
+- `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states; `--json` emits the versioned machine payload described below.
 - `apply` reconciles every binding and, after its commits, performs a fresh
   reconciliation to report the verified resulting state. It separately emits
   an `Applied` section containing the pre-apply generated-output and Repository
   Exclusion work that was committed, distinct from the verified `Pending` work;
-  a verification failure still reports applied work and exits nonzero.
-- `status` reports current, intended teardown, stale source, repairable missing output, drifted output, missing output, malformed ownership, and blocked installations. Intended teardown is Installer-recorded provenance, not inferred from absent files. A fully current concise status states that fact once; non-current state definitions are available through `--verbose`.
-- `uninstall` safely removes all owned Profile Installations without deleting the Workspace or bindings, and reports each affected project, removed path, and cleaned Git exclusion entry.
+  a verification failure still reports applied work and exits `1`. `--json`
+  includes both the resulting-state snapshot and an `applied` receipt snapshot.
+- `status` reports current, intended teardown, stale source, repairable missing output, drifted output, missing output, malformed ownership, and blocked installations. Intended teardown is Installer-recorded provenance, not inferred from absent files. A fully current concise status states that fact once; non-current state definitions are available through `--verbose`. `--json` uses the same machine payload and exit-code matrix as `preview` and `apply`.
+- `uninstall` safely removes all owned Profile Installations without deleting the Workspace or bindings, and reports each affected project, removed path, and cleaned Git exclusion entry. (`uninstall` is outside the lifecycle machine surface and keeps its own exit semantics.)
+
+`preview`, `apply`, and `status` share one machine-surface exit matrix and one
+JSON serializer in `cli/presentation.ts`: exit `0` means no tool error and no
+blockers (JSON `outcome` may still be `attention` for pending work), exit `1`
+is a tool error (`outcome: "error"` under `--json` when flags were accepted),
+and exit `2` means blockers are present. The JSON contract is versioned
+(`schemaVersion: 1`) and is not stability-guaranteed before 1.0.
 
 `unbind` changes desired Project Binding state and directs the user to global
 `preview`/`apply` only when an Installation Manifest shows that generated output

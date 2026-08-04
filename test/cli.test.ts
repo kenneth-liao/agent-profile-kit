@@ -1700,9 +1700,46 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(failed.status, `${command} tool error: ${failed.stdout}`).toBe(1);
       expect(failed.stderr.length).toBeGreaterThan(0);
       const failedJson = runCli(toolErrorHome, command, "--json");
-      expect(failedJson.status, `${command} tool error json: ${failedJson.stdout}`).toBe(1);
-      expect(failedJson.stderr.length).toBeGreaterThan(0);
+      expect(failedJson.status, `${command} tool error json: ${failedJson.stderr}`).toBe(1);
+      const payload = JSON.parse(failedJson.stdout) as {
+        readonly command: string;
+        readonly error: string;
+        readonly outcome: string;
+        readonly schemaVersion: number;
+      };
+      expect(payload).toMatchObject({
+        schemaVersion: 1,
+        command,
+        outcome: "error",
+      });
+      expect(payload.error.length).toBeGreaterThan(0);
     }
+
+    // Pending work without blockers exits 0 for every lifecycle command.
+    // Gate pending vs current via JSON outcome, not exit code (DEC-024).
+    const pendingHome = isolatedHome();
+    initialize(pendingHome);
+    const pendingProject = project();
+    writeContextProfile(pendingHome);
+    bind(pendingHome, pendingProject);
+    for (const command of ["preview", "status"] as const) {
+      const pending = runCli(pendingHome, command, "--json");
+      expect(pending.status, `${command} pending: ${pending.stderr}`).toBe(0);
+      expect(JSON.parse(pending.stdout)).toMatchObject({
+        command,
+        outcome: "attention",
+        schemaVersion: 1,
+      });
+    }
+    const firstApply = runCli(pendingHome, "apply", "--json");
+    expect(firstApply.status, `apply install: ${firstApply.stderr}`).toBe(0);
+    expect(JSON.parse(firstApply.stdout)).toMatchObject({
+      command: "apply",
+      schemaVersion: 1,
+    });
+    expect(["clean", "attention"]).toContain(
+      (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
+    );
   });
 
   test("apply creates the marker, manifest, composed Context, and native SessionStart hook", () => {
