@@ -50,7 +50,7 @@ ADR-0010's binding-owned model:
 - Crash recovery after partial publication, disposable removal of modified
   temporary-owned roots, linked-worktree contributor safety, and the shared
   Installation State lifecycle lock are delivered with the recovery slice
-  (#137). Claude Code temporary-install Host parity remains separate follow-on
-  work.
+  (#137). Claude Code temporary-install Host parity is delivered with the
+  Host-parity slice (#136).
 - This does not restore session launchers or managed overlays superseded by
   ADR-0010; Hosts still load project material natively after install-temp.

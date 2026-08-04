@@ -42,6 +42,7 @@ import { ApplyBlockedError, ApplyVerificationError } from "../installer/reconcil
 import {
   installTemporaryProfile,
   removeTemporaryProfile,
+  TEMPORARY_INSTALLATION_HOSTS,
   TemporaryInstallationBlockedError,
   TemporaryInstallationRecoverableError,
 } from "../installer/temporary-installation.js";
@@ -157,9 +158,9 @@ const COMMANDS: readonly CommandHelp[] = [
   {
     name: "remove-temp",
     syntax: "remove-temp <temporary-installation-id> [--json]",
-    // Avoid the "Profile Installation" compound so default-view rewriting does not
-    // collapse this temporary lifetime into ordinary "project" vocabulary.
-    summary: "Remove one temporary Profile",
+    // "temporary Profile installation" is protected from ordinary Profile Installation
+    // default-view rewriting (see defaultViewText) so this temporary lifetime stays distinct.
+    summary: "Remove one temporary Profile installation",
     examples: COMMAND_EXAMPLES["remove-temp"],
     writes: "Removes only the receipt-owned temporary project files and exclusion contribution.",
     next: "Nothing further is required for this temporary installation.",
@@ -329,7 +330,7 @@ function parseInstallTempArguments(arguments_: readonly string[]): {
   }
   if (host === undefined) {
     throw new Error(
-      "install-temp requires --host <host>; temporary installation supports: codex",
+      `install-temp requires --host <host>; temporary installation supports: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
     );
   }
   return { host, json, profile, project };

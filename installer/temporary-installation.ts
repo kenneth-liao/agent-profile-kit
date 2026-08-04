@@ -2,11 +2,18 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import {
+  assertClaudeProjectCapability,
+  planClaudeProject,
+} from "../adapters/claude.js";
+import type { ContextModuleSource } from "../adapters/context-envelope.js";
+import {
   assertCodexProjectCapability,
   detectCodexProjectConfigurationWarnings,
   planCodexProject,
 } from "../adapters/codex.js";
-import type { HostSetupStep } from "../adapters/project-plan.js";
+import type { AdapterProjectPlan, HostSetupStep } from "../adapters/project-plan.js";
+import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
+import { requireArtifactId } from "../schemas/dependencies.js";
 import {
   isSupportedHost,
   type SupportedHost,
@@ -16,8 +23,7 @@ import {
   INSTALLATION_STATE_SCHEMA_VERSION,
   type TemporaryProfileInstallation,
 } from "../schemas/installation-manifest.js";
-import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
-import { requireArtifactId } from "../schemas/dependencies.js";
+import type { Skill } from "../schemas/skill.js";
 import {
   replaceRepositoryExclusionContribution,
   stageGitExclusions,
@@ -52,8 +58,8 @@ import {
 } from "./reconcile.js";
 import { ENGINE_VERSION } from "./version.js";
 
-/** Hosts accepted by install-temp in the current slice. */
-export const TEMPORARY_INSTALLATION_HOSTS = ["codex"] as const;
+/** Hosts accepted by install-temp (Codex and Claude Code). */
+export const TEMPORARY_INSTALLATION_HOSTS = ["claude", "codex"] as const;
 export type TemporaryInstallationHost = (typeof TEMPORARY_INSTALLATION_HOSTS)[number];
 
 export function isTemporaryInstallationHost(
@@ -210,36 +216,19 @@ async function planTemporaryDesiredInstallation(options: {
     resolvedProfile.skills,
   );
   const requireContext = resolvedProfile.contexts.length > 0;
-  try {
-    await assertCodexProjectCapability(options.home, options.project, {
-      requireContext,
-      requireDisabledModelInvocation,
-    });
-  } catch (error) {
-    blockers.push(error instanceof Error ? error.message : String(error));
-  }
-  if (requireContext) {
-    warnings.push(
-      ...(await detectCodexProjectConfigurationWarnings(options.home, options.project)),
-    );
-  }
-  const contextPath = [
-    gitProject?.relativeProject ?? "",
-    ".agent-profile-kit",
-    "codex",
-    "context.md",
-  ].filter((part) => part.length > 0).join("/");
-  const adapterPlan = await planCodexProject(
-    profile.id,
-    resolvedProfile.contexts,
-    resolvedProfile.skills,
-    {
-      contextPath,
-      ...(!gitProject && requireContext
-        ? { requiresBoundRootLaunch: true }
-        : {}),
-    },
-  );
+  const adapterPlan = await planTemporaryHostAdapter({
+    blockers,
+    gitProject,
+    home: options.home,
+    host: options.host,
+    profileId: profile.id,
+    project: options.project,
+    requireContext,
+    requireDisabledModelInvocation,
+    resolvedContexts: resolvedProfile.contexts,
+    resolvedSkills: resolvedProfile.skills,
+    warnings,
+  });
   const hosts: readonly SupportedHost[] = [options.host];
   return {
     adapterVersion: adapterVersionFor(hosts),
@@ -263,6 +252,78 @@ async function planTemporaryDesiredInstallation(options: {
     sourceHash,
     warnings,
   };
+}
+
+/**
+ * Host-specific capability preflight, warnings, and Adapter planning for one
+ * temporary installation Host. Keeps Codex and Claude paths behind one call site.
+ */
+async function planTemporaryHostAdapter(options: {
+  readonly blockers: string[];
+  readonly gitProject: Awaited<ReturnType<typeof findGitProject>>;
+  readonly home: string;
+  readonly host: TemporaryInstallationHost;
+  readonly profileId: string;
+  readonly project: string;
+  readonly requireContext: boolean;
+  readonly requireDisabledModelInvocation: boolean;
+  readonly resolvedContexts: readonly ContextModuleSource[];
+  readonly resolvedSkills: readonly Skill[];
+  readonly warnings: string[];
+}): Promise<AdapterProjectPlan> {
+  switch (options.host) {
+    case "claude": {
+      try {
+        await assertClaudeProjectCapability(options.project, {
+          requireContext: options.requireContext,
+          requireDisabledModelInvocation: options.requireDisabledModelInvocation,
+        });
+      } catch (error) {
+        options.blockers.push(error instanceof Error ? error.message : String(error));
+      }
+      return planClaudeProject(
+        options.profileId,
+        options.resolvedContexts,
+        options.resolvedSkills,
+      );
+    }
+    case "codex": {
+      try {
+        await assertCodexProjectCapability(options.home, options.project, {
+          requireContext: options.requireContext,
+          requireDisabledModelInvocation: options.requireDisabledModelInvocation,
+        });
+      } catch (error) {
+        options.blockers.push(error instanceof Error ? error.message : String(error));
+      }
+      if (options.requireContext) {
+        options.warnings.push(
+          ...(await detectCodexProjectConfigurationWarnings(options.home, options.project)),
+        );
+      }
+      const contextPath = [
+        options.gitProject?.relativeProject ?? "",
+        ".agent-profile-kit",
+        "codex",
+        "context.md",
+      ].filter((part) => part.length > 0).join("/");
+      return planCodexProject(
+        options.profileId,
+        options.resolvedContexts,
+        options.resolvedSkills,
+        {
+          contextPath,
+          ...(!options.gitProject && options.requireContext
+            ? { requiresBoundRootLaunch: true }
+            : {}),
+        },
+      );
+    }
+    default: {
+      const exhaustive: never = options.host;
+      throw new Error(`unsupported temporary installation Host '${String(exhaustive)}'`);
+    }
+  }
 }
 
 function projectConflictBlockers(

@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Add Claude Code Host parity for `install-temp` / `remove-temp`: temporary Profile preparation reuses the Claude Adapter plan, shares the versioned receipt protocol with Codex, and qualifies both Hosts through the packed CLI without launching either agent ([#136](https://github.com/kenneth-liao/agent-profile-kit/issues/136)).
+
 - Make Temporary Profile Installations recoverable and contributor-safe: durable recovery identity before owned mutations, structured install failures that report `removalRequired` + `temporaryInstallationId`, disposable removal of modified owned roots, linked-worktree independence, and an Installation State lifecycle lock shared with `apply`/`uninstall` ([#137](https://github.com/kenneth-liao/agent-profile-kit/issues/137)).
 
 - Add `install-temp` and `remove-temp` for temporary Codex Profile installation into one explicit Project, with a versioned JSON receipt (including Host Setup Steps and warnings) and idempotent removal ([#135](https://github.com/kenneth-liao/agent-profile-kit/issues/135)). Installation State advances to schema **v5** (`temporary_installations`). **Rollback:** 0.49.x and earlier cannot read a v5 state file. Before the first 0.50.0+ write that upgrades state, retain a copy of `~/.agents/agent-profile-kit/state/manifest.yaml`. To downgrade, stop the newer CLI, restore that backup, and only then run the older binary. Without a backup, restore is unsupported—do not hand-edit the state file; remove only known Installer-owned project outputs and temporary receipt-owned paths after verifying no other tool depends on them.
