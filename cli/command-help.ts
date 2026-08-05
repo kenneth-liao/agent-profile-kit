@@ -1,5 +1,6 @@
 import { COMMAND_NAME } from "../installer/version.js";
 import { COMMAND_EXAMPLES } from "./examples.js";
+import { inventoryCommandSyntax } from "./inventory-topics.js";
 
 /**
  * Single canonical source for every command's syntax and purpose. Root help,
@@ -91,6 +92,15 @@ export const COMMANDS: readonly CommandHelp[] = [
     next: `Run ${COMMAND_NAME} validate to check the selected Workspace and Local Configuration.`,
   },
   {
+    name: "list",
+    group: "workspace",
+    syntax: inventoryCommandSyntax(),
+    summary: "List configured Projects for read-only inventory",
+    examples: COMMAND_EXAMPLES.list,
+    writes: "Nothing; this command is read-only.",
+    next: `Run ${COMMAND_NAME} status for Project lifecycle diagnostics.`,
+  },
+  {
     name: "preview",
     group: "lifecycle",
     syntax: "preview [--verbose] [--json]",
@@ -112,7 +122,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "status",
     group: "lifecycle",
     syntax: "status [--verbose] [--json]",
-    summary: "Show current Profile Installation lifecycle state",
+    summary: "Show Project lifecycle diagnostics",
     examples: COMMAND_EXAMPLES.status,
     writes: "Nothing; this command is read-only.",
     next: `If changes need attention, run ${COMMAND_NAME} preview.`,

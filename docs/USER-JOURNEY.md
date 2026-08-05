@@ -29,7 +29,7 @@ produced them.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `--version` | Understand what the tool does and the shortest path to value |
+| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `--version`, `list`, `list projects [--json]` | Understand the command surface and which Projects are configured |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
@@ -62,6 +62,11 @@ prints the engine version. Every command has focused `--help` with its purpose,
 syntax, worked examples, write boundary, and next action. Root and per-command
 help derive from one `COMMANDS` table in `cli/command-help.ts`, while worked commands
 derive from the reusable example set in `cli/examples.ts`.
+
+`list` is the read-only inventory entrypoint: without a topic it shows available
+inventory topics and examples, while `list projects` reads Project Bindings from
+normalized Local Configuration. It is distinct from `status`, which remains the
+ordinary Project lifecycle diagnostic.
 
 Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
 

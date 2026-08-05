@@ -13,14 +13,16 @@ import type {
   ReconciliationReport,
 } from "../installer/reconcile.js";
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
-import { COMMAND_NAME } from "../installer/version.js";
+import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { UninstallResult, ValidationResult } from "../installer/commands.js";
+import type { ProjectInventoryRecord } from "../installer/inventory.js";
 import type {
   ApplicationInfo,
   ApplicationInfoLocations,
   InfoConfigurationState,
 } from "../installer/info.js";
+import { INVENTORY_TOPICS } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
@@ -386,6 +388,106 @@ export function formatInfoToolErrorJson(
     configurationState: "unknown",
     localConfiguration: locations.localConfiguration,
     installationState: locations.installationState,
+  });
+}
+
+export function formatInventoryIndex(): string {
+  const lines = ["Inventory topics:"];
+  for (const topic of INVENTORY_TOPICS) {
+    lines.push(
+      `  ${COMMAND_NAME} list ${topic.name}`,
+      `    ${topic.description}`,
+      `    JSON example: ${COMMAND_NAME} list ${topic.name} --json`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+export function formatProjectInventoryHuman(
+  projects: readonly ProjectInventoryRecord[],
+  home = homedir(),
+  cwd = process.cwd(),
+): string {
+  if (projects.length === 0) {
+    return (
+      "No Projects are configured.\n" +
+      `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.\n`
+    );
+  }
+
+  const lines = [`Projects (${projects.length}):`];
+  for (const project of projects) {
+    lines.push(
+      "",
+      `Project: ${displayProjectPath(
+        project.canonicalProject ?? project.project,
+        project.project,
+        cwd,
+        home,
+      )}`,
+      `  Profile: ${project.profile}`,
+      `  Hosts: ${project.hosts.join(", ")}`,
+    );
+    if (project.problem !== null) lines.push(`  Problem: ${project.problem}`);
+  }
+  lines.push("", `Next: Run ${COMMAND_NAME} status for Project lifecycle diagnostics.`);
+  return `${lines.join("\n")}\n`;
+}
+
+interface ProjectInventoryMachineBase {
+  readonly command: "list";
+  readonly engineVersion: string;
+  readonly schemaVersion: 1;
+  readonly topic: "projects";
+}
+
+interface ProjectInventoryMachineSuccessPayload extends ProjectInventoryMachineBase {
+  readonly outcome: "success";
+  readonly projects: readonly ProjectInventoryRecord[];
+}
+
+interface ProjectInventoryMachineErrorPayload extends ProjectInventoryMachineBase {
+  readonly error: string;
+  readonly outcome: "error";
+  readonly projects: readonly [];
+}
+
+type ProjectInventoryMachinePayload =
+  | ProjectInventoryMachineErrorPayload
+  | ProjectInventoryMachineSuccessPayload;
+
+function projectInventoryMachineBase(): ProjectInventoryMachineBase {
+  return {
+    schemaVersion: 1,
+    command: "list",
+    topic: "projects",
+    engineVersion: ENGINE_VERSION,
+  };
+}
+
+function serializeProjectInventoryMachinePayload(
+  payload: ProjectInventoryMachinePayload,
+): string {
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+/** Versioned machine payload for the read-only Project inventory topic. */
+export function formatProjectInventoryJson(
+  projects: readonly ProjectInventoryRecord[],
+): string {
+  return serializeProjectInventoryMachinePayload({
+    ...projectInventoryMachineBase(),
+    outcome: "success",
+    projects,
+  });
+}
+
+export function formatProjectInventoryToolErrorJson(message: string): string {
+  return serializeProjectInventoryMachinePayload({
+    ...projectInventoryMachineBase(),
+    outcome: "error",
+    error: message,
+    projects: [],
   });
 }
 

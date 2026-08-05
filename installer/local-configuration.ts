@@ -226,7 +226,9 @@ export interface IngestedProjectBinding {
   readonly profile: string;
   readonly hosts: ParsedProjectBinding["hosts"];
   readonly canonicalProject?: string;
+  readonly expandedProject?: string;
   readonly missing: boolean;
+  readonly problem?: string;
 }
 
 export interface IngestedApplicationSource {
@@ -246,6 +248,18 @@ async function isMissingPath(expanded: string): Promise<boolean> {
   }
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+type ProjectBindingNormalizationMode =
+  | {
+      readonly allowMissingProjects: boolean;
+      readonly kind: "application";
+      readonly profiles: ReadonlyMap<string, unknown>;
+    }
+  | { readonly kind: "inventory" };
+
 async function ingestWorkspaceFromConfiguration(
   home: string,
   authored: string,
@@ -253,6 +267,93 @@ async function ingestWorkspaceFromConfiguration(
 ): Promise<Workspace> {
   const resolved = await resolveWorkspaceRoot(home, authored, path);
   return ingestWorkspace(resolved.path);
+}
+
+/**
+ * Normalize the Project Binding portion of Local Configuration once. Full
+ * application ingestion validates every path and Profile; inventory retains
+ * per-binding path problems so one stale record cannot hide the rest.
+ */
+async function normalizeProjectBindings(
+  home: string,
+  parsedBindings: readonly ParsedProjectBinding[],
+  path: string,
+  mode: ProjectBindingNormalizationMode,
+): Promise<readonly IngestedProjectBinding[]> {
+  const roots = new Set<string>();
+  const missingProjects = new Set<string>();
+  const bindings: IngestedProjectBinding[] = [];
+
+  for (const [index, binding] of parsedBindings.entries()) {
+    const description = `Local Configuration ${path} bindings[${index}]`;
+    let expandedProject: string | undefined;
+    let canonicalProject: string | undefined;
+    let missing = false;
+    let problem: string | undefined;
+
+    try {
+      expandedProject = expandConfiguredPath(binding.project, home, description, "project");
+    } catch (error) {
+      if (mode.kind === "application") throw error;
+      problem = errorMessage(error);
+    }
+
+    if (expandedProject !== undefined) {
+      try {
+        canonicalProject = await requireExistingDirectory(
+          expandedProject,
+          binding.project,
+          description,
+          "project",
+        );
+      } catch (error) {
+        if (mode.kind === "inventory") {
+          problem = errorMessage(error);
+        } else {
+          if (
+            !mode.allowMissingProjects ||
+            !(await isMissingPath(expandedProject))
+          ) {
+            throw error;
+          }
+          missing = true;
+        }
+      }
+    }
+
+    if (canonicalProject !== undefined) {
+      if (roots.has(canonicalProject)) {
+        const duplicate =
+          `${description} project resolves to duplicate canonical root '${canonicalProject}'`;
+        if (mode.kind === "application") throw new Error(duplicate);
+        canonicalProject = undefined;
+        problem = duplicate;
+      } else {
+        roots.add(canonicalProject);
+      }
+    } else if (missing) {
+      if (missingProjects.has(binding.project)) {
+        throw new Error(
+          `${description} duplicates missing project path '${binding.project}'`,
+        );
+      }
+      missingProjects.add(binding.project);
+    }
+
+    if (mode.kind === "application") requireProfile(mode.profiles, binding.profile);
+    bindings.push({
+      index,
+      project: binding.project,
+      profile: binding.profile,
+      hosts: binding.hosts,
+      ...(canonicalProject === undefined ? {} : { canonicalProject }),
+      ...(expandedProject === undefined ? {} : { expandedProject }),
+      missing,
+      ...(problem === undefined ? {} : { problem }),
+    });
+  }
+
+  return bindings;
 }
 
 /**
@@ -276,57 +377,16 @@ export async function ingestApplicationModelFromSource(
     parsed.workspace,
     path,
   );
-  const allowMissingProjects = options.allowMissingProjects ?? false;
-  const roots = new Set<string>();
-  const missingProjects = new Set<string>();
-  const bindings: IngestedProjectBinding[] = [];
-
-  for (const [index, binding] of parsed.bindings.entries()) {
-    const description = `Local Configuration ${path} bindings[${index}]`;
-    const expanded = expandConfiguredPath(binding.project, home, description, "project");
-    let canonicalProject: string | undefined;
-    let missing = false;
-    try {
-      canonicalProject = await requireExistingDirectory(
-        expanded,
-        binding.project,
-        description,
-        "project",
-      );
-    } catch (error) {
-      if (!allowMissingProjects || !(await isMissingPath(expanded))) throw error;
-      missing = true;
-    }
-
-    if (missing) {
-      if (missingProjects.has(binding.project)) {
-        throw new Error(
-          `${description} duplicates missing project path '${binding.project}'`,
-        );
-      }
-      missingProjects.add(binding.project);
-    } else {
-      if (canonicalProject === undefined) {
-        throw new Error(`${description} project could not be normalized`);
-      }
-      if (roots.has(canonicalProject)) {
-        throw new Error(
-          `${description} project resolves to duplicate canonical root '${canonicalProject}'`,
-        );
-      }
-      roots.add(canonicalProject);
-    }
-
-    requireProfile(workspaceModel.profiles, binding.profile);
-    bindings.push({
-      index,
-      project: binding.project,
-      profile: binding.profile,
-      hosts: binding.hosts,
-      ...(canonicalProject === undefined ? {} : { canonicalProject }),
-      missing,
-    });
-  }
+  const bindings = await normalizeProjectBindings(
+    home,
+    parsed.bindings,
+    path,
+    {
+      allowMissingProjects: options.allowMissingProjects ?? false,
+      kind: "application",
+      profiles: workspaceModel.profiles,
+    },
+  );
 
   return {
     bindings,
@@ -366,15 +426,26 @@ export async function ingestApplicationFromSource(
 }
 
 /**
- * Shared desired-state ingestion boundary: resolve Local Configuration first so
- * validate/preview/apply/status select the same explicitly configured Workspace.
- * `init` reuses `resolveWorkspaceRoot` separately; `uninstall` does not call
- * this path.
+ * Configuration-only Project Binding model. It parses and normalizes Local
+ * Configuration without resolving the selected Workspace or reading its
+ * artifacts, so inventory cannot turn unrelated Workspace state into a
+ * Project-inventory failure.
  */
-export async function ingestApplication(home: string): Promise<{
-  readonly configuration: LocalConfiguration;
-  readonly workspace: Workspace;
-}> {
+export async function ingestProjectBindingsFromSource(
+  home: string,
+  source: string,
+  path: string = localConfigurationPath(home),
+): Promise<readonly IngestedProjectBinding[]> {
+  const parsed = requireCurrentApplicationConfiguration(
+    parseLocalConfiguration(source, path),
+    path,
+  );
+  return normalizeProjectBindings(home, parsed.bindings, path, { kind: "inventory" });
+}
+
+async function readLocalConfigurationSource(
+  home: string,
+): Promise<{ readonly path: string; readonly source: string }> {
   const path = localConfigurationPath(home);
   let source: string;
   try {
@@ -385,6 +456,26 @@ export async function ingestApplication(home: string): Promise<{
     }
     throw error;
   }
+  return { path, source };
+}
 
+export async function ingestProjectBindings(
+  home: string,
+): Promise<readonly IngestedProjectBinding[]> {
+  const { path, source } = await readLocalConfigurationSource(home);
+  return ingestProjectBindingsFromSource(home, source, path);
+}
+
+/**
+ * Shared desired-state ingestion boundary: resolve Local Configuration first so
+ * validate/preview/apply/status select the same explicitly configured Workspace.
+ * `init` reuses `resolveWorkspaceRoot` separately; `uninstall` does not call
+ * this path.
+ */
+export async function ingestApplication(home: string): Promise<{
+  readonly configuration: LocalConfiguration;
+  readonly workspace: Workspace;
+}> {
+  const { path, source } = await readLocalConfigurationSource(home);
   return ingestApplicationFromSource(home, source, path);
 }

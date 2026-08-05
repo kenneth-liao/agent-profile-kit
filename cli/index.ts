@@ -18,6 +18,10 @@ import {
   formatInfoHuman,
   formatInfoJson,
   formatInfoToolErrorJson,
+  formatInventoryIndex,
+  formatProjectInventoryHuman,
+  formatProjectInventoryJson,
+  formatProjectInventoryToolErrorJson,
   formatMissingProfileError,
   formatTemporaryInstallationBlockedJson,
   formatTemporaryInstallationHuman,
@@ -53,12 +57,18 @@ import {
 } from "../installer/temporary-installation.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+import { listProjectBindings } from "../installer/inventory.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
   COMMANDS,
   COMMAND_GROUPS,
   type CommandHelp,
 } from "./command-help.js";
+import {
+  inventoryTopicNames,
+  isInventoryTopic,
+  type InventoryTopic,
+} from "./inventory-topics.js";
 import {
   terminalPresentationContext,
   wrapPresentationText,
@@ -340,6 +350,29 @@ function parseInfoArguments(arguments_: readonly string[]): { readonly json: boo
   return { json: parseOptionalFlag("info", arguments_, "--json") };
 }
 
+function parseListArguments(
+  arguments_: readonly string[],
+):
+  | { readonly kind: "index" }
+  | { readonly json: boolean; readonly kind: "topic"; readonly topic: InventoryTopic } {
+  if (arguments_.length === 0) return { kind: "index" };
+  const topic = positionalArgument("list", "an inventory topic", arguments_[0]!);
+  if (!isInventoryTopic(topic)) {
+    throw new Error(
+      `list does not support topic '${topic}'; available topics: ${inventoryTopicNames().join(", ")}`,
+    );
+  }
+  return {
+    kind: "topic",
+    json: parseOptionalFlag("list", arguments_.slice(1), "--json"),
+    topic,
+  };
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled inventory topic: ${String(value)}`);
+}
+
 function parseLifecycleArguments(
   command: LifecycleCommand,
   arguments_: readonly string[],
@@ -491,6 +524,35 @@ async function main(): Promise<void> {
       process.exitCode = 1;
     }
     return;
+  }
+  if (arguments_.length >= 1 && arguments_[0] === "list") {
+    const parsed = parseOrExit("list", () => parseListArguments(arguments_.slice(1)));
+    if (parsed === undefined) return;
+    if (parsed.kind === "index") {
+      process.stdout.write(formatInventoryIndex());
+      return;
+    }
+    switch (parsed.topic) {
+      case "projects":
+        try {
+          const projects = await listProjectBindings(home);
+          process.stdout.write(
+            parsed.json
+              ? formatProjectInventoryJson(projects)
+              : formatProjectInventoryHuman(projects, home),
+          );
+        } catch (error) {
+          if (parsed.json) {
+            process.stdout.write(formatProjectInventoryToolErrorJson(formatError(error)));
+          } else {
+            process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+          }
+          process.exitCode = 1;
+        }
+        return;
+      default:
+        return assertNever(parsed.topic);
+    }
   }
   if (arguments_.length >= 1 && arguments_[0] === "preview") {
     const parsed = parseOrExit("preview", () => parseLifecycleArguments("preview", arguments_.slice(1)));
