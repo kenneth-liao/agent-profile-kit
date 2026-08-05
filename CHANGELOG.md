@@ -14,9 +14,9 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 - Add read-only `list profiles` views with deterministic Profile IDs and selected Context Module/Skill counts in human and versioned JSON forms ([#161](https://github.com/kenneth-liao/agent-profile-kit/issues/161)).
 
-- Add read-only `list hosts` views with canonical Host order and Temporary Profile Installation eligibility in human and versioned JSON forms ([#163](https://github.com/kenneth-liao/agent-profile-kit/issues/163)).
-
 - Add read-only `list temporary` views for active Temporary Profile Installation identity recovery in human and versioned JSON forms ([#162](https://github.com/kenneth-liao/agent-profile-kit/issues/162)).
+
+- Add read-only `list hosts` views with canonical Host order and Temporary Profile Installation eligibility in human and versioned JSON forms ([#163](https://github.com/kenneth-liao/agent-profile-kit/issues/163)).
 
 - Add read-only `info` human and versioned JSON views for the engine version and Workspace, Local Configuration, and Installation State locations ([#157](https://github.com/kenneth-liao/agent-profile-kit/issues/157)).
 

@@ -6593,7 +6593,7 @@ describe("apkit list", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("Hosts (4):");
+    expect(result.stdout).toContain(`Hosts (${SUPPORTED_HOSTS.length}):`);
     for (const host of SUPPORTED_HOSTS) expect(result.stdout).toContain(`Host: ${host}`);
     expect(result.stdout).toContain("Temporary Profile Installation: supported");
     expect(result.stdout).toContain("Temporary Profile Installation: not supported");
