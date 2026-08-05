@@ -23,6 +23,7 @@ import {
   COMMAND_HELP_ALIASES,
   COMMANDS,
   COMMAND_GROUPS,
+  HELP_COMMAND,
 } from "../cli/command-help.js";
 import { TOPIC_GUIDES } from "../cli/guides.js";
 import {
@@ -6153,18 +6154,20 @@ describe("apkit root help", () => {
     const help = runCli(home, "--help");
     const shortHelp = runCli(home, "-h");
     const helpCommand = runCli(home, "help");
+    const nestedLongHelp = runCli(home, HELP_COMMAND, "--help");
+    const nestedShortHelp = runCli(home, HELP_COMMAND, "-h");
+    const nestedVersion = runCli(home, HELP_COMMAND, "--version");
 
-    expect(bare.status, bare.stderr).toBe(0);
-    expect(help.status, help.stderr).toBe(0);
-    expect(shortHelp.status, shortHelp.stderr).toBe(0);
-    expect(helpCommand.status, helpCommand.stderr).toBe(0);
-    expect(bare.stderr).toBe("");
-    expect(help.stderr).toBe("");
-    expect(shortHelp.stderr).toBe("");
-    expect(helpCommand.stderr).toBe("");
+    for (const result of [bare, help, shortHelp, helpCommand, nestedLongHelp, nestedShortHelp, nestedVersion]) {
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toBe("");
+    }
     expect(bare.stdout).toBe(help.stdout);
     expect(shortHelp.stdout).toBe(help.stdout);
     expect(helpCommand.stdout).toBe(help.stdout);
+    expect(nestedLongHelp.stdout).toBe(help.stdout);
+    expect(nestedShortHelp.stdout).toBe(help.stdout);
+    expect(nestedVersion.stdout).toBe(help.stdout);
     expect(bare.stdout.length).toBeGreaterThan(0);
   });
 
@@ -6280,14 +6283,14 @@ describe("apkit root help", () => {
 
   test("focused help accepts help, -h, and --help aliases with identical output", () => {
     const home = isolatedHome();
+    expect(COMMAND_HELP_ALIASES).toEqual(["-h", "--help"]);
 
     for (const command of COMMANDS) {
-      const helpCommand = runCli(home, "help", command.name);
+      const helpCommand = runCli(home, HELP_COMMAND, command.name);
 
       expect(helpCommand.status, `help ${command.name}: ${helpCommand.stderr}`).toBe(0);
       expect(helpCommand.stderr).toBe("");
-      expect(command.aliases).toEqual(COMMAND_HELP_ALIASES);
-      for (const alias of command.aliases) {
+      for (const alias of COMMAND_HELP_ALIASES) {
         const aliasHelp = runCli(home, command.name, alias);
         expect(aliasHelp.status, `${command.name} ${alias}: ${aliasHelp.stderr}`).toBe(0);
         expect(aliasHelp.stderr).toBe("");
@@ -6420,8 +6423,10 @@ describe("apkit root help", () => {
     const home = isolatedHome();
     const close = runCli(home, "stats");
     const distant = runCli(home, "frobnicate");
+    const tied = runCli(home, "inf");
     const unknownHelp = runCli(home, "help", "stats");
     const unknownShortHelp = runCli(home, "stats", "-h");
+    const unsafe = runCli(home, "\u001b[2J");
 
     expect(close.status).toBe(1);
     expect(close.stdout).toBe("");
@@ -6438,14 +6443,24 @@ describe("apkit root help", () => {
     expect(distant.stderr).toContain("Run apkit --help for available commands.");
     expect(distant.stderr).not.toContain("Commands:");
 
-    for (const result of [unknownHelp, unknownShortHelp]) {
+    expect(tied.status).toBe(1);
+    expect(tied.stderr).toContain("apkit: unknown command 'inf'");
+    expect(tied.stderr).toContain("Did you mean: apkit info?");
+    expect(tied.stderr.match(/Did you mean:/g)).toHaveLength(1);
+    expect(tied.stderr).not.toContain("Commands:");
+
+    for (const result of [unknownHelp, unknownShortHelp, unsafe]) {
       expect(result.status).toBe(1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("apkit: unknown command 'stats'");
-      expect(result.stderr).toContain("Did you mean: apkit status?");
       expect(result.stderr).toContain("Run apkit --help for available commands.");
       expect(result.stderr).not.toContain("Commands:");
+      for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(result.stderr).not.toMatch(term);
     }
+    expect(unknownHelp.stderr).toContain("apkit: unknown command 'stats'");
+    expect(unknownHelp.stderr).toContain("Did you mean: apkit status?");
+    expect(unknownShortHelp.stderr).toContain("apkit: unknown command 'stats'");
+    expect(unknownShortHelp.stderr).toContain("Did you mean: apkit status?");
+    expect(unsafe.stderr).not.toContain("\u001b");
   });
 
   test("leading-dash values are never consumed as positional arguments", () => {

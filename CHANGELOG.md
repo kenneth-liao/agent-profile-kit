@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Handle nested root-help aliases, sanitize unknown-command diagnostics, and normalize focused-help parsing ([#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158)).
+
 - Keep Project inventory available when individual configured roots are invalid, centralize inventory topic metadata, and include engine provenance in JSON ([#160](https://github.com/kenneth-liao/agent-profile-kit/issues/160)).
 
 - Report legacy Local Configuration explicitly in `info`, keep error JSON Workspace-unknown, and document the versioned configuration state ([#157](https://github.com/kenneth-liao/agent-profile-kit/issues/157)).

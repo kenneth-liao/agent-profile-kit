@@ -60,8 +60,10 @@ import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { listProjectBindings } from "../installer/inventory.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
+  COMMAND_HELP_ALIASES,
   COMMANDS,
   COMMAND_GROUPS,
+  HELP_COMMAND,
   ROOT_HELP_ALIASES,
   type CommandHelp,
 } from "./command-help.js";
@@ -101,11 +103,32 @@ function findCommand(name: string): CommandHelp {
   return command;
 }
 
-function focusedHelpRequest(arguments_: readonly string[]): string | undefined {
+type FocusedHelpRequest =
+  | { readonly kind: "root" }
+  | { readonly kind: "command"; readonly command: CommandHelp }
+  | { readonly kind: "unknown"; readonly token: string };
+
+function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest | undefined {
   if (arguments_.length !== 2) return undefined;
-  if (arguments_[0] === "help") return arguments_[1];
-  const command = COMMANDS.find((candidate) => candidate.name === arguments_[0]);
-  return command?.aliases.includes(arguments_[1]!) ? command.name : undefined;
+  const first = arguments_[0]!;
+  const second = arguments_[1]!;
+  if (first === HELP_COMMAND) {
+    if (ROOT_HELP_ALIASES.some((alias) => alias === second) || second === "--version") {
+      return { kind: "root" };
+    }
+    const command = COMMANDS.find((candidate) => candidate.name === second);
+    return command === undefined
+      ? { kind: "unknown", token: second }
+      : { kind: "command", command };
+  }
+  const command = COMMANDS.find((candidate) => candidate.name === first);
+  if (command !== undefined && COMMAND_HELP_ALIASES.some((alias) => alias === second)) {
+    return { kind: "command", command };
+  }
+  if (COMMAND_HELP_ALIASES.some((alias) => alias === second)) {
+    return { kind: "unknown", token: first };
+  }
+  return undefined;
 }
 
 const MAX_COMMAND_SUGGESTION_DISTANCE = 2;
@@ -140,13 +163,26 @@ function suggestedCommand(unknown: string): string | undefined {
     ?.name;
 }
 
-function unknownCommandHelp(unknown: string): string {
-  const suggestion = suggestedCommand(unknown);
-  const suggestionLine = suggestion === undefined
-    ? ""
-    : `\nDid you mean: ${COMMAND_NAME} ${suggestion}?`;
-  return `${COMMAND_NAME}: unknown command '${unknown}'${suggestionLine}\n\n` +
-    `Run ${COMMAND_NAME} --help for available commands.\n`;
+function sanitizeCommandToken(token: string): string {
+  return token.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").replaceAll("'", "\\'");
+}
+
+function wrapErrorLine(text: string, width: number): string {
+  return wrapPresentationText(text, width)
+    .map((line, index) => index === 0 ? line : `  ${line}`)
+    .join("\n");
+}
+
+function unknownCommandHelp(unknown: string, context: TerminalPresentationContext): string {
+  const safeUnknown = sanitizeCommandToken(unknown);
+  const suggestion = suggestedCommand(safeUnknown);
+  const unknownLine = `${defaultViewText(`${COMMAND_NAME}: unknown command `)}'${safeUnknown}'`;
+  const lines = [unknownLine];
+  if (suggestion !== undefined) lines.push(`${defaultViewText("Did you mean:")} ${COMMAND_NAME} ${suggestion}?`);
+  lines.push("", defaultViewText(`Run ${COMMAND_NAME} --help for available commands.`));
+  return lines
+    .map((line) => line === "" ? "" : wrapErrorLine(line, context.width))
+    .join("\n") + "\n";
 }
 
 function perCommandHelp(command: CommandHelp): string {
@@ -460,12 +496,13 @@ async function main(): Promise<void> {
     return;
   }
   const focusedHelp = focusedHelpRequest(arguments_);
-  if (focusedHelp !== undefined) {
-    const command = COMMANDS.find((candidate) => candidate.name === focusedHelp);
-    if (command) {
-      process.stdout.write(perCommandHelp(command));
-      return;
-    }
+  if (focusedHelp?.kind === "root") {
+    process.stdout.write(rootHelp(terminalPresentationContext(process.stdout)));
+    return;
+  }
+  if (focusedHelp?.kind === "command") {
+    process.stdout.write(perCommandHelp(focusedHelp.command));
+    return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "guide") {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));
@@ -796,10 +833,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  const unknown = arguments_[0] === "help" && focusedHelp !== undefined
-    ? focusedHelp
+  const unknown = focusedHelp?.kind === "unknown"
+    ? focusedHelp.token
     : arguments_[0] ?? "";
-  process.stderr.write(unknownCommandHelp(unknown));
+  process.stderr.write(unknownCommandHelp(unknown, terminalPresentationContext(process.stderr)));
   process.exitCode = 1;
 }
 

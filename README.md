@@ -167,12 +167,14 @@ Workspace source, and a custom authored Workspace path is preserved. `info`
 reports `Workspace: Legacy configuration; run apkit init` (and
 `configurationState: "legacy"` under `--json`) until that migration completes.
 
-Run `apkit` with no arguments or `apkit --help` for a
-concise summary of every command and the minimal `init` → `bind` → `preview` →
-`apply` flow. Use `apkit guide profile`, `apkit guide context`, or `apkit guide
-skill` for a short copyable example. Run `apkit guide` for the topic index,
-`apkit guide --full` for the complete Workspace guide, and `apkit guide --agent`
-for agent-facing authoring boundaries.
+Run `apkit` with no arguments or `apkit --help` for a concise summary of every
+command and the minimal `init` → `bind` → `preview` → `apply` flow. Focused help
+is available as `apkit help <command>`, `apkit <command> -h`, or
+`apkit <command> --help`; use `apkit bind --help` to see supported Hosts. Use
+`apkit guide profile`, `apkit guide context`, or `apkit guide skill` for a short
+copyable example. Run `apkit guide` for the topic index, `apkit guide --full`
+for the complete Workspace guide, and `apkit guide --agent` for agent-facing
+authoring boundaries.
 
 ## Product layout
 
