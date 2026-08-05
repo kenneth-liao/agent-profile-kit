@@ -7,7 +7,7 @@ import {
   type ArtifactReference,
   type ArtifactType,
 } from "./dependencies.js";
-import { isSupportedHost, SUPPORTED_HOSTS } from "./local-configuration.js";
+import { isSupportedHost, SUPPORTED_HOSTS, type SupportedHost } from "./local-configuration.js";
 
 export const INSTALLATION_MANIFEST_SCHEMA_VERSION = 2;
 export const INSTALLATION_STATE_LEGACY_SCHEMA_VERSION = 2;
@@ -129,7 +129,7 @@ export interface TemporaryProfileInstallation {
   readonly engineVersion: string;
   /** Whether the installation was planned from a Git project boundary. */
   readonly gitProject?: boolean;
-  readonly host: string;
+  readonly host: SupportedHost;
   readonly hostVersion: string;
   /** Owned outputs; empty once removed. */
   readonly outputs: readonly OwnedOutput[];

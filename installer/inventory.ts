@@ -28,7 +28,7 @@ export interface ProfileInventoryRecord {
 
 /** One active Temporary Profile Installation prepared for read-only inventory. */
 export interface TemporaryInventoryRecord {
-  readonly host: string;
+  readonly host: SupportedHost;
   readonly profileId: string;
   /** Canonical absolute Project root retained by the temporary receipt. */
   readonly project: string;

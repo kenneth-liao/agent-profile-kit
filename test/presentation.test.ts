@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { homedir } from "node:os";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { HostSetupStep } from "../adapters/project-plan.js";
@@ -14,6 +15,7 @@ import {
   formatLifecycleReport,
   formatLifecycleToolErrorJson,
   formatUninstallResult,
+  displayPath,
   lifecycleExitCode,
   INTERNAL_ONLY_DEFAULT_TERMS,
   NON_CURRENT_STATE_ORDER,
@@ -557,6 +559,28 @@ describe("formatLifecycleReport concise terminology", () => {
 
     expect(concise).toContain("Project: ~/another-project\n");
     expect(concise).not.toContain(`Project: ${project}\n`);
+  });
+
+  test("keeps canonical paths short through symlinked home and working-directory aliases", () => {
+    const physicalHome = mkdtempSync(join(tmpdir(), "agent-profile-kit-display-home-"));
+    const logicalHome = `${physicalHome}-alias`;
+    const physicalProjects = join(physicalHome, "projects");
+    symlinkSync(physicalHome, logicalHome, "dir");
+    mkdirSync(physicalProjects);
+    const physicalProject = join(physicalProjects, "project");
+    mkdirSync(join(physicalProject, "nested"), { recursive: true });
+    const logicalCwd = join(logicalHome, "projects", "project", "nested");
+    const canonicalProject = realpathSync(physicalProject);
+
+    try {
+      expect(displayPath(canonicalProject, canonicalProject, "/outside", logicalHome)).toBe(
+        "~/projects/project",
+      );
+      expect(displayPath(canonicalProject, canonicalProject, logicalCwd, logicalHome)).toBe("..");
+    } finally {
+      rmSync(logicalHome, { force: true });
+      rmSync(physicalHome, { force: true, recursive: true });
+    }
   });
 
   test("lists committed paths under the short project identity in the apply receipt", () => {

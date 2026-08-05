@@ -364,14 +364,15 @@ export async function installTemporaryProfile(options: {
   readonly project: string;
   readonly hooks?: TemporaryInstallationHooks;
 }): Promise<TemporaryInstallationReceipt> {
-  if (!isSupportedHost(options.host)) {
+  const host = options.host;
+  if (!isSupportedHost(host)) {
     throw new Error(
-      `unsupported Agent Host '${options.host}'; temporary installation supports: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
+      `unsupported Agent Host '${host}'; temporary installation supports: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
     );
   }
-  if (!isTemporaryInstallationHost(options.host)) {
+  if (!isTemporaryInstallationHost(host)) {
     throw new Error(
-      `temporary installation does not yet support Agent Host '${options.host}'; supported Hosts: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
+      `temporary installation does not yet support Agent Host '${host}'; supported Hosts: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
     );
   }
   const profileId = requireArtifactId(options.profile, "install-temp profile");
@@ -383,7 +384,7 @@ export async function installTemporaryProfile(options: {
   const desired = await planTemporaryDesiredInstallation({
     authoredProject: options.project,
     home: options.home,
-    host: options.host,
+    host,
     profileId,
     project: canonicalProject,
   });
@@ -414,8 +415,8 @@ export async function installTemporaryProfile(options: {
         completionState: "installed",
         engineVersion: manifest.engineVersion,
         ...(manifest.gitProject === undefined ? {} : { gitProject: manifest.gitProject }),
-        host: options.host,
-        hostVersion: manifest.hostVersions[options.host]!,
+        host,
+        hostVersion: manifest.hostVersions[host]!,
         outputs: manifest.outputs,
         profileId: manifest.profileId,
         project: manifest.project,

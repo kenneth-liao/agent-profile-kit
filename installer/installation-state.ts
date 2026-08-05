@@ -238,13 +238,9 @@ export async function writeInstallationState(
   await writeFile(
     temporary,
     formatInstallationState({
-      ...state,
+      ...normalizedInstallationState(state),
       intendedTeardowns: [...state.intendedTeardowns]
         .sort((left, right) => left.project.localeCompare(right.project)),
-      installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
-      temporaryInstallations: [...state.temporaryInstallations].sort((left, right) =>
-        left.temporaryInstallationId.localeCompare(right.temporaryInstallationId)
-      ),
     }),
     { flag: "wx" },
   );
