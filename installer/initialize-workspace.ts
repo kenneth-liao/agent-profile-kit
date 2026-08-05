@@ -53,7 +53,7 @@ const WORKSPACE_ROOT_FILES = {
 
 This Workspace is the canonical source for your Agent Profile Kit material.
 
-Run \`${COMMAND_NAME} guide\` for current authoring guidance.
+Run \`${COMMAND_NAME} guide --full\` for current authoring guidance.
 `,
   "AGENTS.md": `# Agent Profile Kit Workspace
 

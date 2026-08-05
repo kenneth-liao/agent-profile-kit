@@ -31,7 +31,7 @@ produced them.
 |---|-------|---------|------------------------|
 | 1 | Discover | `apkit`, `--help`, `-h`, `help`, `--version` | Understand what the tool does and the shortest path to value |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
-| 3 | Learn the format | `guide [profile\|context\|skill\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
+| 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
 | 5 | Bind | `bind <profile> [project] --host <host>` | One project associated with one Profile and its Hosts |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed |
@@ -83,9 +83,11 @@ Gaps: ~~[UJ-01](#uj-01)~~ (shipped in [#121](https://github.com/kenneth-liao/age
 
 ### 3. Learn the format
 
-`guide` and `guide --agent` retain the complete human- and agent-facing guides.
-`guide profile`, `guide context`, and `guide skill` each return short focused
-guidance with a complete copyable example.
+`guide` prints a concise topic index with examples. `guide --full` and
+`guide --agent` retain the complete human- and agent-facing guides.
+`guide profile`, `guide context`, and `guide skill` each return focused,
+terminal-width-aware guidance with a complete copyable example; fenced examples
+and copyable values remain intact.
 
 Gaps: ~~[UJ-01](#uj-01)~~ (shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121)).
 

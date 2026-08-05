@@ -7,7 +7,7 @@ const profile = AUTHORING_EXAMPLES.profile.id;
 
 export const COMMAND_EXAMPLES = {
   init: ["init", `init ${workspace}`],
-  guide: ["guide", "guide profile", "guide context", "guide skill", "guide --agent"],
+  guide: ["guide", "guide profile", "guide context", "guide skill", "guide --full", "guide --agent"],
   bind: [
     `bind ${profile} --host codex`,
     `bind ${profile} ${project} --host codex --host claude`,

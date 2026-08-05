@@ -161,8 +161,9 @@ reports `Workspace: Legacy configuration; run apkit init` (and
 Run `apkit` with no arguments or `apkit --help` for a
 concise summary of every command and the minimal `init` → `bind` → `preview` →
 `apply` flow. Use `apkit guide profile`, `apkit guide context`, or `apkit guide
-skill` for a short copyable example, `apkit guide` for the full Workspace guide,
-and `apkit guide --agent` for agent-facing authoring boundaries.
+skill` for a short copyable example. Run `apkit guide` for the topic index,
+`apkit guide --full` for the complete Workspace guide, and `apkit guide --agent`
+for agent-facing authoring boundaries.
 
 ## Product layout
 
@@ -200,7 +201,8 @@ When configuration already selects a Workspace, an explicit path must be an
 equivalent canonical alias; `init` never switches the selection. When it finds
 supported legacy configuration, it upgrades only the local configuration after
 validating the effective target. Current authoring guidance remains
-owned by the CLI through its focused and full `apkit guide` forms;
+owned by the CLI through its focused `apkit guide <topic>` and complete
+`apkit guide --full` forms;
 initialization copies only the neutral canonical example, never personal
 material.
 
