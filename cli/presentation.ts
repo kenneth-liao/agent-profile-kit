@@ -25,7 +25,7 @@ import type {
   ApplicationInfoLocations,
   InfoConfigurationState,
 } from "../installer/info.js";
-import { INVENTORY_TOPICS } from "./inventory-topics.js";
+import { INVENTORY_TOPICS, type InventoryTopic } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
@@ -437,12 +437,39 @@ export function formatProjectInventoryHuman(
   return `${lines.join("\n")}\n`;
 }
 
-interface ProjectInventoryMachineBase {
+interface ListInventoryMachineBase<Topic extends InventoryTopic> {
   readonly command: "list";
   readonly engineVersion: string;
   readonly schemaVersion: 1;
-  readonly topic: "projects";
+  readonly topic: Topic;
 }
+
+type ListInventoryMachineOutcome = "error" | "success";
+
+function listInventoryMachinePayload<
+  Topic extends InventoryTopic,
+  Outcome extends ListInventoryMachineOutcome,
+  Payload extends object,
+>(
+  topic: Topic,
+  outcome: Outcome,
+  payload: Payload,
+): ListInventoryMachineBase<Topic> & { readonly outcome: Outcome } & Payload {
+  return {
+    schemaVersion: 1,
+    command: "list",
+    topic,
+    outcome,
+    engineVersion: ENGINE_VERSION,
+    ...payload,
+  };
+}
+
+function serializeListInventoryMachinePayload(payload: object): string {
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+type ProjectInventoryMachineBase = ListInventoryMachineBase<"projects">;
 
 interface ProjectInventoryMachineSuccessPayload extends ProjectInventoryMachineBase {
   readonly outcome: "success";
@@ -459,39 +486,23 @@ type ProjectInventoryMachinePayload =
   | ProjectInventoryMachineErrorPayload
   | ProjectInventoryMachineSuccessPayload;
 
-function projectInventoryMachineBase(): ProjectInventoryMachineBase {
-  return {
-    schemaVersion: 1,
-    command: "list",
-    topic: "projects",
-    engineVersion: ENGINE_VERSION,
-  };
-}
-
-function serializeProjectInventoryMachinePayload(
-  payload: ProjectInventoryMachinePayload,
-): string {
-  return `${JSON.stringify(payload, null, 2)}\n`;
-}
-
 /** Versioned machine payload for the read-only Project inventory topic. */
 export function formatProjectInventoryJson(
   projects: readonly ProjectInventoryRecord[],
 ): string {
-  return serializeProjectInventoryMachinePayload({
-    ...projectInventoryMachineBase(),
-    outcome: "success",
-    projects,
-  });
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("projects", "success", { projects }) satisfies
+      ProjectInventoryMachinePayload,
+  );
 }
 
 export function formatProjectInventoryToolErrorJson(message: string): string {
-  return serializeProjectInventoryMachinePayload({
-    ...projectInventoryMachineBase(),
-    outcome: "error",
-    error: message,
-    projects: [],
-  });
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("projects", "error", {
+      error: message,
+      projects: [] as const,
+    }) satisfies ProjectInventoryMachinePayload,
+  );
 }
 
 export function formatProfileInventoryHuman(
@@ -517,12 +528,7 @@ export function formatProfileInventoryHuman(
   return `${lines.join("\n")}\n`;
 }
 
-interface ProfileInventoryMachineBase {
-  readonly command: "list";
-  readonly engineVersion: string;
-  readonly schemaVersion: 1;
-  readonly topic: "profiles";
-}
+type ProfileInventoryMachineBase = ListInventoryMachineBase<"profiles">;
 
 interface ProfileInventoryMachineSuccessPayload extends ProfileInventoryMachineBase {
   readonly outcome: "success";
@@ -539,38 +545,22 @@ type ProfileInventoryMachinePayload =
   | ProfileInventoryMachineErrorPayload
   | ProfileInventoryMachineSuccessPayload;
 
-function profileInventoryMachineBase(): ProfileInventoryMachineBase {
-  return {
-    schemaVersion: 1,
-    command: "list",
-    topic: "profiles",
-    engineVersion: ENGINE_VERSION,
-  };
-}
-
-function serializeProfileInventoryMachinePayload(
-  payload: ProfileInventoryMachinePayload,
-): string {
-  return `${JSON.stringify(payload, null, 2)}\n`;
-}
-
 export function formatProfileInventoryJson(
   profiles: readonly ProfileInventoryRecord[],
 ): string {
-  return serializeProfileInventoryMachinePayload({
-    ...profileInventoryMachineBase(),
-    outcome: "success",
-    profiles,
-  });
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("profiles", "success", { profiles }) satisfies
+      ProfileInventoryMachinePayload,
+  );
 }
 
 export function formatProfileInventoryToolErrorJson(message: string): string {
-  return serializeProfileInventoryMachinePayload({
-    ...profileInventoryMachineBase(),
-    outcome: "error",
-    error: message,
-    profiles: [],
-  });
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("profiles", "error", {
+      error: message,
+      profiles: [] as const,
+    }) satisfies ProfileInventoryMachinePayload,
+  );
 }
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {

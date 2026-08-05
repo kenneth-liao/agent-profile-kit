@@ -29,7 +29,7 @@ produced them.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `list`, `list projects [--json]` | Understand the command surface, command-specific guidance, and which Projects are configured |
+| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `list`, `list projects [--json]`, `list profiles [--json]` | Understand the command surface, command-specific guidance, which Projects are configured, and which Profiles are available from the selected Workspace |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
@@ -71,8 +71,9 @@ set in `cli/examples.ts`.
 
 `list` is the read-only inventory entrypoint: without a topic it shows available
 inventory topics and examples, while `list projects` reads Project Bindings from
-normalized Local Configuration. It is distinct from `status`, which remains the
-ordinary Project lifecycle diagnostic.
+normalized Local Configuration and `list profiles` reads Profile selections from
+the selected Workspace. It is distinct from `status`, which remains the ordinary
+Project lifecycle diagnostic.
 
 Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
 

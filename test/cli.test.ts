@@ -6614,6 +6614,22 @@ describe("apkit list", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
+  test("profiles renders an actionable empty Workspace message", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "profiles");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("No Profiles are available.");
+    expect(result.stdout).toContain(
+      "Next: Add a Profile to the selected Workspace, then run apkit list profiles.",
+    );
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
   test("profiles JSON carries the same records without inspecting Projects, state, or Hosts", () => {
     const home = isolatedHome();
     initialize(home);
