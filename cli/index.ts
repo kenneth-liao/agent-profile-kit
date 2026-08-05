@@ -109,6 +109,14 @@ type FocusedHelpRequest =
   | { readonly kind: "unknown"; readonly token: string };
 
 function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest | undefined {
+  if (arguments_.length === 3 && arguments_[0] === HELP_COMMAND) {
+    const commandToken = arguments_[1]!;
+    const command = COMMANDS.find((candidate) => candidate.name === commandToken);
+    if (command !== undefined && COMMAND_HELP_ALIASES.some((alias) => alias === arguments_[2])) {
+      return { kind: "command", command };
+    }
+    return { kind: "unknown", token: commandToken };
+  }
   if (arguments_.length !== 2) return undefined;
   const first = arguments_[0]!;
   const second = arguments_[1]!;

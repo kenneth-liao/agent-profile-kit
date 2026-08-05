@@ -6292,9 +6292,16 @@ describe("apkit root help", () => {
       expect(helpCommand.stderr).toBe("");
       for (const alias of COMMAND_HELP_ALIASES) {
         const aliasHelp = runCli(home, command.name, alias);
+        const prefixedAliasHelp = runCli(home, HELP_COMMAND, command.name, alias);
         expect(aliasHelp.status, `${command.name} ${alias}: ${aliasHelp.stderr}`).toBe(0);
+        expect(
+          prefixedAliasHelp.status,
+          `${HELP_COMMAND} ${command.name} ${alias}: ${prefixedAliasHelp.stderr}`,
+        ).toBe(0);
         expect(aliasHelp.stderr).toBe("");
+        expect(prefixedAliasHelp.stderr).toBe("");
         expect(aliasHelp.stdout).toBe(helpCommand.stdout);
+        expect(prefixedAliasHelp.stdout).toBe(helpCommand.stdout);
       }
     }
   });
