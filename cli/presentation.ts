@@ -16,6 +16,7 @@ import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exc
 import { COMMAND_NAME } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { UninstallResult, ValidationResult } from "../installer/commands.js";
+import type { ProjectInventoryRecord } from "../installer/inventory.js";
 import type {
   ApplicationInfo,
   ApplicationInfoLocations,
@@ -387,6 +388,95 @@ export function formatInfoToolErrorJson(
     localConfiguration: locations.localConfiguration,
     installationState: locations.installationState,
   });
+}
+
+export function formatInventoryIndex(): string {
+  return (
+    "Inventory topics:\n" +
+    `  ${COMMAND_NAME} list projects\n` +
+    "    Project inventory from Local Configuration.\n" +
+    `    JSON example: ${COMMAND_NAME} list projects --json\n`
+  );
+}
+
+export function formatProjectInventoryHuman(
+  projects: readonly ProjectInventoryRecord[],
+  home = homedir(),
+  cwd = process.cwd(),
+): string {
+  if (projects.length === 0) {
+    return (
+      "No Projects are configured.\n" +
+      `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.\n`
+    );
+  }
+
+  const lines = [`Projects (${projects.length}):`];
+  for (const project of projects) {
+    lines.push(
+      "",
+      `Project: ${displayProjectPath(
+        project.canonicalProject ?? project.project,
+        project.project,
+        cwd,
+        home,
+      )}`,
+      `  Profile: ${project.profile}`,
+      `  Hosts: ${project.hosts.join(", ")}`,
+    );
+  }
+  lines.push("", `Next: Run ${COMMAND_NAME} status for Project lifecycle diagnostics.`);
+  return `${lines.join("\n")}\n`;
+}
+
+interface ProjectInventoryMachinePayload {
+  readonly canonicalProject: string | null;
+  readonly hosts: readonly string[];
+  readonly profile: string;
+  readonly project: string;
+}
+
+function projectInventoryMachinePayload(
+  project: ProjectInventoryRecord,
+): ProjectInventoryMachinePayload {
+  return {
+    canonicalProject: project.canonicalProject,
+    hosts: [...project.hosts],
+    profile: project.profile,
+    project: project.project,
+  };
+}
+
+/** Versioned machine payload for the read-only Project inventory topic. */
+export function formatProjectInventoryJson(
+  projects: readonly ProjectInventoryRecord[],
+): string {
+  return `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      command: "list",
+      topic: "projects",
+      outcome: "success",
+      projects: projects.map(projectInventoryMachinePayload),
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+export function formatProjectInventoryToolErrorJson(message: string): string {
+  return `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      command: "list",
+      topic: "projects",
+      outcome: "error",
+      error: message,
+      projects: [],
+    },
+    null,
+    2,
+  )}\n`;
 }
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {

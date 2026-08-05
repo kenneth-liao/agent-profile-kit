@@ -236,6 +236,11 @@ export interface IngestedApplicationSource {
   readonly workspaceModel: Workspace;
 }
 
+export interface IngestedProjectBindingsSource {
+  readonly bindings: readonly IngestedProjectBinding[];
+  readonly schemaVersion: 2;
+}
+
 async function isMissingPath(expanded: string): Promise<boolean> {
   try {
     await lstat(expanded);
@@ -256,32 +261,24 @@ async function ingestWorkspaceFromConfiguration(
 }
 
 /**
- * Trusted Local Configuration + Workspace model from an exact source snapshot.
- * Missing project roots can be retained as explicit recovery candidates for
- * recording commands; all other path, Profile, and duplicate-root invariants
- * remain shared with desired-state ingestion.
+ * Normalize the Project Binding portion of Local Configuration once. The
+ * optional Profile map lets full desired-state ingestion retain its Profile
+ * validation while configuration-only readers avoid loading Workspace
+ * artifacts that are outside their boundary.
  */
-export async function ingestApplicationModelFromSource(
+async function normalizeProjectBindings(
   home: string,
-  source: string,
-  path: string = localConfigurationPath(home),
+  parsedBindings: readonly ParsedProjectBinding[],
+  path: string,
   options: { readonly allowMissingProjects?: boolean } = {},
-): Promise<IngestedApplicationSource> {
-  const parsed = requireCurrentApplicationConfiguration(
-    parseLocalConfiguration(source, path),
-    path,
-  );
-  const workspaceModel = await ingestWorkspaceFromConfiguration(
-    home,
-    parsed.workspace,
-    path,
-  );
+  profiles?: ReadonlyMap<string, unknown>,
+): Promise<readonly IngestedProjectBinding[]> {
   const allowMissingProjects = options.allowMissingProjects ?? false;
   const roots = new Set<string>();
   const missingProjects = new Set<string>();
   const bindings: IngestedProjectBinding[] = [];
 
-  for (const [index, binding] of parsed.bindings.entries()) {
+  for (const [index, binding] of parsedBindings.entries()) {
     const description = `Local Configuration ${path} bindings[${index}]`;
     const expanded = expandConfiguredPath(binding.project, home, description, "project");
     let canonicalProject: string | undefined;
@@ -317,7 +314,7 @@ export async function ingestApplicationModelFromSource(
       roots.add(canonicalProject);
     }
 
-    requireProfile(workspaceModel.profiles, binding.profile);
+    if (profiles !== undefined) requireProfile(profiles, binding.profile);
     bindings.push({
       index,
       project: binding.project,
@@ -327,6 +324,38 @@ export async function ingestApplicationModelFromSource(
       missing,
     });
   }
+
+  return bindings;
+}
+
+/**
+ * Trusted Local Configuration + Workspace model from an exact source snapshot.
+ * Missing project roots can be retained as explicit recovery candidates for
+ * recording commands; all other path, Profile, and duplicate-root invariants
+ * remain shared with desired-state ingestion.
+ */
+export async function ingestApplicationModelFromSource(
+  home: string,
+  source: string,
+  path: string = localConfigurationPath(home),
+  options: { readonly allowMissingProjects?: boolean } = {},
+): Promise<IngestedApplicationSource> {
+  const parsed = requireCurrentApplicationConfiguration(
+    parseLocalConfiguration(source, path),
+    path,
+  );
+  const workspaceModel = await ingestWorkspaceFromConfiguration(
+    home,
+    parsed.workspace,
+    path,
+  );
+  const bindings = await normalizeProjectBindings(
+    home,
+    parsed.bindings,
+    path,
+    options,
+    workspaceModel.profiles,
+  );
 
   return {
     bindings,
@@ -366,15 +395,30 @@ export async function ingestApplicationFromSource(
 }
 
 /**
- * Shared desired-state ingestion boundary: resolve Local Configuration first so
- * validate/preview/apply/status select the same explicitly configured Workspace.
- * `init` reuses `resolveWorkspaceRoot` separately; `uninstall` does not call
- * this path.
+ * Configuration-only Project Binding model. It parses and normalizes Local
+ * Configuration without resolving the selected Workspace or reading its
+ * artifacts, so inventory cannot turn unrelated Workspace state into a
+ * Project-inventory failure.
  */
-export async function ingestApplication(home: string): Promise<{
-  readonly configuration: LocalConfiguration;
-  readonly workspace: Workspace;
-}> {
+export async function ingestProjectBindingsFromSource(
+  home: string,
+  source: string,
+  path: string = localConfigurationPath(home),
+  options: { readonly allowMissingProjects?: boolean } = {},
+): Promise<IngestedProjectBindingsSource> {
+  const parsed = requireCurrentApplicationConfiguration(
+    parseLocalConfiguration(source, path),
+    path,
+  );
+  return {
+    bindings: await normalizeProjectBindings(home, parsed.bindings, path, options),
+    schemaVersion: parsed.schemaVersion,
+  };
+}
+
+async function readLocalConfigurationSource(
+  home: string,
+): Promise<{ readonly path: string; readonly source: string }> {
   const path = localConfigurationPath(home);
   let source: string;
   try {
@@ -385,6 +429,27 @@ export async function ingestApplication(home: string): Promise<{
     }
     throw error;
   }
+  return { path, source };
+}
 
+export async function ingestProjectBindings(
+  home: string,
+  options: { readonly allowMissingProjects?: boolean } = {},
+): Promise<IngestedProjectBindingsSource> {
+  const { path, source } = await readLocalConfigurationSource(home);
+  return ingestProjectBindingsFromSource(home, source, path, options);
+}
+
+/**
+ * Shared desired-state ingestion boundary: resolve Local Configuration first so
+ * validate/preview/apply/status select the same explicitly configured Workspace.
+ * `init` reuses `resolveWorkspaceRoot` separately; `uninstall` does not call
+ * this path.
+ */
+export async function ingestApplication(home: string): Promise<{
+  readonly configuration: LocalConfiguration;
+  readonly workspace: Workspace;
+}> {
+  const { path, source } = await readLocalConfigurationSource(home);
   return ingestApplicationFromSource(home, source, path);
 }

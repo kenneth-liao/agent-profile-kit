@@ -6452,6 +6452,227 @@ describe("apkit root help", () => {
   });
 });
 
+describe("apkit list", () => {
+  test("without a topic, prints a self-describing inventory index without configuration", () => {
+    const home = isolatedHome();
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Inventory topics:");
+    expect(result.stdout).toContain("apkit list projects");
+    expect(result.stdout).toContain("Project inventory");
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("projects uses the existing Local Configuration error boundary", () => {
+    const home = isolatedHome();
+
+    const human = runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+    const machine = runCliWithPath(home, process.env.PATH ?? "", "list", "projects", "--json");
+
+    expect(human.status).toBe(1);
+    expect(human.stdout).toBe("");
+    expect(human.stderr).toContain("Local Configuration is missing");
+    expect(human.stderr).toContain("run apkit init");
+    expect(machine.status).toBe(1);
+    expect(machine.stderr).toBe("");
+    expect(JSON.parse(machine.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "list",
+      topic: "projects",
+      outcome: "error",
+      projects: [],
+    });
+  });
+
+  test("rejects inventory topics that are not implemented by this slice", () => {
+    const home = isolatedHome();
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "profiles");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("list does not support topic 'profiles'");
+    expect(result.stderr).toContain("available topics: projects");
+    expect(result.stderr).toContain("Usage: apkit list [projects [--json]]");
+  });
+
+  test("projects renders every normalized Project Binding with ordered Hosts", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const alpha = join(home, "projects", "alpha");
+    const beta = join(home, "projects", "beta");
+    mkdirSync(alpha, { recursive: true });
+    mkdirSync(beta, { recursive: true });
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        "  - project: ~/projects/beta\n" +
+        "    profile: coding\n" +
+        "    hosts: [pi, codex]\n" +
+        "  - project: ~/projects/alpha\n" +
+        "    profile: coding\n" +
+        "    hosts: [codex, claude]\n",
+    );
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Projects (2):");
+    expect(result.stdout).toContain("Project: ~/projects/alpha");
+    expect(result.stdout).toContain("Project: ~/projects/beta");
+    expect(result.stdout).toContain("Profile: coding");
+    expect(result.stdout).toContain("Hosts: claude, codex");
+    expect(result.stdout).toContain("Hosts: codex, pi");
+    expect(result.stdout.indexOf("Project: ~/projects/alpha")).toBeLessThan(
+      result.stdout.indexOf("Project: ~/projects/beta"),
+    );
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("projects keeps stale bindings visible for configuration recovery", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const existingProject = join(home, "projects", "existing-project");
+    mkdirSync(existingProject, { recursive: true });
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        "  - project: ~/projects/missing-project\n" +
+        "    profile: coding\n" +
+        "    hosts: [codex]\n" +
+        "  - project: ~/projects/existing-project\n" +
+        "    profile: coding\n" +
+        "    hosts: [claude]\n",
+    );
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Projects (2):");
+    expect(result.stdout).toContain("Project: ~/projects/existing-project");
+    expect(result.stdout).toContain("Project: ~/projects/missing-project");
+    expect(result.stdout).toContain("Hosts: claude");
+    expect(result.stdout).toContain("Hosts: codex");
+
+    const machine = runCliWithPath(home, process.env.PATH ?? "", "list", "projects", "--json");
+
+    expect(machine.status, machine.stderr).toBe(0);
+    expect(JSON.parse(machine.stdout).projects).toEqual([
+      {
+        canonicalProject: realpathSync(existingProject),
+        project: "~/projects/existing-project",
+        profile: "coding",
+        hosts: ["claude"],
+      },
+      {
+        canonicalProject: null,
+        project: "~/projects/missing-project",
+        profile: "coding",
+        hosts: ["codex"],
+      },
+    ]);
+  });
+
+  test("projects JSON uses the same records without probing Hosts or Installation State", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    writeFileSync(join(workspacePath(home), "profiles", "coding.yaml"), "not a Profile\n");
+    const projectPath = join(home, "projects", "json-project");
+    mkdirSync(projectPath, { recursive: true });
+    writeFileSync(join(projectPath, "user-file.txt"), "preserve me\n");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        "  - project: ~/projects/json-project\n" +
+        "    profile: coding\n" +
+        "    hosts: [codex]\n",
+    );
+    mkdirSync(stateDirectory(home), { recursive: true });
+    writeFileSync(statePath(home), "this is intentionally not Installation State\n");
+    const failingHostBin = join(home, "failing-host-bin");
+    mkdirSync(failingHostBin, { recursive: true });
+    writeFileSync(
+      join(failingHostBin, "codex"),
+      "#!/bin/sh\necho 'unexpected Host probe' >&2\nexit 97\n",
+    );
+    chmodSync(join(failingHostBin, "codex"), 0o755);
+    const configuration = readFileSync(configPath(home), "utf8");
+    const state = readFileSync(statePath(home), "utf8");
+    const projectEntries = readdirSync(projectPath).sort();
+
+    const result = runCliWithPath(home, failingHostBin, "list", "projects", "--json");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({
+      schemaVersion: 1,
+      command: "list",
+      topic: "projects",
+      outcome: "success",
+      projects: [{
+        canonicalProject: realpathSync(projectPath),
+        project: "~/projects/json-project",
+        profile: "coding",
+        hosts: ["codex"],
+      }],
+    });
+    expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
+    expect(readFileSync(statePath(home), "utf8")).toBe(state);
+    expect(readdirSync(projectPath).sort()).toEqual(projectEntries);
+  });
+
+  test("projects keeps a Project visible after lifecycle status is clean", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const projectPath = join(home, "projects", "current-project");
+    mkdirSync(projectPath, { recursive: true });
+
+    const bindResult = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expect(bindResult.status, bindResult.stderr).toBe(0);
+    const applyResult = runCli(home, "apply");
+    expect(applyResult.status, applyResult.stderr).toBe(0);
+    const statusResult = runCli(home, "status");
+    expect(statusResult.status, statusResult.stderr).toBe(0);
+    expect(statusResult.stdout).toContain("All Projects are current");
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Project: ~/projects/current-project");
+    expect(result.stdout).toContain("Profile: coding");
+    expect(result.stdout).toContain("Hosts: codex");
+  });
+
+  test("help distinguishes Project inventory from lifecycle diagnostics", () => {
+    const home = isolatedHome();
+
+    const listHelp = runCliWithPath(home, process.env.PATH ?? "", "list", "--help");
+    const statusHelp = runCliWithPath(home, process.env.PATH ?? "", "status", "--help");
+
+    expect(listHelp.status, listHelp.stderr).toBe(0);
+    expect(statusHelp.status, statusHelp.stderr).toBe(0);
+    expect(listHelp.stdout).toContain("Usage: apkit list [projects [--json]]");
+    expect(listHelp.stdout).toContain("read-only inventory");
+    expect(listHelp.stdout).toContain("Project lifecycle diagnostics");
+    expect(statusHelp.stdout).toContain("Project lifecycle diagnostics");
+    expect(statusHelp.stdout).not.toContain("Project inventory");
+  });
+});
+
 describe("apkit info", () => {
   test("reports the engine and selected locations without reading or writing other material", () => {
     const home = isolatedHome();
