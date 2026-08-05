@@ -1,10 +1,14 @@
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
-import type { SupportedHost } from "../schemas/local-configuration.js";
+import {
+  SUPPORTED_HOSTS,
+  type SupportedHost,
+} from "../schemas/local-configuration.js";
 import {
   ingestProjectBindings,
   ingestSelectedWorkspace,
 } from "./local-configuration.js";
 import { readTemporaryInstallations } from "./installation-state.js";
+import { isTemporaryInstallationHost } from "./temporary-installation.js";
 
 /** One normalized Project Binding prepared for read-only inventory presentation. */
 export interface ProjectInventoryRecord {
@@ -26,6 +30,12 @@ export interface ProfileInventoryRecord {
   readonly skills: number;
 }
 
+/** One supported Agent Host prepared for read-only inventory presentation. */
+export interface HostInventoryRecord {
+  readonly host: SupportedHost;
+  readonly supportsTemporaryProfileInstallation: boolean;
+}
+
 /** One active Temporary Profile Installation prepared for read-only inventory. */
 export interface TemporaryInventoryRecord {
   readonly host: SupportedHost;
@@ -33,6 +43,18 @@ export interface TemporaryInventoryRecord {
   /** Canonical absolute Project root retained by the temporary receipt. */
   readonly project: string;
   readonly temporaryInstallationId: string;
+}
+
+/**
+ * Read the canonical supported-Host and Temporary Profile Installation sets.
+ * This inventory is capability metadata only: it does not inspect PATH,
+ * Host configuration, Project roots, or any other machine state.
+ */
+export function listHosts(): readonly HostInventoryRecord[] {
+  return SUPPORTED_HOSTS.map((host) => ({
+    host,
+    supportsTemporaryProfileInstallation: isTemporaryInstallationHost(host),
+  }));
 }
 
 /**
