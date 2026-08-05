@@ -1,6 +1,11 @@
 import { COMMAND_NAME } from "../installer/version.js";
+import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installation.js";
+import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import { COMMAND_EXAMPLES } from "./examples.js";
 import { inventoryCommandSyntax } from "./inventory-topics.js";
+
+export const ROOT_HELP_ALIASES = ["--help", "-h", "help"] as const;
+export const COMMAND_HELP_ALIASES = ["-h", "--help"] as const;
 
 /**
  * Single canonical source for every command's syntax and purpose. Root help,
@@ -13,6 +18,8 @@ export interface CommandHelp {
   readonly syntax: string;
   readonly summary: string;
   readonly examples: readonly string[];
+  readonly aliases: readonly string[];
+  readonly supportedHosts?: readonly string[];
   readonly writes: string;
   readonly next: string;
 }
@@ -43,6 +50,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "init [workspace]",
     summary: "Initialize or adopt the canonical Workspace and Local Configuration",
     examples: COMMAND_EXAMPLES.init,
+    aliases: COMMAND_HELP_ALIASES,
     writes: "Creates missing Workspace scaffolding and Local Configuration; never overwrites a valid Workspace.",
     next: `Run ${COMMAND_NAME} guide profile.`,
   },
@@ -52,6 +60,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "guide [profile|context|skill|--full|--agent]",
     summary: "Show a topic index, full Workspace guidance, or one focused authoring example",
     examples: COMMAND_EXAMPLES.guide,
+    aliases: COMMAND_HELP_ALIASES,
     writes: "Nothing; this command is read-only.",
     next: `Run ${COMMAND_NAME} validate after editing your Workspace.`,
   },
@@ -61,6 +70,8 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "bind <profile> [project] --host <host> [--host <host> ...]",
     summary: "Record a Project Binding to a Profile and Agent Hosts",
     examples: COMMAND_EXAMPLES.bind,
+    aliases: COMMAND_HELP_ALIASES,
+    supportedHosts: SUPPORTED_HOSTS,
     writes: "Records one Project Binding in Local Configuration; does not install project files.",
     next: `Run ${COMMAND_NAME} preview.`,
   },
@@ -70,6 +81,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "unbind [project]",
     summary: "Remove a Project Binding",
     examples: COMMAND_EXAMPLES.unbind,
+    aliases: COMMAND_HELP_ALIASES,
     writes: "Removes one Project Binding from Local Configuration; does not remove installed project files.",
     next: `Run ${COMMAND_NAME} preview, then ${COMMAND_NAME} apply to remove obsolete generated files.`,
   },
@@ -79,6 +91,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "validate",
     summary: "Check Workspace and Local Configuration validity",
     examples: COMMAND_EXAMPLES.validate,
+    aliases: COMMAND_HELP_ALIASES,
     writes: "Nothing; this command is read-only.",
     next: `Run ${COMMAND_NAME} preview.`,
   },
@@ -88,6 +101,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "info [--json]",
     summary: "Show the engine version and selected application locations",
     examples: COMMAND_EXAMPLES.info,
+    aliases: COMMAND_HELP_ALIASES,
     writes: "Nothing; this command is read-only.",
     next: `Run ${COMMAND_NAME} validate to check the selected Workspace and Local Configuration.`,
   },
@@ -97,6 +111,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: inventoryCommandSyntax(),
     summary: "List configured Projects for read-only inventory",
     examples: COMMAND_EXAMPLES.list,
+    aliases: COMMAND_HELP_ALIASES,
     writes: "Nothing; this command is read-only.",
     next: `Run ${COMMAND_NAME} status for Project lifecycle diagnostics.`,
   },
@@ -106,6 +121,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "preview [--verbose] [--json]",
     summary: "Show pending reconciliation changes without writing (read-only)",
     examples: COMMAND_EXAMPLES.preview,
+    aliases: COMMAND_HELP_ALIASES,
     writes: "Nothing; this command is read-only.",
     next: `Run ${COMMAND_NAME} apply when the preview is ready.`,
   },
@@ -115,6 +131,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "apply [--verbose] [--json]",
     summary: "Reconcile Profile Installations to match Local Configuration",
     examples: COMMAND_EXAMPLES.apply,
+    aliases: COMMAND_HELP_ALIASES,
     writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",
     next: `Launch a bound Host from the project, or run ${COMMAND_NAME} status.`,
   },
@@ -124,6 +141,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "status [--verbose] [--json]",
     summary: "Show Project lifecycle diagnostics",
     examples: COMMAND_EXAMPLES.status,
+    aliases: COMMAND_HELP_ALIASES,
     writes: "Nothing; this command is read-only.",
     next: `If changes need attention, run ${COMMAND_NAME} preview.`,
   },
@@ -133,6 +151,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "uninstall",
     summary: "Remove all Profile Installations",
     examples: COMMAND_EXAMPLES.uninstall,
+    aliases: COMMAND_HELP_ALIASES,
     writes: "Removes owned generated project files and machine-local installation records; keeps the Workspace and Project Bindings.",
     next: `Run ${COMMAND_NAME} unbind for bindings you no longer want, or ${COMMAND_NAME} apply to reinstall.`,
   },
@@ -142,6 +161,8 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "install-temp <profile> <project> --host <host> [--json]",
     summary: "Install a Profile temporarily into one Project",
     examples: COMMAND_EXAMPLES["install-temp"],
+    aliases: COMMAND_HELP_ALIASES,
+    supportedHosts: TEMPORARY_INSTALLATION_HOSTS,
     writes: "Writes temporary Agent Profile Kit-owned project files and machine-local temporary installation state; does not change Local Configuration or Project Bindings.",
     next: `Run ${COMMAND_NAME} remove-temp <temporary-installation-id> when finished.`,
   },
@@ -153,6 +174,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     // default-view rewriting (see defaultViewText) so this temporary lifetime stays distinct.
     summary: "Remove one temporary Profile installation",
     examples: COMMAND_EXAMPLES["remove-temp"],
+    aliases: COMMAND_HELP_ALIASES,
     writes: "Removes only the receipt-owned temporary project files and exclusion contribution.",
     next: "Nothing further is required for this temporary installation.",
   },

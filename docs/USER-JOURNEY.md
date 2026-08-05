@@ -29,7 +29,7 @@ produced them.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `--version`, `list`, `list projects [--json]` | Understand the command surface and which Projects are configured |
+| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `list`, `list projects [--json]` | Understand the command surface, command-specific guidance, and which Projects are configured |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
@@ -55,13 +55,19 @@ the CLI never speaks to.
 
 A bare invocation, `--help`, `-h`, and `help` print root help: description,
 workflow-grouped commands with two-line syntax and wrapped descriptions, a
-four-step quick start, and a pointer to `guide`. Interactive output selects
-the tty width (falling back to `COLUMNS`) and clamps readable prose to 40–100
-columns; redirected output uses a deterministic 80-column measure. `--version`
-prints the engine version. Every command has focused `--help` with its purpose,
-syntax, worked examples, write boundary, and next action. Root and per-command
-help derive from one `COMMANDS` table in `cli/command-help.ts`, while worked commands
-derive from the reusable example set in `cli/examples.ts`.
+four-step quick start, and a pointer to `guide`. The quick start points to
+`guide profile` for a valid Profile example and `bind --help` for supported Host
+values. Interactive output selects the tty width (falling back to `COLUMNS`)
+and clamps readable prose to 40–100 columns; redirected output uses a
+deterministic 80-column measure. `--version` prints the engine version. Every
+command has focused `help <command>`, `<command> -h`, and `<command> --help`
+aliases with identical purpose, syntax, worked examples, write boundary, and
+next-action output; binding and temporary-installation help name Hosts from
+their canonical capability sets. Unknown commands produce one deterministic
+close-match suggestion when available, otherwise only point to `apkit --help`.
+Root and per-command help derive from one `COMMANDS` table in
+`cli/command-help.ts`, while worked commands derive from the reusable example
+set in `cli/examples.ts`.
 
 `list` is the read-only inventory entrypoint: without a topic it shows available
 inventory topics and examples, while `list projects` reads Project Bindings from
@@ -352,7 +358,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ~~[UJ-23](#uj-23)~~ | ~~Medium~~ | ~~11~~ | ~~One aggregate next-action stalls unblocked projects~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | ~~[UJ-14](#uj-14)~~ | ~~Low-Med~~ | ~~10~~ | ~~Happy-path `status` says the same thing three times~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | ~~[UJ-15](#uj-15)~~ | ~~Low-Med~~ | ~~7, 10~~ | ~~State explanations re-teach vocabulary every run~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
-| ~~[UJ-16](#uj-16)~~ | ~~Low~~ | ~~1, 5~~ | ~~No `--version`, `-h`, `help`, or per-command `--help`~~ — shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115) |
+| ~~[UJ-16](#uj-16)~~ | ~~Low~~ | ~~1, 5~~ | ~~No `--version`, `-h`, `help`, or per-command `--help`~~ — root discovery shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115); focused aliases, Host guidance, and concise typo recovery shipped in [#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158) |
 | ~~[UJ-17](#uj-17)~~ | ~~Low~~ | ~~6~~ | ~~`validate` prints "1 Profiles" and names nothing~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
 | ~~[UJ-18](#uj-18)~~ | ~~Low~~ | ~~7~~ | ~~`--verbose` inlines composed Context without a separator~~ — shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123) |
 
@@ -510,10 +516,14 @@ and per-command help does not exist. `bind --help` is additionally parsed as a
 Profile named `--help`, because `parseBindArguments` accepts `arguments_[0]`
 without a leading-dash check.~~
 
-Shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115):
+Shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)
+and extended in [#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158):
 root discovery supports the conventional aliases and engine version, every
-command explains itself through `--help`, and leading-dash values fail before
-positional parsing.
+command explains itself through identical focused-help aliases, supported Host
+values are visible at the command boundary, close typos receive one
+deterministic suggestion, and unmatched commands point to concise help without
+dumping the root menu. Leading-dash values still fail before positional
+parsing.
 
 ### ~~UJ-17~~
 ~~`(1 Profiles, 0 Project Bindings)` has a plural agreement bug — `plural()` in

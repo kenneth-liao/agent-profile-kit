@@ -62,6 +62,7 @@ import { MissingProfileError } from "../installer/profile-selection.js";
 import {
   COMMANDS,
   COMMAND_GROUPS,
+  ROOT_HELP_ALIASES,
   type CommandHelp,
 } from "./command-help.js";
 import {
@@ -100,18 +101,70 @@ function findCommand(name: string): CommandHelp {
   return command;
 }
 
+function focusedHelpRequest(arguments_: readonly string[]): string | undefined {
+  if (arguments_.length !== 2) return undefined;
+  if (arguments_[0] === "help") return arguments_[1];
+  const command = COMMANDS.find((candidate) => candidate.name === arguments_[0]);
+  return command?.aliases.includes(arguments_[1]!) ? command.name : undefined;
+}
+
+const MAX_COMMAND_SUGGESTION_DISTANCE = 2;
+
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1]! + 1,
+        previous[rightIndex]! + 1,
+        previous[rightIndex - 1]! + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length]!;
+}
+
+function suggestedCommand(unknown: string): string | undefined {
+  return COMMANDS
+    .map((command) => ({
+      distance: editDistance(unknown, command.name),
+      name: command.name,
+    }))
+    .filter(({ distance }) => distance <= MAX_COMMAND_SUGGESTION_DISTANCE)
+    .sort((left, right) => {
+      if (left.distance !== right.distance) return left.distance - right.distance;
+      return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
+    })[0]
+    ?.name;
+}
+
+function unknownCommandHelp(unknown: string): string {
+  const suggestion = suggestedCommand(unknown);
+  const suggestionLine = suggestion === undefined
+    ? ""
+    : `\nDid you mean: ${COMMAND_NAME} ${suggestion}?`;
+  return `${COMMAND_NAME}: unknown command '${unknown}'${suggestionLine}\n\n` +
+    `Run ${COMMAND_NAME} --help for available commands.\n`;
+}
+
 function perCommandHelp(command: CommandHelp): string {
+  const supportedHosts = command.supportedHosts === undefined
+    ? ""
+    : `Supported Hosts: ${command.supportedHosts.join(", ")}\n\n`;
   return defaultViewText(
     `Purpose: ${command.summary}\n\n` +
     `${usageLine(command)}\n\n` +
     "Examples:\n" +
     command.examples.map((example) => `  ${COMMAND_NAME} ${example}\n`).join("") +
-    `\nWrites: ${command.writes}\n\n` +
+    `\n${supportedHosts}` +
+    `Writes: ${command.writes}\n\n` +
     `Next: ${command.next}\n`,
   );
 }
 
-/** Root help shown for a bare invocation, `--help`, and unknown-command errors. */
+/** Root help shown for a bare invocation and root `--help` aliases. */
 function rootHelp(context: TerminalPresentationContext): string {
   const proseWidth = Math.max(1, context.width - 4);
   const commandLines: string[] = [];
@@ -138,6 +191,12 @@ function rootHelp(context: TerminalPresentationContext): string {
     context.width,
   ).join("\n");
   const quickStartHeading = defaultViewText("Profile Installation quick start:");
+  const discovery = wrapPresentationText(
+    defaultViewText(
+      `Choose a Profile with ${COMMAND_NAME} guide profile; see ${COMMAND_NAME} bind --help for supported Host values.`,
+    ),
+    Math.max(1, context.width - 2),
+  ).map((line) => `  ${line}`).join("\n");
   return `${intro}\n\n` +
     `Usage: ${COMMAND_NAME} <command> [arguments]\n\n` +
     "Commands:\n" +
@@ -147,6 +206,7 @@ function rootHelp(context: TerminalPresentationContext): string {
     `  ${COMMAND_NAME} bind <profile> --host <host>\n` +
     `  ${COMMAND_NAME} preview\n` +
     `  ${COMMAND_NAME} apply\n\n` +
+    `${discovery}\n\n` +
     `${guidance}\n`;
 }
 
@@ -394,13 +454,14 @@ async function main(): Promise<void> {
   }
   if (
     arguments_.length === 0 ||
-    (arguments_.length === 1 && ["--help", "-h", "help"].includes(arguments_[0]!))
+    (arguments_.length === 1 && ROOT_HELP_ALIASES.some((alias) => alias === arguments_[0]))
   ) {
     process.stdout.write(rootHelp(terminalPresentationContext(process.stdout)));
     return;
   }
-  if (arguments_.length === 2 && arguments_[1] === "--help") {
-    const command = COMMANDS.find((candidate) => candidate.name === arguments_[0]);
+  const focusedHelp = focusedHelpRequest(arguments_);
+  if (focusedHelp !== undefined) {
+    const command = COMMANDS.find((candidate) => candidate.name === focusedHelp);
     if (command) {
       process.stdout.write(perCommandHelp(command));
       return;
@@ -735,8 +796,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  const errorHelp = rootHelp(terminalPresentationContext(process.stderr));
-  process.stderr.write(`${COMMAND_NAME}: unknown command '${arguments_[0] ?? ""}'\n\n${errorHelp}`);
+  const unknown = arguments_[0] === "help" && focusedHelp !== undefined
+    ? focusedHelp
+    : arguments_[0] ?? "";
+  process.stderr.write(unknownCommandHelp(unknown));
   process.exitCode = 1;
 }
 
