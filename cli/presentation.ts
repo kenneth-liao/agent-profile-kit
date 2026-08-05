@@ -16,6 +16,11 @@ import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exc
 import { COMMAND_NAME } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { UninstallResult, ValidationResult } from "../installer/commands.js";
+import type {
+  ApplicationInfo,
+  ApplicationInfoLocations,
+  InfoConfigurationState,
+} from "../installer/info.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
@@ -262,12 +267,31 @@ function containsPath(parent: string, child: string): boolean {
   );
 }
 
-function absoluteAuthoredProject(authoredProject: string, home: string): string {
-  return authoredProject === "~"
+function absoluteAuthoredPath(authoredPath: string, home: string): string {
+  return authoredPath === "~"
     ? home
-    : authoredProject.startsWith("~/")
-      ? join(home, authoredProject.slice(2))
-      : authoredProject;
+    : authoredPath.startsWith("~/")
+      ? join(home, authoredPath.slice(2))
+      : authoredPath;
+}
+
+export function displayPath(
+  canonicalPath: string,
+  authoredPath = canonicalPath,
+  cwd = process.cwd(),
+  home = homedir(),
+): string {
+  const authoredAbsolute = absoluteAuthoredPath(authoredPath, home);
+  const paths = [...new Set([canonicalPath, authoredAbsolute])];
+  const cwdRelativePath = paths.find((path) => containsPath(path, cwd));
+  if (cwdRelativePath) return relative(cwd, cwdRelativePath) || ".";
+  if (authoredPath === "~" || authoredPath.startsWith("~/")) return authoredPath;
+  const homeRelativePath = paths.find((path) => containsPath(home, path));
+  if (homeRelativePath) {
+    const homeRelative = relative(home, homeRelativePath);
+    return homeRelative === "" ? "~" : `~/${homeRelative}`;
+  }
+  return authoredPath;
 }
 
 export function displayProjectPath(
@@ -276,17 +300,93 @@ export function displayProjectPath(
   cwd = process.cwd(),
   home = homedir(),
 ): string {
-  const authoredAbsolute = absoluteAuthoredProject(authoredProject, home);
-  const projectPaths = [...new Set([canonicalProject, authoredAbsolute])];
-  const cwdRelativeProject = projectPaths.find((project) => containsPath(project, cwd));
-  if (cwdRelativeProject) return relative(cwd, cwdRelativeProject) || ".";
-  if (authoredProject === "~" || authoredProject.startsWith("~/")) return authoredProject;
-  const homeRelativeProject = projectPaths.find((project) => containsPath(home, project));
-  if (homeRelativeProject) {
-    const homeRelativePath = relative(home, homeRelativeProject);
-    return homeRelativePath === "" ? "~" : `~/${homeRelativePath}`;
-  }
-  return authoredProject;
+  // Keep this project-specific name as the stable presentation API while all
+  // location display policy lives in the shared displayPath implementation.
+  return displayPath(canonicalProject, authoredProject, cwd, home);
+}
+
+export function formatInfoHuman(
+  info: ApplicationInfo,
+  home = homedir(),
+  cwd = process.cwd(),
+): string {
+  const workspace = info.workspace === null
+    ? info.configurationState === "legacy"
+      ? `Legacy configuration; run ${COMMAND_NAME} init`
+      : "Not configured"
+    : info.configurationState === "legacy"
+      ? `Legacy configuration; run ${COMMAND_NAME} init (selected: ${displayPath(
+          info.workspace.canonical,
+          info.workspace.authored,
+          cwd,
+          home,
+        )})`
+      : displayPath(info.workspace.canonical, info.workspace.authored, cwd, home);
+  return (
+    `Engine version: ${info.engineVersion}\n` +
+    `Workspace: ${workspace}\n` +
+    `Local Configuration: ${displayPath(info.localConfiguration, info.localConfiguration, cwd, home)}\n` +
+    `Installation State: ${displayPath(info.installationState, info.installationState, cwd, home)}\n`
+  );
+}
+
+interface InfoMachineBase {
+  readonly command: "info";
+  readonly engineVersion: string;
+  readonly installationState: string;
+  readonly localConfiguration: string;
+  readonly schemaVersion: 1;
+}
+
+interface InfoMachineSuccessPayload extends InfoMachineBase {
+  readonly outcome: "success";
+  readonly configurationState: InfoConfigurationState;
+  readonly workspace: ApplicationInfo["workspace"];
+}
+
+interface InfoMachineErrorPayload extends InfoMachineBase {
+  readonly configurationState: "unknown";
+  readonly error: string;
+  readonly outcome: "error";
+}
+
+type InfoMachinePayload = InfoMachineErrorPayload | InfoMachineSuccessPayload;
+
+function infoMachinePayload(info: ApplicationInfo): InfoMachineSuccessPayload {
+  return {
+    schemaVersion: 1,
+    command: "info",
+    outcome: "success",
+    engineVersion: info.engineVersion,
+    configurationState: info.configurationState,
+    workspace: info.workspace,
+    localConfiguration: info.localConfiguration,
+    installationState: info.installationState,
+  };
+}
+
+function serializeInfoMachinePayload(payload: InfoMachinePayload): string {
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+export function formatInfoJson(info: ApplicationInfo): string {
+  return serializeInfoMachinePayload(infoMachinePayload(info));
+}
+
+export function formatInfoToolErrorJson(
+  locations: ApplicationInfoLocations,
+  message: string,
+): string {
+  return serializeInfoMachinePayload({
+    schemaVersion: 1,
+    command: "info",
+    outcome: "error",
+    error: message,
+    engineVersion: locations.engineVersion,
+    configurationState: "unknown",
+    localConfiguration: locations.localConfiguration,
+    installationState: locations.installationState,
+  });
 }
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
@@ -580,7 +680,7 @@ function removeProjectPathPrefix(message: string, project: string): string {
 
 function shortenProjectReferences(message: string, groups: readonly ProjectGroup[]): string {
   const references = groups.flatMap((group) => {
-    const authoredAbsolute = absoluteAuthoredProject(group.project, homedir());
+    const authoredAbsolute = absoluteAuthoredPath(group.project, homedir());
     const replacement = displayProjectPath(group.canonicalProject, group.project);
     return [...new Set([group.canonicalProject, authoredAbsolute])].map((project) => ({ project, replacement }));
   }).sort((left, right) =>

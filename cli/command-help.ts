@@ -82,6 +82,15 @@ export const COMMANDS: readonly CommandHelp[] = [
     next: `Run ${COMMAND_NAME} preview.`,
   },
   {
+    name: "info",
+    group: "workspace",
+    syntax: "info [--json]",
+    summary: "Show the engine version and selected application locations",
+    examples: COMMAND_EXAMPLES.info,
+    writes: "Nothing; this command is read-only.",
+    next: `Run ${COMMAND_NAME} validate to check the selected Workspace and Local Configuration.`,
+  },
+  {
     name: "preview",
     group: "lifecycle",
     syntax: "preview [--verbose] [--json]",

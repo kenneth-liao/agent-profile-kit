@@ -77,9 +77,15 @@ and `status` still exit successfully. Automation that needs loading guarantees
 must inspect the `Warnings` section (or JSON `warnings`) rather than relying on
 the exit code alone.
 
-Lifecycle commands share a machine-readable contract:
+Machine-readable command contracts:
 
-- `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 1`
+- `info --json` prints a `schemaVersion: 1` object with the engine version,
+  configuration state (`current`, `legacy`, or `not-configured`), and the
+  selected Workspace, Local Configuration, and Installation State locations.
+  A selected Workspace preserves both its authored and canonical paths. The
+  command reads no Workspace artifacts, Project Bindings, Host state, or
+  Installation State contents, and never changes state.
+- Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 1`
   object with `outcome`, per-installation state, planned or committed paths,
   blockers, warnings, Host Setup Steps, and repository-exclusion evidence.
   Combined with `--verbose`, machine output wins.
@@ -97,6 +103,8 @@ project hook and Context.
 apkit bind engineering --host codex
 apkit bind engineering ~/projects/x --host codex --host claude --host grok --host pi
 apkit unbind ~/projects/x
+apkit info
+apkit info --json
 apkit validate
 apkit preview
 apkit apply
@@ -146,7 +154,9 @@ Older version-1 configuration without `workspace` is migration input only. Run
 `apkit init` to record the effective Workspace and upgrade it;
 `validate`, `preview`, `apply`, `status`, `bind`, and `unbind` fail closed with
 that guidance until migration completes. `init` never moves or rewrites the
-Workspace source, and a custom authored Workspace path is preserved.
+Workspace source, and a custom authored Workspace path is preserved. `info`
+reports `Workspace: Legacy configuration; run apkit init` (and
+`configurationState: "legacy"` under `--json`) until that migration completes.
 
 Run `apkit` with no arguments or `apkit --help` for a
 concise summary of every command and the minimal `init` → `bind` → `preview` →

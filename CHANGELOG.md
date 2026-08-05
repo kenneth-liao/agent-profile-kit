@@ -8,9 +8,13 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Add read-only `info` human and versioned JSON views for the engine version and Workspace, Local Configuration, and Installation State locations ([#157](https://github.com/kenneth-liao/agent-profile-kit/issues/157)).
+
 - Make root help responsive with workflow groups, width-aware two-line command entries, and terminal-aware wrapping ([#156](https://github.com/kenneth-liao/agent-profile-kit/issues/156)).
 
 ### Fixed
+
+- Report legacy Local Configuration explicitly in `info`, keep error JSON Workspace-unknown, and document the versioned configuration state ([#157](https://github.com/kenneth-liao/agent-profile-kit/issues/157)).
 
 - Harden root-help width guarantees and keep command/group metadata canonical across rendering and tests ([#156](https://github.com/kenneth-liao/agent-profile-kit/issues/156)).
 

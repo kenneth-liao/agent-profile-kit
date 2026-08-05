@@ -15,6 +15,9 @@ import {
   formatLifecycleJson,
   formatLifecycleReport,
   formatLifecycleToolErrorJson,
+  formatInfoHuman,
+  formatInfoJson,
+  formatInfoToolErrorJson,
   formatMissingProfileError,
   formatTemporaryInstallationBlockedJson,
   formatTemporaryInstallationHuman,
@@ -25,6 +28,7 @@ import {
   lifecycleExitCode,
   type LifecycleCommand,
 } from "./presentation.js";
+import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
 import { bindProject } from "../installer/bind-project.js";
 import {
   generatedOutputSurvivesUnbind,
@@ -324,6 +328,10 @@ function parseNoArguments(command: string, arguments_: readonly string[]): { rea
   return { valid: true };
 }
 
+function parseInfoArguments(arguments_: readonly string[]): { readonly json: boolean } {
+  return { json: parseOptionalFlag("info", arguments_, "--json") };
+}
+
 function parseLifecycleArguments(
   command: LifecycleCommand,
   arguments_: readonly string[],
@@ -454,6 +462,24 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     const result = await validateApplication(home);
     process.stdout.write(formatValidationResult(result));
+    return;
+  }
+  if (arguments_.length >= 1 && arguments_[0] === "info") {
+    const parsed = parseOrExit("info", () => parseInfoArguments(arguments_.slice(1)));
+    if (parsed === undefined) return;
+    try {
+      const info = await readApplicationInfo(home);
+      process.stdout.write(parsed.json ? formatInfoJson(info) : formatInfoHuman(info, home));
+    } catch (error) {
+      if (parsed.json) {
+        process.stdout.write(
+          formatInfoToolErrorJson(applicationInfoLocations(home), formatError(error)),
+        );
+      } else {
+        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+      }
+      process.exitCode = 1;
+    }
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "preview") {

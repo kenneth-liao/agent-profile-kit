@@ -6375,6 +6375,171 @@ describe("apkit root help", () => {
   });
 });
 
+describe("apkit info", () => {
+  test("reports the engine and selected locations without reading or writing other material", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const configuration = readFileSync(configPath(home), "utf8");
+    const workspaceManifest = readFileSync(join(workspacePath(home), "workspace.yaml"), "utf8");
+    const hostConfiguration = readFileSync(join(home, ".codex", "config.toml"), "utf8");
+
+    const result = runCli(home, "info");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Engine version:");
+    expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
+    expect(result.stdout).toContain("Local Configuration: ~/.agents/agent-profile-kit/config.yaml");
+    expect(result.stdout).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.yaml");
+    expect(result.stdout).not.toContain("example");
+    expect(result.stdout).not.toContain("codex");
+    expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
+    expect(readFileSync(join(workspacePath(home), "workspace.yaml"), "utf8")).toBe(workspaceManifest);
+    expect(readFileSync(join(home, ".codex", "config.toml"), "utf8")).toBe(hostConfiguration);
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("reports missing configuration without creating application state", () => {
+    const home = isolatedHome();
+
+    const result = runCli(home, "info");
+    const machine = runCli(home, "info", "--json");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Workspace: Not configured");
+    expect(result.stdout).toContain("Local Configuration: ~/.agents/agent-profile-kit/config.yaml");
+    expect(result.stdout).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.yaml");
+    expect(machine.status, machine.stderr).toBe(0);
+    expect(JSON.parse(machine.stdout)).toMatchObject({
+      outcome: "success",
+      configurationState: "not-configured",
+      workspace: null,
+    });
+    expect(existsSync(join(home, ".agents"))).toBe(false);
+  });
+
+  test("reports legacy configuration as migration-required instead of unconfigured", () => {
+    const home = isolatedHome();
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+
+    const human = runCli(home, "info");
+    const machine = runCli(home, "info", "--json");
+
+    expect(human.status, human.stderr).toBe(0);
+    expect(human.stdout).toContain("Workspace: Legacy configuration; run apkit init");
+    expect(human.stdout).not.toContain("Workspace: Not configured");
+    expect(machine.status, machine.stderr).toBe(0);
+    expect(JSON.parse(machine.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "info",
+      outcome: "success",
+      configurationState: "legacy",
+      workspace: null,
+      localConfiguration: configPath(home),
+      installationState: statePath(home),
+    });
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("reports locations without validating or exposing Project Binding content", () => {
+    const home = isolatedHome();
+    initialize(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: relative-secret-project\n    profile: secret-profile\n    hosts: [unsupported-secret-host]\n`,
+    );
+
+    const result = runCli(home, "info");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
+    expect(result.stdout).not.toContain("relative-secret-project");
+    expect(result.stdout).not.toContain("secret-profile");
+    expect(result.stdout).not.toContain("unsupported-secret-host");
+  });
+
+  test("keeps an authored home-relative Workspace spelling in human output", () => {
+    const home = isolatedHome();
+    const authoredWorkspace = "~/custom-info-workspace";
+    const init = runCli(home, "init", authoredWorkspace);
+    expect(init.status, init.stderr).toBe(0);
+
+    const result = runCli(home, "info");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Workspace: ~/custom-info-workspace");
+  });
+
+  test("emits a deterministic versioned JSON payload with canonical and authored locations", () => {
+    const home = isolatedHome();
+    const authoredWorkspace = "~/custom-info-json-workspace";
+    const init = runCli(home, "init", authoredWorkspace);
+    expect(init.status, init.stderr).toBe(0);
+    const manifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
+      readonly version: string;
+    };
+
+    const first = runCli(home, "info", "--json");
+    const second = runCli(home, "info", "--json");
+
+    expect(first.status, first.stderr).toBe(0);
+    expect(second.status, second.stderr).toBe(0);
+    expect(first.stderr).toBe("");
+    expect(first.stdout).toBe(second.stdout);
+    expect(first.stdout).not.toMatch(/\u001b\[/);
+    expect(JSON.parse(first.stdout)).toEqual({
+      schemaVersion: 1,
+      command: "info",
+      outcome: "success",
+      engineVersion: manifest.version,
+      configurationState: "current",
+      workspace: {
+        authored: authoredWorkspace,
+        canonical: realpathSync(join(home, "custom-info-json-workspace")),
+      },
+      localConfiguration: configPath(home),
+      installationState: statePath(home),
+    });
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("returns a versioned JSON error for malformed configuration without writing state", () => {
+    const home = isolatedHome();
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(configPath(home), "schema_version: [malformed\n");
+
+    const result = runCli(home, "info", "--json");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe("");
+    const payload = JSON.parse(result.stdout) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      schemaVersion: 1,
+      command: "info",
+      outcome: "error",
+      localConfiguration: configPath(home),
+      installationState: statePath(home),
+      configurationState: "unknown",
+    });
+    expect(typeof payload.error).toBe("string");
+    expect(payload).not.toHaveProperty("workspace");
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("rejects unsupported presentation arguments with info usage", () => {
+    const home = isolatedHome();
+
+    const result = runCli(home, "info", "--yaml");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("info does not accept argument '--yaml'");
+    expect(result.stderr).toContain("Usage: apkit info [--json]");
+    expect(result.stdout).toBe("");
+  });
+});
+
 describe("apkit temporary Profile installation (Codex)", () => {
   test("install-temp and remove-temp help use the settled temporary-install vocabulary", () => {
     const home = isolatedHome();
