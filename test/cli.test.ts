@@ -21,8 +21,14 @@ import { parse, stringify } from "yaml";
 
 import { COMMANDS, COMMAND_GROUPS } from "../cli/command-help.js";
 import { TOPIC_GUIDES } from "../cli/guides.js";
+import {
+  INVENTORY_TOPICS,
+  inventoryCommandSyntax,
+  inventoryTopicNames,
+} from "../cli/inventory-topics.js";
 import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+import { ENGINE_VERSION } from "../installer/version.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const FOCUSED_GUIDE_MAX_LINES = 30;
@@ -6461,8 +6467,11 @@ describe("apkit list", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Inventory topics:");
-    expect(result.stdout).toContain("apkit list projects");
-    expect(result.stdout).toContain("Project inventory");
+    for (const topic of INVENTORY_TOPICS) {
+      expect(result.stdout).toContain(`apkit list ${topic.name}`);
+      expect(result.stdout).toContain(topic.description);
+      expect(result.stdout).toContain(`apkit list ${topic.name} --json`);
+    }
     expect(existsSync(configPath(home))).toBe(false);
     expect(existsSync(statePath(home))).toBe(false);
   });
@@ -6484,20 +6493,21 @@ describe("apkit list", () => {
       command: "list",
       topic: "projects",
       outcome: "error",
+      engineVersion: ENGINE_VERSION,
       projects: [],
     });
   });
 
-  test("rejects inventory topics that are not implemented by this slice", () => {
+  test("rejects unknown inventory topics with the canonical available set", () => {
     const home = isolatedHome();
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "profiles");
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "unknown-topic");
 
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("list does not support topic 'profiles'");
-    expect(result.stderr).toContain("available topics: projects");
-    expect(result.stderr).toContain("Usage: apkit list [projects [--json]]");
+    expect(result.stderr).toContain("list does not support topic 'unknown-topic'");
+    expect(result.stderr).toContain(`available topics: ${inventoryTopicNames().join(", ")}`);
+    expect(result.stderr).toContain(`Usage: apkit ${inventoryCommandSyntax()}`);
   });
 
   test("projects renders every normalized Project Binding with ordered Hosts", () => {
@@ -6536,51 +6546,109 @@ describe("apkit list", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
-  test("projects keeps stale bindings visible for configuration recovery", () => {
+  test("projects keeps invalid bindings visible and sorts by expanded Project path", () => {
     const home = isolatedHome();
     initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home);
-    const existingProject = join(home, "projects", "existing-project");
+    const projectsDirectory = join(home, "projects");
+    const existingProject = join(projectsDirectory, "zeta-existing");
+    const fileProject = join(projectsDirectory, "charlie-file");
+    const danglingProject = join(projectsDirectory, "delta-dangling");
+    const duplicateProject = join(projectsDirectory, "echo-duplicate");
     mkdirSync(existingProject, { recursive: true });
+    writeFileSync(fileProject, "not a directory\n");
+    symlinkSync(join(projectsDirectory, "missing-target"), danglingProject);
+    symlinkSync(existingProject, duplicateProject);
     writeFileSync(
       configPath(home),
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
-        "  - project: ~/projects/missing-project\n" +
+        "  - project: ~/projects/alpha-missing\n" +
         "    profile: coding\n" +
         "    hosts: [codex]\n" +
-        "  - project: ~/projects/existing-project\n" +
+        "  - project: ~/projects/zeta-existing\n" +
         "    profile: coding\n" +
-        "    hosts: [claude]\n",
+        "    hosts: [claude]\n" +
+        "  - project: ~/projects/charlie-file\n" +
+        "    profile: coding\n" +
+        "    hosts: [pi]\n" +
+        "  - project: ~/projects/delta-dangling\n" +
+        "    profile: coding\n" +
+        "    hosts: [grok]\n" +
+        "  - project: ~/projects/echo-duplicate\n" +
+        "    profile: coding\n" +
+        "    hosts: [codex]\n",
     );
 
     const result = runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("Projects (2):");
-    expect(result.stdout).toContain("Project: ~/projects/existing-project");
-    expect(result.stdout).toContain("Project: ~/projects/missing-project");
-    expect(result.stdout).toContain("Hosts: claude");
-    expect(result.stdout).toContain("Hosts: codex");
+    expect(result.stdout).toContain("Projects (5):");
+    for (const project of [
+      "alpha-missing",
+      "charlie-file",
+      "delta-dangling",
+      "echo-duplicate",
+      "zeta-existing",
+    ]) {
+      expect(result.stdout).toContain(`Project: ~/projects/${project}`);
+    }
+    expect(result.stdout.match(/Problem:/g)).toHaveLength(4);
+    expect(result.stdout).toContain("must be an existing directory");
+    expect(result.stdout).toContain("dangling symlink");
+    expect(result.stdout).toContain("resolves to duplicate canonical root");
+    expect(result.stdout.indexOf("Project: ~/projects/alpha-missing")).toBeLessThan(
+      result.stdout.indexOf("Project: ~/projects/zeta-existing"),
+    );
 
     const machine = runCliWithPath(home, process.env.PATH ?? "", "list", "projects", "--json");
 
     expect(machine.status, machine.stderr).toBe(0);
-    expect(JSON.parse(machine.stdout).projects).toEqual([
-      {
-        canonicalProject: realpathSync(existingProject),
-        project: "~/projects/existing-project",
-        profile: "coding",
-        hosts: ["claude"],
-      },
-      {
-        canonicalProject: null,
-        project: "~/projects/missing-project",
-        profile: "coding",
-        hosts: ["codex"],
-      },
-    ]);
+    expect(JSON.parse(machine.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "list",
+      topic: "projects",
+      outcome: "success",
+      engineVersion: ENGINE_VERSION,
+      projects: [
+        {
+          canonicalProject: null,
+          project: "~/projects/alpha-missing",
+          profile: "coding",
+          hosts: ["codex"],
+          problem: expect.stringContaining("must be an existing directory"),
+        },
+        {
+          canonicalProject: null,
+          project: "~/projects/charlie-file",
+          profile: "coding",
+          hosts: ["pi"],
+          problem: expect.stringContaining("must be an existing directory"),
+        },
+        {
+          canonicalProject: null,
+          project: "~/projects/delta-dangling",
+          profile: "coding",
+          hosts: ["grok"],
+          problem: expect.stringContaining("dangling symlink"),
+        },
+        {
+          canonicalProject: null,
+          project: "~/projects/echo-duplicate",
+          profile: "coding",
+          hosts: ["codex"],
+          problem: expect.stringContaining("resolves to duplicate canonical root"),
+        },
+        {
+          canonicalProject: realpathSync(existingProject),
+          project: "~/projects/zeta-existing",
+          profile: "coding",
+          hosts: ["claude"],
+          problem: null,
+        },
+      ],
+    });
   });
 
   test("projects JSON uses the same records without probing Hosts or Installation State", () => {
@@ -6621,11 +6689,13 @@ describe("apkit list", () => {
       command: "list",
       topic: "projects",
       outcome: "success",
+      engineVersion: ENGINE_VERSION,
       projects: [{
         canonicalProject: realpathSync(projectPath),
         project: "~/projects/json-project",
         profile: "coding",
         hosts: ["codex"],
+        problem: null,
       }],
     });
     expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
@@ -6665,7 +6735,7 @@ describe("apkit list", () => {
 
     expect(listHelp.status, listHelp.stderr).toBe(0);
     expect(statusHelp.status, statusHelp.stderr).toBe(0);
-    expect(listHelp.stdout).toContain("Usage: apkit list [projects [--json]]");
+    expect(listHelp.stdout).toContain(`Usage: apkit ${inventoryCommandSyntax()}`);
     expect(listHelp.stdout).toContain("read-only inventory");
     expect(listHelp.stdout).toContain("Project lifecycle diagnostics");
     expect(statusHelp.stdout).toContain("Project lifecycle diagnostics");

@@ -13,7 +13,7 @@ import type {
   ReconciliationReport,
 } from "../installer/reconcile.js";
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
-import { COMMAND_NAME } from "../installer/version.js";
+import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { UninstallResult, ValidationResult } from "../installer/commands.js";
 import type { ProjectInventoryRecord } from "../installer/inventory.js";
@@ -22,6 +22,7 @@ import type {
   ApplicationInfoLocations,
   InfoConfigurationState,
 } from "../installer/info.js";
+import { INVENTORY_TOPICS } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
@@ -391,12 +392,15 @@ export function formatInfoToolErrorJson(
 }
 
 export function formatInventoryIndex(): string {
-  return (
-    "Inventory topics:\n" +
-    `  ${COMMAND_NAME} list projects\n` +
-    "    Project inventory from Local Configuration.\n" +
-    `    JSON example: ${COMMAND_NAME} list projects --json\n`
-  );
+  const lines = ["Inventory topics:"];
+  for (const topic of INVENTORY_TOPICS) {
+    lines.push(
+      `  ${COMMAND_NAME} list ${topic.name}`,
+      `    ${topic.description}`,
+      `    JSON example: ${COMMAND_NAME} list ${topic.name} --json`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 export function formatProjectInventoryHuman(
@@ -424,59 +428,67 @@ export function formatProjectInventoryHuman(
       `  Profile: ${project.profile}`,
       `  Hosts: ${project.hosts.join(", ")}`,
     );
+    if (project.problem !== null) lines.push(`  Problem: ${project.problem}`);
   }
   lines.push("", `Next: Run ${COMMAND_NAME} status for Project lifecycle diagnostics.`);
   return `${lines.join("\n")}\n`;
 }
 
-interface ProjectInventoryMachinePayload {
-  readonly canonicalProject: string | null;
-  readonly hosts: readonly string[];
-  readonly profile: string;
-  readonly project: string;
+interface ProjectInventoryMachineBase {
+  readonly command: "list";
+  readonly engineVersion: string;
+  readonly schemaVersion: 1;
+  readonly topic: "projects";
 }
 
-function projectInventoryMachinePayload(
-  project: ProjectInventoryRecord,
-): ProjectInventoryMachinePayload {
+interface ProjectInventoryMachineSuccessPayload extends ProjectInventoryMachineBase {
+  readonly outcome: "success";
+  readonly projects: readonly ProjectInventoryRecord[];
+}
+
+interface ProjectInventoryMachineErrorPayload extends ProjectInventoryMachineBase {
+  readonly error: string;
+  readonly outcome: "error";
+  readonly projects: readonly [];
+}
+
+type ProjectInventoryMachinePayload =
+  | ProjectInventoryMachineErrorPayload
+  | ProjectInventoryMachineSuccessPayload;
+
+function projectInventoryMachineBase(): ProjectInventoryMachineBase {
   return {
-    canonicalProject: project.canonicalProject,
-    hosts: [...project.hosts],
-    profile: project.profile,
-    project: project.project,
+    schemaVersion: 1,
+    command: "list",
+    topic: "projects",
+    engineVersion: ENGINE_VERSION,
   };
+}
+
+function serializeProjectInventoryMachinePayload(
+  payload: ProjectInventoryMachinePayload,
+): string {
+  return `${JSON.stringify(payload, null, 2)}\n`;
 }
 
 /** Versioned machine payload for the read-only Project inventory topic. */
 export function formatProjectInventoryJson(
   projects: readonly ProjectInventoryRecord[],
 ): string {
-  return `${JSON.stringify(
-    {
-      schemaVersion: 1,
-      command: "list",
-      topic: "projects",
-      outcome: "success",
-      projects: projects.map(projectInventoryMachinePayload),
-    },
-    null,
-    2,
-  )}\n`;
+  return serializeProjectInventoryMachinePayload({
+    ...projectInventoryMachineBase(),
+    outcome: "success",
+    projects,
+  });
 }
 
 export function formatProjectInventoryToolErrorJson(message: string): string {
-  return `${JSON.stringify(
-    {
-      schemaVersion: 1,
-      command: "list",
-      topic: "projects",
-      outcome: "error",
-      error: message,
-      projects: [],
-    },
-    null,
-    2,
-  )}\n`;
+  return serializeProjectInventoryMachinePayload({
+    ...projectInventoryMachineBase(),
+    outcome: "error",
+    error: message,
+    projects: [],
+  });
 }
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {

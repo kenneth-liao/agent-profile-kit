@@ -65,6 +65,11 @@ import {
   type CommandHelp,
 } from "./command-help.js";
 import {
+  inventoryTopicNames,
+  isInventoryTopic,
+  type InventoryTopic,
+} from "./inventory-topics.js";
+import {
   terminalPresentationContext,
   wrapPresentationText,
   type TerminalPresentationContext,
@@ -347,16 +352,25 @@ function parseInfoArguments(arguments_: readonly string[]): { readonly json: boo
 
 function parseListArguments(
   arguments_: readonly string[],
-): { readonly kind: "index" } | { readonly json: boolean; readonly kind: "projects" } {
+):
+  | { readonly kind: "index" }
+  | { readonly json: boolean; readonly kind: "topic"; readonly topic: InventoryTopic } {
   if (arguments_.length === 0) return { kind: "index" };
   const topic = positionalArgument("list", "an inventory topic", arguments_[0]!);
-  if (topic !== "projects") {
-    throw new Error(`list does not support topic '${topic}'; available topics: projects`);
+  if (!isInventoryTopic(topic)) {
+    throw new Error(
+      `list does not support topic '${topic}'; available topics: ${inventoryTopicNames().join(", ")}`,
+    );
   }
   return {
-    kind: "projects",
+    kind: "topic",
     json: parseOptionalFlag("list", arguments_.slice(1), "--json"),
+    topic,
   };
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled inventory topic: ${String(value)}`);
 }
 
 function parseLifecycleArguments(
@@ -518,22 +532,27 @@ async function main(): Promise<void> {
       process.stdout.write(formatInventoryIndex());
       return;
     }
-    try {
-      const projects = await listProjectBindings(home);
-      process.stdout.write(
-        parsed.json
-          ? formatProjectInventoryJson(projects)
-          : formatProjectInventoryHuman(projects, home),
-      );
-    } catch (error) {
-      if (parsed.json) {
-        process.stdout.write(formatProjectInventoryToolErrorJson(formatError(error)));
-      } else {
-        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
-      }
-      process.exitCode = 1;
+    switch (parsed.topic) {
+      case "projects":
+        try {
+          const projects = await listProjectBindings(home);
+          process.stdout.write(
+            parsed.json
+              ? formatProjectInventoryJson(projects)
+              : formatProjectInventoryHuman(projects, home),
+          );
+        } catch (error) {
+          if (parsed.json) {
+            process.stdout.write(formatProjectInventoryToolErrorJson(formatError(error)));
+          } else {
+            process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+          }
+          process.exitCode = 1;
+        }
+        return;
+      default:
+        return assertNever(parsed.topic);
     }
-    return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "preview") {
     const parsed = parseOrExit("preview", () => parseLifecycleArguments("preview", arguments_.slice(1)));

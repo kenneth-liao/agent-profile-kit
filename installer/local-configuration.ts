@@ -226,7 +226,9 @@ export interface IngestedProjectBinding {
   readonly profile: string;
   readonly hosts: ParsedProjectBinding["hosts"];
   readonly canonicalProject?: string;
+  readonly expandedProject?: string;
   readonly missing: boolean;
+  readonly problem?: string;
 }
 
 export interface IngestedApplicationSource {
@@ -234,11 +236,6 @@ export interface IngestedApplicationSource {
   readonly schemaVersion: 2;
   readonly workspace: string;
   readonly workspaceModel: Workspace;
-}
-
-export interface IngestedProjectBindingsSource {
-  readonly bindings: readonly IngestedProjectBinding[];
-  readonly schemaVersion: 2;
 }
 
 async function isMissingPath(expanded: string): Promise<boolean> {
@@ -251,6 +248,18 @@ async function isMissingPath(expanded: string): Promise<boolean> {
   }
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+type ProjectBindingNormalizationMode =
+  | {
+      readonly allowMissingProjects: boolean;
+      readonly kind: "application";
+      readonly profiles: ReadonlyMap<string, unknown>;
+    }
+  | { readonly kind: "inventory" };
+
 async function ingestWorkspaceFromConfiguration(
   home: string,
   authored: string,
@@ -261,67 +270,86 @@ async function ingestWorkspaceFromConfiguration(
 }
 
 /**
- * Normalize the Project Binding portion of Local Configuration once. The
- * optional Profile map lets full desired-state ingestion retain its Profile
- * validation while configuration-only readers avoid loading Workspace
- * artifacts that are outside their boundary.
+ * Normalize the Project Binding portion of Local Configuration once. Full
+ * application ingestion validates every path and Profile; inventory retains
+ * per-binding path problems so one stale record cannot hide the rest.
  */
 async function normalizeProjectBindings(
   home: string,
   parsedBindings: readonly ParsedProjectBinding[],
   path: string,
-  options: { readonly allowMissingProjects?: boolean } = {},
-  profiles?: ReadonlyMap<string, unknown>,
+  mode: ProjectBindingNormalizationMode,
 ): Promise<readonly IngestedProjectBinding[]> {
-  const allowMissingProjects = options.allowMissingProjects ?? false;
   const roots = new Set<string>();
   const missingProjects = new Set<string>();
   const bindings: IngestedProjectBinding[] = [];
 
   for (const [index, binding] of parsedBindings.entries()) {
     const description = `Local Configuration ${path} bindings[${index}]`;
-    const expanded = expandConfiguredPath(binding.project, home, description, "project");
+    let expandedProject: string | undefined;
     let canonicalProject: string | undefined;
     let missing = false;
+    let problem: string | undefined;
+
     try {
-      canonicalProject = await requireExistingDirectory(
-        expanded,
-        binding.project,
-        description,
-        "project",
-      );
+      expandedProject = expandConfiguredPath(binding.project, home, description, "project");
     } catch (error) {
-      if (!allowMissingProjects || !(await isMissingPath(expanded))) throw error;
-      missing = true;
+      if (mode.kind === "application") throw error;
+      problem = errorMessage(error);
     }
 
-    if (missing) {
+    if (expandedProject !== undefined) {
+      try {
+        canonicalProject = await requireExistingDirectory(
+          expandedProject,
+          binding.project,
+          description,
+          "project",
+        );
+      } catch (error) {
+        if (mode.kind === "inventory") {
+          problem = errorMessage(error);
+        } else {
+          if (
+            !mode.allowMissingProjects ||
+            !(await isMissingPath(expandedProject))
+          ) {
+            throw error;
+          }
+          missing = true;
+        }
+      }
+    }
+
+    if (canonicalProject !== undefined) {
+      if (roots.has(canonicalProject)) {
+        const duplicate =
+          `${description} project resolves to duplicate canonical root '${canonicalProject}'`;
+        if (mode.kind === "application") throw new Error(duplicate);
+        canonicalProject = undefined;
+        problem = duplicate;
+      } else {
+        roots.add(canonicalProject);
+      }
+    } else if (missing) {
       if (missingProjects.has(binding.project)) {
         throw new Error(
           `${description} duplicates missing project path '${binding.project}'`,
         );
       }
       missingProjects.add(binding.project);
-    } else {
-      if (canonicalProject === undefined) {
-        throw new Error(`${description} project could not be normalized`);
-      }
-      if (roots.has(canonicalProject)) {
-        throw new Error(
-          `${description} project resolves to duplicate canonical root '${canonicalProject}'`,
-        );
-      }
-      roots.add(canonicalProject);
     }
 
-    if (profiles !== undefined) requireProfile(profiles, binding.profile);
+    if (mode.kind === "application") requireProfile(mode.profiles, binding.profile);
     bindings.push({
       index,
       project: binding.project,
       profile: binding.profile,
       hosts: binding.hosts,
       ...(canonicalProject === undefined ? {} : { canonicalProject }),
+      ...(expandedProject === undefined ? {} : { expandedProject }),
       missing,
+      ...(problem === undefined ? {} : { problem }),
     });
   }
 
@@ -353,8 +381,11 @@ export async function ingestApplicationModelFromSource(
     home,
     parsed.bindings,
     path,
-    options,
-    workspaceModel.profiles,
+    {
+      allowMissingProjects: options.allowMissingProjects ?? false,
+      kind: "application",
+      profiles: workspaceModel.profiles,
+    },
   );
 
   return {
@@ -404,16 +435,12 @@ export async function ingestProjectBindingsFromSource(
   home: string,
   source: string,
   path: string = localConfigurationPath(home),
-  options: { readonly allowMissingProjects?: boolean } = {},
-): Promise<IngestedProjectBindingsSource> {
+): Promise<readonly IngestedProjectBinding[]> {
   const parsed = requireCurrentApplicationConfiguration(
     parseLocalConfiguration(source, path),
     path,
   );
-  return {
-    bindings: await normalizeProjectBindings(home, parsed.bindings, path, options),
-    schemaVersion: parsed.schemaVersion,
-  };
+  return normalizeProjectBindings(home, parsed.bindings, path, { kind: "inventory" });
 }
 
 async function readLocalConfigurationSource(
@@ -434,10 +461,9 @@ async function readLocalConfigurationSource(
 
 export async function ingestProjectBindings(
   home: string,
-  options: { readonly allowMissingProjects?: boolean } = {},
-): Promise<IngestedProjectBindingsSource> {
+): Promise<readonly IngestedProjectBinding[]> {
   const { path, source } = await readLocalConfigurationSource(home);
-  return ingestProjectBindingsFromSource(home, source, path, options);
+  return ingestProjectBindingsFromSource(home, source, path);
 }
 
 /**

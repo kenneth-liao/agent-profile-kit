@@ -1,5 +1,6 @@
 import { COMMAND_NAME } from "../installer/version.js";
 import { COMMAND_EXAMPLES } from "./examples.js";
+import { inventoryCommandSyntax } from "./inventory-topics.js";
 
 /**
  * Single canonical source for every command's syntax and purpose. Root help,
@@ -93,7 +94,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "list",
     group: "workspace",
-    syntax: "list [projects [--json]]",
+    syntax: inventoryCommandSyntax(),
     summary: "List configured Projects for read-only inventory",
     examples: COMMAND_EXAMPLES.list,
     writes: "Nothing; this command is read-only.",

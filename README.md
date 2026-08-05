@@ -85,6 +85,12 @@ Machine-readable command contracts:
   A selected Workspace preserves both its authored and canonical paths. The
   command reads no Workspace artifacts, Project Bindings, Host state, or
   Installation State contents, and never changes state.
+- `list projects --json` prints a `schemaVersion: 1` object with the engine
+  version and every configured Project Binding's authored Project path,
+  canonical path when resolvable, Profile, ordered Hosts, and per-binding
+  normalization problem. One invalid Project root does not hide other bindings.
+  The command reads no Workspace artifacts, Git state, project output,
+  Installation State, or Host capabilities, and never changes state.
 - Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 1`
   object with `outcome`, per-installation state, planned or committed paths,
   blockers, warnings, Host Setup Steps, and repository-exclusion evidence.
@@ -105,6 +111,9 @@ apkit bind engineering ~/projects/x --host codex --host claude --host grok --hos
 apkit unbind ~/projects/x
 apkit info
 apkit info --json
+apkit list
+apkit list projects
+apkit list projects --json
 apkit validate
 apkit preview
 apkit apply
