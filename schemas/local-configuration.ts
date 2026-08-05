@@ -84,17 +84,25 @@ export interface ParsedLocalConfiguration {
   readonly workspace?: string;
 }
 
+export interface ParsedLocalConfigurationSelection {
+  readonly schemaVersion: 1 | 2;
+  readonly workspace?: string;
+}
+
+interface LocalConfigurationHeader extends ParsedLocalConfigurationSelection {
+  readonly mapping: Record<string, unknown>;
+}
+
 export interface ParsedCurrentLocalConfiguration {
   readonly bindings: readonly ParsedProjectBinding[];
   readonly schemaVersion: 2;
   readonly workspace: string;
 }
 
-/**
- * Parse only the portable shape. Filesystem-dependent normalization belongs to
- * the ingestion boundary in installer/local-configuration.ts.
- */
-export function parseLocalConfiguration(source: string, path: string): ParsedLocalConfiguration {
+function parseLocalConfigurationHeader(
+  source: string,
+  path: string,
+): LocalConfigurationHeader {
   const value = parseYaml(source, `Local Configuration ${path}`);
   const mapping = requireMapping(value, `Local Configuration ${path}`);
   requireExactFields(
@@ -111,9 +119,6 @@ export function parseLocalConfiguration(source: string, path: string): ParsedLoc
       `Local Configuration ${path} schema_version must be ${LOCAL_CONFIGURATION_SCHEMA_VERSION}`,
     );
   }
-  if (!Array.isArray(mapping.bindings)) {
-    throw new Error(`Local Configuration ${path} bindings must be an array`);
-  }
 
   const workspace =
     mapping.workspace === undefined
@@ -123,6 +128,35 @@ export function parseLocalConfiguration(source: string, path: string): ParsedLoc
     throw new Error(
       `Local Configuration ${path} workspace is required for schema_version ${LOCAL_CONFIGURATION_SCHEMA_VERSION}; add an explicit Workspace path and retry`,
     );
+  }
+
+  return {
+    mapping,
+    schemaVersion,
+    ...(workspace === undefined ? {} : { workspace }),
+  };
+}
+
+/** Parse only the selected Workspace location without inspecting Project Bindings. */
+export function parseLocalConfigurationSelection(
+  source: string,
+  path: string,
+): ParsedLocalConfigurationSelection {
+  const header = parseLocalConfigurationHeader(source, path);
+  return {
+    schemaVersion: header.schemaVersion,
+    ...(header.workspace === undefined ? {} : { workspace: header.workspace }),
+  };
+}
+
+/**
+ * Parse only the portable shape. Filesystem-dependent normalization belongs to
+ * the ingestion boundary in installer/local-configuration.ts.
+ */
+export function parseLocalConfiguration(source: string, path: string): ParsedLocalConfiguration {
+  const { mapping, schemaVersion, workspace } = parseLocalConfigurationHeader(source, path);
+  if (!Array.isArray(mapping.bindings)) {
+    throw new Error(`Local Configuration ${path} bindings must be an array`);
   }
 
   const bindings = mapping.bindings.map((entry, index) => {

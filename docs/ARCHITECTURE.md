@@ -96,6 +96,7 @@ Commands separate binding authoring from global reconciliation:
 - `bind` appends one validated Project Binding to Local Configuration only. It serializes other `bind` processes with a sidecar lock, rechecks the exact source snapshot, and publishes with an atomic replacement. It does not preview, apply, or touch Host, Workspace, project, or installation state.
 - `unbind` removes one Project Binding from Local Configuration only. Existing paths match by canonical identity; a missing path may match only its exact authored spelling. It uses the same lock, snapshot recheck, and atomic publication boundary as `bind`, and never removes generated output.
 - `validate` checks the Workspace and Project Bindings.
+- `info [--json]` reports the engine version and the selected Workspace, Local Configuration, and Installation State locations without enumerating Workspace artifacts, Host state, Project Bindings, or Installation State contents, and never changes state.
 - `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states; `--json` emits the versioned machine payload described below.
 - `apply` reconciles every binding and, after its commits, performs a fresh
   reconciliation to report the verified resulting state. It separately emits
