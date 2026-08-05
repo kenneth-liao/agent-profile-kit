@@ -1,6 +1,9 @@
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
-import { ingestProjectBindings } from "./local-configuration.js";
+import {
+  ingestProjectBindings,
+  ingestSelectedWorkspace,
+} from "./local-configuration.js";
 
 /** One normalized Project Binding prepared for read-only inventory presentation. */
 export interface ProjectInventoryRecord {
@@ -13,6 +16,30 @@ export interface ProjectInventoryRecord {
   readonly hosts: readonly SupportedHost[];
   /** Per-binding normalization problem; null means the configured root resolved cleanly. */
   readonly problem: string | null;
+}
+
+/** One normalized Profile prepared for read-only inventory presentation. */
+export interface ProfileInventoryRecord {
+  readonly contextModules: number;
+  readonly id: string;
+  readonly skills: number;
+}
+
+/**
+ * Read Profile selections from the normalized Workspace model. This deliberately
+ * stops before Project Binding, Installation State, Git, or Host inspection.
+ */
+export async function listProfiles(
+  home: string,
+): Promise<readonly ProfileInventoryRecord[]> {
+  const workspace = await ingestSelectedWorkspace(home);
+  return [...workspace.profiles.values()]
+    .map((profile) => ({
+      contextModules: profile.context.length,
+      id: profile.id,
+      skills: profile.skills.length,
+    }))
+    .sort((left, right) => compareCanonicalStrings(left.id, right.id));
 }
 
 /**

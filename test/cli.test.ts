@@ -6575,6 +6575,208 @@ describe("apkit list", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
+  test("profiles renders every valid Profile with selected artifact counts in ID order", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "zeta");
+    const workspace = workspacePath(home);
+    mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "alpha.yaml"),
+      "id: alpha\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "beta.yaml"),
+      "id: beta\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "profiles");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Profiles (3):");
+    expect(result.stdout).toContain("Profile: alpha");
+    expect(result.stdout).toContain("Context Modules: 1");
+    expect(result.stdout).toContain("Skills: 1");
+    expect(result.stdout).toContain("Profile: beta");
+    expect(result.stdout).toContain("Profile: zeta");
+    expect(result.stdout.indexOf("Profile: alpha")).toBeLessThan(
+      result.stdout.indexOf("Profile: beta"),
+    );
+    expect(result.stdout.indexOf("Profile: beta")).toBeLessThan(
+      result.stdout.indexOf("Profile: zeta"),
+    );
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("profiles JSON carries the same records without inspecting Projects, state, or Hosts", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const workspace = workspacePath(home);
+    mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "combined.yaml"),
+      "id: combined\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        "  - project: ~/inaccessible-project\n" +
+        "    profile: coding\n" +
+        "    hosts: [codex]\n",
+    );
+    mkdirSync(stateDirectory(home), { recursive: true });
+    writeFileSync(statePath(home), "not Installation State\n");
+    const failingHostBin = join(home, "failing-host-bin");
+    mkdirSync(failingHostBin, { recursive: true });
+    writeFileSync(
+      join(failingHostBin, "codex"),
+      "#!/bin/sh\necho 'unexpected Host probe' >&2\nexit 97\n",
+    );
+    chmodSync(join(failingHostBin, "codex"), 0o755);
+    const configuration = readFileSync(configPath(home), "utf8");
+    const state = readFileSync(statePath(home), "utf8");
+
+    const result = runCliWithPath(home, failingHostBin, "list", "profiles", "--json");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({
+      schemaVersion: 1,
+      command: "list",
+      topic: "profiles",
+      outcome: "success",
+      engineVersion: ENGINE_VERSION,
+      profiles: [
+        { id: "coding", contextModules: 1, skills: 0 },
+        { id: "combined", contextModules: 1, skills: 1 },
+      ],
+    });
+    expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
+    expect(readFileSync(statePath(home), "utf8")).toBe(state);
+    expect(existsSync(join(home, "inaccessible-project"))).toBe(false);
+  });
+
+  test("profiles reads only Workspace selection and ignores malformed Project Bindings", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        "  - project: 42\n" +
+        "    profile: []\n" +
+        "    hosts: not-a-list\n",
+    );
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "profiles", "--json");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "list",
+      topic: "profiles",
+      outcome: "success",
+      profiles: [{ id: "coding", contextModules: 1, skills: 0 }],
+    });
+  });
+
+  test("profiles fails through the Workspace ingestion boundary without writes", () => {
+    const missingHome = isolatedHome();
+    const missingHuman = runCliWithPath(missingHome, process.env.PATH ?? "", "list", "profiles");
+    const missingMachine = runCliWithPath(
+      missingHome,
+      process.env.PATH ?? "",
+      "list",
+      "profiles",
+      "--json",
+    );
+
+    expect(missingHuman.status).toBe(1);
+    expect(missingHuman.stdout).toBe("");
+    expect(missingHuman.stderr).toContain("Local Configuration is missing");
+    expect(missingMachine.status).toBe(1);
+    expect(missingMachine.stderr).toBe("");
+    expect(JSON.parse(missingMachine.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "list",
+      topic: "profiles",
+      outcome: "error",
+      engineVersion: ENGINE_VERSION,
+      profiles: [],
+    });
+
+    const invalidHome = isolatedHome();
+    initialize(invalidHome);
+    const invalidWorkspace = join(invalidHome, "invalid-workspace");
+    mkdirSync(invalidWorkspace, { recursive: true });
+    writeFileSync(
+      configPath(invalidHome),
+      `schema_version: 2\nworkspace: ${invalidWorkspace}\nbindings: []\n`,
+    );
+    const configuration = readFileSync(configPath(invalidHome), "utf8");
+    const invalid = runCliWithPath(
+      invalidHome,
+      process.env.PATH ?? "",
+      "list",
+      "profiles",
+      "--json",
+    );
+
+    expect(invalid.status).toBe(1);
+    expect(invalid.stderr).toBe("");
+    expect(JSON.parse(invalid.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "list",
+      topic: "profiles",
+      outcome: "error",
+      error: expect.stringContaining("not a valid Agent Profile Kit Workspace"),
+      profiles: [],
+    });
+    expect(readFileSync(configPath(invalidHome), "utf8")).toBe(configuration);
+    expect(existsSync(statePath(invalidHome))).toBe(false);
+
+    const missingWorkspaceHome = isolatedHome();
+    initialize(missingWorkspaceHome);
+    const missingWorkspace = join(missingWorkspaceHome, "missing-workspace");
+    writeFileSync(
+      configPath(missingWorkspaceHome),
+      `schema_version: 2\nworkspace: ${missingWorkspace}\nbindings: []\n`,
+    );
+    const missingWorkspaceResult = runCliWithPath(
+      missingWorkspaceHome,
+      process.env.PATH ?? "",
+      "list",
+      "profiles",
+      "--json",
+    );
+
+    expect(missingWorkspaceResult.status).toBe(1);
+    expect(missingWorkspaceResult.stderr).toBe("");
+    expect(JSON.parse(missingWorkspaceResult.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "list",
+      topic: "profiles",
+      outcome: "error",
+      error: expect.stringContaining("must be an existing directory"),
+      profiles: [],
+    });
+    expect(existsSync(statePath(missingWorkspaceHome))).toBe(false);
+  });
+
   test("projects uses the existing Local Configuration error boundary", () => {
     const home = isolatedHome();
 

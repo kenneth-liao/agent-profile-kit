@@ -16,7 +16,10 @@ import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exc
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { UninstallResult, ValidationResult } from "../installer/commands.js";
-import type { ProjectInventoryRecord } from "../installer/inventory.js";
+import type {
+  ProfileInventoryRecord,
+  ProjectInventoryRecord,
+} from "../installer/inventory.js";
 import type {
   ApplicationInfo,
   ApplicationInfoLocations,
@@ -488,6 +491,85 @@ export function formatProjectInventoryToolErrorJson(message: string): string {
     outcome: "error",
     error: message,
     projects: [],
+  });
+}
+
+export function formatProfileInventoryHuman(
+  profiles: readonly ProfileInventoryRecord[],
+): string {
+  if (profiles.length === 0) {
+    return (
+      "No Profiles are available.\n" +
+      `Next: Add a Profile to the selected Workspace, then run ${COMMAND_NAME} list profiles.\n`
+    );
+  }
+
+  const lines = [`Profiles (${profiles.length}):`];
+  for (const profile of profiles) {
+    lines.push(
+      "",
+      `Profile: ${profile.id}`,
+      `  Context Modules: ${profile.contextModules}`,
+      `  Skills: ${profile.skills}`,
+    );
+  }
+  lines.push("", `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.`);
+  return `${lines.join("\n")}\n`;
+}
+
+interface ProfileInventoryMachineBase {
+  readonly command: "list";
+  readonly engineVersion: string;
+  readonly schemaVersion: 1;
+  readonly topic: "profiles";
+}
+
+interface ProfileInventoryMachineSuccessPayload extends ProfileInventoryMachineBase {
+  readonly outcome: "success";
+  readonly profiles: readonly ProfileInventoryRecord[];
+}
+
+interface ProfileInventoryMachineErrorPayload extends ProfileInventoryMachineBase {
+  readonly error: string;
+  readonly outcome: "error";
+  readonly profiles: readonly [];
+}
+
+type ProfileInventoryMachinePayload =
+  | ProfileInventoryMachineErrorPayload
+  | ProfileInventoryMachineSuccessPayload;
+
+function profileInventoryMachineBase(): ProfileInventoryMachineBase {
+  return {
+    schemaVersion: 1,
+    command: "list",
+    topic: "profiles",
+    engineVersion: ENGINE_VERSION,
+  };
+}
+
+function serializeProfileInventoryMachinePayload(
+  payload: ProfileInventoryMachinePayload,
+): string {
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+export function formatProfileInventoryJson(
+  profiles: readonly ProfileInventoryRecord[],
+): string {
+  return serializeProfileInventoryMachinePayload({
+    ...profileInventoryMachineBase(),
+    outcome: "success",
+    profiles,
+  });
+}
+
+export function formatProfileInventoryToolErrorJson(message: string): string {
+  return serializeProfileInventoryMachinePayload({
+    ...profileInventoryMachineBase(),
+    outcome: "error",
+    error: message,
+    profiles: [],
   });
 }
 

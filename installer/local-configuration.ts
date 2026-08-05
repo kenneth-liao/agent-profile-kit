@@ -12,7 +12,9 @@ import {
 import {
   LOCAL_CONFIGURATION_FILE,
   requireCurrentLocalConfiguration,
+  requireCurrentWorkspaceSelection,
   parseLocalConfiguration,
+  parseLocalConfigurationSelection,
   type LocalConfiguration,
   type ParsedCurrentLocalConfiguration,
   type ParsedLocalConfiguration,
@@ -464,6 +466,22 @@ export async function ingestProjectBindings(
 ): Promise<readonly IngestedProjectBinding[]> {
   const { path, source } = await readLocalConfigurationSource(home);
   return ingestProjectBindingsFromSource(home, source, path);
+}
+
+/**
+ * Read the selected Workspace through the shared Local Configuration boundary.
+ * Inventory callers intentionally stop here so bound Project roots and Hosts
+ * are never inspected while Workspace source is normalized.
+ */
+export async function ingestSelectedWorkspace(home: string): Promise<Workspace> {
+  const { path, source } = await readLocalConfigurationSource(home);
+  const parsed = parseLocalConfigurationSelection(source, path);
+  const workspace = requireCurrentWorkspaceSelection(
+    parsed,
+    path,
+    `${COMMAND_NAME} init`,
+  );
+  return ingestWorkspaceFromConfiguration(home, workspace, path);
 }
 
 /**

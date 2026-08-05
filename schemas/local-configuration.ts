@@ -200,6 +200,20 @@ export function requireCurrentLocalConfiguration(
   path: string,
   migrationCommand: string,
 ): ParsedCurrentLocalConfiguration {
+  const workspace = requireCurrentWorkspaceSelection(parsed, path, migrationCommand);
+  return {
+    bindings: parsed.bindings,
+    schemaVersion: LOCAL_CONFIGURATION_SCHEMA_VERSION,
+    workspace,
+  };
+}
+
+/** Require the current schema and explicit Workspace path without reading bindings. */
+export function requireCurrentWorkspaceSelection(
+  parsed: ParsedLocalConfigurationSelection,
+  path: string,
+  migrationCommand: string,
+): string {
   if (parsed.schemaVersion !== LOCAL_CONFIGURATION_SCHEMA_VERSION) {
     throw new Error(
       `Local Configuration ${path} uses legacy schema_version ${parsed.schemaVersion}; run ${migrationCommand} to migrate it`,
@@ -210,9 +224,5 @@ export function requireCurrentLocalConfiguration(
       `Local Configuration ${path} workspace is required for schema_version ${LOCAL_CONFIGURATION_SCHEMA_VERSION}; add an explicit Workspace path and retry`,
     );
   }
-  return {
-    bindings: parsed.bindings,
-    schemaVersion: LOCAL_CONFIGURATION_SCHEMA_VERSION,
-    workspace: parsed.workspace,
-  };
+  return parsed.workspace;
 }

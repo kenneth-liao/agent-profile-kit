@@ -91,6 +91,12 @@ Machine-readable command contracts:
   normalization problem. One invalid Project root does not hide other bindings.
   The command reads no Workspace artifacts, Git state, project output,
   Installation State, or Host capabilities, and never changes state.
+- `list profiles --json` prints a `schemaVersion: 1` object with the engine
+  version and every valid Profile ID plus its selected Context Module and Skill
+  counts, ordered deterministically by Profile ID. It reads the normalized
+  selected Workspace only; it does not inspect Project roots, Git state,
+  project output, Installation State, or Host capabilities, and never changes
+  state.
 - Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 1`
   object with `outcome`, per-installation state, planned or committed paths,
   blockers, warnings, Host Setup Steps, and repository-exclusion evidence.
@@ -114,6 +120,8 @@ apkit info --json
 apkit list
 apkit list projects
 apkit list projects --json
+apkit list profiles
+apkit list profiles --json
 apkit validate
 apkit preview
 apkit apply

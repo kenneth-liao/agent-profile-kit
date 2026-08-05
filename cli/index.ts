@@ -22,6 +22,9 @@ import {
   formatProjectInventoryHuman,
   formatProjectInventoryJson,
   formatProjectInventoryToolErrorJson,
+  formatProfileInventoryHuman,
+  formatProfileInventoryJson,
+  formatProfileInventoryToolErrorJson,
   formatMissingProfileError,
   formatTemporaryInstallationBlockedJson,
   formatTemporaryInstallationHuman,
@@ -57,7 +60,7 @@ import {
 } from "../installer/temporary-installation.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
-import { listProjectBindings } from "../installer/inventory.js";
+import { listProfiles, listProjectBindings } from "../installer/inventory.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
   COMMAND_HELP_ALIASES,
@@ -650,6 +653,23 @@ async function main(): Promise<void> {
         } catch (error) {
           if (parsed.json) {
             process.stdout.write(formatProjectInventoryToolErrorJson(formatError(error)));
+          } else {
+            process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+          }
+          process.exitCode = 1;
+        }
+        return;
+      case "profiles":
+        try {
+          const profiles = await listProfiles(home);
+          process.stdout.write(
+            parsed.json
+              ? formatProfileInventoryJson(profiles)
+              : formatProfileInventoryHuman(profiles),
+          );
+        } catch (error) {
+          if (parsed.json) {
+            process.stdout.write(formatProfileInventoryToolErrorJson(formatError(error)));
           } else {
             process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
           }
