@@ -18,20 +18,25 @@ export interface InfoWorkspaceLocation {
   readonly canonical: string;
 }
 
-export interface ApplicationInfo {
+export type InfoConfigurationState = "current" | "legacy" | "not-configured";
+
+export interface ApplicationInfoLocations {
   readonly engineVersion: string;
   readonly installationState: string;
   readonly localConfiguration: string;
+}
+
+export interface ApplicationInfo extends ApplicationInfoLocations {
+  readonly configurationState: InfoConfigurationState;
   readonly workspace: InfoWorkspaceLocation | null;
 }
 
 /** Location facts that remain available even when Local Configuration is absent or invalid. */
-export function applicationInfoLocations(home: string): ApplicationInfo {
+export function applicationInfoLocations(home: string): ApplicationInfoLocations {
   return {
     engineVersion: ENGINE_VERSION,
     installationState: stateManifestPath(home),
     localConfiguration: localConfigurationPath(home),
-    workspace: null,
   };
 }
 
@@ -48,14 +53,23 @@ export async function readApplicationInfo(home: string): Promise<ApplicationInfo
     source = await readFile(localConfiguration, "utf8");
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      return locations;
+      return {
+        ...locations,
+        configurationState: "not-configured",
+        workspace: null,
+      };
     }
     throw error;
   }
 
   const parsed = parseLocalConfigurationSelection(source, localConfiguration);
+  const configurationState = parsed.schemaVersion === 1 ? "legacy" : "current";
   if (parsed.workspace === undefined) {
-    return locations;
+    return {
+      ...locations,
+      configurationState,
+      workspace: null,
+    };
   }
 
   const expanded = expandConfiguredPath(
@@ -67,6 +81,7 @@ export async function readApplicationInfo(home: string): Promise<ApplicationInfo
   const canonical = await canonicalizePathForComparison(expanded);
   return {
     ...locations,
+    configurationState,
     workspace: {
       authored: parsed.workspace,
       canonical,

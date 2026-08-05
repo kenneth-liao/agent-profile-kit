@@ -14,6 +14,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Report legacy Local Configuration explicitly in `info`, keep error JSON Workspace-unknown, and document the versioned configuration state ([#157](https://github.com/kenneth-liao/agent-profile-kit/issues/157)).
+
 - Harden root-help width guarantees and keep command/group metadata canonical across rendering and tests ([#156](https://github.com/kenneth-liao/agent-profile-kit/issues/156)).
 
 ### Changed

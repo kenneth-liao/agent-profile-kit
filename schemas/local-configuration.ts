@@ -89,8 +89,9 @@ export interface ParsedLocalConfigurationSelection {
   readonly workspace?: string;
 }
 
-interface LocalConfigurationHeader extends ParsedLocalConfigurationSelection {
+interface LocalConfigurationHeader {
   readonly mapping: Record<string, unknown>;
+  readonly schemaVersion: 1 | 2;
 }
 
 export interface ParsedCurrentLocalConfiguration {
@@ -120,6 +121,14 @@ function parseLocalConfigurationHeader(
     );
   }
 
+  return { mapping, schemaVersion };
+}
+
+function parseWorkspaceSelection(
+  mapping: Record<string, unknown>,
+  schemaVersion: 1 | 2,
+  path: string,
+): string | undefined {
   const workspace =
     mapping.workspace === undefined
       ? undefined
@@ -129,12 +138,7 @@ function parseLocalConfigurationHeader(
       `Local Configuration ${path} workspace is required for schema_version ${LOCAL_CONFIGURATION_SCHEMA_VERSION}; add an explicit Workspace path and retry`,
     );
   }
-
-  return {
-    mapping,
-    schemaVersion,
-    ...(workspace === undefined ? {} : { workspace }),
-  };
+  return workspace;
 }
 
 /** Parse only the selected Workspace location without inspecting Project Bindings. */
@@ -143,9 +147,10 @@ export function parseLocalConfigurationSelection(
   path: string,
 ): ParsedLocalConfigurationSelection {
   const header = parseLocalConfigurationHeader(source, path);
+  const workspace = parseWorkspaceSelection(header.mapping, header.schemaVersion, path);
   return {
     schemaVersion: header.schemaVersion,
-    ...(header.workspace === undefined ? {} : { workspace: header.workspace }),
+    ...(workspace === undefined ? {} : { workspace }),
   };
 }
 
@@ -154,10 +159,11 @@ export function parseLocalConfigurationSelection(
  * the ingestion boundary in installer/local-configuration.ts.
  */
 export function parseLocalConfiguration(source: string, path: string): ParsedLocalConfiguration {
-  const { mapping, schemaVersion, workspace } = parseLocalConfigurationHeader(source, path);
+  const { mapping, schemaVersion } = parseLocalConfigurationHeader(source, path);
   if (!Array.isArray(mapping.bindings)) {
     throw new Error(`Local Configuration ${path} bindings must be an array`);
   }
+  const workspace = parseWorkspaceSelection(mapping, schemaVersion, path);
 
   const bindings = mapping.bindings.map((entry, index) => {
     const description = `Local Configuration ${path} bindings[${index}]`;

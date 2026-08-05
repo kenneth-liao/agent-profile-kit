@@ -6403,13 +6403,44 @@ describe("apkit info", () => {
     const home = isolatedHome();
 
     const result = runCli(home, "info");
+    const machine = runCli(home, "info", "--json");
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Workspace: Not configured");
     expect(result.stdout).toContain("Local Configuration: ~/.agents/agent-profile-kit/config.yaml");
     expect(result.stdout).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.yaml");
+    expect(machine.status, machine.stderr).toBe(0);
+    expect(JSON.parse(machine.stdout)).toMatchObject({
+      outcome: "success",
+      configurationState: "not-configured",
+      workspace: null,
+    });
     expect(existsSync(join(home, ".agents"))).toBe(false);
+  });
+
+  test("reports legacy configuration as migration-required instead of unconfigured", () => {
+    const home = isolatedHome();
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
+
+    const human = runCli(home, "info");
+    const machine = runCli(home, "info", "--json");
+
+    expect(human.status, human.stderr).toBe(0);
+    expect(human.stdout).toContain("Workspace: Legacy configuration; run apkit init");
+    expect(human.stdout).not.toContain("Workspace: Not configured");
+    expect(machine.status, machine.stderr).toBe(0);
+    expect(JSON.parse(machine.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "info",
+      outcome: "success",
+      configurationState: "legacy",
+      workspace: null,
+      localConfiguration: configPath(home),
+      installationState: statePath(home),
+    });
+    expect(existsSync(statePath(home))).toBe(false);
   });
 
   test("reports locations without validating or exposing Project Binding content", () => {
@@ -6463,6 +6494,7 @@ describe("apkit info", () => {
       command: "info",
       outcome: "success",
       engineVersion: manifest.version,
+      configurationState: "current",
       workspace: {
         authored: authoredWorkspace,
         canonical: realpathSync(join(home, "custom-info-json-workspace")),
@@ -6489,8 +6521,10 @@ describe("apkit info", () => {
       outcome: "error",
       localConfiguration: configPath(home),
       installationState: statePath(home),
+      configurationState: "unknown",
     });
     expect(typeof payload.error).toBe("string");
+    expect(payload).not.toHaveProperty("workspace");
     expect(existsSync(statePath(home))).toBe(false);
   });
 
