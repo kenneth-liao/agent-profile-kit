@@ -4,6 +4,7 @@ import {
   ingestProjectBindings,
   ingestSelectedWorkspace,
 } from "./local-configuration.js";
+import { readTemporaryInstallations } from "./installation-state.js";
 
 /** One normalized Project Binding prepared for read-only inventory presentation. */
 export interface ProjectInventoryRecord {
@@ -23,6 +24,15 @@ export interface ProfileInventoryRecord {
   readonly contextModules: number;
   readonly id: string;
   readonly skills: number;
+}
+
+/** One active Temporary Profile Installation prepared for read-only inventory. */
+export interface TemporaryInventoryRecord {
+  readonly host: SupportedHost;
+  readonly profileId: string;
+  /** Canonical absolute Project root retained by the temporary receipt. */
+  readonly project: string;
+  readonly temporaryInstallationId: string;
 }
 
 /**
@@ -67,4 +77,27 @@ export async function listProjectBindings(
       compareCanonicalStrings(left.record.project, right.record.project)
     )
     .map(({ record }) => record);
+}
+
+/**
+ * Read active Temporary Profile Installations from canonical Installation State.
+ * Removed identities and ordinary Profile Installations are lifecycle records,
+ * not active temporary inventory.
+ */
+export async function listTemporaryInstallations(
+  home: string,
+): Promise<readonly TemporaryInventoryRecord[]> {
+  const installations = await readTemporaryInstallations(home);
+  return installations
+    .filter((installation) => installation.completionState === "installed")
+    .map((installation) => ({
+      host: installation.host,
+      profileId: installation.profileId,
+      project: installation.project,
+      temporaryInstallationId: installation.temporaryInstallationId,
+    }))
+    .sort((left, right) =>
+      compareCanonicalStrings(left.project, right.project) ||
+      compareCanonicalStrings(left.temporaryInstallationId, right.temporaryInstallationId)
+    );
 }

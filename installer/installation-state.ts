@@ -109,6 +109,45 @@ async function migrateLegacyInstallationState(
   };
 }
 
+type ParsedInstallationState =
+  | { readonly schemaVersion: 5; readonly state: InstallationState }
+  | { readonly schemaVersion: 4; readonly state: ReturnType<typeof parseV4InstallationState> }
+  | { readonly schemaVersion: 3; readonly state: ReturnType<typeof parsePreviousInstallationState> }
+  | { readonly schemaVersion: 2; readonly state: ReturnType<typeof parseLegacyInstallationState> };
+
+function parseInstallationStateSource(source: string): ParsedInstallationState {
+  let currentStateError: unknown;
+  try {
+    return { schemaVersion: 5, state: parseInstallationState(source) };
+  } catch (error) {
+    currentStateError = error;
+  }
+
+  try {
+    return { schemaVersion: 4, state: parseV4InstallationState(source) };
+  } catch {
+    try {
+      return { schemaVersion: 3, state: parsePreviousInstallationState(source) };
+    } catch {
+      try {
+        return { schemaVersion: 2, state: parseLegacyInstallationState(source) };
+      } catch {
+        throw currentStateError;
+      }
+    }
+  }
+}
+
+function normalizedInstallationState(state: InstallationState): InstallationState {
+  return {
+    ...state,
+    installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
+    temporaryInstallations: [...state.temporaryInstallations].sort((left, right) =>
+      left.temporaryInstallationId.localeCompare(right.temporaryInstallationId)
+    ),
+  };
+}
+
 export function emptyInstallationState(): InstallationState {
   return {
     intendedTeardowns: [],
@@ -122,59 +161,37 @@ export function emptyInstallationState(): InstallationState {
 export async function readInstallationStateWithMigration(home: string): Promise<InstallationStateRead> {
   try {
     const source = await readFile(stateManifestPath(home), "utf8");
+    const parsed = parseInstallationStateSource(source);
     let state: InstallationState;
-    try {
-      state = parseInstallationState(source);
-    } catch (error) {
-      try {
-        const v4 = parseV4InstallationState(source);
+    switch (parsed.schemaVersion) {
+      case 5:
+        state = parsed.state;
+        break;
+      case 4:
         state = {
-          intendedTeardowns: v4.intendedTeardowns,
-          installations: v4.installations,
-          repositoryExclusions: v4.repositoryExclusions,
+          intendedTeardowns: parsed.state.intendedTeardowns,
+          installations: parsed.state.installations,
+          repositoryExclusions: parsed.state.repositoryExclusions,
           schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
           temporaryInstallations: [],
         };
-      } catch {
-        try {
-          const previous = parsePreviousInstallationState(source);
-          state = {
-            intendedTeardowns: [],
-            installations: previous.installations,
-            repositoryExclusions: previous.repositoryExclusions,
-            schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-            temporaryInstallations: [],
-          };
-        } catch {
-          let legacy;
-          try {
-            legacy = parseLegacyInstallationState(source);
-          } catch {
-            throw error;
-          }
-          state = await migrateLegacyInstallationState(legacy);
-        }
-      }
-      return {
-        migrated: true,
-        state: {
-          ...state,
-          installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
-          temporaryInstallations: [...state.temporaryInstallations].sort((left, right) =>
-            left.temporaryInstallationId.localeCompare(right.temporaryInstallationId)
-          ),
-        },
-      };
+        break;
+      case 3:
+        state = {
+          intendedTeardowns: [],
+          installations: parsed.state.installations,
+          repositoryExclusions: parsed.state.repositoryExclusions,
+          schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+          temporaryInstallations: [],
+        };
+        break;
+      case 2:
+        state = await migrateLegacyInstallationState(parsed.state);
+        break;
     }
     return {
-      migrated: false,
-      state: {
-        ...state,
-        installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
-        temporaryInstallations: [...state.temporaryInstallations].sort((left, right) =>
-          left.temporaryInstallationId.localeCompare(right.temporaryInstallationId)
-        ),
-      },
+      migrated: parsed.schemaVersion !== 5,
+      state: normalizedInstallationState(state),
     };
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
@@ -191,6 +208,25 @@ export async function readInstallationState(home: string): Promise<InstallationS
   return (await readInstallationStateWithMigration(home)).state;
 }
 
+/**
+ * Read only the temporary records needed by read-only inventory. Legacy state
+ * cannot contain temporary records, so it is parsed without migrating ordinary
+ * installations or inspecting their Project and Git state.
+ */
+export async function readTemporaryInstallations(
+  home: string,
+): Promise<InstallationState["temporaryInstallations"]> {
+  let source: string;
+  try {
+    source = await readFile(stateManifestPath(home), "utf8");
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return [];
+    throw error;
+  }
+  const parsed = parseInstallationStateSource(source);
+  return parsed.schemaVersion === 5 ? parsed.state.temporaryInstallations : [];
+}
+
 export async function writeInstallationState(
   home: string,
   state: InstallationState,
@@ -202,13 +238,9 @@ export async function writeInstallationState(
   await writeFile(
     temporary,
     formatInstallationState({
-      ...state,
+      ...normalizedInstallationState(state),
       intendedTeardowns: [...state.intendedTeardowns]
         .sort((left, right) => left.project.localeCompare(right.project)),
-      installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
-      temporaryInstallations: [...state.temporaryInstallations].sort((left, right) =>
-        left.temporaryInstallationId.localeCompare(right.temporaryInstallationId)
-      ),
     }),
     { flag: "wx" },
   );
