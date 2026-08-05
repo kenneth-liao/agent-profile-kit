@@ -111,11 +111,11 @@ type FocusedHelpRequest =
 function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest | undefined {
   if (arguments_.length === 3 && arguments_[0] === HELP_COMMAND) {
     const commandToken = arguments_[1]!;
+    if (!COMMAND_HELP_ALIASES.some((alias) => alias === arguments_[2])) return undefined;
     const command = COMMANDS.find((candidate) => candidate.name === commandToken);
-    if (command !== undefined && COMMAND_HELP_ALIASES.some((alias) => alias === arguments_[2])) {
-      return { kind: "command", command };
-    }
-    return { kind: "unknown", token: commandToken };
+    return command === undefined
+      ? { kind: "unknown", token: commandToken }
+      : { kind: "command", command };
   }
   if (arguments_.length !== 2) return undefined;
   const first = arguments_[0]!;

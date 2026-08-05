@@ -6306,6 +6306,16 @@ describe("apkit root help", () => {
     }
   });
 
+  test("non-help trailing arguments do not self-suggest a known command", () => {
+    const home = isolatedHome();
+    const result = runCli(home, HELP_COMMAND, "bind", "unexpected");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("apkit: unknown command 'help'");
+    expect(result.stderr).not.toContain("Did you mean: apkit bind?");
+  });
+
   test("focused binding help names Hosts from each command's supported capability set", () => {
     const home = isolatedHome();
     const bindHelp = runCli(home, "help", "bind");

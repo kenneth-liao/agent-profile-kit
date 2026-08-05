@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Avoid self-suggestions for known commands with non-help trailing arguments ([#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158)).
+
 - Accept trailing focused-help aliases after `help <command>` ([#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158)).
 
 - Handle nested root-help aliases, sanitize unknown-command diagnostics, and normalize focused-help parsing ([#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158)).
