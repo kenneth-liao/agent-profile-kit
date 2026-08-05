@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Add conventional focused-help aliases, canonical Host guidance, and bounded command suggestions for unknown commands ([#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158)).
+
 - Add read-only inventory topic discovery and `list projects` Project Binding views in human and versioned JSON forms ([#160](https://github.com/kenneth-liao/agent-profile-kit/issues/160)).
 
 - Add read-only `info` human and versioned JSON views for the engine version and Workspace, Local Configuration, and Installation State locations ([#157](https://github.com/kenneth-liao/agent-profile-kit/issues/157)).
@@ -15,6 +17,12 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Make root help responsive with workflow groups, width-aware two-line command entries, and terminal-aware wrapping ([#156](https://github.com/kenneth-liao/agent-profile-kit/issues/156)).
 
 ### Fixed
+
+- Avoid self-suggestions for known commands with non-help trailing arguments ([#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158)).
+
+- Accept trailing focused-help aliases after `help <command>` ([#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158)).
+
+- Handle nested root-help aliases, sanitize unknown-command diagnostics, and normalize focused-help parsing ([#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158)).
 
 - Keep Project inventory available when individual configured roots are invalid, centralize inventory topic metadata, and include engine provenance in JSON ([#160](https://github.com/kenneth-liao/agent-profile-kit/issues/160)).
 

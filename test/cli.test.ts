@@ -19,7 +19,12 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse, stringify } from "yaml";
 
-import { COMMANDS, COMMAND_GROUPS } from "../cli/command-help.js";
+import {
+  COMMAND_HELP_ALIASES,
+  COMMANDS,
+  COMMAND_GROUPS,
+  HELP_COMMAND,
+} from "../cli/command-help.js";
 import { TOPIC_GUIDES } from "../cli/guides.js";
 import {
   INVENTORY_TOPICS,
@@ -28,7 +33,9 @@ import {
 } from "../cli/inventory-topics.js";
 import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installation.js";
 import { ENGINE_VERSION } from "../installer/version.js";
+import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const FOCUSED_GUIDE_MAX_LINES = 30;
@@ -4907,7 +4914,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const command of ["plan", "install", "update", "run"]) {
       const result = runCli(home, command);
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Usage: apkit");
+      expect(result.stderr).toContain(`apkit: unknown command '${command}'`);
+      expect(result.stderr).toContain("Run apkit --help for available commands.");
+      expect(result.stderr).not.toContain("Commands:");
     }
   });
 
@@ -6118,11 +6127,11 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const home = isolatedHome();
     const result = runCli(home, "bind");
     expect(result.status).toBe(1);
-    // Missing profile fails; usage path for unknown command:
+    // Missing profile still names the command-specific usage; unknown commands stay concise.
     const usage = runCli(home, "unknown-command");
     expect(usage.status).toBe(1);
-    expect(usage.stderr).toContain("bind <profile>");
-    expect(usage.stderr).toContain("unbind [project]");
+    expect(usage.stderr).toContain("Run apkit --help for available commands.");
+    expect(usage.stderr).not.toContain("Commands:");
   });
 });
 
@@ -6145,18 +6154,20 @@ describe("apkit root help", () => {
     const help = runCli(home, "--help");
     const shortHelp = runCli(home, "-h");
     const helpCommand = runCli(home, "help");
+    const nestedLongHelp = runCli(home, HELP_COMMAND, "--help");
+    const nestedShortHelp = runCli(home, HELP_COMMAND, "-h");
+    const nestedVersion = runCli(home, HELP_COMMAND, "--version");
 
-    expect(bare.status, bare.stderr).toBe(0);
-    expect(help.status, help.stderr).toBe(0);
-    expect(shortHelp.status, shortHelp.stderr).toBe(0);
-    expect(helpCommand.status, helpCommand.stderr).toBe(0);
-    expect(bare.stderr).toBe("");
-    expect(help.stderr).toBe("");
-    expect(shortHelp.stderr).toBe("");
-    expect(helpCommand.stderr).toBe("");
+    for (const result of [bare, help, shortHelp, helpCommand, nestedLongHelp, nestedShortHelp, nestedVersion]) {
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toBe("");
+    }
     expect(bare.stdout).toBe(help.stdout);
     expect(shortHelp.stdout).toBe(help.stdout);
     expect(helpCommand.stdout).toBe(help.stdout);
+    expect(nestedLongHelp.stdout).toBe(help.stdout);
+    expect(nestedShortHelp.stdout).toBe(help.stdout);
+    expect(nestedVersion.stdout).toBe(help.stdout);
     expect(bare.stdout.length).toBeGreaterThan(0);
   });
 
@@ -6270,6 +6281,64 @@ describe("apkit root help", () => {
     }
   });
 
+  test("focused help accepts help, -h, and --help aliases with identical output", () => {
+    const home = isolatedHome();
+    expect(COMMAND_HELP_ALIASES).toEqual(["-h", "--help"]);
+
+    for (const command of COMMANDS) {
+      const helpCommand = runCli(home, HELP_COMMAND, command.name);
+
+      expect(helpCommand.status, `help ${command.name}: ${helpCommand.stderr}`).toBe(0);
+      expect(helpCommand.stderr).toBe("");
+      for (const alias of COMMAND_HELP_ALIASES) {
+        const aliasHelp = runCli(home, command.name, alias);
+        const prefixedAliasHelp = runCli(home, HELP_COMMAND, command.name, alias);
+        expect(aliasHelp.status, `${command.name} ${alias}: ${aliasHelp.stderr}`).toBe(0);
+        expect(
+          prefixedAliasHelp.status,
+          `${HELP_COMMAND} ${command.name} ${alias}: ${prefixedAliasHelp.stderr}`,
+        ).toBe(0);
+        expect(aliasHelp.stderr).toBe("");
+        expect(prefixedAliasHelp.stderr).toBe("");
+        expect(aliasHelp.stdout).toBe(helpCommand.stdout);
+        expect(prefixedAliasHelp.stdout).toBe(helpCommand.stdout);
+      }
+    }
+  });
+
+  test("non-help trailing arguments do not self-suggest a known command", () => {
+    const home = isolatedHome();
+    const result = runCli(home, HELP_COMMAND, "bind", "unexpected");
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("apkit: unknown command 'help'");
+    expect(result.stderr).not.toContain("Did you mean: apkit bind?");
+  });
+
+  test("focused binding help names Hosts from each command's supported capability set", () => {
+    const home = isolatedHome();
+    const bindHelp = runCli(home, "help", "bind");
+    const temporaryHelp = runCli(home, "install-temp", "-h");
+
+    expect(bindHelp.status, bindHelp.stderr).toBe(0);
+    expect(temporaryHelp.status, temporaryHelp.stderr).toBe(0);
+    expect(bindHelp.stdout).toContain(`Supported Hosts: ${SUPPORTED_HOSTS.join(", ")}`);
+    expect(temporaryHelp.stdout).toContain(
+      `Supported Hosts: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
+    );
+  });
+
+  test("root quick start points Profile and Host placeholders to discovery routes", () => {
+    const home = isolatedHome();
+    const result = runCli(home, "--help");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("apkit guide profile");
+    expect(result.stdout).toContain("apkit bind --help");
+    expect(result.stdout).toContain("apkit bind <profile> --host <host>");
+  });
+
   test("interactive root help adapts to narrow terminals and caps wide prose", () => {
     const home = isolatedHome();
     const clamped = runCliInPty(home, 20, "--help");
@@ -6367,18 +6436,48 @@ describe("apkit root help", () => {
     expect(initHelp.stdout).toContain("Next: Run apkit guide profile.");
   });
 
-  test("an unknown command exits nonzero, names the unknown command, and shows root usage", () => {
+  test("a close unknown command gets one suggestion and a distant one gets concise help", () => {
     const home = isolatedHome();
-    const result = runCli(home, "frobnicate");
+    const close = runCli(home, "stats");
+    const distant = runCli(home, "frobnicate");
+    const tied = runCli(home, "inf");
+    const unknownHelp = runCli(home, "help", "stats");
+    const unknownShortHelp = runCli(home, "stats", "-h");
+    const unsafe = runCli(home, "\u001b[2J");
 
-    expect(result.status).toBe(1);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("frobnicate");
-    expect(result.stderr).toContain("apkit: unknown command 'frobnicate'");
-    expect(result.stderr).toContain("Usage: apkit");
-    for (const { name } of COMMANDS) {
-      expect(result.stderr).toMatch(new RegExp(`\\b${name}\\b`));
+    expect(close.status).toBe(1);
+    expect(close.stdout).toBe("");
+    expect(close.stderr).toContain("apkit: unknown command 'stats'");
+    expect(close.stderr).toContain("Did you mean: apkit status?");
+    expect(close.stderr.match(/Did you mean:/g)).toHaveLength(1);
+    expect(close.stderr).toContain("Run apkit --help for available commands.");
+    expect(close.stderr).not.toContain("Commands:");
+
+    expect(distant.status).toBe(1);
+    expect(distant.stdout).toBe("");
+    expect(distant.stderr).toContain("apkit: unknown command 'frobnicate'");
+    expect(distant.stderr).not.toContain("Did you mean:");
+    expect(distant.stderr).toContain("Run apkit --help for available commands.");
+    expect(distant.stderr).not.toContain("Commands:");
+
+    expect(tied.status).toBe(1);
+    expect(tied.stderr).toContain("apkit: unknown command 'inf'");
+    expect(tied.stderr).toContain("Did you mean: apkit info?");
+    expect(tied.stderr.match(/Did you mean:/g)).toHaveLength(1);
+    expect(tied.stderr).not.toContain("Commands:");
+
+    for (const result of [unknownHelp, unknownShortHelp, unsafe]) {
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("Run apkit --help for available commands.");
+      expect(result.stderr).not.toContain("Commands:");
+      for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(result.stderr).not.toMatch(term);
     }
+    expect(unknownHelp.stderr).toContain("apkit: unknown command 'stats'");
+    expect(unknownHelp.stderr).toContain("Did you mean: apkit status?");
+    expect(unknownShortHelp.stderr).toContain("apkit: unknown command 'stats'");
+    expect(unknownShortHelp.stderr).toContain("Did you mean: apkit status?");
+    expect(unsafe.stderr).not.toContain("\u001b");
   });
 
   test("leading-dash values are never consumed as positional arguments", () => {

@@ -1,6 +1,12 @@
 import { COMMAND_NAME } from "../installer/version.js";
+import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installation.js";
+import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import { COMMAND_EXAMPLES } from "./examples.js";
 import { inventoryCommandSyntax } from "./inventory-topics.js";
+
+export const HELP_COMMAND = "help" as const;
+export const ROOT_HELP_ALIASES = ["--help", "-h", HELP_COMMAND] as const;
+export const COMMAND_HELP_ALIASES = ["-h", "--help"] as const;
 
 /**
  * Single canonical source for every command's syntax and purpose. Root help,
@@ -13,6 +19,7 @@ export interface CommandHelp {
   readonly syntax: string;
   readonly summary: string;
   readonly examples: readonly string[];
+  readonly supportedHosts?: readonly string[];
   readonly writes: string;
   readonly next: string;
 }
@@ -61,6 +68,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "bind <profile> [project] --host <host> [--host <host> ...]",
     summary: "Record a Project Binding to a Profile and Agent Hosts",
     examples: COMMAND_EXAMPLES.bind,
+    supportedHosts: SUPPORTED_HOSTS,
     writes: "Records one Project Binding in Local Configuration; does not install project files.",
     next: `Run ${COMMAND_NAME} preview.`,
   },
@@ -142,6 +150,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     syntax: "install-temp <profile> <project> --host <host> [--json]",
     summary: "Install a Profile temporarily into one Project",
     examples: COMMAND_EXAMPLES["install-temp"],
+    supportedHosts: TEMPORARY_INSTALLATION_HOSTS,
     writes: "Writes temporary Agent Profile Kit-owned project files and machine-local temporary installation state; does not change Local Configuration or Project Bindings.",
     next: `Run ${COMMAND_NAME} remove-temp <temporary-installation-id> when finished.`,
   },

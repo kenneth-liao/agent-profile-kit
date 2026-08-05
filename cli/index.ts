@@ -60,8 +60,11 @@ import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { listProjectBindings } from "../installer/inventory.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
+  COMMAND_HELP_ALIASES,
   COMMANDS,
   COMMAND_GROUPS,
+  HELP_COMMAND,
+  ROOT_HELP_ALIASES,
   type CommandHelp,
 } from "./command-help.js";
 import {
@@ -100,18 +103,112 @@ function findCommand(name: string): CommandHelp {
   return command;
 }
 
+type FocusedHelpRequest =
+  | { readonly kind: "root" }
+  | { readonly kind: "command"; readonly command: CommandHelp }
+  | { readonly kind: "unknown"; readonly token: string };
+
+function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest | undefined {
+  if (arguments_.length === 3 && arguments_[0] === HELP_COMMAND) {
+    const commandToken = arguments_[1]!;
+    if (!COMMAND_HELP_ALIASES.some((alias) => alias === arguments_[2])) return undefined;
+    const command = COMMANDS.find((candidate) => candidate.name === commandToken);
+    return command === undefined
+      ? { kind: "unknown", token: commandToken }
+      : { kind: "command", command };
+  }
+  if (arguments_.length !== 2) return undefined;
+  const first = arguments_[0]!;
+  const second = arguments_[1]!;
+  if (first === HELP_COMMAND) {
+    if (ROOT_HELP_ALIASES.some((alias) => alias === second) || second === "--version") {
+      return { kind: "root" };
+    }
+    const command = COMMANDS.find((candidate) => candidate.name === second);
+    return command === undefined
+      ? { kind: "unknown", token: second }
+      : { kind: "command", command };
+  }
+  const command = COMMANDS.find((candidate) => candidate.name === first);
+  if (command !== undefined && COMMAND_HELP_ALIASES.some((alias) => alias === second)) {
+    return { kind: "command", command };
+  }
+  if (COMMAND_HELP_ALIASES.some((alias) => alias === second)) {
+    return { kind: "unknown", token: first };
+  }
+  return undefined;
+}
+
+const MAX_COMMAND_SUGGESTION_DISTANCE = 2;
+
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1]! + 1,
+        previous[rightIndex]! + 1,
+        previous[rightIndex - 1]! + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length]!;
+}
+
+function suggestedCommand(unknown: string): string | undefined {
+  return COMMANDS
+    .map((command) => ({
+      distance: editDistance(unknown, command.name),
+      name: command.name,
+    }))
+    .filter(({ distance }) => distance <= MAX_COMMAND_SUGGESTION_DISTANCE)
+    .sort((left, right) => {
+      if (left.distance !== right.distance) return left.distance - right.distance;
+      return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
+    })[0]
+    ?.name;
+}
+
+function sanitizeCommandToken(token: string): string {
+  return token.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").replaceAll("'", "\\'");
+}
+
+function wrapErrorLine(text: string, width: number): string {
+  return wrapPresentationText(text, width)
+    .map((line, index) => index === 0 ? line : `  ${line}`)
+    .join("\n");
+}
+
+function unknownCommandHelp(unknown: string, context: TerminalPresentationContext): string {
+  const safeUnknown = sanitizeCommandToken(unknown);
+  const suggestion = suggestedCommand(safeUnknown);
+  const unknownLine = `${defaultViewText(`${COMMAND_NAME}: unknown command `)}'${safeUnknown}'`;
+  const lines = [unknownLine];
+  if (suggestion !== undefined) lines.push(`${defaultViewText("Did you mean:")} ${COMMAND_NAME} ${suggestion}?`);
+  lines.push("", defaultViewText(`Run ${COMMAND_NAME} --help for available commands.`));
+  return lines
+    .map((line) => line === "" ? "" : wrapErrorLine(line, context.width))
+    .join("\n") + "\n";
+}
+
 function perCommandHelp(command: CommandHelp): string {
+  const supportedHosts = command.supportedHosts === undefined
+    ? ""
+    : `Supported Hosts: ${command.supportedHosts.join(", ")}\n\n`;
   return defaultViewText(
     `Purpose: ${command.summary}\n\n` +
     `${usageLine(command)}\n\n` +
     "Examples:\n" +
     command.examples.map((example) => `  ${COMMAND_NAME} ${example}\n`).join("") +
-    `\nWrites: ${command.writes}\n\n` +
+    `\n${supportedHosts}` +
+    `Writes: ${command.writes}\n\n` +
     `Next: ${command.next}\n`,
   );
 }
 
-/** Root help shown for a bare invocation, `--help`, and unknown-command errors. */
+/** Root help shown for a bare invocation and root `--help` aliases. */
 function rootHelp(context: TerminalPresentationContext): string {
   const proseWidth = Math.max(1, context.width - 4);
   const commandLines: string[] = [];
@@ -138,6 +235,12 @@ function rootHelp(context: TerminalPresentationContext): string {
     context.width,
   ).join("\n");
   const quickStartHeading = defaultViewText("Profile Installation quick start:");
+  const discovery = wrapPresentationText(
+    defaultViewText(
+      `Choose a Profile with ${COMMAND_NAME} guide profile; see ${COMMAND_NAME} bind --help for supported Host values.`,
+    ),
+    Math.max(1, context.width - 2),
+  ).map((line) => `  ${line}`).join("\n");
   return `${intro}\n\n` +
     `Usage: ${COMMAND_NAME} <command> [arguments]\n\n` +
     "Commands:\n" +
@@ -147,6 +250,7 @@ function rootHelp(context: TerminalPresentationContext): string {
     `  ${COMMAND_NAME} bind <profile> --host <host>\n` +
     `  ${COMMAND_NAME} preview\n` +
     `  ${COMMAND_NAME} apply\n\n` +
+    `${discovery}\n\n` +
     `${guidance}\n`;
 }
 
@@ -394,17 +498,19 @@ async function main(): Promise<void> {
   }
   if (
     arguments_.length === 0 ||
-    (arguments_.length === 1 && ["--help", "-h", "help"].includes(arguments_[0]!))
+    (arguments_.length === 1 && ROOT_HELP_ALIASES.some((alias) => alias === arguments_[0]))
   ) {
     process.stdout.write(rootHelp(terminalPresentationContext(process.stdout)));
     return;
   }
-  if (arguments_.length === 2 && arguments_[1] === "--help") {
-    const command = COMMANDS.find((candidate) => candidate.name === arguments_[0]);
-    if (command) {
-      process.stdout.write(perCommandHelp(command));
-      return;
-    }
+  const focusedHelp = focusedHelpRequest(arguments_);
+  if (focusedHelp?.kind === "root") {
+    process.stdout.write(rootHelp(terminalPresentationContext(process.stdout)));
+    return;
+  }
+  if (focusedHelp?.kind === "command") {
+    process.stdout.write(perCommandHelp(focusedHelp.command));
+    return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "guide") {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));
@@ -735,8 +841,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  const errorHelp = rootHelp(terminalPresentationContext(process.stderr));
-  process.stderr.write(`${COMMAND_NAME}: unknown command '${arguments_[0] ?? ""}'\n\n${errorHelp}`);
+  const unknown = focusedHelp?.kind === "unknown"
+    ? focusedHelp.token
+    : arguments_[0] ?? "";
+  process.stderr.write(unknownCommandHelp(unknown, terminalPresentationContext(process.stderr)));
   process.exitCode = 1;
 }
 
