@@ -103,7 +103,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "list",
     group: "workspace",
     syntax: inventoryCommandSyntax(),
-    summary: "List read-only inventory for Projects, Profiles, or temporary installations",
+    summary: "List read-only inventory for Projects, Profiles, Hosts, or temporary installations",
     examples: COMMAND_EXAMPLES.list,
     writes: "Nothing; this command is read-only.",
     next: `Run ${COMMAND_NAME} status for Project lifecycle diagnostics.`,

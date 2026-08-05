@@ -18,6 +18,7 @@ import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { UninstallResult, ValidationResult } from "../installer/commands.js";
 import type {
+  HostInventoryRecord,
   ProfileInventoryRecord,
   ProjectInventoryRecord,
   TemporaryInventoryRecord,
@@ -576,6 +577,38 @@ export function formatProfileInventoryToolErrorJson(message: string): string {
       error: message,
       profiles: [] as const,
     }) satisfies ProfileInventoryMachinePayload,
+  );
+}
+
+export function formatHostInventoryHuman(
+  hosts: readonly HostInventoryRecord[],
+): string {
+  const lines = [`Hosts (${hosts.length}):`];
+  for (const host of hosts) {
+    lines.push(
+      "",
+      `Host: ${host.host}`,
+      `  Temporary Profile Installation: ${host.supportsTemporaryProfileInstallation ? "supported" : "not supported"}`,
+    );
+  }
+  lines.push("", `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.`);
+  return `${lines.join("\n")}\n`;
+}
+
+type HostInventoryMachineBase = ListInventoryMachineBase<"hosts">;
+
+interface HostInventoryMachineSuccessPayload extends HostInventoryMachineBase {
+  readonly outcome: "success";
+  readonly hosts: readonly HostInventoryRecord[];
+}
+
+/** Versioned machine payload for the read-only Agent Host inventory topic. */
+export function formatHostInventoryJson(
+  hosts: readonly HostInventoryRecord[],
+): string {
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("hosts", "success", { hosts }) satisfies
+      HostInventoryMachineSuccessPayload,
   );
 }
 

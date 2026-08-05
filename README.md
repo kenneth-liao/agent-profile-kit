@@ -97,6 +97,11 @@ Machine-readable command contracts:
   selected Workspace only; it does not inspect Project roots, Git state,
   project output, Installation State, or Host capabilities, and never changes
   state.
+- `list hosts --json` prints a `schemaVersion: 1` object with the engine version
+  and every supported Agent Host in canonical order, including whether
+  Temporary Profile Installation is supported. It reads capability constants
+  only; it does not inspect PATH, Host versions, configuration, Project roots,
+  or project output, and never changes state.
 - `list temporary --json` prints a `schemaVersion: 1` object with the engine
   version and active Temporary Profile Installation identities, canonical
   Project paths, Profile IDs, and Hosts. Removed identities and ordinary
@@ -127,6 +132,8 @@ apkit list projects
 apkit list projects --json
 apkit list profiles
 apkit list profiles --json
+apkit list hosts
+apkit list hosts --json
 apkit list temporary
 apkit list temporary --json
 apkit validate

@@ -6586,6 +6586,53 @@ describe("apkit list", () => {
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
+  test("hosts renders every supported Host in canonical order with temporary support", () => {
+    const home = isolatedHome();
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "hosts");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain(`Hosts (${SUPPORTED_HOSTS.length}):`);
+    for (const host of SUPPORTED_HOSTS) expect(result.stdout).toContain(`Host: ${host}`);
+    expect(result.stdout).toContain("Temporary Profile Installation: supported");
+    expect(result.stdout).toContain("Temporary Profile Installation: not supported");
+    expect(result.stdout.indexOf("Host: claude")).toBeLessThan(result.stdout.indexOf("Host: codex"));
+    expect(result.stdout.indexOf("Host: codex")).toBeLessThan(result.stdout.indexOf("Host: grok"));
+    expect(result.stdout.indexOf("Host: grok")).toBeLessThan(result.stdout.indexOf("Host: pi"));
+    expect(existsSync(join(home, ".agents"))).toBe(false);
+  });
+
+  test("hosts JSON uses canonical capability records without probing Host executables", () => {
+    const home = isolatedHome();
+    const failingHostBin = join(home, "failing-host-bin");
+    mkdirSync(failingHostBin, { recursive: true });
+    for (const host of SUPPORTED_HOSTS) {
+      const executable = join(failingHostBin, host);
+      writeFileSync(executable, "#!/bin/sh\necho 'unexpected Host probe' >&2\nexit 97\n");
+      chmodSync(executable, 0o755);
+    }
+
+    const result = runCliWithPath(home, failingHostBin, "list", "hosts", "--json");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({
+      schemaVersion: 1,
+      command: "list",
+      topic: "hosts",
+      outcome: "success",
+      engineVersion: ENGINE_VERSION,
+      hosts: [
+        { host: "claude", supportsTemporaryProfileInstallation: true },
+        { host: "codex", supportsTemporaryProfileInstallation: true },
+        { host: "grok", supportsTemporaryProfileInstallation: false },
+        { host: "pi", supportsTemporaryProfileInstallation: false },
+      ],
+    });
+    expect(existsSync(join(home, ".agents"))).toBe(false);
+  });
+
   test("temporary inventory does not migrate legacy ordinary installations", () => {
     const home = isolatedHome();
     initialize(home);

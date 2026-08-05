@@ -18,6 +18,8 @@ import {
   formatInfoHuman,
   formatInfoJson,
   formatInfoToolErrorJson,
+  formatHostInventoryHuman,
+  formatHostInventoryJson,
   formatInventoryIndex,
   formatProjectInventoryHuman,
   formatProjectInventoryJson,
@@ -64,6 +66,7 @@ import {
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import {
+  listHosts,
   listProfiles,
   listProjectBindings,
   listTemporaryInstallations,
@@ -681,6 +684,14 @@ async function main(): Promise<void> {
             process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
           }
           process.exitCode = 1;
+        }
+        return;
+      case "hosts":
+        {
+          const hosts = listHosts();
+          process.stdout.write(
+            parsed.json ? formatHostInventoryJson(hosts) : formatHostInventoryHuman(hosts),
+          );
         }
         return;
       case "temporary":
