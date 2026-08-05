@@ -58,7 +58,7 @@ Install that exact private build locally:
 
 ```sh
 npm install --global ./agent-profile-kit-0.20.0.tgz
-apkit guide
+apkit guide --full
 ```
 
 On another machine, authenticate `gh` with an account that can read this private

@@ -1131,7 +1131,7 @@ describe("project-bound release candidate", () => {
 
   test("packed guidance describes Skills-only Profiles, universal ownership, and Host Resolution", () => {
     const home = isolatedHome();
-    const human = runCli(home, ["guide"]);
+    const human = runCli(home, ["guide", "--full"]);
     expect(human.status, human.stderr).toBe(0);
     expect(human.stdout).toMatch(/model-invocation|agent-profile-kit\.model-invocation/i);
     expect(human.stdout).toMatch(/disabled|allowed/i);

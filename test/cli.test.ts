@@ -20,7 +20,9 @@ import { fileURLToPath } from "node:url";
 import { parse, stringify } from "yaml";
 
 import { COMMANDS, COMMAND_GROUPS } from "../cli/command-help.js";
+import { TOPIC_GUIDES } from "../cli/guides.js";
 import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
+import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const FOCUSED_GUIDE_MAX_LINES = 30;
@@ -4934,7 +4936,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
   test("packed CLI serves the final project-bound human guide", () => {
     const home = isolatedHome();
-    const result = runCli(home, "guide");
+    const result = runCli(home, "guide", "--full");
     expect(result.status, result.stderr).toBe(0);
 
     for (const command of ["init", "validate", "preview", "apply", "status", "unbind", "uninstall"]) {
@@ -5046,21 +5048,35 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(validate.status, validate.stderr).toBe(0);
   });
 
-  test("bare guide and --agent still serve the maintained full guides byte-for-byte", () => {
+  test("bare guide indexes topics while --full and --agent serve maintained guides", () => {
     const home = isolatedHome();
     const packageRoot = resolve(cliPath, "..", "..");
 
     const human = runCli(home, "guide");
+    const full = runCli(home, "guide", "--full");
     const agent = runCli(home, "guide", "--agent");
 
     expect(human.status, human.stderr).toBe(0);
+    expect(full.status, full.stderr).toBe(0);
     expect(agent.status, agent.stderr).toBe(0);
-    expect(human.stdout).toBe(
+    expect(human.stdout).toContain("apkit guide profile");
+    expect(human.stdout).toContain("apkit guide context");
+    expect(human.stdout).toContain("apkit guide skill");
+    expect(human.stdout).toContain("apkit guide --full");
+    expect(human.stdout).toContain("apkit guide --agent");
+    expect(human.stdout).toContain("Profiles select it by its");
+    expect(human.stdout).toContain("frontmatter `id`.");
+    expect(human.stdout).toContain("frontmatter `name`,");
+    expect(human.stdout).not.toContain("SessionStart");
+    expect(full.stdout).toBe(
       readFileSync(join(packageRoot, "docs", "guides", "workspace.md"), "utf8"),
     );
     expect(agent.stdout).toBe(
       readFileSync(join(packageRoot, "docs", "guides", "agent-workflow.md"), "utf8"),
     );
+    expect(existsSync(workspacePath(home))).toBe(false);
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(existsSync(stateDirectory(home))).toBe(false);
   });
 
   test("packed CLI serves the final project-bound agent workflow", () => {
@@ -5093,7 +5109,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
   test("packed human guide distinguishes required Manifest from init scaffolding", () => {
     const home = isolatedHome();
-    const result = runCli(home, "guide");
+    const result = runCli(home, "guide", "--full");
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toMatch(/Required structure vs initialization scaffolding|valid Workspace needs only/i);
     expect(result.stdout).toMatch(/workspace\.yaml/);
@@ -5112,7 +5128,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
   test("packed human guide separates universal Workspace source ownership from managed delivery", () => {
     const home = isolatedHome();
-    const result = runCli(home, "guide");
+    const result = runCli(home, "guide", "--full");
     expect(result.status, result.stderr).toBe(0);
 
     // Workspace may own Profile-selected and unselected universal artifacts as one canonical source.
@@ -5160,6 +5176,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const agents = readFileSync(join(workspacePath(home), "AGENTS.md"), "utf8");
 
     expect(readme).toContain("apkit guide");
+    expect(readme).toContain("apkit guide --full");
     expect(agents).toContain("apkit guide --agent");
     expect(readme).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
     expect(agents).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
@@ -5176,6 +5193,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readme).toContain("Codex");
     expect(readme).toContain("Claude");
     expect(readme).toContain("apkit apply");
+    expect(readme).toContain("apkit guide --full");
     expect(readme).toMatch(/Warnings.{0,80}exit|exit.{0,80}Warnings/is);
     expect(readme).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
     expect(readme).not.toMatch(/per-session launcher|global Skill projection|process[- ]overlay/i);
@@ -6208,6 +6226,7 @@ describe("apkit root help", () => {
     expect(applyIndex).toBeGreaterThan(previewIndex);
 
     expect(result.stdout).toMatch(/apkit guide/);
+    expect(result.stdout).toContain("apkit guide --full");
     expect(result.stdout.toLowerCase()).toMatch(/workspace authoring/);
   });
 
@@ -6269,15 +6288,73 @@ describe("apkit root help", () => {
     }
   });
 
+  test("focused guides wrap prose at terminal width without splitting examples", () => {
+    const home = isolatedHome();
+
+    for (const topic of ["profile", "context", "skill"] as const) {
+      const narrow = runCliInPty(home, 40, "guide", topic);
+      const wide = runCliInPty(home, 100, "guide", topic);
+      const next = TOPIC_GUIDES[topic].next;
+
+      expect(narrow.status, narrow.stderr).toBe(0);
+      expect(wide.status, wide.stderr).toBe(0);
+      expect(narrow.stdout).not.toBe(wide.stdout);
+      expect(narrow.stdout).toContain(AUTHORING_EXAMPLES[topic].contents);
+      expect(narrow.stdout).toContain(next);
+
+      let inCodeFence = false;
+      for (const line of narrow.stdout.split("\n")) {
+        if (/^\s*```/.test(line)) {
+          inCodeFence = !inCodeFence;
+          continue;
+        }
+        if (inCodeFence || /^Create `[^`]+`:$/.test(line) || line === next) continue;
+        expect(line.length).toBeLessThanOrEqual(40);
+      }
+    }
+  });
+
+  test("the human guide index stays concise and width-aware", () => {
+    const home = isolatedHome();
+    const narrow = runCliInPty(home, 40, "guide");
+    const wide = runCliInPty(home, 100, "guide");
+
+    expect(narrow.status, narrow.stderr).toBe(0);
+    expect(wide.status, wide.stderr).toBe(0);
+    expect(narrow.stdout).not.toBe(wide.stdout);
+    expect(narrow.stdout).not.toContain("SessionStart");
+    expect(narrow.stdout.split("\n").length).toBeLessThan(40);
+    for (const line of narrow.stdout.split("\n")) {
+      expect(line.length).toBeLessThanOrEqual(40);
+    }
+  });
+
+  test("guide human views use newcomer vocabulary", () => {
+    const home = isolatedHome();
+    const views = [
+      runCli(home, "guide"),
+      runCli(home, "guide", "profile"),
+      runCli(home, "guide", "context"),
+      runCli(home, "guide", "skill"),
+    ];
+
+    for (const view of views) {
+      expect(view.status, view.stderr).toBe(0);
+      for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(view.stdout).not.toMatch(term);
+    }
+  });
+
   test("guide help advertises every focused authoring topic", () => {
     const home = isolatedHome();
     const result = runCli(home, "guide", "--help");
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("Usage: apkit guide [profile|context|skill|--agent]");
+    expect(result.stdout).toContain("Usage: apkit guide [profile|context|skill|--full|--agent]");
     for (const topic of ["profile", "context", "skill"]) {
       expect(result.stdout).toContain(`apkit guide ${topic}`);
     }
+    expect(result.stdout).toContain("apkit guide --full");
+    expect(result.stdout).toContain("apkit guide --agent");
 
     const initHelp = runCli(home, "init", "--help");
     expect(initHelp.status, initHelp.stderr).toBe(0);
@@ -6352,7 +6429,7 @@ describe("apkit root help", () => {
     const badGuideFlag = runCli(home, "guide", "--json");
     expect(badGuideFlag.status).toBe(1);
     expect(badGuideFlag.stderr).toContain("guide does not accept argument '--json'");
-    expect(badGuideFlag.stderr).toContain("Usage: apkit guide [profile|context|skill|--agent]");
+    expect(badGuideFlag.stderr).toContain("Usage: apkit guide [profile|context|skill|--full|--agent]");
 
     const agentAfterTopic = runCli(home, "guide", "profile", "--agent");
     expect(agentAfterTopic.status).toBe(1);

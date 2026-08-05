@@ -646,6 +646,7 @@ Review personal content before publishing this Workspace. Agent Profile Kit does
 not classify private material, and credential values do not belong in a Workspace
 regardless of whether you publish it.
 
+For the complete human guide, run `apkit guide --full`.
 For help authoring with an agent, run `apkit guide --agent`.
 For a short copyable example, run `apkit guide profile`, `apkit guide context`,
 or `apkit guide skill`.

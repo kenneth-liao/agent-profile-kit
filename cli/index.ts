@@ -2,7 +2,7 @@
 
 import { homedir } from "node:os";
 
-import { agentGuide, focusedGuide, humanGuide, type GuideTopic } from "./guides.js";
+import { agentGuide, focusedGuide, guideIndex, humanGuide, type GuideTopic } from "./guides.js";
 import {
   defaultViewText,
   displayProjectPath,
@@ -123,7 +123,7 @@ function rootHelp(context: TerminalPresentationContext): string {
   ).join("\n");
   const guidance = wrapPresentationText(
     defaultViewText(
-      `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide.`,
+      `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide --full.`,
     ),
     context.width,
   ).join("\n");
@@ -305,20 +305,28 @@ function parseOptionalFlag(command: string, arguments_: readonly string[], flag:
   return parseOptionalFlags(command, arguments_, [flag])[flag] === true;
 }
 
-function parseGuideArguments(arguments_: readonly string[]): {
-  readonly agent: boolean;
-  readonly topic?: GuideTopic;
-} {
-  const topic = arguments_[0];
-  if (topic === "profile" || topic === "context" || topic === "skill") {
-    if (arguments_.length > 1) {
+function parseGuideArguments(arguments_: readonly string[]):
+  | { readonly kind: "index" }
+  | { readonly kind: "full" }
+  | { readonly kind: "agent" }
+  | { readonly kind: "topic"; readonly topic: GuideTopic } {
+  if (arguments_.length === 0) return { kind: "index" };
+
+  const route = arguments_[0]!;
+  if (arguments_.length > 1) {
+    if (route === "profile" || route === "context" || route === "skill") {
       throw new Error(
-        `guide does not accept argument '${arguments_[1]}' after topic '${topic}'`,
+        `guide does not accept argument '${arguments_[1]}' after topic '${route}'`,
       );
     }
-    return { agent: false, topic };
+    throw new Error(`guide does not accept argument '${arguments_[1]}' after '${route}'`);
   }
-  return { agent: parseOptionalFlag("guide", arguments_, "--agent") };
+  if (route === "profile" || route === "context" || route === "skill") {
+    return { kind: "topic", topic: route };
+  }
+  if (route === "--full") return { kind: "full" };
+  if (route === "--agent") return { kind: "agent" };
+  throw new Error(`guide does not accept argument '${route}'`);
 }
 
 function parseNoArguments(command: string, arguments_: readonly string[]): { readonly valid: true } {
@@ -368,13 +376,15 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "guide") {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
-    process.stdout.write(
-      parsed.topic !== undefined
-        ? focusedGuide(parsed.topic)
-        : parsed.agent
-          ? await agentGuide()
-          : await humanGuide(),
-    );
+    if (parsed.kind === "index") {
+      process.stdout.write(guideIndex(terminalPresentationContext(process.stdout)));
+    } else if (parsed.kind === "topic") {
+      process.stdout.write(focusedGuide(parsed.topic, terminalPresentationContext(process.stdout)));
+    } else if (parsed.kind === "agent") {
+      process.stdout.write(await agentGuide());
+    } else {
+      process.stdout.write(await humanGuide());
+    }
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "init") {
