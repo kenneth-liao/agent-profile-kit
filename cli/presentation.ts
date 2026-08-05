@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 
 import type { HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
@@ -19,6 +20,7 @@ import type { UninstallResult, ValidationResult } from "../installer/commands.js
 import type {
   ProfileInventoryRecord,
   ProjectInventoryRecord,
+  TemporaryInventoryRecord,
 } from "../installer/inventory.js";
 import type {
   ApplicationInfo,
@@ -272,6 +274,14 @@ function containsPath(parent: string, child: string): boolean {
   );
 }
 
+function existingPathAlias(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
 function absoluteAuthoredPath(authoredPath: string, home: string): string {
   return authoredPath === "~"
     ? home
@@ -288,12 +298,18 @@ export function displayPath(
 ): string {
   const authoredAbsolute = absoluteAuthoredPath(authoredPath, home);
   const paths = [...new Set([canonicalPath, authoredAbsolute])];
+  const displayCwd = existingPathAlias(cwd);
+  const displayHome = existingPathAlias(home);
   const cwdRelativePath = paths.find((path) => containsPath(path, cwd));
   if (cwdRelativePath) return relative(cwd, cwdRelativePath) || ".";
+  const physicalCwdRelativePath = paths.find((path) => containsPath(path, displayCwd));
+  if (physicalCwdRelativePath) return relative(displayCwd, physicalCwdRelativePath) || ".";
   if (authoredPath === "~" || authoredPath.startsWith("~/")) return authoredPath;
-  const homeRelativePath = paths.find((path) => containsPath(home, path));
+  const homeRelativePath = paths.find((path) => containsPath(home, path)) ??
+    paths.find((path) => containsPath(displayHome, path));
   if (homeRelativePath) {
-    const homeRelative = relative(home, homeRelativePath);
+    const displayBase = containsPath(home, homeRelativePath) ? home : displayHome;
+    const homeRelative = relative(displayBase, homeRelativePath);
     return homeRelative === "" ? "~" : `~/${homeRelative}`;
   }
   return authoredPath;
@@ -560,6 +576,69 @@ export function formatProfileInventoryToolErrorJson(message: string): string {
       error: message,
       profiles: [] as const,
     }) satisfies ProfileInventoryMachinePayload,
+  );
+}
+
+export function formatTemporaryInventoryHuman(
+  installations: readonly TemporaryInventoryRecord[],
+  home = homedir(),
+  cwd = process.cwd(),
+): string {
+  if (installations.length === 0) {
+    return (
+      "No Temporary Profile Installations are active.\n" +
+      `Next: Run ${COMMAND_NAME} install-temp <profile> <project> --host <host>.\n`
+    );
+  }
+
+  const lines = [`Temporary Profile Installations (${installations.length}):`];
+  for (const installation of installations) {
+    lines.push(
+      "",
+      `Temporary installation: ${installation.temporaryInstallationId}`,
+      `  Project: ${displayProjectPath(installation.project, installation.project, cwd, home)}`,
+      `  Profile: ${installation.profileId}`,
+      `  Host: ${installation.host}`,
+    );
+  }
+  lines.push("", `Next: Run ${COMMAND_NAME} remove-temp <temporary-installation-id> when finished.`);
+  return `${lines.join("\n")}\n`;
+}
+
+type TemporaryInventoryMachineBase = ListInventoryMachineBase<"temporary">;
+
+interface TemporaryInventoryMachineSuccessPayload extends TemporaryInventoryMachineBase {
+  readonly outcome: "success";
+  readonly temporaryInstallations: readonly TemporaryInventoryRecord[];
+}
+
+interface TemporaryInventoryMachineErrorPayload extends TemporaryInventoryMachineBase {
+  readonly error: string;
+  readonly outcome: "error";
+  readonly temporaryInstallations: readonly [];
+}
+
+type TemporaryInventoryMachinePayload =
+  | TemporaryInventoryMachineErrorPayload
+  | TemporaryInventoryMachineSuccessPayload;
+
+/** Versioned machine payload for the read-only Temporary Profile Installation inventory topic. */
+export function formatTemporaryInventoryJson(
+  installations: readonly TemporaryInventoryRecord[],
+): string {
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("temporary", "success", {
+      temporaryInstallations: installations,
+    }) satisfies TemporaryInventoryMachinePayload,
+  );
+}
+
+export function formatTemporaryInventoryToolErrorJson(message: string): string {
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("temporary", "error", {
+      error: message,
+      temporaryInstallations: [] as const,
+    }) satisfies TemporaryInventoryMachinePayload,
   );
 }
 

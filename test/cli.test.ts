@@ -6575,6 +6575,224 @@ describe("apkit list", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
+  test("temporary is empty without Installation State and does not initialize application state", () => {
+    const home = isolatedHome();
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "temporary");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("No Temporary Profile Installations are active.");
+    expect(existsSync(join(home, ".agents"))).toBe(false);
+  });
+
+  test("temporary inventory does not migrate legacy ordinary installations", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const ordinaryProject = project("agent-profile-kit-temporary-legacy-");
+    bind(home, ordinaryProject);
+    expect(runCli(home, "apply").status).toBe(0);
+
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: Array<Record<string, unknown>>;
+    };
+    const legacyProject = project("agent-profile-kit-temporary-legacy-broken-");
+    writeFileSync(join(legacyProject, ".git"), "not a Git directory\n");
+    state.installations[0]!.project = realpathSync(legacyProject);
+    writeFileSync(
+      statePath(home),
+      stringify({ schema_version: 2, installations: state.installations }),
+    );
+    const stateBefore = readFileSync(statePath(home), "utf8");
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "temporary");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("No Temporary Profile Installations are active.");
+    expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
+  });
+
+  test("temporary renders an active identity with a short Project path", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const temporaryProject = join(home, "projects", "temporary-project");
+    mkdirSync(temporaryProject, { recursive: true });
+
+    const install = runCli(
+      home,
+      "install-temp",
+      "coding",
+      temporaryProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expect(install.status, install.stderr).toBe(0);
+    const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
+
+    const result = runCli(home, "list", "temporary");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Temporary Profile Installations (1):");
+    expect(result.stdout).toContain(`Temporary installation: ${receipt.temporaryInstallationId}`);
+    expect(result.stdout).toContain("Project: ~/projects/temporary-project");
+    expect(result.stdout).toContain("Profile: coding");
+    expect(result.stdout).toContain("Host: codex");
+  });
+
+  test("temporary JSON preserves canonical identity evidence without inventory writes", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const temporaryProject = join(home, "projects", "temporary-json-project");
+    mkdirSync(temporaryProject, { recursive: true });
+
+    const install = runCli(
+      home,
+      "install-temp",
+      "coding",
+      temporaryProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expect(install.status, install.stderr).toBe(0);
+    const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
+    const configurationBefore = readFileSync(configPath(home), "utf8");
+    const stateBefore = readFileSync(statePath(home), "utf8");
+    const projectEntriesBefore = readdirSync(temporaryProject).sort();
+
+    const result = runCli(home, "list", "temporary", "--json");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({
+      schemaVersion: 1,
+      command: "list",
+      topic: "temporary",
+      outcome: "success",
+      engineVersion: ENGINE_VERSION,
+      temporaryInstallations: [{
+        host: "codex",
+        profileId: "coding",
+        project: realpathSync(temporaryProject),
+        temporaryInstallationId: receipt.temporaryInstallationId,
+      }],
+    });
+    expect(readFileSync(configPath(home), "utf8")).toBe(configurationBefore);
+    expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
+    expect(readdirSync(temporaryProject).sort()).toEqual(projectEntriesBefore);
+  });
+
+  test("temporary inventory excludes removed identities and ordinary Project Bindings", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const ordinaryProject = join(home, "projects", "ordinary-project");
+    const temporaryProject = join(home, "projects", "temporary-project");
+    mkdirSync(ordinaryProject, { recursive: true });
+    mkdirSync(temporaryProject, { recursive: true });
+
+    const bindResult = runCli(home, "bind", "coding", ordinaryProject, "--host", "codex");
+    expect(bindResult.status, bindResult.stderr).toBe(0);
+    const applyResult = runCli(home, "apply");
+    expect(applyResult.status, applyResult.stderr).toBe(0);
+    const install = runCli(
+      home,
+      "install-temp",
+      "coding",
+      temporaryProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expect(install.status, install.stderr).toBe(0);
+    const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
+
+    const active = runCli(home, "list", "temporary");
+    expect(active.status, active.stderr).toBe(0);
+    expect(active.stdout).toContain("temporary-project");
+    expect(active.stdout).not.toContain("ordinary-project");
+
+    const remove = runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    expect(remove.status, remove.stderr).toBe(0);
+    const afterRemoval = runCli(home, "list", "temporary");
+
+    expect(afterRemoval.status, afterRemoval.stderr).toBe(0);
+    expect(afterRemoval.stdout).toContain("No Temporary Profile Installations are active.");
+    expect(afterRemoval.stdout).not.toContain(receipt.temporaryInstallationId);
+    expect(afterRemoval.stdout).not.toContain("ordinary-project");
+
+    const projects = runCli(home, "list", "projects");
+    expect(projects.status, projects.stderr).toBe(0);
+    expect(projects.stdout).toContain("ordinary-project");
+  });
+
+  test("temporary JSON orders active identities by canonical Project", () => {
+    const home = isolatedHome();
+    initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const firstProject = join(home, "projects", "alpha-temporary");
+    const secondProject = join(home, "projects", "zeta-temporary");
+    mkdirSync(firstProject, { recursive: true });
+    mkdirSync(secondProject, { recursive: true });
+
+    for (const projectPath of [secondProject, firstProject]) {
+      const install = runCli(
+        home,
+        "install-temp",
+        "coding",
+        projectPath,
+        "--host",
+        "codex",
+        "--json",
+      );
+      expect(install.status, install.stderr).toBe(0);
+    }
+
+    const result = runCli(home, "list", "temporary", "--json");
+
+    expect(result.status, result.stderr).toBe(0);
+    const payload = JSON.parse(result.stdout) as {
+      readonly temporaryInstallations: readonly { readonly project: string }[];
+    };
+    expect(payload.temporaryInstallations.map((installation) => installation.project)).toEqual([
+      realpathSync(firstProject),
+      realpathSync(secondProject),
+    ]);
+  });
+
+  test("temporary JSON reports malformed Installation State without writing it", () => {
+    const home = isolatedHome();
+    mkdirSync(stateDirectory(home), { recursive: true });
+    const malformed = "not Installation State\n";
+    writeFileSync(statePath(home), malformed);
+
+    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "temporary", "--json");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "list",
+      topic: "temporary",
+      outcome: "error",
+      engineVersion: ENGINE_VERSION,
+      temporaryInstallations: [],
+      error: expect.any(String),
+    });
+    expect(readFileSync(statePath(home), "utf8")).toBe(malformed);
+  });
+
   test("profiles renders every valid Profile with selected artifact counts in ID order", () => {
     const home = isolatedHome();
     initialize(home);

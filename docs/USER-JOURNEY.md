@@ -29,7 +29,7 @@ produced them.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `list`, `list projects [--json]`, `list profiles [--json]` | Understand the command surface, command-specific guidance, which Projects are configured, and which Profiles are available from the selected Workspace |
+| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `list`, `list projects [--json]`, `list profiles [--json]`, `list temporary [--json]` | Understand the command surface, command-specific guidance, which Projects are configured, which Profiles are available from the selected Workspace, and which Temporary Profile Installations can be removed by identity |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
@@ -72,8 +72,11 @@ set in `cli/examples.ts`.
 `list` is the read-only inventory entrypoint: without a topic it shows available
 inventory topics and examples, while `list projects` reads Project Bindings from
 normalized Local Configuration and `list profiles` reads Profile selections from
-the selected Workspace. It is distinct from `status`, which remains the ordinary
-Project lifecycle diagnostic.
+the selected Workspace. `list temporary` reads active Temporary Profile
+Installations from Installation State, preserving each durable identity alongside
+its Project, Profile, and Host so `remove-temp` can target the correct receipt;
+it does not enter ordinary Project lifecycle reconciliation. It is distinct from
+`status`, which remains the ordinary Project lifecycle diagnostic.
 
 Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
 

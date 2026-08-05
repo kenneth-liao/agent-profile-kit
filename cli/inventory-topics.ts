@@ -7,6 +7,10 @@ export const INVENTORY_TOPICS = [
     description: "Profile inventory from the selected Workspace.",
     name: "profiles",
   },
+  {
+    description: "Active Temporary Profile Installation inventory from Installation State.",
+    name: "temporary",
+  },
 ] as const;
 
 export type InventoryTopic = (typeof INVENTORY_TOPICS)[number]["name"];

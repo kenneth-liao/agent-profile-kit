@@ -97,6 +97,11 @@ Machine-readable command contracts:
   selected Workspace only; it does not inspect Project roots, Git state,
   project output, Installation State, or Host capabilities, and never changes
   state.
+- `list temporary --json` prints a `schemaVersion: 1` object with the engine
+  version and active Temporary Profile Installation identities, canonical
+  Project paths, Profile IDs, and Hosts. Removed identities and ordinary
+  installations are omitted. It reads Installation State only and never runs
+  reconciliation or changes state.
 - Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 1`
   object with `outcome`, per-installation state, planned or committed paths,
   blockers, warnings, Host Setup Steps, and repository-exclusion evidence.
@@ -122,6 +127,8 @@ apkit list projects
 apkit list projects --json
 apkit list profiles
 apkit list profiles --json
+apkit list temporary
+apkit list temporary --json
 apkit validate
 apkit preview
 apkit apply
