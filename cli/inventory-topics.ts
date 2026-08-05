@@ -3,6 +3,10 @@ export const INVENTORY_TOPICS = [
     description: "Project inventory from Local Configuration.",
     name: "projects",
   },
+  {
+    description: "Profile inventory from the selected Workspace.",
+    name: "profiles",
+  },
 ] as const;
 
 export type InventoryTopic = (typeof INVENTORY_TOPICS)[number]["name"];

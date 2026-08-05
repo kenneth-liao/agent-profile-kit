@@ -16,13 +16,16 @@ import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exc
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { UninstallResult, ValidationResult } from "../installer/commands.js";
-import type { ProjectInventoryRecord } from "../installer/inventory.js";
+import type {
+  ProfileInventoryRecord,
+  ProjectInventoryRecord,
+} from "../installer/inventory.js";
 import type {
   ApplicationInfo,
   ApplicationInfoLocations,
   InfoConfigurationState,
 } from "../installer/info.js";
-import { INVENTORY_TOPICS } from "./inventory-topics.js";
+import { INVENTORY_TOPICS, type InventoryTopic } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
@@ -434,12 +437,39 @@ export function formatProjectInventoryHuman(
   return `${lines.join("\n")}\n`;
 }
 
-interface ProjectInventoryMachineBase {
+interface ListInventoryMachineBase<Topic extends InventoryTopic> {
   readonly command: "list";
   readonly engineVersion: string;
   readonly schemaVersion: 1;
-  readonly topic: "projects";
+  readonly topic: Topic;
 }
+
+type ListInventoryMachineOutcome = "error" | "success";
+
+function listInventoryMachinePayload<
+  Topic extends InventoryTopic,
+  Outcome extends ListInventoryMachineOutcome,
+  Payload extends object,
+>(
+  topic: Topic,
+  outcome: Outcome,
+  payload: Payload,
+): ListInventoryMachineBase<Topic> & { readonly outcome: Outcome } & Payload {
+  return {
+    schemaVersion: 1,
+    command: "list",
+    topic,
+    outcome,
+    engineVersion: ENGINE_VERSION,
+    ...payload,
+  };
+}
+
+function serializeListInventoryMachinePayload(payload: object): string {
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+type ProjectInventoryMachineBase = ListInventoryMachineBase<"projects">;
 
 interface ProjectInventoryMachineSuccessPayload extends ProjectInventoryMachineBase {
   readonly outcome: "success";
@@ -456,39 +486,81 @@ type ProjectInventoryMachinePayload =
   | ProjectInventoryMachineErrorPayload
   | ProjectInventoryMachineSuccessPayload;
 
-function projectInventoryMachineBase(): ProjectInventoryMachineBase {
-  return {
-    schemaVersion: 1,
-    command: "list",
-    topic: "projects",
-    engineVersion: ENGINE_VERSION,
-  };
-}
-
-function serializeProjectInventoryMachinePayload(
-  payload: ProjectInventoryMachinePayload,
-): string {
-  return `${JSON.stringify(payload, null, 2)}\n`;
-}
-
 /** Versioned machine payload for the read-only Project inventory topic. */
 export function formatProjectInventoryJson(
   projects: readonly ProjectInventoryRecord[],
 ): string {
-  return serializeProjectInventoryMachinePayload({
-    ...projectInventoryMachineBase(),
-    outcome: "success",
-    projects,
-  });
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("projects", "success", { projects }) satisfies
+      ProjectInventoryMachinePayload,
+  );
 }
 
 export function formatProjectInventoryToolErrorJson(message: string): string {
-  return serializeProjectInventoryMachinePayload({
-    ...projectInventoryMachineBase(),
-    outcome: "error",
-    error: message,
-    projects: [],
-  });
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("projects", "error", {
+      error: message,
+      projects: [] as const,
+    }) satisfies ProjectInventoryMachinePayload,
+  );
+}
+
+export function formatProfileInventoryHuman(
+  profiles: readonly ProfileInventoryRecord[],
+): string {
+  if (profiles.length === 0) {
+    return (
+      "No Profiles are available.\n" +
+      `Next: Add a Profile to the selected Workspace, then run ${COMMAND_NAME} list profiles.\n`
+    );
+  }
+
+  const lines = [`Profiles (${profiles.length}):`];
+  for (const profile of profiles) {
+    lines.push(
+      "",
+      `Profile: ${profile.id}`,
+      `  Context Modules: ${profile.contextModules}`,
+      `  Skills: ${profile.skills}`,
+    );
+  }
+  lines.push("", `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.`);
+  return `${lines.join("\n")}\n`;
+}
+
+type ProfileInventoryMachineBase = ListInventoryMachineBase<"profiles">;
+
+interface ProfileInventoryMachineSuccessPayload extends ProfileInventoryMachineBase {
+  readonly outcome: "success";
+  readonly profiles: readonly ProfileInventoryRecord[];
+}
+
+interface ProfileInventoryMachineErrorPayload extends ProfileInventoryMachineBase {
+  readonly error: string;
+  readonly outcome: "error";
+  readonly profiles: readonly [];
+}
+
+type ProfileInventoryMachinePayload =
+  | ProfileInventoryMachineErrorPayload
+  | ProfileInventoryMachineSuccessPayload;
+
+export function formatProfileInventoryJson(
+  profiles: readonly ProfileInventoryRecord[],
+): string {
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("profiles", "success", { profiles }) satisfies
+      ProfileInventoryMachinePayload,
+  );
+}
+
+export function formatProfileInventoryToolErrorJson(message: string): string {
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("profiles", "error", {
+      error: message,
+      profiles: [] as const,
+    }) satisfies ProfileInventoryMachinePayload,
+  );
 }
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
