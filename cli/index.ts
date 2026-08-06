@@ -223,8 +223,7 @@ function perCommandHelp(command: CommandHelp): string {
   const supportedHosts = command.supportedHosts === undefined
     ? ""
     : `Supported Hosts: ${command.supportedHosts.join(", ")}\n\n`;
-  return defaultViewText(
-    `Purpose: ${command.summary}\n\n` +
+  return `Purpose: ${command.summary}\n\n` + defaultViewText(
     `${usageLine(command)}\n\n` +
     "Examples:\n" +
     command.examples.map((example) => `  ${COMMAND_NAME} ${example}\n`).join("") +
@@ -244,7 +243,7 @@ function rootHelp(context: TerminalPresentationContext): string {
     for (const command of COMMANDS.filter((candidate) => candidate.group === group)) {
       commandLines.push(`  ${command.syntax}`);
       commandLines.push(
-        ...wrapPresentationText(defaultViewText(command.summary), proseWidth)
+        ...wrapPresentationText(command.summary, proseWidth)
           .map((line) => `    ${line}`),
       );
     }

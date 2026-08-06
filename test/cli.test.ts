@@ -524,7 +524,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const uninstall = runCli(home, "uninstall");
     expect(uninstall.status, uninstall.stderr).toBe(0);
-    expect(uninstall.stdout).toMatch(/Uninstalled/);
+    expect(uninstall.stdout).toContain("Removed proven Agent Profile Kit-owned output");
   });
 
   test("malformed workspace.yaml still fails validate with actionable guidance", () => {
@@ -1586,6 +1586,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("No Projects need attention.");
     expect(result.stdout).not.toContain("unchanged generated file");
     expect(result.stdout).not.toContain("Desired State:");
+  });
+
+  test("status with no Project Bindings states the condition once and gives discovery next steps", () => {
+    const home = isolatedHome();
+    initialize(home);
+
+    const result = runCli(home, "status");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe(
+      "No Projects are configured.\n" +
+      "Next: Run apkit list projects to inspect Project Bindings, or apkit bind <profile> --host <host> to configure one.\n",
+    );
+    expect(result.stdout.match(/No Projects are configured/g)).toHaveLength(1);
+    expect(result.stdout).not.toContain("Projects: 0");
+    expect(result.stdout).toContain("apkit list projects");
+    expect(result.stdout).toContain("apkit bind <profile> --host <host>");
   });
 
   test("preview reports only the exact bound repository while summarizing mixed changes", () => {
@@ -3656,6 +3673,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = runCli(home, "uninstall");
 
     expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Removed proven Agent Profile Kit-owned output from 1 Project.");
+    expect(result.stdout).not.toMatch(/^Uninstalled\b/m);
     expect(result.stdout).toContain(`Project: ${realpathSync(projectPath)}`);
     expect(result.stdout).toContain("Removed generated paths:");
     expect(result.stdout).toContain("- .agent-profile-kit/codex/context.md");
@@ -3664,6 +3683,20 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("Cleaned Git exclusions:");
     expect(result.stdout).toContain("- /.agent-profile-kit/codex/context.md");
     expect(result.stdout).toContain("Project Bindings preserved.");
+  });
+
+  test("uninstall with no installed output states the empty result without removing Projects", () => {
+    const home = isolatedHome();
+    initialize(home);
+
+    const result = runCli(home, "uninstall");
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe(
+      "No ordinary Agent Profile Kit-owned output is installed.\n\n" +
+      "Project Bindings preserved.\n",
+    );
+    expect(result.stdout).not.toMatch(/(?:Uninstalled|Removed .*Projects?)/i);
   });
 
   test("apply reinstalls an intended teardown and clears its teardown provenance", () => {
@@ -6282,6 +6315,7 @@ describe("apkit root help", () => {
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(root.stdout).not.toMatch(term);
 
     for (const command of COMMANDS) {
+      for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(command.summary).not.toMatch(term);
       const result = runCli(home, command.name, "--help");
       expect(result.status, `${command.name}: ${result.stderr}`).toBe(0);
       expect(result.stderr).toBe("");
@@ -6307,6 +6341,21 @@ describe("apkit root help", () => {
       }
       const rootDescription = descriptionLines.join(" ");
       expect(rootDescription).toBe(purpose!);
+    }
+  });
+
+  test("uninstall help describes removing owned output while preserving Projects", () => {
+    const home = isolatedHome();
+    const root = runCli(home, "--help");
+    const focused = runCli(home, "uninstall", "--help");
+
+    expect(root.status, root.stderr).toBe(0);
+    expect(focused.status, focused.stderr).toBe(0);
+    for (const view of [root.stdout, focused.stdout]) {
+      const normalized = view.replace(/\s+/g, " ");
+      expect(normalized).toContain("Remove proven Agent Profile Kit-owned output");
+      expect(normalized).not.toContain("Remove all Projects");
+      expect(normalized).not.toMatch(/Remove(?:d)? (?:one|all|\d+)? ?Projects?\b/i);
     }
   });
 
