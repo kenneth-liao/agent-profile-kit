@@ -15,8 +15,46 @@ export const MAX_HUMAN_WIDTH = 100;
  * established output contracts until a separate surface decision changes them.
  */
 export interface TerminalPresentationContext {
+  readonly color: boolean;
   readonly interactive: boolean;
   readonly width: number;
+}
+
+type SemanticCategory =
+  | "attention"
+  | "command"
+  | "error"
+  | "heading"
+  | "muted"
+  | "path"
+  | "success";
+
+const ANSI_RESET = "\u001b[0m";
+const ANSI_COLORS: Readonly<Record<SemanticCategory, string>> = {
+  attention: "\u001b[33m",
+  command: "\u001b[36m",
+  error: "\u001b[31m",
+  heading: "\u001b[1;34m",
+  muted: "\u001b[2m",
+  path: "\u001b[35m",
+  success: "\u001b[32m",
+};
+
+const FULL_WORDMARK = [
+  "  /\\  Agent Profile Kit",
+  " /__\\ reusable agent material",
+] as const;
+const NARROW_WORDMARK = ["  /\\ APKIT"] as const;
+
+function longestLine(lines: readonly string[]): number {
+  return Math.max(...lines.map((line) => line.length));
+}
+
+/** Select a compact ASCII identity that fits the available terminal measure. */
+export function agentProfileKitWordmark(width: number): readonly string[] {
+  if (longestLine(FULL_WORDMARK) <= width) return FULL_WORDMARK;
+  if (longestLine(NARROW_WORDMARK) <= width) return NARROW_WORDMARK;
+  return [];
 }
 
 function positiveColumns(value: number | string | undefined): number | undefined {
@@ -42,7 +80,11 @@ export function terminalPresentationContext(
   const width = interactive
     ? clampWidth(terminalColumns ?? environmentColumns ?? DEFAULT_HUMAN_WIDTH)
     : DEFAULT_HUMAN_WIDTH;
-  return { interactive, width };
+  return {
+    color: interactive && environment.NO_COLOR === undefined,
+    interactive,
+    width,
+  };
 }
 
 /** Wrap prose without splitting a word that is itself wider than the measure. */
@@ -63,4 +105,73 @@ export function wrapPresentationText(text: string, width: number): readonly stri
   }
   if (current.length > 0) lines.push(current);
   return lines;
+}
+
+export interface HumanOutputStyleOptions {
+  readonly commandNames?: readonly string[];
+}
+
+function semanticCategory(
+  line: string,
+  commandNames: readonly string[],
+): SemanticCategory | undefined {
+  const text = line.trim();
+  if (text.length === 0) return undefined;
+
+  if (text.startsWith("/\\") || text.startsWith("/__\\")) return "heading";
+  if (
+    commandNames.some((name) => text === name || text.startsWith(`${name} `)) ||
+    /^(?:apkit(?:\s|$)|(?:Run|Next:\s+Run)\s+apkit\b)/i.test(text)
+  ) {
+    return "command";
+  }
+  if (
+    /^(?:Warning(?::|s:)|Attention\b|State:|Problem:|Pending:|Changes:|apkit:\s+warning:)/i
+      .test(text)
+  ) {
+    return "attention";
+  }
+  if (
+    /^(?:Blocker(?::|s:)|Global blockers:|Error:|Failed:|Cannot\b|Apply blocked|Apply completed with blockers|apkit:)/i
+      .test(text)
+  ) {
+    return "error";
+  }
+  if (/^(?:Apply completed with attention|Attention required)/i.test(text)) return "attention";
+  if (
+    /^(?:Initialized|Recorded|Migrated|Removed|Installed|Uninstalled|Applied|Ready to apply|Apply complete$|Some Projects intentionally uninstalled|Intentionally uninstalled|All\b|No\b|Workspace and .* valid)/i
+      .test(text)
+  ) {
+    return "success";
+  }
+  if (
+    /^(?:Engine version|Workspace|Local Configuration|Installation State|Project|Profile|Profile Installation|Host|Temporary installation):/i
+      .test(text)
+  ) {
+    return "path";
+  }
+  if (/^(?:For\b|Choose\b|This\b|The\b|A\b|An\b)/i.test(text)) return "muted";
+  if (/^[A-Z][^:]*:/.test(text)) return "heading";
+  return undefined;
+}
+
+/**
+ * Add restrained semantic color to already-rendered human text. The input
+ * remains the source of meaning; styling is an additive terminal concern.
+ */
+export function renderHumanOutput(
+  text: string,
+  context: TerminalPresentationContext,
+  options: HumanOutputStyleOptions = {},
+): string {
+  if (!context.color) return text;
+  return text
+    .split("\n")
+    .map((line) => {
+      const category = semanticCategory(line, options.commandNames ?? []);
+      return category === undefined
+        ? line
+        : `${ANSI_COLORS[category]}${line}${ANSI_RESET}`;
+    })
+    .join("\n");
 }

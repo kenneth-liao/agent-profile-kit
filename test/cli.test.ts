@@ -135,8 +135,14 @@ function cleanPtyResult(result: {
 }) {
   return {
     ...result,
-    stdout: (result.stdout ?? "").replace(/[\u0004\u0008]/g, "").replace(/\r/g, ""),
-    stderr: (result.stderr ?? "").replace(/[\u0004\u0008]/g, "").replace(/\r/g, ""),
+    stdout: (result.stdout ?? "")
+      .replace(/^\^D/, "")
+      .replace(/[\u0004\u0008]/g, "")
+      .replace(/\r/g, ""),
+    stderr: (result.stderr ?? "")
+      .replace(/^\^D/, "")
+      .replace(/[\u0004\u0008]/g, "")
+      .replace(/\r/g, ""),
   };
 }
 
@@ -145,22 +151,39 @@ function shellQuote(value: string): string {
 }
 
 function runCliInPty(home: string, columns: number, ...arguments_: string[]) {
+  return runCliInPtyWithEnvironment(home, columns, { NO_COLOR: "" }, ...arguments_);
+}
+
+function runCliInPtyWithEnvironment(
+  home: string,
+  columns: number,
+  environment: NodeJS.ProcessEnv,
+  ...arguments_: string[]
+) {
   const command = [
     `stty cols ${columns};`,
     "exec",
     ...[process.env.NODE_BINARY ?? "node", cliPath, ...arguments_].map(shellQuote),
   ].join(" ");
+  const childEnvironment: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...environment,
+    COLUMNS: String(columns),
+    HOME: home,
+    PATH: defaultCliPath(home),
+  };
+  if (
+    Object.prototype.hasOwnProperty.call(environment, "NO_COLOR") &&
+    environment.NO_COLOR === undefined
+  ) {
+    delete childEnvironment.NO_COLOR;
+  }
   const result = spawnSync(
     "script",
     ["-q", "/dev/null", "sh", "-c", command],
     {
       encoding: "utf8" as const,
-      env: {
-        ...process.env,
-        COLUMNS: String(columns),
-        HOME: home,
-        PATH: defaultCliPath(home),
-      },
+      env: childEnvironment,
     },
   );
   return cleanPtyResult(result);
@@ -181,6 +204,7 @@ function runCliInPtyWithColumnsFallback(home: string, columns: number, ...argume
       encoding: "utf8" as const,
       env: {
         ...process.env,
+        NO_COLOR: "",
         COLUMNS: String(columns),
         HOME: home,
         PATH: defaultCliPath(home),
@@ -6361,6 +6385,74 @@ describe("apkit root help", () => {
     for (const line of wide.stdout.split("\n")) {
       if (!isUnbreakableSyntax(line)) expect(line.length).toBeLessThanOrEqual(100);
     }
+  });
+
+  test("interactive root help adds the compact identity and semantic color while pipes stay plain", () => {
+    const home = isolatedHome();
+    const piped = runCli(home, "--help");
+    const bare = runCliInPtyWithEnvironment(home, 40, { NO_COLOR: undefined });
+    const interactive = runCliInPtyWithEnvironment(
+      home,
+      40,
+      { NO_COLOR: undefined },
+      "--help",
+    );
+
+    expect(piped.status, piped.stderr).toBe(0);
+    expect(bare.status, bare.stderr).toBe(0);
+    expect(interactive.status, interactive.stderr).toBe(0);
+    expect(bare.stdout).toContain(" /__\\ reusable agent material");
+    expect(interactive.stdout).toContain("Agent Profile Kit");
+    expect(interactive.stdout).toContain(" /__\\ reusable agent material");
+    expect(interactive.stdout).toMatch(/\u001b\[/);
+    expect(piped.stdout).not.toContain(" /__\\ reusable agent material");
+    expect(piped.stdout).not.toMatch(/\u001b\[/);
+  });
+
+  test("interactive routine output is styled while NO_COLOR, pipes, errors, and JSON stay plain", () => {
+    const home = isolatedHome();
+    const interactive = runCliInPtyWithEnvironment(
+      home,
+      80,
+      { NO_COLOR: undefined },
+      "list",
+      "hosts",
+    );
+    const noColor = runCliInPtyWithEnvironment(home, 80, { NO_COLOR: "1" }, "list", "hosts");
+    const piped = runCli(home, "list", "hosts");
+    const json = runCli(home, "list", "hosts", "--json");
+    const interactiveJson = runCliInPtyWithEnvironment(
+      home,
+      80,
+      { NO_COLOR: undefined },
+      "list",
+      "hosts",
+      "--json",
+    );
+    const interactiveError = runCliInPtyWithEnvironment(
+      home,
+      80,
+      { NO_COLOR: undefined },
+      "unknown-command",
+    );
+    const pipedError = runCli(home, "unknown-command");
+    const interactiveErrorOutput = `${interactiveError.stdout}${interactiveError.stderr}`;
+
+    expect(interactive.status, interactive.stderr).toBe(0);
+    expect(interactive.stdout).toMatch(/\u001b\[/);
+    expect(interactive.stdout).not.toContain(" /__\\ reusable agent material");
+    expect(noColor.stdout).not.toMatch(/\u001b\[/);
+    expect(piped.stdout).not.toMatch(/\u001b\[/);
+    expect(json.status, json.stderr).toBe(0);
+    expect(json.stdout).not.toMatch(/\u001b\[/);
+    expect(() => JSON.parse(json.stdout)).not.toThrow();
+    expect(interactiveJson.status, interactiveJson.stderr).toBe(0);
+    expect(interactiveJson.stdout).not.toMatch(/\u001b\[/);
+    expect(() => JSON.parse(interactiveJson.stdout)).not.toThrow();
+    expect(interactiveError.status).toBe(1);
+    expect(interactiveErrorOutput).toMatch(/\u001b\[/);
+    expect(interactiveErrorOutput).not.toContain(" /__\\ reusable agent material");
+    expect(pipedError.stderr).not.toMatch(/\u001b\[/);
   });
 
   test("focused guides wrap prose at terminal width without splitting examples", () => {

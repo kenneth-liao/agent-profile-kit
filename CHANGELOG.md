@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Add TTY-safe semantic color and compact interactive branding while keeping redirected human output and JSON plain ([#164](https://github.com/kenneth-liao/agent-profile-kit/issues/164)).
+
 - Add conventional focused-help aliases, canonical Host guidance, and bounded command suggestions for unknown commands ([#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158)).
 
 - Add read-only inventory topic discovery and `list projects` Project Binding views in human and versioned JSON forms ([#160](https://github.com/kenneth-liao/agent-profile-kit/issues/160)).
