@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
+import { humanText } from "./support/human-text.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
@@ -492,8 +493,8 @@ describe("project-bound release candidate", () => {
     expect(preview.stdout).toContain(combined);
     expect(preview.stdout).toContain(gitRoot);
     expect(preview.stdout).not.toContain(existingWorktree);
-    expect(preview.stdout).toContain(
-      `Launch Codex from the exact bound project root: ${nonGitCodex}`,
+    expect(humanText(preview.stdout)).toContain(
+      humanText(`Launch Codex from the exact bound project root: ${nonGitCodex}`),
     );
 
     const apply = runCli(home, ["apply"], { path: pathWithClaude });
@@ -509,7 +510,7 @@ describe("project-bound release candidate", () => {
 
     const statusCurrent = runCli(home, ["status", "--verbose"], { path: pathWithClaude });
     expect(statusCurrent.status, statusCurrent.stderr).toBe(0);
-    expect(statusCurrent.stdout).toContain(`${gitRoot}: current`);
+    expect(humanText(statusCurrent.stdout)).toContain(humanText(`${gitRoot}: current`));
     expect(statusCurrent.stdout).not.toContain(existingWorktree);
 
     writeBindings(home, [
@@ -522,7 +523,9 @@ describe("project-bound release candidate", () => {
 
     const explicitPreview = runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
     expect(explicitPreview.status, explicitPreview.stderr).toBe(0);
-    expect(explicitPreview.stdout).toContain(`${existingWorktree}: Profile review`);
+    expect(humanText(explicitPreview.stdout)).toContain(
+      humanText(`${existingWorktree}: Profile review`),
+    );
 
     const explicitApply = runCli(home, ["apply"], { path: pathWithClaude });
     expect(explicitApply.status, explicitApply.stderr).toBe(0);
@@ -531,7 +534,7 @@ describe("project-bound release candidate", () => {
 
     const explicitStatus = runCli(home, ["status", "--verbose"], { path: pathWithClaude });
     expect(explicitStatus.status, explicitStatus.stderr).toBe(0);
-    expect(explicitStatus.stdout).toContain(`${existingWorktree}: current`);
+    expect(humanText(explicitStatus.stdout)).toContain(humanText(`${existingWorktree}: current`));
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
@@ -662,7 +665,7 @@ describe("project-bound release candidate", () => {
     const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
     const oldPreview = runCli(unsupportedHome, ["preview"], { path: oldPath });
     expect(oldPreview.status).toBe(2);
-    expect(`${oldPreview.stdout}${oldPreview.stderr}`).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
+    expect(humanText(`${oldPreview.stdout}${oldPreview.stderr}`)).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
 
     const missingHome = isolatedHome();
@@ -804,7 +807,7 @@ describe("project-bound release candidate", () => {
     const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
     const oldPreview = runCli(unsupportedHome, ["preview"], { path: oldPath });
     expect(oldPreview.status).toBe(2);
-    expect(`${oldPreview.stdout}${oldPreview.stderr}`).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
+    expect(humanText(`${oldPreview.stdout}${oldPreview.stderr}`)).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
 
     const malformedHome = isolatedHome();

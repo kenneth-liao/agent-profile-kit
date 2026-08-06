@@ -446,7 +446,13 @@ describe("Skill model-invocation policy", () => {
         env: { CODEX_HOME: codexHome },
       }),
     ).toEqual([
-      expect.stringContaining(join(codexHome, "config.toml")),
+      {
+        copyableValues: [
+          join(codexHome, "config.toml"),
+          join(project, ".codex", "config.toml"),
+        ],
+        message: expect.stringContaining(join(codexHome, "config.toml")),
+      },
     ]);
 
     mkdirSync(join(project, ".codex"), { recursive: true });

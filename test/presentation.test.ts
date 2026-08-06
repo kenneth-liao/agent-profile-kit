@@ -14,13 +14,18 @@ import {
   formatLifecycleJson,
   formatLifecycleReport,
   formatLifecycleToolErrorJson,
+  formatTemporaryInstallationHuman,
   formatUninstallResult,
+  type TemporaryInstallationReceiptView,
   displayPath,
   lifecycleExitCode,
   INTERNAL_ONLY_DEFAULT_TERMS,
   NON_CURRENT_STATE_ORDER,
 } from "../cli/presentation.js";
-import { renderHumanOutput } from "../cli/terminal-presentation.js";
+import {
+  renderHumanOutput,
+  type TerminalPresentationContext,
+} from "../cli/terminal-presentation.js";
 import { normalizeBlocker } from "../installer/blockers.js";
 import type {
   ApplyReconciliationResult,
@@ -51,6 +56,7 @@ function emptyReport(
     outputs: [],
     repositoryExclusionRepairs: [],
     repositoryExclusions: [],
+    diagnosticValues: [],
     warnings: [],
     ...overrides,
     desired: (overrides.desired ?? []).map((installation) => ({
@@ -88,6 +94,77 @@ function identityReport(
 }
 
 describe("Host Setup Step presentation", () => {
+  test("renders each setup action separately from its consequence", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{
+          host: "codex",
+          kind: "trust-required",
+          message: "Trust the bound project in Codex.",
+          consequence: "Profile Context does not load until the project is trusted.",
+        }],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+    });
+
+    const context: TerminalPresentationContext = {
+      color: false,
+      interactive: false,
+      width: 80,
+    };
+    const status = formatLifecycleReport("status", report, { context });
+
+    expect(status).toContain(
+      "- Trust the bound project in Codex.\n" +
+        "  Consequence: Profile Context does not load until the project is trusted.",
+    );
+  });
+
+  test("deduplicates identical setup steps without collapsing distinct consequences", () => {
+    const report = emptyReport({
+      desired: ["/project-a", "/project-b"].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+        setupSteps: [
+          {
+            host: "codex",
+            kind: "trust-required" as const,
+            message: "Trust the bound project in Codex.",
+            consequence: "Profile Context does not load until the project is trusted.",
+          },
+          ...(project === "/project-a"
+            ? [{
+                host: "codex" as const,
+                kind: "trust-required" as const,
+                message: "Trust the bound project in Codex.",
+                consequence: "A different consequence remains visible.",
+              }]
+            : []),
+        ],
+      })),
+      items: [
+        { kind: "current", project: "/project-a" },
+        { kind: "current", project: "/project-b" },
+      ],
+    });
+
+    const status = formatLifecycleReport("status", report);
+
+    expect(status.match(/- Trust the bound project in Codex\./g)).toHaveLength(2);
+    expect(status.match(/Profile Context does not load until the project is trusted\./g)).toHaveLength(1);
+    expect(status.match(/A different consequence remains visible\./g)).toHaveLength(1);
+  });
+
   test("preview renders approval and launch constraints but omits other setup steps", () => {
     const report = emptyReport({
       desired: [{
@@ -359,6 +436,246 @@ describe("Host Setup Step presentation", () => {
 
     expect(failure).toContain("Trust the project.");
     expect(failure).not.toContain("becomes active");
+  });
+});
+
+describe("responsive lifecycle presentation", () => {
+  const context = (width: number): TerminalPresentationContext => ({
+    color: false,
+    interactive: true,
+    width,
+  });
+
+  test("wraps clean, attention, blocked, and applied lifecycle prose to the selected width", () => {
+    const clean = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    const attention = identityReport("/project-a");
+    const blocked = emptyReport({
+      blockers: [{
+        message: "The selected generated output cannot be replaced until ownership is resolved.",
+        project: "/project-a",
+      }],
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      warnings: ["The Workspace warning explains a long condition that needs attention."],
+    });
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{
+          host: "codex",
+          kind: "trust-required",
+          message: "Trust the bound project in Codex.",
+          consequence: "Profile Context does not load until the project is trusted.",
+        }],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const applied = emptyReport({
+      desired: receipt.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    for (const width of [40, 80, 100]) {
+      const views = [
+        formatLifecycleReport("status", clean, { context: context(width) }),
+        formatLifecycleReport("status", attention, { context: context(width) }),
+        formatLifecycleReport("status", blocked, { context: context(width) }),
+        formatApplyReport(applyResult(receipt, applied), { context: context(width) }),
+      ];
+
+      for (const view of views) {
+        for (const line of view.trimEnd().split("\n")) {
+          expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(width);
+        }
+      }
+    }
+  });
+
+  test("keeps copyable Project paths and command invocations intact while wrapping prose", () => {
+    const project = "/tmp/agent profile kit/project with a long name";
+    const report = identityReport(project);
+    const preview = formatLifecycleReport("preview", report, { context: context(40) });
+    const emptyStatus = formatLifecycleReport("status", emptyReport(), { context: context(40) });
+
+    expect(preview).toContain(project);
+    expect(preview).toContain("apkit apply");
+    expect(emptyStatus).toContain("apkit list projects");
+    expect(emptyStatus).toContain("apkit bind <profile> --host <host>");
+    expect(emptyStatus).toContain("\n  apkit list projects\n");
+    expect(emptyStatus).toContain("\n  apkit bind <profile> --host <host>\n");
+
+    const punctuatedCommand = formatApplyVerificationFailure(
+      emptyReport(),
+      "Run apkit bind <profile> --host <host>.",
+      { context: context(40) },
+    );
+    expect(punctuatedCommand).toContain("\n  apkit bind <profile> --host <host>.\n");
+  });
+
+  test("keeps diagnostic paths and authored Context payloads intact", () => {
+    const prefixedPath = "/tmp/project with spaces/config.toml";
+    const warningPath = "/tmp/agent profile home/config.toml";
+    const arbitraryPath = "/tmp/project with spaces/.grok/skills/foo";
+    const pathWithConjunction = "/tmp/project and team/.grok/skills/foo";
+    const replacementPath = "/tmp/$& spaced/project";
+    const authoredContext = "First Context Module\n--- end Context ---\nSecond Context Module\n";
+    const repairTarget = "/tmp/repository with spaces/.git/info/exclude";
+    const markerCandidates = "\u0000apkit-command \u0000apkit-value";
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: authoredContext,
+        outputs: ["context.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "stale source", project: "/project-a" }],
+      repositoryExclusionRepairs: [{
+        entries: ["/tmp/owned path.md"],
+        target: repairTarget,
+      }],
+      diagnosticValues: [
+        prefixedPath,
+        warningPath,
+        arbitraryPath,
+        pathWithConjunction,
+        replacementPath,
+        markerCandidates,
+      ],
+      warnings: [
+        `Review ${prefixedPath}: repair ${warningPath} \u0001\u0002`,
+        `Inspect ${arbitraryPath} for the generated Skill output.`,
+        `Inspect ${pathWithConjunction} because it is missing.`,
+        `Inspect ${replacementPath} for marker replacement.`,
+        `Check ${prefixedPath} then repair ${warningPath} ${markerCandidates}`,
+      ],
+    });
+
+    const output = formatLifecycleReport("preview", report, {
+      context: context(40),
+      verbose: true,
+    });
+
+    expect(output).toContain(prefixedPath);
+    expect(output).toContain(warningPath);
+    expect(output).toContain(arbitraryPath);
+    expect(output).toContain(pathWithConjunction);
+    expect(output).toContain(replacementPath);
+    expect(output).toContain(markerCandidates);
+    expect(output.split("\n").some((line) => line.includes(pathWithConjunction))).toBe(true);
+    expect(output).toContain("\u0001\u0002");
+    expect(output).toContain(repairTarget);
+    expect(output).toContain(
+      `---- begin Context ----\n${authoredContext}---- end Context ----\n`,
+    );
+  });
+
+  test("keeps structurally supplied diagnostic values intact without parsing warning prose", () => {
+    const value = "generated diagnostic path with spaces";
+    const warning = `Inspect ${value} before continuing with this diagnostic.`;
+    const report = {
+      ...emptyReport({ warnings: [warning] }),
+      diagnosticValues: [value],
+    };
+    const output = formatLifecycleReport("preview", report, { context: context(40) });
+
+    expect(output).toContain(value);
+    expect(output).not.toContain("generated diagnostic path with\n");
+  });
+
+  test("wraps prose after a suffixless path without widening the line", () => {
+    const path = "/tmp/foo";
+    const output = formatLifecycleReport("preview", emptyReport({
+      warnings: [`Inspect ${path} and then explain this warning with enough prose to wrap cleanly.`],
+    }), { context: context(40) });
+
+    expect(output).toContain(path);
+    for (const line of output.trimEnd().split("\n")) {
+      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
+  });
+
+  test("preserves a typed path without relying on warning prose", () => {
+    const path = "~/untyped project with spaces";
+    const warning = `Inspect ${path} before continuing with this diagnostic.`;
+    const output = formatLifecycleReport("preview", emptyReport({
+      diagnosticValues: [path],
+      warnings: [warning],
+    }), {
+      context: context(40),
+    });
+
+    expect(output).toContain(path);
+    expect(output).not.toContain("untyped project with\n");
+  });
+
+  test("wraps temporary-installation setup guidance while preserving its receipt values", () => {
+    const diagnosticValue = "generated diagnostic path with spaces";
+    const receipt: TemporaryInstallationReceiptView = {
+      adapterVersion: "codex-project-v2",
+      completionState: "installed",
+      engineVersion: "0.62.0",
+      host: "codex",
+      hostVersion: "native-project-sessionstart-v1",
+      outputs: [".agent-profile-kit/codex/context.md"],
+      profileId: "coding",
+      project: "/tmp/temporary project with spaces",
+      repositoryExclusion: undefined,
+      setupSteps: [{
+        consequence: "Profile Context does not load until the project is trusted.",
+        host: "codex",
+        kind: "trust-required",
+        message: "Trust the bound project in Codex.",
+      }],
+      temporaryInstallationId: "temporary-installation-opaque-id",
+      diagnosticValues: [diagnosticValue],
+      warnings: [`Inspect ${diagnosticValue} before continuing with this diagnostic.`],
+      workspaceInputHash: "workspace-hash",
+    };
+
+    const output = formatTemporaryInstallationHuman("install-temp", receipt, {
+      context: context(40),
+    });
+
+    expect(output.split("\n").some((line) => line.includes(receipt.project))).toBe(true);
+    expect(output).toContain("- Trust the bound project in Codex.");
+    expect(output.split("\n")).toContain(`    ${receipt.temporaryInstallationId}`);
+    expect(output).toContain("  Consequence: Profile Context does");
+    expect(output).toContain(diagnosticValue);
+    expect(output).not.toContain("generated diagnostic path with\n");
+    expect(output.replace(/\s+/g, " ")).toContain(
+      "Consequence: Profile Context does not load until the project is trusted.",
+    );
+    for (const line of output.trimEnd().split("\n")) {
+      if (line.includes(receipt.project)) continue;
+      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
   });
 });
 

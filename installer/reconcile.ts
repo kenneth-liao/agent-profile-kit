@@ -141,6 +141,8 @@ export interface ReconciliationReport {
   readonly outputs: readonly OutputReconciliationItem[];
   readonly repositoryExclusionRepairs: readonly RepositoryExclusionRepair[];
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
+  /** Structured values referenced by lifecycle diagnostics and warnings. */
+  readonly diagnosticValues: readonly string[];
   readonly warnings: readonly string[];
 }
 
@@ -940,6 +942,9 @@ export async function previewReconciliation(
     ),
     repositoryExclusionRepairs: exclusionDiagnostics.repairs,
     repositoryExclusions: repositoryExclusionChanges(state, projectedState),
+    diagnosticValues: [...new Set(
+      desired.flatMap((installation) => installation.diagnosticValues),
+    )].sort(),
     warnings: [...new Set([
       ...desired.flatMap((installation) => installation.warnings),
       ...exclusionDiagnostics.warnings,

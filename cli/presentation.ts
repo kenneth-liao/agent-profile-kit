@@ -28,6 +28,11 @@ import type {
   ApplicationInfoLocations,
   InfoConfigurationState,
 } from "../installer/info.js";
+import {
+  wrapPresentationText,
+  type TerminalPresentationContext,
+} from "./terminal-presentation.js";
+import { COMMANDS } from "./command-help.js";
 import { INVENTORY_TOPICS, type InventoryTopic } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
@@ -1206,9 +1211,12 @@ function hostSetupLines(
           HOST_SETUP_STEP_ORDER.indexOf(left.kind) - HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
           left.message.localeCompare(right.message)
         )
-        .map((step) =>
-          `- ${step.message}${step.consequence ? ` Consequence: ${step.consequence}` : ""}`
-        ),
+        .flatMap((step) => [
+          `- ${step.message}`,
+          ...(step.consequence === undefined
+            ? []
+            : [`  Consequence: ${step.consequence}`]),
+        ]),
     ]);
 }
 
@@ -1448,6 +1456,226 @@ function conciseReport(
   return `${lines.join("\n")}\n`;
 }
 
+const COMMAND_NAMES = new Set(COMMANDS.map((command) => command.name));
+const INVENTORY_TOPIC_NAMES = new Set<string>(INVENTORY_TOPICS.map((topic) => topic.name));
+
+interface CopyableValueProtector {
+  readonly pattern: RegExp | undefined;
+}
+
+function unusedPresentationMarker(
+  source: string,
+  kind: string,
+  lead: "\u0000" | "\u0001" = "\u0000",
+): string {
+  let marker = `${lead}apkit-${kind}`;
+  while (source.includes(marker)) marker += "\u0000";
+  return marker;
+}
+
+function escapedRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Keep command invocations together while prose wraps. */
+function protectCommandInvocations(text: string, marker: string): string {
+  const pattern = new RegExp(
+    `\\b${escapedRegExp(COMMAND_NAME)}\\s+([A-Za-z][\\w-]*)\\b`,
+    "g",
+  );
+  let cursor = 0;
+  let protectedText = "";
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    if (start < cursor || !COMMAND_NAMES.has(match[1]!)) continue;
+    let end = start + match[0].length;
+    while (true) {
+      const argument = text.slice(end).match(/^\s+(\S+)/);
+      if (argument !== null) {
+        const token = argument[1]!;
+        const syntaxToken = token.replace(/[.,;:!?)]*$/, "");
+        if (
+          /^<[^>]+>$/.test(syntaxToken) ||
+          /^--[\w-]+$/.test(syntaxToken) ||
+          INVENTORY_TOPIC_NAMES.has(syntaxToken)
+        ) {
+          end += argument[0].length;
+          continue;
+        }
+      }
+      const chained = text.slice(end).match(
+        new RegExp(`^\\s+&&\\s+${escapedRegExp(COMMAND_NAME)}\\s+([A-Za-z][\\w-]*)\\b`),
+      );
+      if (chained !== null && COMMAND_NAMES.has(chained[1]!)) {
+        end += chained[0].length;
+        continue;
+      }
+      break;
+    }
+    protectedText += text.slice(cursor, start);
+    protectedText += text.slice(start, end).replaceAll(" ", marker);
+    cursor = end;
+  }
+  return protectedText + text.slice(cursor);
+}
+
+function restoreMarker(text: string, marker: string): string {
+  return text.replaceAll(marker, " ");
+}
+
+/** Compile one report-wide matcher for values whose spaces must survive wrapping. */
+function createCopyableValueProtector(
+  values: readonly string[],
+): CopyableValueProtector {
+  const uniqueValues = [...new Set(values.filter((value) => value.includes(" ")))]
+    .sort((left, right) => right.length - left.length);
+  return {
+    pattern: uniqueValues.length === 0
+      ? undefined
+      : new RegExp(uniqueValues.map(escapedRegExp).join("|"), "g"),
+  };
+}
+
+/** Keep structurally supplied values containing spaces as one copyable token. */
+function protectCopyableValues(
+  text: string,
+  protector: CopyableValueProtector,
+  marker: string,
+): string {
+  if (protector.pattern === undefined) return text;
+  return text.replace(
+    protector.pattern,
+    (value) => value.replaceAll(" ", marker),
+  );
+}
+
+function wrapLifecycleText(
+  text: string,
+  width: number,
+  commandMarker: string,
+): readonly string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return text.length === 0 ? [] : [text];
+
+  const lines: string[] = [];
+  let prose = "";
+  const flushProse = (): void => {
+    if (prose.length === 0) return;
+    lines.push(...wrapPresentationText(prose, width));
+    prose = "";
+  };
+  for (const word of words) {
+    if (word.includes(commandMarker)) {
+      flushProse();
+      lines.push(word);
+    } else {
+      prose = prose.length === 0 ? word : `${prose} ${word}`;
+    }
+  }
+  flushProse();
+  return lines;
+}
+
+function wrappedLifecycleLine(
+  line: string,
+  width: number,
+  copyableValueProtector: CopyableValueProtector,
+): readonly string[] {
+  if (line.trim().length === 0) return [line];
+  const indentation = line.match(/^\s*/)?.[0] ?? "";
+  const content = line.slice(indentation.length);
+  const bullet = content.startsWith("- ") ? "- " : "";
+  const prose = bullet.length > 0 ? content.slice(bullet.length) : content;
+  const commandMarker = unusedPresentationMarker(prose, "command");
+  const copyableMarker = unusedPresentationMarker(
+    `${prose}${commandMarker}`,
+    "value",
+    "\u0001",
+  );
+  const wrapped = wrapLifecycleText(
+    protectCommandInvocations(
+      protectCopyableValues(prose, copyableValueProtector, copyableMarker),
+      commandMarker,
+    ),
+    Math.max(1, width - indentation.length - 2),
+    commandMarker,
+  ).map((part) =>
+    restoreMarker(restoreMarker(part, commandMarker), copyableMarker)
+  );
+  return wrapped.map((part, index) =>
+    `${index === 0 ? indentation + bullet : `${indentation}  `}${part}`
+  );
+}
+
+function lifecycleCopyableValues(
+  reports: readonly ReconciliationReport[],
+): readonly string[] {
+  const values = new Set<string>();
+  for (const report of reports) {
+    for (const installation of report.desired) {
+      values.add(installation.canonicalProject);
+      values.add(installation.project);
+      values.add(displayProjectPath(installation.canonicalProject, installation.project));
+      for (const output of installation.outputs) values.add(output);
+      for (const artifact of installation.resolvedArtifacts) values.add(artifact.id);
+    }
+    for (const item of report.items) values.add(item.project);
+    for (const output of report.outputs) {
+      values.add(output.project);
+      values.add(output.path);
+    }
+    for (const blocker of report.blockers) {
+      if (blocker.project !== undefined) values.add(blocker.project);
+      for (const item of blocker.affectedItems ?? []) values.add(item.value);
+    }
+    for (const exclusion of report.repositoryExclusions) {
+      values.add(exclusion.target);
+      for (const entry of [...exclusion.current, ...exclusion.next]) values.add(entry);
+    }
+    for (const repair of report.repositoryExclusionRepairs) {
+      values.add(repair.target);
+      for (const entry of repair.entries) values.add(entry);
+    }
+    for (const value of report.diagnosticValues) values.add(value);
+  }
+  return [...values].filter((value) => value.length > 0);
+}
+
+/**
+ * Apply the shared terminal width policy to lifecycle prose after semantic
+ * report construction. Context payloads remain byte-for-byte intact because
+ * they are user-authored material rather than presentation prose.
+ */
+function responsiveLifecycleOutput(
+  text: string,
+  context: TerminalPresentationContext | undefined,
+  copyableValues: readonly string[] = [],
+): string {
+  if (context === undefined) return text;
+  const copyableValueProtector = createCopyableValueProtector(copyableValues);
+  let contextFence: string | undefined;
+  const lines = text.split("\n").flatMap((line) => {
+    if (contextFence !== undefined) {
+      if (line === `${contextFence} end Context ${contextFence}`) contextFence = undefined;
+      return [line];
+    }
+
+    const begin = /^(-+) begin Context \1$/.exec(line);
+    if (begin !== null) {
+      contextFence = begin[1];
+      return [line];
+    }
+
+    return wrappedLifecycleLine(line, context.width, copyableValueProtector);
+  });
+  return lines.join("\n");
+}
+
+interface LifecycleHumanOptions {
+  readonly context?: TerminalPresentationContext;
+  readonly verbose?: boolean;
+}
+
 interface VerboseSectionOptions {
   readonly completedRepositoryExclusions?: boolean;
   readonly includeStateExplanations?: boolean;
@@ -1567,23 +1795,32 @@ function verboseApplyReport(result: ApplyReconciliationResult): string {
 
 export function formatApplyReport(
   result: ApplyReconciliationResult,
-  options: { readonly verbose?: boolean } = {},
+  options: LifecycleHumanOptions = {},
 ): string {
-  return options.verbose
+  const report = options.verbose
     ? verboseApplyReport(result)
     : conciseReport("apply", result.resultingState, result.receipt);
+  return responsiveLifecycleOutput(
+    report,
+    options.context,
+    lifecycleCopyableValues([result.resultingState, result.receipt]),
+  );
 }
 
 export function formatApplyVerificationFailure(
   receipt: ReconciliationReport,
   message: string,
-  options: { readonly verbose?: boolean } = {},
+  options: LifecycleHumanOptions = {},
 ): string {
   if (options.verbose) {
-    return `${message}\nApplied:\n${verboseSections(receipt, {
-      completedRepositoryExclusions: true,
-    })}` +
-      verboseSetupSection("apply", receipt);
+    return responsiveLifecycleOutput(
+      `${message}\nApplied:\n${verboseSections(receipt, {
+        completedRepositoryExclusions: true,
+      })}` +
+        verboseSetupSection("apply", receipt),
+      options.context,
+      lifecycleCopyableValues([receipt]),
+    );
   }
   const lines = [
     defaultDiagnosticText(message),
@@ -1591,22 +1828,28 @@ export function formatApplyVerificationFailure(
   ];
   const setup = hostSetupLines("apply", receipt);
   if (setup.length > 0) lines.push("", ...setup);
-  return `${lines.join("\n")}\n`;
+  return responsiveLifecycleOutput(
+    `${lines.join("\n")}\n`,
+    options.context,
+    lifecycleCopyableValues([receipt]),
+  );
 }
 
 export function formatBlockedApplyReport(
   report: BlockedReconciliationReport,
-  options: { readonly verbose?: boolean } = {},
+  options: LifecycleHumanOptions = {},
 ): string {
-  return options.verbose ? verboseReport("apply", report) : conciseReport("apply", report);
+  const output = options.verbose ? verboseReport("apply", report) : conciseReport("apply", report);
+  return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
 }
 
 export function formatLifecycleReport(
   command: Exclude<LifecycleCommand, "apply">,
   report: ReconciliationReport,
-  options: { readonly verbose?: boolean } = {},
+  options: LifecycleHumanOptions = {},
 ): string {
-  return options.verbose ? verboseReport(command, report) : conciseReport(command, report);
+  const output = options.verbose ? verboseReport(command, report) : conciseReport(command, report);
+  return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
 }
 
 /**
@@ -1912,6 +2155,7 @@ export interface TemporaryInstallationReceiptView {
     | undefined;
   readonly setupSteps: readonly HostSetupStep[];
   readonly temporaryInstallationId: string;
+  readonly diagnosticValues: readonly string[];
   readonly warnings: readonly string[];
   readonly workspaceInputHash: string;
 }
@@ -1967,6 +2211,7 @@ export function formatTemporaryInstallationJson(
 export function formatTemporaryInstallationHuman(
   command: TemporaryInstallCommand,
   receipt: TemporaryInstallationReceiptView,
+  options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
   if (command === "install-temp") {
     const warningLines = receipt.warnings.length === 0
@@ -1985,14 +2230,17 @@ export function formatTemporaryInstallationHuman(
                 HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
               left.message.localeCompare(right.message)
             )
-            .map((step) => {
+            .flatMap((step) => {
               const message = temporarySetupStepMessage(step, receipt.project);
-              return `- ${message}${
-                step.consequence ? ` Consequence: ${step.consequence}` : ""
-              }`;
+              return [
+                `- ${message}`,
+                ...(step.consequence === undefined
+                  ? []
+                  : [`  Consequence: ${step.consequence}`]),
+              ];
             }),
         ];
-    return (
+    return responsiveLifecycleOutput((
       `Installed Profile temporarily\n` +
       `  Profile: ${receipt.profileId}\n` +
       `  Host: ${receipt.host}\n` +
@@ -2000,13 +2248,22 @@ export function formatTemporaryInstallationHuman(
       `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
       (warningLines.length > 0 ? `${warningLines.join("\n")}\n` : "") +
       (setupLines.length > 0 ? `${setupLines.join("\n")}\n` : "")
-    );
+    ), options.context, [
+      receipt.project,
+      receipt.temporaryInstallationId,
+      receipt.profileId,
+      ...receipt.diagnosticValues,
+      ...receipt.outputs,
+    ]);
   }
-  return (
+  return responsiveLifecycleOutput((
     `Removed temporary Profile installation\n` +
     `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
     `  Project: ${receipt.project}\n`
-  );
+  ), options.context, [
+    receipt.project,
+    receipt.temporaryInstallationId,
+  ]);
 }
 
 export function formatTemporaryInstallationBlockedJson(

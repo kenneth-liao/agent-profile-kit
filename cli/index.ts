@@ -753,12 +753,17 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "preview") {
     const parsed = parseOrExit("preview", () => parseLifecycleArguments("preview", arguments_.slice(1)));
     if (parsed === undefined) return;
+    const context = terminalPresentationContext(process.stdout);
     try {
       const report = await previewApplication(home);
       if (parsed.json) {
         process.stdout.write(formatLifecycleJson("preview", report));
       } else {
-        writeHuman(process.stdout, formatLifecycleReport("preview", report, parsed));
+        writeHuman(
+          process.stdout,
+          formatLifecycleReport("preview", report, { ...parsed, context }),
+          context,
+        );
       }
       process.exitCode = lifecycleExitCode(report);
     } catch (error) {
@@ -774,12 +779,17 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "apply") {
     const parsed = parseOrExit("apply", () => parseLifecycleArguments("apply", arguments_.slice(1)));
     if (parsed === undefined) return;
+    const context = terminalPresentationContext(process.stdout);
     try {
       const applied = await applyApplication(home);
       if (parsed.json) {
         process.stdout.write(formatApplyJson(applied));
       } else {
-        writeHuman(process.stdout, formatApplyReport(applied, parsed));
+        writeHuman(
+          process.stdout,
+          formatApplyReport(applied, { ...parsed, context }),
+          context,
+        );
       }
       // Exit 0 whenever apply completed without blockers, including remaining
       // non-current work (outcome "attention"). Gate on blockers only — DEC-024.
@@ -789,7 +799,11 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatBlockedApplyJson(error.report));
         } else {
-          writeHuman(process.stdout, formatBlockedApplyReport(error.report, parsed));
+          writeHuman(
+            process.stdout,
+            formatBlockedApplyReport(error.report, { ...parsed, context }),
+            context,
+          );
         }
         process.exitCode = lifecycleExitCode(error.report);
         return;
@@ -800,7 +814,12 @@ async function main(): Promise<void> {
         } else {
           writeHuman(
             process.stdout,
-            formatApplyVerificationFailure(error.receipt, error.message, parsed),
+            formatApplyVerificationFailure(
+              error.receipt,
+              error.message,
+              { ...parsed, context },
+            ),
+            context,
           );
         }
         process.exitCode = 1;
@@ -818,12 +837,17 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "status") {
     const parsed = parseOrExit("status", () => parseLifecycleArguments("status", arguments_.slice(1)));
     if (parsed === undefined) return;
+    const context = terminalPresentationContext(process.stdout);
     try {
       const report = await statusApplication(home);
       if (parsed.json) {
         process.stdout.write(formatLifecycleJson("status", report));
       } else {
-        writeHuman(process.stdout, formatLifecycleReport("status", report, parsed));
+        writeHuman(
+          process.stdout,
+          formatLifecycleReport("status", report, { ...parsed, context }),
+          context,
+        );
       }
       process.exitCode = lifecycleExitCode(report);
     } catch (error) {
@@ -845,6 +869,7 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "install-temp") {
     const parsed = parseOrExit("install-temp", () => parseInstallTempArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
+    const context = terminalPresentationContext(process.stdout);
     try {
       const receipt = await installTemporaryProfile({
         home,
@@ -855,7 +880,11 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatTemporaryInstallationJson("install-temp", receipt));
       } else {
-        writeHuman(process.stdout, formatTemporaryInstallationHuman("install-temp", receipt));
+        writeHuman(
+          process.stdout,
+          formatTemporaryInstallationHuman("install-temp", receipt, { context }),
+          context,
+        );
       }
       process.exitCode = 0;
     } catch (error) {
@@ -902,6 +931,7 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "remove-temp") {
     const parsed = parseOrExit("remove-temp", () => parseRemoveTempArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
+    const context = terminalPresentationContext(process.stdout);
     try {
       const receipt = await removeTemporaryProfile({
         home,
@@ -910,7 +940,11 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatTemporaryInstallationJson("remove-temp", receipt));
       } else {
-        writeHuman(process.stdout, formatTemporaryInstallationHuman("remove-temp", receipt));
+        writeHuman(
+          process.stdout,
+          formatTemporaryInstallationHuman("remove-temp", receipt, { context }),
+          context,
+        );
       }
       process.exitCode = 0;
     } catch (error) {

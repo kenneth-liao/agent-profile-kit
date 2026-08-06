@@ -65,6 +65,12 @@ export interface HostSetupStep extends AdapterHostSetupStep {
   readonly host: SupportedHost;
 }
 
+/** Adapter-authored warning plus the values its human presentation must keep intact. */
+export interface AdapterDiagnosticWarning {
+  readonly copyableValues: readonly string[];
+  readonly message: string;
+}
+
 export interface AdapterProjectPlan {
   readonly host: SupportedHost;
   readonly hostVersion: string;
