@@ -57,7 +57,11 @@ import {
   stageProjectOutputs,
   type ReconciliationFileSystem,
 } from "./reconcile.js";
-import { blockerMessage } from "./blockers.js";
+import {
+  blockerMessage,
+  hostCapabilityBlocker,
+  type BlockerInput,
+} from "./blockers.js";
 import { ENGINE_VERSION } from "./version.js";
 
 /** Hosts accepted by install-temp (Codex and Claude Code). */
@@ -216,7 +220,7 @@ async function planTemporaryDesiredInstallation(options: {
   }
   const gitProject = await findGitProject(options.project);
   const sourceHash = await hashWorkspaceInputs(profile, resolvedProfile);
-  const blockers: string[] = [];
+  const blockers: BlockerInput[] = [];
   const warnings: string[] = [];
   const diagnosticValues: string[] = [];
   const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
@@ -268,7 +272,7 @@ async function planTemporaryDesiredInstallation(options: {
  * temporary installation Host. Keeps Codex and Claude paths behind one call site.
  */
 async function planTemporaryHostAdapter(options: {
-  readonly blockers: string[];
+  readonly blockers: BlockerInput[];
   readonly gitProject: Awaited<ReturnType<typeof findGitProject>>;
   readonly home: string;
   readonly host: TemporaryInstallationHost;
@@ -289,7 +293,7 @@ async function planTemporaryHostAdapter(options: {
           requireDisabledModelInvocation: options.requireDisabledModelInvocation,
         });
       } catch (error) {
-        options.blockers.push(error instanceof Error ? error.message : String(error));
+        options.blockers.push(hostCapabilityBlocker(error, "claude", options.project));
       }
       return planClaudeProject(
         options.profileId,
@@ -304,7 +308,7 @@ async function planTemporaryHostAdapter(options: {
           requireDisabledModelInvocation: options.requireDisabledModelInvocation,
         });
       } catch (error) {
-        options.blockers.push(error instanceof Error ? error.message : String(error));
+        options.blockers.push(hostCapabilityBlocker(error, "codex", options.project));
       }
       if (options.requireContext) {
         appendDiagnosticWarnings(

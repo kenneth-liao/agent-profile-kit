@@ -6,6 +6,10 @@ import { parse, stringify } from "yaml";
 
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 import { composeContextEnvelope } from "./context-envelope.js";
+import {
+  AdapterCapabilityError,
+  adapterCapabilityError,
+} from "./capability.js";
 import type {
   AdapterHostSetupStep,
   AdapterDiagnosticWarning,
@@ -23,6 +27,14 @@ import {
 import { parseTomlTable } from "./toml.js";
 
 const execFileAsync = promisify(execFile);
+
+function codexCapabilityFailure(
+  problem: string,
+  remedy: string,
+  message = `${problem}; ${remedy}`,
+): AdapterCapabilityError {
+  return adapterCapabilityError("codex", message, { problem, remedy });
+}
 
 export const CODEX_ADAPTER_VERSION = "codex-project-v2";
 
@@ -160,8 +172,9 @@ export function parseCodexCliVersion(source: string): string {
       return `${match[1]}.${match[2]}.${match[3]}`;
     }
   }
-  throw new Error(
-    `Codex CLI version is unreadable from '${source.trim()}'; install a supported Codex release`,
+  throw codexCapabilityFailure(
+    `Codex CLI version is unreadable from '${source.trim()}'`,
+    "install a supported Codex release",
   );
 }
 
@@ -178,8 +191,9 @@ function compareSemver(left: string, right: string): number {
 /** Assert a normalized core semver against the disabled-invocation floor. */
 export function assertCodexCliVersionSupportsDisabledModelInvocation(version: string): void {
   if (compareSemver(version, CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION) < 0) {
-    throw new Error(
-      `Codex CLI ${version} cannot enforce disabled model invocation via agents/openai.yaml policy.allow_implicit_invocation (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION}+); upgrade Codex before previewing or applying the Profile`,
+    throw codexCapabilityFailure(
+      `Codex CLI ${version} cannot enforce disabled model invocation via agents/openai.yaml policy.allow_implicit_invocation (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION}+)`,
+      "upgrade Codex before previewing or applying the Profile",
     );
   }
 }
@@ -201,8 +215,9 @@ async function resolveCodexCliVersion(
     return parseCodexCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw new Error(
-        "Codex CLI was not found on PATH; install Codex and ensure `codex --version` works before previewing or applying Profiles that require Codex Host capabilities",
+      throw codexCapabilityFailure(
+        "Codex CLI was not found on PATH",
+        "install Codex and ensure `codex --version` works before previewing or applying Profiles that require Codex Host capabilities",
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -216,8 +231,9 @@ async function resolveCodexCliVersion(
         }
       }
     }
-    throw new Error(
-      `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)}); install a supported Codex release before previewing or applying Profiles that require Codex Host capabilities`,
+    throw codexCapabilityFailure(
+      `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
+      "install a supported Codex release before previewing or applying Profiles that require Codex Host capabilities",
     );
   }
 }
@@ -227,27 +243,34 @@ export async function assertCodexProjectCapability(
   project: string,
   options: CodexCapabilityOptions = {},
 ): Promise<void> {
-  // SessionStart configuration is advisory and is reported separately by
-  // detectCodexProjectConfigurationWarnings. Capability preflight proves only
-  // portable semantics that Codex must be able to represent.
-  if (options.requireContext || options.requireDisabledModelInvocation) {
-    const version = await resolveCodexCliVersion(options);
-    // Check the higher Context floor first so a single upgrade message covers
-    // Profiles that also need disabled model invocation (0.99.0 ⊂ 0.145.0+).
-    if (options.requireContext) {
-      assertCodexCliVersionSupportsCompleteContext(version);
+  try {
+    // SessionStart configuration is advisory and is reported separately by
+    // detectCodexProjectConfigurationWarnings. Capability preflight proves only
+    // portable semantics that Codex must be able to represent.
+    if (options.requireContext || options.requireDisabledModelInvocation) {
+      const version = await resolveCodexCliVersion(options);
+      // Check the higher Context floor first so a single upgrade message covers
+      // Profiles that also need disabled model invocation (0.99.0 ⊂ 0.145.0+).
+      if (options.requireContext) {
+        assertCodexCliVersionSupportsCompleteContext(version);
+      }
+      if (options.requireDisabledModelInvocation) {
+        assertCodexCliVersionSupportsDisabledModelInvocation(version);
+      }
     }
-    if (options.requireDisabledModelInvocation) {
-      assertCodexCliVersionSupportsDisabledModelInvocation(version);
-    }
+  } catch (error) {
+    if (error instanceof AdapterCapabilityError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw adapterCapabilityError("codex", message);
   }
 }
 
 /** Assert a normalized core semver against the complete-Context floor. */
 export function assertCodexCliVersionSupportsCompleteContext(version: string): void {
   if (compareSemver(version, CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT) < 0) {
-    throw new Error(
-      `Codex CLI ${version} cannot deliver complete Context through SessionStart hooks (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT}+); upgrade Codex before previewing or applying the Profile`,
+    throw codexCapabilityFailure(
+      `Codex CLI ${version} cannot deliver complete Context through SessionStart hooks (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT}+)`,
+      "upgrade Codex before previewing or applying the Profile",
     );
   }
 }

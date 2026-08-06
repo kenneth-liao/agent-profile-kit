@@ -16,6 +16,7 @@ import {
   assertGrokProjectCapability,
   detectGrokProjectConfigurationWarnings,
   GROK_ADAPTER_VERSION,
+  grokClaudeRulesTopologyCapabilityError,
   inferGrokClaudeRulesEnabledFromOutputs,
   inspectGrokProject,
   planGrokProject,
@@ -54,7 +55,7 @@ import { ENGINE_VERSION } from "./version.js";
 import { findGitProject, type GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
-import type { BlockerInput } from "./blockers.js";
+import { hostCapabilityBlocker, type BlockerInput } from "./blockers.js";
 
 export interface DesiredDirectoryFileMember {
   readonly bytes: string | Uint8Array;
@@ -546,7 +547,12 @@ export async function buildDesiredState(
           }
         } catch (error) {
           blockers.push(
-            `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
+            hostCapabilityBlocker(
+              error,
+              host,
+              binding.canonicalProject,
+              binding.project,
+            ),
           );
         }
       } else if (host === "grok" && options.resolveHostTopology === true) {
@@ -650,7 +656,12 @@ export async function buildDesiredState(
             // Do not invent topology for status when inspection and applied state
             // cannot prove Claude rules compatibility.
             blockers.push(
-              `${binding.project}: Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available; restore \`grok inspect --json\` or re-apply before trusting status`,
+              hostCapabilityBlocker(
+                grokClaudeRulesTopologyCapabilityError(),
+                "grok",
+                binding.canonicalProject,
+                binding.project,
+              ),
             );
           }
         }
