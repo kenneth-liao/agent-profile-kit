@@ -26,6 +26,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Correct command summaries and empty lifecycle output so uninstall describes removing proven Agent Profile Kit-owned output and no-Project status points to inventory/binding without repetition ([#165](https://github.com/kenneth-liao/agent-profile-kit/issues/165)).
+
 - Harden interactive color gating for terminal capability, document `NO_COLOR`, and keep agent guides and machine output plain ([#164](https://github.com/kenneth-liao/agent-profile-kit/issues/164)).
 
 - Avoid self-suggestions for known commands with non-help trailing arguments ([#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158)).

@@ -696,8 +696,8 @@ export function formatUninstallResult(result: UninstallResult): string {
   const projectCount = result.projects.length;
   const lines = [
     projectCount === 0
-      ? "No installed Projects to uninstall."
-      : `Uninstalled ${plural(projectCount, "Project")}.`,
+      ? "No ordinary Agent Profile Kit-owned output is installed."
+      : `Removed proven Agent Profile Kit-owned output from ${plural(projectCount, "Project")}.`,
   ];
   for (const project of result.projects) {
     lines.push(
@@ -1335,9 +1335,20 @@ function conciseReport(
   const grouped = groupProjects(report);
   const groups = grouped.groups;
   const blocked = report.blockers.length > 0;
+  const emptyStatus =
+    command === "status" &&
+    report.blockers.length === 0 &&
+    report.desired.length === 0 &&
+    report.items.length === 0;
   const fullyCurrentStatus = command === "status" && fullyCurrentProjectCount(report) !== undefined;
-  const lines = [outcomeLine(command, report, receipt !== undefined)];
-  if (!blocked && !fullyCurrentStatus) lines.push(aggregateLine(command, report, groups));
+  const lines = emptyStatus
+    ? [
+        "No Projects are configured.",
+        `Next: Run ${COMMAND_NAME} list projects to inspect Project Bindings, or ` +
+          `${COMMAND_NAME} bind <profile> --host <host> to configure one.`,
+      ]
+    : [outcomeLine(command, report, receipt !== undefined)];
+  if (!emptyStatus && !blocked && !fullyCurrentStatus) lines.push(aggregateLine(command, report, groups));
   const receiptGroups = receipt === undefined
     ? new Map<string, ProjectGroup>()
     : new Map(groupProjects(receipt).groups.map((group) => [group.canonicalProject, group]));
