@@ -41,6 +41,10 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const FOCUSED_GUIDE_MAX_LINES = 30;
 const temporaryDirectories: string[] = [];
 let cliPath = join(repositoryRoot, "dist", "cli.js");
+const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
+  NO_COLOR: undefined,
+  TERM: "xterm-256color",
+};
 
 beforeAll(() => {
   execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
@@ -133,6 +137,7 @@ function cleanPtyResult(result: {
   readonly stdout: string | null;
   readonly stderr: string | null;
 }) {
+  // macOS `script` records the PTY's typed EOF as a literal `^D` plus erase controls.
   return {
     ...result,
     stdout: (result.stdout ?? "")
@@ -151,7 +156,7 @@ function shellQuote(value: string): string {
 }
 
 function runCliInPty(home: string, columns: number, ...arguments_: string[]) {
-  return runCliInPtyWithEnvironment(home, columns, { NO_COLOR: "" }, ...arguments_);
+  return runCliInPtyWithEnvironment(home, columns, { NO_COLOR: "1" }, ...arguments_);
 }
 
 function runCliInPtyWithEnvironment(
@@ -204,7 +209,7 @@ function runCliInPtyWithColumnsFallback(home: string, columns: number, ...argume
       encoding: "utf8" as const,
       env: {
         ...process.env,
-        NO_COLOR: "",
+        NO_COLOR: "1",
         COLUMNS: String(columns),
         HOME: home,
         PATH: defaultCliPath(home),
@@ -6390,11 +6395,11 @@ describe("apkit root help", () => {
   test("interactive root help adds the compact identity and semantic color while pipes stay plain", () => {
     const home = isolatedHome();
     const piped = runCli(home, "--help");
-    const bare = runCliInPtyWithEnvironment(home, 40, { NO_COLOR: undefined });
+    const bare = runCliInPtyWithEnvironment(home, 40, COLOR_TERMINAL_ENVIRONMENT);
     const interactive = runCliInPtyWithEnvironment(
       home,
       40,
-      { NO_COLOR: undefined },
+      COLOR_TERMINAL_ENVIRONMENT,
       "--help",
     );
 
@@ -6414,25 +6419,38 @@ describe("apkit root help", () => {
     const interactive = runCliInPtyWithEnvironment(
       home,
       80,
-      { NO_COLOR: undefined },
+      COLOR_TERMINAL_ENVIRONMENT,
       "list",
       "hosts",
     );
-    const noColor = runCliInPtyWithEnvironment(home, 80, { NO_COLOR: "1" }, "list", "hosts");
+    const noColor = runCliInPtyWithEnvironment(
+      home,
+      80,
+      { NO_COLOR: "1", TERM: "xterm-256color" },
+      "list",
+      "hosts",
+    );
     const piped = runCli(home, "list", "hosts");
     const json = runCli(home, "list", "hosts", "--json");
     const interactiveJson = runCliInPtyWithEnvironment(
       home,
       80,
-      { NO_COLOR: undefined },
+      COLOR_TERMINAL_ENVIRONMENT,
       "list",
       "hosts",
       "--json",
     );
+    const agentGuidePty = runCliInPtyWithEnvironment(
+      home,
+      80,
+      COLOR_TERMINAL_ENVIRONMENT,
+      "guide",
+      "--agent",
+    );
     const interactiveError = runCliInPtyWithEnvironment(
       home,
       80,
-      { NO_COLOR: undefined },
+      COLOR_TERMINAL_ENVIRONMENT,
       "unknown-command",
     );
     const pipedError = runCli(home, "unknown-command");
@@ -6449,10 +6467,56 @@ describe("apkit root help", () => {
     expect(interactiveJson.status, interactiveJson.stderr).toBe(0);
     expect(interactiveJson.stdout).not.toMatch(/\u001b\[/);
     expect(() => JSON.parse(interactiveJson.stdout)).not.toThrow();
+    expect(agentGuidePty.status, agentGuidePty.stderr).toBe(0);
+    expect(agentGuidePty.stdout).not.toMatch(/\u001b\[/);
     expect(interactiveError.status).toBe(1);
     expect(interactiveErrorOutput).toMatch(/\u001b\[/);
     expect(interactiveErrorOutput).not.toContain(" /__\\ reusable agent material");
     expect(pipedError.stderr).not.toMatch(/\u001b\[/);
+  });
+
+  test("representative human and machine surfaces stay ANSI-free through pipes", () => {
+    const invocations: readonly (readonly string[])[] = [
+      [],
+      ["--version"],
+      ["--help"],
+      ["help", "status"],
+      ["guide"],
+      ["guide", "profile"],
+      ["guide", "--full"],
+      ["guide", "--agent"],
+      ["info"],
+      ["info", "--json"],
+      ["list"],
+      ["list", "projects"],
+      ["list", "projects", "--json"],
+      ["list", "profiles"],
+      ["list", "profiles", "--json"],
+      ["list", "hosts"],
+      ["list", "hosts", "--json"],
+      ["list", "temporary"],
+      ["list", "temporary", "--json"],
+      ["validate"],
+      ["preview"],
+      ["preview", "--json"],
+      ["apply"],
+      ["apply", "--json"],
+      ["status"],
+      ["status", "--json"],
+      ["uninstall"],
+      ["install-temp"],
+      ["remove-temp"],
+      ["unknown-command"],
+      ...COMMANDS.map((command) => [command.name, "--help"]),
+    ];
+
+    for (const arguments_ of invocations) {
+      const result = runCli(isolatedHome(), ...arguments_);
+      expect(
+        `${result.stdout}${result.stderr}`,
+        `unexpected ANSI for: apkit ${arguments_.join(" ")}`,
+      ).not.toMatch(/\u001b\[/);
+    }
   });
 
   test("focused guides wrap prose at terminal width without splitting examples", () => {

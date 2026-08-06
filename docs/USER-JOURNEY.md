@@ -59,8 +59,12 @@ four-step quick start, and a pointer to `guide`. The quick start points to
 `guide profile` for a valid Profile example and `bind --help` for supported Host
 values. Interactive output selects the tty width (falling back to `COLUMNS`)
 and clamps readable prose to 40–100 columns; redirected output uses a
-deterministic 80-column measure. `--version` prints the engine version. Every
-command has focused `help <command>`, `<command> -h`, and `<command> --help`
+deterministic 80-column measure. Color is used only for color-capable
+interactive human output; `TERM=dumb`, an unset `TERM`, and a non-empty
+`NO_COLOR` disable ANSI styling. The compact ASCII identity appears only in
+interactive bare/root help, while the agent guide, redirected output, and all
+JSON remain plain. `--version` prints the engine version. Every command has focused
+`help <command>`, `<command> -h`, and `<command> --help`
 aliases with identical purpose, syntax, worked examples, write boundary, and
 next-action output; binding and temporary-installation help name Hosts from
 their canonical capability sets. Unknown commands produce one deterministic

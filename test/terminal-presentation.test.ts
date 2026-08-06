@@ -6,25 +6,46 @@ import {
   terminalPresentationContext,
 } from "../cli/terminal-presentation.js";
 
-test("terminal presentation enables color only for interactive streams without NO_COLOR", () => {
+test("terminal presentation enables color only for color-capable interactive streams", () => {
   expect(
     terminalPresentationContext(
       { isTTY: true, columns: 80 },
-      {},
+      { TERM: "xterm-256color" },
     ),
   ).toEqual({ interactive: true, width: 80, color: true });
 
   expect(
     terminalPresentationContext(
       { isTTY: true, columns: 80 },
-      { NO_COLOR: "" },
+      { TERM: "xterm-256color", NO_COLOR: "1" },
+    ),
+  ).toEqual({ interactive: true, width: 80, color: false });
+
+  expect(
+    terminalPresentationContext(
+      { isTTY: true, columns: 80 },
+      { TERM: "xterm-256color", NO_COLOR: "" },
+    ),
+  ).toEqual({ interactive: true, width: 80, color: true });
+
+  expect(
+    terminalPresentationContext(
+      { isTTY: true, columns: 80 },
+      { TERM: "dumb" },
+    ),
+  ).toEqual({ interactive: true, width: 80, color: false });
+
+  expect(
+    terminalPresentationContext(
+      { isTTY: true, columns: 80 },
+      {},
     ),
   ).toEqual({ interactive: true, width: 80, color: false });
 
   expect(
     terminalPresentationContext(
       { isTTY: false, columns: 0 },
-      {},
+      { TERM: "xterm-256color" },
     ),
   ).toEqual({ interactive: false, width: 80, color: false });
 });
@@ -43,6 +64,7 @@ test("human presentation styles semantic lines without changing their words", ()
     "Attention required",
     "Some Projects intentionally uninstalled",
     "Intentionally uninstalled",
+    "C:\\projects\\Error: profile",
     "Warnings:",
     "apkit: warning: tracked output",
     "  Blocker: tracked output",
@@ -71,6 +93,8 @@ test("human presentation styles semantic lines without changing their words", ()
   expect(colored).toContain("\u001b[33mapkit: warning: tracked output\u001b[0m");
   expect(colored).toContain("\u001b[31m  Blocker: tracked output\u001b[0m");
   expect(colored).toContain("Blocker: tracked output");
+  expect(colored).toContain("C:\\projects\\Error: profile");
+  expect(colored).not.toContain("\u001b[1;34mC:\\projects\\Error: profile");
 
   expect(
     renderHumanOutput(text, { color: false, interactive: true, width: 80 }),

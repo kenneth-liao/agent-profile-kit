@@ -40,6 +40,33 @@ const ANSI_COLORS: Readonly<Record<SemanticCategory, string>> = {
   success: "\u001b[32m",
 };
 
+const HEADING_PREFIXES = [
+  "Commands:",
+  "Project quick start:",
+  "Discovery:",
+  "Profile Installation quick start:",
+  "Usage:",
+  "Purpose:",
+  "Examples:",
+  "Writes:",
+  "Next:",
+  "Supported Hosts:",
+  "Topics:",
+  "Complete references:",
+  "Projects (",
+  "Profiles (",
+  "Hosts (",
+  "Temporary Profile Installations (",
+  "Profile Installations:",
+  "Diagnostics:",
+  "Files:",
+  "State explanations:",
+  "Codex setup:",
+  "Claude setup:",
+  "Grok setup:",
+  "Pi setup:",
+] as const;
+
 const FULL_WORDMARK = [
   "  /\\  Agent Profile Kit",
   " /__\\ reusable agent material",
@@ -80,8 +107,10 @@ export function terminalPresentationContext(
   const width = interactive
     ? clampWidth(terminalColumns ?? environmentColumns ?? DEFAULT_HUMAN_WIDTH)
     : DEFAULT_HUMAN_WIDTH;
+  const terminal = environment.TERM?.toLowerCase();
+  const noColor = environment.NO_COLOR !== undefined && environment.NO_COLOR !== "";
   return {
-    color: interactive && environment.NO_COLOR === undefined,
+    color: interactive && terminal !== undefined && terminal !== "dumb" && !noColor,
     interactive,
     width,
   };
@@ -111,6 +140,12 @@ export interface HumanOutputStyleOptions {
   readonly commandNames?: readonly string[];
 }
 
+/**
+ * Existing human formatters expose strings rather than categorized line
+ * records. These fixed public-label prefixes are the presentation compatibility
+ * table until that boundary carries line metadata; they intentionally avoid
+ * inferring categories from arbitrary user-controlled text.
+ */
 function semanticCategory(
   line: string,
   commandNames: readonly string[],
@@ -151,7 +186,7 @@ function semanticCategory(
     return "path";
   }
   if (/^(?:For\b|Choose\b|This\b|The\b|A\b|An\b)/i.test(text)) return "muted";
-  if (/^[A-Z][^:]*:/.test(text)) return "heading";
+  if (HEADING_PREFIXES.some((prefix) => text.startsWith(prefix))) return "heading";
   return undefined;
 }
 

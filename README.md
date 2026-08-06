@@ -34,6 +34,9 @@ npx --package agent-profile-kit apkit init ~/projects/agent-profile-workspace
 
 The initial release supports macOS only.
 
+Terminal width, interactive color and branding, `NO_COLOR`, and machine-output
+behavior are documented in the [Discover stage of the user journey](docs/USER-JOURNEY.md#1-discover).
+
 Running the command again is safe: it scaffolds a missing or empty non-symlink
 destination, adopts a valid existing Workspace without rewriting it, and never
 overwrites the current Local Configuration. An explicit path must resolve to the

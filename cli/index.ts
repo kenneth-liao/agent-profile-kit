@@ -552,7 +552,7 @@ async function main(): Promise<void> {
       const context = terminalPresentationContext(process.stdout);
       writeHuman(process.stdout, focusedGuide(parsed.topic, context), context);
     } else if (parsed.kind === "agent") {
-      writeHuman(process.stdout, await agentGuide());
+      process.stdout.write(await agentGuide());
     } else {
       writeHuman(process.stdout, await humanGuide());
     }
