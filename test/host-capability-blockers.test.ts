@@ -67,26 +67,22 @@ describe("Host capability blockers", () => {
     const bin = temporaryDirectory("apkit-host-capability-bin-");
     writeFileSync(join(bin, "codex"), "#!/bin/sh\nprintf '%s\\n' 'codex-cli 0.144.6'\n");
     chmodSync(join(bin, "codex"), 0o755);
-    const previousPath = process.env.PATH ?? "";
-    process.env.PATH = `${bin}:${previousPath}`;
-    try {
-      const desired = await buildDesiredState(home);
-      const input = desired.installations[0]?.blockers[0];
+    const desired = await buildDesiredState(home, {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    });
+    const input = desired.installations[0]?.blockers[0];
 
-      expect(input).toMatchObject({
-        affectedItems: [{ kind: "host", value: "codex" }],
-        kind: "host-capability",
-        message: `${project}: Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before previewing or applying the Profile`,
-        problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
-        project: realpathSync(project),
-        remedy: "upgrade Codex before previewing or applying the Profile",
-        requirement: "The selected Profile requires Codex project delivery",
-        scope: "project",
-      });
-      expect(isStructuredBlocker(normalizeBlocker(input as StructuredBlockerInput))).toBe(true);
-    } finally {
-      process.env.PATH = previousPath;
-    }
+    expect(input).toMatchObject({
+      affectedItems: [{ kind: "host", value: "codex" }],
+      kind: "host-capability",
+      message: `${project}: Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before previewing or applying the Profile`,
+      problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
+      project: realpathSync(project),
+      remedy: "upgrade Codex before previewing or applying the Profile",
+      requirement: "The selected Profile requires Codex project delivery",
+      scope: "project",
+    });
+    expect(isStructuredBlocker(normalizeBlocker(input as StructuredBlockerInput))).toBe(true);
   });
 
   test("each Adapter capability boundary emits typed evidence and remains an Error", async () => {
@@ -290,17 +286,13 @@ describe("Host capability blockers", () => {
     const bin = temporaryDirectory("apkit-host-warning-bin-");
     writeFileSync(join(bin, "codex"), "#!/bin/sh\nprintf '%s\\n' 'codex-cli 0.145.0'\n");
     chmodSync(join(bin, "codex"), 0o755);
-    const previousPath = process.env.PATH ?? "";
-    process.env.PATH = `${bin}:${previousPath}`;
-    try {
-      const desired = await buildDesiredState(home);
-      const installation = desired.installations[0];
-      expect(installation?.blockers).toEqual([]);
-      expect(installation?.warnings).toHaveLength(1);
-      expect(installation?.warnings[0]).toContain("SessionStart hooks are not enabled");
-    } finally {
-      process.env.PATH = previousPath;
-    }
+    const desired = await buildDesiredState(home, {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    });
+    const installation = desired.installations[0];
+    expect(installation?.blockers).toEqual([]);
+    expect(installation?.warnings).toHaveLength(1);
+    expect(installation?.warnings[0]).toContain("SessionStart hooks are not enabled");
   });
 
   test("status topology failures use the same project-scoped structured blocker", async () => {
@@ -309,28 +301,23 @@ describe("Host capability blockers", () => {
     await writeContextBinding(home, project, ["claude", "grok"]);
 
     const emptyBin = temporaryDirectory("apkit-host-topology-bin-");
-    const previousPath = process.env.PATH ?? "";
-    process.env.PATH = emptyBin;
-    try {
-      const desired = await buildDesiredState(home, {
-        checkHostCapability: false,
-        resolveHostTopology: true,
-      });
-      const blocker = desired.installations[0]?.blockers.find(
-        (candidate) => typeof candidate !== "string" && candidate.kind === "host-capability",
-      );
-      expect(blocker).toMatchObject({
-        affectedItems: [{ kind: "host", value: "grok" }],
-        kind: "host-capability",
-        message: `${project}: Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available; restore \`grok inspect --json\` or re-apply before trusting status`,
-        project: realpathSync(project),
-        problem: "Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available",
-        remedy: "restore `grok inspect --json` or re-apply before trusting status",
-        requirement: "The selected Profile requires Grok project delivery",
-        scope: "project",
-      });
-    } finally {
-      process.env.PATH = previousPath;
-    }
+    const desired = await buildDesiredState(home, {
+      checkHostCapability: false,
+      env: { ...process.env, PATH: emptyBin },
+      resolveHostTopology: true,
+    });
+    const blocker = desired.installations[0]?.blockers.find(
+      (candidate) => typeof candidate !== "string" && candidate.kind === "host-capability",
+    );
+    expect(blocker).toMatchObject({
+      affectedItems: [{ kind: "host", value: "grok" }],
+      kind: "host-capability",
+      message: `${project}: Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available; restore \`grok inspect --json\` or re-apply before trusting status`,
+      project: realpathSync(project),
+      problem: "Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available",
+      remedy: "restore `grok inspect --json` or re-apply before trusting status",
+      requirement: "The selected Profile requires Grok project delivery",
+      scope: "project",
+    });
   });
 });
