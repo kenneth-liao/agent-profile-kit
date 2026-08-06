@@ -12,10 +12,11 @@ import { join } from "node:path";
 
 import { assertClaudeProjectCapability } from "../adapters/claude.js";
 import { assertCodexProjectCapability } from "../adapters/codex.js";
-import { assertGrokProjectCapability } from "../adapters/grok.js";
+import { assertGrokProjectCapability, parseGrokInspectDocument } from "../adapters/grok.js";
 import { assertPiProjectCapability } from "../adapters/pi.js";
 import { isAdapterCapabilityError } from "../adapters/capability.js";
 import {
+  hostCapabilityBlocker,
   isStructuredBlocker,
   normalizeBlocker,
   type StructuredBlockerInput,
@@ -137,18 +138,15 @@ describe("Host capability blockers", () => {
 
     let malformedInspectError: unknown;
     try {
-      await assertGrokProjectCapability(project, {
-        inspect: async () => {
-          throw new Error("Grok inspect --json output is malformed");
-        },
-        resolveVersion: async () => "0.2.111",
-      });
+      parseGrokInspectDocument("{not-json");
     } catch (caught) {
       malformedInspectError = caught;
     }
     expect(isAdapterCapabilityError(malformedInspectError)).toBe(true);
     if (isAdapterCapabilityError(malformedInspectError)) {
-      expect(malformedInspectError.message).toBe("Grok inspect --json output is malformed");
+      expect(malformedInspectError.message).toBe(
+        "Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the CLI before previewing or applying the Profile",
+      );
     }
   });
 
@@ -208,6 +206,78 @@ describe("Host capability blockers", () => {
         { kind: "path", value: join(project, attempt.path) },
       ]);
     }
+  });
+
+  test("unexpected Adapter failures remain unclassified at the shared boundary", async () => {
+    const project = temporaryDirectory("apkit-unclassified-capability-project-");
+    const failures = [
+      new Error("injected Claude capability probe failure"),
+      new Error("injected Codex capability probe failure"),
+      new Error("injected Grok capability probe failure"),
+      new Error("injected Pi capability probe failure"),
+    ];
+    const attempts = [
+      {
+        failure: failures[0]!,
+        run: () =>
+          assertClaudeProjectCapability(project, {
+            resolveVersion: async () => {
+              throw failures[0];
+            },
+          }),
+      },
+      {
+        failure: failures[1]!,
+        run: () =>
+          assertCodexProjectCapability("/tmp", project, {
+            requireContext: true,
+            resolveVersion: async () => {
+              throw failures[1];
+            },
+          }),
+      },
+      {
+        failure: failures[2]!,
+        run: () =>
+          assertGrokProjectCapability(project, {
+            resolveVersion: async () => {
+              throw failures[2];
+            },
+          }),
+      },
+      {
+        failure: failures[3]!,
+        run: () =>
+          assertPiProjectCapability(project, {
+            resolveVersion: async () => {
+              throw failures[3];
+            },
+          }),
+      },
+    ];
+
+    for (const attempt of attempts) {
+      let error: unknown;
+      try {
+        await attempt.run();
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toBe(attempt.failure);
+    }
+
+    const unexpected = new Error("injected capability probe failure");
+
+    expect(hostCapabilityBlocker(unexpected, "claude", project)).toMatchObject({
+      affectedItems: [{ kind: "host", value: "claude" }],
+      kind: "host-capability-unclassified",
+      message: unexpected.message,
+      problem: "Host capability preflight could not complete",
+      project,
+      remedy: "Inspect the underlying error before retrying",
+      requirement: "The selected Profile requires Claude project delivery",
+      scope: "project",
+    });
   });
 
   test("warning-adjacent Codex configuration remains non-blocking", async () => {

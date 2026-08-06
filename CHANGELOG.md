@@ -46,6 +46,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Keep unexpected Adapter preflight failures distinct while centralizing capability evidence construction and preserving temporary-installation blocker projections ([#167](https://github.com/kenneth-liao/agent-profile-kit/issues/167)).
+
 - Migrate Adapter Host capability and preflight blockers to structured evidence while preserving legacy lifecycle and temporary-installation projections ([#167](https://github.com/kenneth-liao/agent-profile-kit/issues/167)).
 
 - Bare `apkit guide` now prints a concise topic index; the complete human guide is available at `apkit guide --full`. Scripts or agents that consumed the former full output should switch to `--full` ([#159](https://github.com/kenneth-liao/agent-profile-kit/issues/159)).

@@ -1,5 +1,5 @@
 import {
-  adapterCapabilityError,
+  capabilityRequirement,
   isAdapterCapabilityError,
 } from "../adapters/capability.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
@@ -62,19 +62,18 @@ export function hostCapabilityBlocker(
   project: string,
   displayProject?: string,
 ): StructuredBlockerInput {
-  const failure = isAdapterCapabilityError(error)
-    ? error
-    : adapterCapabilityError(host, error instanceof Error ? error.message : String(error));
+  const failure = isAdapterCapabilityError(error) ? error : undefined;
+  const message = failure?.message ?? (error instanceof Error ? error.message : String(error));
   return {
-    affectedItems: failure.affectedItems,
-    kind: "host-capability",
+    affectedItems: failure?.affectedItems ?? [{ kind: "host", value: host }],
+    kind: failure === undefined ? "host-capability-unclassified" : "host-capability",
     message: displayProject === undefined
-      ? failure.message
-      : `${displayProject}: ${failure.message}`,
-    problem: failure.problem,
+      ? message
+      : `${displayProject}: ${message}`,
+    problem: failure?.problem ?? "Host capability preflight could not complete",
     project,
-    remedy: failure.remedy,
-    requirement: failure.requirement,
+    remedy: failure?.remedy ?? "Inspect the underlying error before retrying",
+    requirement: failure?.requirement ?? capabilityRequirement(host),
     scope: "project",
   };
 }

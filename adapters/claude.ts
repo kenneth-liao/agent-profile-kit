@@ -6,10 +6,7 @@ import { parse, stringify } from "yaml";
 
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
-import {
-  adapterCapabilityError,
-  isAdapterCapabilityError,
-} from "./capability.js";
+import { capabilityFailure } from "./capability.js";
 import type {
   AdapterProjectPlan,
   ProposedDirectoryFileMember,
@@ -25,15 +22,6 @@ import {
 } from "./skill-package.js";
 
 const execFileAsync = promisify(execFile);
-
-function claudeCapabilityFailure(
-  problem: string,
-  remedy: string,
-  message = `${problem}; ${remedy}`,
-  affectedItems: readonly { readonly kind: string; readonly value: string }[] = [],
-) {
-  return adapterCapabilityError("claude", message, { affectedItems, problem, remedy });
-}
 
 export const CLAUDE_ADAPTER_VERSION = "claude-project-v1";
 
@@ -148,7 +136,8 @@ async function pathKind(
 export function parseClaudeCliVersion(source: string): string {
   const match = source.match(/(\d+)\.(\d+)\.(\d+)/);
   if (!match) {
-    throw claudeCapabilityFailure(
+    throw capabilityFailure(
+      "claude",
       `Claude CLI version is unreadable from '${source.trim()}'`,
       "install a supported Claude Code release",
     );
@@ -180,18 +169,21 @@ export function assertClaudeCliVersionSupported(
 ): void {
   if (compareSemver(version, CLAUDE_MINIMUM_CLI_VERSION) < 0) {
     if (options.requireDisabledModelInvocation) {
-      throw claudeCapabilityFailure(
+      throw capabilityFailure(
+        "claude",
         `Claude CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${CLAUDE_MINIMUM_CLI_VERSION}+)`,
         "upgrade Claude Code before previewing or applying the Profile",
       );
     }
     if (options.requireContext === false) {
-      throw claudeCapabilityFailure(
+      throw capabilityFailure(
+        "claude",
         `Claude CLI ${version} does not support native project Skills (requires ${CLAUDE_MINIMUM_CLI_VERSION}+)`,
         "upgrade Claude Code before previewing or applying the Profile",
       );
     }
-    throw claudeCapabilityFailure(
+    throw capabilityFailure(
+      "claude",
       `Claude CLI ${version} does not support unscoped project rules (requires ${CLAUDE_MINIMUM_CLI_VERSION}+)`,
       "upgrade Claude Code before previewing or applying the Profile",
     );
@@ -211,7 +203,8 @@ async function resolveClaudeCliVersion(
     return parseClaudeCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw claudeCapabilityFailure(
+      throw capabilityFailure(
+        "claude",
         "Claude Code CLI was not found on PATH",
         "install Claude Code and ensure `claude --version` works before previewing or applying the Profile",
       );
@@ -227,7 +220,8 @@ async function resolveClaudeCliVersion(
         }
       }
     }
-    throw claudeCapabilityFailure(
+    throw capabilityFailure(
+      "claude",
       `Claude Code CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
       "install a supported Claude Code release before previewing or applying the Profile",
     );
@@ -246,52 +240,46 @@ export async function assertClaudeProjectCapability(
   project: string,
   options: ClaudeCapabilityOptions = {},
 ): Promise<void> {
-  try {
-    const requireContext = options.requireContext !== false;
-    const version = await resolveClaudeCliVersion(options);
-    assertClaudeCliVersionSupported(version, {
-      requireContext,
-      ...(options.requireDisabledModelInvocation
-        ? { requireDisabledModelInvocation: true }
-        : {}),
-    });
+  const requireContext = options.requireContext !== false;
+  const version = await resolveClaudeCliVersion(options);
+  assertClaudeCliVersionSupported(version, {
+    requireContext,
+    ...(options.requireDisabledModelInvocation
+      ? { requireDisabledModelInvocation: true }
+      : {}),
+  });
 
-    // Skills-only and Context-bearing plans both write under `.claude/`.
-    const claudePath = join(project, ".claude");
-    const claudeKind = await pathKind(claudePath);
-    if (claudeKind !== "missing" && claudeKind !== "directory") {
-      const problem =
-        `Claude project surface cannot host outputs: ${claudePath} is a ${claudeKind}, not a directory`;
-      throw claudeCapabilityFailure(
-        problem,
-        "ensure the Claude project surface is a directory, then retry",
-        problem,
-        [{ kind: "path", value: claudePath }],
-      );
-    }
-
-    // Skills-only Profiles do not write unscoped rules; skip the rules surface then.
-    if (!requireContext) {
-      return;
-    }
-
-    const rulesPath = join(project, ".claude", "rules");
-    const rulesKind = await pathKind(rulesPath);
-    if (rulesKind !== "missing" && rulesKind !== "directory") {
-      const problem =
-        `Claude project surface cannot host unscoped rules: ${rulesPath} is a ${rulesKind}, not a directory`;
-      throw claudeCapabilityFailure(
-        problem,
-        "ensure the Claude rules surface is a directory, then retry",
-        problem,
-        [{ kind: "path", value: rulesPath }],
-      );
-    }
-  } catch (error) {
-    if (isAdapterCapabilityError(error)) throw error;
-    throw adapterCapabilityError(
+  // Skills-only and Context-bearing plans both write under `.claude/`.
+  const claudePath = join(project, ".claude");
+  const claudeKind = await pathKind(claudePath);
+  if (claudeKind !== "missing" && claudeKind !== "directory") {
+    const problem =
+      `Claude project surface cannot host outputs: ${claudePath} is a ${claudeKind}, not a directory`;
+    throw capabilityFailure(
       "claude",
-      error instanceof Error ? error.message : String(error),
+      problem,
+      "ensure the Claude project surface is a directory, then retry",
+      [{ kind: "path", value: claudePath }],
+      problem,
+    );
+  }
+
+  // Skills-only Profiles do not write unscoped rules; skip the rules surface then.
+  if (!requireContext) {
+    return;
+  }
+
+  const rulesPath = join(project, ".claude", "rules");
+  const rulesKind = await pathKind(rulesPath);
+  if (rulesKind !== "missing" && rulesKind !== "directory") {
+    const problem =
+      `Claude project surface cannot host unscoped rules: ${rulesPath} is a ${rulesKind}, not a directory`;
+    throw capabilityFailure(
+      "claude",
+      problem,
+      "ensure the Claude rules surface is a directory, then retry",
+      [{ kind: "path", value: rulesPath }],
+      problem,
     );
   }
 }

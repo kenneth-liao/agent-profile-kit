@@ -47,19 +47,24 @@ function hostLabel(host: SupportedHost): string {
   return `${host[0]?.toUpperCase() ?? ""}${host.slice(1)}`;
 }
 
-/** Create the default typed evidence for one Adapter capability failure. */
-export function adapterCapabilityError(
+export function capabilityRequirement(host: SupportedHost): string {
+  return `The selected Profile requires ${hostLabel(host)} project delivery`;
+}
+
+/** Create the canonical typed evidence for one Adapter capability failure. */
+export function capabilityFailure(
   host: SupportedHost,
-  message: string,
-  options: Partial<Omit<AdapterCapabilityFailure, "host" | "message">> = {},
+  problem: string,
+  remedy: string,
+  affectedItems: readonly AdapterCapabilityAffectedItem[] = [],
+  message = `${problem}; ${remedy}`,
 ): AdapterCapabilityError {
-  const label = hostLabel(host);
   return new AdapterCapabilityError({
-    affectedItems: [{ kind: "host", value: host }, ...(options.affectedItems ?? [])],
+    affectedItems: [{ kind: "host", value: host }, ...affectedItems],
     host,
     message,
-    problem: options.problem ?? `${label} Host capability could not be proven`,
-    remedy: options.remedy ?? `Resolve the reported ${label} Host capability issue, then retry`,
-    requirement: options.requirement ?? `The selected Profile requires ${label} project delivery`,
+    problem,
+    remedy,
+    requirement: capabilityRequirement(host),
   });
 }
