@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { homedir } from "node:os";
+import type { WriteStream } from "node:tty";
 
 import { agentGuide, focusedGuide, guideIndex, humanGuide, type GuideTopic } from "./guides.js";
 import {
@@ -86,10 +87,22 @@ import {
   type InventoryTopic,
 } from "./inventory-topics.js";
 import {
+  agentProfileKitWordmark,
+  renderHumanOutput,
   terminalPresentationContext,
   wrapPresentationText,
   type TerminalPresentationContext,
 } from "./terminal-presentation.js";
+
+const COMMAND_NAMES = COMMANDS.map((command) => command.name);
+
+function writeHuman(
+  stream: WriteStream,
+  text: string,
+  context = terminalPresentationContext(stream),
+): void {
+  stream.write(renderHumanOutput(text, context, { commandNames: COMMAND_NAMES }));
+}
 
 function formatError(error: unknown): string {
   if (error instanceof MissingProfileError) return formatMissingProfileError(error);
@@ -223,6 +236,7 @@ function perCommandHelp(command: CommandHelp): string {
 
 /** Root help shown for a bare invocation and root `--help` aliases. */
 function rootHelp(context: TerminalPresentationContext): string {
+  const wordmark = context.interactive ? agentProfileKitWordmark(context.width) : [];
   const proseWidth = Math.max(1, context.width - 4);
   const commandLines: string[] = [];
   for (const [group, label] of COMMAND_GROUPS) {
@@ -254,7 +268,8 @@ function rootHelp(context: TerminalPresentationContext): string {
     ),
     Math.max(1, context.width - 2),
   ).map((line) => `  ${line}`).join("\n");
-  return `${intro}\n\n` +
+  const identity = wordmark.length === 0 ? "" : `${wordmark.join("\n")}\n\n`;
+  return identity + `${intro}\n\n` +
     `Usage: ${COMMAND_NAME} <command> [arguments]\n\n` +
     "Commands:\n" +
     `${commandLines.join("\n")}\n\n` +
@@ -272,7 +287,7 @@ function parseOrExit<T>(command: string, parse: () => T): T | undefined {
   try {
     return parse();
   } catch (error) {
-    process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n${commandUsage(command)}`);
+    writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n${commandUsage(command)}`);
     process.exitCode = 1;
     return undefined;
   }
@@ -513,29 +528,33 @@ async function main(): Promise<void> {
     arguments_.length === 0 ||
     (arguments_.length === 1 && ROOT_HELP_ALIASES.some((alias) => alias === arguments_[0]))
   ) {
-    process.stdout.write(rootHelp(terminalPresentationContext(process.stdout)));
+    const context = terminalPresentationContext(process.stdout);
+    writeHuman(process.stdout, rootHelp(context), context);
     return;
   }
   const focusedHelp = focusedHelpRequest(arguments_);
   if (focusedHelp?.kind === "root") {
-    process.stdout.write(rootHelp(terminalPresentationContext(process.stdout)));
+    const context = terminalPresentationContext(process.stdout);
+    writeHuman(process.stdout, rootHelp(context), context);
     return;
   }
   if (focusedHelp?.kind === "command") {
-    process.stdout.write(perCommandHelp(focusedHelp.command));
+    writeHuman(process.stdout, perCommandHelp(focusedHelp.command));
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "guide") {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     if (parsed.kind === "index") {
-      process.stdout.write(guideIndex(terminalPresentationContext(process.stdout)));
+      const context = terminalPresentationContext(process.stdout);
+      writeHuman(process.stdout, guideIndex(context), context);
     } else if (parsed.kind === "topic") {
-      process.stdout.write(focusedGuide(parsed.topic, terminalPresentationContext(process.stdout)));
+      const context = terminalPresentationContext(process.stdout);
+      writeHuman(process.stdout, focusedGuide(parsed.topic, context), context);
     } else if (parsed.kind === "agent") {
       process.stdout.write(await agentGuide());
     } else {
-      process.stdout.write(await humanGuide());
+      writeHuman(process.stdout, await humanGuide());
     }
     return;
   }
@@ -543,22 +562,29 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("init", () => parseInitArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     const result = await initializeWorkspace(home, parsed);
-    for (const warning of result.warnings) process.stderr.write(`${COMMAND_NAME}: warning: ${warning}\n`);
+    for (const warning of result.warnings) {
+      writeHuman(process.stderr, `${COMMAND_NAME}: warning: ${warning}\n`);
+    }
     if (result.outcome === "migrated") {
-      process.stdout.write(
+      writeHuman(
+        process.stdout,
         `Migrated Local Configuration and validated the Agent Profile Kit Workspace at ${result.path}\n` +
           `Next: run ${COMMAND_NAME} validate, then preview and apply as needed\n`,
       );
       return;
     }
     if (result.outcome === "unchanged") {
-      process.stdout.write(`Workspace and Local Configuration already initialized at ${result.path}; unchanged.\n`);
+      writeHuman(
+        process.stdout,
+        `Workspace and Local Configuration already initialized at ${result.path}; unchanged.\n`,
+      );
       return;
     }
     const next = result.workspaceScaffolded
       ? `Next: from the project you want to try, run ${COMMAND_NAME} bind ${AUTHORING_EXAMPLES.profile.id} --host codex\n`
       : `Next: run ${COMMAND_NAME} validate\n`;
-    process.stdout.write(
+    writeHuman(
+      process.stdout,
       `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}\n` + next,
     );
     return;
@@ -573,7 +599,8 @@ async function main(): Promise<void> {
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
     });
     if (result.outcome === "unchanged") {
-      process.stdout.write(
+      writeHuman(
+        process.stdout,
         `Project Binding unchanged for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
           `  Profile: ${result.profile}\n` +
           `  Hosts: ${result.hosts.join(", ")}\n` +
@@ -581,7 +608,8 @@ async function main(): Promise<void> {
       );
       return;
     }
-    process.stdout.write(
+    writeHuman(
+      process.stdout,
       `Recorded Project Binding for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
         `  Profile: ${result.profile}\n` +
         `  Hosts: ${result.hosts.join(", ")}\n` +
@@ -597,7 +625,8 @@ async function main(): Promise<void> {
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
     });
     if (result.outcome === "unchanged") {
-      process.stdout.write(
+      writeHuman(
+        process.stdout,
         `Project Binding unchanged; no binding matched ${result.requestedProject}\n` +
           `  Local Configuration: ${result.configurationPath}\n`,
       );
@@ -609,7 +638,8 @@ async function main(): Promise<void> {
     const next = await generatedOutputSurvivesUnbind(home, result)
       ? `Next: ${COMMAND_NAME} preview && ${COMMAND_NAME} apply\n`
       : "";
-    process.stdout.write(
+    writeHuman(
+      process.stdout,
       `Removed Project Binding for ${result.project}\n` +
         recovery +
         `  Profile: ${result.profile}\n` +
@@ -623,7 +653,7 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("validate", () => parseNoArguments("validate", arguments_.slice(1)));
     if (parsed === undefined) return;
     const result = await validateApplication(home);
-    process.stdout.write(formatValidationResult(result));
+    writeHuman(process.stdout, formatValidationResult(result));
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "info") {
@@ -631,14 +661,18 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     try {
       const info = await readApplicationInfo(home);
-      process.stdout.write(parsed.json ? formatInfoJson(info) : formatInfoHuman(info, home));
+      if (parsed.json) {
+        process.stdout.write(formatInfoJson(info));
+      } else {
+        writeHuman(process.stdout, formatInfoHuman(info, home));
+      }
     } catch (error) {
       if (parsed.json) {
         process.stdout.write(
           formatInfoToolErrorJson(applicationInfoLocations(home), formatError(error)),
         );
       } else {
-        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
       }
       process.exitCode = 1;
     }
@@ -648,23 +682,23 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("list", () => parseListArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     if (parsed.kind === "index") {
-      process.stdout.write(formatInventoryIndex());
+      writeHuman(process.stdout, formatInventoryIndex());
       return;
     }
     switch (parsed.topic) {
       case "projects":
         try {
           const projects = await listProjectBindings(home);
-          process.stdout.write(
-            parsed.json
-              ? formatProjectInventoryJson(projects)
-              : formatProjectInventoryHuman(projects, home),
-          );
+          if (parsed.json) {
+            process.stdout.write(formatProjectInventoryJson(projects));
+          } else {
+            writeHuman(process.stdout, formatProjectInventoryHuman(projects, home));
+          }
         } catch (error) {
           if (parsed.json) {
             process.stdout.write(formatProjectInventoryToolErrorJson(formatError(error)));
           } else {
-            process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+            writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
           }
           process.exitCode = 1;
         }
@@ -672,16 +706,16 @@ async function main(): Promise<void> {
       case "profiles":
         try {
           const profiles = await listProfiles(home);
-          process.stdout.write(
-            parsed.json
-              ? formatProfileInventoryJson(profiles)
-              : formatProfileInventoryHuman(profiles),
-          );
+          if (parsed.json) {
+            process.stdout.write(formatProfileInventoryJson(profiles));
+          } else {
+            writeHuman(process.stdout, formatProfileInventoryHuman(profiles));
+          }
         } catch (error) {
           if (parsed.json) {
             process.stdout.write(formatProfileInventoryToolErrorJson(formatError(error)));
           } else {
-            process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+            writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
           }
           process.exitCode = 1;
         }
@@ -689,24 +723,26 @@ async function main(): Promise<void> {
       case "hosts":
         {
           const hosts = listHosts();
-          process.stdout.write(
-            parsed.json ? formatHostInventoryJson(hosts) : formatHostInventoryHuman(hosts),
-          );
+          if (parsed.json) {
+            process.stdout.write(formatHostInventoryJson(hosts));
+          } else {
+            writeHuman(process.stdout, formatHostInventoryHuman(hosts));
+          }
         }
         return;
       case "temporary":
         try {
           const installations = await listTemporaryInstallations(home);
-          process.stdout.write(
-            parsed.json
-              ? formatTemporaryInventoryJson(installations)
-              : formatTemporaryInventoryHuman(installations, home),
-          );
+          if (parsed.json) {
+            process.stdout.write(formatTemporaryInventoryJson(installations));
+          } else {
+            writeHuman(process.stdout, formatTemporaryInventoryHuman(installations, home));
+          }
         } catch (error) {
           if (parsed.json) {
             process.stdout.write(formatTemporaryInventoryToolErrorJson(formatError(error)));
           } else {
-            process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+            writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
           }
           process.exitCode = 1;
         }
@@ -720,17 +756,17 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     try {
       const report = await previewApplication(home);
-      process.stdout.write(
-        parsed.json
-          ? formatLifecycleJson("preview", report)
-          : formatLifecycleReport("preview", report, parsed),
-      );
+      if (parsed.json) {
+        process.stdout.write(formatLifecycleJson("preview", report));
+      } else {
+        writeHuman(process.stdout, formatLifecycleReport("preview", report, parsed));
+      }
       process.exitCode = lifecycleExitCode(report);
     } catch (error) {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("preview", formatError(error)));
       } else {
-        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
       }
       process.exitCode = 1;
     }
@@ -741,35 +777,40 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     try {
       const applied = await applyApplication(home);
-      process.stdout.write(
-        parsed.json ? formatApplyJson(applied) : formatApplyReport(applied, parsed),
-      );
+      if (parsed.json) {
+        process.stdout.write(formatApplyJson(applied));
+      } else {
+        writeHuman(process.stdout, formatApplyReport(applied, parsed));
+      }
       // Exit 0 whenever apply completed without blockers, including remaining
       // non-current work (outcome "attention"). Gate on blockers only — DEC-024.
       process.exitCode = lifecycleExitCode(applied.resultingState);
     } catch (error) {
       if (error instanceof ApplyBlockedError) {
-        process.stdout.write(
-          parsed.json
-            ? formatBlockedApplyJson(error.report)
-            : formatBlockedApplyReport(error.report, parsed),
-        );
+        if (parsed.json) {
+          process.stdout.write(formatBlockedApplyJson(error.report));
+        } else {
+          writeHuman(process.stdout, formatBlockedApplyReport(error.report, parsed));
+        }
         process.exitCode = lifecycleExitCode(error.report);
         return;
       }
       if (error instanceof ApplyVerificationError) {
-        process.stdout.write(
-          parsed.json
-            ? formatApplyVerificationFailureJson(error.receipt, error.message)
-            : formatApplyVerificationFailure(error.receipt, error.message, parsed),
-        );
+        if (parsed.json) {
+          process.stdout.write(formatApplyVerificationFailureJson(error.receipt, error.message));
+        } else {
+          writeHuman(
+            process.stdout,
+            formatApplyVerificationFailure(error.receipt, error.message, parsed),
+          );
+        }
         process.exitCode = 1;
         return;
       }
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
       } else {
-        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
       }
       process.exitCode = 1;
     }
@@ -780,17 +821,17 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     try {
       const report = await statusApplication(home);
-      process.stdout.write(
-        parsed.json
-          ? formatLifecycleJson("status", report)
-          : formatLifecycleReport("status", report, parsed),
-      );
+      if (parsed.json) {
+        process.stdout.write(formatLifecycleJson("status", report));
+      } else {
+        writeHuman(process.stdout, formatLifecycleReport("status", report, parsed));
+      }
       process.exitCode = lifecycleExitCode(report);
     } catch (error) {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("status", formatError(error)));
       } else {
-        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
       }
       process.exitCode = 1;
     }
@@ -799,7 +840,7 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "uninstall") {
     const parsed = parseOrExit("uninstall", () => parseNoArguments("uninstall", arguments_.slice(1)));
     if (parsed === undefined) return;
-    process.stdout.write(formatUninstallResult(await uninstallApplication(home)));
+    writeHuman(process.stdout, formatUninstallResult(await uninstallApplication(home)));
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "install-temp") {
@@ -812,11 +853,11 @@ async function main(): Promise<void> {
         profile: parsed.profile,
         project: parsed.project,
       });
-      process.stdout.write(
-        parsed.json
-          ? formatTemporaryInstallationJson("install-temp", receipt)
-          : formatTemporaryInstallationHuman("install-temp", receipt),
-      );
+      if (parsed.json) {
+        process.stdout.write(formatTemporaryInstallationJson("install-temp", receipt));
+      } else {
+        writeHuman(process.stdout, formatTemporaryInstallationHuman("install-temp", receipt));
+      }
       process.exitCode = 0;
     } catch (error) {
       if (error instanceof TemporaryInstallationBlockedError) {
@@ -825,7 +866,7 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("install-temp", error.blockers),
           );
         } else {
-          process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+          writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
         }
         process.exitCode = 2;
         return;
@@ -839,7 +880,8 @@ async function main(): Promise<void> {
             }),
           );
         } else {
-          process.stderr.write(
+          writeHuman(
+            process.stderr,
             `${COMMAND_NAME}: ${formatError(error)}\n` +
               `${COMMAND_NAME}: removal is required; run ${COMMAND_NAME} remove-temp ${error.temporaryInstallationId}\n`,
           );
@@ -852,7 +894,7 @@ async function main(): Promise<void> {
           formatTemporaryInstallationToolErrorJson("install-temp", formatError(error)),
         );
       } else {
-        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
       }
       process.exitCode = 1;
     }
@@ -866,11 +908,11 @@ async function main(): Promise<void> {
         home,
         temporaryInstallationId: parsed.temporaryInstallationId,
       });
-      process.stdout.write(
-        parsed.json
-          ? formatTemporaryInstallationJson("remove-temp", receipt)
-          : formatTemporaryInstallationHuman("remove-temp", receipt),
-      );
+      if (parsed.json) {
+        process.stdout.write(formatTemporaryInstallationJson("remove-temp", receipt));
+      } else {
+        writeHuman(process.stdout, formatTemporaryInstallationHuman("remove-temp", receipt));
+      }
       process.exitCode = 0;
     } catch (error) {
       if (error instanceof TemporaryInstallationBlockedError) {
@@ -879,7 +921,7 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("remove-temp", error.blockers),
           );
         } else {
-          process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+          writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
         }
         process.exitCode = 2;
         return;
@@ -889,7 +931,7 @@ async function main(): Promise<void> {
           formatTemporaryInstallationToolErrorJson("remove-temp", formatError(error)),
         );
       } else {
-        process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
       }
       process.exitCode = 1;
     }
@@ -899,11 +941,12 @@ async function main(): Promise<void> {
   const unknown = focusedHelp?.kind === "unknown"
     ? focusedHelp.token
     : arguments_[0] ?? "";
-  process.stderr.write(unknownCommandHelp(unknown, terminalPresentationContext(process.stderr)));
+  const context = terminalPresentationContext(process.stderr);
+  writeHuman(process.stderr, unknownCommandHelp(unknown, context), context);
   process.exitCode = 1;
 }
 
 main().catch((error: unknown) => {
-  process.stderr.write(`${COMMAND_NAME}: ${formatError(error)}\n`);
+  writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
   process.exitCode = 1;
 });

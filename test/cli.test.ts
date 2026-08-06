@@ -41,6 +41,10 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const FOCUSED_GUIDE_MAX_LINES = 30;
 const temporaryDirectories: string[] = [];
 let cliPath = join(repositoryRoot, "dist", "cli.js");
+const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
+  NO_COLOR: undefined,
+  TERM: "xterm-256color",
+};
 
 beforeAll(() => {
   execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
@@ -133,10 +137,17 @@ function cleanPtyResult(result: {
   readonly stdout: string | null;
   readonly stderr: string | null;
 }) {
+  // macOS `script` records the PTY's typed EOF as a literal `^D` plus erase controls.
   return {
     ...result,
-    stdout: (result.stdout ?? "").replace(/[\u0004\u0008]/g, "").replace(/\r/g, ""),
-    stderr: (result.stderr ?? "").replace(/[\u0004\u0008]/g, "").replace(/\r/g, ""),
+    stdout: (result.stdout ?? "")
+      .replace(/^\^D/, "")
+      .replace(/[\u0004\u0008]/g, "")
+      .replace(/\r/g, ""),
+    stderr: (result.stderr ?? "")
+      .replace(/^\^D/, "")
+      .replace(/[\u0004\u0008]/g, "")
+      .replace(/\r/g, ""),
   };
 }
 
@@ -145,22 +156,39 @@ function shellQuote(value: string): string {
 }
 
 function runCliInPty(home: string, columns: number, ...arguments_: string[]) {
+  return runCliInPtyWithEnvironment(home, columns, { NO_COLOR: "1" }, ...arguments_);
+}
+
+function runCliInPtyWithEnvironment(
+  home: string,
+  columns: number,
+  environment: NodeJS.ProcessEnv,
+  ...arguments_: string[]
+) {
   const command = [
     `stty cols ${columns};`,
     "exec",
     ...[process.env.NODE_BINARY ?? "node", cliPath, ...arguments_].map(shellQuote),
   ].join(" ");
+  const childEnvironment: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...environment,
+    COLUMNS: String(columns),
+    HOME: home,
+    PATH: defaultCliPath(home),
+  };
+  if (
+    Object.prototype.hasOwnProperty.call(environment, "NO_COLOR") &&
+    environment.NO_COLOR === undefined
+  ) {
+    delete childEnvironment.NO_COLOR;
+  }
   const result = spawnSync(
     "script",
     ["-q", "/dev/null", "sh", "-c", command],
     {
       encoding: "utf8" as const,
-      env: {
-        ...process.env,
-        COLUMNS: String(columns),
-        HOME: home,
-        PATH: defaultCliPath(home),
-      },
+      env: childEnvironment,
     },
   );
   return cleanPtyResult(result);
@@ -181,6 +209,7 @@ function runCliInPtyWithColumnsFallback(home: string, columns: number, ...argume
       encoding: "utf8" as const,
       env: {
         ...process.env,
+        NO_COLOR: "1",
         COLUMNS: String(columns),
         HOME: home,
         PATH: defaultCliPath(home),
@@ -6360,6 +6389,133 @@ describe("apkit root help", () => {
     }
     for (const line of wide.stdout.split("\n")) {
       if (!isUnbreakableSyntax(line)) expect(line.length).toBeLessThanOrEqual(100);
+    }
+  });
+
+  test("interactive root help adds the compact identity and semantic color while pipes stay plain", () => {
+    const home = isolatedHome();
+    const piped = runCli(home, "--help");
+    const bare = runCliInPtyWithEnvironment(home, 40, COLOR_TERMINAL_ENVIRONMENT);
+    const interactive = runCliInPtyWithEnvironment(
+      home,
+      40,
+      COLOR_TERMINAL_ENVIRONMENT,
+      "--help",
+    );
+
+    expect(piped.status, piped.stderr).toBe(0);
+    expect(bare.status, bare.stderr).toBe(0);
+    expect(interactive.status, interactive.stderr).toBe(0);
+    expect(bare.stdout).toContain(" /__\\ reusable agent material");
+    expect(interactive.stdout).toContain("Agent Profile Kit");
+    expect(interactive.stdout).toContain(" /__\\ reusable agent material");
+    expect(interactive.stdout).toMatch(/\u001b\[/);
+    expect(piped.stdout).not.toContain(" /__\\ reusable agent material");
+    expect(piped.stdout).not.toMatch(/\u001b\[/);
+  });
+
+  test("interactive routine output is styled while NO_COLOR, pipes, errors, and JSON stay plain", () => {
+    const home = isolatedHome();
+    const interactive = runCliInPtyWithEnvironment(
+      home,
+      80,
+      COLOR_TERMINAL_ENVIRONMENT,
+      "list",
+      "hosts",
+    );
+    const noColor = runCliInPtyWithEnvironment(
+      home,
+      80,
+      { NO_COLOR: "1", TERM: "xterm-256color" },
+      "list",
+      "hosts",
+    );
+    const piped = runCli(home, "list", "hosts");
+    const json = runCli(home, "list", "hosts", "--json");
+    const interactiveJson = runCliInPtyWithEnvironment(
+      home,
+      80,
+      COLOR_TERMINAL_ENVIRONMENT,
+      "list",
+      "hosts",
+      "--json",
+    );
+    const agentGuidePty = runCliInPtyWithEnvironment(
+      home,
+      80,
+      COLOR_TERMINAL_ENVIRONMENT,
+      "guide",
+      "--agent",
+    );
+    const interactiveError = runCliInPtyWithEnvironment(
+      home,
+      80,
+      COLOR_TERMINAL_ENVIRONMENT,
+      "unknown-command",
+    );
+    const pipedError = runCli(home, "unknown-command");
+    const interactiveErrorOutput = `${interactiveError.stdout}${interactiveError.stderr}`;
+
+    expect(interactive.status, interactive.stderr).toBe(0);
+    expect(interactive.stdout).toMatch(/\u001b\[/);
+    expect(interactive.stdout).not.toContain(" /__\\ reusable agent material");
+    expect(noColor.stdout).not.toMatch(/\u001b\[/);
+    expect(piped.stdout).not.toMatch(/\u001b\[/);
+    expect(json.status, json.stderr).toBe(0);
+    expect(json.stdout).not.toMatch(/\u001b\[/);
+    expect(() => JSON.parse(json.stdout)).not.toThrow();
+    expect(interactiveJson.status, interactiveJson.stderr).toBe(0);
+    expect(interactiveJson.stdout).not.toMatch(/\u001b\[/);
+    expect(() => JSON.parse(interactiveJson.stdout)).not.toThrow();
+    expect(agentGuidePty.status, agentGuidePty.stderr).toBe(0);
+    expect(agentGuidePty.stdout).not.toMatch(/\u001b\[/);
+    expect(interactiveError.status).toBe(1);
+    expect(interactiveErrorOutput).toMatch(/\u001b\[/);
+    expect(interactiveErrorOutput).not.toContain(" /__\\ reusable agent material");
+    expect(pipedError.stderr).not.toMatch(/\u001b\[/);
+  });
+
+  test("representative human and machine surfaces stay ANSI-free through pipes", () => {
+    const invocations: readonly (readonly string[])[] = [
+      [],
+      ["--version"],
+      ["--help"],
+      ["help", "status"],
+      ["guide"],
+      ["guide", "profile"],
+      ["guide", "--full"],
+      ["guide", "--agent"],
+      ["info"],
+      ["info", "--json"],
+      ["list"],
+      ["list", "projects"],
+      ["list", "projects", "--json"],
+      ["list", "profiles"],
+      ["list", "profiles", "--json"],
+      ["list", "hosts"],
+      ["list", "hosts", "--json"],
+      ["list", "temporary"],
+      ["list", "temporary", "--json"],
+      ["validate"],
+      ["preview"],
+      ["preview", "--json"],
+      ["apply"],
+      ["apply", "--json"],
+      ["status"],
+      ["status", "--json"],
+      ["uninstall"],
+      ["install-temp"],
+      ["remove-temp"],
+      ["unknown-command"],
+      ...COMMANDS.map((command) => [command.name, "--help"]),
+    ];
+
+    for (const arguments_ of invocations) {
+      const result = runCli(isolatedHome(), ...arguments_);
+      expect(
+        `${result.stdout}${result.stderr}`,
+        `unexpected ANSI for: apkit ${arguments_.join(" ")}`,
+      ).not.toMatch(/\u001b\[/);
     }
   });
 

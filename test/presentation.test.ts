@@ -20,6 +20,7 @@ import {
   INTERNAL_ONLY_DEFAULT_TERMS,
   NON_CURRENT_STATE_ORDER,
 } from "../cli/presentation.js";
+import { renderHumanOutput } from "../cli/terminal-presentation.js";
 import { normalizeBlocker } from "../installer/blockers.js";
 import type {
   ApplyReconciliationResult,
@@ -359,6 +360,23 @@ describe("Host Setup Step presentation", () => {
     expect(failure).toContain("Trust the project.");
     expect(failure).not.toContain("becomes active");
   });
+});
+
+test("terminal styling follows lifecycle labels emitted by the formatter", () => {
+  const context = { color: true, interactive: true, width: 80 } as const;
+  const ready = formatLifecycleReport("preview", identityReport("/project-a"));
+  const blocked = formatLifecycleReport(
+    "preview",
+    emptyReport({
+      blockers: [{ message: "occupied output", project: "/project-a" }],
+      items: [{ kind: "blocked", project: "/project-a" }],
+    }),
+  );
+
+  expect(ready).toContain("Ready to apply");
+  expect(renderHumanOutput(ready, context)).toContain("\u001b[32mReady to apply\u001b[0m");
+  expect(blocked).toContain("Cannot apply");
+  expect(renderHumanOutput(blocked, context)).toContain("\u001b[31mCannot apply\u001b[0m");
 });
 
 /** Distinctive anchor phrases — not a second home for the full gloss table. */
