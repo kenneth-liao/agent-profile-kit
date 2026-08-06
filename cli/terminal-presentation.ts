@@ -10,9 +10,11 @@ export const MIN_HUMAN_WIDTH = 40;
 export const MAX_HUMAN_WIDTH = 100;
 
 /**
- * Width context for human CLI presentation. Root help consumes this context
- * for prose wrapping; focused command and lifecycle renderers retain their
- * established output contracts until a separate surface decision changes them.
+ * Width context for human CLI presentation. Root help, focused human guides,
+ * lifecycle reports, and temporary-installation reports consume this context
+ * for prose wrapping. Focused command help, full guides, inventory, info,
+ * validation, binding, and uninstall surfaces remain pending adoption; semantic
+ * report construction and machine surfaces remain independent of terminal state.
  */
 export interface TerminalPresentationContext {
   readonly color: boolean;
@@ -150,6 +152,7 @@ function semanticCategory(
   line: string,
   commandNames: readonly string[],
 ): SemanticCategory | undefined {
+  const indented = /^\s/.test(line);
   const text = line.trim();
   if (text.length === 0) return undefined;
 
@@ -185,7 +188,7 @@ function semanticCategory(
   ) {
     return "path";
   }
-  if (/^(?:For\b|Choose\b|This\b|The\b|A\b|An\b)/i.test(text)) return "muted";
+  if (!indented && /^(?:For\b|Choose\b|This\b|The\b|A\b|An\b)/i.test(text)) return "muted";
   if (HEADING_PREFIXES.some((prefix) => text.startsWith(prefix))) return "heading";
   return undefined;
 }
@@ -200,13 +203,21 @@ export function renderHumanOutput(
   options: HumanOutputStyleOptions = {},
 ): string {
   if (!context.color) return text;
+  let mutedParagraph = false;
   return text
     .split("\n")
     .map((line) => {
+      if (line.trim().length === 0) {
+        mutedParagraph = false;
+        return line;
+      }
       const category = semanticCategory(line, options.commandNames ?? []);
-      return category === undefined
+      const styleCategory = category === "muted" && mutedParagraph ? undefined : category;
+      if (category === "muted") mutedParagraph = true;
+      else if (category !== undefined) mutedParagraph = false;
+      return styleCategory === undefined
         ? line
-        : `${ANSI_COLORS[category]}${line}${ANSI_RESET}`;
+        : `${ANSI_COLORS[styleCategory]}${line}${ANSI_RESET}`;
     })
     .join("\n");
 }

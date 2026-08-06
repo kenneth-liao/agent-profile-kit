@@ -8,6 +8,7 @@ import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 import { composeContextEnvelope } from "./context-envelope.js";
 import type {
   AdapterHostSetupStep,
+  AdapterDiagnosticWarning,
   AdapterProjectPlan,
   ProposedDirectoryFileMember,
   ProposedDirectoryMember,
@@ -256,7 +257,7 @@ export async function detectCodexProjectConfigurationWarnings(
   home: string,
   project: string,
   options: Pick<CodexCapabilityOptions, "env"> = {},
-): Promise<readonly string[]> {
+): Promise<readonly AdapterDiagnosticWarning[]> {
   const globalPath = join(resolveCodexHome(home, options.env), "config.toml");
   const projectPath = join(project, ".codex", "config.toml");
   try {
@@ -267,7 +268,10 @@ export async function detectCodexProjectConfigurationWarnings(
     if (projectSetting === true) return [];
     if (projectSetting === false) {
       return [
-        `Codex SessionStart hooks are not enabled by ${projectPath}; generated Profile Context may not load until [features].hooks = true is set there`,
+        {
+          copyableValues: [projectPath],
+          message: `Codex SessionStart hooks are not enabled by ${projectPath}; generated Profile Context may not load until [features].hooks = true is set there`,
+        },
       ];
     }
     const globalSetting = parseCodexHooksFeatureSetting(
@@ -276,11 +280,17 @@ export async function detectCodexProjectConfigurationWarnings(
     );
     if (globalSetting !== false) return [];
     return [
-      `Codex SessionStart hooks are not enabled by ${globalPath}; generated Profile Context may not load until [features].hooks = true is set in ${projectPath} or ${globalPath}`,
+      {
+        copyableValues: [globalPath, projectPath],
+        message: `Codex SessionStart hooks are not enabled by ${globalPath}; generated Profile Context may not load until [features].hooks = true is set in ${projectPath} or ${globalPath}`,
+      },
     ];
   } catch (error) {
     return [
-      `Codex configuration relevant to planned SessionStart Context could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Profile Context may not load until the configuration is repaired`,
+      {
+        copyableValues: [globalPath, projectPath],
+        message: `Codex configuration relevant to planned SessionStart Context could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Profile Context may not load until the configuration is repaired`,
+      },
     ];
   }
 }

@@ -44,6 +44,7 @@ import {
 import { requireProfile } from "./profile-selection.js";
 import {
   adapterVersionFor,
+  appendDiagnosticWarnings,
   markerPath,
   normalizeAdapterPlans,
   type DesiredInstallation,
@@ -112,6 +113,8 @@ export interface TemporaryInstallationReceipt {
   /** Adapter-authored Host Setup Steps required after successful temporary install. */
   readonly setupSteps: readonly HostSetupStep[];
   readonly temporaryInstallationId: string;
+  /** Structured values referenced by configuration warnings on the live receipt. */
+  readonly diagnosticValues: readonly string[];
   /** Configuration warnings that do not block install but can prevent Host loading. */
   readonly warnings: readonly string[];
   readonly workspaceInputHash: string;
@@ -153,6 +156,7 @@ function receiptFromRecord(
     | TemporaryInstallationReceipt["repositoryExclusion"]
     | undefined,
   options: {
+    readonly diagnosticValues?: readonly string[];
     readonly setupSteps?: readonly HostSetupStep[];
     readonly warnings?: readonly string[];
   } = {},
@@ -169,6 +173,7 @@ function receiptFromRecord(
     repositoryExclusion,
     setupSteps: options.setupSteps ?? [],
     temporaryInstallationId: record.temporaryInstallationId,
+    diagnosticValues: options.diagnosticValues ?? [],
     warnings: options.warnings ?? [],
     workspaceInputHash: record.workspaceInputHash,
   };
@@ -213,6 +218,7 @@ async function planTemporaryDesiredInstallation(options: {
   const sourceHash = await hashWorkspaceInputs(profile, resolvedProfile);
   const blockers: string[] = [];
   const warnings: string[] = [];
+  const diagnosticValues: string[] = [];
   const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
     resolvedProfile.skills,
   );
@@ -228,6 +234,7 @@ async function planTemporaryDesiredInstallation(options: {
     requireDisabledModelInvocation,
     resolvedContexts: resolvedProfile.contexts,
     resolvedSkills: resolvedProfile.skills,
+    diagnosticValues,
     warnings,
   });
   const hosts: readonly SupportedHost[] = [options.host];
@@ -251,6 +258,7 @@ async function planTemporaryDesiredInstallation(options: {
       host: adapterPlan.host,
     })),
     sourceHash,
+    diagnosticValues: [...new Set(diagnosticValues)].sort(),
     warnings,
   };
 }
@@ -270,6 +278,7 @@ async function planTemporaryHostAdapter(options: {
   readonly requireDisabledModelInvocation: boolean;
   readonly resolvedContexts: readonly ContextModuleSource[];
   readonly resolvedSkills: readonly Skill[];
+  readonly diagnosticValues: string[];
   readonly warnings: string[];
 }): Promise<AdapterProjectPlan> {
   switch (options.host) {
@@ -298,8 +307,10 @@ async function planTemporaryHostAdapter(options: {
         options.blockers.push(error instanceof Error ? error.message : String(error));
       }
       if (options.requireContext) {
-        options.warnings.push(
-          ...(await detectCodexProjectConfigurationWarnings(options.home, options.project)),
+        appendDiagnosticWarnings(
+          options.warnings,
+          options.diagnosticValues,
+          await detectCodexProjectConfigurationWarnings(options.home, options.project),
         );
       }
       const contextPath = [
@@ -519,6 +530,7 @@ export async function installTemporaryProfile(options: {
         temporaryRecord,
         exclusionContributionFor(nextState, temporaryInstallationId),
         {
+          diagnosticValues: desired.diagnosticValues,
           setupSteps: desired.setupSteps,
           warnings: desired.warnings,
         },

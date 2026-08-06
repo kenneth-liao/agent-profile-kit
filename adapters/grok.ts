@@ -12,6 +12,7 @@ import {
 import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
 import type {
   AdapterHostSetupStep,
+  AdapterDiagnosticWarning,
   AdapterProjectPlan,
   ProposedDirectoryFileMember,
   ProposedDirectoryMember,
@@ -355,7 +356,7 @@ async function readGrokSkillsConfig(
 export async function detectGrokProjectConfigurationWarnings(
   skillIds: readonly string[],
   options: { readonly env?: NodeJS.ProcessEnv; readonly home?: string; readonly project: string },
-): Promise<readonly string[]> {
+): Promise<readonly AdapterDiagnosticWarning[]> {
   const env = options.env ?? process.env;
   const home = options.home ?? env.HOME ?? homedir();
   const configPath = join(resolveGrokHome(env, home), "config.toml");
@@ -364,17 +365,23 @@ export async function detectGrokProjectConfigurationWarnings(
     config = await readGrokSkillsConfig(env, home);
   } catch (error) {
     return [
-      `Grok configuration relevant to planned Skills at ${configPath} could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Skills may not load until the configuration is repaired`,
+      {
+        copyableValues: [configPath],
+        message: `Grok configuration relevant to planned Skills at ${configPath} could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Skills may not load until the configuration is repaired`,
+      },
     ];
   }
 
-  const warnings: string[] = [];
+  const warnings: AdapterDiagnosticWarning[] = [];
   const disabled = new Set(config.disabled);
   for (const skillId of [...new Set(skillIds)].sort()) {
     const managedDirectory = join(options.project, ...grokProjectSkillPath(skillId).split("/"));
     if (disabled.has(skillId)) {
       warnings.push(
-        `Grok configuration at ${configPath} lists planned Skill '${skillId}' as disabled; generated Skill output may not load until it is enabled`,
+        {
+          copyableValues: [configPath, skillId],
+          message: `Grok configuration at ${configPath} lists planned Skill '${skillId}' as disabled; generated Skill output may not load until it is enabled`,
+        },
       );
     }
     if (
@@ -382,7 +389,10 @@ export async function detectGrokProjectConfigurationWarnings(
       pathIsIgnored(join(managedDirectory, "SKILL.md"), config.ignore, env, home)
     ) {
       warnings.push(
-        `Grok configuration at ${configPath} ignores planned Skill '${skillId}' at ${managedDirectory}; generated Skill output may not load until the ignore entry is removed`,
+        {
+          copyableValues: [configPath, managedDirectory, skillId],
+          message: `Grok configuration at ${configPath} ignores planned Skill '${skillId}' at ${managedDirectory}; generated Skill output may not load until the ignore entry is removed`,
+        },
       );
     }
   }

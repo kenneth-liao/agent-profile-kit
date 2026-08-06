@@ -101,6 +101,17 @@ test("human presentation styles semantic lines without changing their words", ()
   ).toBe(text);
 });
 
+test("human presentation does not style indented wrapped prose as a new sentence", () => {
+  const colored = renderHumanOutput(
+    "A long sentence begins here.\n  The continuation remains ordinary prose.",
+    { color: true, interactive: true, width: 40 },
+  );
+
+  expect(colored).toContain("\u001b[2mA long sentence begins here.\u001b[0m");
+  expect(colored).toContain("\n  The continuation remains ordinary prose.");
+  expect(colored).not.toContain("\u001b[2m  The continuation");
+});
+
 test("the Agent Profile Kit wordmark chooses a fitting ASCII form or omits itself", () => {
   const ordinary = agentProfileKitWordmark(40);
   expect(ordinary.join("\n")).toContain("Agent Profile Kit");

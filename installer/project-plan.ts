@@ -29,6 +29,7 @@ import {
 } from "../adapters/pi.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
+  AdapterDiagnosticWarning,
   AdapterProjectPlan,
   HostSetupStep,
   ProposedDirectoryMember,
@@ -109,7 +110,26 @@ export interface DesiredInstallation {
   readonly resolvedProfile: ResolvedProfile;
   readonly sourceHash: string;
   readonly setupSteps: readonly HostSetupStep[];
+  /** Structured values referenced by adapter-authored warnings. */
+  readonly diagnosticValues: readonly string[];
   readonly warnings: readonly string[];
+}
+
+/** Normalize Adapter-authored diagnostics into the legacy text and typed value projections. */
+export function appendDiagnosticWarnings(
+  warnings: string[],
+  diagnosticValues: string[],
+  diagnostics: readonly AdapterDiagnosticWarning[],
+  projectPrefix?: string,
+): void {
+  for (const diagnostic of diagnostics) {
+    warnings.push(
+      projectPrefix === undefined
+        ? diagnostic.message
+        : `${projectPrefix}: ${diagnostic.message}`,
+    );
+    diagnosticValues.push(...diagnostic.copyableValues);
+  }
 }
 
 /** Deterministic multi-Adapter version token recorded on the Installation Manifest. */
@@ -485,6 +505,7 @@ export async function buildDesiredState(
     const plans: AdapterProjectPlan[] = [];
     const hostVersions: Record<string, string> = {};
     const warnings: string[] = [];
+    const diagnosticValues: string[] = [];
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
       resolvedProfile.skills,
     );
@@ -542,28 +563,37 @@ export async function buildDesiredState(
         }
       }
       if (host === "pi" && requireSkills) {
-        warnings.push(
-          ...(await detectPiSkillSettingsWarnings({
+        appendDiagnosticWarnings(
+          warnings,
+          diagnosticValues,
+          await detectPiSkillSettingsWarnings({
             home,
             project: binding.canonicalProject,
-          })).map((message) => `${binding.project}: ${message}`),
+          }),
+          binding.project,
         );
       }
       if (host === "grok" && requireSkills) {
-        warnings.push(
-          ...(await detectGrokProjectConfigurationWarnings(selectedSkillIds, {
+        appendDiagnosticWarnings(
+          warnings,
+          diagnosticValues,
+          await detectGrokProjectConfigurationWarnings(selectedSkillIds, {
             home,
             project: binding.canonicalProject,
-          })).map((message) => `${binding.project}: ${message}`),
+          }),
+          binding.project,
         );
       }
       if (host === "codex") {
         if (requireContext) {
-          warnings.push(
-            ...(await detectCodexProjectConfigurationWarnings(
+          appendDiagnosticWarnings(
+            warnings,
+            diagnosticValues,
+            await detectCodexProjectConfigurationWarnings(
               home,
               binding.canonicalProject,
-            )).map((message) => `${binding.project}: ${message}`),
+            ),
+            binding.project,
           );
         }
         const contextPath = [
@@ -667,6 +697,7 @@ export async function buildDesiredState(
         plan.setupSteps.map((step) => ({ ...step, host: plan.host }))
       ),
       sourceHash,
+      diagnosticValues: [...new Set(diagnosticValues)].sort(),
       warnings,
     });
   }

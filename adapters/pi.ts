@@ -15,6 +15,7 @@ import {
 } from "./skill-package.js";
 import type {
   AdapterHostSetupStep,
+  AdapterDiagnosticWarning,
   AdapterProjectPlan,
   ProposedDirectoryFileMember,
   ProposedDirectoryMember,
@@ -134,7 +135,7 @@ type PiSettingsScope = "global" | "project";
 /** Report malformed or unreadable Pi settings relevant to Skill loading. */
 export async function detectPiSkillSettingsWarnings(
   options: { readonly home?: string; readonly project: string },
-): Promise<readonly string[]> {
+): Promise<readonly AdapterDiagnosticWarning[]> {
   const home = resolve(options.home ?? homedir());
   const project = resolve(options.project);
   const inputs = [
@@ -147,11 +148,14 @@ export async function detectPiSkillSettingsWarnings(
       scope: "project" as const,
     },
   ];
-  const warnings: string[] = [];
+  const warnings: AdapterDiagnosticWarning[] = [];
 
   const warn = (scope: PiSettingsScope, path: string, detail: string): void => {
     warnings.push(
-      `Pi ${scope} settings relevant to planned Skills at ${path} could not be read or parsed (${detail}); generated Skills may not load until the configuration is repaired`,
+      {
+        copyableValues: [path],
+        message: `Pi ${scope} settings relevant to planned Skills at ${path} could not be read or parsed (${detail}); generated Skills may not load until the configuration is repaired`,
+      },
     );
   };
 
@@ -173,7 +177,8 @@ export async function detectPiSkillSettingsWarnings(
     }
   }
 
-  return [...new Set(warnings)].sort();
+  const unique = new Map(warnings.map((warning) => [warning.message, warning]));
+  return [...unique.values()].sort((left, right) => left.message.localeCompare(right.message));
 }
 
 /** Parse the leading semver from `pi --version` output. */

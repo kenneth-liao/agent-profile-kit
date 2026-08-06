@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -672,7 +672,8 @@ describe("Pi Adapter", () => {
       { id: "review-pr", path: "review-pr" },
     ]);
     mkdirSync(join(project, ".pi"), { recursive: true });
-    writeFileSync(join(project, ".pi", "settings.json"), "{not json\n");
+    const settingsPath = join(project, ".pi", "settings.json");
+    writeFileSync(settingsPath, "{not json\n");
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations.find(
@@ -682,6 +683,16 @@ describe("Pi Adapter", () => {
     expect(installation?.warnings.some((warning) => /project settings.*JSON/i.test(warning))).toBe(
       true,
     );
+    const canonicalSettingsPath = join(realpathSync(project), ".pi", "settings.json");
+    expect(installation?.diagnosticValues).toContain(canonicalSettingsPath);
+    const report = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
+      installations: [],
+      repositoryExclusions: [],
+      schemaVersion: 5,
+      temporaryInstallations: [],
+    });
+    expect(report.diagnosticValues).toContain(canonicalSettingsPath);
   });
 
   test("valid symlinked Pi settings remain Host Resolution without false warnings", async () => {
