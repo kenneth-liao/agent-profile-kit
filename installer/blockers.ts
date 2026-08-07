@@ -97,10 +97,17 @@ export function outputOwnershipConflictBlocker(options: {
     throw new TypeError("Output ownership conflict requires at least one conflicting path");
   }
   const paths = [...options.paths].sort(compareCanonicalStrings);
+  const first = join(options.project, paths[0]!);
   return {
     affectedItems: paths.map((path) => ({ kind: "path", value: path })),
     kind: OUTPUT_OWNERSHIP_CONFLICT,
-    message: `${join(options.project, paths[0]!)} is a tracked project path`,
+    // The legacy message projection is the only evidence string-only consumers
+    // (temporary-installation output, lifecycle JSON) read until the typed
+    // schema migration; when grouped it must stay self-describing.
+    message: paths.length === 1
+      ? `${first} is a tracked project path`
+      : `${first} and ${paths.length - 1} more tracked project ` +
+        `${paths.length === 2 ? "path" : "paths"}`,
     problem:
       "These generated paths are tracked by Git, so Agent Profile Kit cannot write to them " +
       "without conflicting with repository ownership.",

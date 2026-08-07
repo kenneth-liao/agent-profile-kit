@@ -783,6 +783,12 @@ function changeCount(summary: OutputSummary): number {
     summary.missing + summary.unexpected;
 }
 
+/** One canonical overflow pointer shared by every capped path list in default views. */
+function overflowPointer(overflow: number, singular: string): string {
+  const noun = overflow === 1 ? singular : `${singular}s`;
+  return `… ${overflow} more ${noun}; use --verbose to see all paths`;
+}
+
 function outputPathLine(output: OutputReconciliationItem): string | undefined {
   switch (output.kind) {
     case "addition":
@@ -820,7 +826,7 @@ function outputPathLines(outputs: readonly OutputReconciliationItem[]): readonly
   return overflow > 0
     ? [
         ...paths.slice(0, DEFAULT_OUTPUT_PATH_LIMIT),
-        `… ${overflow} more ${overflow === 1 ? "file" : "files"}; use --verbose to see all paths`,
+        overflowPointer(overflow, "file"),
       ]
     : paths;
 }
@@ -1054,9 +1060,7 @@ function conciseOwnershipConflictLines(
   }
   const overflow = paths.length - DEFAULT_OUTPUT_PATH_LIMIT;
   if (overflow > 0) {
-    lines.push(
-      `${indent}    … ${overflow} more ${overflow === 1 ? "path" : "paths"}; use --verbose to see all paths`,
-    );
+    lines.push(`${indent}    ${overflowPointer(overflow, "path")}`);
   }
   return lines;
 }

@@ -921,6 +921,31 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).not.toContain("more paths");
   });
 
+  test("renders a single-path overflow pointer for ownership conflicts", () => {
+    const project = "/project-a";
+    const paths = Array.from(
+      { length: 11 },
+      (_, index) => `.agents/skills/s${String(index + 1).padStart(2, "0")}`,
+    );
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: paths,
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project, reason: "tracked path" }],
+      blockers: [normalizeBlocker(outputOwnershipConflictBlocker({ paths, project }))],
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("… 1 more path; use --verbose to see all paths");
+    expect(concise).not.toContain("1 more paths");
+  });
+
   test("keeps project-scoped ownership conflicts distinct from global blockers", () => {
     const project = "/project-a";
     const report = emptyReport({

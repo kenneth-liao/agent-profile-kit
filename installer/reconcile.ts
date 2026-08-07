@@ -59,7 +59,6 @@ import {
   outputOwnershipConflictBlocker,
   type BlockerInput,
   type ReconciliationBlocker,
-  type StructuredBlockerInput,
 } from "./blockers.js";
 
 export type { ReconciliationBlocker } from "./blockers.js";
@@ -417,8 +416,8 @@ export async function desiredOutputConflicts(
   desired: DesiredInstallation,
   previous: ProjectInstallationManifest | undefined,
   installationId: string,
-): Promise<readonly (string | StructuredBlockerInput)[]> {
-  const blockers: (string | StructuredBlockerInput)[] = [];
+): Promise<readonly BlockerInput[]> {
+  const blockers: BlockerInput[] = [];
   const previousOutputs = new Map(previous?.outputs.map((output) => [output.path, output]) ?? []);
   const outputs: OwnedOutput[] = [
     ...desired.outputs.map(ownedOutputFromDesired),

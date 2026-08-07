@@ -18,7 +18,7 @@ import {
 } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
-import { previewReconciliation } from "../installer/reconcile.js";
+import { desiredOutputConflicts, previewReconciliation } from "../installer/reconcile.js";
 import { TemporaryInstallationBlockedError } from "../installer/temporary-installation.js";
 
 const temporaryDirectories: string[] = [];
@@ -322,8 +322,27 @@ describe("tracked-output ownership conflicts", () => {
       { kind: "path", value: ".codex/hooks.json" },
     ]);
     expect(blocker.message).toBe(
-      `${desired.installations[0]!.binding.canonicalProject}/.agent-profile-kit/codex/context.md is a tracked project path`,
+      `${desired.installations[0]!.binding.canonicalProject}/.agent-profile-kit/codex/context.md ` +
+      "and 4 more tracked project paths",
     );
     expect(lifecycleExitCode(report)).toBe(2);
+
+    // String-only consumers (temporary-installation output, lifecycle JSON) read
+    // the legacy message projection; the grouped conflict count must survive so
+    // a user fixing one conflict at a time still sees how many remain.
+    const conflicts = await desiredOutputConflicts(
+      desired.installations[0]!,
+      undefined,
+      "temporary-installation-id",
+    );
+    const temporaryMessages = conflicts.map(blockerMessage);
+    expect(temporaryMessages).toHaveLength(1);
+    expect(temporaryMessages[0]).toBe(
+      `${desired.installations[0]!.binding.canonicalProject}/.agent-profile-kit/codex/context.md ` +
+      "and 4 more tracked project paths",
+    );
+    expect(
+      JSON.parse(formatTemporaryInstallationBlockedJson("install-temp", temporaryMessages)).blockers,
+    ).toEqual([{ message: temporaryMessages[0] }]);
   });
 });
