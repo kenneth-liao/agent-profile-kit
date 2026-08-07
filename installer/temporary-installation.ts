@@ -60,6 +60,8 @@ import {
 import {
   blockerMessage,
   hostCapabilityBlocker,
+  temporaryInstallationConflictBlocker,
+  temporaryInstallationRemovalBlocker,
   type BlockerInput,
 } from "./blockers.js";
 import { ENGINE_VERSION } from "./version.js";
@@ -342,18 +344,26 @@ async function planTemporaryHostAdapter(options: {
   }
 }
 
-function projectConflictBlockers(
+/**
+ * Structured lifetime conflicts that block install-temp for one canonical Project.
+ * Ordinary installations and active Temporary Profile Installations each block a
+ * receipt-owned temporary lifetime (ADR-0015).
+ */
+export function projectConflictBlockers(
   state: Awaited<ReturnType<typeof readInstallationStateWithMigration>>["state"],
   canonicalProject: string,
-): string[] {
-  const blockers: string[] = [];
+): readonly BlockerInput[] {
+  const blockers: BlockerInput[] = [];
   const ordinary = state.installations.find(
     (installation) => installation.project === canonicalProject,
   );
   if (ordinary) {
-    blockers.push(
-      `${canonicalProject} already has an ordinary Profile Installation; remove it before installing a temporary Profile`,
-    );
+    blockers.push(temporaryInstallationConflictBlocker({
+      message:
+        `${canonicalProject} already has an ordinary Profile Installation; remove it ` +
+        "before installing a temporary Profile",
+      project: canonicalProject,
+    }));
   }
   const activeTemporary = state.temporaryInstallations.find(
     (installation) =>
@@ -361,9 +371,13 @@ function projectConflictBlockers(
       installation.project === canonicalProject,
   );
   if (activeTemporary) {
-    blockers.push(
-      `${canonicalProject} already has an active Temporary Profile Installation (${activeTemporary.temporaryInstallationId})`,
-    );
+    blockers.push(temporaryInstallationConflictBlocker({
+      message:
+        `${canonicalProject} already has an active Temporary Profile Installation ` +
+        `(${activeTemporary.temporaryInstallationId})`,
+      project: canonicalProject,
+      temporaryInstallationId: activeTemporary.temporaryInstallationId,
+    }));
   }
   return blockers;
 }
@@ -413,7 +427,7 @@ export async function installTemporaryProfile(options: {
       const state = loaded.state;
       const blockers = [
         ...desired.blockers.map(blockerMessage),
-        ...projectConflictBlockers(state, canonicalProject),
+        ...projectConflictBlockers(state, canonicalProject).map(blockerMessage),
       ];
 
       const temporaryInstallationId = newInstallationId();
@@ -638,7 +652,13 @@ export async function removeTemporaryProfile(options: {
           }
         }
         if (error instanceof Error && error.message.startsWith("Cannot remove Temporary")) {
-          throw new TemporaryInstallationBlockedError([error.message]);
+          throw new TemporaryInstallationBlockedError([
+            blockerMessage(temporaryInstallationRemovalBlocker({
+              message: error.message,
+              outputs: existing.outputs.map((output) => output.path),
+              project: existing.project,
+            })),
+          ]);
         }
         throw error;
       }

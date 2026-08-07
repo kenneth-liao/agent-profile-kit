@@ -14,6 +14,14 @@ import type {
 import { assertRealDirectoryPath, findGitProject, gitExcludeEntry, type GitProject } from "./git.js";
 import type { DesiredInstallation } from "./project-plan.js";
 import { readMarker } from "./installation-state.js";
+import {
+  normalizeBlocker,
+  repositoryExclusionInvalidBlocker,
+  repositoryExclusionRecordBlocker,
+  repositoryExclusionSectionMissingBlocker,
+  type BlockerInput,
+  type ReconciliationBlocker,
+} from "./blockers.js";
 
 const BEGIN = "# BEGIN Agent Profile Kit generated paths";
 const BEGIN_WITH_SEPARATOR = `${BEGIN} (separator owned)`;
@@ -541,8 +549,8 @@ async function existingInstallationForDesired(
 async function repositoryExclusionOwnershipBlockers(
   state: InstallationState,
   desired: readonly DesiredInstallation[],
-): Promise<readonly string[]> {
-  const blockers: string[] = [];
+): Promise<readonly BlockerInput[]> {
+  const blockers: BlockerInput[] = [];
   for (const installation of desired) {
     const git = installation.gitProject;
     if (!git) continue;
@@ -550,24 +558,37 @@ async function repositoryExclusionOwnershipBlockers(
     if (!previous) continue;
     const contribution = contributionFor(state.repositoryExclusions, previous.installationId);
     if (!contribution) {
-      blockers.push(
-        `${installation.binding.canonicalProject} is missing its Repository Exclusion Record for Installation ID ${previous.installationId}`,
-      );
+      blockers.push(repositoryExclusionRecordBlocker({
+        affectedItems: [{ kind: "installation-id", value: previous.installationId }],
+        message:
+          `${installation.binding.canonicalProject} is missing its Repository Exclusion ` +
+          `Record for Installation ID ${previous.installationId}`,
+      }));
       continue;
     }
     const moved = previous.project !== installation.binding.canonicalProject;
     if (moved) continue;
     if (contribution.record.target !== git.excludeFile) {
-      blockers.push(
-        `${installation.binding.canonicalProject} Repository Exclusion Record for Installation ID ${previous.installationId} targets ${contribution.record.target}, expected ${git.excludeFile}`,
-      );
+      blockers.push(repositoryExclusionRecordBlocker({
+        affectedItems: [
+          { kind: "path", value: contribution.record.target },
+          { kind: "path", value: git.excludeFile },
+        ],
+        message:
+          `${installation.binding.canonicalProject} Repository Exclusion Record for ` +
+          `Installation ID ${previous.installationId} targets ${contribution.record.target}, ` +
+          `expected ${git.excludeFile}`,
+      }));
       continue;
     }
     const expected = expectedContributionEntries(previous, git.relativeProject);
     if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
-      blockers.push(
-        `${git.excludeFile} Repository Exclusion Record for Installation ID ${previous.installationId} does not match its recorded Installation Manifest contribution`,
-      );
+      blockers.push(repositoryExclusionRecordBlocker({
+        affectedItems: [{ kind: "path", value: git.excludeFile }],
+        message:
+          `${git.excludeFile} Repository Exclusion Record for Installation ID ` +
+          `${previous.installationId} does not match its recorded Installation Manifest contribution`,
+      }));
     }
   }
   return blockers;
@@ -578,9 +599,9 @@ async function retiringInstallationOwnershipBlockers(
   state: InstallationState,
   desired: readonly DesiredInstallation[],
   retiringInstallationIds: ReadonlySet<string>,
-): Promise<readonly string[]> {
+): Promise<readonly BlockerInput[]> {
   if (retiringInstallationIds.size === 0) return [];
-  const blockers: string[] = [];
+  const blockers: BlockerInput[] = [];
   for (const installation of state.installations) {
     if (!retiringInstallationIds.has(installation.installationId)) continue;
     const contributionLinks = state.repositoryExclusions.flatMap((record) =>
@@ -598,25 +619,34 @@ async function retiringInstallationOwnershipBlockers(
         installation.gitProject !== false ||
         hasKnownExclusionTargetForProject(state, desired, installation.project)
       ) {
-        blockers.push(
-          `${installation.project} is missing its Repository Exclusion Record for Installation ID ${installation.installationId}`,
-        );
+        blockers.push(repositoryExclusionRecordBlocker({
+          affectedItems: [{ kind: "installation-id", value: installation.installationId }],
+          message:
+            `${installation.project} is missing its Repository Exclusion Record for ` +
+            `Installation ID ${installation.installationId}`,
+        }));
       }
       continue;
     }
     // Keep this defensive check for callers that construct state in memory
     // without passing through the parser's cross-record uniqueness boundary.
     if (contributionLinks.length !== 1) {
-      blockers.push(
-        `${installation.project} has duplicate Repository Exclusion Records for Installation ID ${installation.installationId}`,
-      );
+      blockers.push(repositoryExclusionRecordBlocker({
+        affectedItems: [{ kind: "installation-id", value: installation.installationId }],
+        message:
+          `${installation.project} has duplicate Repository Exclusion Records for ` +
+          `Installation ID ${installation.installationId}`,
+      }));
       continue;
     }
     const { contribution, record } = contributionLinks[0]!;
     if (!hasExpectedContributionEntries(installation, { entries: contribution.entries, record })) {
-      blockers.push(
-        `${record.target} Repository Exclusion Record for Installation ID ${installation.installationId} does not match its recorded Installation Manifest contribution`,
-      );
+      blockers.push(repositoryExclusionRecordBlocker({
+        affectedItems: [{ kind: "path", value: record.target }],
+        message:
+          `${record.target} Repository Exclusion Record for Installation ID ` +
+          `${installation.installationId} does not match its recorded Installation Manifest contribution`,
+      }));
     }
   }
   return blockers;
@@ -626,17 +656,18 @@ async function retiringInstallationOwnershipBlockers(
 async function recordedInstallationOwnershipBlockers(
   state: InstallationState,
   retiringInstallationIds: ReadonlySet<string> = new Set(),
-): Promise<readonly string[]> {
-  const blockers: string[] = [];
+): Promise<readonly BlockerInput[]> {
+  const blockers: BlockerInput[] = [];
   for (const installation of state.installations) {
     try {
       await lstat(installation.project);
     } catch (error) {
       if (hasErrorCode(error, "ENOENT")) {
         if (retiringInstallationIds.has(installation.installationId)) continue;
-        blockers.push(
-          `${installation.project} Git target cannot be proven: project root is missing`,
-        );
+        blockers.push(repositoryExclusionRecordBlocker({
+          affectedItems: [{ kind: "path", value: installation.project }],
+          message: `${installation.project} Git target cannot be proven: project root is missing`,
+        }));
         continue;
       }
       throw error;
@@ -646,36 +677,54 @@ async function recordedInstallationOwnershipBlockers(
     try {
       git = await findGitProject(installation.project);
     } catch (error) {
-      blockers.push(
-        `${installation.project} Git target cannot be proven: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      blockers.push(repositoryExclusionRecordBlocker({
+        affectedItems: [{ kind: "path", value: installation.project }],
+        message:
+          `${installation.project} Git target cannot be proven: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      }));
       continue;
     }
     if (!git) {
       if (contribution) {
-        blockers.push(
-          `${installation.project} has a Repository Exclusion Record but is no longer a Git project`,
-        );
+        blockers.push(repositoryExclusionRecordBlocker({
+          affectedItems: [{ kind: "path", value: installation.project }],
+          message:
+            `${installation.project} has a Repository Exclusion Record but is no longer a Git project`,
+        }));
       }
       continue;
     }
     if (!contribution) {
-      blockers.push(
-        `${installation.project} is missing its Repository Exclusion Record for Installation ID ${installation.installationId}`,
-      );
+      blockers.push(repositoryExclusionRecordBlocker({
+        affectedItems: [{ kind: "installation-id", value: installation.installationId }],
+        message:
+          `${installation.project} is missing its Repository Exclusion Record for ` +
+          `Installation ID ${installation.installationId}`,
+      }));
       continue;
     }
     if (contribution.record.target !== git.excludeFile) {
-      blockers.push(
-        `${installation.project} Repository Exclusion Record for Installation ID ${installation.installationId} targets ${contribution.record.target}, expected ${git.excludeFile}`,
-      );
+      blockers.push(repositoryExclusionRecordBlocker({
+        affectedItems: [
+          { kind: "path", value: contribution.record.target },
+          { kind: "path", value: git.excludeFile },
+        ],
+        message:
+          `${installation.project} Repository Exclusion Record for Installation ID ` +
+          `${installation.installationId} targets ${contribution.record.target}, ` +
+          `expected ${git.excludeFile}`,
+      }));
       continue;
     }
     const expected = expectedContributionEntries(installation, git.relativeProject);
     if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
-      blockers.push(
-        `${git.excludeFile} Repository Exclusion Record for Installation ID ${installation.installationId} does not match its recorded Installation Manifest contribution`,
-      );
+      blockers.push(repositoryExclusionRecordBlocker({
+        affectedItems: [{ kind: "path", value: git.excludeFile }],
+        message:
+          `${git.excludeFile} Repository Exclusion Record for Installation ID ` +
+          `${installation.installationId} does not match its recorded Installation Manifest contribution`,
+      }));
     }
   }
   return blockers;
@@ -688,9 +737,9 @@ export async function gitExclusionBlockers(
     readonly retiringInstallationIds?: ReadonlySet<string>;
     readonly validateRecordedInstallations?: boolean;
   } = {},
-): Promise<readonly string[]> {
+): Promise<readonly ReconciliationBlocker[]> {
   const validateRecordedInstallations = options.validateRecordedInstallations ?? desired.length === 0;
-  const blockers = [
+  const blockers: BlockerInput[] = [
     ...await repositoryExclusionOwnershipBlockers(state, desired),
     ...await retiringInstallationOwnershipBlockers(
       state,
@@ -714,16 +763,24 @@ export async function gitExclusionBlockers(
         ((!snapshot.exists && !snapshot.targetMissing) ||
           (snapshot.exists && !parseOwnedSection(snapshot.bytes, target.git.excludeFile)))
       ) {
-        blockers.push(
-          `${target.git.excludeFile} is missing its Agent Profile Kit exclusion section; intentional-deletion retirement requires the recorded section to be present`,
-        );
+        blockers.push(repositoryExclusionSectionMissingBlocker({
+          message:
+            `${target.git.excludeFile} is missing its Agent Profile Kit exclusion section; ` +
+            "intentional-deletion retirement requires the recorded section to be present",
+          target: target.git.excludeFile,
+        }));
       }
       reconcileGitExcludeBytes(snapshot.bytes, target.git.excludeFile, target.current, target.current);
     } catch (error) {
-      blockers.push(error instanceof Error ? error.message : String(error));
+      blockers.push(repositoryExclusionInvalidBlocker({
+        message: error instanceof Error ? error.message : String(error),
+        target: target.git.excludeFile,
+      }));
     }
   }
-  return blockers.sort(compareCanonicalStrings);
+  return blockers
+    .map((input) => normalizeBlocker(input))
+    .sort((left, right) => left.message.localeCompare(right.message));
 }
 
 export async function gitExclusionDiagnostics(

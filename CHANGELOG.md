@@ -46,6 +46,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Migrate remaining Installation State, Git exclusion, reconciliation, and Temporary Profile Installation blockers to complete structured evidence with typed classes, problems, requirements, remedies, scopes, and affected items, while preserving legacy lifecycle and temporary-installation projections, scope attribution, ordering, deduplication, exit codes, and fail-closed Git/output ownership guarantees ([#169](https://github.com/kenneth-liao/agent-profile-kit/issues/169)).
+
 - Group tracked-output ownership conflicts into one typed Project-scoped blocker with complete per-path evidence, a single problem/requirement/safe-remedy explanation, and a deterministic capped affected-path list with an overflow pointer to `--verbose`; legacy lifecycle and temporary-installation projections keep their schema v1 shape, with the grouped conflict count preserved in the `message` projection ([#168](https://github.com/kenneth-liao/agent-profile-kit/issues/168)).
 
 - Keep unexpected Adapter preflight failures distinct while centralizing capability evidence construction and preserving temporary-installation blocker projections ([#167](https://github.com/kenneth-liao/agent-profile-kit/issues/167)).
