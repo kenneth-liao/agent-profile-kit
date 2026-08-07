@@ -2383,9 +2383,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.status, result.stderr).toBe(2);
     expect(result.stdout).toContain("Projects: 1");
     expect(humanText(result.stdout)).toContain(humanText(`Project: ${authoredProject}`));
-    expect(result.stdout).toContain("Tracked project path '.codex/hooks.json' is repository-owned");
+    expect(result.stdout).toContain("Blocker: These generated paths are tracked by Git");
+    expect(result.stdout).toContain("Requirement:");
+    expect(result.stdout).toContain("Remedy:");
+    expect(result.stdout).toContain("Affected paths:");
+    expect(result.stdout).toContain("- .codex/hooks.json");
     expect(humanText(result.stdout)).toContain(
-      humanText("generated files must be exclusively managed by Agent Profile Kit"),
+      humanText("Generated files must be exclusively managed by Agent Profile Kit"),
     );
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
 
@@ -2393,8 +2397,92 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(apply.status).toBe(2);
     expect(apply.stdout).toContain("Apply blocked");
     expect(humanText(apply.stdout)).toContain(
-      humanText("generated files must be exclusively managed by Agent Profile Kit"),
+      humanText("Generated files must be exclusively managed by Agent Profile Kit"),
     );
+  });
+
+  test("packed regression groups many tracked generated paths into one explained blocker with zero writes", () => {
+    const home = isolatedHome();
+    initialize(home);
+    const projectPath = gitRepository();
+    writeContextProfile(home);
+    for (let index = 1; index <= 12; index += 1) {
+      const skill = `s${String(index).padStart(2, "0")}`;
+      mkdirSync(join(workspacePath(home), "skills", skill), { recursive: true });
+      writeFileSync(
+        join(workspacePath(home), "skills", skill, "SKILL.md"),
+        `---\nname: ${skill}\ndescription: Skill ${skill}.\n---\n\n# ${skill}\n`,
+      );
+    }
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    mkdirSync(join(projectPath, ".agent-profile-kit", "codex"), { recursive: true });
+    mkdirSync(join(projectPath, ".codex"));
+    writeFileSync(
+      join(projectPath, ".agent-profile-kit", "codex", "context.md"),
+      "tracked context\n",
+    );
+    writeFileSync(join(projectPath, ".codex", "hooks.json"), "tracked hooks\n");
+    for (let index = 1; index <= 12; index += 1) {
+      const skill = `s${String(index).padStart(2, "0")}`;
+      mkdirSync(join(projectPath, ".agents", "skills", skill), { recursive: true });
+      writeFileSync(
+        join(projectPath, ".agents", "skills", skill, "SKILL.md"),
+        `tracked ${skill}\n`,
+      );
+    }
+    execFileSync("git", ["-C", projectPath, "add", "."]);
+    execFileSync("git", ["-C", projectPath, "commit", "-qm", "track generated paths"]);
+    bind(home, projectPath);
+    expect(existsSync(statePath(home))).toBe(false);
+
+    const preview = runCli(home, "preview");
+
+    expect(preview.status, preview.stderr).toBe(2);
+    expect(preview.stdout).toContain("Cannot apply");
+    expect(preview.stdout.match(/Blocker:/g)).toHaveLength(1);
+    expect(preview.stdout).toContain("Blocker: These generated paths are tracked by Git");
+    expect(preview.stdout).toContain("Requirement:");
+    expect(preview.stdout).toContain("Remedy:");
+    expect(preview.stdout).toContain("keep repository ownership");
+    expect(preview.stdout).toContain("intentionally remove");
+    expect(preview.stdout).toContain("Affected paths:");
+    expect(preview.stdout).toContain("- .agents/skills/s08");
+    expect(preview.stdout).not.toContain(".agents/skills/s11");
+    expect(preview.stdout).toContain("… 4 more paths; use --verbose to see all paths");
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+
+    const verbose = runCli(home, "preview", "--verbose");
+
+    expect(verbose.status, verbose.stderr).toBe(2);
+    for (const path of [
+      ".agent-profile-kit/codex/context.md",
+      ".agents/skills/s09",
+      ".agents/skills/s10",
+      ".agents/skills/s11",
+      ".agents/skills/s12",
+      ".codex/hooks.json",
+    ]) {
+      expect(verbose.stdout).toContain(`/${path}`);
+    }
+    expect(verbose.stdout.match(/Requirement:/g)).toHaveLength(1);
+    expect(verbose.stdout).not.toContain("more paths");
+
+    const apply = runCli(home, "apply");
+
+    expect(apply.status, apply.stderr).toBe(2);
+    expect(apply.stdout).toContain("Apply blocked");
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(readFileSync(join(projectPath, ".codex", "hooks.json"), "utf8")).toBe("tracked hooks\n");
+    expect(readFileSync(join(projectPath, ".agents", "skills", "s05", "SKILL.md"), "utf8")).toBe(
+      "tracked s05\n",
+    );
+    expect(readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8")).toBe(
+      "tracked context\n",
+    );
+    expect(existsSync(statePath(home))).toBe(false);
   });
 
   test("a Git binding reconciles only its exact root and preserves local exclusions", () => {

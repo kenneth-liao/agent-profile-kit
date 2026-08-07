@@ -46,6 +46,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Group tracked-output ownership conflicts into one typed Project-scoped blocker with complete per-path evidence, a single problem/requirement/safe-remedy explanation, and a deterministic capped affected-path list with an overflow pointer to `--verbose`; legacy lifecycle and temporary-installation projections remain unchanged ([#168](https://github.com/kenneth-liao/agent-profile-kit/issues/168)).
+
 - Keep unexpected Adapter preflight failures distinct while centralizing capability evidence construction and preserving temporary-installation blocker projections ([#167](https://github.com/kenneth-liao/agent-profile-kit/issues/167)).
 
 - Migrate Adapter Host capability and preflight blockers to structured evidence while preserving legacy lifecycle and temporary-installation projections ([#167](https://github.com/kenneth-liao/agent-profile-kit/issues/167)).

@@ -622,9 +622,13 @@ blockers — 11 Skill-collision and 10 discovery-root — each restating its ful
 explanation, for two underlying classes. This is distinct from
 [UJ-06](#uj-06): those are legitimately separate blockers, so deduplication does
 not apply; what they want is grouping into one explanation plus the affected
-list. The instance was removed with the cross-Host collision machinery in #110
-(see closed issue #111), so no current behavior produces it. Any blocker that can
-fire once per selected artifact could reintroduce it.
+list. The later recurrence against 41 tracked-output conflicts (see #154) is now
+grouped at its emission boundary into one typed blocker with one explanation and
+a capped affected-path list ([#168](https://github.com/kenneth-liao/agent-profile-kit/issues/168)), so
+the tracked-output family cannot repeat its explanation. Other per-path emitters
+(occupied destinations, ownership failures) remain ungrouped, keeping this
+watch active: any blocker that can fire once per selected artifact could
+reintroduce it.
 
 ---
 

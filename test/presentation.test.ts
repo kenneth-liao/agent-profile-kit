@@ -26,7 +26,7 @@ import {
   renderHumanOutput,
   type TerminalPresentationContext,
 } from "../cli/terminal-presentation.js";
-import { normalizeBlocker } from "../installer/blockers.js";
+import { normalizeBlocker, outputOwnershipConflictBlocker } from "../installer/blockers.js";
 import type {
   ApplyReconciliationResult,
   BlockedReconciliationReport,
@@ -863,6 +863,100 @@ describe("formatLifecycleReport concise terminology", () => {
     );
     expect(JSON.parse(formatLifecycleJson("preview", structured))).toEqual(
       JSON.parse(formatLifecycleJson("preview", legacy)),
+    );
+  });
+
+  test("groups tracked-output ownership conflicts into one explained blocker with capped paths", () => {
+    const project = "/project-a";
+    const paths = [
+      ".agent-profile-kit/codex/context.md",
+      ".agent-profile-kit/installation.json",
+      ".agents/skills/s01",
+      ".agents/skills/s02",
+      ".agents/skills/s03",
+      ".agents/skills/s04",
+      ".agents/skills/s05",
+      ".agents/skills/s06",
+      ".agents/skills/s07",
+      ".agents/skills/s08",
+      ".agents/skills/s09",
+      ".agents/skills/s10",
+      ".agents/skills/s11",
+      ".agents/skills/s12",
+      ".codex/hooks.json",
+    ];
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: paths,
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project, reason: "tracked path" }],
+      blockers: [normalizeBlocker(outputOwnershipConflictBlocker({ paths, project }))],
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise.match(/Blocker:/g)).toHaveLength(1);
+    expect(concise).toContain("Blocker: These generated paths are tracked by Git");
+    expect(concise).toContain("Requirement:");
+    expect(concise).toContain("Remedy:");
+    expect(concise).toContain("keep repository ownership");
+    expect(concise).toContain("intentionally remove");
+    expect(concise).toContain("Affected paths:");
+    expect(concise).toContain("- .agents/skills/s08");
+    expect(concise).not.toContain("/project-a/.agents/skills/s08");
+    expect(concise).not.toContain(".agents/skills/s11");
+    expect(concise).toContain("… 5 more paths; use --verbose to see all paths");
+
+    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+
+    expect(verbose).toContain("/project-a/.agents/skills/s11");
+    expect(verbose).toContain("/project-a/.agents/skills/s12");
+    expect(verbose).toContain("/project-a/.codex/hooks.json");
+    expect(verbose.match(/Requirement:/g)).toHaveLength(1);
+    expect(verbose).not.toContain("more paths");
+  });
+
+  test("keeps project-scoped ownership conflicts distinct from global blockers", () => {
+    const project = "/project-a";
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: [".codex/hooks.json"],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project, reason: "tracked path" }],
+      blockers: [
+        normalizeBlocker(outputOwnershipConflictBlocker({
+          paths: [".codex/hooks.json"],
+          project,
+        })),
+        normalizeBlocker({
+          affectedItems: [],
+          kind: "host-capability",
+          message: "Installation State is unreadable",
+          problem: "Installation State is unreadable",
+          remedy: "Restore or repair Installation State, then retry",
+          requirement: "Lifecycle commands require readable Installation State",
+          scope: "global",
+        }),
+      ],
+    });
+
+    const concise = formatLifecycleReport("status", report);
+
+    expect(concise).toContain("Global blockers:");
+    expect(concise).toContain("- Installation State is unreadable");
+    expect(concise.indexOf("Project: /project-a")).toBeGreaterThan(-1);
+    expect(concise.indexOf("Project: /project-a")).toBeLessThan(
+      concise.indexOf("Global blockers:"),
     );
   });
 

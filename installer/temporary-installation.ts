@@ -418,7 +418,8 @@ export async function installTemporaryProfile(options: {
 
       const temporaryInstallationId = newInstallationId();
       blockers.push(
-        ...(await desiredOutputConflicts(desired, undefined, temporaryInstallationId)),
+        ...(await desiredOutputConflicts(desired, undefined, temporaryInstallationId))
+          .map(blockerMessage),
       );
       if (blockers.length > 0) {
         throw new TemporaryInstallationBlockedError(blockers);

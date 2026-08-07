@@ -14,6 +14,11 @@ import type {
   ReconciliationReport,
 } from "../installer/reconcile.js";
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
+import {
+  isStructuredBlocker,
+  OUTPUT_OWNERSHIP_CONFLICT,
+  type StructuredReconciliationBlocker,
+} from "../installer/blockers.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { UninstallResult, ValidationResult } from "../installer/commands.js";
@@ -1007,17 +1012,85 @@ function formatProjectPaths(message: string, projects: readonly string[]): strin
 
 function formatBlocker(blocker: ReconciliationBlocker, displayProject?: string): string {
   const projects = projectCandidates(blocker, displayProject);
-  const message = formatProjectPaths(stripProjectPrefix(blocker.message, projects), projects);
-  const trackedSuffix = " is a tracked project path";
-  if (message.endsWith(trackedSuffix)) {
-    const path = message.slice(0, -trackedSuffix.length);
-    return (
-      `Tracked project path '${path}' is repository-owned. Agent Profile Kit cannot replace it ` +
-      `because ${DEFAULT_VIEW_LEXICON.generatedOutput.plural} must be exclusively ` +
-      `${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`
+  return defaultDiagnosticText(
+    formatProjectPaths(stripProjectPrefix(blocker.message, projects), projects),
+  );
+}
+
+function isOutputOwnershipConflict(
+  blocker: ReconciliationBlocker,
+): blocker is StructuredReconciliationBlocker & {
+  readonly kind: typeof OUTPUT_OWNERSHIP_CONFLICT;
+  readonly scope: "project";
+} {
+  return (
+    isStructuredBlocker(blocker) &&
+    blocker.kind === OUTPUT_OWNERSHIP_CONFLICT &&
+    blocker.scope === "project"
+  );
+}
+
+/**
+ * Default-view evidence for one grouped ownership conflict: one explanation and
+ * a deterministic capped path list with an overflow pointer to --verbose.
+ */
+function conciseOwnershipConflictLines(
+  blocker: StructuredReconciliationBlocker & {
+    readonly kind: typeof OUTPUT_OWNERSHIP_CONFLICT;
+    readonly scope: "project";
+  },
+  groups: readonly ProjectGroup[],
+  indent: string,
+): readonly string[] {
+  const paths = blocker.affectedItems.filter((item) => item.kind === "path");
+  const lines = [
+    `${indent}Blocker: ${shortenProjectReferences(defaultDiagnosticText(blocker.problem), groups)}`,
+    `${indent}  Requirement: ${defaultDiagnosticText(blocker.requirement)}`,
+    `${indent}  Remedy: ${defaultDiagnosticText(blocker.remedy)}`,
+    `${indent}  Affected paths:`,
+  ];
+  for (const item of paths.slice(0, DEFAULT_OUTPUT_PATH_LIMIT)) {
+    lines.push(`${indent}    - ${item.value}`);
+  }
+  const overflow = paths.length - DEFAULT_OUTPUT_PATH_LIMIT;
+  if (overflow > 0) {
+    lines.push(
+      `${indent}    … ${overflow} more ${overflow === 1 ? "path" : "paths"}; use --verbose to see all paths`,
     );
   }
-  return defaultDiagnosticText(message);
+  return lines;
+}
+
+function conciseBlockerLines(
+  blocker: ReconciliationBlocker,
+  displayProject: string | undefined,
+  groups: readonly ProjectGroup[],
+  indent: string,
+): readonly string[] {
+  if (isOutputOwnershipConflict(blocker)) {
+    return conciseOwnershipConflictLines(blocker, groups, indent);
+  }
+  return [
+    `${indent}Blocker: ${shortenProjectReferences(formatBlocker(blocker, displayProject), groups)}`,
+  ];
+}
+
+function verboseBlockerLines(
+  blocker: ReconciliationBlocker,
+  shorten: (text: string) => string,
+): readonly string[] {
+  if (!isOutputOwnershipConflict(blocker)) return [`- ${shorten(blocker.message)}`];
+  const lines = [
+    `- ${shorten(`${blocker.project}: ${blocker.problem}`)}`,
+    `  Requirement: ${defaultDiagnosticText(blocker.requirement)}`,
+    `  Remedy: ${defaultDiagnosticText(blocker.remedy)}`,
+    "  Affected paths:",
+  ];
+  for (const item of blocker.affectedItems) {
+    if (item.kind !== "path") continue;
+    lines.push(`    - ${shorten(`${blocker.project}/${item.value}`)}`);
+  }
+  return lines;
 }
 
 function groupProjects(report: ReconciliationReport): GroupedProjects {
@@ -1399,7 +1472,7 @@ function conciseReport(
       }
       if (blocked) {
         for (const blocker of group.blockers) {
-          lines.push(`  Blocker: ${shortenProjectReferences(formatBlocker(blocker, group.project), groups)}`);
+          lines.push(...conciseBlockerLines(blocker, group.project, groups, "  "));
         }
         continue;
       }
@@ -1414,7 +1487,7 @@ function conciseReport(
       const outputLines = outputPathLines(group.outputs);
       if (outputLines.length > 0) lines.push("  Files:", ...outputLines.map((line) => `  ${line}`));
       for (const blocker of group.blockers) {
-        lines.push(`  Blocker: ${shortenProjectReferences(formatBlocker(blocker, group.project), groups)}`);
+        lines.push(...conciseBlockerLines(blocker, group.project, groups, "  "));
       }
     }
   }
@@ -1736,7 +1809,7 @@ function verboseSections(
         .join("\n");
   const blockers = report.blockers.length === 0
     ? "(none)"
-    : report.blockers.map((blocker) => `- ${shorten(blocker.message)}`).join("\n");
+    : report.blockers.flatMap((blocker) => verboseBlockerLines(blocker, shorten)).join("\n");
   const outputs = report.outputs.length === 0
     ? "(none)"
     : authoritativeVerboseOutputs(report.outputs)

@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,6 +14,7 @@ import {
   blockerMessage,
   isStructuredBlocker,
   normalizeBlocker,
+  OUTPUT_OWNERSHIP_CONFLICT,
 } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
@@ -244,5 +246,84 @@ describe("shared blocker contract", () => {
       project: canonicalProject,
     }]);
     expect(lifecycleExitCode(malformedReport)).toBe(2);
+  });
+});
+
+describe("tracked-output ownership conflicts", () => {
+  test("real tracked-path conflicts aggregate into one typed project blocker", async () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-ownership-home-"));
+    const project = mkdtempSync(join(tmpdir(), "agent-profile-kit-ownership-project-"));
+    temporaryDirectories.push(home, project);
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nOwnership conflict.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [s01, s02, s03]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    for (const skill of ["s01", "s02", "s03"]) {
+      mkdirSync(join(workspace, "skills", skill), { recursive: true });
+      writeFileSync(
+        join(workspace, "skills", skill, "SKILL.md"),
+        `---\nname: ${skill}\ndescription: Skill ${skill}.\n---\n\n# ${skill}\n`,
+      );
+    }
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    execFileSync("git", ["init", "-q", project]);
+    execFileSync("git", ["-C", project, "config", "user.email", "tests@example.com"]);
+    execFileSync("git", ["-C", project, "config", "user.name", "Agent Profile Kit Tests"]);
+    mkdirSync(join(project, ".agent-profile-kit", "codex"), { recursive: true });
+    mkdirSync(join(project, ".codex"));
+    writeFileSync(
+      join(project, ".agent-profile-kit", "codex", "context.md"),
+      "tracked context\n",
+    );
+    writeFileSync(join(project, ".codex", "hooks.json"), "tracked hooks\n");
+    for (const skill of ["s01", "s02", "s03"]) {
+      mkdirSync(join(project, ".agents", "skills", skill), { recursive: true });
+      writeFileSync(
+        join(project, ".agents", "skills", skill, "SKILL.md"),
+        `tracked ${skill}\n`,
+      );
+    }
+    execFileSync("git", ["-C", project, "add", "."]);
+    execFileSync("git", ["-C", project, "commit", "-qm", "track generated paths"]);
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const emptyState = {
+      intendedTeardowns: [],
+      installations: [],
+      repositoryExclusions: [],
+      schemaVersion: 5,
+      temporaryInstallations: [],
+    } as const;
+    const report = await previewReconciliation(desired.installations, emptyState);
+
+    expect(report.blockers).toHaveLength(1);
+    const blocker = report.blockers[0]!;
+    expect(isStructuredBlocker(blocker)).toBe(true);
+    expect(blocker).toMatchObject({
+      kind: OUTPUT_OWNERSHIP_CONFLICT,
+      project: desired.installations[0]!.binding.canonicalProject,
+      scope: "project",
+    });
+    expect(blocker.affectedItems).toEqual([
+      { kind: "path", value: ".agent-profile-kit/codex/context.md" },
+      { kind: "path", value: ".agents/skills/s01" },
+      { kind: "path", value: ".agents/skills/s02" },
+      { kind: "path", value: ".agents/skills/s03" },
+      { kind: "path", value: ".codex/hooks.json" },
+    ]);
+    expect(blocker.message).toBe(
+      `${desired.installations[0]!.binding.canonicalProject}/.agent-profile-kit/codex/context.md is a tracked project path`,
+    );
+    expect(lifecycleExitCode(report)).toBe(2);
   });
 });
