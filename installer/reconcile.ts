@@ -56,6 +56,7 @@ import {
 import {
   isStructuredBlocker,
   normalizeBlocker,
+  outputOwnershipConflictBlocker,
   type BlockerInput,
   type ReconciliationBlocker,
 } from "./blockers.js";
@@ -415,8 +416,8 @@ export async function desiredOutputConflicts(
   desired: DesiredInstallation,
   previous: ProjectInstallationManifest | undefined,
   installationId: string,
-): Promise<readonly string[]> {
-  const blockers: string[] = [];
+): Promise<readonly BlockerInput[]> {
+  const blockers: BlockerInput[] = [];
   const previousOutputs = new Map(previous?.outputs.map((output) => [output.path, output]) ?? []);
   const outputs: OwnedOutput[] = [
     ...desired.outputs.map(ownedOutputFromDesired),
@@ -427,10 +428,11 @@ export async function desiredOutputConflicts(
       type: "file" as const,
     },
   ];
+  const trackedPaths: string[] = [];
   for (const output of outputs) {
     const absolute = outputPath(desired.binding.canonicalProject, output);
     if (await pathIsTrackedDestination(desired.binding.canonicalProject, output.path)) {
-      blockers.push(`${absolute} is a tracked project path`);
+      trackedPaths.push(output.path);
       continue;
     }
     const old = previousOutputs.get(output.path);
@@ -456,6 +458,12 @@ export async function desiredOutputConflicts(
       continue;
     }
     blockers.push(`${absolute} is an occupied unowned artifact directory`);
+  }
+  if (trackedPaths.length > 0) {
+    blockers.push(outputOwnershipConflictBlocker({
+      paths: trackedPaths,
+      project: desired.binding.canonicalProject,
+    }));
   }
   return blockers;
 }
@@ -736,7 +744,7 @@ export async function previewReconciliation(
     const outputConflicts = await desiredOutputConflicts(installation, previous, id);
     blockers.push(
       ...(await identityBlockers(installation, state, id)).map((message) => ({ message, project })),
-      ...outputConflicts.map((message) => ({ message, project })),
+      ...outputConflicts.map((input) => normalizePreviewBlocker(input, project)),
     );
     if (!previous && outputConflicts.length > 0) {
       let copiedInstallation = false;

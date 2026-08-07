@@ -3,6 +3,8 @@ import {
   isAdapterCapabilityError,
 } from "../adapters/capability.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
+import { join } from "node:path";
+import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
 /** A blocker scope retains the legacy project identity as a separate projection. */
 export type BlockerScope = "global" | "project";
@@ -74,6 +76,50 @@ export function hostCapabilityBlocker(
     project,
     remedy: failure?.remedy ?? "Inspect the underlying error before retrying",
     requirement: failure?.requirement ?? capabilityRequirement(host),
+    scope: "project",
+  };
+}
+
+/** Typed blocker class for planned output that conflicts with Git-tracked repository ownership. */
+export const OUTPUT_OWNERSHIP_CONFLICT = "output-ownership-conflict" as const;
+
+/**
+ * Build one complete structured blocker for every tracked planned path in one
+ * Project. Normalized evidence keeps one `path` affected item per conflicting
+ * destination so human grouping presents one explanation without discarding
+ * per-path machine facts.
+ */
+export function outputOwnershipConflictBlocker(options: {
+  readonly paths: readonly string[];
+  readonly project: string;
+}): StructuredBlockerInput {
+  if (options.paths.length === 0) {
+    throw new TypeError("Output ownership conflict requires at least one conflicting path");
+  }
+  const paths = [...options.paths].sort(compareCanonicalStrings);
+  const first = join(options.project, paths[0]!);
+  return {
+    affectedItems: paths.map((path) => ({ kind: "path", value: path })),
+    kind: OUTPUT_OWNERSHIP_CONFLICT,
+    // The legacy message projection is the only evidence string-only consumers
+    // (temporary-installation output, lifecycle JSON) read until the typed
+    // schema migration; when grouped it must stay self-describing.
+    message: paths.length === 1
+      ? `${first} is a tracked project path`
+      : `${first} and ${paths.length - 1} more tracked project ` +
+        `${paths.length === 2 ? "path" : "paths"}`,
+    problem:
+      "These generated paths are tracked by Git, so Agent Profile Kit cannot write to them " +
+      "without conflicting with repository ownership.",
+    remedy:
+      "Choose one: keep repository ownership and change the Project Binding or its Host " +
+      "selection so Agent Profile Kit does not plan output at these paths, or intentionally " +
+      "remove the conflicting paths from repository ownership yourself before retrying. " +
+      "Agent Profile Kit will not delete, untrack, adopt, or overwrite repository-owned material.",
+    requirement:
+      "Generated files must be exclusively managed by Agent Profile Kit; repository-owned " +
+      "paths cannot be replaced.",
+    project: options.project,
     scope: "project",
   };
 }
