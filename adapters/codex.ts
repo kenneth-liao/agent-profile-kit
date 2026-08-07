@@ -6,6 +6,7 @@ import { parse, stringify } from "yaml";
 
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 import { composeContextEnvelope } from "./context-envelope.js";
+import { capabilityFailure } from "./capability.js";
 import type {
   AdapterHostSetupStep,
   AdapterDiagnosticWarning,
@@ -160,8 +161,10 @@ export function parseCodexCliVersion(source: string): string {
       return `${match[1]}.${match[2]}.${match[3]}`;
     }
   }
-  throw new Error(
-    `Codex CLI version is unreadable from '${source.trim()}'; install a supported Codex release`,
+  throw capabilityFailure(
+    "codex",
+    `Codex CLI version is unreadable from '${source.trim()}'`,
+    "install a supported Codex release",
   );
 }
 
@@ -178,8 +181,10 @@ function compareSemver(left: string, right: string): number {
 /** Assert a normalized core semver against the disabled-invocation floor. */
 export function assertCodexCliVersionSupportsDisabledModelInvocation(version: string): void {
   if (compareSemver(version, CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION) < 0) {
-    throw new Error(
-      `Codex CLI ${version} cannot enforce disabled model invocation via agents/openai.yaml policy.allow_implicit_invocation (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION}+); upgrade Codex before previewing or applying the Profile`,
+    throw capabilityFailure(
+      "codex",
+      `Codex CLI ${version} cannot enforce disabled model invocation via agents/openai.yaml policy.allow_implicit_invocation (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION}+)`,
+      "upgrade Codex before previewing or applying the Profile",
     );
   }
 }
@@ -201,8 +206,10 @@ async function resolveCodexCliVersion(
     return parseCodexCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw new Error(
-        "Codex CLI was not found on PATH; install Codex and ensure `codex --version` works before previewing or applying Profiles that require Codex Host capabilities",
+      throw capabilityFailure(
+        "codex",
+        "Codex CLI was not found on PATH",
+        "install Codex and ensure `codex --version` works before previewing or applying Profiles that require Codex Host capabilities",
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -216,8 +223,10 @@ async function resolveCodexCliVersion(
         }
       }
     }
-    throw new Error(
-      `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)}); install a supported Codex release before previewing or applying Profiles that require Codex Host capabilities`,
+    throw capabilityFailure(
+      "codex",
+      `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
+      "install a supported Codex release before previewing or applying Profiles that require Codex Host capabilities",
     );
   }
 }
@@ -246,8 +255,10 @@ export async function assertCodexProjectCapability(
 /** Assert a normalized core semver against the complete-Context floor. */
 export function assertCodexCliVersionSupportsCompleteContext(version: string): void {
   if (compareSemver(version, CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT) < 0) {
-    throw new Error(
-      `Codex CLI ${version} cannot deliver complete Context through SessionStart hooks (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT}+); upgrade Codex before previewing or applying the Profile`,
+    throw capabilityFailure(
+      "codex",
+      `Codex CLI ${version} cannot deliver complete Context through SessionStart hooks (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT}+)`,
+      "upgrade Codex before previewing or applying the Profile",
     );
   }
 }

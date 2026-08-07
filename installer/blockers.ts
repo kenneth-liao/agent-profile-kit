@@ -1,3 +1,9 @@
+import {
+  capabilityRequirement,
+  isAdapterCapabilityError,
+} from "../adapters/capability.js";
+import type { SupportedHost } from "../schemas/local-configuration.js";
+
 /** A blocker scope retains the legacy project identity as a separate projection. */
 export type BlockerScope = "global" | "project";
 
@@ -48,6 +54,29 @@ export type StructuredReconciliationBlocker =
 export type ReconciliationBlocker = LegacyBlocker | StructuredReconciliationBlocker;
 
 export type BlockerInput = string | LegacyBlocker | StructuredBlockerInput;
+
+/** Convert one Adapter capability failure to the shared structured contract. */
+export function hostCapabilityBlocker(
+  error: unknown,
+  host: SupportedHost,
+  project: string,
+  displayProject?: string,
+): StructuredBlockerInput {
+  const failure = isAdapterCapabilityError(error) ? error : undefined;
+  const message = failure?.message ?? (error instanceof Error ? error.message : String(error));
+  return {
+    affectedItems: failure?.affectedItems ?? [{ kind: "host", value: host }],
+    kind: failure === undefined ? "host-capability-unclassified" : "host-capability",
+    message: displayProject === undefined
+      ? message
+      : `${displayProject}: ${message}`,
+    problem: failure?.problem ?? "Host capability preflight could not complete",
+    project,
+    remedy: failure?.remedy ?? "Inspect the underlying error before retrying",
+    requirement: failure?.requirement ?? capabilityRequirement(host),
+    scope: "project",
+  };
+}
 
 export function isStructuredBlocker(input: unknown): input is StructuredReconciliationBlocker {
   return input !== null && typeof input === "object" && STRUCTURED_BLOCKER in input;

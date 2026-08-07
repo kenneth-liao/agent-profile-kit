@@ -7,6 +7,7 @@ import { parse, stringify } from "yaml";
 
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
+import { capabilityFailure } from "./capability.js";
 import {
   DISABLED_MODEL_INVOCATION_REQUIREMENT,
   planSkillPackageDirectory,
@@ -185,8 +186,10 @@ export async function detectPiSkillSettingsWarnings(
 export function parsePiCliVersion(source: string): string {
   const match = source.match(/(\d+)\.(\d+)\.(\d+)/);
   if (!match) {
-    throw new Error(
-      `Pi CLI version is unreadable from '${source.trim()}'; install Pi ${PI_MINIMUM_CLI_VERSION}+ and ensure \`pi --version\` works before previewing or applying the Profile`,
+    throw capabilityFailure(
+      "pi",
+      `Pi CLI version is unreadable from '${source.trim()}'`,
+      `install Pi ${PI_MINIMUM_CLI_VERSION}+ and ensure \`pi --version\` works before previewing or applying the Profile`,
     );
   }
   return `${match[1]}.${match[2]}.${match[3]}`;
@@ -208,12 +211,16 @@ export function assertPiCliVersionSupported(
 ): void {
   if (compareSemver(version, PI_MINIMUM_CLI_VERSION) < 0) {
     if (options.requireDisabledModelInvocation) {
-      throw new Error(
-        `Pi CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${PI_MINIMUM_CLI_VERSION}+); upgrade Pi before previewing or applying the Profile`,
+      throw capabilityFailure(
+        "pi",
+        `Pi CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${PI_MINIMUM_CLI_VERSION}+)`,
+        "upgrade Pi before previewing or applying the Profile",
       );
     }
-    throw new Error(
-      `Pi CLI ${version} does not support project APPEND_SYSTEM.md Context discovery (requires ${PI_MINIMUM_CLI_VERSION}+); upgrade Pi before previewing or applying the Profile`,
+    throw capabilityFailure(
+      "pi",
+      `Pi CLI ${version} does not support project APPEND_SYSTEM.md Context discovery (requires ${PI_MINIMUM_CLI_VERSION}+)`,
+      "upgrade Pi before previewing or applying the Profile",
     );
   }
 }
@@ -229,8 +236,10 @@ async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string
     return parsePiCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw new Error(
-        "Pi CLI was not found on PATH; install Pi and ensure `pi --version` works before previewing or applying the Profile",
+      throw capabilityFailure(
+        "pi",
+        "Pi CLI was not found on PATH",
+        "install Pi and ensure `pi --version` works before previewing or applying the Profile",
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -244,8 +253,10 @@ async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string
         }
       }
     }
-    throw new Error(
-      `Pi CLI version could not be detected (${error instanceof Error ? error.message : String(error)}); install Pi ${PI_MINIMUM_CLI_VERSION}+ before previewing or applying the Profile`,
+    throw capabilityFailure(
+      "pi",
+      `Pi CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
+      `install Pi ${PI_MINIMUM_CLI_VERSION}+ before previewing or applying the Profile`,
     );
   }
 }
@@ -262,8 +273,13 @@ export async function assertPiProjectCapability(
   const piPath = join(project, ".pi");
   const piKind = await pathKind(piPath);
   if (piKind !== "missing" && piKind !== "directory") {
-    throw new Error(
-      `Pi project surface cannot host outputs: ${piPath} is a ${piKind}, not a directory`,
+    const problem = `Pi project surface cannot host outputs: ${piPath} is a ${piKind}, not a directory`;
+    throw capabilityFailure(
+      "pi",
+      problem,
+      "ensure the Pi project surface is a directory, then retry",
+      [{ kind: "path", value: piPath }],
+      problem,
     );
   }
 
@@ -271,8 +287,13 @@ export async function assertPiProjectCapability(
     const skillsPath = join(project, ".pi", "skills");
     const skillsKind = await pathKind(skillsPath);
     if (skillsKind !== "missing" && skillsKind !== "directory") {
-      throw new Error(
-        `Pi project surface cannot host Skills: ${skillsPath} is a ${skillsKind}, not a directory`,
+      const problem = `Pi project surface cannot host Skills: ${skillsPath} is a ${skillsKind}, not a directory`;
+      throw capabilityFailure(
+        "pi",
+        problem,
+        "ensure the Pi Skills surface is a directory, then retry",
+        [{ kind: "path", value: skillsPath }],
+        problem,
       );
     }
   }
@@ -281,12 +302,17 @@ export async function assertPiProjectCapability(
     const contextPath = join(project, ...PI_CONTEXT_PATH.split("/"));
     const contextKind = await pathKind(contextPath);
     if (contextKind !== "missing" && contextKind !== "file") {
-      throw new Error(
-        `Pi append-system destination cannot host Context: ${contextPath} is a ${contextKind}, not a regular file`,
+      const problem =
+        `Pi append-system destination cannot host Context: ${contextPath} is a ${contextKind}, not a regular file`;
+      throw capabilityFailure(
+        "pi",
+        problem,
+        "ensure the Pi Context destination is a regular file, then retry",
+        [{ kind: "path", value: contextPath }],
+        problem,
       );
     }
   }
-
 }
 
 function contextOutput(

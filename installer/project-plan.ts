@@ -16,6 +16,7 @@ import {
   assertGrokProjectCapability,
   detectGrokProjectConfigurationWarnings,
   GROK_ADAPTER_VERSION,
+  grokClaudeRulesTopologyCapabilityError,
   inferGrokClaudeRulesEnabledFromOutputs,
   inspectGrokProject,
   planGrokProject,
@@ -54,7 +55,7 @@ import { ENGINE_VERSION } from "./version.js";
 import { findGitProject, type GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
-import type { BlockerInput } from "./blockers.js";
+import { hostCapabilityBlocker, type BlockerInput } from "./blockers.js";
 
 export interface DesiredDirectoryFileMember {
   readonly bytes: string | Uint8Array;
@@ -457,6 +458,8 @@ export interface BuildDesiredStateOptions {
    * validate). Defaults to true for preview/apply.
    */
   readonly checkHostCapability?: boolean;
+  /** Injectable process environment for Host capability probes. */
+  readonly env?: NodeJS.ProcessEnv;
   /**
    * Prior Installation Manifests used only to preserve applied Grok Context
    * delivery topology when live inspection is unavailable (status).
@@ -513,6 +516,7 @@ export async function buildDesiredState(
     const requireContext = resolvedProfile.contexts.length > 0;
     const requireSkills = resolvedProfile.skills.length > 0;
     const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
+    const capabilityEnvironment = options.env === undefined ? {} : { env: options.env };
     for (const host of binding.hosts) {
       let grokInspection: GrokInspection | undefined;
       if (
@@ -521,16 +525,19 @@ export async function buildDesiredState(
         try {
           if (host === "codex") {
             await assertCodexProjectCapability(home, binding.canonicalProject, {
+              ...capabilityEnvironment,
               requireContext,
               requireDisabledModelInvocation,
             });
           } else if (host === "claude") {
             await assertClaudeProjectCapability(binding.canonicalProject, {
+              ...capabilityEnvironment,
               requireContext,
               requireDisabledModelInvocation,
             });
           } else if (host === "grok") {
             grokInspection = await assertGrokProjectCapability(binding.canonicalProject, {
+              ...capabilityEnvironment,
               home,
               requireContext,
               requireSkills,
@@ -538,6 +545,7 @@ export async function buildDesiredState(
             });
           } else if (host === "pi") {
             await assertPiProjectCapability(binding.canonicalProject, {
+              ...capabilityEnvironment,
               home,
               requireContext,
               requireDisabledModelInvocation,
@@ -546,7 +554,12 @@ export async function buildDesiredState(
           }
         } catch (error) {
           blockers.push(
-            `${binding.project}: ${error instanceof Error ? error.message : String(error)}`,
+            hostCapabilityBlocker(
+              error,
+              host,
+              binding.canonicalProject,
+              binding.project,
+            ),
           );
         }
       } else if (host === "grok" && options.resolveHostTopology === true) {
@@ -555,6 +568,7 @@ export async function buildDesiredState(
         if (needsContextTopology) {
           try {
             grokInspection = await inspectGrokProject(binding.canonicalProject, {
+              ...capabilityEnvironment,
               home,
             });
           } catch (error) {
@@ -650,7 +664,12 @@ export async function buildDesiredState(
             // Do not invent topology for status when inspection and applied state
             // cannot prove Claude rules compatibility.
             blockers.push(
-              `${binding.project}: Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available; restore \`grok inspect --json\` or re-apply before trusting status`,
+              hostCapabilityBlocker(
+                grokClaudeRulesTopologyCapabilityError(),
+                "grok",
+                binding.canonicalProject,
+                binding.project,
+              ),
             );
           }
         }

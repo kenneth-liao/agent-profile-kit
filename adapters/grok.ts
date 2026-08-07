@@ -10,6 +10,7 @@ import {
   CLAUDE_CONTEXT_RULE_PATH,
 } from "./claude.js";
 import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
+import { capabilityFailure } from "./capability.js";
 import type {
   AdapterHostSetupStep,
   AdapterDiagnosticWarning,
@@ -29,6 +30,14 @@ import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 import { parseTomlTable } from "./toml.js";
 
 const execFileAsync = promisify(execFile);
+
+/** Preserve Grok's topology diagnosis behind the Adapter boundary. */
+export function grokClaudeRulesTopologyCapabilityError() {
+  const problem =
+    "Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available";
+  const remedy = "restore `grok inspect --json` or re-apply before trusting status";
+  return capabilityFailure("grok", problem, remedy);
+}
 
 export const GROK_ADAPTER_VERSION = "grok-project-v1";
 
@@ -168,8 +177,10 @@ function memberBytesAsString(bytes: string | Uint8Array): string {
 export function parseGrokCliVersion(source: string): string {
   const match = source.match(/(\d+)\.(\d+)\.(\d+)/);
   if (!match) {
-    throw new Error(
-      `Grok CLI version is unreadable from '${source.trim()}'; install a supported Grok Build release`,
+    throw capabilityFailure(
+      "grok",
+      `Grok CLI version is unreadable from '${source.trim()}'`,
+      "install a supported Grok Build release",
     );
   }
   return `${match[1]}.${match[2]}.${match[3]}`;
@@ -200,22 +211,30 @@ export function assertGrokCliVersionSupported(
 ): void {
   if (compareSemver(version, GROK_MINIMUM_CLI_VERSION) < 0) {
     if (options.requireDisabledModelInvocation) {
-      throw new Error(
-        `Grok CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${GROK_MINIMUM_CLI_VERSION}+); upgrade Grok Build before previewing or applying the Profile`,
+      throw capabilityFailure(
+        "grok",
+        `Grok CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${GROK_MINIMUM_CLI_VERSION}+)`,
+        "upgrade Grok Build before previewing or applying the Profile",
       );
     }
     if (options.requireSkills) {
-      throw new Error(
-        `Grok CLI ${version} does not support native project Skills (requires ${GROK_MINIMUM_CLI_VERSION}+); upgrade Grok Build before previewing or applying the Profile`,
+      throw capabilityFailure(
+        "grok",
+        `Grok CLI ${version} does not support native project Skills (requires ${GROK_MINIMUM_CLI_VERSION}+)`,
+        "upgrade Grok Build before previewing or applying the Profile",
       );
     }
     if (options.requireContext === false) {
-      throw new Error(
-        `Grok CLI ${version} does not support native project Skills (requires ${GROK_MINIMUM_CLI_VERSION}+); upgrade Grok Build before previewing or applying the Profile`,
+      throw capabilityFailure(
+        "grok",
+        `Grok CLI ${version} does not support native project Skills (requires ${GROK_MINIMUM_CLI_VERSION}+)`,
+        "upgrade Grok Build before previewing or applying the Profile",
       );
     }
-    throw new Error(
-      `Grok CLI ${version} does not support project rules inspection (requires ${GROK_MINIMUM_CLI_VERSION}+); upgrade Grok Build before previewing or applying the Profile`,
+    throw capabilityFailure(
+      "grok",
+      `Grok CLI ${version} does not support project rules inspection (requires ${GROK_MINIMUM_CLI_VERSION}+)`,
+      "upgrade Grok Build before previewing or applying the Profile",
     );
   }
 }
@@ -231,8 +250,10 @@ async function resolveGrokCliVersion(options: GrokCapabilityOptions): Promise<st
     return parseGrokCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw new Error(
-        "Grok CLI was not found on PATH; install Grok Build and ensure `grok version` works before previewing or applying the Profile",
+      throw capabilityFailure(
+        "grok",
+        "Grok CLI was not found on PATH",
+        "install Grok Build and ensure `grok version` works before previewing or applying the Profile",
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -246,8 +267,10 @@ async function resolveGrokCliVersion(options: GrokCapabilityOptions): Promise<st
         }
       }
     }
-    throw new Error(
-      `Grok CLI version could not be detected (${error instanceof Error ? error.message : String(error)}); install a supported Grok Build release before previewing or applying the Profile`,
+    throw capabilityFailure(
+      "grok",
+      `Grok CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
+      "install a supported Grok Build release before previewing or applying the Profile",
     );
   }
 }
@@ -413,8 +436,10 @@ function parseCompatCellEnabled(
   if (!cell || typeof cell !== "object" || Array.isArray(cell)) return undefined;
   const enabled = (cell as Record<string, unknown>).enabled;
   if (typeof enabled !== "boolean") {
-    throw new Error(
-      `Grok inspect --json ${description} cell is unreadable; upgrade Grok Build before previewing or applying the Profile`,
+    throw capabilityFailure(
+      "grok",
+      `Grok inspect --json ${description} cell is unreadable`,
+      "upgrade Grok Build before previewing or applying the Profile",
     );
   }
   return enabled;
@@ -441,13 +466,17 @@ export function parseGrokInspectDocument(
   try {
     document = JSON.parse(source);
   } catch {
-    throw new Error(
-      "Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the CLI before previewing or applying the Profile",
+    throw capabilityFailure(
+      "grok",
+      "Grok inspect --json output is not valid JSON",
+      "upgrade Grok Build or fix the CLI before previewing or applying the Profile",
     );
   }
   if (typeof document !== "object" || document === null || Array.isArray(document)) {
-    throw new Error(
-      "Grok inspect --json output must be a JSON object; upgrade Grok Build before previewing or applying the Profile",
+    throw capabilityFailure(
+      "grok",
+      "Grok inspect --json output must be a JSON object",
+      "upgrade Grok Build before previewing or applying the Profile",
     );
   }
   const root = document as Record<string, unknown>;
@@ -457,21 +486,27 @@ export function parseGrokInspectDocument(
     externalCompat === null ||
     Array.isArray(externalCompat)
   ) {
-    throw new Error(
-      "Grok inspect --json output is missing externalCompat; upgrade Grok Build before previewing or applying the Profile",
+    throw capabilityFailure(
+      "grok",
+      "Grok inspect --json output is missing externalCompat",
+      "upgrade Grok Build before previewing or applying the Profile",
     );
   }
   const cells = (externalCompat as Record<string, unknown>).cells;
   if (!Array.isArray(cells)) {
-    throw new Error(
-      "Grok inspect --json externalCompat.cells must be an array; upgrade Grok Build before previewing or applying the Profile",
+    throw capabilityFailure(
+      "grok",
+      "Grok inspect --json externalCompat.cells must be an array",
+      "upgrade Grok Build before previewing or applying the Profile",
     );
   }
 
   const claudeRulesEnabled = parseCompatCellEnabled(cells, "claude", "rules", "Claude rules compatibility");
   if (claudeRulesEnabled === undefined) {
-    throw new Error(
-      "Grok inspect --json does not report the Claude rules compatibility cell; upgrade Grok Build before previewing or applying the Profile",
+    throw capabilityFailure(
+      "grok",
+      "Grok inspect --json does not report the Claude rules compatibility cell",
+      "upgrade Grok Build before previewing or applying the Profile",
     );
   }
 
@@ -511,8 +546,10 @@ export async function inspectGrokProject(
     return parseGrokInspectDocument(stdout, { version });
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw new Error(
-        "Grok CLI was not found on PATH; install Grok Build and ensure `grok inspect --json` works before previewing or applying the Profile",
+      throw capabilityFailure(
+        "grok",
+        "Grok CLI was not found on PATH",
+        "install Grok Build and ensure `grok inspect --json` works before previewing or applying the Profile",
       );
     }
     if (error instanceof Error && error.message.startsWith("Grok inspect")) {
@@ -534,8 +571,10 @@ export async function inspectGrokProject(
         }
       }
     }
-    throw new Error(
-      `Grok project inspection failed (${error instanceof Error ? error.message : String(error)}); ensure \`grok inspect --json\` works in the bound project before previewing or applying the Profile`,
+    throw capabilityFailure(
+      "grok",
+      `Grok project inspection failed (${error instanceof Error ? error.message : String(error)})`,
+      "ensure `grok inspect --json` works in the bound project before previewing or applying the Profile",
     );
   }
 }
@@ -589,8 +628,14 @@ export async function assertGrokProjectCapability(
   const grokPath = join(project, ".grok");
   const grokKind = await pathKind(grokPath);
   if (grokKind !== "missing" && grokKind !== "directory") {
-    throw new Error(
-      `Grok project surface cannot host outputs: ${grokPath} is a ${grokKind}, not a directory`,
+    const problem =
+      `Grok project surface cannot host outputs: ${grokPath} is a ${grokKind}, not a directory`;
+    throw capabilityFailure(
+      "grok",
+      problem,
+      "ensure the Grok project surface is a directory, then retry",
+      [{ kind: "path", value: grokPath }],
+      problem,
     );
   }
 
@@ -598,8 +643,14 @@ export async function assertGrokProjectCapability(
     const skillsPath = join(project, ".grok", "skills");
     const skillsKind = await pathKind(skillsPath);
     if (skillsKind !== "missing" && skillsKind !== "directory") {
-      throw new Error(
-        `Grok project surface cannot host Skills: ${skillsPath} is a ${skillsKind}, not a directory`,
+      const problem =
+        `Grok project surface cannot host Skills: ${skillsPath} is a ${skillsKind}, not a directory`;
+      throw capabilityFailure(
+        "grok",
+        problem,
+        "ensure the Grok Skills surface is a directory, then retry",
+        [{ kind: "path", value: skillsPath }],
+        problem,
       );
     }
   }
@@ -609,8 +660,14 @@ export async function assertGrokProjectCapability(
     const rulesPath = join(project, ".grok", "rules");
     const rulesKind = await pathKind(rulesPath);
     if (rulesKind !== "missing" && rulesKind !== "directory") {
-      throw new Error(
-        `Grok project surface cannot host unscoped rules: ${rulesPath} is a ${rulesKind}, not a directory`,
+      const problem =
+        `Grok project surface cannot host unscoped rules: ${rulesPath} is a ${rulesKind}, not a directory`;
+      throw capabilityFailure(
+        "grok",
+        problem,
+        "ensure the Grok rules surface is a directory, then retry",
+        [{ kind: "path", value: rulesPath }],
+        problem,
       );
     }
   }
