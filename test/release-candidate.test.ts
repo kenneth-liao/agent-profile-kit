@@ -17,9 +17,15 @@ import { parse } from "yaml";
 
 import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
 import { humanText } from "./support/human-text.js";
+import {
+  expectExitCode,
+  runProcess,
+} from "./support/process-executor.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
+/** Per-child deadline for packed-CLI and PTY launches; must stay under the 10s bun test timeout. */
+const CLI_DEADLINE_MS = 8000;
 
 /**
  * Parse the minimum Node major from package.json engines.node.
@@ -178,18 +184,21 @@ function statePath(home: string): string {
   return join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml");
 }
 
-function runCli(
+async function runCli(
   home: string,
   arguments_: readonly string[],
   options: { readonly path?: string } = {},
 ) {
-  return spawnSync(nodeBinary, [cliPath, ...arguments_], {
-    encoding: "utf8",
-    env: {
+  return runProcess({
+    executable: nodeBinary,
+    arguments_: [cliPath, ...arguments_],
+    environment: {
       ...process.env,
       HOME: home,
       ...(options.path === undefined ? {} : { PATH: options.path }),
     },
+    deadlineMs: CLI_DEADLINE_MS,
+    commandLabel: "packed CLI",
   });
 }
 
@@ -327,7 +336,7 @@ function filesUnder(root: string): readonly string[] {
 }
 
 describe("project-bound release candidate", () => {
-  test("packed CLI execution uses a supported Node.js runtime, not Bun", () => {
+  test("packed CLI execution uses a supported Node.js runtime, not Bun", async () => {
     expect(enginesNodeRange).toBe(
       (
         JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
@@ -349,7 +358,7 @@ describe("project-bound release candidate", () => {
     expect(Number(identity.node.split(".")[0])).toBeGreaterThanOrEqual(minimumNodeMajor);
   });
 
-  test("package manifest is the sole engine version and packed provenance matches it", () => {
+  test("package manifest is the sole engine version and packed provenance matches it", async () => {
     const rootManifest = JSON.parse(
       readFileSync(join(repositoryRoot, "package.json"), "utf8"),
     ) as { version: string; workspaces?: unknown };
@@ -362,14 +371,14 @@ describe("project-bound release candidate", () => {
     }
 
     const home = isolatedHome();
-    expect(runCli(home, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(home, ["init"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
     const projectPath = project();
     writeBindings(home, [{ project: projectPath, hosts: ["codex"] }]);
     const pathWithHosts = installControlledHosts(home);
 
-    expect(runCli(home, ["apply"], { path: pathWithHosts }).status).toBe(0);
+    expectExitCode(await runCli(home, ["apply"], { path: pathWithHosts }), 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: Array<{ engine_version: string; adapter_version: string }>;
     };
@@ -378,7 +387,7 @@ describe("project-bound release candidate", () => {
     expect(state.installations[0]?.adapter_version).toBe("codex-project-v2");
   });
 
-  test("installing the package alone changes no Workspace, Local Configuration, project, Git, or Host state", () => {
+  test("installing the package alone changes no Workspace, Local Configuration, project, Git, or Host state", async () => {
     const home = isolatedHome();
     const plainProject = project();
     writeFileSync(join(plainProject, "README.md"), "untouched\n");
@@ -423,11 +432,14 @@ describe("project-bound release candidate", () => {
       .toBe(true);
 
     const installedCli = join(installPrefix, "node_modules", ".bin", "apkit");
-    const guide = spawnSync(installedCli, ["guide"], {
-      encoding: "utf8",
-      env: { ...process.env, HOME: home },
+    const guide = await runProcess({
+      executable: installedCli,
+      arguments_: ["guide"],
+      environment: { ...process.env, HOME: home },
+      deadlineMs: CLI_DEADLINE_MS,
+      commandLabel: "installed apkit",
     });
-    expect(guide.status, guide.stderr).toBe(0);
+    expectExitCode(guide, 0);
 
     expect(existsSync(workspacePath(home))).toBe(false);
     expect(existsSync(configPath(home))).toBe(false);
@@ -442,7 +454,7 @@ describe("project-bound release candidate", () => {
     ).toBe(gitStatusBefore);
   });
 
-  test("packed distribution excludes credentials, runtime state, and removed commands", () => {
+  test("packed distribution excludes credentials, runtime state, and removed commands", async () => {
     // Exact file allowlist lives only in release-boundary.test.ts.
     const packageDocuments = filesUnder(packageRoot).map((path) => ({
       path,
@@ -461,10 +473,10 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(packageRoot, "state"))).toBe(false);
   });
 
-  test("packed CLI acceptance journey covers exact-root and explicit-checkout lifecycles", () => {
+  test("packed CLI acceptance journey covers exact-root and explicit-checkout lifecycles", async () => {
     const home = isolatedHome();
-    const init = runCli(home, ["init"]);
-    expect(init.status, init.stderr).toBe(0);
+    const init = await runCli(home, ["init"]);
+    expectExitCode(init, 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
 
@@ -483,11 +495,11 @@ describe("project-bound release candidate", () => {
       { project: gitRoot, hosts: ["codex"] },
     ]);
 
-    const validate = runCli(home, ["validate"], { path: pathWithClaude });
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCli(home, ["validate"], { path: pathWithClaude });
+    expectExitCode(validate, 0);
 
-    const preview = runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
+    expectExitCode(preview, 0);
     expect(preview.stdout).toContain(nonGitCodex);
     expect(preview.stdout).toContain(claudeOnly);
     expect(preview.stdout).toContain(combined);
@@ -497,8 +509,8 @@ describe("project-bound release candidate", () => {
       humanText(`Launch Codex from the exact bound project root: ${nonGitCodex}`),
     );
 
-    const apply = runCli(home, ["apply"], { path: pathWithClaude });
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCli(home, ["apply"], { path: pathWithClaude });
+    expectExitCode(apply, 0);
 
     expect(existsSync(join(nonGitCodex, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(claudeOnly, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
@@ -508,8 +520,8 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(existingWorktree, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(existingWorktree, ".codex"))).toBe(false);
 
-    const statusCurrent = runCli(home, ["status", "--verbose"], { path: pathWithClaude });
-    expect(statusCurrent.status, statusCurrent.stderr).toBe(0);
+    const statusCurrent = await runCli(home, ["status", "--verbose"], { path: pathWithClaude });
+    expectExitCode(statusCurrent, 0);
     expect(humanText(statusCurrent.stdout)).toContain(humanText(`${gitRoot}: current`));
     expect(statusCurrent.stdout).not.toContain(existingWorktree);
 
@@ -521,31 +533,31 @@ describe("project-bound release candidate", () => {
       { project: existingWorktree, profile: "review", hosts: ["claude"] },
     ]);
 
-    const explicitPreview = runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
-    expect(explicitPreview.status, explicitPreview.stderr).toBe(0);
+    const explicitPreview = await runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
+    expectExitCode(explicitPreview, 0);
     expect(humanText(explicitPreview.stdout)).toContain(
       humanText(`${existingWorktree}: Profile review`),
     );
 
-    const explicitApply = runCli(home, ["apply"], { path: pathWithClaude });
-    expect(explicitApply.status, explicitApply.stderr).toBe(0);
+    const explicitApply = await runCli(home, ["apply"], { path: pathWithClaude });
+    expectExitCode(explicitApply, 0);
     expect(existsSync(join(existingWorktree, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     expect(existsSync(join(existingWorktree, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
 
-    const explicitStatus = runCli(home, ["status", "--verbose"], { path: pathWithClaude });
-    expect(explicitStatus.status, explicitStatus.stderr).toBe(0);
+    const explicitStatus = await runCli(home, ["status", "--verbose"], { path: pathWithClaude });
+    expectExitCode(explicitStatus, 0);
     expect(humanText(explicitStatus.stdout)).toContain(humanText(`${existingWorktree}: current`));
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
       "---\nid: team-rules\ndependencies: []\n---\nUpdated release-candidate Context.\n",
     );
-    const staleStatus = runCli(home, ["status"], { path: pathWithClaude });
-    expect(staleStatus.status, staleStatus.stderr).toBe(0);
+    const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
+    expectExitCode(staleStatus, 0);
     expect(staleStatus.stdout).toMatch(/stale/i);
 
-    const reapply = runCli(home, ["apply"], { path: pathWithClaude });
-    expect(reapply.status, reapply.stderr).toBe(0);
+    const reapply = await runCli(home, ["apply"], { path: pathWithClaude });
+    expectExitCode(reapply, 0);
     expect(
       readFileSync(join(nonGitCodex, ".agent-profile-kit", "codex", "context.md"), "utf8"),
     ).toContain("Updated release-candidate Context.");
@@ -578,8 +590,8 @@ describe("project-bound release candidate", () => {
       { project: nonGitCodex, hosts: ["codex"] },
       { project: gitRoot, hosts: ["codex"] },
     ]);
-    const removeApply = runCli(home, ["apply"], { path: pathWithClaude });
-    expect(removeApply.status, removeApply.stderr).toBe(0);
+    const removeApply = await runCli(home, ["apply"], { path: pathWithClaude });
+    expectExitCode(removeApply, 0);
     expect(existsSync(join(claudeOnly, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
     expect(existsSync(join(combined, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
     expect(existsSync(join(combined, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
@@ -587,8 +599,8 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(gitRoot, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(existingWorktree, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
 
-    const uninstall = runCli(home, ["uninstall"], { path: pathWithClaude });
-    expect(uninstall.status, uninstall.stderr).toBe(0);
+    const uninstall = await runCli(home, ["uninstall"], { path: pathWithClaude });
+    expectExitCode(uninstall, 0);
     expect(existsSync(join(nonGitCodex, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(gitRoot, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(existingWorktree, ".agent-profile-kit", "installation.json"))).toBe(false);
@@ -597,9 +609,9 @@ describe("project-bound release candidate", () => {
     expect(readFileSync(configPath(home), "utf8")).toContain(nonGitCodex);
   }, 15_000);
 
-  test("packed CLI installs Pi Context, records its Capability Contract, and fails closed on unsupported Pi", () => {
+  test("packed CLI installs Pi Context, records its Capability Contract, and fails closed on unsupported Pi", async () => {
     const home = isolatedHome();
-    expect(runCli(home, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(home, ["init"]), 0);
     writeWorkspaceAuthoring(home);
     const projectPath = project("agent-profile-kit-rc-pi-");
     const combinedProject = project("agent-profile-kit-rc-pi-combined-");
@@ -616,10 +628,10 @@ describe("project-bound release candidate", () => {
     ]);
 
     const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
-    const preview = runCli(home, ["preview"], { path: supportedPath });
-    expect(preview.status, preview.stderr).toBe(0);
-    const apply = runCli(home, ["apply"], { path: supportedPath });
-    expect(apply.status, apply.stderr).toBe(0);
+    const preview = await runCli(home, ["preview"], { path: supportedPath });
+    expectExitCode(preview, 0);
+    const apply = await runCli(home, ["apply"], { path: supportedPath });
+    expectExitCode(apply, 0);
     expect(existsSync(join(projectPath, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
     expect(existsSync(join(combinedProject, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
     expect(existsSync(join(combinedProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
@@ -643,13 +655,13 @@ describe("project-bound release candidate", () => {
     expect(combinedInstallation?.host_versions.pi).toBe("native-project-append-system-v1");
     expect(combinedInstallation?.host_versions.claude).toBe("native-project-unscoped-rules-skills-v1");
 
-    const status = runCli(home, ["status"], { path: supportedPath });
-    expect(status.status, status.stderr).toBe(0);
+    const status = await runCli(home, ["status"], { path: supportedPath });
+    expectExitCode(status, 0);
     expect(status.stdout).toMatch(/current/i);
 
     writeBindings(home, []);
-    const remove = runCli(home, ["apply"], { path: supportedPath });
-    expect(remove.status, remove.stderr).toBe(0);
+    const remove = await runCli(home, ["apply"], { path: supportedPath });
+    expectExitCode(remove, 0);
     expect(existsSync(join(projectPath, ".pi", "APPEND_SYSTEM.md"))).toBe(false);
     expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe("native settings\n");
     expect(existsSync(join(combinedProject, ".pi", "APPEND_SYSTEM.md"))).toBe(false);
@@ -658,32 +670,32 @@ describe("project-bound release candidate", () => {
     expect(readFileSync(trustPath, "utf8")).toBe(`{"${projectPath}":true,"${combinedProject}":false}\n`);
 
     const unsupportedHome = isolatedHome();
-    expect(runCli(unsupportedHome, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(unsupportedHome, ["init"]), 0);
     writeWorkspaceAuthoring(unsupportedHome);
     const unsupportedProject = project("agent-profile-kit-rc-pi-old-");
     writeBindings(unsupportedHome, [{ project: unsupportedProject, hosts: ["pi"] }]);
     const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
-    const oldPreview = runCli(unsupportedHome, ["preview"], { path: oldPath });
-    expect(oldPreview.status).toBe(2);
+    const oldPreview = await runCli(unsupportedHome, ["preview"], { path: oldPath });
+    expectExitCode(oldPreview, 2);
     expect(humanText(`${oldPreview.stdout}${oldPreview.stderr}`)).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
 
     const missingHome = isolatedHome();
-    expect(runCli(missingHome, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(missingHome, ["init"]), 0);
     writeWorkspaceAuthoring(missingHome);
     const missingProject = project("agent-profile-kit-rc-pi-missing-");
     writeBindings(missingHome, [{ project: missingProject, hosts: ["pi"] }]);
     installControlledHosts(missingHome);
     const noPiPath = join(missingHome, "bin");
-    const missingPreview = runCli(missingHome, ["preview"], { path: noPiPath });
-    expect(missingPreview.status).toBe(2);
+    const missingPreview = await runCli(missingHome, ["preview"], { path: noPiPath });
+    expectExitCode(missingPreview, 2);
     expect(`${missingPreview.stdout}${missingPreview.stderr}`).toMatch(/Pi CLI was not found/i);
     expect(existsSync(join(missingProject, ".pi"))).toBe(false);
   });
 
-  test("packed CLI installs Pi Skills with the non-invocation Capability Contract", () => {
+  test("packed CLI installs Pi Skills with the non-invocation Capability Contract", async () => {
     const home = isolatedHome();
-    expect(runCli(home, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(home, ["init"]), 0);
     writeWorkspaceAuthoring(home);
     writeSkill(home, "review-pr", { body: "# Review\n" });
     writeProfile(home, "coding", { context: ["team-rules"], skills: ["review-pr"] });
@@ -698,11 +710,11 @@ describe("project-bound release candidate", () => {
     writeBindings(home, [{ project: projectPath, hosts: ["pi"] }]);
 
     const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
-    const preview = runCli(home, ["preview", "--verbose"], { path: supportedPath });
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, ["preview", "--verbose"], { path: supportedPath });
+    expectExitCode(preview, 0);
     expect(preview.stdout).toMatch(/\.pi\/skills\/review-pr|review-pr/i);
-    const apply = runCli(home, ["apply"], { path: supportedPath });
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCli(home, ["apply"], { path: supportedPath });
+    expectExitCode(apply, 0);
     expect(readFileSync(join(projectPath, ".pi", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "name: review-pr",
     );
@@ -719,8 +731,8 @@ describe("project-bound release candidate", () => {
 
     const dynamicSettings = '{"extensions":["./dynamic.ts"]}\n';
     writeFileSync(join(projectPath, ".pi", "settings.json"), dynamicSettings);
-    const resolvedStatus = runCli(home, ["status"], { path: supportedPath });
-    expect(resolvedStatus.status, resolvedStatus.stderr).toBe(0);
+    const resolvedStatus = await runCli(home, ["status"], { path: supportedPath });
+    expectExitCode(resolvedStatus, 0);
     expect(resolvedStatus.stdout).toContain("All Projects are current");
     expect(`${resolvedStatus.stdout}${resolvedStatus.stderr}`).not.toMatch(/dynamic\.ts|blocked/i);
     expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe(dynamicSettings);
@@ -729,9 +741,9 @@ describe("project-bound release candidate", () => {
     );
   });
 
-  test("packed CLI projects mixed Pi invocation policies with independent Skills-only and combined contracts", () => {
+  test("packed CLI projects mixed Pi invocation policies with independent Skills-only and combined contracts", async () => {
     const home = isolatedHome();
-    expect(runCli(home, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(home, ["init"]), 0);
     writeWorkspaceAuthoring(home);
     writeSkill(home, "allowed-skill", { modelInvocation: "allowed", body: "# Allowed\n" });
     writeSkill(home, "explicit-skill", { modelInvocation: "disabled", body: "# Explicit\n" });
@@ -753,10 +765,10 @@ describe("project-bound release candidate", () => {
     );
 
     const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
-    const preview = runCli(home, ["preview"], { path: supportedPath });
-    expect(preview.status, preview.stderr).toBe(0);
-    const apply = runCli(home, ["apply"], { path: supportedPath });
-    expect(apply.status, apply.stderr).toBe(0);
+    const preview = await runCli(home, ["preview"], { path: supportedPath });
+    expectExitCode(preview, 0);
+    const apply = await runCli(home, ["apply"], { path: supportedPath });
+    expectExitCode(apply, 0);
 
     const generatedSkillsOnly = readFileSync(
       join(skillsOnlyProject, ".pi", "skills", "explicit-skill", "SKILL.md"),
@@ -798,20 +810,20 @@ describe("project-bound release candidate", () => {
     );
 
     const unsupportedHome = isolatedHome();
-    expect(runCli(unsupportedHome, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(unsupportedHome, ["init"]), 0);
     writeWorkspaceAuthoring(unsupportedHome);
     writeSkill(unsupportedHome, "explicit-skill", { modelInvocation: "disabled" });
     writeProfile(unsupportedHome, "coding", { skills: ["explicit-skill"] });
     const unsupportedProject = project("agent-profile-kit-rc-pi-invocation-old-");
     writeBindings(unsupportedHome, [{ project: unsupportedProject, hosts: ["pi"] }]);
     const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
-    const oldPreview = runCli(unsupportedHome, ["preview"], { path: oldPath });
-    expect(oldPreview.status).toBe(2);
+    const oldPreview = await runCli(unsupportedHome, ["preview"], { path: oldPath });
+    expectExitCode(oldPreview, 2);
     expect(humanText(`${oldPreview.stdout}${oldPreview.stderr}`)).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
 
     const malformedHome = isolatedHome();
-    expect(runCli(malformedHome, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(malformedHome, ["init"]), 0);
     writeWorkspaceAuthoring(malformedHome);
     writeSkill(malformedHome, "explicit-skill", { modelInvocation: "disabled" });
     writeProfile(malformedHome, "coding", { skills: ["explicit-skill"] });
@@ -822,15 +834,15 @@ describe("project-bound release candidate", () => {
     const malformedProject = project("agent-profile-kit-rc-pi-invocation-malformed-");
     writeBindings(malformedHome, [{ project: malformedProject, hosts: ["pi"] }]);
     const malformedPath = installControlledHosts(malformedHome, { piVersion: "0.82.1" });
-    const malformedPreview = runCli(malformedHome, ["preview"], { path: malformedPath });
-    expect(malformedPreview.status).toBe(1);
+    const malformedPreview = await runCli(malformedHome, ["preview"], { path: malformedPath });
+    expectExitCode(malformedPreview, 1);
     expect(`${malformedPreview.stdout}${malformedPreview.stderr}`).toMatch(/invalid YAML|frontmatter/i);
     expect(existsSync(join(malformedProject, ".pi"))).toBe(false);
   });
 
-  test("unsupported artifact categories, Host versions, Hosts, and project surfaces fail before writes", () => {
+  test("unsupported artifact categories, Host versions, Hosts, and project surfaces fail before writes", async () => {
     const home = isolatedHome();
-    expect(runCli(home, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(home, ["init"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
     const projectPath = project();
@@ -840,16 +852,16 @@ describe("project-bound release candidate", () => {
       "id: coding\ncontext: [team-rules]\nskills: []\nagents: [reviewer]\nhooks: []\ntools: []\n",
     );
     writeBindings(home, [{ project: projectPath, hosts: ["codex"] }]);
-    const unsupportedAgents = runCli(home, ["apply"]);
-    expect(unsupportedAgents.status).toBe(1);
+    const unsupportedAgents = await runCli(home, ["apply"]);
+    expectExitCode(unsupportedAgents, 1);
     expect(unsupportedAgents.stderr).toMatch(/agents.*this release does not support/i);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
 
     writeWorkspaceAuthoring(home);
     writeBindings(home, [{ project: projectPath, hosts: ["cursor"] }]);
-    const unsupportedHost = runCli(home, ["apply"]);
-    expect(unsupportedHost.status).toBe(1);
+    const unsupportedHost = await runCli(home, ["apply"]);
+    expectExitCode(unsupportedHost, 1);
     expect(unsupportedHost.stderr).toContain("unsupported Agent Host 'cursor'");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
 
@@ -861,8 +873,8 @@ describe("project-bound release candidate", () => {
       execFileSync("chmod", ["+x", join(bin, "claude")]);
       return `${bin}:${process.env.PATH ?? ""}`;
     })();
-    const oldClaude = runCli(home, ["apply"], { path: oldClaudePath });
-    expect(oldClaude.status).toBe(2);
+    const oldClaude = await runCli(home, ["apply"], { path: oldClaudePath });
+    expectExitCode(oldClaude, 2);
     expect(`${oldClaude.stdout}${oldClaude.stderr}`).toMatch(
       /does not support unscoped project rules|requires 2\.0\.64/i,
     );
@@ -871,16 +883,16 @@ describe("project-bound release candidate", () => {
     // Non-directory Host project surface fails closed before writes.
     writeFileSync(join(projectPath, ".claude"), "not a directory\n");
     const goodClaudePath = installFakeClaude(home);
-    const surface = runCli(home, ["apply"], { path: goodClaudePath });
-    expect(surface.status).toBe(2);
+    const surface = await runCli(home, ["apply"], { path: goodClaudePath });
+    expectExitCode(surface, 2);
     expect(`${surface.stdout}${surface.stderr}`).toMatch(/\.claude/i);
     expect(readFileSync(join(projectPath, ".claude"), "utf8")).toBe("not a directory\n");
     expect(existsSync(join(projectPath, ".claude", "rules"))).toBe(false);
   });
 
-  test("packed CLI translates absent and disabled model-invocation policy for Codex-only, Claude-only, and combined bindings", () => {
+  test("packed CLI translates absent and disabled model-invocation policy for Codex-only, Claude-only, and combined bindings", async () => {
     const home = isolatedHome();
-    expect(runCli(home, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(home, ["init"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
     writeSkill(home, "plain-skill", { modelInvocation: "absent" });
@@ -899,10 +911,10 @@ describe("project-bound release candidate", () => {
       { project: combined, hosts: ["codex", "claude"] },
     ]);
 
-    const absentValidate = runCli(home, ["validate"], { path: pathWithHosts });
-    expect(absentValidate.status, absentValidate.stderr).toBe(0);
-    const absentApply = runCli(home, ["apply"], { path: pathWithHosts });
-    expect(absentApply.status, absentApply.stderr).toBe(0);
+    const absentValidate = await runCli(home, ["validate"], { path: pathWithHosts });
+    expectExitCode(absentValidate, 0);
+    const absentApply = await runCli(home, ["apply"], { path: pathWithHosts });
+    expectExitCode(absentApply, 0);
 
     // Absent policy installs as allowed: no Host restriction fields on any binding.
     expect(existsSync(join(codexOnly, ".agents", "skills", "plain-skill", "agents", "openai.yaml"))).toBe(
@@ -920,8 +932,8 @@ describe("project-bound release candidate", () => {
 
     // Switch to disabled Skill and re-apply for Host-native translation.
     writeProfile(home, "coding", { context: ["team-rules"], skills: ["to-spec"] });
-    const disabledApply = runCli(home, ["apply"], { path: pathWithHosts });
-    expect(disabledApply.status, disabledApply.stderr).toBe(0);
+    const disabledApply = await runCli(home, ["apply"], { path: pathWithHosts });
+    expectExitCode(disabledApply, 0);
 
     const codexPolicy = parse(
       readFileSync(join(codexOnly, ".agents", "skills", "to-spec", "agents", "openai.yaml"), "utf8"),
@@ -949,10 +961,10 @@ describe("project-bound release candidate", () => {
     );
   });
 
-  test("packed CLI Skills-only Profile covers validate through source update, binding removal, and uninstall without Context machinery", () => {
+  test("packed CLI Skills-only Profile covers validate through source update, binding removal, and uninstall without Context machinery", async () => {
     const home = isolatedHome();
     // Skills-only must not require Codex SessionStart hooks configuration.
-    expect(runCli(home, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(home, ["init"]), 0);
     writeSkill(home, "review-pr");
     writeProfile(home, "engineering", { skills: ["review-pr"] });
 
@@ -964,19 +976,19 @@ describe("project-bound release candidate", () => {
       { project: secondProject, hosts: ["codex"], profile: "engineering" },
     ]);
 
-    const validate = runCli(home, ["validate"], { path: pathWithClaude });
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCli(home, ["validate"], { path: pathWithClaude });
+    expectExitCode(validate, 0);
 
-    const preview = runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
+    expectExitCode(preview, 0);
     expect(preview.stdout).toContain(".agents/skills/review-pr");
     expect(preview.stdout).toContain(".claude/skills/review-pr");
     expect(preview.stdout).not.toContain(".agent-profile-kit/codex/context.md");
     expect(preview.stdout).not.toContain(".codex/hooks.json");
     expect(preview.stdout).not.toContain(".claude/rules/agent-profile-kit.md");
 
-    const apply = runCli(home, ["apply"], { path: pathWithClaude });
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCli(home, ["apply"], { path: pathWithClaude });
+    expectExitCode(apply, 0);
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(secondProject, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
@@ -984,17 +996,17 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
 
-    const statusCurrent = runCli(home, ["status"], { path: pathWithClaude });
-    expect(statusCurrent.status, statusCurrent.stderr).toBe(0);
+    const statusCurrent = await runCli(home, ["status"], { path: pathWithClaude });
+    expectExitCode(statusCurrent, 0);
     expect(statusCurrent.stdout).toMatch(/current/i);
 
     // Source update: change Skill body and re-apply.
     writeSkill(home, "review-pr", { body: "# Review updated for release candidate\n" });
-    const staleStatus = runCli(home, ["status"], { path: pathWithClaude });
-    expect(staleStatus.status, staleStatus.stderr).toBe(0);
+    const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
+    expectExitCode(staleStatus, 0);
     expect(staleStatus.stdout).toMatch(/stale/i);
-    const reapply = runCli(home, ["apply"], { path: pathWithClaude });
-    expect(reapply.status, reapply.stderr).toBe(0);
+    const reapply = await runCli(home, ["apply"], { path: pathWithClaude });
+    expectExitCode(reapply, 0);
     expect(
       readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8"),
     ).toContain("updated for release candidate");
@@ -1006,23 +1018,23 @@ describe("project-bound release candidate", () => {
     writeBindings(home, [
       { project: projectPath, hosts: ["codex", "claude"], profile: "engineering" },
     ]);
-    const removeApply = runCli(home, ["apply"], { path: pathWithClaude });
-    expect(removeApply.status, removeApply.stderr).toBe(0);
+    const removeApply = await runCli(home, ["apply"], { path: pathWithClaude });
+    expectExitCode(removeApply, 0);
     expect(existsSync(join(secondProject, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
 
-    const uninstall = runCli(home, ["uninstall"], { path: pathWithClaude });
-    expect(uninstall.status, uninstall.stderr).toBe(0);
+    const uninstall = await runCli(home, ["uninstall"], { path: pathWithClaude });
+    expectExitCode(uninstall, 0);
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr"))).toBe(false);
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
   });
 
-  test("packed CLI delegates global Skill identities to Codex and Claude Host Resolution", () => {
+  test("packed CLI delegates global Skill identities to Codex and Claude Host Resolution", async () => {
     const home = isolatedHome();
-    expect(runCli(home, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(home, ["init"]), 0);
     // No Codex hooks: Skills-only Profile must still hit global preflight without Context capability.
     writeSkill(home, "review-pr");
     writeProfile(home, "engineering", { skills: ["review-pr"] });
@@ -1046,13 +1058,13 @@ describe("project-bound release candidate", () => {
     const codexGlobalBody = readFileSync(join(codexGlobal, "SKILL.md"), "utf8");
     const claudeGlobalBody = readFileSync(join(claudeGlobal, "SKILL.md"), "utf8");
 
-    const preview = runCli(home, ["preview"], { path: pathWithHosts });
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, ["preview"], { path: pathWithHosts });
+    expectExitCode(preview, 0);
     const previewText = `${preview.stdout}${preview.stderr}`;
     expect(previewText).not.toMatch(/personal\/global Skill|remove or relocate/i);
 
-    const apply = runCli(home, ["apply"], { path: pathWithHosts });
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCli(home, ["apply"], { path: pathWithHosts });
+    expectExitCode(apply, 0);
 
     expect(existsSync(join(codexProject, ".agents", "skills", "review-pr"))).toBe(true);
     expect(existsSync(join(codexAltProject, ".agents", "skills", "review-pr"))).toBe(true);
@@ -1067,9 +1079,9 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml"))).toBe(true);
   });
 
-  test("minimal and partial Workspaces prove optional scaffolding without weakening Manifest or artifact validation", () => {
+  test("minimal and partial Workspaces prove optional scaffolding without weakening Manifest or artifact validation", async () => {
     const home = isolatedHome();
-    expect(runCli(home, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(home, ["init"]), 0);
     enableCodexHooks(home);
     const workspace = workspacePath(home);
 
@@ -1079,12 +1091,12 @@ describe("project-bound release candidate", () => {
     }
     expect(readdirSync(workspace).sort()).toEqual(["workspace.yaml"]);
 
-    const minimalValidate = runCli(home, ["validate"]);
-    expect(minimalValidate.status, minimalValidate.stderr).toBe(0);
+    const minimalValidate = await runCli(home, ["validate"]);
+    expectExitCode(minimalValidate, 0);
     expect(minimalValidate.stdout).toContain("Workspace and Local Configuration valid");
 
     // Re-init must not restore optional scaffolding.
-    expect(runCli(home, ["init"]).status).toBe(0);
+    expectExitCode(await runCli(home, ["init"]), 0);
     expect(readdirSync(workspace).sort()).toEqual(["workspace.yaml"]);
 
     // Partial Workspace: only profiles + skills present; other categories absent.
@@ -1101,8 +1113,8 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(workspace, "context"))).toBe(false);
     expect(existsSync(join(workspace, "agents"))).toBe(false);
 
-    const partialValidate = runCli(home, ["validate"]);
-    expect(partialValidate.status, partialValidate.stderr).toBe(0);
+    const partialValidate = await runCli(home, ["validate"]);
+    expectExitCode(partialValidate, 0);
     expect(partialValidate.stdout).toContain("1 Profile");
 
     // Present malformed artifacts still fail at ingestion (scaffolding optional ≠ validation weak).
@@ -1111,8 +1123,8 @@ describe("project-bound release candidate", () => {
       join(workspace, "skills", "bad-skill", "SKILL.md"),
       "---\nname: bad-skill\ndescription: Missing closing frontmatter\n# Bad\n",
     );
-    const badArtifact = runCli(home, ["validate"]);
-    expect(badArtifact.status).toBe(1);
+    const badArtifact = await runCli(home, ["validate"]);
+    expectExitCode(badArtifact, 1);
     expect(`${badArtifact.stdout}${badArtifact.stderr}`).toMatch(/skill|frontmatter|YAML|malformed/i);
     rmSync(join(workspace, "skills", "bad-skill"), { recursive: true, force: true });
 
@@ -1120,22 +1132,22 @@ describe("project-bound release candidate", () => {
     writeBindings(home, [
       { project: projectPath, hosts: ["codex"], profile: "engineering" },
     ]);
-    const apply = runCli(home, ["apply"]);
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCli(home, ["apply"]);
+    expectExitCode(apply, 0);
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
 
     // Malformed Manifest still fails closed.
     writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 999\n");
-    const malformed = runCli(home, ["validate"]);
-    expect(malformed.status).toBe(1);
+    const malformed = await runCli(home, ["validate"]);
+    expectExitCode(malformed, 1);
     expect(`${malformed.stdout}${malformed.stderr}`).toMatch(/schema|workspace\.yaml|unsupported/i);
   });
 
-  test("packed guidance describes Skills-only Profiles, universal ownership, and Host Resolution", () => {
+  test("packed guidance describes Skills-only Profiles, universal ownership, and Host Resolution", async () => {
     const home = isolatedHome();
-    const human = runCli(home, ["guide", "--full"]);
-    expect(human.status, human.stderr).toBe(0);
+    const human = await runCli(home, ["guide", "--full"]);
+    expectExitCode(human, 0);
     expect(human.stdout).toMatch(/model-invocation|agent-profile-kit\.model-invocation/i);
     expect(human.stdout).toMatch(/disabled|allowed/i);
     expect(human.stdout).toMatch(/Skills-only|at least one supported artifact/i);
@@ -1148,8 +1160,8 @@ describe("project-bound release candidate", () => {
     expect(human.stdout).toMatch(/schema_version: 2/);
     expect(human.stdout).toMatch(/required `workspace`|legacy.*migration/i);
 
-    const agent = runCli(home, ["guide", "--agent"]);
-    expect(agent.status, agent.stderr).toBe(0);
+    const agent = await runCli(home, ["guide", "--agent"]);
+    expectExitCode(agent, 0);
     expect(agent.stdout).toMatch(/agent-profile-kit\.model-invocation|model-invocation/i);
     expect(agent.stdout).toMatch(/Skills-only|at least one supported artifact/i);
     expect(agent.stdout).toMatch(/universal|unselected/i);
