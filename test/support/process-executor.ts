@@ -197,20 +197,65 @@ export async function runProcess(
 
   return new Promise<ProcessResult>((resolve) => {
     let settled = false;
-    let timedOut = false;
-    let cancelled = false;
+    // One immutable terminal cause: whichever of timeout/cancellation first
+    // wins owns the result label; the competing trigger becomes a no-op, so
+    // the result never depends on cleanup timing.
+    let terminalCause: "timeout" | "cancelled" | null = null;
+    let observedCode: number | null = null;
+    let observedSignal: string | null = null;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+    const group = child.pid === undefined ? undefined : -child.pid;
 
     const finish = (result: ProcessResult) => {
       if (settled) return;
       settled = true;
-      clearTimeout(deadlineTimer);
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
       if (onAbort !== undefined) {
         abortSignal?.removeEventListener("abort", onAbort);
       }
       resolve(result);
     };
 
+    const outcome = (): ProcessResult =>
+      terminalCause === "timeout"
+        ? {
+            kind: "timeout",
+            exitCode: observedCode,
+            signal: observedSignal,
+            error: null,
+            timedOut: true,
+            cancelled: false,
+            stdout,
+            stderr,
+            durationMs: elapsed(),
+            commandLabel,
+          }
+        : {
+            kind: "cancelled",
+            exitCode: observedCode,
+            signal: observedSignal,
+            error: null,
+            timedOut: false,
+            cancelled: true,
+            stdout,
+            stderr,
+            durationMs: elapsed(),
+            commandLabel,
+          };
+
+    const groupIsGone = (): boolean => {
+      if (group === undefined) return true;
+      try {
+        process.kill(group, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    };
+
     child.on("error", (error) => {
+      if (terminalCause !== null) return;
       finish({
         kind: "spawn-error",
         exitCode: null,
@@ -226,33 +271,14 @@ export async function runProcess(
     });
 
     child.on("close", (code, signal) => {
-      if (timedOut) {
-        finish({
-          kind: "timeout",
-          exitCode: code,
-          signal: signal ?? null,
-          error: null,
-          timedOut: true,
-          cancelled: false,
-          stdout,
-          stderr,
-          durationMs: elapsed(),
-          commandLabel,
-        });
-      } else if (cancelled) {
-        finish({
-          kind: "cancelled",
-          exitCode: code,
-          signal: signal ?? null,
-          error: null,
-          timedOut: false,
-          cancelled: true,
-          stdout,
-          stderr,
-          durationMs: elapsed(),
-          commandLabel,
-        });
-      } else if (code !== null) {
+      observedCode = code;
+      observedSignal = signal ?? null;
+      if (terminalCause !== null) {
+        // Cleanup owns resolution: the leader's close alone cannot prove the
+        // group is empty, so terminateGroup's probe settles the result.
+        return;
+      }
+      if (code !== null) {
         finish({
           kind: "exit",
           exitCode: code,
@@ -283,39 +309,12 @@ export async function runProcess(
 
     /**
      * Terminate the complete child process group within the cleanup grace,
-     * escalating to SIGKILL, and always resolve so the executor itself can
-     * never hang past the deadline plus two grace periods.
+     * escalating to SIGKILL, and resolve only after the group probe confirms it
+     * is empty (bounded by the grace periods so the executor can never hang).
      */
     const terminateGroup = () => {
-      if (settled) return;
+      if (settled || terminalCause === null) return;
       const grace = options.cleanupGraceMs ?? DEFAULT_CLEANUP_GRACE_MS;
-      const group = child.pid === undefined ? undefined : -child.pid;
-      const outcome = (): ProcessResult =>
-        timedOut
-          ? {
-              kind: "timeout",
-              exitCode: null,
-              signal: null,
-              error: null,
-              timedOut: true,
-              cancelled: false,
-              stdout,
-              stderr,
-              durationMs: elapsed(),
-              commandLabel,
-            }
-          : {
-              kind: "cancelled",
-              exitCode: null,
-              signal: null,
-              error: null,
-              timedOut: false,
-              cancelled: true,
-              stdout,
-              stderr,
-              durationMs: elapsed(),
-              commandLabel,
-            };
       if (group === undefined) {
         finish(outcome());
         return;
@@ -325,45 +324,53 @@ export async function runProcess(
         process.kill(group, "SIGTERM");
         termSent = true;
       } catch {
-        // Group already gone; 'close' will fire momentarily or finish below.
+        // Group already gone; the probe below confirms and settles.
         termSent = false;
       }
-      if (!termSent) {
-        finish(outcome());
+      const settle = () => {
+        if (!settled) finish(outcome());
+      };
+      if (!termSent && groupIsGone()) {
+        settle();
         return;
       }
       setTimeout(() => {
         if (settled) return;
+        if (groupIsGone()) {
+          settle();
+          return;
+        }
         try {
           process.kill(group, "SIGKILL");
         } catch {
           // Group already gone.
         }
+        // Final bounded wait before settling: SIGKILL is uncatchable, so the
+        // group empties promptly; the extra grace covers reaping latency.
         setTimeout(() => {
-          if (settled) return;
-          finish(outcome());
+          settle();
         }, grace);
       }, grace);
     };
 
-    const onAbort = () => {
-      cancelled = true;
+    const beginCleanup = (cause: "timeout" | "cancelled") => {
+      if (settled || terminalCause !== null) return;
+      terminalCause = cause;
       terminateGroup();
     };
 
+    const handleAbort = () => beginCleanup("cancelled");
+    onAbort = handleAbort;
+
     if (abortSignal !== undefined) {
       if (abortSignal.aborted) {
-        cancelled = true;
-        terminateGroup();
+        beginCleanup("cancelled");
       } else {
-        abortSignal.addEventListener("abort", onAbort);
+        abortSignal.addEventListener("abort", handleAbort);
       }
     }
 
-    const deadlineTimer = setTimeout(() => {
-      timedOut = true;
-      terminateGroup();
-    }, options.deadlineMs);
+    deadlineTimer = setTimeout(() => beginCleanup("timeout"), options.deadlineMs);
   });
 }
 

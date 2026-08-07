@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   describeProcessResult,
   expectExitCode,
@@ -140,6 +143,71 @@ describe("runProcess result contract", () => {
     expect(result.cancelled).toBe(true);
     expect(result.timedOut).toBe(false);
     expect(result.exitCode).toBeNull();
+  });
+
+  test("cancellation just before the deadline wins over the deadline", async () => {
+    // The child ignores SIGTERM, so cleanup must escalate to SIGKILL and the
+    // deadline fires while that cleanup is still running. The first terminal
+    // cause (cancellation at ~100ms) must own the result label, not the later
+    // deadline: with cleanup grace 250ms the leader only closes after SIGKILL
+    // at ~350ms, well past the 300ms deadline.
+    const controller = new AbortController();
+    const resultPromise = runProcess(
+      {
+        executable: shell,
+        arguments_: ["-c", "trap '' TERM; sleep 30"],
+        deadlineMs: 300,
+        cleanupGraceMs: 250,
+        commandLabel: "cancel-race fixture",
+      },
+      controller.signal,
+    );
+    setTimeout(() => controller.abort(), 100);
+    const result = await resultPromise;
+    expect(result.kind).toBe("cancelled");
+    expect(result.cancelled).toBe(true);
+    expect(result.timedOut).toBe(false);
+  });
+
+  test("timeout cleanup kills a TERM-resistant descendant that closed inherited pipes", async () => {
+    // Leader and descendant are real Node processes: the leader dies on
+    // SIGTERM (so its `close` fires) while the descendant ignores SIGTERM and
+    // closed its inherited stdio copies. Resolving on the leader's close alone
+    // would leak the descendant; the executor must probe the process group and
+    // escalate to SIGKILL before settling.
+    const fixtureDir = mkdtempSync(join(tmpdir(), "agent-profile-kit-executor-fixture-"));
+    try {
+      const descendant = join(fixtureDir, "descendant.mjs");
+      const leader = join(fixtureDir, "leader.mjs");
+      writeFileSync(
+        descendant,
+        'process.on("SIGTERM", () => {});\nsetInterval(() => {}, 1000);\n',
+      );
+      writeFileSync(
+        leader,
+        `import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+const descendant = spawn(process.execPath, [fileURLToPath(new URL("./descendant.mjs", import.meta.url))], {
+  stdio: "ignore",
+});
+console.log("child=" + descendant.pid);
+setInterval(() => {}, 1000);
+`,
+      );
+      const result = await runProcess({
+        executable: process.execPath,
+        arguments_: [leader],
+        deadlineMs: 300,
+        cleanupGraceMs: 100,
+        commandLabel: "TERM-resistant descendant fixture",
+      });
+      expect(result.kind).toBe("timeout");
+      const match = /child=(\d+)/.exec(result.stdout);
+      expect(match?.[1]).toBeTruthy();
+      await assertNoProcess(Number(match![1]), "TERM-resistant descendant");
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
   });
 
   test("a macOS script PTY command completes through the executor with captured output", async () => {

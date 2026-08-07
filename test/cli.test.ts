@@ -1092,10 +1092,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const first = join(home, "first-workspace");
     const second = join(home, "second-workspace");
 
-    const results = await Promise.all([
-      await runCli(home, "init", first),
-      await runCli(home, "init", second),
-    ]);
+    // Launch both runs before awaiting so the lifecycle lock is exercised
+    // concurrently; awaiting inside the array would serialize the coverage.
+    const firstInit = runCli(home, "init", first);
+    const secondInit = runCli(home, "init", second);
+    const results = await Promise.all([firstInit, secondInit]);
     const succeeded = results.filter((result) => result.kind === "exit" && result.exitCode === 0);
     const failed = results.filter((result) => result.kind === "exit" && result.exitCode === 1);
 
