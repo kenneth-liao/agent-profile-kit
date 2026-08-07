@@ -134,6 +134,26 @@ describe("shared blocker contract", () => {
     expect(structuredError.message).toBe(legacyError.message);
   });
 
+  test("TemporaryInstallationBlockedError derives projections from one canonical collection", () => {
+    const structured = normalizeBlocker({
+      affectedItems: [{ kind: "host", value: "codex" }],
+      kind: "host-capability",
+      message: "Codex CLI is unavailable",
+      problem: "Codex CLI is unavailable",
+      remedy: "Install a supported Codex CLI, then retry",
+      requirement: "The selected Profile requires Codex project delivery",
+      scope: "global",
+    });
+
+    // One canonical blocker-input collection; the legacy string projection and
+    // Error.message must both derive from it, so they cannot diverge.
+    const error = new TemporaryInstallationBlockedError([structured, "legacy blocker"]);
+    expect(error.blockers).toEqual(["Codex CLI is unavailable", "legacy blocker"]);
+    expect(error.structured).toEqual([structured, { message: "legacy blocker" }]);
+    expect(error.message).toBe("Codex CLI is unavailable\nlegacy blocker");
+    expect(error.blockers.join("\n")).toBe(error.message);
+  });
+
   test("reconciliation normalizes structured evidence before public reports", async () => {
     const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-blocker-home-"));
     const project = mkdtempSync(join(tmpdir(), "agent-profile-kit-blocker-project-"));

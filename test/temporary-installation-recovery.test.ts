@@ -20,6 +20,7 @@ import {
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { nodeFileSystem } from "../installer/reconcile.js";
+import { TEMPORARY_INSTALLATION_REMOVAL } from "../installer/blockers.js";
 import {
   installTemporaryProfile,
   removeTemporaryProfile,
@@ -115,6 +116,36 @@ async function prepareClaudeHome(): Promise<string> {
 }
 
 describe("Temporary Profile Installation recovery", () => {
+  test("remove-temp marker failure emits structured removal evidence", async () => {
+    const home = await prepareHome();
+    const project = gitRepository("agent-profile-kit-temp-structure-");
+    const receipt = await installTemporaryProfile({
+      home,
+      host: "codex",
+      profile: "coding",
+      project,
+    });
+    rmSync(join(project, ".agent-profile-kit", "installation.json"));
+
+    await expect(
+      removeTemporaryProfile({
+        home,
+        temporaryInstallationId: receipt.temporaryInstallationId,
+      }),
+    ).rejects.toMatchObject({
+      name: "TemporaryInstallationBlockedError",
+      blockers: [expect.stringContaining("Cannot remove Temporary Profile Installation")],
+      structured: [
+        expect.objectContaining({
+          kind: TEMPORARY_INSTALLATION_REMOVAL,
+          project: expect.any(String),
+          scope: "project",
+          message: expect.stringContaining("Cannot remove Temporary Profile Installation"),
+        }),
+      ],
+    });
+  });
+
   test("temporary capability blockers preserve their legacy un-prefixed projection", async () => {
     const home = await prepareHome();
     const project = gitRepository("agent-profile-kit-temp-capability-blocker-");

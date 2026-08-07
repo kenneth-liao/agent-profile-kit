@@ -5,7 +5,7 @@ import {
   type ApplyReconciliationResult,
   type ReconciliationReport,
 } from "./reconcile.js";
-import { buildDesiredState } from "./project-plan.js";
+import { buildDesiredState, stateManifestPath } from "./project-plan.js";
 import { INSTALLATION_STATE_SCHEMA_VERSION } from "../schemas/installation-manifest.js";
 import {
   proveOwnedInstallation,
@@ -17,7 +17,11 @@ import {
 import { gitExclusionBlockers, stageGitExclusions } from "./git-exclusions.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import { canonicalRepositoryExclusionRecord } from "../schemas/installation-manifest.js";
-import { normalizeBlocker } from "./blockers.js";
+import {
+  blockerMessage,
+  installationStateUnreadableBlocker,
+  normalizeBlocker,
+} from "./blockers.js";
 
 export interface ValidationResult {
   readonly bindings: number;
@@ -65,7 +69,10 @@ export async function previewApplication(home: string): Promise<ReconciliationRe
     return {
       ...desiredReport,
       blockers: [
-        normalizeBlocker(error instanceof Error ? error.message : String(error)),
+        normalizeBlocker(installationStateUnreadableBlocker({
+          message: error instanceof Error ? error.message : String(error),
+          statePath: stateManifestPath(home),
+        })),
         ...desiredReport.blockers,
       ],
     };
@@ -142,7 +149,8 @@ async function uninstallApplicationLocked(home: string): Promise<UninstallResult
       );
     }
   }
-  failures.push(...await gitExclusionBlockers(state, [], { validateRecordedInstallations: true }));
+  failures.push(...(await gitExclusionBlockers(state, [], { validateRecordedInstallations: true }))
+    .map(blockerMessage));
   if (failures.length > 0) {
     throw new Error(
       `Uninstall blocked; generated output was not removed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`,

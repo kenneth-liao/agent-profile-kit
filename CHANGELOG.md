@@ -28,6 +28,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Harden Temporary Profile Installation blocked errors to derive their legacy message projection and structured evidence from one canonical normalized collection, restore canonical Git exclusion blocker ordering, and separate unprovable Git target evidence from Repository Exclusion Record mismatches ([#169](https://github.com/kenneth-liao/agent-profile-kit/issues/169)).
+
 - Correct command summaries and empty lifecycle output so uninstall describes removing proven Agent Profile Kit-owned output and no-Project status points to inventory/binding without repetition ([#165](https://github.com/kenneth-liao/agent-profile-kit/issues/165)).
 
 - Harden interactive color gating for terminal capability, document `NO_COLOR`, and keep agent guides and machine output plain ([#164](https://github.com/kenneth-liao/agent-profile-kit/issues/164)).
@@ -45,6 +47,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Harden root-help width guarantees and keep command/group metadata canonical across rendering and tests ([#156](https://github.com/kenneth-liao/agent-profile-kit/issues/156)).
 
 ### Changed
+
+- Migrate remaining Installation State, Git exclusion, reconciliation, and Temporary Profile Installation blockers to complete structured evidence with typed classes, problems, requirements, remedies, scopes, and affected items, while preserving legacy lifecycle and temporary-installation projections, scope attribution, ordering, deduplication, exit codes, and fail-closed Git/output ownership guarantees ([#169](https://github.com/kenneth-liao/agent-profile-kit/issues/169)).
 
 - Group tracked-output ownership conflicts into one typed Project-scoped blocker with complete per-path evidence, a single problem/requirement/safe-remedy explanation, and a deterministic capped affected-path list with an overflow pointer to `--verbose`; legacy lifecycle and temporary-installation projections keep their schema v1 shape, with the grouped conflict count preserved in the `message` projection ([#168](https://github.com/kenneth-liao/agent-profile-kit/issues/168)).
 
