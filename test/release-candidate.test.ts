@@ -18,14 +18,13 @@ import { parse } from "yaml";
 import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
 import { humanText } from "./support/human-text.js";
 import {
+  TEST_CHILD_DEADLINE_MS,
   expectExitCode,
   runProcess,
 } from "./support/process-executor.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
-/** Per-child deadline for packed-CLI and PTY launches; must stay under the 10s bun test timeout. */
-const CLI_DEADLINE_MS = 8000;
 
 /**
  * Parse the minimum Node major from package.json engines.node.
@@ -197,7 +196,7 @@ async function runCli(
       HOME: home,
       ...(options.path === undefined ? {} : { PATH: options.path }),
     },
-    deadlineMs: CLI_DEADLINE_MS,
+    deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
   });
 }
@@ -436,7 +435,7 @@ describe("project-bound release candidate", () => {
       executable: installedCli,
       arguments_: ["guide"],
       environment: { ...process.env, HOME: home },
-      deadlineMs: CLI_DEADLINE_MS,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "installed apkit",
     });
     expectExitCode(guide, 0);

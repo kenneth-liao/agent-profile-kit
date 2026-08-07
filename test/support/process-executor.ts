@@ -132,6 +132,13 @@ function spawnChild(options: {
 const DEFAULT_CLEANUP_GRACE_MS = 500;
 const MAX_EVIDENCE_CHARS = 400;
 
+/**
+ * Default per-child deadline for packed-CLI and PTY test launches. Must stay
+ * below the repository `bun test` per-test timeout (10s) so the executor's own
+ * diagnostics surface before Bun aborts the test.
+ */
+export const TEST_CHILD_DEADLINE_MS = 8000;
+
 function assertFiniteDeadline(deadlineMs: number): void {
   if (!Number.isFinite(deadlineMs) || deadlineMs <= 0) {
     throw new Error(`runProcess deadline must be a positive finite number, got ${deadlineMs}`);

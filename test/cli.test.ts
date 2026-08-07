@@ -38,6 +38,7 @@ import { ENGINE_VERSION } from "../installer/version.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import { humanText } from "./support/human-text.js";
 import {
+  TEST_CHILD_DEADLINE_MS,
   expectExitCode,
   runProcess,
   type ProcessResult,
@@ -51,8 +52,6 @@ const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
   NO_COLOR: undefined,
   TERM: "xterm-256color",
 };
-/** Per-child deadline for packed-CLI and PTY launches; must stay under the 10s bun test timeout. */
-const CLI_DEADLINE_MS = 8000;
 
 beforeAll(() => {
   execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
@@ -122,7 +121,7 @@ async function runCliAt(home: string, cwd: string | undefined, ...arguments_: st
     arguments_: [cliPath, ...arguments_],
     ...(cwd === undefined ? {} : { cwd }),
     environment: { ...process.env, HOME: home, PATH: defaultCliPath(home) },
-    deadlineMs: CLI_DEADLINE_MS,
+    deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
   });
 }
@@ -141,7 +140,7 @@ async function runCliWithEnvironment(
       HOME: home,
       PATH: defaultCliPath(home),
     },
-    deadlineMs: CLI_DEADLINE_MS,
+    deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
   });
 }
@@ -197,7 +196,7 @@ async function runCliInPtyWithEnvironment(
     executable: "script",
     arguments_: ["-q", "/dev/null", "sh", "-c", command],
     environment: childEnvironment,
-    deadlineMs: CLI_DEADLINE_MS,
+    deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI PTY",
   });
   return cleanPtyResult(result);
@@ -221,7 +220,7 @@ async function runCliInPtyWithColumnsFallback(home: string, columns: number, ...
       HOME: home,
       PATH: defaultCliPath(home),
     },
-    deadlineMs: CLI_DEADLINE_MS,
+    deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI PTY",
   });
   return cleanPtyResult(result);
@@ -353,7 +352,7 @@ async function runCliWithPath(
     executable: process.env.NODE_BINARY ?? process.execPath,
     arguments_: [cliPath, ...arguments_],
     environment: { ...process.env, HOME: home, PATH: pathValue },
-    deadlineMs: CLI_DEADLINE_MS,
+    deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
   });
 }
@@ -1442,7 +1441,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       executable: process.env.NODE_BINARY ?? "node",
       arguments_: [cliPath, "validate"],
       environment: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? ""}` },
-      deadlineMs: CLI_DEADLINE_MS,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
 
@@ -2281,7 +2280,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       executable: "sh",
       arguments_: ["-c", command],
       cwd: repository,
-      deadlineMs: CLI_DEADLINE_MS,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "generated Codex hook command",
     });
     expectExitCode(output, 0);
@@ -5120,7 +5119,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       executable: process.env.NODE_BINARY ?? "node",
       arguments_: [join(extracted, "package", "dist", "cli.js"), "init"],
       environment: { ...process.env, HOME: home },
-      deadlineMs: CLI_DEADLINE_MS,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI init",
     });
 
@@ -8369,7 +8368,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       executable: process.env.NODE_BINARY ?? "node",
       arguments_: [cliPath, ...arguments_],
       environment: { ...process.env, HOME: home, PATH: pathValue },
-      deadlineMs: CLI_DEADLINE_MS,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
   }
@@ -8630,7 +8629,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       executable: process.env.NODE_BINARY ?? "node",
       arguments_: [cliPath, "install-temp", "coding", gitRepository("agent-profile-kit-temp-claude-old-"), "--host", "claude", "--json"],
       environment: { ...process.env, HOME: home, PATH: pathValue },
-      deadlineMs: CLI_DEADLINE_MS,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
     expectExitCode(blocked, 2);
