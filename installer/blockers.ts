@@ -104,6 +104,9 @@ export const INSTALLATION_STATE_UNREADABLE = "installation-state-unreadable" as 
 /** Typed blocker class for Git exclusion ownership evidence that does not match recorded state. */
 export const REPOSITORY_EXCLUSION_RECORD = "repository-exclusion-record" as const;
 
+/** Typed blocker class for a Git project or repository-local target that cannot be proven. */
+export const REPOSITORY_EXCLUSION_TARGET_UNPROVEN = "repository-exclusion-target-unproven" as const;
+
 /** Typed blocker class for a missing recorded exclusion section during intentional-deletion retirement. */
 export const REPOSITORY_EXCLUSION_SECTION_MISSING = "repository-exclusion-section-missing" as const;
 
@@ -193,11 +196,33 @@ export function repositoryExclusionRecordBlocker(options: {
       "A Repository Exclusion Record does not match its recorded Installation Manifest, " +
       "Installation ID, or the live Git repository-local target",
     remedy:
-      "Restore the recorded Repository Exclusion Record or repair the repository-local " +
-      "exclusion state so the recorded contribution matches, then retry",
+      "Restore Installation State from a known-good backup so each Repository Exclusion " +
+      "Record matches its Installation Manifest, Installation ID, and live Git " +
+      "repository-local target, then retry",
     requirement:
       "Repository Exclusion Records must remain the canonical machine-local ownership " +
       "source for Git exclusion contributions",
+  });
+}
+
+/** Build one complete structured blocker for a recorded Git target that cannot be proven. */
+export function repositoryExclusionTargetUnprovenBlocker(options: {
+  readonly message: string;
+  readonly project: string;
+}): GlobalScopedBlockerInput {
+  return globalBlocker({
+    affectedItems: [{ kind: "path", value: options.project }],
+    kind: REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
+    message: options.message,
+    problem:
+      "The Git project or repository-local exclusion target recorded by an Installation " +
+      "Manifest could not be proven",
+    remedy:
+      "Restore the Project root or Git repository at the recorded path, or restore " +
+      "Installation State from a known-good backup, then retry",
+    requirement:
+      "Git exclusion ownership validation requires a provable Project root and live Git " +
+      "repository-local exclusion target",
   });
 }
 

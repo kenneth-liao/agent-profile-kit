@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, basename, join } from "node:path";
 
 import {
   formatLifecycleJson,
@@ -20,17 +20,24 @@ import {
   normalizeBlocker,
   OCCUPIED_OUTPUT,
   occupiedOutputBlocker,
+  REPOSITORY_EXCLUSION_INVALID,
   REPOSITORY_EXCLUSION_RECORD,
+  REPOSITORY_EXCLUSION_SECTION_MISSING,
+  REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
   repositoryExclusionRecordBlocker,
+  repositoryExclusionTargetUnprovenBlocker,
   TEMPORARY_INSTALLATION_CONFLICT,
   TEMPORARY_INSTALLATION_REMOVAL,
   temporaryInstallationConflictBlocker,
   temporaryInstallationRemovalBlocker,
 } from "../installer/blockers.js";
-import { statusApplication } from "../installer/commands.js";
+import { previewApplication, statusApplication } from "../installer/commands.js";
+import { gitExclusionBlockers } from "../installer/git-exclusions.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
+import { readInstallationState } from "../installer/installation-state.js";
 import { buildDesiredState, stateManifestPath } from "../installer/project-plan.js";
 import {
+  applyReconciliation,
   desiredOutputConflicts,
   manifestFor,
   previewReconciliation,
@@ -187,6 +194,21 @@ describe("structured Installer blocker evidence", () => {
       scope: "project",
     });
     expect(conflict.affectedItems).toEqual([{ kind: "installation-id", value: "temp-1" }]);
+
+    const unproven = normalizeBlocker(repositoryExclusionTargetUnprovenBlocker({
+      message: "/p Git target cannot be proven: project root is missing",
+      project: "/p",
+    }));
+    expect(unproven).toMatchObject({
+      kind: REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
+      message: "/p Git target cannot be proven: project root is missing",
+      scope: "global",
+      problem: expect.any(String),
+      remedy: expect.any(String),
+      requirement: expect.any(String),
+    });
+    expect(unproven.project).toBeUndefined();
+    expect(unproven.affectedItems).toEqual([{ kind: "path", value: "/p" }]);
 
     const removal = temporaryInstallationRemovalBlocker({
       message: "Cannot remove Temporary Profile Installation at /p: Installation Marker is missing",
@@ -403,5 +425,174 @@ describe("structured Installer blocker evidence", () => {
       `${canonicalProject} already has an ordinary Profile Installation; ` +
         "remove it before installing a temporary Profile",
     );
+  });
+
+  test("Git exclusion blockers keep canonical deterministic ordering", async () => {
+    const parent = temporaryDirectory("apkit-evidence-order-");
+    const upperRaw = join(parent, "B");
+    const lowerRaw = join(parent, "a");
+    for (const directory of [upperRaw, lowerRaw]) {
+      mkdirSync(directory);
+      execFileSync("git", ["init", "-q", directory]);
+      execFileSync("git", ["-C", directory, "config", "user.email", "tests@example.com"]);
+      execFileSync("git", ["-C", directory, "config", "user.name", "Agent Profile Kit Tests"]);
+      writeFileSync(join(directory, "README.md"), "fixture\n");
+      execFileSync("git", ["-C", directory, "add", "README.md"]);
+      execFileSync("git", ["-C", directory, "commit", "-qm", "fixture"]);
+    }
+    const upper = realpathSync(upperRaw);
+    const lower = realpathSync(lowerRaw);
+    const home = temporaryDirectory("apkit-evidence-order-home-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${join(application, "workspace")}\nbindings:\n` +
+        `  - project: ${upper}\n    profile: example\n    hosts: [codex]\n` +
+        `  - project: ${lower}\n    profile: example\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const state: InstallationState = {
+      ...emptyState(),
+      installations: desired.installations.map((installation) =>
+        manifestFor(installation, `recorded-${basename(installation.binding.canonicalProject)}`),
+      ),
+    };
+
+    const blockers = await gitExclusionBlockers(state, desired.installations);
+    const recordBlockers = blockers.filter(
+      (blocker) => isStructuredBlocker(blocker) && blocker.kind === REPOSITORY_EXCLUSION_RECORD,
+    );
+
+    // Canonical code-point ordering places the uppercase path before the
+    // lowercase path; locale collation would reverse them.
+    expect(recordBlockers).toHaveLength(2);
+    expect(recordBlockers.map((blocker) => blocker.message)).toEqual([
+      `${upper} is missing its Repository Exclusion Record for Installation ID recorded-B`,
+      `${lower} is missing its Repository Exclusion Record for Installation ID recorded-a`,
+    ]);
+  });
+
+  test("an unprovable recorded Git target emits structured global evidence", async () => {
+    const project = temporaryDirectory("apkit-evidence-target-unproven-");
+    const home = await prepareHome(project);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations[0]!;
+    const missingProject = join(home, "vanished-project");
+    const state: InstallationState = {
+      ...emptyState(),
+      installations: [{ ...manifestFor(installation, "vanished-id"), project: missingProject }],
+    };
+
+    const blockers = await gitExclusionBlockers(state, [], {
+      validateRecordedInstallations: true,
+    });
+    const blocker = requireDefined(
+      blockers.find(
+        (candidate) =>
+          isStructuredBlocker(candidate) && candidate.kind === REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
+      ),
+      "a structured repository-exclusion-target-unproven blocker",
+    );
+    expect(blocker).toMatchObject({ scope: "global" });
+    expect(blocker.project).toBeUndefined();
+    expect(blocker.message).toBe(
+      `${missingProject} Git target cannot be proven: project root is missing`,
+    );
+    expect(blocker.affectedItems).toEqual([{ kind: "path", value: missingProject }]);
+  });
+
+  test("a missing recorded exclusion section during retirement emits structured global evidence", async () => {
+    const repository = gitRepository("apkit-evidence-retire-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    const home = temporaryDirectory("apkit-evidence-retire-home-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const bindings =
+      `  - project: ${repository}\n    profile: example\n    hosts: [codex]\n` +
+      `  - project: ${nested}\n    profile: example\n    hosts: [codex]\n`;
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${join(application, "workspace")}\nbindings:\n${bindings}`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, desired.installations);
+    const exclude = join(repository, ".git", "info", "exclude");
+    rmSync(exclude);
+    rmSync(nested, { recursive: true });
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${join(application, "workspace")}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: example\n    hosts: [codex]\n`,
+    );
+    const desiredAfter = await buildDesiredState(home, { checkHostCapability: false });
+    const state = await readInstallationState(home);
+
+    const report = await previewReconciliation(desiredAfter.installations, state);
+    const blocker = requireDefined(
+      report.blockers.find(
+        (candidate) =>
+          isStructuredBlocker(candidate) &&
+          candidate.kind === REPOSITORY_EXCLUSION_SECTION_MISSING,
+      ),
+      "a structured repository-exclusion-section-missing blocker",
+    );
+    expect(blocker).toMatchObject({ scope: "global" });
+    expect(blocker.project).toBeUndefined();
+    expect(blocker.message).toBe(
+      `${exclude} is missing its Agent Profile Kit exclusion section; ` +
+        "intentional-deletion retirement requires the recorded section to be present",
+    );
+    expect(blocker.affectedItems).toEqual([{ kind: "path", value: exclude }]);
+    expect(lifecycleExitCode(report)).toBe(2);
+  });
+
+  test("a malformed recorded exclusion section emits structured global evidence", async () => {
+    const repository = gitRepository("apkit-evidence-invalid-");
+    const home = await prepareHome(repository);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, desired.installations);
+    const exclude = join(repository, ".git", "info", "exclude");
+    writeFileSync(exclude, "# BEGIN Agent Profile Kit generated paths\nbroken section\n");
+    const state = await readInstallationState(home);
+
+    const report = await previewReconciliation(desired.installations, state);
+    const blocker = requireDefined(
+      report.blockers.find(
+        (candidate) =>
+          isStructuredBlocker(candidate) && candidate.kind === REPOSITORY_EXCLUSION_INVALID,
+      ),
+      "a structured repository-exclusion-invalid blocker",
+    );
+    expect(blocker).toMatchObject({ scope: "global" });
+    expect(blocker.project).toBeUndefined();
+    expect(blocker.message).toContain("Agent Profile Kit exclusion section");
+    expect(blocker.affectedItems).toEqual([{ kind: "path", value: exclude }]);
+    expect(lifecycleExitCode(report)).toBe(2);
+  });
+
+  test("previewApplication emits the structured global blocker for unreadable Installation State", async () => {
+    const project = temporaryDirectory("apkit-evidence-preview-state-");
+    const home = await prepareHome(project);
+    const statePath = stateManifestPath(home);
+    mkdirSync(dirname(statePath), { recursive: true });
+    writeFileSync(statePath, "not: a valid installation state\n");
+
+    const report = await previewApplication(home);
+    const blocker = requireDefined(
+      report.blockers.find(
+        (candidate) =>
+          isStructuredBlocker(candidate) && candidate.kind === INSTALLATION_STATE_UNREADABLE,
+      ),
+      "a structured installation-state-unreadable blocker",
+    );
+    expect(blocker).toMatchObject({ kind: INSTALLATION_STATE_UNREADABLE, scope: "global" });
+    expect(blocker.project).toBeUndefined();
+    expect(blocker.affectedItems).toEqual([{ kind: "path", value: statePath }]);
+    expect(lifecycleExitCode(report)).toBe(2);
   });
 });

@@ -58,11 +58,12 @@ import {
   type ReconciliationFileSystem,
 } from "./reconcile.js";
 import {
-  blockerMessage,
   hostCapabilityBlocker,
+  normalizeBlocker,
   temporaryInstallationConflictBlocker,
   temporaryInstallationRemovalBlocker,
   type BlockerInput,
+  type ReconciliationBlocker,
 } from "./blockers.js";
 import { ENGINE_VERSION } from "./version.js";
 
@@ -77,12 +78,28 @@ export function isTemporaryInstallationHost(
 }
 
 export class TemporaryInstallationBlockedError extends Error {
-  readonly blockers: readonly string[];
+  readonly #canonical: readonly ReconciliationBlocker[];
 
-  constructor(blockers: readonly string[]) {
-    super(blockers.join("\n"));
+  /**
+   * Accept one canonical blocker-input collection, normalize it once, and derive
+   * the legacy string projection and Error.message from it so the two public
+   * views can never diverge.
+   */
+  constructor(inputs: readonly BlockerInput[]) {
+    const canonical = inputs.map((input) => normalizeBlocker(input));
+    super(canonical.map((blocker) => blocker.message).join("\n"));
     this.name = "TemporaryInstallationBlockedError";
-    this.blockers = blockers;
+    this.#canonical = canonical;
+  }
+
+  /** Legacy message projection consumed by temporary-installation JSON and human output. */
+  get blockers(): readonly string[] {
+    return this.#canonical.map((blocker) => blocker.message);
+  }
+
+  /** Complete structured evidence for each emitted blocker; projected until the typed JSON migration. */
+  get structured(): readonly ReconciliationBlocker[] {
+    return this.#canonical;
   }
 }
 
@@ -425,18 +442,17 @@ export async function installTemporaryProfile(options: {
     async () => {
       const loaded = await readInstallationStateWithMigration(options.home);
       const state = loaded.state;
-      const blockers = [
-        ...desired.blockers.map(blockerMessage),
-        ...projectConflictBlockers(state, canonicalProject).map(blockerMessage),
+      const structuredBlockers: BlockerInput[] = [
+        ...desired.blockers,
+        ...projectConflictBlockers(state, canonicalProject),
       ];
 
       const temporaryInstallationId = newInstallationId();
-      blockers.push(
-        ...(await desiredOutputConflicts(desired, undefined, temporaryInstallationId))
-          .map(blockerMessage),
+      structuredBlockers.push(
+        ...(await desiredOutputConflicts(desired, undefined, temporaryInstallationId)),
       );
-      if (blockers.length > 0) {
-        throw new TemporaryInstallationBlockedError(blockers);
+      if (structuredBlockers.length > 0) {
+        throw new TemporaryInstallationBlockedError(structuredBlockers);
       }
 
       const manifest = manifestFor(desired, temporaryInstallationId);
@@ -653,11 +669,11 @@ export async function removeTemporaryProfile(options: {
         }
         if (error instanceof Error && error.message.startsWith("Cannot remove Temporary")) {
           throw new TemporaryInstallationBlockedError([
-            blockerMessage(temporaryInstallationRemovalBlocker({
+            temporaryInstallationRemovalBlocker({
               message: error.message,
               outputs: existing.outputs.map((output) => output.path),
               project: existing.project,
-            })),
+            }),
           ]);
         }
         throw error;

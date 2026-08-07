@@ -28,6 +28,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Harden Temporary Profile Installation blocked errors to derive their legacy message projection and structured evidence from one canonical normalized collection, restore canonical Git exclusion blocker ordering, and separate unprovable Git target evidence from Repository Exclusion Record mismatches ([#169](https://github.com/kenneth-liao/agent-profile-kit/issues/169)).
+
 - Correct command summaries and empty lifecycle output so uninstall describes removing proven Agent Profile Kit-owned output and no-Project status points to inventory/binding without repetition ([#165](https://github.com/kenneth-liao/agent-profile-kit/issues/165)).
 
 - Harden interactive color gating for terminal capability, document `NO_COLOR`, and keep agent guides and machine output plain ([#164](https://github.com/kenneth-liao/agent-profile-kit/issues/164)).

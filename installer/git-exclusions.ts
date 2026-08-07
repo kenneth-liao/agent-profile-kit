@@ -19,6 +19,7 @@ import {
   repositoryExclusionInvalidBlocker,
   repositoryExclusionRecordBlocker,
   repositoryExclusionSectionMissingBlocker,
+  repositoryExclusionTargetUnprovenBlocker,
   type BlockerInput,
   type ReconciliationBlocker,
 } from "./blockers.js";
@@ -664,9 +665,9 @@ async function recordedInstallationOwnershipBlockers(
     } catch (error) {
       if (hasErrorCode(error, "ENOENT")) {
         if (retiringInstallationIds.has(installation.installationId)) continue;
-        blockers.push(repositoryExclusionRecordBlocker({
-          affectedItems: [{ kind: "path", value: installation.project }],
+        blockers.push(repositoryExclusionTargetUnprovenBlocker({
           message: `${installation.project} Git target cannot be proven: project root is missing`,
+          project: installation.project,
         }));
         continue;
       }
@@ -677,20 +678,20 @@ async function recordedInstallationOwnershipBlockers(
     try {
       git = await findGitProject(installation.project);
     } catch (error) {
-      blockers.push(repositoryExclusionRecordBlocker({
-        affectedItems: [{ kind: "path", value: installation.project }],
+      blockers.push(repositoryExclusionTargetUnprovenBlocker({
         message:
           `${installation.project} Git target cannot be proven: ` +
           `${error instanceof Error ? error.message : String(error)}`,
+        project: installation.project,
       }));
       continue;
     }
     if (!git) {
       if (contribution) {
-        blockers.push(repositoryExclusionRecordBlocker({
-          affectedItems: [{ kind: "path", value: installation.project }],
+        blockers.push(repositoryExclusionTargetUnprovenBlocker({
           message:
             `${installation.project} has a Repository Exclusion Record but is no longer a Git project`,
+          project: installation.project,
         }));
       }
       continue;
@@ -780,7 +781,7 @@ export async function gitExclusionBlockers(
   }
   return blockers
     .map((input) => normalizeBlocker(input))
-    .sort((left, right) => left.message.localeCompare(right.message));
+    .sort((left, right) => compareCanonicalStrings(left.message, right.message));
 }
 
 export async function gitExclusionDiagnostics(
