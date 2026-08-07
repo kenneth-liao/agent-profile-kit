@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -37,6 +37,11 @@ import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installatio
 import { ENGINE_VERSION } from "../installer/version.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import { humanText } from "./support/human-text.js";
+import {
+  expectExitCode,
+  runProcess,
+  type ProcessResult,
+} from "./support/process-executor.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const FOCUSED_GUIDE_MAX_LINES = 30;
@@ -46,6 +51,8 @@ const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
   NO_COLOR: undefined,
   TERM: "xterm-256color",
 };
+/** Per-child deadline for packed-CLI and PTY launches; must stay under the 10s bun test timeout. */
+const CLI_DEADLINE_MS = 8000;
 
 beforeAll(() => {
   execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
@@ -105,47 +112,49 @@ function defaultCliPath(home: string): string {
   return `${installFakeCodex(home)}:${process.env.PATH ?? ""}`;
 }
 
-function runCli(home: string, ...arguments_: string[]) {
-  return runCliAt(home, undefined, ...arguments_);
+async function runCli(home: string, ...arguments_: string[]) {
+  return await runCliAt(home, undefined, ...arguments_);
 }
 
-function runCliAt(home: string, cwd: string | undefined, ...arguments_: string[]) {
-  return spawnSync(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
-    encoding: "utf8" as const,
-    cwd,
-    env: { ...process.env, HOME: home, PATH: defaultCliPath(home) },
+async function runCliAt(home: string, cwd: string | undefined, ...arguments_: string[]) {
+  return runProcess({
+    executable: process.env.NODE_BINARY ?? "node",
+    arguments_: [cliPath, ...arguments_],
+    ...(cwd === undefined ? {} : { cwd }),
+    environment: { ...process.env, HOME: home, PATH: defaultCliPath(home) },
+    deadlineMs: CLI_DEADLINE_MS,
+    commandLabel: "packed CLI",
   });
 }
 
-function runCliWithEnvironment(
+async function runCliWithEnvironment(
   home: string,
   environment: NodeJS.ProcessEnv,
   ...arguments_: string[]
 ) {
-  return spawnSync(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
-    encoding: "utf8" as const,
-    env: {
+  return runProcess({
+    executable: process.env.NODE_BINARY ?? "node",
+    arguments_: [cliPath, ...arguments_],
+    environment: {
       ...process.env,
       ...environment,
       HOME: home,
       PATH: defaultCliPath(home),
     },
+    deadlineMs: CLI_DEADLINE_MS,
+    commandLabel: "packed CLI",
   });
 }
 
-function cleanPtyResult(result: {
-  readonly status: number | null;
-  readonly stdout: string | null;
-  readonly stderr: string | null;
-}) {
+function cleanPtyResult(result: ProcessResult): ProcessResult {
   // macOS `script` records the PTY's typed EOF as a literal `^D` plus erase controls.
   return {
     ...result,
-    stdout: (result.stdout ?? "")
+    stdout: result.stdout
       .replace(/^\^D/, "")
       .replace(/[\u0004\u0008]/g, "")
       .replace(/\r/g, ""),
-    stderr: (result.stderr ?? "")
+    stderr: result.stderr
       .replace(/^\^D/, "")
       .replace(/[\u0004\u0008]/g, "")
       .replace(/\r/g, ""),
@@ -156,11 +165,11 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function runCliInPty(home: string, columns: number, ...arguments_: string[]) {
-  return runCliInPtyWithEnvironment(home, columns, { NO_COLOR: "1" }, ...arguments_);
+async function runCliInPty(home: string, columns: number, ...arguments_: string[]) {
+  return await runCliInPtyWithEnvironment(home, columns, { NO_COLOR: "1" }, ...arguments_);
 }
 
-function runCliInPtyWithEnvironment(
+async function runCliInPtyWithEnvironment(
   home: string,
   columns: number,
   environment: NodeJS.ProcessEnv,
@@ -184,18 +193,17 @@ function runCliInPtyWithEnvironment(
   ) {
     delete childEnvironment.NO_COLOR;
   }
-  const result = spawnSync(
-    "script",
-    ["-q", "/dev/null", "sh", "-c", command],
-    {
-      encoding: "utf8" as const,
-      env: childEnvironment,
-    },
-  );
+  const result = await runProcess({
+    executable: "script",
+    arguments_: ["-q", "/dev/null", "sh", "-c", command],
+    environment: childEnvironment,
+    deadlineMs: CLI_DEADLINE_MS,
+    commandLabel: "packed CLI PTY",
+  });
   return cleanPtyResult(result);
 }
 
-function runCliInPtyWithColumnsFallback(home: string, columns: number, ...arguments_: string[]) {
+async function runCliInPtyWithColumnsFallback(home: string, columns: number, ...arguments_: string[]) {
   // `script` starts this macOS test PTY at zero columns; keep that property
   // explicit so this test exercises the documented COLUMNS fallback.
   const command = [
@@ -203,42 +211,20 @@ function runCliInPtyWithColumnsFallback(home: string, columns: number, ...argume
     "exec",
     ...[process.env.NODE_BINARY ?? "node", cliPath, ...arguments_].map(shellQuote),
   ].join(" ");
-  const result = spawnSync(
-    "script",
-    ["-q", "/dev/null", "sh", "-c", command],
-    {
-      encoding: "utf8" as const,
-      env: {
-        ...process.env,
-        NO_COLOR: "1",
-        COLUMNS: String(columns),
-        HOME: home,
-        PATH: defaultCliPath(home),
-      },
+  const result = await runProcess({
+    executable: "script",
+    arguments_: ["-q", "/dev/null", "sh", "-c", command],
+    environment: {
+      ...process.env,
+      NO_COLOR: "1",
+      COLUMNS: String(columns),
+      HOME: home,
+      PATH: defaultCliPath(home),
     },
-  );
-  return cleanPtyResult(result);
-}
-
-function runCliAsync(
-  home: string,
-  ...arguments_: string[]
-): Promise<{ readonly status: number | null; readonly stdout: string; readonly stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
-      env: { ...process.env, HOME: home, PATH: defaultCliPath(home) },
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", reject);
-    child.on("close", (status) => resolve({ status, stdout, stderr }));
+    deadlineMs: CLI_DEADLINE_MS,
+    commandLabel: "packed CLI PTY",
   });
+  return cleanPtyResult(result);
 }
 
 function workspacePath(home: string): string {
@@ -276,9 +262,9 @@ function bind(home: string, projectPath: string, profile = "coding"): void {
   );
 }
 
-function initialize(home: string): void {
-  const result = runCli(home, "init");
-  expect(result.status, result.stderr).toBe(0);
+async function initialize(home: string): Promise<void> {
+  const result = await runCli(home, "init");
+  expectExitCode(result, 0);
   mkdirSync(join(home, ".codex"), { recursive: true });
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
 }
@@ -357,25 +343,28 @@ exit 2
   return bin;
 }
 
-function runCliWithPath(
+async function runCliWithPath(
   home: string,
   pathValue: string,
   ...arguments_: string[]
 ) {
   // Use an absolute Node path so PATH can be restricted for Host capability probes.
-  return spawnSync(process.env.NODE_BINARY ?? process.execPath, [cliPath, ...arguments_], {
-    encoding: "utf8",
-    env: { ...process.env, HOME: home, PATH: pathValue },
+  return runProcess({
+    executable: process.env.NODE_BINARY ?? process.execPath,
+    arguments_: [cliPath, ...arguments_],
+    environment: { ...process.env, HOME: home, PATH: pathValue },
+    deadlineMs: CLI_DEADLINE_MS,
+    commandLabel: "packed CLI",
   });
 }
 
 describe("agent-profile-kit project-bound lifecycle", () => {
-  test("a fresh Workspace includes a bindable example Profile and Context Module", () => {
+  test("a fresh Workspace includes a bindable example Profile and Context Module", async () => {
     const home = isolatedHome();
     const projectPath = project();
 
-    const init = runCli(home, "init");
-    expect(init.status, init.stderr).toBe(0);
+    const init = await runCli(home, "init");
+    expectExitCode(init, 0);
 
     const workspace = workspacePath(home);
     expect(readFileSync(join(workspace, "profiles", "example.yaml"), "utf8")).toContain(
@@ -385,81 +374,81 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "id: example-context\n",
     );
 
-    const bind = runCli(home, "bind", "example", projectPath, "--host", "codex");
-    expect(bind.status, bind.stderr).toBe(0);
+    const bind = await runCli(home, "bind", "example", projectPath, "--host", "codex");
+    expectExitCode(bind, 0);
     expect(bind.stdout).toContain("Profile: example");
 
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
-    const preview = runCli(home, "preview");
-    expect(preview.status, preview.stderr).toBe(0);
-    const apply = runCli(home, "apply");
-    expect(apply.status, apply.stderr).toBe(0);
+    const preview = await runCli(home, "preview");
+    expectExitCode(preview, 0);
+    const apply = await runCli(home, "apply");
+    expectExitCode(apply, 0);
     expect(
       readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"),
     ).toContain("Keep project-specific instructions in the project repository.");
   });
 
-  test("re-running init does not restore a removed example", () => {
+  test("re-running init does not restore a removed example", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const workspace = workspacePath(home);
     const exampleProfile = join(workspace, "profiles", "example.yaml");
     const exampleContext = join(workspace, "context", "example-context.md");
     removeScaffoldedExample(home);
 
-    const result = runCli(home, "init");
+    const result = await runCli(home, "init");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(existsSync(exampleProfile)).toBe(false);
     expect(existsSync(exampleContext)).toBe(false);
   });
 
-  test("init names a next bind command that succeeds with the scaffolded Profile", () => {
+  test("init names a next bind command that succeeds with the scaffolded Profile", async () => {
     const home = isolatedHome();
     const projectPath = project();
 
-    const init = runCli(home, "init");
+    const init = await runCli(home, "init");
 
-    expect(init.status, init.stderr).toBe(0);
+    expectExitCode(init, 0);
     expect(init.stdout).toContain(
       "Next: from the project you want to try, run apkit bind example --host codex",
     );
-    const bind = runCliAt(home, projectPath, "bind", "example", "--host", "codex");
-    expect(bind.status, bind.stderr).toBe(0);
+    const bind = await runCliAt(home, projectPath, "bind", "example", "--host", "codex");
+    expectExitCode(bind, 0);
   });
 
-  test("init creates both canonical inputs and never overwrites either", () => {
+  test("init creates both canonical inputs and never overwrites either", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const workspace = workspacePath(home);
     const config = configPath(home);
     const originalConfig = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n# authored\n`;
     writeFileSync(config, originalConfig);
     writeFileSync(join(workspace, "README.md"), "# authored\n");
 
-    const result = runCli(home, "init");
+    const result = await runCli(home, "init");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(readFileSync(config, "utf8")).toBe(originalConfig);
     expect(readFileSync(join(workspace, "README.md"), "utf8")).toBe("# authored\n");
   });
 
-  test("validate explains how to recover from removing only half of the scaffolded example", () => {
+  test("validate explains how to recover from removing only half of the scaffolded example", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     rmSync(join(workspacePath(home), "context", "example-context.md"));
 
-    const result = runCli(home, "validate");
+    const result = await runCli(home, "validate");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain(
       "Profile 'example' selects missing Context Module 'example-context'",
     );
     expect(result.stderr).toContain("Restore the Context Module, or remove or update Profile 'example'");
   });
 
-  test("manifest-only and partial Workspaces validate; re-init does not restore optional scaffolding", () => {
+  test("manifest-only and partial Workspaces validate; re-init does not restore optional scaffolding", async () => {
     const home = isolatedHome();
     const workspace = workspacePath(home);
     mkdirSync(workspace, { recursive: true });
@@ -467,8 +456,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
 
-    const minimalValidate = runCli(home, "validate");
-    expect(minimalValidate.status, minimalValidate.stderr).toBe(0);
+    const minimalValidate = await runCli(home, "validate");
+    expectExitCode(minimalValidate, 0);
     expect(minimalValidate.stdout).toContain("Workspace and Local Configuration valid");
     expect(minimalValidate.stdout).toContain("0 Profiles, 0 Project Bindings");
     expect(minimalValidate.stdout).toContain("Profiles found: none");
@@ -480,23 +469,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const projectPath = project();
     bind(home, projectPath);
 
-    const partialValidate = runCli(home, "validate");
-    expect(partialValidate.status, partialValidate.stderr).toBe(0);
+    const partialValidate = await runCli(home, "validate");
+    expectExitCode(partialValidate, 0);
     expect(partialValidate.stdout).toContain("1 Profile");
 
     for (const entry of ["README.md", "AGENTS.md", ".gitignore", "skills", "agents", "hooks", "tools"]) {
       expect(existsSync(join(workspace, entry))).toBe(false);
     }
 
-    const reinit = runCli(home, "init");
-    expect(reinit.status, reinit.stderr).toBe(0);
+    const reinit = await runCli(home, "init");
+    expectExitCode(reinit, 0);
     expect(reinit.stdout).toMatch(/already initialized|unchanged/i);
     for (const entry of ["README.md", "AGENTS.md", ".gitignore", "skills", "agents", "hooks", "tools"]) {
       expect(existsSync(join(workspace, entry))).toBe(false);
     }
   });
 
-  test("missing bootstrap files do not affect validate, preview, status, apply, or uninstall", () => {
+  test("missing bootstrap files do not affect validate, preview, status, apply, or uninstall", async () => {
     const home = isolatedHome();
     const workspace = workspacePath(home);
     mkdirSync(workspace, { recursive: true });
@@ -515,40 +504,40 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
 
     for (const command of ["validate", "preview", "status"] as const) {
-      const result = runCli(home, command);
-      expect(result.status, `${command}: ${result.stderr}`).toBe(0);
+      const result = await runCli(home, command);
+      expectExitCode(result, 0);
     }
 
-    const apply = runCli(home, "apply");
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCli(home, "apply");
+    expectExitCode(apply, 0);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
 
-    const uninstall = runCli(home, "uninstall");
-    expect(uninstall.status, uninstall.stderr).toBe(0);
+    const uninstall = await runCli(home, "uninstall");
+    expectExitCode(uninstall, 0);
     expect(uninstall.stdout).toContain("Removed proven Agent Profile Kit-owned output");
   });
 
-  test("malformed workspace.yaml still fails validate with actionable guidance", () => {
+  test("malformed workspace.yaml still fails validate with actionable guidance", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeFileSync(join(workspacePath(home), "workspace.yaml"), "schema_version: 99\n");
 
-    const result = runCli(home, "validate");
-    expect(result.status).toBe(1);
+    const result = await runCli(home, "validate");
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("Unsupported Workspace schema version 99");
 
     writeFileSync(join(workspacePath(home), "workspace.yaml"), "not: valid: yaml: [\n");
-    const invalidYaml = runCli(home, "validate");
-    expect(invalidYaml.status).toBe(1);
+    const invalidYaml = await runCli(home, "validate");
+    expectExitCode(invalidYaml, 1);
     expect(invalidYaml.stderr).toMatch(/invalid YAML|correct workspace\.yaml/i);
 
     rmSync(join(workspacePath(home), "workspace.yaml"));
-    const missing = runCli(home, "validate");
-    expect(missing.status).toBe(1);
+    const missing = await runCli(home, "validate");
+    expectExitCode(missing, 1);
     expect(missing.stderr).toMatch(/missing required file 'workspace\.yaml'/);
   });
 
-  test("symlinked minimal Workspace validates and re-init does not restore scaffolding", () => {
+  test("symlinked minimal Workspace validates and re-init does not restore scaffolding", async () => {
     const home = isolatedHome();
     const realWorkspace = join(home, "real-workspace");
     mkdirSync(realWorkspace, { recursive: true });
@@ -558,12 +547,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     symlinkSync(realWorkspace, join(applicationRoot, "workspace"));
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
 
-    const validate = runCli(home, "validate");
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCli(home, "validate");
+    expectExitCode(validate, 0);
     expect(validate.stdout).toContain("Workspace and Local Configuration valid");
 
-    const reinit = runCli(home, "init");
-    expect(reinit.status, reinit.stderr).toBe(0);
+    const reinit = await runCli(home, "init");
+    expectExitCode(reinit, 0);
     expect(reinit.stdout).toMatch(/already initialized|unchanged/i);
     expect(readdirSync(realWorkspace).sort()).toEqual(["workspace.yaml"]);
     for (const entry of ["README.md", "profiles", "skills"]) {
@@ -571,22 +560,22 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("init records the conventional default Workspace path", () => {
+  test("init records the conventional default Workspace path", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     bind(home, projectPath);
 
-    const result = runCli(home, "validate");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "validate");
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("2 Profiles");
     expect(result.stdout).toContain("Profiles found: coding, example");
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${workspacePath(home)}`);
   });
 
-  test("absolute and home-relative configured Workspace paths resolve for validate", () => {
+  test("absolute and home-relative configured Workspace paths resolve for validate", async () => {
     const home = isolatedHome();
     const custom = join(home, "custom-workspace");
     mkdirSync(join(custom, "context"), { recursive: true });
@@ -607,8 +596,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${custom}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const absolute = runCli(home, "validate");
-    expect(absolute.status, absolute.stderr).toBe(0);
+    const absolute = await runCli(home, "validate");
+    expectExitCode(absolute, 0);
     expect(absolute.stdout).toContain("1 Profile");
     expect(existsSync(workspacePath(home))).toBe(false);
 
@@ -617,12 +606,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       configPath(home),
       `schema_version: 2\nworkspace: ${homeRelative}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    const relativeHome = runCli(home, "validate");
-    expect(relativeHome.status, relativeHome.stderr).toBe(0);
+    const relativeHome = await runCli(home, "validate");
+    expectExitCode(relativeHome, 0);
     expect(relativeHome.stdout).toContain("1 Profile");
   });
 
-  test("symlinked configured Workspace aliases keep installation identity across apply and status", () => {
+  test("symlinked configured Workspace aliases keep installation identity across apply and status", async () => {
     const home = isolatedHome();
     const realWorkspace = join(home, "real-custom");
     mkdirSync(join(realWorkspace, "context"), { recursive: true });
@@ -649,12 +638,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(realpathSync(link)).toBe(realpathSync(realWorkspace));
 
-    const applyViaLink = runCli(home, "apply");
-    expect(applyViaLink.status, applyViaLink.stderr).toBe(0);
+    const applyViaLink = await runCli(home, "apply");
+    expectExitCode(applyViaLink, 0);
     const stateAfterApply = readFileSync(statePath(home), "utf8");
 
-    const statusViaLink = runCli(home, "status");
-    expect(statusViaLink.status, statusViaLink.stderr).toBe(0);
+    const statusViaLink = await runCli(home, "status");
+    expectExitCode(statusViaLink, 0);
     expect(statusViaLink.stdout).toContain("All Projects are current");
 
     // Change only the authored alias to the realpath spelling of the same tree.
@@ -663,13 +652,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${realWorkspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const statusViaReal = runCli(home, "status");
-    expect(statusViaReal.status, statusViaReal.stderr).toBe(0);
+    const statusViaReal = await runCli(home, "status");
+    expectExitCode(statusViaReal, 0);
     expect(statusViaReal.stdout).toContain("All Projects are current");
     expect(statusViaReal.stdout).not.toContain("stale");
 
-    const applyViaReal = runCli(home, "apply");
-    expect(applyViaReal.status, applyViaReal.stderr).toBe(0);
+    const applyViaReal = await runCli(home, "apply");
+    expectExitCode(applyViaReal, 0);
     expect(applyViaReal.stdout).toContain("Apply complete");
     expect(applyViaReal.stdout).toContain("Pending: none");
     // Installation identity/state must not rewrite solely because the authored alias changed.
@@ -677,12 +666,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // Authored spelling appears in failure diagnostics when the target is invalid.
     writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 99\n");
-    const bad = runCli(home, "validate");
-    expect(bad.status).toBe(1);
+    const bad = await runCli(home, "validate");
+    expectExitCode(bad, 1);
     expect(bad.stderr).toContain(realWorkspace);
   });
 
-  test("invalid configured Workspace paths fail before any writes", () => {
+  test("invalid configured Workspace paths fail before any writes", async () => {
     const home = isolatedHome();
     const applicationRoot = join(home, ".agents", "agent-profile-kit");
     mkdirSync(applicationRoot, { recursive: true });
@@ -726,8 +715,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `schema_version: 2\nworkspace: ${example.workspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
       );
       const beforeState = existsSync(statePath(home));
-      const result = runCli(home, "apply");
-      expect(result.status, `${example.workspace}: ${result.stderr}`).toBe(1);
+      const result = await runCli(home, "apply");
+      expectExitCode(result, 1);
       expect(result.stderr).toMatch(example.pattern);
       expect(existsSync(marker)).toBe(false);
       expect(existsSync(statePath(home))).toBe(beforeState);
@@ -735,23 +724,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("init with no Local Configuration still bootstraps the default Workspace", () => {
+  test("init with no Local Configuration still bootstraps the default Workspace", async () => {
     const home = isolatedHome();
-    const result = runCli(home, "init");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "init");
+    expectExitCode(result, 0);
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toMatch(/schema_version:\s*2/);
     expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${workspacePath(home)}`);
   });
 
-  test("init with an explicit missing Workspace path scaffolds and records that selection", () => {
+  test("init with an explicit missing Workspace path scaffolds and records that selection", async () => {
     const home = isolatedHome();
     const custom = join(home, "custom-workspace");
 
-    const result = runCli(home, "init", custom);
+    const result = await runCli(home, "init", custom);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain(custom);
     expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
       schema_version: 2,
@@ -768,30 +757,30 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(custom, ".gitignore"))).toBe(true);
   });
 
-  test("init creates missing parent directories for an explicit Workspace destination", () => {
+  test("init creates missing parent directories for an explicit Workspace destination", async () => {
     const home = isolatedHome();
     const custom = join(home, "nested", "custom-workspace");
 
-    const result = runCli(home, "init", custom);
+    const result = await runCli(home, "init", custom);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(custom);
     expect(existsSync(join(custom, "workspace.yaml"))).toBe(true);
   });
 
-  test("init rejects a Workspace destination reserved by Local Configuration before creating application directories", () => {
+  test("init rejects a Workspace destination reserved by Local Configuration before creating application directories", async () => {
     const home = isolatedHome();
 
     for (const destination of [configPath(home), join(configPath(home), "nested-workspace")]) {
-      const result = runCli(home, "init", destination);
+      const result = await runCli(home, "init", destination);
 
-      expect(result.status).toBe(1);
+      expectExitCode(result, 1);
       expect(result.stderr).toMatch(/reserved for Local Configuration/i);
       expect(existsSync(join(home, ".agents"))).toBe(false);
     }
   });
 
-  test("init rejects a Workspace root that would contain Local Configuration without mutating its source", () => {
+  test("init rejects a Workspace root that would contain Local Configuration without mutating its source", async () => {
     const home = isolatedHome();
     const applicationRoot = join(home, ".agents", "agent-profile-kit");
     const alias = join(home, "application-root-alias");
@@ -802,9 +791,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const before = readdirSync(applicationRoot).sort();
 
     for (const destination of [applicationRoot, alias]) {
-      const result = runCli(home, "init", destination);
+      const result = await runCli(home, "init", destination);
 
-      expect(result.status).toBe(1);
+      expectExitCode(result, 1);
       expect(result.stderr).toMatch(/reserved for Local Configuration/i);
       expect(readdirSync(applicationRoot).sort()).toEqual(before);
       expect(readFileSync(join(applicationRoot, "NOTES.md"), "utf8")).toBe("user-owned source\n");
@@ -812,7 +801,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("init rejects Workspace paths inside the disposable state tree before writing", () => {
+  test("init rejects Workspace paths inside the disposable state tree before writing", async () => {
     const cases: readonly {
       readonly authored: (home: string) => string;
       readonly setup: (home: string) => void;
@@ -844,9 +833,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const example of cases) {
       const home = isolatedHome();
       example.setup(home);
-      const result = runCli(home, "init", example.authored(home));
+      const result = await runCli(home, "init", example.authored(home));
 
-      expect(result.status).toBe(1);
+      expectExitCode(result, 1);
       expect(result.stderr).toMatch(/reserved.*state|installation state/i);
       expect(existsSync(configPath(home))).toBe(false);
       expect(existsSync(workspacePath(home))).toBe(false);
@@ -854,7 +843,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("init rejects a configured Workspace root that contains Local Configuration", () => {
+  test("init rejects a configured Workspace root that contains Local Configuration", async () => {
     const home = isolatedHome();
     const applicationRoot = join(home, ".agents", "agent-profile-kit");
     const alias = join(home, "application-root-alias");
@@ -866,16 +855,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const configBefore = readFileSync(configPath(home), "utf8");
     const sourceBefore = readdirSync(applicationRoot).sort();
 
-    const result = runCli(home, "init");
+    const result = await runCli(home, "init");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toMatch(/reserved.*Local Configuration/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
     expect(readdirSync(applicationRoot).sort()).toEqual(sourceBefore);
     expect(readFileSync(join(applicationRoot, "NOTES.md"), "utf8")).toBe("user-owned source\n");
   });
 
-  test("init rejects a legacy configured Workspace root that contains Local Configuration", () => {
+  test("init rejects a legacy configured Workspace root that contains Local Configuration", async () => {
     const home = isolatedHome();
     const applicationRoot = join(home, ".agents", "agent-profile-kit");
     const alias = join(home, "application-root-alias");
@@ -887,16 +876,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const configBefore = readFileSync(configPath(home), "utf8");
     const sourceBefore = readdirSync(applicationRoot).sort();
 
-    const result = runCli(home, "init");
+    const result = await runCli(home, "init");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toMatch(/reserved.*Local Configuration/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
     expect(readdirSync(applicationRoot).sort()).toEqual(sourceBefore);
     expect(existsSync(`${configPath(home)}.lock`)).toBe(false);
   });
 
-  test("init with an explicit valid Workspace adopts it without changing its source", () => {
+  test("init with an explicit valid Workspace adopts it without changing its source", async () => {
     const home = isolatedHome();
     const custom = join(home, "existing-workspace");
     mkdirSync(custom, { recursive: true });
@@ -904,9 +893,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(custom, "NOTES.md"), "user-owned source\n");
     const before = readdirSync(custom).sort();
 
-    const result = runCli(home, "init", custom);
+    const result = await runCli(home, "init", custom);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain(custom);
     expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
       schema_version: 2,
@@ -918,7 +907,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(workspacePath(home))).toBe(false);
   });
 
-  test("init adoption does not recommend the scaffold-only example Profile", () => {
+  test("init adoption does not recommend the scaffold-only example Profile", async () => {
     const home = isolatedHome();
     const custom = join(home, "existing-workspace");
     mkdirSync(join(custom, "profiles"), { recursive: true });
@@ -933,43 +922,43 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "id: existing\ncontext: [existing-context]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
     );
 
-    const result = runCli(home, "init", custom);
+    const result = await runCli(home, "init", custom);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).not.toContain("bind example");
     expect(result.stdout).toContain("Next: run apkit validate");
-    const validate = runCli(home, "validate");
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCli(home, "validate");
+    expectExitCode(validate, 0);
   });
 
-  test("init accepts an explicit home-relative Workspace path", () => {
+  test("init accepts an explicit home-relative Workspace path", async () => {
     const home = isolatedHome();
     const custom = join(home, "home-relative-workspace");
     const authored = "~/home-relative-workspace";
 
-    const result = runCli(home, "init", authored);
+    const result = await runCli(home, "init", authored);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(authored);
     expect(existsSync(custom)).toBe(true);
     expect(existsSync(workspacePath(home))).toBe(false);
   });
 
-  test("init scaffolds an explicit empty non-symlink Workspace destination", () => {
+  test("init scaffolds an explicit empty non-symlink Workspace destination", async () => {
     const home = isolatedHome();
     const custom = join(home, "empty-workspace");
     mkdirSync(custom);
 
-    const result = runCli(home, "init", custom);
+    const result = await runCli(home, "init", custom);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(custom);
     expect(readFileSync(join(custom, "workspace.yaml"), "utf8")).toBe("schema_version: 1\n");
     expect(existsSync(join(custom, "profiles", ".gitkeep"))).toBe(true);
     expect(existsSync(workspacePath(home))).toBe(false);
   });
 
-  test("init adopts a valid Workspace through a symlink alias and preserves the authored alias", () => {
+  test("init adopts a valid Workspace through a symlink alias and preserves the authored alias", async () => {
     const home = isolatedHome();
     const realWorkspace = join(home, "real-workspace");
     const alias = join(home, "workspace-alias");
@@ -979,9 +968,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     symlinkSync(realWorkspace, alias);
     const before = readdirSync(realWorkspace).sort();
 
-    const result = runCli(home, "init", alias);
+    const result = await runCli(home, "init", alias);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain(realWorkspace);
     expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
       schema_version: 2,
@@ -992,9 +981,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(realWorkspace, "NOTES.md"), "utf8")).toBe("user-owned source\n");
   });
 
-  test("init rejects an explicit Workspace that conflicts with the configured canonical selection", () => {
+  test("init rejects an explicit Workspace that conflicts with the configured canonical selection", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const custom = join(home, "other-workspace");
     mkdirSync(custom, { recursive: true });
     writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
@@ -1002,16 +991,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const configBefore = readFileSync(configPath(home), "utf8");
     const sourceBefore = readdirSync(custom).sort();
 
-    const result = runCli(home, "init", custom);
+    const result = await runCli(home, "init", custom);
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toMatch(/conflict|already selects|different Workspace/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
     expect(readdirSync(custom).sort()).toEqual(sourceBefore);
     expect(existsSync(workspacePath(home))).toBe(true);
   });
 
-  test("init treats an explicit alias of the configured Workspace as idempotent", () => {
+  test("init treats an explicit alias of the configured Workspace as idempotent", async () => {
     const home = isolatedHome();
     const realWorkspace = join(home, "real-workspace");
     const alias = join(home, "workspace-alias");
@@ -1024,16 +1013,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const configBefore = readFileSync(configPath(home), "utf8");
     const sourceBefore = readdirSync(realWorkspace).sort();
 
-    const result = runCli(home, "init", realWorkspace);
+    const result = await runCli(home, "init", realWorkspace);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toMatch(/already initialized|unchanged/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
     expect(readdirSync(realWorkspace).sort()).toEqual(sourceBefore);
     expect(existsSync(workspacePath(home))).toBe(false);
   });
 
-  test("init rejects invalid explicit Workspace destinations before publishing anything", () => {
+  test("init rejects invalid explicit Workspace destinations before publishing anything", async () => {
     const cases: readonly {
       readonly authored: (home: string) => string;
       readonly setup?: (home: string) => void;
@@ -1079,21 +1068,21 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       const home = isolatedHome();
       example.setup?.(home);
 
-      const result = runCli(home, "init", example.authored(home));
+      const result = await runCli(home, "init", example.authored(home));
 
-      expect(result.status, result.stderr).toBe(1);
+      expectExitCode(result, 1);
       expect(result.stderr).toMatch(example.pattern);
       expect(existsSync(configPath(home))).toBe(false);
       expect(existsSync(workspacePath(home))).toBe(false);
     }
   });
 
-  test("init rejects more than one explicit Workspace path", () => {
+  test("init rejects more than one explicit Workspace path", async () => {
     const home = isolatedHome();
 
-    const result = runCli(home, "init", join(home, "one"), join(home, "two"));
+    const result = await runCli(home, "init", join(home, "one"), join(home, "two"));
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("init accepts at most one Workspace path");
     expect(existsSync(configPath(home))).toBe(false);
     expect(existsSync(workspacePath(home))).toBe(false);
@@ -1105,11 +1094,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const second = join(home, "second-workspace");
 
     const results = await Promise.all([
-      runCliAsync(home, "init", first),
-      runCliAsync(home, "init", second),
+      await runCli(home, "init", first),
+      await runCli(home, "init", second),
     ]);
-    const succeeded = results.filter((result) => result.status === 0);
-    const failed = results.filter((result) => result.status === 1);
+    const succeeded = results.filter((result) => result.kind === "exit" && result.exitCode === 0);
+    const failed = results.filter((result) => result.kind === "exit" && result.exitCode === 1);
 
     expect(succeeded).toHaveLength(1);
     expect(failed).toHaveLength(1);
@@ -1120,36 +1109,36 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(failed[0]!.stderr).toMatch(/must be an existing directory|different Workspace|already selects/i);
   });
 
-  test("init does not switch a legacy implicit selection to a different explicit Workspace", () => {
+  test("init does not switch a legacy implicit selection to a different explicit Workspace", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const legacy = "schema_version: 1\n# keep this note\nbindings: []\n";
     writeFileSync(configPath(home), legacy);
     const custom = join(home, "other-workspace");
     mkdirSync(custom, { recursive: true });
     writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
 
-    const result = runCli(home, "init", custom);
+    const result = await runCli(home, "init", custom);
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toMatch(/conflict|already selects|different Workspace/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(legacy);
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(readdirSync(custom)).toEqual(["workspace.yaml"]);
   });
 
-  test("init migrates a legacy implicit selection through an equivalent default alias", () => {
+  test("init migrates a legacy implicit selection through an equivalent default alias", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const alias = join(home, "default-alias");
     symlinkSync(workspacePath(home), alias);
     const legacy = "schema_version: 1\nbindings: []\n";
     writeFileSync(configPath(home), legacy);
     const workspaceBefore = readdirSync(workspacePath(home)).sort();
 
-    const result = runCli(home, "init", alias);
+    const result = await runCli(home, "init", alias);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toMatch(/migrat/i);
     expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
       schema_version: 2,
@@ -1159,7 +1148,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readdirSync(workspacePath(home)).sort()).toEqual(workspaceBefore);
   });
 
-  test("init migrates a legacy custom selection when an explicit alias proves the same Workspace", () => {
+  test("init migrates a legacy custom selection when an explicit alias proves the same Workspace", async () => {
     const home = isolatedHome();
     const realWorkspace = join(home, "real-workspace");
     const alias = join(home, "workspace-alias");
@@ -1171,9 +1160,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const legacy = `schema_version: 1\nworkspace: ${alias}\nbindings: []\n`;
     writeFileSync(configPath(home), legacy);
 
-    const result = runCli(home, "init", realWorkspace);
+    const result = await runCli(home, "init", realWorkspace);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toMatch(/migrat/i);
     expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
       schema_version: 2,
@@ -1183,15 +1172,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(realWorkspace, "NOTES.md"), "utf8")).toBe("user-owned source\n");
   });
 
-  test("init migrates a legacy implicit-default configuration without losing authored content", () => {
+  test("init migrates a legacy implicit-default configuration without losing authored content", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const legacy = "schema_version: 1\n# keep this note\nbindings: []\n";
     writeFileSync(configPath(home), legacy);
 
-    const result = runCli(home, "init");
+    const result = await runCli(home, "init");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toMatch(/migrat/i);
     const migrated = readFileSync(configPath(home), "utf8");
     expect(migrated).toMatch(/schema_version:\s*2/);
@@ -1200,7 +1189,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(migrated).toContain("bindings: []");
   });
 
-  test("init migrates a legacy custom Workspace without changing its authored path or source", () => {
+  test("init migrates a legacy custom Workspace without changing its authored path or source", async () => {
     const home = isolatedHome();
     const custom = join(home, "custom-workspace");
     mkdirSync(custom, { recursive: true });
@@ -1214,9 +1203,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(configPath(home), legacy);
     chmodSync(configPath(home), 0o600);
 
-    const result = runCli(home, "init");
+    const result = await runCli(home, "init");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toMatch(/migrat/i);
     expect(readFileSync(join(custom, "NOTES.md"), "utf8")).toBe("custom source\n");
     expect(existsSync(workspacePath(home))).toBe(false);
@@ -1231,13 +1220,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(statSync(configPath(home)).mode & 0o777).toBe(0o600);
 
     const beforeSecondInit = migrated;
-    const second = runCli(home, "init");
-    expect(second.status, second.stderr).toBe(0);
+    const second = await runCli(home, "init");
+    expectExitCode(second, 0);
     expect(second.stdout).toMatch(/already initialized|unchanged/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(beforeSecondInit);
   });
 
-  test("legacy custom Workspace migration validates before publishing configuration", () => {
+  test("legacy custom Workspace migration validates before publishing configuration", async () => {
     const home = isolatedHome();
     const custom = join(home, "broken-custom");
     mkdirSync(custom, { recursive: true });
@@ -1246,9 +1235,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const legacy = "schema_version: 1\n# keep this note\nworkspace: ~/broken-custom\nbindings: []\n";
     writeFileSync(configPath(home), legacy);
 
-    const result = runCli(home, "init");
+    const result = await runCli(home, "init");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toMatch(/not a valid Agent Profile Kit Workspace|missing required file/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(legacy);
     expect(readdirSync(custom).sort()).toEqual(["stray.txt"]);
@@ -1308,9 +1297,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readdirSync(kitDirectory).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 
-  test("desired-state and binding-recording commands reject unmigrated configuration without writing", () => {
+  test("desired-state and binding-recording commands reject unmigrated configuration without writing", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const legacy = "schema_version: 1\nbindings: []\n";
     writeFileSync(configPath(home), legacy);
     const projectPath = project();
@@ -1325,8 +1314,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       ["unbind", projectPath],
     ];
     for (const arguments_ of commands) {
-      const result = runCli(home, ...arguments_);
-      expect(result.status, `${arguments_.join(" ")}: ${result.stderr}`).toBe(1);
+      const result = await runCli(home, ...arguments_);
+      expectExitCode(result, 1);
       expect(result.stderr).toMatch(/legacy schema_version 1|run apkit init/i);
     }
 
@@ -1336,7 +1325,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("init with a valid custom Workspace reports unchanged and does not mutate it", () => {
+  test("init with a valid custom Workspace reports unchanged and does not mutate it", async () => {
     const home = isolatedHome();
     const custom = join(home, "preexisting-workspace");
     mkdirSync(custom, { recursive: true });
@@ -1348,8 +1337,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${custom}\nbindings: []\n`,
     );
 
-    const result = runCli(home, "init");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "init");
+    expectExitCode(result, 0);
     expect(result.stdout).toMatch(/already initialized|unchanged/i);
     expect(readdirSync(custom).sort()).toEqual(["NOTES.md", "workspace.yaml"]);
     for (const entry of ["README.md", "profiles", "skills", "context"]) {
@@ -1358,7 +1347,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(workspacePath(home))).toBe(false);
   });
 
-  test("init with an invalid custom Workspace fails without creating or repairing source", () => {
+  test("init with an invalid custom Workspace fails without creating or repairing source", async () => {
     const home = isolatedHome();
     const custom = join(home, "broken-custom");
     mkdirSync(custom);
@@ -1369,14 +1358,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${custom}\nbindings: []\n`,
     );
 
-    const result = runCli(home, "init");
-    expect(result.status).toBe(1);
+    const result = await runCli(home, "init");
+    expectExitCode(result, 1);
     expect(result.stderr).toMatch(/not a valid Agent Profile Kit Workspace|missing required file/i);
     expect(readdirSync(custom).sort()).toEqual(["stray.txt"]);
     expect(existsSync(workspacePath(home))).toBe(false);
   });
 
-  test("bindings resolve Profiles from the configured Workspace", () => {
+  test("bindings resolve Profiles from the configured Workspace", async () => {
     const home = isolatedHome();
     const custom = join(home, "bound-workspace");
     mkdirSync(join(custom, "profiles"), { recursive: true });
@@ -1400,18 +1389,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
 
-    const validate = runCli(home, "validate");
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCli(home, "validate");
+    expectExitCode(validate, 0);
     expect(validate.stdout).toContain("1 Profile, 1 Project Binding");
 
-    const apply = runCli(home, "apply");
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCli(home, "apply");
+    expectExitCode(apply, 0);
     expect(existsSync(join(projectPath, ".codex", "AGENTS.md")) || existsSync(join(projectPath, "AGENTS.md")) || existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
   });
 
-  test("validate names the Profiles found and the unique Hosts bound", () => {
+  test("validate names the Profiles found and the unique Hosts bound", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     writeFileSync(
       join(workspacePath(home), "profiles", "writing.yaml"),
@@ -1426,17 +1415,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${second}\n    profile: writing\n    hosts: [claude, codex]\n`,
     );
 
-    const result = runCli(home, "validate");
+    const result = await runCli(home, "validate");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("3 Profiles, 2 Project Bindings");
     expect(result.stdout).toContain("Profiles found: coding, example, writing");
     expect(result.stdout).toContain("Hosts bound: claude, codex");
   });
 
-  test("validate normalizes home-relative project roots and does not invoke Codex", () => {
+  test("validate normalizes home-relative project roots and does not invoke Codex", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = join(home, "project");
     mkdirSync(projectPath);
     writeContextProfile(home);
@@ -1449,19 +1438,22 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(bin, "codex"), `#!/bin/sh\nprintf invoked > ${invoked}\nexit 1\n`);
     execFileSync("chmod", ["+x", join(bin, "codex")]);
 
-    const result = spawnSync(process.env.NODE_BINARY ?? "node", [cliPath, "validate"], {
-      encoding: "utf8",
-      env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    const result = await runProcess({
+      executable: process.env.NODE_BINARY ?? "node",
+      arguments_: [cliPath, "validate"],
+      environment: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? ""}` },
+      deadlineMs: CLI_DEADLINE_MS,
+      commandLabel: "packed CLI",
     });
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Local Configuration valid");
     expect(existsSync(invoked)).toBe(false);
   });
 
-  test("validate rejects empty, relative, wildcard, missing, and unsupported bindings", () => {
+  test("validate rejects empty, relative, wildcard, missing, and unsupported bindings", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const first = project();
     const invalidBindings = [
@@ -1494,16 +1486,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     for (const invalid of invalidBindings) {
       writeFileSync(configPath(home), invalid.source);
-      const result = runCli(home, "validate");
-      expect(result.status).toBe(1);
+      const result = await runCli(home, "validate");
+      expectExitCode(result, 1);
       expect(result.stderr).toContain(invalid.message);
       if ("detail" in invalid) expect(result.stderr).toContain(invalid.detail);
     }
   });
 
-  test("validate rejects symlink aliases that normalize to one canonical project root", () => {
+  test("validate rejects symlink aliases that normalize to one canonical project root", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const realProject = project();
     const alias = join(home, "project-alias");
@@ -1513,22 +1505,22 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${realProject}\n    profile: coding\n    hosts: [codex]\n  - project: ${alias}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const result = runCli(home, "validate");
+    const result = await runCli(home, "validate");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("duplicate canonical root");
   });
 
-  test("preview reports desired additions without writing project, state, or host configuration", () => {
+  test("preview reports desired additions without writing project, state, or host configuration", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeFileSync(join(projectPath, "AGENTS.md"), "repository-owned\n");
     writeContextProfile(home);
     bind(home, projectPath);
-    const result = runCli(home, "preview", "--verbose");
+    const result = await runCli(home, "preview", "--verbose");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(humanText(result.stdout)).toContain(humanText(`${projectPath}: addition`));
     expect(result.stdout).toContain("Profile coding");
     expect(result.stdout).toContain("Context Module: team-rules");
@@ -1541,29 +1533,29 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(statePath(home))).toBe(false);
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
 
-    const validate = runCli(home, "validate");
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCli(home, "validate");
+    expectExitCode(validate, 0);
     expect(validate.stdout).not.toContain("Launch Codex from the exact bound project root:");
 
     for (const command of ["status", "apply"]) {
-      const output = runCli(home, command);
-      expect(output.status, output.stderr).toBe(0);
+      const output = await runCli(home, command);
+      expectExitCode(output, 0);
       expect(humanText(output.stdout)).toContain(
         humanText(`Launch Codex from the exact bound project root: ${projectPath}`),
       );
     }
   });
 
-  test("preview leads with a concise ready-to-apply outcome and grouped change counts", () => {
+  test("preview leads with a concise ready-to-apply outcome and grouped change counts", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
 
-    const result = runCli(home, "preview");
+    const result = await runCli(home, "preview");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout.startsWith("Ready to apply\n")).toBe(true);
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout).toMatch(/Changes: .*addition/);
@@ -1572,17 +1564,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Context:");
   });
 
-  test("status gives an all-current result without enumerating unchanged outputs", () => {
+  test("status gives an all-current result without enumerating unchanged outputs", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
-    const result = runCli(home, "status");
+    const result = await runCli(home, "status");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
     expect(result.stdout.match(/All Projects are current/g)).toHaveLength(1);
     expect(result.stdout).not.toContain("Changes:");
@@ -1591,13 +1583,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Desired State:");
   });
 
-  test("status with no Project Bindings states the condition once and gives discovery next steps", () => {
+  test("status with no Project Bindings states the condition once and gives discovery next steps", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
 
-    const result = runCli(home, "status");
+    const result = await runCli(home, "status");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(humanText(result.stdout)).toBe(
       humanText(
         "No Projects are configured.\n" +
@@ -1610,31 +1602,31 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("apkit bind <profile> --host <host>");
   });
 
-  test("preview reports only the exact bound repository while summarizing mixed changes", () => {
+  test("preview reports only the exact bound repository while summarizing mixed changes", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-presentation-repository-");
     const worktree = addWorktree(repository, "presentation-worktree");
     writeContextProfile(home);
     bind(home, repository);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
       "---\nid: team-rules\ndependencies: []\n---\nUpdated presentation Context.\n",
     );
-    const result = runCli(home, "preview");
+    const result = await runCli(home, "preview");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(humanText(result.stdout)).toContain(humanText(`Project: ${repository}`));
     expect(result.stdout).not.toContain(`Project: ${realpathSync(worktree)}`);
     expect(result.stdout).toMatch(/Changes: .*update/);
     expect(result.stdout).not.toContain("Desired State:");
   });
 
-  test("preview treats Codex SessionStart hook configuration as advisory", () => {
+  test("preview treats Codex SessionStart hook configuration as advisory", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
@@ -1643,29 +1635,29 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     writeFileSync(join(home, ".codex", "config.toml"), "");
     writeFileSync(projectConfig, "");
-    const missing = runCli(home, "preview");
-    expect(missing.status, missing.stderr).toBe(0);
+    const missing = await runCli(home, "preview");
+    expectExitCode(missing, 0);
     expect(missing.stdout).toContain("Ready to apply");
     expect(missing.stdout).not.toContain("SessionStart hooks are not enabled");
 
     const secretLikeValue = "sk-test-should-not-leak";
     writeFileSync(join(home, ".codex", "config.toml"), `[features ${secretLikeValue}\n`);
-    const malformed = runCli(home, "preview", "--verbose");
-    expect(malformed.status, malformed.stderr).toBe(0);
+    const malformed = await runCli(home, "preview", "--verbose");
+    expectExitCode(malformed, 0);
     expect(malformed.stdout).toContain("Warnings:");
     expect(malformed.stdout).toContain("invalid TOML at line 1, column 2");
     expect(malformed.stdout).not.toContain(secretLikeValue);
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = \"false\"\n");
-    const invalidType = runCli(home, "preview", "--verbose");
-    expect(invalidType.status, invalidType.stderr).toBe(0);
+    const invalidType = await runCli(home, "preview", "--verbose");
+    expectExitCode(invalidType, 0);
     expect(invalidType.stdout).toContain("Warnings:");
     expect(invalidType.stdout).toContain("[features].hooks at");
     expect(invalidType.stdout).toContain("must be a boolean");
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
-    const disabled = runCli(home, "preview", "--verbose");
-    expect(disabled.status, disabled.stderr).toBe(0);
+    const disabled = await runCli(home, "preview", "--verbose");
+    expectExitCode(disabled, 0);
     expect(disabled.stdout).toContain("Warnings:");
     expect(disabled.stdout).toContain("SessionStart hooks are not enabled");
     expect(disabled.stdout).toContain(join(home, ".codex", "config.toml"));
@@ -1673,53 +1665,53 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
     writeFileSync(projectConfig, "[features]\nhooks = false\n");
-    const projectDisabled = runCli(home, "preview", "--verbose");
-    expect(projectDisabled.status, projectDisabled.stderr).toBe(0);
+    const projectDisabled = await runCli(home, "preview", "--verbose");
+    expectExitCode(projectDisabled, 0);
     expect(projectDisabled.stdout).toContain("Warnings:");
     expect(projectDisabled.stdout).toContain(projectConfig);
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
     writeFileSync(projectConfig, "[features]\nhooks = true\n");
-    const projectEnabledWithCanonicalSetting = runCli(home, "preview");
-    expect(projectEnabledWithCanonicalSetting.status, projectEnabledWithCanonicalSetting.stderr).toBe(0);
+    const projectEnabledWithCanonicalSetting = await runCli(home, "preview");
+    expectExitCode(projectEnabledWithCanonicalSetting, 0);
 
     writeFileSync(join(home, ".codex", "config.toml"), "");
     writeFileSync(projectConfig, "[features]\ncodex_hooks = true\n");
-    const projectEnabled = runCli(home, "preview");
-    expect(projectEnabled.status, projectEnabled.stderr).toBe(0);
+    const projectEnabled = await runCli(home, "preview");
+    expectExitCode(projectEnabled, 0);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
   });
 
-  test("default warnings shorten the bound project root from the working directory", () => {
+  test("default warnings shorten the bound project root from the working directory", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
     mkdirSync(join(projectPath, ".codex"));
     writeFileSync(join(projectPath, ".codex", "config.toml"), "[features]\nhooks = false\n");
 
-    const result = runCliAt(home, projectPath, "preview");
+    const result = await runCliAt(home, projectPath, "preview");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("enabled by .codex/config.toml;");
     expect(result.stdout).not.toContain("./.codex/config.toml");
     expect(result.stdout).not.toContain(projectPath);
   });
 
-  test("verbose diagnostics shorten the bound project root from the working directory", () => {
+  test("verbose diagnostics shorten the bound project root from the working directory", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
     mkdirSync(join(projectPath, ".codex"));
     writeFileSync(join(projectPath, ".codex", "config.toml"), "[features]\nhooks = false\n");
 
-    const result = runCliAt(home, projectPath, "preview", "--verbose");
+    const result = await runCliAt(home, projectPath, "preview", "--verbose");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain(".codex/config.toml");
     expect(result.stdout).not.toContain("./.codex/config.toml");
     expect(result.stdout).toContain(".agent-profile-kit/codex/context.md: addition");
@@ -1728,47 +1720,47 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain(realpathSync(projectPath));
   });
 
-  test("verbose Git exclusions shorten the bound project root from the working directory", () => {
+  test("verbose Git exclusions shorten the bound project root from the working directory", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = gitRepository();
     writeContextProfile(home);
     bind(home, projectPath);
 
-    const result = runCliAt(home, projectPath, "preview", "--verbose");
+    const result = await runCliAt(home, projectPath, "preview", "--verbose");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("- .git/info/exclude:");
     expect(result.stdout).not.toContain("./.git/info/exclude");
     expect(result.stdout).not.toContain(projectPath);
     expect(result.stdout).not.toContain(realpathSync(projectPath));
   });
 
-  test("apply and status preserve Codex configuration warnings without blocking installation", () => {
+  test("apply and status preserve Codex configuration warnings without blocking installation", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
 
-    const apply = runCli(home, "apply", "--verbose");
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCli(home, "apply", "--verbose");
+    expectExitCode(apply, 0);
     expect(apply.stdout).toContain("Warnings:");
     expect(apply.stdout).toContain("SessionStart hooks are not enabled");
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
 
-    const status = runCli(home, "status", "--verbose");
-    expect(status.status, status.stderr).toBe(0);
+    const status = await runCli(home, "status", "--verbose");
+    expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: current`));
     expect(status.stdout).toContain("Warnings:");
     expect(status.stdout).toContain("SessionStart hooks are not enabled");
     expect(status.stdout).not.toContain(`${projectPath}: blocked`);
   });
 
-  test("preview reports blockers from every project in one complete preflight", () => {
+  test("preview reports blockers from every project in one complete preflight", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const first = project("agent-profile-kit-preflight-a-");
     const second = project("agent-profile-kit-preflight-b-");
     writeContextProfile(home);
@@ -1780,28 +1772,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const result = runCli(home, "preview");
+    const result = await runCli(home, "preview");
 
-    expect(result.status).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout.match(/SessionStart hooks are not enabled/g)).toHaveLength(2);
     expect(result.stdout).toContain(".codex/hooks.json is occupied by unowned or drifted output");
     expect(existsSync(join(first, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(second, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("blocked apply renders one apply report without duplicate stderr blockers", () => {
+  test("blocked apply renders one apply report without duplicate stderr blockers", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     mkdirSync(join(projectPath, ".codex"));
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "repository owned\n");
     writeContextProfile(home);
     bind(home, projectPath);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
     const blocker = ".codex/hooks.json is occupied by unowned or drifted output";
 
-    expect(result.status).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout.startsWith("Apply blocked\n")).toBe(true);
     expect(result.stdout.split(blocker)).toHaveLength(2);
     expect(humanText(result.stdout)).toContain(
@@ -1811,43 +1803,43 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("blocked default output does not repeat the working-directory project root", () => {
+  test("blocked default output does not repeat the working-directory project root", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     mkdirSync(join(projectPath, ".codex"));
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "repository owned\n");
     writeContextProfile(home);
     bind(home, projectPath);
 
-    const result = runCliAt(home, projectPath, "apply");
+    const result = await runCliAt(home, projectPath, "apply");
 
-    expect(result.status).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout).toContain("Project: .");
     expect(result.stdout).not.toContain(projectPath);
     expect(result.stdout).not.toContain(realpathSync(projectPath));
   });
 
-  test("preview, apply, and status accept --verbose and --json while rejecting other presentation arguments", () => {
+  test("preview, apply, and status accept --verbose and --json while rejecting other presentation arguments", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
 
     for (const command of ["preview", "apply", "status"] as const) {
-      const verbose = runCli(home, command, "--verbose");
-      expect(verbose.status, `${command}: ${verbose.stderr}`).toBe(0);
+      const verbose = await runCli(home, command, "--verbose");
+      expectExitCode(verbose, 0);
       expect(verbose.stdout).toContain("Desired State:");
       expect(verbose.stdout).toContain("Resolved artifacts:");
       expect(verbose.stdout).toContain("Context:");
 
-      const duplicateVerbose = runCli(home, command, "--verbose", "--verbose");
-      expect(duplicateVerbose.status, `${command} duplicate flag: ${duplicateVerbose.stderr}`).toBe(0);
+      const duplicateVerbose = await runCli(home, command, "--verbose", "--verbose");
+      expectExitCode(duplicateVerbose, 0);
       expect(duplicateVerbose.stderr).toBe("");
 
-      const json = runCli(home, command, "--json");
-      expect(json.status, `${command} --json: ${json.stderr}`).toBe(0);
+      const json = await runCli(home, command, "--json");
+      expectExitCode(json, 0);
       expect(json.stderr).toBe("");
       const payload = JSON.parse(json.stdout) as {
         readonly command: string;
@@ -1856,29 +1848,29 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(payload.schemaVersion).toBe(1);
       expect(payload.command).toBe(command);
 
-      const both = runCli(home, command, "--verbose", "--json");
-      expect(both.status, `${command} both flags: ${both.stderr}`).toBe(0);
+      const both = await runCli(home, command, "--verbose", "--json");
+      expectExitCode(both, 0);
       expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 1 });
 
-      const unsupported = runCli(home, command, "--yaml");
-      expect(unsupported.status).toBe(1);
+      const unsupported = await runCli(home, command, "--yaml");
+      expectExitCode(unsupported, 1);
       expect(unsupported.stderr).toContain(`${command} does not accept argument '--yaml'`);
     }
   });
 
-  test("preview, apply, and status share a uniform exit-code matrix for clean, blocked, and tool-error states", () => {
+  test("preview, apply, and status share a uniform exit-code matrix for clean, blocked, and tool-error states", async () => {
     const cleanHome = isolatedHome();
-    initialize(cleanHome);
+    await initialize(cleanHome);
     const cleanProject = project();
     writeContextProfile(cleanHome);
     bind(cleanHome, cleanProject);
-    expect(runCli(cleanHome, "apply").status, "seed apply").toBe(0);
+    expectExitCode(await runCli(cleanHome, "apply"), 0);
 
     for (const command of ["preview", "apply", "status"] as const) {
-      const clean = runCli(cleanHome, command);
-      expect(clean.status, `${command} clean text: ${clean.stderr}`).toBe(0);
-      const cleanJson = runCli(cleanHome, command, "--json");
-      expect(cleanJson.status, `${command} clean json: ${cleanJson.stderr}`).toBe(0);
+      const clean = await runCli(cleanHome, command);
+      expectExitCode(clean, 0);
+      const cleanJson = await runCli(cleanHome, command, "--json");
+      expectExitCode(cleanJson, 0);
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
@@ -1887,7 +1879,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
 
     const blockedHome = isolatedHome();
-    initialize(blockedHome);
+    await initialize(blockedHome);
     const blockedProject = project();
     mkdirSync(join(blockedProject, ".codex"));
     writeFileSync(join(blockedProject, ".codex", "hooks.json"), "repository owned\n");
@@ -1895,11 +1887,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(blockedHome, blockedProject);
 
     for (const command of ["preview", "apply", "status"] as const) {
-      const blocked = runCli(blockedHome, command);
-      expect(blocked.status, `${command} blocked text: ${blocked.stderr}`).toBe(2);
+      const blocked = await runCli(blockedHome, command);
+      expectExitCode(blocked, 2);
       expect(blocked.stdout).toMatch(/Blocker:|blocked/i);
-      const blockedJson = runCli(blockedHome, command, "--json");
-      expect(blockedJson.status, `${command} blocked json: ${blockedJson.stderr}`).toBe(2);
+      const blockedJson = await runCli(blockedHome, command, "--json");
+      expectExitCode(blockedJson, 2);
       const payload = JSON.parse(blockedJson.stdout) as {
         readonly blockers: readonly unknown[];
         readonly outcome: string;
@@ -1911,11 +1903,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const toolErrorHome = isolatedHome();
     // No init: Local Configuration is missing, so desired-state commands fail as tool errors.
     for (const command of ["preview", "apply", "status"] as const) {
-      const failed = runCli(toolErrorHome, command);
-      expect(failed.status, `${command} tool error: ${failed.stdout}`).toBe(1);
+      const failed = await runCli(toolErrorHome, command);
+      expectExitCode(failed, 1);
       expect(failed.stderr.length).toBeGreaterThan(0);
-      const failedJson = runCli(toolErrorHome, command, "--json");
-      expect(failedJson.status, `${command} tool error json: ${failedJson.stderr}`).toBe(1);
+      const failedJson = await runCli(toolErrorHome, command, "--json");
+      expectExitCode(failedJson, 1);
       const payload = JSON.parse(failedJson.stdout) as {
         readonly command: string;
         readonly error: string;
@@ -1933,21 +1925,21 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // Pending work without blockers exits 0 for every lifecycle command.
     // Gate pending vs current via JSON outcome, not exit code (DEC-024).
     const pendingHome = isolatedHome();
-    initialize(pendingHome);
+    await initialize(pendingHome);
     const pendingProject = project();
     writeContextProfile(pendingHome);
     bind(pendingHome, pendingProject);
     for (const command of ["preview", "status"] as const) {
-      const pending = runCli(pendingHome, command, "--json");
-      expect(pending.status, `${command} pending: ${pending.stderr}`).toBe(0);
+      const pending = await runCli(pendingHome, command, "--json");
+      expectExitCode(pending, 0);
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
         schemaVersion: 1,
       });
     }
-    const firstApply = runCli(pendingHome, "apply", "--json");
-    expect(firstApply.status, `apply install: ${firstApply.stderr}`).toBe(0);
+    const firstApply = await runCli(pendingHome, "apply", "--json");
+    expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "apply",
       schemaVersion: 1,
@@ -1957,15 +1949,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("apply creates the marker, manifest, composed Context, and native SessionStart hook", () => {
+  test("apply creates the marker, manifest, composed Context, and native SessionStart hook", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeFileSync(join(projectPath, "AGENTS.md"), "repository-owned\n");
     writeContextProfile(home);
     bind(home, projectPath);
-    const preview = runCli(home, "preview");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, "preview");
+    expectExitCode(preview, 0);
     expect(preview.stdout).toContain(
       "Review and approve the generated SessionStart hook when Codex asks.",
     );
@@ -1973,9 +1965,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       humanText(`Launch Codex from the exact bound project root: ${projectPath}`),
     );
     expect(preview.stdout).not.toContain("Trust the bound project in Codex.");
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout.startsWith("Apply complete\n")).toBe(true);
     expect(result.stdout).toContain("State: current");
     expect(result.stdout).not.toContain("State: addition");
@@ -2021,27 +2013,27 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       output.type === "file" && output.mode === 0o644
     )).toBe(true);
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
-    const status = runCli(home, "status");
-    expect(status.status, status.stderr).toBe(0);
+    const status = await runCli(home, "status");
+    expectExitCode(status, 0);
     expect(status.stdout.match(/Codex setup:/g)).toHaveLength(1);
   });
 
-  test("successful apply reports verified current state and a separate apply receipt", () => {
+  test("successful apply reports verified current state and a separate apply receipt", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
       "---\nid: team-rules\ndependencies: []\n---\nUpdated canonical Context.\n",
     );
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Applied:");
     expect(result.stdout).toContain("~ .agent-profile-kit/codex/context.md");
     expect(humanText(result.stdout)).toContain(humanText(`Project: ${projectPath}`));
@@ -2049,9 +2041,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("State: stale source");
   });
 
-  test("apply receipt work expands only the changed project in a multi-project binding", () => {
+  test("apply receipt work expands only the changed project in a multi-project binding", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const changedProject = project("agent-profile-kit-apply-changed-");
     const untouchedProject = project("agent-profile-kit-apply-untouched-");
     writeContextProfile(home);
@@ -2063,34 +2055,34 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       configPath(home),
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${changedProject}\n    profile: coding\n    hosts: [codex]\n  - project: ${untouchedProject}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
     writeFileSync(
       configPath(home),
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${changedProject}\n    profile: alternate\n    hosts: [codex]\n  - project: ${untouchedProject}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(humanText(result.stdout)).toContain(humanText(`Project: ${changedProject}`));
     expect(humanText(result.stdout)).not.toContain(humanText(`Project: ${untouchedProject}`));
   });
 
-  test("verbose apply labels pending and applied work separately", () => {
+  test("verbose apply labels pending and applied work separately", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
       "---\nid: team-rules\ndependencies: []\n---\nUpdated canonical Context.\n",
     );
 
-    const result = runCli(home, "apply", "--verbose");
+    const result = await runCli(home, "apply", "--verbose");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     const pending = result.stdout.indexOf("Pending:");
     const applied = result.stdout.indexOf("Applied:");
     expect(pending).toBeGreaterThanOrEqual(0);
@@ -2100,13 +2092,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout.slice(applied))).toContain(humanText(`${projectPath}: stale source`));
   });
 
-  test("reads schema-v2 installation state for preview and rewrites canonical records on apply", () => {
+  test("reads schema-v2 installation state for preview and rewrites canonical records on apply", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-state-v2-");
     writeContextProfile(home);
     bind(home, repository);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
     const current = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly unknown[];
@@ -2116,13 +2108,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       installations: current.installations,
     }));
 
-    const preview = runCli(home, "preview");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, "preview");
+    expectExitCode(preview, 0);
     expect((parse(readFileSync(statePath(home), "utf8")) as { schema_version: number }).schema_version)
       .toBe(2);
 
-    const applied = runCli(home, "apply");
-    expect(applied.status, applied.stderr).toBe(0);
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 0);
     const migrated = parse(readFileSync(statePath(home), "utf8")) as {
       schema_version: number;
       temporary_installations: readonly unknown[];
@@ -2144,26 +2136,26 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }]);
   });
 
-  test("reads schema-v3 installation state and rewrites intended teardown support on apply", () => {
+  test("reads schema-v3 installation state and rewrites intended teardown support on apply", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const previous = parse(readFileSync(statePath(home), "utf8")) as Record<string, unknown>;
     previous.schema_version = 3;
     delete previous.intended_teardowns;
     delete previous.temporary_installations;
     writeFileSync(statePath(home), stringify(previous));
 
-    const preview = runCli(home, "preview");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, "preview");
+    expectExitCode(preview, 0);
     expect((parse(readFileSync(statePath(home), "utf8")) as { schema_version: number }).schema_version)
       .toBe(3);
 
-    const applied = runCli(home, "apply");
-    expect(applied.status, applied.stderr).toBe(0);
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 0);
     const migrated = parse(readFileSync(statePath(home), "utf8")) as {
       intended_teardowns: readonly unknown[];
       schema_version: number;
@@ -2174,13 +2166,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(migrated.temporary_installations).toEqual([]);
   });
 
-  test("apply leaves current installation outputs and state untouched", () => {
+  test("apply leaves current installation outputs and state untouched", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const paths = [
       join(projectPath, ".agent-profile-kit", "codex", "context.md"),
       join(projectPath, ".agent-profile-kit", "installation.json"),
@@ -2189,9 +2181,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     ];
     const before = paths.map((path) => statSync(path).mtimeMs);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Apply complete");
     expect(result.stdout).toContain("Pending: none");
     expect(result.stdout).toContain("All Projects were already current.");
@@ -2202,13 +2194,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(paths.map((path) => statSync(path).mtimeMs)).toEqual(before);
   });
 
-  test("an installation created before the command rename stays current without re-apply", () => {
+  test("an installation created before the command rename stays current without re-apply", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: { engine_version: string }[];
@@ -2223,24 +2215,24 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     ];
     const outputTimesBefore = outputPaths.map((path) => statSync(path).mtimeMs);
 
-    const status = runCli(home, "status", "--verbose");
-    expect(status.status, status.stderr).toBe(0);
+    const status = await runCli(home, "status", "--verbose");
+    expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: current`));
 
-    const applied = runCli(home, "apply");
-    expect(applied.status, applied.stderr).toBe(0);
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 0);
     expect(applied.stdout).toContain("Applied: none");
     expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
     expect(outputPaths.map((path) => statSync(path).mtimeMs)).toEqual(outputTimesBefore);
   });
 
-  test("preview classifies output additions, updates, removals, and unchanged output without writing", () => {
+  test("preview classifies output additions, updates, removals, and unchanged output without writing", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     const before = readFileSync(contextPath, "utf8");
 
@@ -2248,8 +2240,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       join(workspacePath(home), "context", "team-rules.md"),
       "---\nid: team-rules\ndependencies: []\n---\nUpdated canonical Context.\n",
     );
-    const changed = runCli(home, "preview", "--verbose");
-    expect(changed.status, changed.stderr).toBe(0);
+    const changed = await runCli(home, "preview", "--verbose");
+    expectExitCode(changed, 0);
     expect(humanText(changed.stdout)).toContain(
       humanText(`${projectPath}/.agent-profile-kit/codex/context.md: update`),
     );
@@ -2259,17 +2251,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(contextPath, "utf8")).toBe(before);
 
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
-    const removed = runCli(home, "preview", "--verbose");
-    expect(removed.status, removed.stderr).toBe(0);
+    const removed = await runCli(home, "preview", "--verbose");
+    expectExitCode(removed, 0);
     expect(humanText(removed.stdout)).toContain(
       humanText(`${projectPath}/.agent-profile-kit/codex/context.md: removal`),
     );
     expect(existsSync(contextPath)).toBe(true);
   });
 
-  test("nested Git project bindings emit a Git-root-relative Context hook", () => {
+  test("nested Git project bindings emit a Git-root-relative Context hook", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = project("agent-profile-kit-git-");
     const projectPath = join(repository, "nested");
     mkdirSync(projectPath);
@@ -2277,25 +2269,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, projectPath);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     const hook = JSON.parse(
       readFileSync(join(projectPath, ".codex", "hooks.json"), "utf8"),
     ) as { hooks: { SessionStart: readonly { hooks: readonly { command: string }[] }[] } };
     const command = hook.hooks.SessionStart[0]?.hooks[0]?.command ?? "";
     expect(command).toContain("$root/nested/.agent-profile-kit/codex/context.md");
-    const output = spawnSync("sh", ["-c", command], {
+    const output = await runProcess({
+      executable: "sh",
+      arguments_: ["-c", command],
       cwd: repository,
-      encoding: "utf8",
+      deadlineMs: CLI_DEADLINE_MS,
+      commandLabel: "generated Codex hook command",
     });
-    expect(output.status, output.stderr).toBe(0);
+    expectExitCode(output, 0);
     expect(output.stdout).toContain("Profile: coding");
   });
 
-  test("predictable occupied project output blocks every binding before any write", () => {
+  test("predictable occupied project output blocks every binding before any write", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const first = project("agent-profile-kit-conflict-");
     const second = project("agent-profile-kit-conflict-");
     mkdirSync(join(first, ".codex"));
@@ -2306,9 +2301,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout).toContain("Apply blocked");
     expect(result.stderr).toBe("");
     expect(existsSync(join(first, ".agent-profile-kit"))).toBe(false);
@@ -2316,27 +2311,27 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(first, ".codex", "hooks.json"), "utf8")).toBe("repository-owned hook\n");
   });
 
-  test("preview output is deterministic regardless of Project Binding order", () => {
+  test("preview output is deterministic regardless of Project Binding order", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const first = project("agent-profile-kit-order-a-");
     const second = project("agent-profile-kit-order-b-");
     writeContextProfile(home);
     const configuration = (projects: readonly string[]) =>
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n${projects.map((projectPath) => `  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`).join("")}`;
     writeFileSync(configPath(home), configuration([first, second]));
-    const forward = runCli(home, "preview");
+    const forward = await runCli(home, "preview");
     writeFileSync(configPath(home), configuration([second, first]));
-    const reverse = runCli(home, "preview");
+    const reverse = await runCli(home, "preview");
 
-    expect(forward.status, forward.stderr).toBe(0);
-    expect(reverse.status, reverse.stderr).toBe(0);
+    expectExitCode(forward, 0);
+    expectExitCode(reverse, 0);
     expect(reverse.stdout).toBe(forward.stdout);
   });
 
-  test("changing a Profile updates every project bound to its current Workspace form", () => {
+  test("changing a Profile updates every project bound to its current Workspace form", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const first = project("agent-profile-kit-profile-a-");
     const second = project("agent-profile-kit-profile-b-");
     writeContextProfile(home);
@@ -2344,15 +2339,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       configPath(home),
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
       "---\nid: team-rules\ndependencies: []\n---\nOne current Workspace form.\n",
     );
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     for (const projectPath of [first, second]) {
       expect(readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"))
         .toContain("One current Workspace form.");
@@ -2361,9 +2356,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.installations.map((installation) => installation.profile_id)).toEqual(["coding", "coding"]);
   });
 
-  test("tracked destinations block even when the tracked file is currently absent", () => {
+  test("tracked destinations block even when the tracked file is currently absent", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = join(home, "tracked-project");
     mkdirSync(projectPath);
     execFileSync("git", ["init", "-q", projectPath]);
@@ -2378,9 +2373,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authoredProject}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const result = runCli(home, "preview");
+    const result = await runCli(home, "preview");
 
-    expect(result.status, result.stderr).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
     expect(humanText(result.stdout)).toContain(humanText(`Project: ${authoredProject}`));
     expect(result.stdout).toContain("Blocker: These generated paths are tracked by Git");
@@ -2393,17 +2388,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
 
-    const apply = runCli(home, "apply");
-    expect(apply.status).toBe(2);
+    const apply = await runCli(home, "apply");
+    expectExitCode(apply, 2);
     expect(apply.stdout).toContain("Apply blocked");
     expect(humanText(apply.stdout)).toContain(
       humanText("Generated files must be exclusively managed by Agent Profile Kit"),
     );
   });
 
-  test("packed regression groups many tracked generated paths into one explained blocker with zero writes", () => {
+  test("packed regression groups many tracked generated paths into one explained blocker with zero writes", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = gitRepository();
     writeContextProfile(home);
     for (let index = 1; index <= 12; index += 1) {
@@ -2438,9 +2433,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, projectPath);
     expect(existsSync(statePath(home))).toBe(false);
 
-    const preview = runCli(home, "preview");
+    const preview = await runCli(home, "preview");
 
-    expect(preview.status, preview.stderr).toBe(2);
+    expectExitCode(preview, 2);
     expect(preview.stdout).toContain("Cannot apply");
     expect(preview.stdout.match(/Blocker:/g)).toHaveLength(1);
     expect(preview.stdout).toContain("Blocker: These generated paths are tracked by Git");
@@ -2454,9 +2449,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(preview.stdout).toContain("… 4 more paths; use --verbose to see all paths");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
 
-    const verbose = runCli(home, "preview", "--verbose");
+    const verbose = await runCli(home, "preview", "--verbose");
 
-    expect(verbose.status, verbose.stderr).toBe(2);
+    expectExitCode(verbose, 2);
     for (const path of [
       ".agent-profile-kit/codex/context.md",
       ".agents/skills/s09",
@@ -2470,9 +2465,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(verbose.stdout.match(/Requirement:/g)).toHaveLength(1);
     expect(verbose.stdout).not.toContain("more paths");
 
-    const apply = runCli(home, "apply");
+    const apply = await runCli(home, "apply");
 
-    expect(apply.status, apply.stderr).toBe(2);
+    expectExitCode(apply, 2);
     expect(apply.stdout).toContain("Apply blocked");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(projectPath, ".codex", "hooks.json"), "utf8")).toBe("tracked hooks\n");
@@ -2485,9 +2480,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
-  test("a Git binding reconciles only its exact root and preserves local exclusions", () => {
+  test("a Git binding reconciles only its exact root and preserves local exclusions", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository();
     const worktree = addWorktree(repository, "existing-worktree");
     const exclude = execFileSync("git", ["-C", repository, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"], { encoding: "utf8" }).trim();
@@ -2500,15 +2495,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, repository);
 
-    const preview = runCli(home, "preview", "--verbose");
+    const preview = await runCli(home, "preview", "--verbose");
 
-    expect(preview.status, preview.stderr).toBe(0);
+    expectExitCode(preview, 0);
     expect(preview.stdout).toContain(repository);
     expect(preview.stdout).not.toContain(worktree);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(repository, ".codex", "hooks.json"))).toBe(true);
@@ -2517,8 +2512,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(execFileSync("git", ["-C", repository, "status", "--short"], { encoding: "utf8" })).toBe("");
     expect(execFileSync("git", ["-C", worktree, "status", "--short"], { encoding: "utf8" })).toBe("");
 
-    const status = runCli(home, "status", "--verbose");
-    expect(status.status, status.stderr).toBe(0);
+    const status = await runCli(home, "status", "--verbose");
+    expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${repository}: current`));
     expect(status.stdout).not.toContain(worktree);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
@@ -2536,15 +2531,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const laterUnrelated = "# author entry added after installation\n/local-only\n";
     writeFileSync(exclude, `${installedExclude}${laterUnrelated}`);
-    expect(runCli(home, "apply").status).toBe(0);
-    expect(runCli(home, "uninstall").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
+    expectExitCode(await runCli(home, "uninstall"), 0);
     expect(readFileSync(exclude, "utf8")).toBe(`${unrelated}${laterUnrelated}`);
     expect(readFileSync(join(repository, ".gitignore"), "utf8")).toBe(sharedIgnore);
   });
 
-  test("shared Git exclusions use one canonical record and retain surviving contributions", () => {
+  test("shared Git exclusions use one canonical record and retain surviving contributions", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-shared-exclusion-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -2559,19 +2554,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const preview = runCli(home, "preview");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, "preview");
+    expectExitCode(preview, 0);
     expect(preview.stdout).toContain("Git exclusions: 6 entries to add.");
     expect(preview.stdout).not.toContain(join(repository, ".git", "info", "exclude"));
 
-    const verbosePreview = runCli(home, "preview", "--verbose");
-    expect(verbosePreview.status, verbosePreview.stderr).toBe(0);
+    const verbosePreview = await runCli(home, "preview", "--verbose");
+    expectExitCode(verbosePreview, 0);
     expect(humanText(verbosePreview.stdout)).toContain(
       humanText(`${join(repository, ".git", "info", "exclude")}: add`),
     );
     expect(verbosePreview.stdout).toContain("/nested/.codex/hooks.json");
 
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const target = join(repository, ".git", "info", "exclude");
     const installed = parse(readFileSync(statePath(home), "utf8")) as {
       repository_exclusions: readonly {
@@ -2598,7 +2593,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
         `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const afterRemoval = parse(readFileSync(statePath(home), "utf8")) as {
       repository_exclusions: readonly {
         contributions: readonly unknown[];
@@ -2615,9 +2610,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(target, "utf8")).not.toContain("/nested/");
   });
 
-  test("retires a deleted Git root and removes only its recorded exclusion contribution", () => {
+  test("retires a deleted Git root and removes only its recorded exclusion contribution", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-git-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -2631,28 +2626,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
         `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const exclude = join(repository, ".git", "info", "exclude");
     const unrelated = "# unrelated after managed section\n/local-only\n";
     writeFileSync(exclude, `${readFileSync(exclude, "utf8")}${unrelated}`);
     chmodSync(exclude, 0o640);
     rmSync(nested, { recursive: true });
 
-    const unbound = runCli(home, "unbind", nested);
+    const unbound = await runCli(home, "unbind", nested);
 
-    expect(unbound.status, unbound.stderr).toBe(0);
-    const preview = runCli(home, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
+    expectExitCode(unbound, 0);
+    const preview = await runCli(home, "preview", "--verbose");
+    expectExitCode(preview, 0);
     expect(humanText(preview.stdout)).toContain(humanText(`${nested}: removal`));
     expect(preview.stdout).toContain("/nested/.codex/hooks.json");
-    const status = runCli(home, "status", "--verbose");
-    expect(status.status, status.stderr).toBe(0);
+    const status = await runCli(home, "status", "--verbose");
+    expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${nested}: removal`));
     expect(status.stdout).toContain("project intentionally deleted");
 
-    const applied = runCli(home, "apply");
+    const applied = await runCli(home, "apply");
 
-    expect(applied.status, applied.stderr).toBe(0);
+    expectExitCode(applied, 0);
     expect(existsSync(repository)).toBe(true);
     expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(nested)).toBe(false);
@@ -2668,9 +2663,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.repository_exclusions[0]?.contributions).toHaveLength(1);
   });
 
-  test("retires one deleted independent project while preserving another installation", () => {
+  test("retires one deleted independent project while preserving another installation", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const first = project("agent-profile-kit-retire-independent-first-");
     const second = project("agent-profile-kit-retire-independent-second-");
     writeContextProfile(home);
@@ -2680,14 +2675,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${first}\n    profile: coding\n    hosts: [codex]\n` +
         `  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     rmSync(first, { recursive: true });
 
-    expect(runCli(home, "unbind", first).status).toBe(0);
-    const preview = runCli(home, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
+    expectExitCode(await runCli(home, "unbind", first), 0);
+    const preview = await runCli(home, "preview", "--verbose");
+    expectExitCode(preview, 0);
     expect(humanText(preview.stdout)).toContain(humanText(`${first}: removal`));
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly { project: string }[];
@@ -2697,20 +2692,20 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
-  test("retires a deleted Git root when its exclusion target disappears with the root", () => {
+  test("retires a deleted Git root when its exclusion target disappears with the root", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-whole-git-root-");
     writeContextProfile(home);
     bind(home, repository);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     rmSync(repository, { recursive: true });
 
-    expect(runCli(home, "unbind", repository).status).toBe(0);
-    const preview = runCli(home, "preview");
-    expect(preview.status, `${preview.stdout}\n${preview.stderr}`).toBe(0);
+    expectExitCode(await runCli(home, "unbind", repository), 0);
+    const preview = await runCli(home, "preview");
+    expectExitCode(preview, 0);
     expect(preview.stdout).toContain("project intentionally deleted");
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly unknown[];
       repository_exclusions: readonly unknown[];
@@ -2719,20 +2714,20 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.repository_exclusions).toHaveLength(0);
   });
 
-  test("retires a deleted linked checkout using its recorded common target", () => {
+  test("retires a deleted linked checkout using its recorded common target", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-linked-root-");
     const worktree = addWorktree(repository, "retire-linked-root");
     writeContextProfile(home);
     bind(home, worktree);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     rmSync(worktree, { recursive: true });
 
-    expect(runCli(home, "unbind", worktree).status).toBe(0);
-    const preview = runCli(home, "preview");
-    expect(preview.status, `${preview.stdout}\n${preview.stderr}`).toBe(0);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "unbind", worktree), 0);
+    const preview = await runCli(home, "preview");
+    expectExitCode(preview, 0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly unknown[];
       repository_exclusions: readonly unknown[];
@@ -2741,14 +2736,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.repository_exclusions).toHaveLength(0);
   });
 
-  test("blocks a deleted linked checkout when its exclusion record is missing", () => {
+  test("blocks a deleted linked checkout when its exclusion record is missing", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-linked-missing-record-");
     const worktree = addWorktree(repository, "retire-linked-missing-record");
     writeContextProfile(home);
     bind(home, worktree);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly { git_project: boolean; project: string }[];
       repository_exclusions: readonly unknown[];
@@ -2765,19 +2760,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const exclude = join(repository, ".git", "info", "exclude");
     const beforeExclude = readFileSync(exclude);
     rmSync(worktree, { recursive: true });
-    expect(runCli(home, "unbind", worktree).status).toBe(0);
+    expectExitCode(await runCli(home, "unbind", worktree), 0);
 
-    const preview = runCli(home, "preview");
+    const preview = await runCli(home, "preview");
 
-    expect(preview.status).toBe(2);
+    expectExitCode(preview, 2);
     expect(preview.stdout).toContain("missing its Git exclusion record");
     expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
-    expect(runCli(home, "apply").status).toBe(2);
+    expectExitCode(await runCli(home, "apply"), 2);
   });
 
-  test("blocks intentional-deletion retirement when its exclusion contribution is missing", () => {
+  test("blocks intentional-deletion retirement when its exclusion contribution is missing", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-missing-record-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -2791,7 +2786,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
         `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly { installation_id: string; project: string }[];
       repository_exclusions: { contributions: { installation_id: string }[]; entries: readonly string[] }[];
@@ -2810,19 +2805,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const exclude = join(repository, ".git", "info", "exclude");
     const beforeExclude = readFileSync(exclude);
     rmSync(nested, { recursive: true });
-    expect(runCli(home, "unbind", nested).status).toBe(0);
+    expectExitCode(await runCli(home, "unbind", nested), 0);
 
-    const preview = runCli(home, "preview");
+    const preview = await runCli(home, "preview");
 
-    expect(preview.status).toBe(2);
+    expectExitCode(preview, 2);
     expect(preview.stdout).toContain("missing its Git exclusion record");
     expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
-    expect(runCli(home, "apply").status).toBe(2);
+    expectExitCode(await runCli(home, "apply"), 2);
   });
 
-  test("blocks intentional-deletion retirement when its recorded exclusion contribution is modified", () => {
+  test("blocks intentional-deletion retirement when its recorded exclusion contribution is modified", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-modified-record-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -2836,7 +2831,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
         `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly { installation_id: string; project: string }[];
       repository_exclusions: {
@@ -2854,18 +2849,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     record.entries = [...new Set(record.contributions.flatMap((contribution) => contribution.entries))].sort();
     writeFileSync(statePath(home), stringify(state));
     rmSync(nested, { recursive: true });
-    expect(runCli(home, "unbind", nested).status).toBe(0);
+    expectExitCode(await runCli(home, "unbind", nested), 0);
 
-    const preview = runCli(home, "preview");
+    const preview = await runCli(home, "preview");
 
-    expect(preview.status).toBe(2);
+    expectExitCode(preview, 2);
     expect(humanText(preview.stdout)).toContain("does not match its recorded installation record contribution");
-    expect(runCli(home, "apply").status).toBe(2);
+    expectExitCode(await runCli(home, "apply"), 2);
   });
 
-  test("blocks intentional-deletion retirement when the surviving exclusion section is missing", () => {
+  test("blocks intentional-deletion retirement when the surviving exclusion section is missing", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-missing-exclude-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -2879,20 +2874,20 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
         `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const exclude = join(repository, ".git", "info", "exclude");
     rmSync(exclude);
     rmSync(nested, { recursive: true });
 
-    const unbound = runCli(home, "unbind", nested);
+    const unbound = await runCli(home, "unbind", nested);
 
-    expect(unbound.status, unbound.stderr).toBe(0);
-    const preview = runCli(home, "preview");
+    expectExitCode(unbound, 0);
+    const preview = await runCli(home, "preview");
 
-    expect(preview.status).toBe(2);
+    expectExitCode(preview, 2);
     expect(preview.stdout).toContain("missing its Agent Profile Kit exclusion section");
-    const applied = runCli(home, "apply");
-    expect(applied.status).toBe(2);
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 2);
     expect(applied.stdout).toContain("missing its Agent Profile Kit exclusion section");
     expect(applied.stderr).toBe("");
     const state = parse(readFileSync(statePath(home), "utf8")) as {
@@ -2901,9 +2896,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.installations).toHaveLength(2);
   });
 
-  test("blocks intentional-deletion retirement when its only exclusion file is missing", () => {
+  test("blocks intentional-deletion retirement when its only exclusion file is missing", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-only-missing-exclude-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -2912,21 +2907,21 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
     writeContextProfile(home);
     bind(home, nested);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     rmSync(join(repository, ".git", "info", "exclude"));
     rmSync(nested, { recursive: true });
-    expect(runCli(home, "unbind", nested).status).toBe(0);
+    expectExitCode(await runCli(home, "unbind", nested), 0);
 
-    const preview = runCli(home, "preview");
+    const preview = await runCli(home, "preview");
 
-    expect(preview.status).toBe(2);
+    expectExitCode(preview, 2);
     expect(preview.stdout).toContain("missing its Agent Profile Kit exclusion section");
-    expect(runCli(home, "apply").status).toBe(2);
+    expectExitCode(await runCli(home, "apply"), 2);
   });
 
-  test("blocks intentional-deletion retirement when the Git exclusion parent is missing", () => {
+  test("blocks intentional-deletion retirement when the Git exclusion parent is missing", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-missing-exclude-parent-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -2935,23 +2930,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
     writeContextProfile(home);
     bind(home, nested);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const info = join(repository, ".git", "info");
     rmSync(info, { recursive: true });
     rmSync(nested, { recursive: true });
-    expect(runCli(home, "unbind", nested).status).toBe(0);
+    expectExitCode(await runCli(home, "unbind", nested), 0);
 
-    const preview = runCli(home, "preview");
+    const preview = await runCli(home, "preview");
 
-    expect(preview.status).toBe(2);
+    expectExitCode(preview, 2);
     expect(preview.stdout).toContain("missing its Agent Profile Kit exclusion section");
-    expect(runCli(home, "apply").status).toBe(2);
+    expectExitCode(await runCli(home, "apply"), 2);
     expect(existsSync(info)).toBe(false);
   });
 
-  test("keeps intentional-deletion retirement retryable when state publication fails", () => {
+  test("keeps intentional-deletion retirement retryable when state publication fails", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-state-failure-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -2965,18 +2960,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
         `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const exclude = join(repository, ".git", "info", "exclude");
     const beforeExclude = readFileSync(exclude);
     rmSync(nested, { recursive: true });
-    expect(runCli(home, "unbind", nested).status).toBe(0);
+    expectExitCode(await runCli(home, "unbind", nested), 0);
     const stateDirectory = join(home, ".agents", "agent-profile-kit", "state");
     chmodSync(stateDirectory, 0o555);
 
-    const failed = runCli(home, "apply");
+    const failed = await runCli(home, "apply");
 
     chmodSync(stateDirectory, 0o755);
-    expect(failed.status).toBe(1);
+    expectExitCode(failed, 1);
     expect(failed.stderr).toContain("Apply failed");
     expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
     const retained = parse(readFileSync(statePath(home), "utf8")) as {
@@ -2984,9 +2979,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     };
     expect(retained.installations).toHaveLength(2);
 
-    const retry = runCli(home, "apply");
+    const retry = await runCli(home, "apply");
 
-    expect(retry.status, retry.stderr).toBe(0);
+    expectExitCode(retry, 0);
     const converged = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly unknown[];
     };
@@ -2994,53 +2989,53 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(exclude, "utf8")).not.toContain("/nested/");
   });
 
-  test("missing Repository Exclusion Record blocks an existing Git installation before writes", () => {
+  test("missing Repository Exclusion Record blocks an existing Git installation before writes", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-missing-record-");
     writeContextProfile(home);
     bind(home, repository);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const exclude = join(repository, ".git", "info", "exclude");
     const before = readFileSync(exclude);
     const state = parse(readFileSync(statePath(home), "utf8")) as Record<string, unknown>;
     state.repository_exclusions = [];
     writeFileSync(statePath(home), stringify(state));
 
-    const preview = runCliAt(home, repository, "preview");
+    const preview = await runCliAt(home, repository, "preview");
 
-    expect(preview.status).toBe(2);
+    expectExitCode(preview, 2);
     expect(preview.stdout).toContain("missing its Git exclusion record");
     expect(preview.stdout).not.toContain(repository);
     expect(preview.stdout).not.toContain(realpathSync(repository));
     expect(readFileSync(exclude).equals(before)).toBe(true);
   });
 
-  test("uninstall rejects a Repository Exclusion Record attached to the wrong Git target", () => {
+  test("uninstall rejects a Repository Exclusion Record attached to the wrong Git target", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-wrong-record-target-");
     const other = gitRepository("agent-profile-kit-wrong-record-other-");
     writeContextProfile(home);
     bind(home, repository);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       repository_exclusions: { target: string }[];
     };
     state.repository_exclusions[0]!.target = join(other, ".git", "info", "exclude");
     writeFileSync(statePath(home), stringify(state));
 
-    const result = runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("targets");
     expect(result.stderr).toContain(join(repository, ".git", "info", "exclude"));
     expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
-  test("an explicitly bound linked checkout gets its own Profile Installation", () => {
+  test("an explicitly bound linked checkout gets its own Profile Installation", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-explicit-root-");
     const worktree = addWorktree(repository, "explicit-linked-worktree");
     writeContextProfile(home);
@@ -3053,23 +3048,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${worktree}\n    profile: review\n    hosts: [claude]\n`,
     );
 
-    const preview = runCliWithPath(home, pathWithClaude, "preview", "--verbose");
+    const preview = await runCliWithPath(home, pathWithClaude, "preview", "--verbose");
 
-    expect(preview.status, preview.stderr).toBe(0);
+    expectExitCode(preview, 0);
     expect(humanText(preview.stdout)).toContain(humanText(`${repository}: Profile coding`));
     expect(humanText(preview.stdout)).toContain(humanText(`${worktree}: Profile review`));
 
-    const apply = runCliWithPath(home, pathWithClaude, "apply");
+    const apply = await runCliWithPath(home, pathWithClaude, "apply");
 
-    expect(apply.status, apply.stderr).toBe(0);
+    expectExitCode(apply, 0);
     expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(repository, ".claude"))).toBe(false);
     expect(existsSync(join(worktree, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     expect(existsSync(join(worktree, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
 
-    const status = runCliWithPath(home, pathWithClaude, "status", "--verbose");
+    const status = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
 
-    expect(status.status, status.stderr).toBe(0);
+    expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${repository}: current`));
     expect(humanText(status.stdout)).toContain(humanText(`${worktree}: current`));
     const state = parse(readFileSync(statePath(home), "utf8")) as {
@@ -3090,9 +3085,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     ]));
   });
 
-  test("Git exclusion preflight rejects a symlinked info parent without external writes", () => {
+  test("Git exclusion preflight rejects a symlinked info parent without external writes", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-git-info-symlink-");
     const external = project("agent-profile-kit-external-git-info-");
     rmSync(join(repository, ".git", "info"), { recursive: true });
@@ -3100,9 +3095,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, repository);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout).toContain("Git exclusion parent");
     expect(result.stdout).toContain("must be a real directory");
     expect(result.stderr).toBe("");
@@ -3110,9 +3105,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(repository, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("Git discovery rejects a symlinked authored common directory", () => {
+  test("Git discovery rejects a symlinked authored common directory", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-git-common-symlink-");
     const external = project("agent-profile-kit-external-common-");
     const externalGit = join(external, "gitdir");
@@ -3123,47 +3118,47 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, repository);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("Git common directory");
     expect(result.stderr).toContain("non-directory or symlink component");
     expect(readFileSync(exclude).equals(before)).toBe(true);
     expect(existsSync(join(repository, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("a corrupt Git boundary fails closed instead of becoming a non-Git project", () => {
+  test("a corrupt Git boundary fails closed instead of becoming a non-Git project", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project("agent-profile-kit-corrupt-git-");
     writeFileSync(join(projectPath, ".git"), "gitdir: /definitely/missing\n");
     writeContextProfile(home);
     bind(home, projectPath);
 
-    const result = runCli(home, "validate");
+    const result = await runCli(home, "validate");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("Cannot inspect Git worktree");
     expect(result.stdout).not.toContain("not a Git worktree");
   });
 
-  test("Git exclusion reconciliation preserves an existing file mode", () => {
+  test("Git exclusion reconciliation preserves an existing file mode", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-git-exclude-mode-");
     const exclude = join(repository, ".git", "info", "exclude");
     chmodSync(exclude, 0o600);
     writeContextProfile(home);
     bind(home, repository);
 
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
     expect(statSync(exclude).mode & 0o777).toBe(0o600);
   });
 
-  test("a failed first Git apply restores an originally absent exclusion file", () => {
+  test("a failed first Git apply restores an originally absent exclusion file", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-absent-exclude-");
     const exclude = join(repository, ".git", "info", "exclude");
     rmSync(exclude);
@@ -3173,17 +3168,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(stateDirectory, { recursive: true });
     chmodSync(stateDirectory, 0o555);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
     chmodSync(stateDirectory, 0o755);
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(existsSync(exclude)).toBe(false);
     expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("a failed first Git apply removes the exclusion parent it safely created", () => {
+  test("a failed first Git apply removes the exclusion parent it safely created", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-absent-info-");
     const info = join(repository, ".git", "info");
     rmSync(info, { recursive: true });
@@ -3193,56 +3188,56 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(stateDirectory, { recursive: true });
     chmodSync(stateDirectory, 0o555);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
     chmodSync(stateDirectory, 0o755);
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(existsSync(info)).toBe(false);
     expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("modified Git exclusion ownership blocks both apply and uninstall", () => {
+  test("modified Git exclusion ownership blocks both apply and uninstall", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-modified-exclude-");
     const exclude = join(repository, ".git", "info", "exclude");
     writeContextProfile(home);
     bind(home, repository);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     writeFileSync(
       exclude,
       readFileSync(exclude).toString("utf8").replace("/.codex/hooks.json", "/unexpected"),
     );
 
     for (const command of ["apply", "uninstall"] as const) {
-      const result = runCli(home, command);
+      const result = await runCli(home, command);
       // apply reports ownership blockers as exit 2; uninstall remains a tool-failure exit 1.
-      expect(result.status).toBe(command === "apply" ? 2 : 1);
+      expectExitCode(result, command === "apply" ? 2 : 1);
       expect(humanText(`${result.stdout}${result.stderr}`)).toContain("exclusion section is modified");
       if (command === "apply") expect(result.stderr).toBe("");
       expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
     }
   });
 
-  test("preview and status summarize a pending Git exclusion repair before apply", () => {
+  test("preview and status summarize a pending Git exclusion repair before apply", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-missing-exclude-");
     const exclude = join(repository, ".git", "info", "exclude");
     writeContextProfile(home);
     bind(home, repository);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     writeFileSync(exclude, "# unrelated local exclusion\n");
 
     for (const command of ["preview", "status"]) {
-      const result = runCli(home, command);
-      expect(result.status, result.stderr).toBe(0);
+      const result = await runCli(home, command);
+      expectExitCode(result, 0);
       expect(result.stdout).toContain("Git exclusions: 3 recorded entries to restore.");
       expect(result.stdout).not.toContain(exclude);
     }
 
-    const repaired = runCli(home, "apply");
-    expect(repaired.status, repaired.stderr).toBe(0);
+    const repaired = await runCli(home, "apply");
+    expectExitCode(repaired, 0);
     expect(repaired.stdout).toContain("State: current");
     expect(repaired.stdout).toContain("Applied:");
     expect(repaired.stdout).toContain("Git exclusions: 3 recorded entries restored.");
@@ -3250,17 +3245,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(repaired.stdout).not.toContain("apply will restore");
 
     writeFileSync(exclude, "# unrelated local exclusion\n");
-    const verboseRepaired = runCli(home, "apply", "--verbose");
-    expect(verboseRepaired.status, verboseRepaired.stderr).toBe(0);
+    const verboseRepaired = await runCli(home, "apply", "--verbose");
+    expectExitCode(verboseRepaired, 0);
     expect(verboseRepaired.stdout).not.toContain("apply will restore");
     expect(verboseRepaired.stdout).toContain("restored 3 recorded Repository Exclusion entries");
     expect(readFileSync(exclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
-    expect(runCli(home, "status").stdout).not.toContain("is missing its Agent Profile Kit exclusion section");
+    const afterStatus = await runCli(home, "status");
+    expect(afterStatus.stdout).not.toContain("is missing its Agent Profile Kit exclusion section");
   });
 
-  test("a later Git project failure leaves exclusions only for completed Manifest state", () => {
+  test("a later Git project failure leaves exclusions only for completed Manifest state", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repositories = [
       gitRepository("agent-profile-kit-partial-git-a-"),
       gitRepository("agent-profile-kit-partial-git-b-"),
@@ -3277,23 +3273,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     chmodSync(second, 0o555);
 
-    const failed = runCli(home, "apply");
+    const failed = await runCli(home, "apply");
 
     chmodSync(second, 0o755);
-    expect(failed.status).toBe(1);
+    expectExitCode(failed, 1);
     expect(readFileSync(firstExclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
     expect(readFileSync(secondExclude).equals(secondBefore)).toBe(true);
     expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
 
-    const converged = runCli(home, "apply");
-    expect(converged.status, converged.stderr).toBe(0);
+    const converged = await runCli(home, "apply");
+    expectExitCode(converged, 0);
     expect(readFileSync(secondExclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
   });
 
-  test("a failed stale removal retains all same-repository exclusion ownership", () => {
+  test("a failed stale removal retains all same-repository exclusion ownership", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-stale-git-");
     mkdirSync(join(repository, "nested"));
     writeFileSync(join(repository, "nested", ".keep"), "fixture\n");
@@ -3304,40 +3300,40 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       configPath(home),
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n  - project: ${join(repository, "nested")}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const exclude = join(repository, ".git", "info", "exclude");
     const before = readFileSync(exclude);
     writeFileSync(join(repository, "nested", ".codex", "hooks.json"), "drifted\n");
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
 
-    const failed = runCli(home, "apply");
+    const failed = await runCli(home, "apply");
 
-    expect(failed.status).toBe(2);
+    expectExitCode(failed, 2);
     expect(readFileSync(exclude).equals(before)).toBe(true);
     expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(repository, "nested", ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
-  test("status ignores an unbound worktree created after apply", () => {
+  test("status ignores an unbound worktree created after apply", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-later-");
     writeContextProfile(home);
     bind(home, repository);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const later = addWorktree(repository, "later-worktree");
 
-    const status = runCli(home, "status", "--verbose");
+    const status = await runCli(home, "status", "--verbose");
 
-    expect(status.status, status.stderr).toBe(0);
+    expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${repository}: current`));
     expect(status.stdout).not.toContain(later);
     expect(existsSync(join(later, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("a nested Git binding reconciles only its exact nested root", () => {
+  test("a nested Git binding reconciles only its exact nested root", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-nested-");
     mkdirSync(join(repository, "packages", "tool"), { recursive: true });
     writeFileSync(join(repository, "packages", "tool", ".keep"), "fixture\n");
@@ -3347,9 +3343,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, join(repository, "packages", "tool"));
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(existsSync(join(repository, "packages", "tool", ".agent-profile-kit", "installation.json"))).toBe(true);
     const hook = readFileSync(join(repository, "packages", "tool", ".codex", "hooks.json"), "utf8");
     expect(hook).toContain("packages/tool/.agent-profile-kit/codex/context.md");
@@ -3357,25 +3353,25 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(repository, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("exact-root planning ignores a missing sibling nested path", () => {
+  test("exact-root planning ignores a missing sibling nested path", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-missing-nested-");
     const worktree = addWorktree(repository, "missing-nested-worktree");
     mkdirSync(join(repository, "local-only"));
     writeContextProfile(home);
     bind(home, join(repository, "local-only"));
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(existsSync(join(repository, "local-only", ".agent-profile-kit"))).toBe(true);
     expect(existsSync(join(worktree, "local-only"))).toBe(false);
   });
 
-  test("explicit bindings create distinct Profile Installations for checkout roots", () => {
+  test("explicit bindings create distinct Profile Installations for checkout roots", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-dedupe-");
     const worktree = addWorktree(repository, "dedupe-worktree");
     writeContextProfile(home);
@@ -3384,9 +3380,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n  - project: ${worktree}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly { project: string }[];
     };
@@ -3397,52 +3393,56 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     ].sort());
   });
 
-  test("status distinguishes current, stale source, drifted output, missing output, and malformed ownership", () => {
+  test("status distinguishes current, stale source, drifted output, missing output, and malformed ownership", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
-    const current = runCli(home, "status", "--verbose");
-    expect(current.status, current.stderr).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const current = await runCli(home, "status", "--verbose");
+    expectExitCode(current, 0);
     expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: current`));
 
     writeFileSync(join(workspacePath(home), "context", "team-rules.md"), "---\nid: team-rules\ndependencies: []\n---\nchanged\n");
-    expect(humanText(runCli(home, "status", "--verbose").stdout)).toContain(
+    const stale = await runCli(home, "status", "--verbose");
+    expect(humanText(stale.stdout)).toContain(
       humanText(`${projectPath}: stale source`),
     );
     writeFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "drift\n");
-    expect(humanText(runCli(home, "status", "--verbose").stdout)).toContain(
+    const drifted = await runCli(home, "status", "--verbose");
+    expect(humanText(drifted.stdout)).toContain(
       humanText(`${projectPath}: drifted output`),
     );
     rmSync(join(projectPath, ".codex", "hooks.json"));
-    expect(humanText(runCli(home, "status", "--verbose").stdout)).toContain(
+    const missing = await runCli(home, "status", "--verbose");
+    expect(humanText(missing.stdout)).toContain(
       humanText(`${projectPath}: missing output`),
     );
     writeFileSync(join(projectPath, ".agent-profile-kit", "installation.json"), "not json");
-    expect(humanText(runCli(home, "status", "--verbose").stdout)).toContain(
+    const malformed = await runCli(home, "status", "--verbose");
+    expect(humanText(malformed.stdout)).toContain(
       humanText(`${projectPath}: malformed ownership state`),
     );
   });
 
-  test("status reports output permission drift and apply preserves it", () => {
+  test("status reports output permission drift and apply preserves it", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const context = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     chmodSync(context, 0o600);
 
-    const status = runCli(home, "status", "--verbose");
-    const applied = runCli(home, "apply");
+    const status = await runCli(home, "status", "--verbose");
+    const applied = await runCli(home, "apply");
 
-    expect(status.status, status.stderr).toBe(2);
+    expectExitCode(status, 2);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: drifted output`));
     expect(status.stdout).toContain("mode");
-    expect(applied.status).toBe(2);
+    expectExitCode(applied, 2);
     expect(applied.stderr).toBe("");
     expect(humanText(applied.stdout)).toContain(humanText("will not overwrite your edit"));
     expect(humanText(applied.stdout)).toContain(humanText("Move the change into the Workspace"));
@@ -3450,9 +3450,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(statSync(context).mode & 0o777).toBe(0o600);
   });
 
-  test("unexpected members in an owned directory receive the same safe drift remedies", () => {
+  test("unexpected members in an owned directory receive the same safe drift remedies", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     const source = join(workspacePath(home), "skills", "review-pr");
@@ -3466,13 +3466,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
     );
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const unexpected = join(projectPath, ".agents", "skills", "review-pr", "notes.md");
     writeFileSync(unexpected, "user note\n");
 
-    const blocked = runCli(home, "apply");
+    const blocked = await runCli(home, "apply");
 
-    expect(blocked.status).toBe(2);
+    expectExitCode(blocked, 2);
     expect(blocked.stderr).toBe("");
     expect(blocked.stdout).toContain("unexpected:");
     expect(humanText(blocked.stdout)).toContain(humanText("will not overwrite your edit"));
@@ -3482,19 +3482,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(unexpected, "utf8")).toBe("user note\n");
   });
 
-  test("drift names both safe recovery routes once and deleting the file restores current state", () => {
+  test("drift names both safe recovery routes once and deleting the file restores current state", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const drifted = join(projectPath, ".codex", "hooks.json");
     writeFileSync(drifted, "user edit\n");
 
-    const blocked = runCli(home, "apply");
+    const blocked = await runCli(home, "apply");
 
-    expect(blocked.status).toBe(2);
+    expectExitCode(blocked, 2);
     expect(blocked.stderr).toBe("");
     expect(blocked.stdout.match(/Blocker:/g)).toHaveLength(1);
     expect(humanText(blocked.stdout)).toContain(humanText("will not overwrite your edit"));
@@ -3502,33 +3502,33 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(blocked.stdout)).toContain(humanText("delete the generated file"));
 
     rmSync(drifted);
-    const repaired = runCli(home, "apply");
-    const current = runCli(home, "status");
+    const repaired = await runCli(home, "apply");
+    const current = await runCli(home, "status");
 
-    expect(repaired.status, repaired.stderr).toBe(0);
-    expect(current.status, current.stderr).toBe(0);
+    expectExitCode(repaired, 0);
+    expectExitCode(current, 0);
     expect(current.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
     expect(current.stdout).not.toContain("Next:");
   });
 
-  test("status reports a malformed machine-local Installation Manifest without writing", () => {
+  test("status reports a malformed machine-local Installation Manifest without writing", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     writeFileSync(statePath(home), "not: a valid installation state\n");
 
-    const result = runCli(home, "status");
-    const apply = runCli(home, "apply");
+    const result = await runCli(home, "status");
+    const apply = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout).toContain("Global blockers:");
     expect(result.stdout).toContain("Installation State");
     expect(result.stdout).toContain("Blockers: 1");
-    expect(apply.status).toBe(2);
+    expectExitCode(apply, 2);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
     expect(apply.stdout).toContain("Global blockers:");
@@ -3536,13 +3536,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
-  test("schema-v1 ownership state fails closed without adopting or removing output", () => {
+  test("schema-v1 ownership state fails closed without adopting or removing output", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       schema_version: number;
       installations: Array<{ schema_version: number }>;
@@ -3551,34 +3551,34 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const installation of state.installations) installation.schema_version = 1;
     writeFileSync(statePath(home), stringify(state));
 
-    const status = runCli(home, "status");
-    const apply = runCli(home, "apply");
-    const uninstall = runCli(home, "uninstall");
+    const status = await runCli(home, "status");
+    const apply = await runCli(home, "apply");
+    const uninstall = await runCli(home, "uninstall");
 
-    expect(status.status, status.stderr).toBe(2);
+    expectExitCode(status, 2);
     expect(status.stdout).toContain("schema_version must be 5");
-    expect(apply.status).toBe(2);
+    expectExitCode(apply, 2);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
     expect(apply.stdout).toContain("schema_version must be 5");
-    expect(uninstall.status).toBe(1);
+    expectExitCode(uninstall, 1);
     expect(uninstall.stderr).toContain("schema_version must be 5");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
   });
 
-  test("status reports a blocked installation deterministically without writing", () => {
+  test("status reports a blocked installation deterministically without writing", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     mkdirSync(join(projectPath, ".codex"));
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "repository owned\n");
     writeContextProfile(home);
     bind(home, projectPath);
 
-    const result = runCli(home, "status");
+    const result = await runCli(home, "status");
 
-    expect(result.status, result.stderr).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout.startsWith("Attention required\n")).toBe(true);
     expect(humanText(result.stdout)).toContain(humanText(`Project: ${projectPath}`));
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
@@ -3587,50 +3587,50 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("status keeps a home-relative blocked installation in one Profile Installation group", () => {
+  test("status keeps a home-relative blocked installation in one Profile Installation group", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = join(home, "home-relative-blocked-project");
     mkdirSync(join(projectPath, ".codex"), { recursive: true });
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "repository owned\n");
     writeContextProfile(home);
     bind(home, "~/home-relative-blocked-project");
 
-    const result = runCli(home, "status");
+    const result = await runCli(home, "status");
 
-    expect(result.status, result.stderr).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout.match(/Project:/g)).toHaveLength(1);
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
   });
 
-  test("concise lifecycle output keeps drift reasons and removal intent visible", () => {
+  test("concise lifecycle output keeps drift reasons and removal intent visible", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
       "---\nid: team-rules\ndependencies: []\n---\nChanged concise status Context.\n",
     );
-    const drift = runCli(home, "status");
-    expect(drift.status, drift.stderr).toBe(0);
+    const drift = await runCli(home, "status");
+    expectExitCode(drift, 0);
     expect(drift.stdout).toContain("State: stale source");
     expect(drift.stdout).toContain("Changes: 1 generated file update");
 
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
-    const removal = runCli(home, "preview");
-    expect(removal.status, removal.stderr).toBe(0);
+    const removal = await runCli(home, "preview");
+    expectExitCode(removal, 0);
     expect(removal.stdout).toContain("State: removal");
     expect(removal.stdout).toMatch(/Changes: .*generated file removal/);
   });
 
-  test("status attributes blockers by canonical project identity instead of path prefix", () => {
+  test("status attributes blockers by canonical project identity instead of path prefix", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const parent = project("agent-profile-kit-prefix-");
     const first = join(parent, "project");
     const second = join(parent, "project-extra");
@@ -3644,9 +3644,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const result = runCli(home, "status", "--verbose");
+    const result = await runCli(home, "status", "--verbose");
 
-    expect(result.status, result.stderr).toBe(2);
+    expectExitCode(result, 2);
     expect(humanText(result.stdout)).toContain(
       humanText(`${first}: missing output (Profile Installation is missing)`),
     );
@@ -3654,13 +3654,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toContain(humanText(`${second}: blocked`));
   });
 
-  test("status rejects a Manifest that omits its Installation Marker output", () => {
+  test("status rejects a Manifest that omits its Installation Marker output", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: Array<{ outputs: Array<{ path: string }> }>;
     };
@@ -3669,64 +3669,64 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(statePath(home), stringify(state));
 
-    const result = runCli(home, "status");
+    const result = await runCli(home, "status");
 
-    expect(result.status, result.stderr).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout).toContain("installation record outputs must include the Installation Marker");
     expect(result.stdout).toContain("Blockers: 1");
   });
 
-  test("uninstall refuses to remove drifted output", () => {
+  test("uninstall refuses to remove drifted output", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "user edit\n");
 
-    const result = runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("Uninstall blocked");
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
   });
 
-  test("uninstall rejects a symlinked output parent and preserves matching external data", () => {
+  test("uninstall rejects a symlinked output parent and preserves matching external data", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     const external = project("agent-profile-kit-external-hooks-");
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const hook = readFileSync(join(projectPath, ".codex", "hooks.json"), "utf8");
     rmSync(join(projectPath, ".codex"), { recursive: true });
     writeFileSync(join(external, "hooks.json"), hook);
     symlinkSync(external, join(projectPath, ".codex"));
 
-    const result = runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("symlink parent");
     expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
-  test("uninstall preflights every project before removal and preserves Workspace and Project Bindings", () => {
+  test("uninstall preflights every project before removal and preserves Workspace and Project Bindings", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const first = project("agent-profile-kit-uninstall-a-");
     const second = project("agent-profile-kit-uninstall-b-");
     writeContextProfile(home);
     const configuration = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), configuration);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     writeFileSync(join(second, ".codex", "hooks.json"), "drifted\n");
 
-    const result = runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("Uninstall blocked");
     expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
@@ -3734,9 +3734,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(workspacePath(home), "profiles", "coding.yaml"))).toBe(true);
   });
 
-  test("uninstall removes only proven output and preserves canonical and unrelated project state", () => {
+  test("uninstall removes only proven output and preserves canonical and unrelated project state", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     const globalCodex = join(home, ".codex");
     mkdirSync(globalCodex, { recursive: true });
@@ -3746,8 +3746,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(projectPath, "AGENTS.md"), "repository-owned\n");
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
-    expect(runCli(home, "uninstall").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
+    expectExitCode(await runCli(home, "uninstall"), 0);
 
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
     expect(existsSync(join(projectPath, ".codex"))).toBe(true);
@@ -3759,18 +3759,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
   });
 
-  test("status reports output deliberately removed by uninstall as intended teardown", () => {
+  test("status reports output deliberately removed by uninstall as intended teardown", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
-    expect(runCli(home, "uninstall").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
+    expectExitCode(await runCli(home, "uninstall"), 0);
 
-    const result = runCli(home, "status");
+    const result = await runCli(home, "status");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Intentionally uninstalled");
     expect(humanText(result.stdout)).toContain(humanText("Project Binding was preserved"));
     expect(result.stdout).not.toContain("Attention required");
@@ -3779,17 +3779,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Codex setup:");
   });
 
-  test("uninstall names removed project files, cleaned Git exclusions, and preserved bindings", () => {
+  test("uninstall names removed project files, cleaned Git exclusions, and preserved bindings", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = gitRepository("agent-profile-kit-uninstall-receipt-");
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
-    const result = runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Removed proven Agent Profile Kit-owned output from 1 Project.");
     expect(result.stdout).not.toMatch(/^Uninstalled\b/m);
     expect(humanText(result.stdout)).toContain(humanText(`Project: ${realpathSync(projectPath)}`));
@@ -3802,13 +3802,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("Project Bindings preserved.");
   });
 
-  test("uninstall with no installed output states the empty result without removing Projects", () => {
+  test("uninstall with no installed output states the empty result without removing Projects", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
 
-    const result = runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toBe(
       "No ordinary Agent Profile Kit-owned output is installed.\n\n" +
       "Project Bindings preserved.\n",
@@ -3816,66 +3816,67 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toMatch(/(?:Uninstalled|Removed .*Projects?)/i);
   });
 
-  test("apply reinstalls an intended teardown and clears its teardown provenance", () => {
+  test("apply reinstalls an intended teardown and clears its teardown provenance", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
-    expect(runCli(home, "uninstall").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
+    expectExitCode(await runCli(home, "uninstall"), 0);
 
-    const applied = runCli(home, "apply");
+    const applied = await runCli(home, "apply");
 
-    expect(applied.status, applied.stderr).toBe(0);
-    expect(runCli(home, "status").stdout).toContain("All Projects are current");
+    expectExitCode(applied, 0);
+    const after = await runCli(home, "status");
+    expect(after.stdout).toContain("All Projects are current");
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       intended_teardowns: readonly unknown[];
     };
     expect(state.intended_teardowns).toEqual([]);
   });
 
-  test("a different binding at the same project does not inherit teardown provenance", () => {
+  test("a different binding at the same project does not inherit teardown provenance", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
-    expect(runCli(home, "uninstall").status).toBe(0);
-    expect(runCli(home, "unbind", projectPath).status).toBe(0);
-    const rebound = runCli(home, "bind", "coding", projectPath, "--host", "claude");
-    expect(rebound.status, rebound.stderr).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
+    expectExitCode(await runCli(home, "uninstall"), 0);
+    expectExitCode(await runCli(home, "unbind", projectPath), 0);
+    const rebound = await runCli(home, "bind", "coding", projectPath, "--host", "claude");
+    expectExitCode(rebound, 0);
 
-    const status = runCli(home, "status");
+    const status = await runCli(home, "status");
 
-    expect(status.status, status.stderr).toBe(0);
+    expectExitCode(status, 0);
     expect(status.stdout).not.toContain("Intentionally uninstalled");
     expect(status.stdout).not.toContain("intended teardown");
   });
 
-  test("apply does not recreate an installation after all owned proof disappears", () => {
+  test("apply does not recreate an installation after all owned proof disappears", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     rmSync(join(projectPath, ".agent-profile-kit"), { recursive: true });
     rmSync(join(projectPath, ".codex"), { recursive: true });
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout).toContain("owned output");
     expect(result.stderr).toBe("");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex"))).toBe(false);
   });
 
-  test("apply removes a no-longer-bound installation only when ownership is proven", () => {
+  test("apply removes a no-longer-bound installation only when ownership is proven", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const retained = project("agent-profile-kit-retained-");
     const removed = project("agent-profile-kit-removed-");
     writeContextProfile(home);
@@ -3883,12 +3884,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       configPath(home),
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${retained}\n    profile: coding\n    hosts: [codex]\n  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     bind(home, retained);
 
-    const result = runCli(home, "apply", "--verbose");
+    const result = await runCli(home, "apply", "--verbose");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(humanText(result.stdout)).toContain(humanText(`${removed}: removal`));
     expect(existsSync(join(removed, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(removed, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
@@ -3897,27 +3898,27 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.installations).toHaveLength(1);
   });
 
-  test("retires an intentionally deleted project after exact-path unbind without a Marker", () => {
+  test("retires an intentionally deleted project after exact-path unbind without a Marker", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project("agent-profile-kit-intentionally-deleted-");
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     rmSync(projectPath, { recursive: true });
 
-    const unbound = runCli(home, "unbind", projectPath);
+    const unbound = await runCli(home, "unbind", projectPath);
 
-    expect(unbound.status, unbound.stderr).toBe(0);
+    expectExitCode(unbound, 0);
     expect(unbound.stdout).toContain("Next: apkit preview && apkit apply");
-    const preview = runCli(home, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, "preview", "--verbose");
+    expectExitCode(preview, 0);
     expect(humanText(preview.stdout)).toContain(humanText(`${projectPath}: removal`));
     expect(preview.stdout).toContain("intentionally deleted");
 
-    const applied = runCli(home, "apply");
+    const applied = await runCli(home, "apply");
 
-    expect(applied.status, applied.stderr).toBe(0);
+    expectExitCode(applied, 0);
     expect(existsSync(projectPath)).toBe(false);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly unknown[];
@@ -3925,44 +3926,44 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.installations).toHaveLength(0);
   });
 
-  test("deleting a bound root without unbind leaves desired state and blocks reconciliation", () => {
+  test("deleting a bound root without unbind leaves desired state and blocks reconciliation", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project("agent-profile-kit-deleted-still-bound-");
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const configuration = readFileSync(configPath(home), "utf8");
     rmSync(projectPath, { recursive: true });
 
-    const result = runCli(home, "preview");
+    const result = await runCli(home, "preview");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(`${result.stdout}\n${result.stderr}`).toMatch(/project.*(?:missing|existing)|missing.*project/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
   });
 
-  test("restoring an intentionally deleted root requires a new binding and Installation ID", () => {
+  test("restoring an intentionally deleted root requires a new binding and Installation ID", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project("agent-profile-kit-restored-");
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const initial = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly { installation_id: string }[];
     };
     const initialId = initial.installations[0]!.installation_id;
     rmSync(projectPath, { recursive: true });
-    expect(runCli(home, "unbind", projectPath).status).toBe(0);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "unbind", projectPath), 0);
+    expectExitCode(await runCli(home, "apply"), 0);
     mkdirSync(projectPath);
 
-    const rebound = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const rebound = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
 
-    expect(rebound.status, rebound.stderr).toBe(0);
-    const applied = runCli(home, "apply");
-    expect(applied.status, applied.stderr).toBe(0);
+    expectExitCode(rebound, 0);
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 0);
     const restored = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly { installation_id: string; project: string }[];
     };
@@ -3972,13 +3973,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
-  test("apply removes a no-longer-desired Adapter output whose recorded hash still proves ownership", () => {
+  test("apply removes a no-longer-desired Adapter output whose recorded hash still proves ownership", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const obsoleteRelative = ".agent-profile-kit/codex/obsolete.txt";
     const obsolete = join(projectPath, obsoleteRelative);
     const bytes = "obsolete owned output\n";
@@ -3994,19 +3995,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     });
     writeFileSync(statePath(home), stringify(state));
 
-    const preview = runCli(home, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, "preview", "--verbose");
+    expectExitCode(preview, 0);
     expect(humanText(preview.stdout)).toContain(humanText(`${obsolete}: removal`));
     expect(existsSync(obsolete)).toBe(true);
 
-    const applied = runCli(home, "apply");
-    expect(applied.status, applied.stderr).toBe(0);
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 0);
     expect(existsSync(obsolete)).toBe(false);
   });
 
-  test("drift in a stale installation blocks all desired updates and preserves every project", () => {
+  test("drift in a stale installation blocks all desired updates and preserves every project", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const retained = project("agent-profile-kit-drift-retained-");
     const removed = project("agent-profile-kit-drift-removed-");
     writeContextProfile(home);
@@ -4014,7 +4015,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       configPath(home),
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${retained}\n    profile: coding\n    hosts: [codex]\n  - project: ${removed}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const retainedContext = join(retained, ".agent-profile-kit", "codex", "context.md");
     const before = readFileSync(retainedContext, "utf8");
     writeFileSync(join(removed, ".codex", "hooks.json"), "user drift\n");
@@ -4024,9 +4025,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     bind(home, retained);
 
-    const result = runCliAt(home, removed, "apply");
+    const result = await runCliAt(home, removed, "apply");
 
-    expect(result.status).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout).toContain("Cannot remove stale Project");
     expect(result.stdout).not.toContain(removed);
     expect(result.stdout).not.toContain(realpathSync(removed));
@@ -4035,72 +4036,72 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(removed, ".codex", "hooks.json"), "utf8")).toBe("user drift\n");
   });
 
-  test("stale reconciliation rejects a symlinked output parent and preserves matching external data", () => {
+  test("stale reconciliation rejects a symlinked output parent and preserves matching external data", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     const external = project("agent-profile-kit-external-stale-");
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const hook = readFileSync(join(projectPath, ".codex", "hooks.json"), "utf8");
     rmSync(join(projectPath, ".codex"), { recursive: true });
     writeFileSync(join(external, "hooks.json"), hook);
     symlinkSync(external, join(projectPath, ".codex"));
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stdout).toContain("symlink parent");
     expect(result.stderr).toBe("");
     expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
-  test("apply repairs only a missing marker when remaining outputs prove ownership", () => {
+  test("apply repairs only a missing marker when remaining outputs prove ownership", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     rmSync(join(projectPath, ".agent-profile-kit", "installation.json"));
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
-  test("a repairable missing marker preserves the underlying stale-source status", () => {
+  test("a repairable missing marker preserves the underlying stale-source status", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     rmSync(join(projectPath, ".agent-profile-kit", "installation.json"));
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
       "---\nid: team-rules\ndependencies: []\n---\nChanged while marker is repairable.\n",
     );
 
-    const status = runCli(home, "status", "--verbose");
+    const status = await runCli(home, "status", "--verbose");
 
-    expect(status.status, status.stderr).toBe(0);
+    expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: stale source`));
     expect(humanText(status.stdout)).not.toContain(humanText(`${projectPath}: missing output`));
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("apply repairs a wholly absent owned file from current Workspace source without changing installation identity", () => {
+  test("apply repairs a wholly absent owned file from current Workspace source without changing installation identity", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const installed = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly { installation_id: string }[];
     };
@@ -4112,21 +4113,21 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "---\nid: team-rules\ndependencies: []\n---\nCurrent Workspace repair bytes.\n",
     );
 
-    const concise = runCli(home, "preview");
-    expect(concise.status, concise.stderr).toBe(0);
+    const concise = await runCli(home, "preview");
+    expectExitCode(concise, 0);
     expect(concise.stdout).toContain("Changes: 1 generated file repair");
 
     for (const command of ["preview", "status"] as const) {
-      const result = runCli(home, command, "--verbose");
-      expect(result.status, result.stderr).toBe(0);
+      const result = await runCli(home, command, "--verbose");
+      expectExitCode(result, 0);
       expect(humanText(result.stdout)).toContain(humanText(`${projectPath}: repairable missing output`));
       expect(humanText(result.stdout)).toContain(humanText(`${contextPath}: repair`));
       expect(existsSync(contextPath)).toBe(false);
     }
 
-    const applied = runCli(home, "apply");
+    const applied = await runCli(home, "apply");
 
-    expect(applied.status, applied.stderr).toBe(0);
+    expectExitCode(applied, 0);
     expect(readFileSync(contextPath, "utf8")).toContain("Current Workspace repair bytes.");
     const repaired = parse(readFileSync(statePath(home), "utf8")) as {
       installations: readonly { installation_id: string }[];
@@ -4134,9 +4135,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(repaired.installations[0]!.installation_id).toBe(installationId);
   });
 
-  test("apply repairs a wholly absent owned Skill directory with current Workspace bytes and modes", () => {
+  test("apply repairs a wholly absent owned Skill directory with current Workspace bytes and modes", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     const source = join(workspacePath(home), "skills", "review-pr");
@@ -4152,7 +4153,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
     );
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const destination = join(projectPath, ".agents", "skills", "review-pr");
     rmSync(destination, { recursive: true });
     writeFileSync(
@@ -4162,60 +4163,60 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(source, "scripts", "run.sh"), "#!/bin/sh\necho current\n");
     chmodSync(join(source, "scripts", "run.sh"), 0o700);
 
-    const preview = runCli(home, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, "preview", "--verbose");
+    expectExitCode(preview, 0);
     expect(humanText(preview.stdout)).toContain(humanText(`${destination}: repair`));
     expect(preview.stdout).not.toContain("missing member");
     expect(preview.stdout).not.toContain("drift item");
     expect(existsSync(destination)).toBe(false);
 
-    const applied = runCli(home, "apply");
+    const applied = await runCli(home, "apply");
 
-    expect(applied.status, applied.stderr).toBe(0);
+    expectExitCode(applied, 0);
     expect(readFileSync(join(destination, "SKILL.md"), "utf8")).toContain("Current Workspace.");
     expect(readFileSync(join(destination, "scripts", "run.sh"), "utf8")).toContain("echo current");
     expect(statSync(join(destination, "scripts", "run.sh")).mode & 0o777).toBe(0o700);
   });
 
-  test("a wholly absent output remains blocking when surviving owned output has drifted", () => {
+  test("a wholly absent output remains blocking when surviving owned output has drifted", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const missing = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     const drifted = join(projectPath, ".codex", "hooks.json");
     rmSync(missing);
     writeFileSync(drifted, "drifted surviving output\n");
 
-    const preview = runCli(home, "preview", "--verbose");
-    const applied = runCli(home, "apply");
+    const preview = await runCli(home, "preview", "--verbose");
+    const applied = await runCli(home, "apply");
 
-    expect(preview.status).toBe(2);
+    expectExitCode(preview, 2);
     expect(humanText(preview.stdout)).toContain(humanText(`${projectPath}: missing output`));
     expect(humanText(preview.stdout)).not.toContain(humanText(`${missing}: repair`));
-    expect(applied.status).toBe(2);
+    expectExitCode(applied, 2);
     expect(applied.stdout).toContain("Apply blocked");
     expect(applied.stderr).toBe("");
     expect(existsSync(missing)).toBe(false);
     expect(readFileSync(drifted, "utf8")).toBe("drifted surviving output\n");
   });
 
-  test("a copied installation identity is rejected while the original remains", () => {
+  test("a copied installation identity is rejected while the original remains", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const original = project("agent-profile-kit-copy-");
     const copied = join(home, "copied-project");
     writeContextProfile(home);
     bind(home, original);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     execFileSync("cp", ["-R", original, copied]);
     bind(home, copied);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status).toBe(2);
+    expectExitCode(result, 2);
     expect(humanText(result.stdout)).toContain(humanText("copies Installation Marker identity"));
     expect(result.stderr).toBe("");
     expect(readFileSync(join(original, ".agent-profile-kit", "installation.json"), "utf8")).toContain(
@@ -4223,9 +4224,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("a machine-state write failure rolls back the current project transaction", () => {
+  test("a machine-state write failure rolls back the current project transaction", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
@@ -4233,20 +4234,20 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(stateDirectory, { recursive: true });
     chmodSync(stateDirectory, 0o555);
 
-    const failed = runCli(home, "apply");
+    const failed = await runCli(home, "apply");
 
     chmodSync(stateDirectory, 0o755);
-    expect(failed.status).toBe(1);
+    expectExitCode(failed, 1);
     expect(failed.stderr).toContain("completed projects");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
   });
 
-  test("a later project failure reports completed, failed, and pending projects and reruns safely", () => {
+  test("a later project failure reports completed, failed, and pending projects and reruns safely", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const first = project("agent-profile-kit-partial-a-");
     const second = project("agent-profile-kit-partial-b-");
     writeContextProfile(home);
@@ -4256,83 +4257,84 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     chmodSync(second, 0o555);
 
-    const failed = runCli(home, "apply");
+    const failed = await runCli(home, "apply");
 
     chmodSync(second, 0o755);
-    expect(failed.status).toBe(1);
+    expectExitCode(failed, 1);
     expect(failed.stderr).toContain(`completed projects: ${first}`);
     expect(failed.stderr).toContain(`failed project: ${second}`);
     expect(failed.stderr).toContain("pending projects: (none)");
     expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
 
-    const rerun = runCli(home, "apply");
-    expect(rerun.status, rerun.stderr).toBe(0);
-    expect(runCli(home, "status").stdout).toContain("All Projects are current");
+    const rerun = await runCli(home, "apply");
+    expectExitCode(rerun, 0);
+    const afterRerun = await runCli(home, "status");
+    expect(afterRerun.stdout).toContain("All Projects are current");
   });
 
-  test("a moved project carries its marker identity to the new binding", () => {
+  test("a moved project carries its marker identity to the new binding", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const original = project("agent-profile-kit-move-");
     const moved = join(home, "moved-project");
     writeContextProfile(home);
     bind(home, original);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     execFileSync("mv", [original, moved]);
     bind(home, moved);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(parse(readFileSync(statePath(home), "utf8")).installations[0].project).toBe(realpathSync(moved));
     expect(existsSync(join(moved, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(original, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("a moved project with edited generated output blocks apply and preserves the edit", () => {
+  test("a moved project with edited generated output blocks apply and preserves the edit", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const original = project("agent-profile-kit-move-drift-");
     const moved = join(home, "moved-project");
     writeContextProfile(home);
     bind(home, original);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     execFileSync("mv", [original, moved]);
     const edited = join(moved, ".codex", "hooks.json");
     writeFileSync(edited, "user edit after move\n");
     bind(home, moved);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status).toBe(2);
+    expectExitCode(result, 2);
     expect(result.stderr).toBe("");
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
     expect(humanText(result.stdout)).toContain(humanText("will not overwrite your edit"));
     expect(readFileSync(edited, "utf8")).toBe("user edit after move\n");
   });
 
-  test("a moved Git project carries both Marker and exclusion ownership", () => {
+  test("a moved Git project carries both Marker and exclusion ownership", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const original = gitRepository("agent-profile-kit-git-move-");
     const moved = join(home, "moved-git-project");
     writeContextProfile(home);
     bind(home, original);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     execFileSync("mv", [original, moved]);
     bind(home, moved);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(parse(readFileSync(statePath(home), "utf8")).installations[0].project).toBe(realpathSync(moved));
     expect(readFileSync(join(moved, ".git", "info", "exclude"), "utf8")).toContain("/.codex/hooks.json");
   });
 
-  test("a moved Git project converges when its destination shares another repository exclusion record", () => {
+  test("a moved Git project converges when its destination shares another repository exclusion record", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const original = gitRepository("agent-profile-kit-cross-repo-move-a-");
     const destinationRepository = gitRepository("agent-profile-kit-cross-repo-move-b-");
     writeContextProfile(home);
@@ -4342,7 +4344,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${original}\n    profile: coding\n    hosts: [codex]\n` +
         `  - project: ${destinationRepository}\n    profile: coding\n    hosts: [codex]\n`,
     );
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
     const moved = join(destinationRepository, "moved");
     mkdirSync(moved);
@@ -4356,9 +4358,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${moved}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     const exclude = readFileSync(join(destinationRepository, ".git", "info", "exclude"), "utf8");
     expect(exclude).toContain("/moved/.codex/hooks.json");
     expect(exclude).toContain("/.codex/hooks.json");
@@ -4369,9 +4371,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.repository_exclusions[0]?.contributions).toHaveLength(2);
   });
 
-  test("a nested Git project move transfers exact old exclusions to the Marker-proven new root", () => {
+  test("a nested Git project move transfers exact old exclusions to the Marker-proven new root", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const repository = gitRepository("agent-profile-kit-nested-git-move-");
     const oldProject = join(repository, "old");
     const newProject = join(repository, "new");
@@ -4381,16 +4383,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
     writeContextProfile(home);
     bind(home, oldProject);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     const oldMarker = JSON.parse(
       readFileSync(join(oldProject, ".agent-profile-kit", "installation.json"), "utf8"),
     ) as { installation_id: string };
     execFileSync("mv", [oldProject, newProject]);
     bind(home, newProject);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     const newMarker = JSON.parse(
       readFileSync(join(newProject, ".agent-profile-kit", "installation.json"), "utf8"),
     ) as { installation_id: string };
@@ -4404,21 +4406,21 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(exclude).not.toContain("/old/.agent-profile-kit/installation.json");
   });
 
-  test("a missing marker at a different root cannot prove a project move", () => {
+  test("a missing marker at a different root cannot prove a project move", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const original = project("agent-profile-kit-unproven-move-");
     const moved = join(home, "unproven-moved-project");
     writeContextProfile(home);
     bind(home, original);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
     execFileSync("mv", [original, moved]);
     rmSync(join(moved, ".agent-profile-kit", "installation.json"));
     bind(home, moved);
 
-    const result = runCli(home, "apply");
+    const result = await runCli(home, "apply");
 
-    expect(result.status).toBe(2);
+    expectExitCode(result, 2);
     expect(humanText(result.stdout)).toContain(
       humanText("restore its Manifest-linked Installation Marker at the new root"),
     );
@@ -4426,9 +4428,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(moved, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("Profiles selecting Skills install portable packages into Codex project discovery", () => {
+  test("Profiles selecting Skills install portable packages into Codex project discovery", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     mkdirSync(join(workspacePath(home), "skills", "base-skill"));
@@ -4458,8 +4460,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     bind(home, projectPath);
 
-    const preview = runCli(home, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, "preview", "--verbose");
+    expectExitCode(preview, 0);
     expect(preview.stdout).toContain(".agents/skills/review-pr");
     expect(preview.stdout).toContain(".agents/skills/base-skill");
     expect(preview.stdout).toContain("skill:review-pr");
@@ -4467,8 +4469,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(preview.stdout).toContain("via skill:review-pr");
     expect(preview.stdout).not.toContain("unselected-skill");
 
-    const apply = runCli(home, "apply");
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCli(home, "apply");
+    expectExitCode(apply, 0);
     expect(readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "Review.",
     );
@@ -4502,8 +4504,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       join(workspacePath(home), "profiles", "coding.yaml"),
       "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
     );
-    const deselect = runCli(home, "apply");
-    expect(deselect.status, deselect.stderr).toBe(0);
+    const deselect = await runCli(home, "apply");
+    expectExitCode(deselect, 0);
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(projectPath, ".agents", "skills", "base-skill"))).toBe(false);
     expect(readFileSync(join(projectPath, ".agents", "skills", "foreign-skill", "SKILL.md"), "utf8")).toBe(
@@ -4511,9 +4513,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("packed CLI preserves model-invocation policy across Codex and Claude Hosts", () => {
+  test("packed CLI preserves model-invocation policy across Codex and Claude Hosts", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const claudeBin = installFakeClaude(home);
     installFakeCodex(home);
     const projectPath = project();
@@ -4533,10 +4535,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n      - claude\n`,
     );
     const pathValue = `${claudeBin}:${process.env.PATH ?? ""}`;
-    const absentValidate = runCliWithPath(home, pathValue, "validate");
-    expect(absentValidate.status, absentValidate.stderr).toBe(0);
-    const absentApply = runCliWithPath(home, pathValue, "apply");
-    expect(absentApply.status, absentApply.stderr).toBe(0);
+    const absentValidate = await runCliWithPath(home, pathValue, "validate");
+    expectExitCode(absentValidate, 0);
+    const absentApply = await runCliWithPath(home, pathValue, "apply");
+    expectExitCode(absentApply, 0);
     expect(
       readFileSync(join(projectPath, ".claude", "skills", "plain-skill", "SKILL.md"), "utf8"),
     ).not.toContain("disable-model-invocation");
@@ -4553,11 +4555,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "id: coding\ncontext: [team-rules]\nskills: [to-spec]\nagents: []\nhooks: []\ntools: []\n",
     );
 
-    const validate = runCliWithPath(home, pathValue, "validate");
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCliWithPath(home, pathValue, "validate");
+    expectExitCode(validate, 0);
 
     const malformedHome = isolatedHome();
-    initialize(malformedHome);
+    await initialize(malformedHome);
     writeContextProfile(malformedHome);
     mkdirSync(join(workspacePath(malformedHome), "skills", "bad-skill"));
     writeFileSync(
@@ -4572,12 +4574,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       configPath(malformedHome),
       `schema_version: 2\nworkspace: ${workspacePath(malformedHome)}\nbindings:\n  - project: ${project()}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
-    const malformed = runCli(malformedHome, "validate");
-    expect(malformed.status).toBe(1);
+    const malformed = await runCli(malformedHome, "validate");
+    expectExitCode(malformed, 1);
     expect(malformed.stderr).toContain("allowed' or 'disabled");
 
     const conflictHome = isolatedHome();
-    initialize(conflictHome);
+    await initialize(conflictHome);
     writeContextProfile(conflictHome);
     mkdirSync(join(workspacePath(conflictHome), "skills", "to-spec", "agents"), { recursive: true });
     writeFileSync(
@@ -4597,15 +4599,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       configPath(conflictHome),
       `schema_version: 2\nworkspace: ${workspacePath(conflictHome)}\nbindings:\n  - project: ${conflictProject}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
-    const conflict = runCli(conflictHome, "preview");
-    expect(conflict.status).toBe(1);
+    const conflict = await runCli(conflictHome, "preview");
+    expectExitCode(conflict, 1);
     expect(conflict.stderr).toContain("conflicting model-invocation authorities");
     expect(existsSync(join(conflictProject, ".agents", "skills", "to-spec"))).toBe(false);
 
-    const preview = runCliWithPath(home, pathValue, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
-    const apply = runCliWithPath(home, pathValue, "apply");
-    expect(apply.status, apply.stderr).toBe(0);
+    const preview = await runCliWithPath(home, pathValue, "preview", "--verbose");
+    expectExitCode(preview, 0);
+    const apply = await runCliWithPath(home, pathValue, "apply");
+    expectExitCode(apply, 0);
 
     const claudeSkill = readFileSync(
       join(projectPath, ".claude", "skills", "to-spec", "SKILL.md"),
@@ -4628,8 +4630,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       join(workspacePath(home), "skills", "to-spec", "SKILL.md"),
       "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: allowed\n---\n\n# To spec\n",
     );
-    const allowedApply = runCliWithPath(home, pathValue, "apply");
-    expect(allowedApply.status, allowedApply.stderr).toBe(0);
+    const allowedApply = await runCliWithPath(home, pathValue, "apply");
+    expectExitCode(allowedApply, 0);
     expect(
       readFileSync(join(projectPath, ".claude", "skills", "to-spec", "SKILL.md"), "utf8"),
     ).not.toContain("disable-model-invocation");
@@ -4638,11 +4640,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("packed CLI Skills-only Profile validates, applies, and uninstalls without Context machinery", () => {
+  test("packed CLI Skills-only Profile validates, applies, and uninstalls without Context machinery", async () => {
     const home = isolatedHome();
     // Init still enables hooks for other suites sharing helpers; Skills-only must not require them.
-    const result = runCli(home, "init");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "init");
+    expectExitCode(result, 0);
     const claudeBin = installFakeClaude(home);
     const pathValue = `${claudeBin}:${process.env.PATH ?? ""}`;
     const projectPath = project();
@@ -4662,28 +4664,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
 
     const emptyHome = isolatedHome();
-    expect(runCli(emptyHome, "init").status).toBe(0);
+    expectExitCode(await runCli(emptyHome, "init"), 0);
     writeFileSync(
       join(workspacePath(emptyHome), "profiles", "empty.yaml"),
       "id: empty\ncontext: []\nskills: []\nagents: []\nhooks: []\ntools: []\n",
     );
-    const emptyValidate = runCli(emptyHome, "validate");
-    expect(emptyValidate.status).toBe(1);
+    const emptyValidate = await runCli(emptyHome, "validate");
+    expectExitCode(emptyValidate, 1);
     expect(emptyValidate.stderr).toMatch(/at least one supported artifact/i);
 
-    const validate = runCliWithPath(home, pathValue, "validate");
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCliWithPath(home, pathValue, "validate");
+    expectExitCode(validate, 0);
 
-    const preview = runCliWithPath(home, pathValue, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCliWithPath(home, pathValue, "preview", "--verbose");
+    expectExitCode(preview, 0);
     expect(preview.stdout).toContain(".agents/skills/review-pr");
     expect(preview.stdout).toContain(".claude/skills/review-pr");
     expect(preview.stdout).not.toContain(".agent-profile-kit/codex/context.md");
     expect(preview.stdout).not.toContain(".codex/hooks.json");
     expect(preview.stdout).not.toContain(".claude/rules/agent-profile-kit.md");
 
-    const apply = runCliWithPath(home, pathValue, "apply");
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCliWithPath(home, pathValue, "apply");
+    expectExitCode(apply, 0);
     expect(apply.stdout).not.toContain("SessionStart hook");
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
@@ -4691,19 +4693,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
 
-    const status = runCliWithPath(home, pathValue, "status");
-    expect(status.status, status.stderr).toBe(0);
+    const status = await runCliWithPath(home, pathValue, "status");
+    expectExitCode(status, 0);
 
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
-    const uninstall = runCliWithPath(home, pathValue, "apply");
-    expect(uninstall.status, uninstall.stderr).toBe(0);
+    const uninstall = await runCliWithPath(home, pathValue, "apply");
+    expectExitCode(uninstall, 0);
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr"))).toBe(false);
   });
 
-  test("tracked exact planned Codex Skill destinations block preflight", () => {
+  test("tracked exact planned Codex Skill destinations block preflight", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = gitRepository();
     writeContextProfile(home);
     mkdirSync(join(workspacePath(home), "skills", "review-pr"));
@@ -4721,8 +4723,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     execFileSync("git", ["-C", projectPath, "commit", "-qm", "track skill"]);
     bind(home, projectPath);
 
-    const result = runCli(home, "apply");
-    expect(result.status).toBe(2);
+    const result = await runCli(home, "apply");
+    expectExitCode(result, 2);
     expect(result.stdout).toContain("Apply blocked");
     expect(result.stdout).toMatch(/tracked|unowned/i);
     expect(result.stderr).toBe("");
@@ -4731,9 +4733,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("packed CLI Claude-only preview → apply → status → uninstall installs unscoped Context", () => {
+  test("packed CLI Claude-only preview → apply → status → uninstall installs unscoped Context", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeFileSync(join(projectPath, "CLAUDE.md"), "project-owned instructions\n");
     mkdirSync(join(projectPath, ".claude", "rules"), { recursive: true });
@@ -4747,8 +4749,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // Prefer the stub, keep the rest of PATH for node/git/etc.
     const pathWithClaude = `${bin}:${process.env.PATH ?? ""}`;
 
-    const preview = runCliWithPath(home, pathWithClaude, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCliWithPath(home, pathWithClaude, "preview", "--verbose");
+    expectExitCode(preview, 0);
     expect(humanText(preview.stdout)).toContain(humanText(`${projectPath}: addition`));
     expect(preview.stdout).toContain("Profile coding");
     expect(preview.stdout).toContain("Context Module: team-rules");
@@ -4756,8 +4758,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(preview.stdout).toContain(".claude/rules/agent-profile-kit.md");
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
 
-    const apply = runCliWithPath(home, pathWithClaude, "apply");
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCliWithPath(home, pathWithClaude, "apply");
+    expectExitCode(apply, 0);
     const rule = readFileSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"), "utf8");
     expect(rule).toContain("Profile: coding");
     expect(rule).toContain("Context Module: team-rules");
@@ -4768,8 +4770,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "existing team rule\n",
     );
 
-    const status = runCliWithPath(home, pathWithClaude, "status");
-    expect(status.status, status.stderr).toBe(0);
+    const status = await runCliWithPath(home, pathWithClaude, "status");
+    expectExitCode(status, 0);
     expect(status.stdout).toContain("All Projects are current");
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
@@ -4780,8 +4782,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "native-project-unscoped-rules-skills-v1",
     );
 
-    const uninstall = runCliWithPath(home, pathWithClaude, "uninstall");
-    expect(uninstall.status, uninstall.stderr).toBe(0);
+    const uninstall = await runCliWithPath(home, pathWithClaude, "uninstall");
+    expectExitCode(uninstall, 0);
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(projectPath, "CLAUDE.md"), "utf8")).toBe("project-owned instructions\n");
@@ -4790,9 +4792,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("packed CLI Claude preview fails closed when Claude CLI is missing or too old", () => {
+  test("packed CLI Claude preview fails closed when Claude CLI is missing or too old", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     writeFileSync(
@@ -4802,13 +4804,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const emptyBin = join(home, "empty-bin");
     mkdirSync(emptyBin, { recursive: true });
     // PATH with only empty-bin so the real Claude is not discoverable.
-    const missing = runCliWithPath(home, emptyBin, "preview");
-    expect(missing.status).toBe(2);
+    const missing = await runCliWithPath(home, emptyBin, "preview");
+    expectExitCode(missing, 2);
     expect(`${missing.stdout}${missing.stderr}`).toContain("Claude Code CLI was not found");
 
     const oldBin = installFakeClaude(home, "2.0.63");
-    const old = runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
-    expect(old.status).toBe(2);
+    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
+    expectExitCode(old, 2);
     expect(old.stdout.startsWith("Cannot apply\n")).toBe(true);
     expect(old.stdout).toContain("does not support unscoped project rules");
     expect(humanText(old.stdout)).toContain(humanText("requires 2.0.64+"));
@@ -4817,14 +4819,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
 
     const boundaryBin = installFakeClaude(home, "2.0.64");
-    const boundary = runCliWithPath(home, `${boundaryBin}:${process.env.PATH ?? ""}`, "preview", "--verbose");
-    expect(boundary.status, boundary.stderr).toBe(0);
+    const boundary = await runCliWithPath(home, `${boundaryBin}:${process.env.PATH ?? ""}`, "preview", "--verbose");
+    expectExitCode(boundary, 0);
     expect(boundary.stdout).toContain(".claude/rules/agent-profile-kit.md");
   });
 
-  test("packed CLI Grok-only preview → apply → status → uninstall installs unscoped Context", () => {
+  test("packed CLI Grok-only preview → apply → status → uninstall installs unscoped Context", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeFileSync(join(projectPath, "AGENTS.md"), "repository-owned instructions\n");
     mkdirSync(join(projectPath, ".grok", "rules"), { recursive: true });
@@ -4837,15 +4839,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const bin = installFakeGrok(home);
     const pathWithGrok = `${bin}:${process.env.PATH ?? ""}`;
 
-    const preview = runCliWithPath(home, pathWithGrok, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCliWithPath(home, pathWithGrok, "preview", "--verbose");
+    expectExitCode(preview, 0);
     expect(humanText(preview.stdout)).toContain(humanText(`${projectPath}: addition`));
     expect(preview.stdout).toContain(".grok/rules/agent-profile-kit.md");
     expect(preview.stdout).toContain("# Agent Profile Kit Context");
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
 
-    const apply = runCliWithPath(home, pathWithGrok, "apply");
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCliWithPath(home, pathWithGrok, "apply");
+    expectExitCode(apply, 0);
     const rule = readFileSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"), "utf8");
     expect(rule).toContain("Profile: coding");
     expect(rule).toContain("Context Module: team-rules");
@@ -4854,8 +4856,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "existing team rule\n",
     );
 
-    const status = runCliWithPath(home, pathWithGrok, "status");
-    expect(status.status, status.stderr).toBe(0);
+    const status = await runCliWithPath(home, pathWithGrok, "status");
+    expectExitCode(status, 0);
     expect(status.stdout).toContain("All Projects are current");
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
@@ -4864,8 +4866,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.installations[0]?.hosts).toEqual(["grok"]);
     expect(state.installations[0]?.host_versions.grok).toBe("native-project-unscoped-rules-v1");
 
-    const uninstall = runCliWithPath(home, pathWithGrok, "uninstall");
-    expect(uninstall.status, uninstall.stderr).toBe(0);
+    const uninstall = await runCliWithPath(home, pathWithGrok, "uninstall");
+    expectExitCode(uninstall, 0);
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned instructions\n");
@@ -4874,9 +4876,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("packed CLI Grok preview fails closed when Grok CLI is missing or the surface is obstructed, and installs Skills when ready", () => {
+  test("packed CLI Grok preview fails closed when Grok CLI is missing or the surface is obstructed, and installs Skills when ready", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     writeFileSync(
@@ -4885,20 +4887,20 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     const emptyBin = join(home, "empty-bin");
     mkdirSync(emptyBin, { recursive: true });
-    const missing = runCliWithPath(home, emptyBin, "preview");
-    expect(missing.status).toBe(2);
+    const missing = await runCliWithPath(home, emptyBin, "preview");
+    expectExitCode(missing, 2);
     expect(`${missing.stdout}${missing.stderr}`).toContain("Grok CLI was not found");
 
     const oldBin = installFakeGrok(home, { version: "0.1.0" });
-    const old = runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
-    expect(old.status).toBe(2);
+    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
+    expectExitCode(old, 2);
     expect(`${old.stdout}${old.stderr}`).toContain("does not support project rules inspection");
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
 
     writeFileSync(join(projectPath, ".grok"), "occupied\n");
     const surfaceBin = installFakeGrok(home);
-    const surface = runCliWithPath(home, `${surfaceBin}:${process.env.PATH ?? ""}`, "preview");
-    expect(surface.status).toBe(2);
+    const surface = await runCliWithPath(home, `${surfaceBin}:${process.env.PATH ?? ""}`, "preview");
+    expectExitCode(surface, 2);
     expect(`${surface.stdout}${surface.stderr}`).toMatch(/\.grok/);
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
 
@@ -4913,25 +4915,25 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
     );
     const skillsBin = installFakeGrok(home);
-    const skills = runCliWithPath(
+    const skills = await runCliWithPath(
       home,
       `${skillsBin}:${process.env.PATH ?? ""}`,
       "preview",
       "--verbose",
     );
-    expect(skills.status, `${skills.stdout}${skills.stderr}`).toBe(0);
+    expectExitCode(skills, 0);
     expect(skills.stdout).toContain(".grok/skills/review-pr");
     expect(skills.stdout).toContain(".grok/rules/agent-profile-kit.md");
 
-    const skillsApply = runCliWithPath(home, `${skillsBin}:${process.env.PATH ?? ""}`, "apply");
-    expect(skillsApply.status, skillsApply.stderr).toBe(0);
+    const skillsApply = await runCliWithPath(home, `${skillsBin}:${process.env.PATH ?? ""}`, "apply");
+    expectExitCode(skillsApply, 0);
     expect(existsSync(join(projectPath, ".grok", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(true);
   });
 
-  test("packed CLI Claude+Grok binding coalesces onto one Context rule path", () => {
+  test("packed CLI Claude+Grok binding coalesces onto one Context rule path", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeFileSync(join(projectPath, "CLAUDE.md"), "project-owned\n");
     writeContextProfile(home);
@@ -4944,13 +4946,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     execFileSync("chmod", ["+x", join(bin, "claude")]);
     const pathWithHosts = `${bin}:${process.env.PATH ?? ""}`;
 
-    const preview = runCliWithPath(home, pathWithHosts, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCliWithPath(home, pathWithHosts, "preview", "--verbose");
+    expectExitCode(preview, 0);
     expect(preview.stdout).toContain(".claude/rules/agent-profile-kit.md");
     expect(preview.stdout).not.toContain(".grok/rules/agent-profile-kit.md");
 
-    const apply = runCliWithPath(home, pathWithHosts, "apply");
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCliWithPath(home, pathWithHosts, "apply");
+    expectExitCode(apply, 0);
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
 
@@ -4964,9 +4966,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     });
   });
 
-  test("Profiles selecting Skills install portable packages into Claude project discovery", () => {
+  test("Profiles selecting Skills install portable packages into Claude project discovery", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const projectPath = project();
     writeFileSync(join(projectPath, "CLAUDE.md"), "project-owned instructions\n");
     mkdirSync(join(projectPath, ".claude", "rules"), { recursive: true });
@@ -5006,8 +5008,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const bin = installFakeClaude(home);
     const pathWithClaude = `${bin}:${process.env.PATH ?? ""}`;
 
-    const preview = runCliWithPath(home, pathWithClaude, "preview", "--verbose");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCliWithPath(home, pathWithClaude, "preview", "--verbose");
+    expectExitCode(preview, 0);
     expect(humanText(preview.stdout)).toContain(humanText(`${projectPath}: addition`));
     expect(preview.stdout).toContain(".claude/skills/review-pr");
     expect(preview.stdout).toContain(".claude/skills/base-skill");
@@ -5018,8 +5020,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(preview.stdout).not.toContain("unselected-skill");
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr"))).toBe(false);
 
-    const apply = runCliWithPath(home, pathWithClaude, "apply");
-    expect(apply.status, apply.stderr).toBe(0);
+    const apply = await runCliWithPath(home, pathWithClaude, "apply");
+    expectExitCode(apply, 0);
     expect(readFileSync(join(projectPath, ".claude", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "Review.",
     );
@@ -5040,8 +5042,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "existing team rule\n",
     );
 
-    const status = runCliWithPath(home, pathWithClaude, "status");
-    expect(status.status, status.stderr).toBe(0);
+    const status = await runCliWithPath(home, pathWithClaude, "status");
+    expectExitCode(status, 0);
     expect(status.stdout).toContain("All Projects are current");
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
@@ -5069,11 +5071,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       join(workspacePath(home), "profiles", "coding.yaml"),
       "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
     );
-    const deselectPreview = runCliWithPath(home, pathWithClaude, "preview");
-    expect(deselectPreview.status, deselectPreview.stderr).toBe(0);
+    const deselectPreview = await runCliWithPath(home, pathWithClaude, "preview");
+    expectExitCode(deselectPreview, 0);
     expect(deselectPreview.stdout).toMatch(/removal|\.claude\/skills\/review-pr/);
-    const deselect = runCliWithPath(home, pathWithClaude, "apply");
-    expect(deselect.status, deselect.stderr).toBe(0);
+    const deselect = await runCliWithPath(home, pathWithClaude, "apply");
+    expectExitCode(deselect, 0);
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(projectPath, ".claude", "skills", "base-skill"))).toBe(false);
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
@@ -5081,8 +5083,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "leave me\n",
     );
 
-    const uninstall = runCliWithPath(home, pathWithClaude, "uninstall");
-    expect(uninstall.status, uninstall.stderr).toBe(0);
+    const uninstall = await runCliWithPath(home, pathWithClaude, "uninstall");
+    expectExitCode(uninstall, 0);
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
     expect(readFileSync(join(projectPath, ".claude", "skills", "foreign-skill", "SKILL.md"), "utf8")).toBe(
       "leave me\n",
@@ -5090,18 +5092,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "CLAUDE.md"), "utf8")).toBe("project-owned instructions\n");
   });
 
-  test("legacy plan, install, update, and run interfaces are removed", () => {
+  test("legacy plan, install, update, and run interfaces are removed", async () => {
     const home = isolatedHome();
     for (const command of ["plan", "install", "update", "run"]) {
-      const result = runCli(home, command);
-      expect(result.status).toBe(1);
+      const result = await runCli(home, command);
+      expectExitCode(result, 1);
       expect(result.stderr).toContain(`apkit: unknown command '${command}'`);
       expect(result.stderr).toContain("Run apkit --help for available commands.");
       expect(result.stderr).not.toContain("Commands:");
     }
   });
 
-  test("the packed CLI runs the project-bound init contract", () => {
+  test("the packed CLI runs the project-bound init contract", async () => {
     const packageDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-pack-"));
     temporaryDirectories.push(packageDirectory);
     const packOutput = execFileSync(
@@ -5114,26 +5116,29 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     temporaryDirectories.push(extracted);
     execFileSync("tar", ["-xzf", join(packageDirectory, metadata[0]!.filename), "-C", extracted]);
     const home = isolatedHome();
-    const result = spawnSync(process.env.NODE_BINARY ?? "node", [join(extracted, "package", "dist", "cli.js"), "init"], {
-      encoding: "utf8",
-      env: { ...process.env, HOME: home },
+    const result = await runProcess({
+      executable: process.env.NODE_BINARY ?? "node",
+      arguments_: [join(extracted, "package", "dist", "cli.js"), "init"],
+      environment: { ...process.env, HOME: home },
+      deadlineMs: CLI_DEADLINE_MS,
+      commandLabel: "packed CLI init",
     });
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(existsSync(configPath(home))).toBe(true);
   });
 
-  test("packed package ships both maintained guides and the public overview", () => {
+  test("packed package ships both maintained guides and the public overview", async () => {
     const packageRoot = resolve(cliPath, "..", "..");
     expect(existsSync(join(packageRoot, "docs", "guides", "workspace.md"))).toBe(true);
     expect(existsSync(join(packageRoot, "docs", "guides", "agent-workflow.md"))).toBe(true);
     expect(existsSync(join(packageRoot, "README.md"))).toBe(true);
   });
 
-  test("packed CLI serves the final project-bound human guide", () => {
+  test("packed CLI serves the final project-bound human guide", async () => {
     const home = isolatedHome();
-    const result = runCli(home, "guide", "--full");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "guide", "--full");
+    expectExitCode(result, 0);
 
     for (const command of ["init", "validate", "preview", "apply", "status", "unbind", "uninstall"]) {
       expect(result.stdout).toContain(`apkit ${command}`);
@@ -5176,7 +5181,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(Math.abs(trustIndex - launchIndex)).toBeLessThan(120);
   });
 
-  test("guide profile supplies everything a minimal Workspace needs to bind its example", () => {
+  test("guide profile supplies everything a minimal Workspace needs to bind its example", async () => {
     const home = isolatedHome();
     const workspace = workspacePath(home);
     mkdirSync(join(workspace, "profiles"), { recursive: true });
@@ -5187,9 +5192,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspace}\nbindings: []\n`,
     );
 
-    const result = runCli(home, "guide", "profile");
+    const result = await runCli(home, "guide", "profile");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
     const profile = result.stdout.match(
@@ -5203,34 +5208,34 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(workspace, "profiles", "example.yaml"), profile!);
     writeFileSync(join(workspace, "context", "example-context.md"), context!);
 
-    const bind = runCli(home, "bind", "example", project(), "--host", "codex");
-    expect(bind.status, bind.stderr).toBe(0);
+    const bind = await runCli(home, "bind", "example", project(), "--host", "codex");
+    expectExitCode(bind, 0);
   });
 
-  test("guide context returns the short scaffolded Context Module example", () => {
+  test("guide context returns the short scaffolded Context Module example", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const scaffolded = readFileSync(
       join(workspacePath(home), "context", "example-context.md"),
       "utf8",
     );
 
-    const result = runCli(home, "guide", "context");
+    const result = await runCli(home, "guide", "context");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
     expect(result.stdout).toContain("context/example-context.md");
     expect(result.stdout).toContain(`\`\`\`md\n${scaffolded}\`\`\``);
   });
 
-  test("guide skill returns a short complete Skill example that validates when copied", () => {
+  test("guide skill returns a short complete Skill example that validates when copied", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
 
-    const result = runCli(home, "guide", "skill");
+    const result = await runCli(home, "guide", "skill");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
     expect(result.stdout).toContain("skills/example-skill/SKILL.md");
@@ -5240,21 +5245,21 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(skillDirectory, { recursive: true });
     writeFileSync(join(skillDirectory, "SKILL.md"), example!);
 
-    const validate = runCli(home, "validate");
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCli(home, "validate");
+    expectExitCode(validate, 0);
   });
 
-  test("bare guide indexes topics while --full and --agent serve maintained guides", () => {
+  test("bare guide indexes topics while --full and --agent serve maintained guides", async () => {
     const home = isolatedHome();
     const packageRoot = resolve(cliPath, "..", "..");
 
-    const human = runCli(home, "guide");
-    const full = runCli(home, "guide", "--full");
-    const agent = runCli(home, "guide", "--agent");
+    const human = await runCli(home, "guide");
+    const full = await runCli(home, "guide", "--full");
+    const agent = await runCli(home, "guide", "--agent");
 
-    expect(human.status, human.stderr).toBe(0);
-    expect(full.status, full.stderr).toBe(0);
-    expect(agent.status, agent.stderr).toBe(0);
+    expectExitCode(human, 0);
+    expectExitCode(full, 0);
+    expectExitCode(agent, 0);
     expect(human.stdout).toContain("apkit guide profile");
     expect(human.stdout).toContain("apkit guide context");
     expect(human.stdout).toContain("apkit guide skill");
@@ -5275,10 +5280,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(stateDirectory(home))).toBe(false);
   });
 
-  test("packed CLI serves the final project-bound agent workflow", () => {
+  test("packed CLI serves the final project-bound agent workflow", async () => {
     const home = isolatedHome();
-    const result = runCli(home, "guide", "--agent");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "guide", "--agent");
+    expectExitCode(result, 0);
 
     expect(result.stdout).not.toMatch(/apkit (plan|install|update|run)\b/);
     expect(result.stdout).toMatch(/Local\s+Configuration/);
@@ -5303,10 +5308,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("packed human guide distinguishes required Manifest from init scaffolding", () => {
+  test("packed human guide distinguishes required Manifest from init scaffolding", async () => {
     const home = isolatedHome();
-    const result = runCli(home, "guide", "--full");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "guide", "--full");
+    expectExitCode(result, 0);
     expect(result.stdout).toMatch(/Required structure vs initialization scaffolding|valid Workspace needs only/i);
     expect(result.stdout).toMatch(/workspace\.yaml/);
     expect(result.stdout).toMatch(/empty categor/i);
@@ -5322,10 +5327,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("packed human guide separates universal Workspace source ownership from managed delivery", () => {
+  test("packed human guide separates universal Workspace source ownership from managed delivery", async () => {
     const home = isolatedHome();
-    const result = runCli(home, "guide", "--full");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "guide", "--full");
+    expectExitCode(result, 0);
 
     // Workspace may own Profile-selected and unselected universal artifacts as one canonical source.
     expect(result.stdout).toMatch(/universal/i);
@@ -5365,9 +5370,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/exact planned destination/i);
   });
 
-  test("init bootstrap pointers stay short and name current guide commands", () => {
+  test("init bootstrap pointers stay short and name current guide commands", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const readme = readFileSync(join(workspacePath(home), "README.md"), "utf8");
     const agents = readFileSync(join(workspacePath(home), "AGENTS.md"), "utf8");
 
@@ -5380,7 +5385,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(agents.trim().split("\n").length).toBeLessThan(12);
   });
 
-  test("public overview describes project-bound Profiles without migration-era lifecycle terms", () => {
+  test("public overview describes project-bound Profiles without migration-era lifecycle terms", async () => {
     const packageRoot = resolve(cliPath, "..", "..");
     const readme = readFileSync(join(packageRoot, "README.md"), "utf8");
 
@@ -5398,16 +5403,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 });
 
 describe("agent-profile-kit unbind (recording-only Project Binding removal)", () => {
-  test("unbind without a project argument removes the canonical current working directory binding", () => {
+  test("unbind without a project argument removes the canonical current working directory binding", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     bind(home, projectPath);
 
-    const result = runCliAt(home, projectPath, "unbind");
+    const result = await runCliAt(home, projectPath, "unbind");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Removed Project Binding");
     expect(result.stdout).toContain(realpathSync(projectPath));
     expect(result.stdout).toContain("Profile: coding");
@@ -5419,9 +5424,9 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("unbind removes a missing project only by exact authored path", () => {
+  test("unbind removes a missing project only by exact authored path", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const authored = "~/projects/agent-profile-kit-unbind-missing";
     writeFileSync(
@@ -5429,18 +5434,18 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const result = runCli(home, "unbind", authored);
+    const result = await runCli(home, "unbind", authored);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Removed Project Binding");
     expect(result.stdout).toContain("canonical project identity could not be proven");
     expect(result.stdout).toContain(`Local Configuration: ${configPath(home)}`);
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
   });
 
-  test("unbind does not infer an alias for a missing authored project path", () => {
+  test("unbind does not infer an alias for a missing authored project path", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const authored = "~/projects/agent-profile-kit-unbind-authored";
     const alias = "~/projects/agent-profile-kit-unbind-alias";
@@ -5450,25 +5455,25 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     );
     const before = readFileSync(configPath(home), "utf8");
 
-    const result = runCli(home, "unbind", alias);
+    const result = await runCli(home, "unbind", alias);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Project Binding unchanged");
     expect(result.stdout).toContain(alias);
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
 
-  test("unbind rejects malformed or ambiguous Local Configuration without mutation", () => {
+  test("unbind rejects malformed or ambiguous Local Configuration without mutation", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     const malformed = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: not-an-array\n`;
     writeFileSync(configPath(home), malformed);
 
-    const malformedResult = runCli(home, "unbind", projectPath);
+    const malformedResult = await runCli(home, "unbind", projectPath);
 
-    expect(malformedResult.status).toBe(1);
+    expectExitCode(malformedResult, 1);
     expect(malformedResult.stderr).toMatch(/bindings must be an array/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(malformed);
 
@@ -5479,42 +5484,42 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
       `  - project: ${missing}\n    profile: coding\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), ambiguous);
 
-    const ambiguousResult = runCli(home, "unbind", missing);
+    const ambiguousResult = await runCli(home, "unbind", missing);
 
-    expect(ambiguousResult.status).toBe(1);
+    expectExitCode(ambiguousResult, 1);
     expect(ambiguousResult.stderr).toMatch(/duplicates missing project path/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(ambiguous);
   });
 
-  test("unbind fails closed with a hand-edit fallback when a Profile is missing", () => {
+  test("unbind fails closed with a hand-edit fallback when a Profile is missing", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     const source =
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), source);
 
-    const result = runCli(home, "unbind", projectPath);
+    const result = await runCli(home, "unbind", projectPath);
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toMatch(/does not exist in this Workspace/i);
     expect(result.stderr).toMatch(/edit Local Configuration directly/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(source);
   });
 
-  test("unbind gives an empty Workspace one recovery for its stale missing Profile", () => {
+  test("unbind gives an empty Workspace one recovery for its stale missing Profile", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     const projectPath = project();
     const source =
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), source);
 
-    const result = runCli(home, "unbind", projectPath);
+    const result = await runCli(home, "unbind", projectPath);
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("No Profiles exist in the Workspace");
     expect(result.stderr).toMatch(/edit Local Configuration directly/i);
     expect(result.stderr).not.toContain("apkit guide");
@@ -5523,7 +5528,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
   test("unbind refuses a direct edit observed before atomic publication", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     bind(home, projectPath);
@@ -5574,9 +5579,9 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expect(readFileSync(configuration, "utf8")).toContain(projectPath);
   });
 
-  test("unbind leaves Workspace, project output, state, and Host configuration untouched", () => {
+  test("unbind leaves Workspace, project output, state, and Host configuration untouched", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     bind(home, projectPath);
@@ -5590,80 +5595,80 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const hostBefore = readFileSync(hostConfig, "utf8");
     const workspaceBefore = readdirSync(workspacePath(home)).sort();
 
-    const result = runCli(home, "unbind", projectPath);
+    const result = await runCli(home, "unbind", projectPath);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(readFileSync(join(projectOutput, "sentinel"), "utf8")).toBe("project output\n");
     expect(readFileSync(join(state, "sentinel"), "utf8")).toBe("machine state\n");
     expect(readFileSync(hostConfig, "utf8")).toBe(hostBefore);
     expect(readdirSync(workspacePath(home)).sort()).toEqual(workspaceBefore);
   });
 
-  test("unbind reports no match without rewriting Local Configuration", () => {
+  test("unbind reports no match without rewriting Local Configuration", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const bound = project();
     const other = project();
     bind(home, bound);
     const before = readFileSync(configPath(home), "utf8");
 
-    const result = runCli(home, "unbind", other);
+    const result = await runCli(home, "unbind", other);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Project Binding unchanged");
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
 
-  test("unbind leaves reconciliation of former output to global preview and apply", () => {
+  test("unbind leaves reconciliation of former output to global preview and apply", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     bind(home, projectPath);
 
-    const applied = runCli(home, "apply");
-    expect(applied.status, applied.stderr).toBe(0);
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 0);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
 
-    const removed = runCli(home, "unbind", projectPath);
-    expect(removed.status, removed.stderr).toBe(0);
+    const removed = await runCli(home, "unbind", projectPath);
+    expectExitCode(removed, 0);
     expect(removed.stdout).toContain("Next: apkit preview && apkit apply");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
 
-    const preview = runCli(home, "preview");
-    expect(preview.status, preview.stderr).toBe(0);
+    const preview = await runCli(home, "preview");
+    expectExitCode(preview, 0);
     expect(preview.stdout).toContain(projectPath);
     expect(preview.stdout).toMatch(/removal/i);
 
-    const reconciled = runCli(home, "apply");
-    expect(reconciled.status, reconciled.stderr).toBe(0);
+    const reconciled = await runCli(home, "apply");
+    expectExitCode(reconciled, 0);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
   });
 
-  test("unbind omits reconciliation guidance when uninstall already removed generated output", () => {
+  test("unbind omits reconciliation guidance when uninstall already removed generated output", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     bind(home, projectPath);
-    expect(runCli(home, "apply").status).toBe(0);
-    expect(runCli(home, "uninstall").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
+    expectExitCode(await runCli(home, "uninstall"), 0);
 
-    const result = runCli(home, "unbind", projectPath);
+    const result = await runCli(home, "unbind", projectPath);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Removed Project Binding");
     expect(result.stdout).not.toContain("Next:");
     expect(result.stdout).not.toContain("preview");
     expect(result.stdout).not.toContain("apply");
   });
 
-  test("unbind preserves Local Configuration line endings and file mode", () => {
+  test("unbind preserves Local Configuration line endings and file mode", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     writeFileSync(
@@ -5672,9 +5677,9 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     );
     chmodSync(configPath(home), 0o600);
 
-    const result = runCli(home, "unbind", projectPath);
+    const result = await runCli(home, "unbind", projectPath);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     const source = readFileSync(configPath(home), "utf8");
     expect(source).toContain("\r\n");
     expect(source).toContain("# keep");
@@ -5682,27 +5687,27 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expect(statSync(configPath(home)).mode & 0o777).toBe(0o600);
   });
 
-  test("unbind accepts an explicit symlink alias and removes its canonical binding", () => {
+  test("unbind accepts an explicit symlink alias and removes its canonical binding", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     const alias = join(home, "project-alias");
     symlinkSync(projectPath, alias, "dir");
     bind(home, projectPath);
 
-    const result = runCli(home, "unbind", alias);
+    const result = await runCli(home, "unbind", alias);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain(`Removed Project Binding for ${projectPath}`);
     expect(result.stdout).toContain("Canonical project:");
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
     expect(existsSync(alias)).toBe(true);
   });
 
-  test("unbind preserves flow-style unrelated binding text", () => {
+  test("unbind preserves flow-style unrelated binding text", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const removed = project();
     const retained = project();
@@ -5711,17 +5716,17 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
       `{project: ${retained}, profile: coding, hosts: [claude]}]\n`;
     writeFileSync(configPath(home), source);
 
-    const result = runCli(home, "unbind", removed);
+    const result = await runCli(home, "unbind", removed);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(readFileSync(configPath(home), "utf8")).toBe(
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: [{project: ${retained}, profile: coding, hosts: [claude]}]\n`,
     );
   });
 
-  test("unbind resolves an existing home-relative project path", () => {
+  test("unbind resolves an existing home-relative project path", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = join(home, "projects", "home-relative");
     mkdirSync(projectPath, { recursive: true });
@@ -5731,16 +5736,16 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const result = runCli(home, "unbind", authored);
+    const result = await runCli(home, "unbind", authored);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Removed Project Binding");
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
   });
 
-  test("unbind removes one explicit existing binding and preserves unrelated configuration", () => {
+  test("unbind removes one explicit existing binding and preserves unrelated configuration", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const removed = project();
     const retained = project();
@@ -5750,9 +5755,9 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
       `  # retain this binding note\n  - project: ${retained}\n    profile: coding\n    hosts: [claude]\n`;
     writeFileSync(configPath(home), original);
 
-    const result = runCli(home, "unbind", removed);
+    const result = await runCli(home, "unbind", removed);
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain(`Removed Project Binding for ${removed}`);
     expect(result.stdout).toContain("Canonical project:");
     expect(result.stdout).toContain("Profile: coding");
@@ -5766,16 +5771,16 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 });
 
 describe("agent-profile-kit bind (recording-only Project Binding authoring)", () => {
-  test("bind records the canonical cwd when no project argument is supplied", () => {
+  test("bind records the canonical cwd when no project argument is supplied", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     const before = readFileSync(configPath(home), "utf8");
 
-    const result = runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
+    const result = await runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Recorded Project Binding for .\n");
     expect(result.stdout).not.toContain(realpathSync(projectPath));
     expect(result.stdout).toContain("Profile: coding");
@@ -5788,13 +5793,13 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(existsSync(statePath(home))).toBe(false);
   });
 
-  test("bind accepts an explicit absolute project path and multi-Host set in canonical order", () => {
+  test("bind accepts an explicit absolute project path and multi-Host set in canonical order", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
 
-    const result = runCli(
+    const result = await runCli(
       home,
       "bind",
       "coding",
@@ -5807,50 +5812,50 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
       "pi",
     );
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Hosts: claude, codex, pi");
     const source = readFileSync(configPath(home), "utf8");
     expect(source).toContain(`project: ${projectPath}`);
     // Hosts are stored in canonical SUPPORTED_HOSTS order (claude before codex).
     expect(source).toMatch(/hosts:\n\s+- claude\n\s+- codex\n\s+- pi/);
 
-    const validate = runCli(home, "validate");
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCli(home, "validate");
+    expectExitCode(validate, 0);
     expect(validate.stdout).toContain("1 Project Binding");
   });
 
-  test("bind accepts a home-relative project path and preserves authored spelling", () => {
+  test("bind accepts a home-relative project path and preserves authored spelling", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = join(home, "projects", "sample");
     mkdirSync(projectPath, { recursive: true });
     const relative = "~/projects/sample";
 
-    const result = runCli(home, "bind", "coding", relative, "--host", "codex");
+    const result = await runCli(home, "bind", "coding", relative, "--host", "codex");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(readFileSync(configPath(home), "utf8")).toContain(`project: ${relative}`);
   });
 
-  test("identical bind is idempotent and does not rewrite Local Configuration", () => {
+  test("identical bind is idempotent and does not rewrite Local Configuration", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
-    const first = runCli(home, "bind", "coding", projectPath, "--host", "codex");
-    expect(first.status, first.stderr).toBe(0);
+    const first = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expectExitCode(first, 0);
     const afterFirst = readFileSync(configPath(home), "utf8");
 
-    const second = runCli(home, "bind", "coding", projectPath, "--host", "codex");
-    expect(second.status, second.stderr).toBe(0);
+    const second = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expectExitCode(second, 0);
     expect(second.stdout).toContain("unchanged");
     expect(readFileSync(configPath(home), "utf8")).toBe(afterFirst);
   });
 
-  test("conflicting bind for an already-bound canonical root fails without mutation", () => {
+  test("conflicting bind for an already-bound canonical root fails without mutation", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home, "coding");
     writeContextProfile(home, "ops");
     const projectPath = project();
@@ -5860,16 +5865,16 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     );
     const before = readFileSync(configPath(home), "utf8");
 
-    const result = runCli(home, "bind", "ops", projectPath, "--host", "codex");
+    const result = await runCli(home, "bind", "ops", projectPath, "--host", "codex");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toMatch(/already binds|replace is not supported/i);
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
 
-  test("successful bind preserves unrelated configuration, comments, and bindings", () => {
+  test("successful bind preserves unrelated configuration, comments, and bindings", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const existing = project();
     const next = project();
@@ -5878,8 +5883,8 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
       `schema_version: 2\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${existing}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
 
-    const result = runCli(home, "bind", "coding", next, "--host", "claude");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "bind", "coding", next, "--host", "claude");
+    expectExitCode(result, 0);
 
     const source = readFileSync(configPath(home), "utf8");
     expect(source).toContain("# keep this comment");
@@ -5889,9 +5894,9 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(source).toMatch(/hosts:\n\s+- claude/);
   });
 
-  test("bind rejects unknown Profile, unsupported Host, missing project, and missing --host", () => {
+  test("bind rejects unknown Profile, unsupported Host, missing project, and missing --host", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     writeFileSync(
       join(workspacePath(home), "profiles", "writing.yaml"),
@@ -5900,19 +5905,19 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const projectPath = project();
     const before = readFileSync(configPath(home), "utf8");
 
-    const unknownProfile = runCli(home, "bind", "missing", projectPath, "--host", "codex");
-    expect(unknownProfile.status).toBe(1);
+    const unknownProfile = await runCli(home, "bind", "missing", projectPath, "--host", "codex");
+    expectExitCode(unknownProfile, 1);
     expect(unknownProfile.stderr).toMatch(/does not exist|profile/i);
     expect(unknownProfile.stderr).toContain("Available Profiles: coding, example, writing");
     expect(unknownProfile.stderr).not.toContain(configPath(home));
     expect(unknownProfile.stderr).not.toContain(realpathSync(workspacePath(home)));
 
-    const badHost = runCli(home, "bind", "coding", projectPath, "--host", "gemini");
-    expect(badHost.status).toBe(1);
+    const badHost = await runCli(home, "bind", "coding", projectPath, "--host", "gemini");
+    expectExitCode(badHost, 1);
     expect(badHost.stderr).toMatch(/unsupported Agent Host/i);
     expect(badHost.stderr).toContain("pi");
 
-    const missingProject = runCli(
+    const missingProject = await runCli(
       home,
       "bind",
       "coding",
@@ -5920,45 +5925,45 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
       "--host",
       "codex",
     );
-    expect(missingProject.status).toBe(1);
+    expectExitCode(missingProject, 1);
     expect(missingProject.stderr).toMatch(/existing directory/i);
 
-    const noHost = runCli(home, "bind", "coding", projectPath);
-    expect(noHost.status).toBe(1);
+    const noHost = await runCli(home, "bind", "coding", projectPath);
+    expectExitCode(noHost, 1);
     expect(noHost.stderr).toMatch(/--host/i);
 
-    const relative = runCli(home, "bind", "coding", "relative/path", "--host", "codex");
-    expect(relative.status).toBe(1);
+    const relative = await runCli(home, "bind", "coding", "relative/path", "--host", "codex");
+    expectExitCode(relative, 1);
     expect(relative.stderr).toMatch(/absolute path or home-relative/i);
 
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
 
-  test("bind turns an empty Workspace missing-Profile error into an authoring next step", () => {
+  test("bind turns an empty Workspace missing-Profile error into an authoring next step", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     const projectPath = project();
 
-    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("No Profiles exist in the Workspace");
     expect(result.stderr).toContain("Run apkit guide profile to learn how to add a Profile");
     expect(result.stderr).not.toContain("Available Profiles:");
   });
 
-  test("bind never touches project output, Installation Manifests, or Host configuration", () => {
+  test("bind never touches project output, Installation Manifests, or Host configuration", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     const hostConfig = join(home, ".codex", "config.toml");
     const hostBefore = readFileSync(hostConfig, "utf8");
     const workspaceBefore = readdirSync(workspacePath(home)).sort().join("\n");
 
-    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expectExitCode(result, 0);
 
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex"))).toBe(false);
@@ -5969,7 +5974,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
   test("bind refuses a direct edit observed by the final source recheck", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     const configuration = configPath(home);
@@ -6029,7 +6034,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
   test("bind validates the pre-replace snapshot so a mid-flight rewrite cannot diverge from the edit model", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     writeContextProfile(home, "ops");
     const projectPath = project();
@@ -6087,7 +6092,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
   test("concurrent binds retain both Project Bindings when one pauses mid-publish", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const first = project();
     const second = project();
@@ -6166,14 +6171,14 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(source).toContain("codex");
     expect(source).toContain("claude");
 
-    const validate = runCli(home, "validate");
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCli(home, "validate");
+    expectExitCode(validate, 0);
     expect(validate.stdout).toContain("2 Project Bindings");
   });
 
   test("bind recovers legacy held residue only under exclusive lock ownership", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     const configuration = configPath(home);
@@ -6200,7 +6205,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
   test("bind does not steal a freshly empty lock while ownership is still initializing", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     const configuration = configPath(home);
@@ -6226,7 +6231,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
   test("concurrent binds serialize under the lock so both Project Bindings are retained", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const first = project();
     const second = project();
@@ -6244,46 +6249,46 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(source).toContain("codex");
     expect(source).toContain("claude");
 
-    const validate = runCli(home, "validate");
-    expect(validate.status, validate.stderr).toBe(0);
+    const validate = await runCli(home, "validate");
+    expectExitCode(validate, 0);
     expect(validate.stdout).toContain("2 Project Bindings");
   });
 
   test("bind recovers from a stale lock left by a dead owner process", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     const lockPath = `${configPath(home)}.lock`;
     // PID 1 is not a reliable "dead" process on all systems; use a high unused pid.
     writeFileSync(lockPath, "2147483646\n");
 
-    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Recorded Project Binding");
     expect(existsSync(lockPath)).toBe(false);
     expect(readFileSync(configPath(home), "utf8")).toContain(projectPath);
   });
 
-  test("bind reports missing Local Configuration before lock acquisition", () => {
+  test("bind reports missing Local Configuration before lock acquisition", async () => {
     const home = isolatedHome();
     const projectPath = project();
-    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
-    expect(result.status).toBe(1);
+    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expectExitCode(result, 1);
     expect(result.stderr).toMatch(/Local Configuration is missing/);
     expect(result.stderr).toMatch(/apkit init/);
     expect(result.stderr).not.toMatch(/config\.yaml\.lock/);
   });
 
-  test("bind preserves CRLF line endings in Local Configuration", () => {
+  test("bind preserves CRLF line endings in Local Configuration", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     writeFileSync(configPath(home), `schema_version: 2\r\n# keep\r\nworkspace: ${workspacePath(home)}\r\nbindings: []\r\n`);
 
-    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expectExitCode(result, 0);
 
     const source = readFileSync(configPath(home), "utf8");
     expect(source).toContain("\r\n");
@@ -6291,53 +6296,53 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(source.split("\n").every((line) => line.endsWith("\r") || line === "")).toBe(true);
   });
 
-  test("bind preserves a hardened Local Configuration file mode", () => {
+  test("bind preserves a hardened Local Configuration file mode", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     const configuration = configPath(home);
     chmodSync(configuration, 0o600);
 
-    const result = runCli(home, "bind", "coding", projectPath, "--host", "codex");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expectExitCode(result, 0);
     expect(statSync(configuration).mode & 0o777).toBe(0o600);
   });
 
-  test("CLI help lists bind as a recording-only authoring command", () => {
+  test("CLI help lists bind as a recording-only authoring command", async () => {
     const home = isolatedHome();
-    const result = runCli(home, "bind");
-    expect(result.status).toBe(1);
+    const result = await runCli(home, "bind");
+    expectExitCode(result, 1);
     // Missing profile still names the command-specific usage; unknown commands stay concise.
-    const usage = runCli(home, "unknown-command");
-    expect(usage.status).toBe(1);
+    const usage = await runCli(home, "unknown-command");
+    expectExitCode(usage, 1);
     expect(usage.stderr).toContain("Run apkit --help for available commands.");
     expect(usage.stderr).not.toContain("Commands:");
   });
 });
 
 describe("responsive lifecycle reports", () => {
-  test("packed lifecycle output follows TTY width while pipes and JSON stay deterministic", () => {
+  test("packed lifecycle output follows TTY width while pipes and JSON stay deterministic", async () => {
     const home = isolatedHome();
     const projectPath = project();
-    initialize(home);
+    await initialize(home);
 
-    const bindResult = runCli(home, "bind", "example", projectPath, "--host", "codex");
-    expect(bindResult.status, bindResult.stderr).toBe(0);
+    const bindResult = await runCli(home, "bind", "example", projectPath, "--host", "codex");
+    expectExitCode(bindResult, 0);
 
-    const narrow = runCliInPty(home, 40, "status");
-    const redirectedNarrow = runCliWithEnvironment(home, { COLUMNS: "40" }, "status");
-    const redirectedWide = runCliWithEnvironment(home, { COLUMNS: "160" }, "status");
-    const json = runCli(home, "status", "--json");
-    const jsonNarrow = runCliWithEnvironment(home, { COLUMNS: "40" }, "status", "--json");
-    const jsonWide = runCliWithEnvironment(home, { COLUMNS: "160" }, "status", "--json");
+    const narrow = await runCliInPty(home, 40, "status");
+    const redirectedNarrow = await runCliWithEnvironment(home, { COLUMNS: "40" }, "status");
+    const redirectedWide = await runCliWithEnvironment(home, { COLUMNS: "160" }, "status");
+    const json = await runCli(home, "status", "--json");
+    const jsonNarrow = await runCliWithEnvironment(home, { COLUMNS: "40" }, "status", "--json");
+    const jsonWide = await runCliWithEnvironment(home, { COLUMNS: "160" }, "status", "--json");
 
-    expect(narrow.status, narrow.stderr).toBe(0);
-    expect(redirectedNarrow.status, redirectedNarrow.stderr).toBe(0);
-    expect(redirectedWide.status, redirectedWide.stderr).toBe(0);
-    expect(json.status, json.stderr).toBe(0);
-    expect(jsonNarrow.status, jsonNarrow.stderr).toBe(0);
-    expect(jsonWide.status, jsonWide.stderr).toBe(0);
+    expectExitCode(narrow, 0);
+    expectExitCode(redirectedNarrow, 0);
+    expectExitCode(redirectedWide, 0);
+    expectExitCode(json, 0);
+    expectExitCode(jsonNarrow, 0);
+    expectExitCode(jsonWide, 0);
     expect(narrow.stdout).not.toBe(redirectedNarrow.stdout);
     expect(redirectedNarrow.stdout).toBe(redirectedWide.stdout);
     expect(narrow.stdout).toContain("\n  Consequence:");
@@ -6350,17 +6355,17 @@ describe("responsive lifecycle reports", () => {
       if (!pathLine) expect(line.length, `line exceeds TTY width: ${line}`).toBeLessThanOrEqual(40);
     }
 
-    const applied = runCliInPty(home, 40, "apply");
-    const clean = runCliInPty(home, 40, "status");
-    expect(applied.status, applied.stderr).toBe(0);
-    expect(clean.status, clean.stderr).toBe(0);
+    const applied = await runCliInPty(home, 40, "apply");
+    const clean = await runCliInPty(home, 40, "status");
+    expectExitCode(applied, 0);
+    expectExitCode(clean, 0);
     expect(applied.stdout).toContain("Apply complete");
     expect(clean.stdout).toContain("All Projects are current");
 
     const blockedHome = isolatedHome();
     const blockedProject = project();
-    initialize(blockedHome);
-    const blockedBind = runCli(
+    await initialize(blockedHome);
+    const blockedBind = await runCli(
       blockedHome,
       "bind",
       "example",
@@ -6368,22 +6373,22 @@ describe("responsive lifecycle reports", () => {
       "--host",
       "codex",
     );
-    expect(blockedBind.status, blockedBind.stderr).toBe(0);
+    expectExitCode(blockedBind, 0);
     mkdirSync(join(blockedProject, ".agent-profile-kit", "codex"), { recursive: true });
     writeFileSync(
       join(blockedProject, ".agent-profile-kit", "codex", "context.md"),
       "user-owned\n",
     );
-    const blocked = runCliInPty(blockedHome, 40, "preview");
-    expect(blocked.status).toBe(2);
+    const blocked = await runCliInPty(blockedHome, 40, "preview");
+    expectExitCode(blocked, 2);
     expect(blocked.stdout).toContain("Cannot apply");
     expect(blocked.stdout).toContain("Blocker:");
     expect(blocked.stdout).toContain("\nNext:\n- ");
   });
 
-  test("colored wrapped output does not style continuation lines as new prose", () => {
+  test("colored wrapped output does not style continuation lines as new prose", async () => {
     const home = isolatedHome();
-    const colored = runCliInPtyWithEnvironment(
+    const colored = await runCliInPtyWithEnvironment(
       home,
       40,
       COLOR_TERMINAL_ENVIRONMENT,
@@ -6391,7 +6396,7 @@ describe("responsive lifecycle reports", () => {
       "profile",
     );
 
-    expect(colored.status, colored.stderr).toBe(0);
+    expectExitCode(colored, 0);
     expect(colored.stdout).toMatch(/\u001b\[/);
     expect(colored.stdout.split("\n").filter((line) => line.includes("\u001b[2m"))).toHaveLength(1);
     expect(colored.stdout).toContain("\u001b[2mA Profile");
@@ -6399,30 +6404,30 @@ describe("responsive lifecycle reports", () => {
 });
 
 describe("apkit root help", () => {
-  test("--version reports the packaged engine version", () => {
+  test("--version reports the packaged engine version", async () => {
     const home = isolatedHome();
     const manifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
       readonly version: string;
     };
-    const result = runCli(home, "--version");
+    const result = await runCli(home, "--version");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(`${manifest.version}\n`);
   });
 
-  test("bare invocation, --help, -h, and help print identical root help successfully", () => {
+  test("bare invocation, --help, -h, and help print identical root help successfully", async () => {
     const home = isolatedHome();
-    const bare = runCli(home);
-    const help = runCli(home, "--help");
-    const shortHelp = runCli(home, "-h");
-    const helpCommand = runCli(home, "help");
-    const nestedLongHelp = runCli(home, HELP_COMMAND, "--help");
-    const nestedShortHelp = runCli(home, HELP_COMMAND, "-h");
-    const nestedVersion = runCli(home, HELP_COMMAND, "--version");
+    const bare = await runCli(home);
+    const help = await runCli(home, "--help");
+    const shortHelp = await runCli(home, "-h");
+    const helpCommand = await runCli(home, "help");
+    const nestedLongHelp = await runCli(home, HELP_COMMAND, "--help");
+    const nestedShortHelp = await runCli(home, HELP_COMMAND, "-h");
+    const nestedVersion = await runCli(home, HELP_COMMAND, "--version");
 
     for (const result of [bare, help, shortHelp, helpCommand, nestedLongHelp, nestedShortHelp, nestedVersion]) {
-      expect(result.status, result.stderr).toBe(0);
+      expectExitCode(result, 0);
       expect(result.stderr).toBe("");
     }
     expect(bare.stdout).toBe(help.stdout);
@@ -6434,10 +6439,10 @@ describe("apkit root help", () => {
     expect(bare.stdout.length).toBeGreaterThan(0);
   });
 
-  test("root help lists all supported commands with usable syntax and concise purposes", () => {
+  test("root help lists all supported commands with usable syntax and concise purposes", async () => {
     const home = isolatedHome();
-    const result = runCli(home, "--help");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "--help");
+    expectExitCode(result, 0);
 
     const commandsSection = result.stdout.match(/Commands:\n([\s\S]*?)\n\nProject quick start:/)?.[1];
     expect(commandsSection).toBeDefined();
@@ -6457,11 +6462,11 @@ describe("apkit root help", () => {
     }
   });
 
-  test("root help groups commands and keeps its two-line menu within the deterministic width", () => {
+  test("root help groups commands and keeps its two-line menu within the deterministic width", async () => {
     const home = isolatedHome();
-    const result = runCli(home, "--help");
+    const result = await runCli(home, "--help");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     let previousIndex = -1;
     for (const [group, label] of COMMAND_GROUPS) {
@@ -6481,20 +6486,20 @@ describe("apkit root help", () => {
     }
   });
 
-  test("redirected root help ignores ambient COLUMNS and remains deterministic", () => {
+  test("redirected root help ignores ambient COLUMNS and remains deterministic", async () => {
     const home = isolatedHome();
-    const narrowEnvironment = runCliWithEnvironment(home, { COLUMNS: "40" }, "--help");
-    const wideEnvironment = runCliWithEnvironment(home, { COLUMNS: "160" }, "--help");
+    const narrowEnvironment = await runCliWithEnvironment(home, { COLUMNS: "40" }, "--help");
+    const wideEnvironment = await runCliWithEnvironment(home, { COLUMNS: "160" }, "--help");
 
-    expect(narrowEnvironment.status, narrowEnvironment.stderr).toBe(0);
-    expect(wideEnvironment.status, wideEnvironment.stderr).toBe(0);
+    expectExitCode(narrowEnvironment, 0);
+    expectExitCode(wideEnvironment, 0);
     expect(narrowEnvironment.stdout).toBe(wideEnvironment.stdout);
   });
 
-  test("root help shows the minimal Project flow and points to guide for deeper authoring", () => {
+  test("root help shows the minimal Project flow and points to guide for deeper authoring", async () => {
     const home = isolatedHome();
-    const result = runCli(home, "--help");
-    expect(result.status, result.stderr).toBe(0);
+    const result = await runCli(home, "--help");
+    expectExitCode(result, 0);
 
     const initIndex = result.stdout.indexOf("apkit init");
     const bindIndex = result.stdout.indexOf("apkit bind", initIndex + 1);
@@ -6510,15 +6515,15 @@ describe("apkit root help", () => {
     expect(result.stdout.toLowerCase()).toMatch(/workspace authoring/);
   });
 
-  test("every command explains its purpose, syntax, examples, writes, and next action", () => {
+  test("every command explains its purpose, syntax, examples, writes, and next action", async () => {
     const home = isolatedHome();
-    const root = runCli(home, "--help");
+    const root = await runCli(home, "--help");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(root.stdout).not.toMatch(term);
 
     for (const command of COMMANDS) {
       for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(command.summary).not.toMatch(term);
-      const result = runCli(home, command.name, "--help");
-      expect(result.status, `${command.name}: ${result.stderr}`).toBe(0);
+      const result = await runCli(home, command.name, "--help");
+      expectExitCode(result, 0);
       expect(result.stderr).toBe("");
       expect(result.stdout).toContain(`Usage: apkit ${command.syntax}`);
       expect(result.stdout).toMatch(/^Purpose: .+/m);
@@ -6545,13 +6550,13 @@ describe("apkit root help", () => {
     }
   });
 
-  test("uninstall help describes removing owned output while preserving Projects", () => {
+  test("uninstall help describes removing owned output while preserving Projects", async () => {
     const home = isolatedHome();
-    const root = runCli(home, "--help");
-    const focused = runCli(home, "uninstall", "--help");
+    const root = await runCli(home, "--help");
+    const focused = await runCli(home, "uninstall", "--help");
 
-    expect(root.status, root.stderr).toBe(0);
-    expect(focused.status, focused.stderr).toBe(0);
+    expectExitCode(root, 0);
+    expectExitCode(focused, 0);
     for (const view of [root.stdout, focused.stdout]) {
       const normalized = view.replace(/\s+/g, " ");
       expect(normalized).toContain("Remove proven Agent Profile Kit-owned output");
@@ -6560,23 +6565,20 @@ describe("apkit root help", () => {
     }
   });
 
-  test("focused help accepts help, -h, and --help aliases with identical output", () => {
+  test("focused help accepts help, -h, and --help aliases with identical output", async () => {
     const home = isolatedHome();
     expect(COMMAND_HELP_ALIASES).toEqual(["-h", "--help"]);
 
     for (const command of COMMANDS) {
-      const helpCommand = runCli(home, HELP_COMMAND, command.name);
+      const helpCommand = await runCli(home, HELP_COMMAND, command.name);
 
-      expect(helpCommand.status, `help ${command.name}: ${helpCommand.stderr}`).toBe(0);
+      expectExitCode(helpCommand, 0);
       expect(helpCommand.stderr).toBe("");
       for (const alias of COMMAND_HELP_ALIASES) {
-        const aliasHelp = runCli(home, command.name, alias);
-        const prefixedAliasHelp = runCli(home, HELP_COMMAND, command.name, alias);
-        expect(aliasHelp.status, `${command.name} ${alias}: ${aliasHelp.stderr}`).toBe(0);
-        expect(
-          prefixedAliasHelp.status,
-          `${HELP_COMMAND} ${command.name} ${alias}: ${prefixedAliasHelp.stderr}`,
-        ).toBe(0);
+        const aliasHelp = await runCli(home, command.name, alias);
+        const prefixedAliasHelp = await runCli(home, HELP_COMMAND, command.name, alias);
+        expectExitCode(aliasHelp, 0);
+        expectExitCode(prefixedAliasHelp, 0);
         expect(aliasHelp.stderr).toBe("");
         expect(prefixedAliasHelp.stderr).toBe("");
         expect(aliasHelp.stdout).toBe(helpCommand.stdout);
@@ -6585,50 +6587,50 @@ describe("apkit root help", () => {
     }
   });
 
-  test("non-help trailing arguments do not self-suggest a known command", () => {
+  test("non-help trailing arguments do not self-suggest a known command", async () => {
     const home = isolatedHome();
-    const result = runCli(home, HELP_COMMAND, "bind", "unexpected");
+    const result = await runCli(home, HELP_COMMAND, "bind", "unexpected");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("apkit: unknown command 'help'");
     expect(result.stderr).not.toContain("Did you mean: apkit bind?");
   });
 
-  test("focused binding help names Hosts from each command's supported capability set", () => {
+  test("focused binding help names Hosts from each command's supported capability set", async () => {
     const home = isolatedHome();
-    const bindHelp = runCli(home, "help", "bind");
-    const temporaryHelp = runCli(home, "install-temp", "-h");
+    const bindHelp = await runCli(home, "help", "bind");
+    const temporaryHelp = await runCli(home, "install-temp", "-h");
 
-    expect(bindHelp.status, bindHelp.stderr).toBe(0);
-    expect(temporaryHelp.status, temporaryHelp.stderr).toBe(0);
+    expectExitCode(bindHelp, 0);
+    expectExitCode(temporaryHelp, 0);
     expect(bindHelp.stdout).toContain(`Supported Hosts: ${SUPPORTED_HOSTS.join(", ")}`);
     expect(temporaryHelp.stdout).toContain(
       `Supported Hosts: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
     );
   });
 
-  test("root quick start points Profile and Host placeholders to discovery routes", () => {
+  test("root quick start points Profile and Host placeholders to discovery routes", async () => {
     const home = isolatedHome();
-    const result = runCli(home, "--help");
+    const result = await runCli(home, "--help");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("apkit guide profile");
     expect(result.stdout).toContain("apkit bind --help");
     expect(result.stdout).toContain("apkit bind <profile> --host <host>");
   });
 
-  test("interactive root help adapts to narrow terminals and caps wide prose", () => {
+  test("interactive root help adapts to narrow terminals and caps wide prose", async () => {
     const home = isolatedHome();
-    const clamped = runCliInPty(home, 20, "--help");
-    const narrow = runCliInPty(home, 40, "--help");
-    const fallback = runCliInPtyWithColumnsFallback(home, 40, "--help");
-    const wide = runCliInPty(home, 160, "--help");
+    const clamped = await runCliInPty(home, 20, "--help");
+    const narrow = await runCliInPty(home, 40, "--help");
+    const fallback = await runCliInPtyWithColumnsFallback(home, 40, "--help");
+    const wide = await runCliInPty(home, 160, "--help");
 
-    expect(clamped.status, clamped.stderr).toBe(0);
-    expect(narrow.status, narrow.stderr).toBe(0);
-    expect(fallback.status, fallback.stderr).toBe(0);
-    expect(wide.status, wide.stderr).toBe(0);
+    expectExitCode(clamped, 0);
+    expectExitCode(narrow, 0);
+    expectExitCode(fallback, 0);
+    expectExitCode(wide, 0);
     expect(clamped.stdout).toBe(narrow.stdout);
     expect(fallback.stdout).toBe(narrow.stdout);
     expect(wide.stdout).not.toBe(narrow.stdout);
@@ -6642,20 +6644,20 @@ describe("apkit root help", () => {
     }
   });
 
-  test("interactive root help adds the compact identity and semantic color while pipes stay plain", () => {
+  test("interactive root help adds the compact identity and semantic color while pipes stay plain", async () => {
     const home = isolatedHome();
-    const piped = runCli(home, "--help");
-    const bare = runCliInPtyWithEnvironment(home, 40, COLOR_TERMINAL_ENVIRONMENT);
-    const interactive = runCliInPtyWithEnvironment(
+    const piped = await runCli(home, "--help");
+    const bare = await runCliInPtyWithEnvironment(home, 40, COLOR_TERMINAL_ENVIRONMENT);
+    const interactive = await runCliInPtyWithEnvironment(
       home,
       40,
       COLOR_TERMINAL_ENVIRONMENT,
       "--help",
     );
 
-    expect(piped.status, piped.stderr).toBe(0);
-    expect(bare.status, bare.stderr).toBe(0);
-    expect(interactive.status, interactive.stderr).toBe(0);
+    expectExitCode(piped, 0);
+    expectExitCode(bare, 0);
+    expectExitCode(interactive, 0);
     expect(bare.stdout).toContain(" /__\\ reusable agent material");
     expect(interactive.stdout).toContain("Agent Profile Kit");
     expect(interactive.stdout).toContain(" /__\\ reusable agent material");
@@ -6664,25 +6666,25 @@ describe("apkit root help", () => {
     expect(piped.stdout).not.toMatch(/\u001b\[/);
   });
 
-  test("interactive routine output is styled while NO_COLOR, pipes, errors, and JSON stay plain", () => {
+  test("interactive routine output is styled while NO_COLOR, pipes, errors, and JSON stay plain", async () => {
     const home = isolatedHome();
-    const interactive = runCliInPtyWithEnvironment(
+    const interactive = await runCliInPtyWithEnvironment(
       home,
       80,
       COLOR_TERMINAL_ENVIRONMENT,
       "list",
       "hosts",
     );
-    const noColor = runCliInPtyWithEnvironment(
+    const noColor = await runCliInPtyWithEnvironment(
       home,
       80,
       { NO_COLOR: "1", TERM: "xterm-256color" },
       "list",
       "hosts",
     );
-    const piped = runCli(home, "list", "hosts");
-    const json = runCli(home, "list", "hosts", "--json");
-    const interactiveJson = runCliInPtyWithEnvironment(
+    const piped = await runCli(home, "list", "hosts");
+    const json = await runCli(home, "list", "hosts", "--json");
+    const interactiveJson = await runCliInPtyWithEnvironment(
       home,
       80,
       COLOR_TERMINAL_ENVIRONMENT,
@@ -6690,42 +6692,42 @@ describe("apkit root help", () => {
       "hosts",
       "--json",
     );
-    const agentGuidePty = runCliInPtyWithEnvironment(
+    const agentGuidePty = await runCliInPtyWithEnvironment(
       home,
       80,
       COLOR_TERMINAL_ENVIRONMENT,
       "guide",
       "--agent",
     );
-    const interactiveError = runCliInPtyWithEnvironment(
+    const interactiveError = await runCliInPtyWithEnvironment(
       home,
       80,
       COLOR_TERMINAL_ENVIRONMENT,
       "unknown-command",
     );
-    const pipedError = runCli(home, "unknown-command");
+    const pipedError = await runCli(home, "unknown-command");
     const interactiveErrorOutput = `${interactiveError.stdout}${interactiveError.stderr}`;
 
-    expect(interactive.status, interactive.stderr).toBe(0);
+    expectExitCode(interactive, 0);
     expect(interactive.stdout).toMatch(/\u001b\[/);
     expect(interactive.stdout).not.toContain(" /__\\ reusable agent material");
     expect(noColor.stdout).not.toMatch(/\u001b\[/);
     expect(piped.stdout).not.toMatch(/\u001b\[/);
-    expect(json.status, json.stderr).toBe(0);
+    expectExitCode(json, 0);
     expect(json.stdout).not.toMatch(/\u001b\[/);
     expect(() => JSON.parse(json.stdout)).not.toThrow();
-    expect(interactiveJson.status, interactiveJson.stderr).toBe(0);
+    expectExitCode(interactiveJson, 0);
     expect(interactiveJson.stdout).not.toMatch(/\u001b\[/);
     expect(() => JSON.parse(interactiveJson.stdout)).not.toThrow();
-    expect(agentGuidePty.status, agentGuidePty.stderr).toBe(0);
+    expectExitCode(agentGuidePty, 0);
     expect(agentGuidePty.stdout).not.toMatch(/\u001b\[/);
-    expect(interactiveError.status).toBe(1);
+    expectExitCode(interactiveError, 1);
     expect(interactiveErrorOutput).toMatch(/\u001b\[/);
     expect(interactiveErrorOutput).not.toContain(" /__\\ reusable agent material");
     expect(pipedError.stderr).not.toMatch(/\u001b\[/);
   });
 
-  test("representative human and machine surfaces stay ANSI-free through pipes", () => {
+  test("representative human and machine surfaces stay ANSI-free through pipes", async () => {
     const invocations: readonly (readonly string[])[] = [
       [],
       ["--version"],
@@ -6761,7 +6763,7 @@ describe("apkit root help", () => {
     ];
 
     for (const arguments_ of invocations) {
-      const result = runCli(isolatedHome(), ...arguments_);
+      const result = await runCli(isolatedHome(), ...arguments_);
       expect(
         `${result.stdout}${result.stderr}`,
         `unexpected ANSI for: apkit ${arguments_.join(" ")}`,
@@ -6769,16 +6771,16 @@ describe("apkit root help", () => {
     }
   });
 
-  test("focused guides wrap prose at terminal width without splitting examples", () => {
+  test("focused guides wrap prose at terminal width without splitting examples", async () => {
     const home = isolatedHome();
 
     for (const topic of ["profile", "context", "skill"] as const) {
-      const narrow = runCliInPty(home, 40, "guide", topic);
-      const wide = runCliInPty(home, 100, "guide", topic);
+      const narrow = await runCliInPty(home, 40, "guide", topic);
+      const wide = await runCliInPty(home, 100, "guide", topic);
       const next = TOPIC_GUIDES[topic].next;
 
-      expect(narrow.status, narrow.stderr).toBe(0);
-      expect(wide.status, wide.stderr).toBe(0);
+      expectExitCode(narrow, 0);
+      expectExitCode(wide, 0);
       expect(narrow.stdout).not.toBe(wide.stdout);
       expect(narrow.stdout).toContain(AUTHORING_EXAMPLES[topic].contents);
       expect(narrow.stdout).toContain(next);
@@ -6795,13 +6797,13 @@ describe("apkit root help", () => {
     }
   });
 
-  test("the human guide index stays concise and width-aware", () => {
+  test("the human guide index stays concise and width-aware", async () => {
     const home = isolatedHome();
-    const narrow = runCliInPty(home, 40, "guide");
-    const wide = runCliInPty(home, 100, "guide");
+    const narrow = await runCliInPty(home, 40, "guide");
+    const wide = await runCliInPty(home, 100, "guide");
 
-    expect(narrow.status, narrow.stderr).toBe(0);
-    expect(wide.status, wide.stderr).toBe(0);
+    expectExitCode(narrow, 0);
+    expectExitCode(wide, 0);
     expect(narrow.stdout).not.toBe(wide.stdout);
     expect(narrow.stdout).not.toContain("SessionStart");
     expect(narrow.stdout.split("\n").length).toBeLessThan(40);
@@ -6810,26 +6812,26 @@ describe("apkit root help", () => {
     }
   });
 
-  test("guide human views use newcomer vocabulary", () => {
+  test("guide human views use newcomer vocabulary", async () => {
     const home = isolatedHome();
     const views = [
-      runCli(home, "guide"),
-      runCli(home, "guide", "profile"),
-      runCli(home, "guide", "context"),
-      runCli(home, "guide", "skill"),
+      await runCli(home, "guide"),
+      await runCli(home, "guide", "profile"),
+      await runCli(home, "guide", "context"),
+      await runCli(home, "guide", "skill"),
     ];
 
     for (const view of views) {
-      expect(view.status, view.stderr).toBe(0);
+      expectExitCode(view, 0);
       for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(view.stdout).not.toMatch(term);
     }
   });
 
-  test("guide help advertises every focused authoring topic", () => {
+  test("guide help advertises every focused authoring topic", async () => {
     const home = isolatedHome();
-    const result = runCli(home, "guide", "--help");
+    const result = await runCli(home, "guide", "--help");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Usage: apkit guide [profile|context|skill|--full|--agent]");
     for (const topic of ["profile", "context", "skill"]) {
       expect(result.stdout).toContain(`apkit guide ${topic}`);
@@ -6837,21 +6839,21 @@ describe("apkit root help", () => {
     expect(result.stdout).toContain("apkit guide --full");
     expect(result.stdout).toContain("apkit guide --agent");
 
-    const initHelp = runCli(home, "init", "--help");
-    expect(initHelp.status, initHelp.stderr).toBe(0);
+    const initHelp = await runCli(home, "init", "--help");
+    expectExitCode(initHelp, 0);
     expect(initHelp.stdout).toContain("Next: Run apkit guide profile.");
   });
 
-  test("a close unknown command gets one suggestion and a distant one gets concise help", () => {
+  test("a close unknown command gets one suggestion and a distant one gets concise help", async () => {
     const home = isolatedHome();
-    const close = runCli(home, "stats");
-    const distant = runCli(home, "frobnicate");
-    const tied = runCli(home, "inf");
-    const unknownHelp = runCli(home, "help", "stats");
-    const unknownShortHelp = runCli(home, "stats", "-h");
-    const unsafe = runCli(home, "\u001b[2J");
+    const close = await runCli(home, "stats");
+    const distant = await runCli(home, "frobnicate");
+    const tied = await runCli(home, "inf");
+    const unknownHelp = await runCli(home, "help", "stats");
+    const unknownShortHelp = await runCli(home, "stats", "-h");
+    const unsafe = await runCli(home, "\u001b[2J");
 
-    expect(close.status).toBe(1);
+    expectExitCode(close, 1);
     expect(close.stdout).toBe("");
     expect(close.stderr).toContain("apkit: unknown command 'stats'");
     expect(close.stderr).toContain("Did you mean: apkit status?");
@@ -6859,21 +6861,21 @@ describe("apkit root help", () => {
     expect(close.stderr).toContain("Run apkit --help for available commands.");
     expect(close.stderr).not.toContain("Commands:");
 
-    expect(distant.status).toBe(1);
+    expectExitCode(distant, 1);
     expect(distant.stdout).toBe("");
     expect(distant.stderr).toContain("apkit: unknown command 'frobnicate'");
     expect(distant.stderr).not.toContain("Did you mean:");
     expect(distant.stderr).toContain("Run apkit --help for available commands.");
     expect(distant.stderr).not.toContain("Commands:");
 
-    expect(tied.status).toBe(1);
+    expectExitCode(tied, 1);
     expect(tied.stderr).toContain("apkit: unknown command 'inf'");
     expect(tied.stderr).toContain("Did you mean: apkit info?");
     expect(tied.stderr.match(/Did you mean:/g)).toHaveLength(1);
     expect(tied.stderr).not.toContain("Commands:");
 
     for (const result of [unknownHelp, unknownShortHelp, unsafe]) {
-      expect(result.status).toBe(1);
+      expectExitCode(result, 1);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("Run apkit --help for available commands.");
       expect(result.stderr).not.toContain("Commands:");
@@ -6886,7 +6888,7 @@ describe("apkit root help", () => {
     expect(unsafe.stderr).not.toContain("\u001b");
   });
 
-  test("leading-dash values are never consumed as positional arguments", () => {
+  test("leading-dash values are never consumed as positional arguments", async () => {
     const home = isolatedHome();
     const cases = [
       { arguments: ["init", "--workspace"], message: "init does not accept flag '--workspace' as a Workspace path" },
@@ -6895,81 +6897,81 @@ describe("apkit root help", () => {
     ] as const;
 
     for (const example of cases) {
-      const result = runCli(home, ...example.arguments);
-      expect(result.status).toBe(1);
+      const result = await runCli(home, ...example.arguments);
+      expectExitCode(result, 1);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain(example.message);
       expect(result.stderr).toContain(`Usage: apkit ${example.arguments[0]}`);
     }
 
-    const hostValue = runCli(home, "bind", "example", "--host", "--codex");
-    expect(hostValue.status).toBe(1);
+    const hostValue = await runCli(home, "bind", "example", "--host", "--codex");
+    expectExitCode(hostValue, 1);
     expect(hostValue.stderr).toContain("bind --host requires an Agent Host name");
   });
 
-  test("representative invalid arguments exit nonzero, explain the error, and show the relevant command usage", () => {
+  test("representative invalid arguments exit nonzero, explain the error, and show the relevant command usage", async () => {
     const home = isolatedHome();
 
-    const missingProfile = runCli(home, "bind");
-    expect(missingProfile.status).toBe(1);
+    const missingProfile = await runCli(home, "bind");
+    expectExitCode(missingProfile, 1);
     expect(missingProfile.stderr).toContain("bind requires a Profile Artifact ID");
     expect(missingProfile.stderr).toContain("Usage: apkit bind <profile>");
 
-    const missingHost = runCli(home, "bind", "coding");
-    expect(missingHost.status).toBe(1);
+    const missingHost = await runCli(home, "bind", "coding");
+    expectExitCode(missingHost, 1);
     expect(missingHost.stderr).toContain("bind requires at least one --host flag");
     expect(missingHost.stderr).toContain("supported Hosts: claude, codex");
     expect(missingHost.stderr).toContain("Usage: apkit bind <profile>");
 
-    const tooManyInitPaths = runCli(home, "init", "one", "two");
-    expect(tooManyInitPaths.status).toBe(1);
+    const tooManyInitPaths = await runCli(home, "init", "one", "two");
+    expectExitCode(tooManyInitPaths, 1);
     expect(tooManyInitPaths.stderr).toContain("init accepts at most one Workspace path");
     expect(tooManyInitPaths.stderr).toContain("Usage: apkit init [workspace]");
     expect(tooManyInitPaths.stderr).not.toContain("Usage: apkit bind");
 
-    const badLifecycleFlag = runCli(home, "preview", "--yaml");
-    expect(badLifecycleFlag.status).toBe(1);
+    const badLifecycleFlag = await runCli(home, "preview", "--yaml");
+    expectExitCode(badLifecycleFlag, 1);
     expect(badLifecycleFlag.stderr).toContain("preview does not accept argument '--yaml'");
     expect(badLifecycleFlag.stderr).toContain("Usage: apkit preview [--verbose] [--json]");
 
-    const badAfterValidLifecycleFlag = runCli(home, "preview", "--verbose", "--yaml");
-    expect(badAfterValidLifecycleFlag.status).toBe(1);
+    const badAfterValidLifecycleFlag = await runCli(home, "preview", "--verbose", "--yaml");
+    expectExitCode(badAfterValidLifecycleFlag, 1);
     expect(badAfterValidLifecycleFlag.stderr).toContain("preview does not accept argument '--yaml'");
     expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: apkit preview [--verbose] [--json]");
 
-    const badGuideFlag = runCli(home, "guide", "--json");
-    expect(badGuideFlag.status).toBe(1);
+    const badGuideFlag = await runCli(home, "guide", "--json");
+    expectExitCode(badGuideFlag, 1);
     expect(badGuideFlag.stderr).toContain("guide does not accept argument '--json'");
     expect(badGuideFlag.stderr).toContain("Usage: apkit guide [profile|context|skill|--full|--agent]");
 
-    const agentAfterTopic = runCli(home, "guide", "profile", "--agent");
-    expect(agentAfterTopic.status).toBe(1);
+    const agentAfterTopic = await runCli(home, "guide", "profile", "--agent");
+    expectExitCode(agentAfterTopic, 1);
     expect(agentAfterTopic.stderr).toContain("guide does not accept argument '--agent' after topic 'profile'");
 
-    const badValidateFlag = runCli(home, "validate", "--json");
-    expect(badValidateFlag.status).toBe(1);
+    const badValidateFlag = await runCli(home, "validate", "--json");
+    expectExitCode(badValidateFlag, 1);
     expect(badValidateFlag.stderr).toContain("validate does not accept argument '--json'");
     expect(badValidateFlag.stderr).toContain("Usage: apkit validate");
 
-    const badUninstallFlag = runCli(home, "uninstall", "--json");
-    expect(badUninstallFlag.status).toBe(1);
+    const badUninstallFlag = await runCli(home, "uninstall", "--json");
+    expectExitCode(badUninstallFlag, 1);
     expect(badUninstallFlag.stderr).toContain("uninstall does not accept argument '--json'");
     expect(badUninstallFlag.stderr).toContain("Usage: apkit uninstall");
 
-    const tooManyUnbindPaths = runCli(home, "unbind", "one", "two");
-    expect(tooManyUnbindPaths.status).toBe(1);
+    const tooManyUnbindPaths = await runCli(home, "unbind", "one", "two");
+    expectExitCode(tooManyUnbindPaths, 1);
     expect(tooManyUnbindPaths.stderr).toContain("unbind accepts at most one project path");
     expect(tooManyUnbindPaths.stderr).toContain("Usage: apkit unbind [project]");
   });
 });
 
 describe("apkit list", () => {
-  test("without a topic, prints a self-describing inventory index without configuration", () => {
+  test("without a topic, prints a self-describing inventory index without configuration", async () => {
     const home = isolatedHome();
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Inventory topics:");
     for (const topic of INVENTORY_TOPICS) {
@@ -6981,23 +6983,23 @@ describe("apkit list", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
-  test("temporary is empty without Installation State and does not initialize application state", () => {
+  test("temporary is empty without Installation State and does not initialize application state", async () => {
     const home = isolatedHome();
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "temporary");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "temporary");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("No Temporary Profile Installations are active.");
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
-  test("hosts renders every supported Host in canonical order with temporary support", () => {
+  test("hosts renders every supported Host in canonical order with temporary support", async () => {
     const home = isolatedHome();
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "hosts");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "hosts");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain(`Hosts (${SUPPORTED_HOSTS.length}):`);
     for (const host of SUPPORTED_HOSTS) expect(result.stdout).toContain(`Host: ${host}`);
@@ -7009,7 +7011,7 @@ describe("apkit list", () => {
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
-  test("hosts JSON uses canonical capability records without probing Host executables", () => {
+  test("hosts JSON uses canonical capability records without probing Host executables", async () => {
     const home = isolatedHome();
     const failingHostBin = join(home, "failing-host-bin");
     mkdirSync(failingHostBin, { recursive: true });
@@ -7019,9 +7021,9 @@ describe("apkit list", () => {
       chmodSync(executable, 0o755);
     }
 
-    const result = runCliWithPath(home, failingHostBin, "list", "hosts", "--json");
+    const result = await runCliWithPath(home, failingHostBin, "list", "hosts", "--json");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toEqual({
       schemaVersion: 1,
@@ -7039,14 +7041,14 @@ describe("apkit list", () => {
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
-  test("temporary inventory does not migrate legacy ordinary installations", () => {
+  test("temporary inventory does not migrate legacy ordinary installations", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home);
     const ordinaryProject = project("agent-profile-kit-temporary-legacy-");
     bind(home, ordinaryProject);
-    expect(runCli(home, "apply").status).toBe(0);
+    expectExitCode(await runCli(home, "apply"), 0);
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       installations: Array<Record<string, unknown>>;
@@ -7060,23 +7062,23 @@ describe("apkit list", () => {
     );
     const stateBefore = readFileSync(statePath(home), "utf8");
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "temporary");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "temporary");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("No Temporary Profile Installations are active.");
     expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
   });
 
-  test("temporary renders an active identity with a short Project path", () => {
+  test("temporary renders an active identity with a short Project path", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home);
     const temporaryProject = join(home, "projects", "temporary-project");
     mkdirSync(temporaryProject, { recursive: true });
 
-    const install = runCli(
+    const install = await runCli(
       home,
       "install-temp",
       "coding",
@@ -7085,12 +7087,12 @@ describe("apkit list", () => {
       "codex",
       "--json",
     );
-    expect(install.status, install.stderr).toBe(0);
+    expectExitCode(install, 0);
     const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
 
-    const result = runCli(home, "list", "temporary");
+    const result = await runCli(home, "list", "temporary");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Temporary Profile Installations (1):");
     expect(result.stdout).toContain(`Temporary installation: ${receipt.temporaryInstallationId}`);
@@ -7099,15 +7101,15 @@ describe("apkit list", () => {
     expect(result.stdout).toContain("Host: codex");
   });
 
-  test("temporary JSON preserves canonical identity evidence without inventory writes", () => {
+  test("temporary JSON preserves canonical identity evidence without inventory writes", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home);
     const temporaryProject = join(home, "projects", "temporary-json-project");
     mkdirSync(temporaryProject, { recursive: true });
 
-    const install = runCli(
+    const install = await runCli(
       home,
       "install-temp",
       "coding",
@@ -7116,15 +7118,15 @@ describe("apkit list", () => {
       "codex",
       "--json",
     );
-    expect(install.status, install.stderr).toBe(0);
+    expectExitCode(install, 0);
     const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
     const configurationBefore = readFileSync(configPath(home), "utf8");
     const stateBefore = readFileSync(statePath(home), "utf8");
     const projectEntriesBefore = readdirSync(temporaryProject).sort();
 
-    const result = runCli(home, "list", "temporary", "--json");
+    const result = await runCli(home, "list", "temporary", "--json");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toEqual({
       schemaVersion: 1,
@@ -7144,9 +7146,9 @@ describe("apkit list", () => {
     expect(readdirSync(temporaryProject).sort()).toEqual(projectEntriesBefore);
   });
 
-  test("temporary inventory excludes removed identities and ordinary Project Bindings", () => {
+  test("temporary inventory excludes removed identities and ordinary Project Bindings", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home);
     const ordinaryProject = join(home, "projects", "ordinary-project");
@@ -7154,11 +7156,11 @@ describe("apkit list", () => {
     mkdirSync(ordinaryProject, { recursive: true });
     mkdirSync(temporaryProject, { recursive: true });
 
-    const bindResult = runCli(home, "bind", "coding", ordinaryProject, "--host", "codex");
-    expect(bindResult.status, bindResult.stderr).toBe(0);
-    const applyResult = runCli(home, "apply");
-    expect(applyResult.status, applyResult.stderr).toBe(0);
-    const install = runCli(
+    const bindResult = await runCli(home, "bind", "coding", ordinaryProject, "--host", "codex");
+    expectExitCode(bindResult, 0);
+    const applyResult = await runCli(home, "apply");
+    expectExitCode(applyResult, 0);
+    const install = await runCli(
       home,
       "install-temp",
       "coding",
@@ -7167,31 +7169,31 @@ describe("apkit list", () => {
       "codex",
       "--json",
     );
-    expect(install.status, install.stderr).toBe(0);
+    expectExitCode(install, 0);
     const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
 
-    const active = runCli(home, "list", "temporary");
-    expect(active.status, active.stderr).toBe(0);
+    const active = await runCli(home, "list", "temporary");
+    expectExitCode(active, 0);
     expect(active.stdout).toContain("temporary-project");
     expect(active.stdout).not.toContain("ordinary-project");
 
-    const remove = runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
-    expect(remove.status, remove.stderr).toBe(0);
-    const afterRemoval = runCli(home, "list", "temporary");
+    const remove = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    expectExitCode(remove, 0);
+    const afterRemoval = await runCli(home, "list", "temporary");
 
-    expect(afterRemoval.status, afterRemoval.stderr).toBe(0);
+    expectExitCode(afterRemoval, 0);
     expect(afterRemoval.stdout).toContain("No Temporary Profile Installations are active.");
     expect(afterRemoval.stdout).not.toContain(receipt.temporaryInstallationId);
     expect(afterRemoval.stdout).not.toContain("ordinary-project");
 
-    const projects = runCli(home, "list", "projects");
-    expect(projects.status, projects.stderr).toBe(0);
+    const projects = await runCli(home, "list", "projects");
+    expectExitCode(projects, 0);
     expect(projects.stdout).toContain("ordinary-project");
   });
 
-  test("temporary JSON orders active identities by canonical Project", () => {
+  test("temporary JSON orders active identities by canonical Project", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home);
     const firstProject = join(home, "projects", "alpha-temporary");
@@ -7200,7 +7202,7 @@ describe("apkit list", () => {
     mkdirSync(secondProject, { recursive: true });
 
     for (const projectPath of [secondProject, firstProject]) {
-      const install = runCli(
+      const install = await runCli(
         home,
         "install-temp",
         "coding",
@@ -7209,12 +7211,12 @@ describe("apkit list", () => {
         "codex",
         "--json",
       );
-      expect(install.status, install.stderr).toBe(0);
+      expectExitCode(install, 0);
     }
 
-    const result = runCli(home, "list", "temporary", "--json");
+    const result = await runCli(home, "list", "temporary", "--json");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     const payload = JSON.parse(result.stdout) as {
       readonly temporaryInstallations: readonly { readonly project: string }[];
     };
@@ -7224,15 +7226,15 @@ describe("apkit list", () => {
     ]);
   });
 
-  test("temporary JSON reports malformed Installation State without writing it", () => {
+  test("temporary JSON reports malformed Installation State without writing it", async () => {
     const home = isolatedHome();
     mkdirSync(stateDirectory(home), { recursive: true });
     const malformed = "not Installation State\n";
     writeFileSync(statePath(home), malformed);
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "temporary", "--json");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "temporary", "--json");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toMatchObject({
       schemaVersion: 1,
@@ -7246,9 +7248,9 @@ describe("apkit list", () => {
     expect(readFileSync(statePath(home), "utf8")).toBe(malformed);
   });
 
-  test("profiles renders every valid Profile with selected artifact counts in ID order", () => {
+  test("profiles renders every valid Profile with selected artifact counts in ID order", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home, "zeta");
     const workspace = workspacePath(home);
@@ -7266,9 +7268,9 @@ describe("apkit list", () => {
       "id: beta\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
     );
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "profiles");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "profiles");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Profiles (3):");
     expect(result.stdout).toContain("Profile: alpha");
@@ -7285,14 +7287,14 @@ describe("apkit list", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
-  test("profiles renders an actionable empty Workspace message", () => {
+  test("profiles renders an actionable empty Workspace message", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "profiles");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "profiles");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("No Profiles are available.");
     expect(result.stdout).toContain(
@@ -7301,9 +7303,9 @@ describe("apkit list", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
-  test("profiles JSON carries the same records without inspecting Projects, state, or Hosts", () => {
+  test("profiles JSON carries the same records without inspecting Projects, state, or Hosts", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home, "coding");
     const workspace = workspacePath(home);
@@ -7335,9 +7337,9 @@ describe("apkit list", () => {
     const configuration = readFileSync(configPath(home), "utf8");
     const state = readFileSync(statePath(home), "utf8");
 
-    const result = runCliWithPath(home, failingHostBin, "list", "profiles", "--json");
+    const result = await runCliWithPath(home, failingHostBin, "list", "profiles", "--json");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toEqual({
       schemaVersion: 1,
@@ -7355,9 +7357,9 @@ describe("apkit list", () => {
     expect(existsSync(join(home, "inaccessible-project"))).toBe(false);
   });
 
-  test("profiles reads only Workspace selection and ignores malformed Project Bindings", () => {
+  test("profiles reads only Workspace selection and ignores malformed Project Bindings", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home);
     writeFileSync(
@@ -7368,9 +7370,9 @@ describe("apkit list", () => {
         "    hosts: not-a-list\n",
     );
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "profiles", "--json");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "profiles", "--json");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toMatchObject({
       schemaVersion: 1,
@@ -7381,10 +7383,10 @@ describe("apkit list", () => {
     });
   });
 
-  test("profiles fails through the Workspace ingestion boundary without writes", () => {
+  test("profiles fails through the Workspace ingestion boundary without writes", async () => {
     const missingHome = isolatedHome();
-    const missingHuman = runCliWithPath(missingHome, process.env.PATH ?? "", "list", "profiles");
-    const missingMachine = runCliWithPath(
+    const missingHuman = await runCliWithPath(missingHome, process.env.PATH ?? "", "list", "profiles");
+    const missingMachine = await runCliWithPath(
       missingHome,
       process.env.PATH ?? "",
       "list",
@@ -7392,10 +7394,10 @@ describe("apkit list", () => {
       "--json",
     );
 
-    expect(missingHuman.status).toBe(1);
+    expectExitCode(missingHuman, 1);
     expect(missingHuman.stdout).toBe("");
     expect(missingHuman.stderr).toContain("Local Configuration is missing");
-    expect(missingMachine.status).toBe(1);
+    expectExitCode(missingMachine, 1);
     expect(missingMachine.stderr).toBe("");
     expect(JSON.parse(missingMachine.stdout)).toMatchObject({
       schemaVersion: 1,
@@ -7407,7 +7409,7 @@ describe("apkit list", () => {
     });
 
     const invalidHome = isolatedHome();
-    initialize(invalidHome);
+    await initialize(invalidHome);
     const invalidWorkspace = join(invalidHome, "invalid-workspace");
     mkdirSync(invalidWorkspace, { recursive: true });
     writeFileSync(
@@ -7415,7 +7417,7 @@ describe("apkit list", () => {
       `schema_version: 2\nworkspace: ${invalidWorkspace}\nbindings: []\n`,
     );
     const configuration = readFileSync(configPath(invalidHome), "utf8");
-    const invalid = runCliWithPath(
+    const invalid = await runCliWithPath(
       invalidHome,
       process.env.PATH ?? "",
       "list",
@@ -7423,7 +7425,7 @@ describe("apkit list", () => {
       "--json",
     );
 
-    expect(invalid.status).toBe(1);
+    expectExitCode(invalid, 1);
     expect(invalid.stderr).toBe("");
     expect(JSON.parse(invalid.stdout)).toMatchObject({
       schemaVersion: 1,
@@ -7437,13 +7439,13 @@ describe("apkit list", () => {
     expect(existsSync(statePath(invalidHome))).toBe(false);
 
     const missingWorkspaceHome = isolatedHome();
-    initialize(missingWorkspaceHome);
+    await initialize(missingWorkspaceHome);
     const missingWorkspace = join(missingWorkspaceHome, "missing-workspace");
     writeFileSync(
       configPath(missingWorkspaceHome),
       `schema_version: 2\nworkspace: ${missingWorkspace}\nbindings: []\n`,
     );
-    const missingWorkspaceResult = runCliWithPath(
+    const missingWorkspaceResult = await runCliWithPath(
       missingWorkspaceHome,
       process.env.PATH ?? "",
       "list",
@@ -7451,7 +7453,7 @@ describe("apkit list", () => {
       "--json",
     );
 
-    expect(missingWorkspaceResult.status).toBe(1);
+    expectExitCode(missingWorkspaceResult, 1);
     expect(missingWorkspaceResult.stderr).toBe("");
     expect(JSON.parse(missingWorkspaceResult.stdout)).toMatchObject({
       schemaVersion: 1,
@@ -7464,17 +7466,17 @@ describe("apkit list", () => {
     expect(existsSync(statePath(missingWorkspaceHome))).toBe(false);
   });
 
-  test("projects uses the existing Local Configuration error boundary", () => {
+  test("projects uses the existing Local Configuration error boundary", async () => {
     const home = isolatedHome();
 
-    const human = runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
-    const machine = runCliWithPath(home, process.env.PATH ?? "", "list", "projects", "--json");
+    const human = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+    const machine = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects", "--json");
 
-    expect(human.status).toBe(1);
+    expectExitCode(human, 1);
     expect(human.stdout).toBe("");
     expect(human.stderr).toContain("Local Configuration is missing");
     expect(human.stderr).toContain("run apkit init");
-    expect(machine.status).toBe(1);
+    expectExitCode(machine, 1);
     expect(machine.stderr).toBe("");
     expect(JSON.parse(machine.stdout)).toMatchObject({
       schemaVersion: 1,
@@ -7486,21 +7488,21 @@ describe("apkit list", () => {
     });
   });
 
-  test("rejects unknown inventory topics with the canonical available set", () => {
+  test("rejects unknown inventory topics with the canonical available set", async () => {
     const home = isolatedHome();
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "unknown-topic");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "unknown-topic");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("list does not support topic 'unknown-topic'");
     expect(result.stderr).toContain(`available topics: ${inventoryTopicNames().join(", ")}`);
     expect(result.stderr).toContain(`Usage: apkit ${inventoryCommandSyntax()}`);
   });
 
-  test("projects renders every normalized Project Binding with ordered Hosts", () => {
+  test("projects renders every normalized Project Binding with ordered Hosts", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home);
     const alpha = join(home, "projects", "alpha");
@@ -7518,9 +7520,9 @@ describe("apkit list", () => {
         "    hosts: [codex, claude]\n",
     );
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Projects (2):");
     expect(result.stdout).toContain("Project: ~/projects/alpha");
@@ -7534,9 +7536,9 @@ describe("apkit list", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
-  test("projects keeps invalid bindings visible and sorts by expanded Project path", () => {
+  test("projects keeps invalid bindings visible and sorts by expanded Project path", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home);
     const projectsDirectory = join(home, "projects");
@@ -7568,9 +7570,9 @@ describe("apkit list", () => {
         "    hosts: [codex]\n",
     );
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Projects (5):");
     for (const project of [
@@ -7590,9 +7592,9 @@ describe("apkit list", () => {
       result.stdout.indexOf("Project: ~/projects/zeta-existing"),
     );
 
-    const machine = runCliWithPath(home, process.env.PATH ?? "", "list", "projects", "--json");
+    const machine = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects", "--json");
 
-    expect(machine.status, machine.stderr).toBe(0);
+    expectExitCode(machine, 0);
     expect(JSON.parse(machine.stdout)).toMatchObject({
       schemaVersion: 1,
       command: "list",
@@ -7639,9 +7641,9 @@ describe("apkit list", () => {
     });
   });
 
-  test("projects JSON uses the same records without probing Hosts or Installation State", () => {
+  test("projects JSON uses the same records without probing Hosts or Installation State", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home);
     writeFileSync(join(workspacePath(home), "profiles", "coding.yaml"), "not a Profile\n");
@@ -7668,9 +7670,9 @@ describe("apkit list", () => {
     const state = readFileSync(statePath(home), "utf8");
     const projectEntries = readdirSync(projectPath).sort();
 
-    const result = runCliWithPath(home, failingHostBin, "list", "projects", "--json");
+    const result = await runCliWithPath(home, failingHostBin, "list", "projects", "--json");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toEqual({
       schemaVersion: 1,
@@ -7691,38 +7693,38 @@ describe("apkit list", () => {
     expect(readdirSync(projectPath).sort()).toEqual(projectEntries);
   });
 
-  test("projects keeps a Project visible after lifecycle status is clean", () => {
+  test("projects keeps a Project visible after lifecycle status is clean", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home);
     const projectPath = join(home, "projects", "current-project");
     mkdirSync(projectPath, { recursive: true });
 
-    const bindResult = runCli(home, "bind", "coding", projectPath, "--host", "codex");
-    expect(bindResult.status, bindResult.stderr).toBe(0);
-    const applyResult = runCli(home, "apply");
-    expect(applyResult.status, applyResult.stderr).toBe(0);
-    const statusResult = runCli(home, "status");
-    expect(statusResult.status, statusResult.stderr).toBe(0);
+    const bindResult = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    expectExitCode(bindResult, 0);
+    const applyResult = await runCli(home, "apply");
+    expectExitCode(applyResult, 0);
+    const statusResult = await runCli(home, "status");
+    expectExitCode(statusResult, 0);
     expect(statusResult.stdout).toContain("All Projects are current");
 
-    const result = runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Project: ~/projects/current-project");
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
   });
 
-  test("help distinguishes Project inventory from lifecycle diagnostics", () => {
+  test("help distinguishes Project inventory from lifecycle diagnostics", async () => {
     const home = isolatedHome();
 
-    const listHelp = runCliWithPath(home, process.env.PATH ?? "", "list", "--help");
-    const statusHelp = runCliWithPath(home, process.env.PATH ?? "", "status", "--help");
+    const listHelp = await runCliWithPath(home, process.env.PATH ?? "", "list", "--help");
+    const statusHelp = await runCliWithPath(home, process.env.PATH ?? "", "status", "--help");
 
-    expect(listHelp.status, listHelp.stderr).toBe(0);
-    expect(statusHelp.status, statusHelp.stderr).toBe(0);
+    expectExitCode(listHelp, 0);
+    expectExitCode(statusHelp, 0);
     expect(listHelp.stdout).toContain(`Usage: apkit ${inventoryCommandSyntax()}`);
     expect(listHelp.stdout).toContain("read-only inventory");
     expect(listHelp.stdout).toContain("Project lifecycle diagnostics");
@@ -7732,16 +7734,16 @@ describe("apkit list", () => {
 });
 
 describe("apkit info", () => {
-  test("reports the engine and selected locations without reading or writing other material", () => {
+  test("reports the engine and selected locations without reading or writing other material", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     const configuration = readFileSync(configPath(home), "utf8");
     const workspaceManifest = readFileSync(join(workspacePath(home), "workspace.yaml"), "utf8");
     const hostConfiguration = readFileSync(join(home, ".codex", "config.toml"), "utf8");
 
-    const result = runCli(home, "info");
+    const result = await runCli(home, "info");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Engine version:");
     expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
@@ -7755,18 +7757,18 @@ describe("apkit info", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
-  test("reports missing configuration without creating application state", () => {
+  test("reports missing configuration without creating application state", async () => {
     const home = isolatedHome();
 
-    const result = runCli(home, "info");
-    const machine = runCli(home, "info", "--json");
+    const result = await runCli(home, "info");
+    const machine = await runCli(home, "info", "--json");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Workspace: Not configured");
     expect(result.stdout).toContain("Local Configuration: ~/.agents/agent-profile-kit/config.yaml");
     expect(result.stdout).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.yaml");
-    expect(machine.status, machine.stderr).toBe(0);
+    expectExitCode(machine, 0);
     expect(JSON.parse(machine.stdout)).toMatchObject({
       outcome: "success",
       configurationState: "not-configured",
@@ -7775,18 +7777,18 @@ describe("apkit info", () => {
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
-  test("reports legacy configuration as migration-required instead of unconfigured", () => {
+  test("reports legacy configuration as migration-required instead of unconfigured", async () => {
     const home = isolatedHome();
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
     writeFileSync(configPath(home), "schema_version: 1\nbindings: []\n");
 
-    const human = runCli(home, "info");
-    const machine = runCli(home, "info", "--json");
+    const human = await runCli(home, "info");
+    const machine = await runCli(home, "info", "--json");
 
-    expect(human.status, human.stderr).toBe(0);
+    expectExitCode(human, 0);
     expect(human.stdout).toContain("Workspace: Legacy configuration; run apkit init");
     expect(human.stdout).not.toContain("Workspace: Not configured");
-    expect(machine.status, machine.stderr).toBe(0);
+    expectExitCode(machine, 0);
     expect(JSON.parse(machine.stdout)).toMatchObject({
       schemaVersion: 1,
       command: "info",
@@ -7799,49 +7801,49 @@ describe("apkit info", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
-  test("reports locations without validating or exposing Project Binding content", () => {
+  test("reports locations without validating or exposing Project Binding content", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     writeFileSync(
       configPath(home),
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: relative-secret-project\n    profile: secret-profile\n    hosts: [unsupported-secret-host]\n`,
     );
 
-    const result = runCli(home, "info");
+    const result = await runCli(home, "info");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
     expect(result.stdout).not.toContain("relative-secret-project");
     expect(result.stdout).not.toContain("secret-profile");
     expect(result.stdout).not.toContain("unsupported-secret-host");
   });
 
-  test("keeps an authored home-relative Workspace spelling in human output", () => {
+  test("keeps an authored home-relative Workspace spelling in human output", async () => {
     const home = isolatedHome();
     const authoredWorkspace = "~/custom-info-workspace";
-    const init = runCli(home, "init", authoredWorkspace);
-    expect(init.status, init.stderr).toBe(0);
+    const init = await runCli(home, "init", authoredWorkspace);
+    expectExitCode(init, 0);
 
-    const result = runCli(home, "info");
+    const result = await runCli(home, "info");
 
-    expect(result.status, result.stderr).toBe(0);
+    expectExitCode(result, 0);
     expect(result.stdout).toContain("Workspace: ~/custom-info-workspace");
   });
 
-  test("emits a deterministic versioned JSON payload with canonical and authored locations", () => {
+  test("emits a deterministic versioned JSON payload with canonical and authored locations", async () => {
     const home = isolatedHome();
     const authoredWorkspace = "~/custom-info-json-workspace";
-    const init = runCli(home, "init", authoredWorkspace);
-    expect(init.status, init.stderr).toBe(0);
+    const init = await runCli(home, "init", authoredWorkspace);
+    expectExitCode(init, 0);
     const manifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
       readonly version: string;
     };
 
-    const first = runCli(home, "info", "--json");
-    const second = runCli(home, "info", "--json");
+    const first = await runCli(home, "info", "--json");
+    const second = await runCli(home, "info", "--json");
 
-    expect(first.status, first.stderr).toBe(0);
-    expect(second.status, second.stderr).toBe(0);
+    expectExitCode(first, 0);
+    expectExitCode(second, 0);
     expect(first.stderr).toBe("");
     expect(first.stdout).toBe(second.stdout);
     expect(first.stdout).not.toMatch(/\u001b\[/);
@@ -7861,14 +7863,14 @@ describe("apkit info", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
-  test("returns a versioned JSON error for malformed configuration without writing state", () => {
+  test("returns a versioned JSON error for malformed configuration without writing state", async () => {
     const home = isolatedHome();
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
     writeFileSync(configPath(home), "schema_version: [malformed\n");
 
-    const result = runCli(home, "info", "--json");
+    const result = await runCli(home, "info", "--json");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toBe("");
     const payload = JSON.parse(result.stdout) as Record<string, unknown>;
     expect(payload).toMatchObject({
@@ -7884,12 +7886,12 @@ describe("apkit info", () => {
     expect(existsSync(statePath(home))).toBe(false);
   });
 
-  test("rejects unsupported presentation arguments with info usage", () => {
+  test("rejects unsupported presentation arguments with info usage", async () => {
     const home = isolatedHome();
 
-    const result = runCli(home, "info", "--yaml");
+    const result = await runCli(home, "info", "--yaml");
 
-    expect(result.status).toBe(1);
+    expectExitCode(result, 1);
     expect(result.stderr).toContain("info does not accept argument '--yaml'");
     expect(result.stderr).toContain("Usage: apkit info [--json]");
     expect(result.stdout).toBe("");
@@ -7897,10 +7899,10 @@ describe("apkit info", () => {
 });
 
 describe("apkit temporary Profile installation (Codex)", () => {
-  test("install-temp and remove-temp help use the settled temporary-install vocabulary", () => {
+  test("install-temp and remove-temp help use the settled temporary-install vocabulary", async () => {
     const home = isolatedHome();
-    const installHelp = runCli(home, "install-temp", "--help");
-    expect(installHelp.status, installHelp.stderr).toBe(0);
+    const installHelp = await runCli(home, "install-temp", "--help");
+    expectExitCode(installHelp, 0);
     expect(installHelp.stdout).toContain("Install a Profile temporarily into one Project");
     expect(installHelp.stdout).toContain("Usage: apkit install-temp <profile> <project> --host <host> [--json]");
     expect(installHelp.stdout).toContain("Next: Run apkit remove-temp <temporary-installation-id> when finished.");
@@ -7910,8 +7912,8 @@ describe("apkit temporary Profile installation (Codex)", () => {
       expect(installHelp.stdout).not.toMatch(term);
     }
 
-    const removeHelp = runCli(home, "remove-temp", "--help");
-    expect(removeHelp.status, removeHelp.stderr).toBe(0);
+    const removeHelp = await runCli(home, "remove-temp", "--help");
+    expectExitCode(removeHelp, 0);
     expect(removeHelp.stdout).toContain("Remove one temporary Profile installation");
     expect(removeHelp.stdout).not.toContain("Remove one temporary project");
     expect(removeHelp.stdout).toContain("Usage: apkit remove-temp <temporary-installation-id> [--json]");
@@ -7919,7 +7921,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       expect(removeHelp.stdout).not.toMatch(term);
     }
 
-    const root = runCli(home);
+    const root = await runCli(home);
     expect(root.stdout).toContain("Install a Profile temporarily into one Project");
     expect(root.stdout).toContain("Remove one temporary Profile installation");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
@@ -7927,9 +7929,9 @@ describe("apkit temporary Profile installation (Codex)", () => {
     }
   });
 
-  test("install-temp / remove-temp complete Codex lifecycle with a versioned receipt and isolation", () => {
+  test("install-temp / remove-temp complete Codex lifecycle with a versioned receipt and isolation", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home, "coding");
     const skillSource = join(workspacePath(home), "skills", "review-pr");
@@ -7945,15 +7947,15 @@ describe("apkit temporary Profile installation (Codex)", () => {
     const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-"));
     const boundProject = realpathSync(gitRepository("agent-profile-kit-bound-"));
     bind(home, boundProject, "coding");
-    const applyBound = runCli(home, "apply");
-    expect(applyBound.status, applyBound.stderr).toBe(0);
+    const applyBound = await runCli(home, "apply");
+    expectExitCode(applyBound, 0);
 
     const configBefore = readFileSync(configPath(home));
     const boundContextBefore = readFileSync(
       join(boundProject, ".agent-profile-kit", "codex", "context.md"),
     );
 
-    const install = runCli(
+    const install = await runCli(
       home,
       "install-temp",
       "coding",
@@ -7962,7 +7964,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "codex",
       "--json",
     );
-    expect(install.status, install.stderr).toBe(0);
+    expectExitCode(install, 0);
     const receipt = JSON.parse(install.stdout) as {
       readonly schemaVersion: number;
       readonly command: string;
@@ -8034,8 +8036,8 @@ describe("apkit temporary Profile installation (Codex)", () => {
       ),
     ).toBe(true);
 
-    const remove = runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
-    expect(remove.status, remove.stderr).toBe(0);
+    const remove = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    expectExitCode(remove, 0);
     const removed = JSON.parse(remove.stdout) as {
       readonly outcome: string;
       readonly completionState: string;
@@ -8055,8 +8057,8 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
     expect(readFileSync(exclude, "utf8")).not.toContain("# BEGIN Agent Profile Kit generated paths");
 
-    const removeAgain = runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
-    expect(removeAgain.status, removeAgain.stderr).toBe(0);
+    const removeAgain = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    expectExitCode(removeAgain, 0);
     const removedAgain = JSON.parse(removeAgain.stdout) as {
       readonly outcome: string;
       readonly completionState: string;
@@ -8074,16 +8076,16 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
-  test("install-temp surfaces Codex Host Setup Steps and hooks-disabled warnings", () => {
+  test("install-temp surfaces Codex Host Setup Steps and hooks-disabled warnings", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home, "coding");
     // Override the init-provided hooks-enabled Codex config so warnings fire.
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
     const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-warn-"));
 
-    const install = runCli(
+    const install = await runCli(
       home,
       "install-temp",
       "coding",
@@ -8092,7 +8094,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "codex",
       "--json",
     );
-    expect(install.status, install.stderr).toBe(0);
+    expectExitCode(install, 0);
     const receipt = JSON.parse(install.stdout) as {
       readonly warnings: readonly string[];
       readonly setupSteps: readonly {
@@ -8112,15 +8114,15 @@ describe("apkit temporary Profile installation (Codex)", () => {
       ),
     ).toBe(true);
 
-    const human = runCli(
+    const human = await runCli(
       home,
       "remove-temp",
       JSON.parse(install.stdout).temporaryInstallationId,
     );
-    expect(human.status, human.stderr).toBe(0);
+    expectExitCode(human, 0);
 
     // Reinstall for human install output with the same hooks warning.
-    const humanInstall = runCli(
+    const humanInstall = await runCli(
       home,
       "install-temp",
       "coding",
@@ -8128,7 +8130,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "--host",
       "codex",
     );
-    expect(humanInstall.status, humanInstall.stderr).toBe(0);
+    expectExitCode(humanInstall, 0);
     expect(humanInstall.stdout).toContain("Installed Profile temporarily");
     expect(humanInstall.stdout).toContain("Warnings:");
     expect(humanInstall.stdout).toMatch(/hooks are not enabled/i);
@@ -8141,14 +8143,14 @@ describe("apkit temporary Profile installation (Codex)", () => {
     );
   });
 
-  test("install-temp rejects unknown Profile, unsupported Host, missing Project, and tracked destinations before writes", () => {
+  test("install-temp rejects unknown Profile, unsupported Host, missing Project, and tracked destinations before writes", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home, "coding");
     const projectPath = gitRepository("agent-profile-kit-temp-block-");
 
-    const unknownProfile = runCli(
+    const unknownProfile = await runCli(
       home,
       "install-temp",
       "missing-profile",
@@ -8157,11 +8159,11 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "codex",
       "--json",
     );
-    expect(unknownProfile.status).toBe(1);
+    expectExitCode(unknownProfile, 1);
     expect(JSON.parse(unknownProfile.stdout).outcome).toBe("error");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
 
-    const unsupportedHost = runCli(
+    const unsupportedHost = await runCli(
       home,
       "install-temp",
       "coding",
@@ -8170,13 +8172,13 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "grok",
       "--json",
     );
-    expect(unsupportedHost.status).toBe(1);
+    expectExitCode(unsupportedHost, 1);
     expect(JSON.parse(unsupportedHost.stdout).outcome).toBe("error");
     expect(JSON.parse(unsupportedHost.stdout).error).toMatch(
       /does not yet support|supported Hosts: claude, codex/i,
     );
 
-    const missingProject = runCli(
+    const missingProject = await runCli(
       home,
       "install-temp",
       "coding",
@@ -8185,7 +8187,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "codex",
       "--json",
     );
-    expect(missingProject.status).toBe(1);
+    expectExitCode(missingProject, 1);
     expect(JSON.parse(missingProject.stdout).outcome).toBe("error");
 
     mkdirSync(join(projectPath, ".agent-profile-kit", "codex"), { recursive: true });
@@ -8193,7 +8195,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     execFileSync("git", ["-C", projectPath, "add", ".agent-profile-kit/codex/context.md"]);
     execFileSync("git", ["-C", projectPath, "commit", "-qm", "track destination"]);
 
-    const tracked = runCli(
+    const tracked = await runCli(
       home,
       "install-temp",
       "coding",
@@ -8202,7 +8204,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "codex",
       "--json",
     );
-    expect(tracked.status).toBe(2);
+    expectExitCode(tracked, 2);
     const blocked = JSON.parse(tracked.stdout) as {
       readonly outcome: string;
       readonly blockers: readonly { readonly message: string }[];
@@ -8213,9 +8215,9 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("install-temp does not create Project Bindings or invoke global apply side effects", () => {
+  test("install-temp does not create Project Bindings or invoke global apply side effects", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home, "coding");
     const tempProject = gitRepository("agent-profile-kit-temp-only-");
@@ -8223,7 +8225,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     bind(home, otherProject, "coding");
     const configBefore = readFileSync(configPath(home), "utf8");
 
-    const install = runCli(
+    const install = await runCli(
       home,
       "install-temp",
       "coding",
@@ -8232,16 +8234,16 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "codex",
       "--json",
     );
-    expect(install.status, install.stderr).toBe(0);
+    expectExitCode(install, 0);
     expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
     expect(parse(configBefore).bindings).toHaveLength(1);
     // Other bound project was never applied; temporary install must not apply it.
     expect(existsSync(join(otherProject, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("remove-temp discards agent modifications inside owned roots and preserves adjacent unowned files", () => {
+  test("remove-temp discards agent modifications inside owned roots and preserves adjacent unowned files", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home, "coding");
     const skillSource = join(workspacePath(home), "skills", "review-pr");
@@ -8257,7 +8259,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-dispose-cli-"));
     writeFileSync(join(tempProject, "user-notes.md"), "keep me\n");
 
-    const install = runCli(
+    const install = await runCli(
       home,
       "install-temp",
       "coding",
@@ -8266,7 +8268,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "codex",
       "--json",
     );
-    expect(install.status, install.stderr).toBe(0);
+    expectExitCode(install, 0);
     const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
 
     writeFileSync(
@@ -8279,61 +8281,61 @@ describe("apkit temporary Profile installation (Codex)", () => {
     );
     writeFileSync(join(tempProject, ".agent-profile-kit", "codex", "context.md"), "mutated\n");
 
-    const remove = runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
-    expect(remove.status, remove.stderr).toBe(0);
+    const remove = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    expectExitCode(remove, 0);
     expect(JSON.parse(remove.stdout).completionState).toBe("removed");
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(tempProject, "user-notes.md"), "utf8")).toBe("keep me\n");
   });
 
-  test("linked worktrees can hold independent temporary installations with contributor-safe exclusions", () => {
+  test("linked worktrees can hold independent temporary installations with contributor-safe exclusions", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home, "coding");
     const primary = realpathSync(gitRepository("agent-profile-kit-temp-wt-primary-"));
     const first = realpathSync(addWorktree(primary, "trial-a"));
     const second = realpathSync(addWorktree(primary, "trial-b"));
 
-    const installA = runCli(home, "install-temp", "coding", first, "--host", "codex", "--json");
-    const installB = runCli(home, "install-temp", "coding", second, "--host", "codex", "--json");
-    expect(installA.status, installA.stderr).toBe(0);
-    expect(installB.status, installB.stderr).toBe(0);
+    const installA = await runCli(home, "install-temp", "coding", first, "--host", "codex", "--json");
+    const installB = await runCli(home, "install-temp", "coding", second, "--host", "codex", "--json");
+    expectExitCode(installA, 0);
+    expectExitCode(installB, 0);
     const idA = JSON.parse(installA.stdout).temporaryInstallationId as string;
     const idB = JSON.parse(installB.stdout).temporaryInstallationId as string;
     expect(idA).not.toBe(idB);
     expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
 
-    const removeA = runCli(home, "remove-temp", idA, "--json");
-    expect(removeA.status, removeA.stderr).toBe(0);
+    const removeA = await runCli(home, "remove-temp", idA, "--json");
+    expectExitCode(removeA, 0);
     expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(readFileSync(join(primary, ".git", "info", "exclude"), "utf8")).toContain(
       "# BEGIN Agent Profile Kit generated paths",
     );
 
-    const removeB = runCli(home, "remove-temp", idB, "--json");
-    expect(removeB.status, removeB.stderr).toBe(0);
+    const removeB = await runCli(home, "remove-temp", idB, "--json");
+    expectExitCode(removeB, 0);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(primary, ".git", "info", "exclude"), "utf8")).not.toContain(
       "# BEGIN Agent Profile Kit generated paths",
     );
   });
 
-  test("install-temp rejects a second active temporary installation for the same Project before writes", () => {
+  test("install-temp rejects a second active temporary installation for the same Project before writes", async () => {
     const home = isolatedHome();
-    initialize(home);
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home, "coding");
     const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-second-cli-"));
 
-    const first = runCli(home, "install-temp", "coding", tempProject, "--host", "codex", "--json");
-    expect(first.status, first.stderr).toBe(0);
+    const first = await runCli(home, "install-temp", "coding", tempProject, "--host", "codex", "--json");
+    expectExitCode(first, 0);
 
-    const second = runCli(home, "install-temp", "coding", tempProject, "--host", "codex", "--json");
-    expect(second.status).toBe(2);
+    const second = await runCli(home, "install-temp", "coding", tempProject, "--host", "codex", "--json");
+    expectExitCode(second, 2);
     const blocked = JSON.parse(second.stdout) as {
       readonly outcome: string;
       readonly blockers: readonly { readonly message: string }[];
@@ -8345,8 +8347,8 @@ describe("apkit temporary Profile installation (Codex)", () => {
 });
 
 describe("apkit temporary Profile installation (Claude Code parity)", () => {
-  function prepareClaudeTempWorkspace(home: string): void {
-    initialize(home);
+  async function prepareClaudeTempWorkspace(home: string): Promise<void> {
+    await initialize(home);
     removeScaffoldedExample(home);
     writeContextProfile(home, "coding");
     const skillSource = join(workspacePath(home), "skills", "review-pr");
@@ -8363,29 +8365,32 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
 
   function runCliWithClaude(home: string, ...arguments_: string[]) {
     const pathValue = `${installFakeClaude(home)}:${installFakeCodex(home)}:${process.env.PATH ?? ""}`;
-    return spawnSync(process.env.NODE_BINARY ?? "node", [cliPath, ...arguments_], {
-      encoding: "utf8" as const,
-      env: { ...process.env, HOME: home, PATH: pathValue },
+    return runProcess({
+      executable: process.env.NODE_BINARY ?? "node",
+      arguments_: [cliPath, ...arguments_],
+      environment: { ...process.env, HOME: home, PATH: pathValue },
+      deadlineMs: CLI_DEADLINE_MS,
+      commandLabel: "packed CLI",
     });
   }
 
-  test("install-temp / remove-temp complete Claude lifecycle with versioned receipt and Claude Adapter outputs", () => {
+  test("install-temp / remove-temp complete Claude lifecycle with versioned receipt and Claude Adapter outputs", async () => {
     const home = isolatedHome();
-    prepareClaudeTempWorkspace(home);
+    await prepareClaudeTempWorkspace(home);
     const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-claude-cli-"));
     const boundProject = realpathSync(gitRepository("agent-profile-kit-bound-claude-cli-"));
     writeFileSync(
       configPath(home),
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${boundProject}\n    profile: coding\n    hosts:\n      - claude\n`,
     );
-    const applyBound = runCliWithClaude(home, "apply");
-    expect(applyBound.status, applyBound.stderr).toBe(0);
+    const applyBound = await runCliWithClaude(home, "apply");
+    expectExitCode(applyBound, 0);
     const configBefore = readFileSync(configPath(home));
     const boundRuleBefore = readFileSync(
       join(boundProject, ".claude", "rules", "agent-profile-kit.md"),
     );
 
-    const install = runCliWithClaude(
+    const install = await runCliWithClaude(
       home,
       "install-temp",
       "coding",
@@ -8394,7 +8399,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       "claude",
       "--json",
     );
-    expect(install.status, install.stderr).toBe(0);
+    expectExitCode(install, 0);
     const receipt = JSON.parse(install.stdout) as {
       readonly schemaVersion: number;
       readonly command: string;
@@ -8454,18 +8459,18 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       ),
     ).toBe(true);
 
-    const humanInstall = runCliWithClaude(
+    const humanInstall = await runCliWithClaude(
       home,
       "remove-temp",
       receipt.temporaryInstallationId,
     );
     // Already installed — re-install after remove for human summary, then assert jargon-free.
-    expect(humanInstall.status, humanInstall.stderr).toBe(0);
+    expectExitCode(humanInstall, 0);
     expect(humanInstall.stdout).toContain("Removed temporary Profile installation");
     expect(humanInstall.stdout).toContain(`Temporary installation: ${receipt.temporaryInstallationId}`);
     expect(humanInstall.stdout).not.toMatch(/Project Binding|reconcil|materializ|cleanup/i);
 
-    const reinstall = runCliWithClaude(
+    const reinstall = await runCliWithClaude(
       home,
       "install-temp",
       "coding",
@@ -8473,7 +8478,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       "--host",
       "claude",
     );
-    expect(reinstall.status, reinstall.stderr).toBe(0);
+    expectExitCode(reinstall, 0);
     expect(reinstall.stdout).toContain("Installed Profile temporarily");
     expect(reinstall.stdout).toContain("Host: claude");
     expect(reinstall.stdout).toContain("Profile: coding");
@@ -8485,8 +8490,8 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expect(reinstallIdMatch?.[1]).toBeTruthy();
     const reinstallId = reinstallIdMatch![1]!;
 
-    const remove = runCliWithClaude(home, "remove-temp", reinstallId, "--json");
-    expect(remove.status, remove.stderr).toBe(0);
+    const remove = await runCliWithClaude(home, "remove-temp", reinstallId, "--json");
+    expectExitCode(remove, 0);
     const removed = JSON.parse(remove.stdout) as {
       readonly outcome: string;
       readonly completionState: string;
@@ -8507,8 +8512,8 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expect(existsSync(join(tempProject, ".claude", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
 
-    const removeAgain = runCliWithClaude(home, "remove-temp", reinstallId, "--json");
-    expect(removeAgain.status, removeAgain.stderr).toBe(0);
+    const removeAgain = await runCliWithClaude(home, "remove-temp", reinstallId, "--json");
+    expectExitCode(removeAgain, 0);
     expect(JSON.parse(removeAgain.stdout).completionState).toBe("removed");
     expect(JSON.parse(removeAgain.stdout).outcome).toBe("success");
 
@@ -8517,13 +8522,13 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
   });
 
-  test("Claude and Codex receipts share protocol shape with Host-truthful provenance", () => {
+  test("Claude and Codex receipts share protocol shape with Host-truthful provenance", async () => {
     const home = isolatedHome();
-    prepareClaudeTempWorkspace(home);
+    await prepareClaudeTempWorkspace(home);
     const claudeProject = realpathSync(gitRepository("agent-profile-kit-temp-proto-claude-"));
     const codexProject = realpathSync(gitRepository("agent-profile-kit-temp-proto-codex-"));
 
-    const claudeInstall = runCliWithClaude(
+    const claudeInstall = await runCliWithClaude(
       home,
       "install-temp",
       "coding",
@@ -8532,7 +8537,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       "claude",
       "--json",
     );
-    const codexInstall = runCliWithClaude(
+    const codexInstall = await runCliWithClaude(
       home,
       "install-temp",
       "coding",
@@ -8541,8 +8546,8 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       "codex",
       "--json",
     );
-    expect(claudeInstall.status, claudeInstall.stderr).toBe(0);
-    expect(codexInstall.status, codexInstall.stderr).toBe(0);
+    expectExitCode(claudeInstall, 0);
+    expectExitCode(codexInstall, 0);
     const claude = JSON.parse(claudeInstall.stdout) as Record<string, unknown>;
     const codex = JSON.parse(codexInstall.stdout) as Record<string, unknown>;
     const requiredKeys = [
@@ -8587,12 +8592,12 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expect(codexOutputs).not.toContain(".claude/rules/agent-profile-kit.md");
   });
 
-  test("Claude install-temp exit codes: 0 success, 1 tool error, 2 capability blocker", () => {
+  test("Claude install-temp exit codes: 0 success, 1 tool error, 2 capability blocker", async () => {
     const home = isolatedHome();
-    prepareClaudeTempWorkspace(home);
+    await prepareClaudeTempWorkspace(home);
     const projectPath = realpathSync(gitRepository("agent-profile-kit-temp-claude-exits-"));
 
-    const success = runCliWithClaude(
+    const success = await runCliWithClaude(
       home,
       "install-temp",
       "coding",
@@ -8601,9 +8606,9 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       "claude",
       "--json",
     );
-    expect(success.status).toBe(0);
+    expectExitCode(success, 0);
 
-    const missingProfile = runCliWithClaude(
+    const missingProfile = await runCliWithClaude(
       home,
       "install-temp",
       "no-such-profile",
@@ -8612,24 +8617,23 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       "claude",
       "--json",
     );
-    expect(missingProfile.status).toBe(1);
+    expectExitCode(missingProfile, 1);
     expect(JSON.parse(missingProfile.stdout).outcome).toBe("error");
 
-    const invalidInvocation = runCliWithClaude(home, "install-temp", "--json");
-    expect(invalidInvocation.status).toBe(1);
+    const invalidInvocation = await runCliWithClaude(home, "install-temp", "--json");
+    expectExitCode(invalidInvocation, 1);
 
     // Capability blocker: old Claude CLI floor.
     const oldBin = installFakeClaude(home, "2.0.63");
     const pathValue = `${oldBin}:${process.env.PATH ?? ""}`;
-    const blocked = spawnSync(
-      process.env.NODE_BINARY ?? "node",
-      [cliPath, "install-temp", "coding", gitRepository("agent-profile-kit-temp-claude-old-"), "--host", "claude", "--json"],
-      {
-        encoding: "utf8" as const,
-        env: { ...process.env, HOME: home, PATH: pathValue },
-      },
-    );
-    expect(blocked.status).toBe(2);
+    const blocked = await runProcess({
+      executable: process.env.NODE_BINARY ?? "node",
+      arguments_: [cliPath, "install-temp", "coding", gitRepository("agent-profile-kit-temp-claude-old-"), "--host", "claude", "--json"],
+      environment: { ...process.env, HOME: home, PATH: pathValue },
+      deadlineMs: CLI_DEADLINE_MS,
+      commandLabel: "packed CLI",
+    });
+    expectExitCode(blocked, 2);
     const payload = JSON.parse(blocked.stdout) as {
       readonly outcome: string;
       readonly blockers: readonly { readonly message: string }[];
