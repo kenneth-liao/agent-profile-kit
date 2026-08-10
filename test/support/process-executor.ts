@@ -32,6 +32,8 @@ export interface ProcessResultBase {
   readonly error: Error | null;
   readonly timedOut: boolean;
   readonly cancelled: boolean;
+  /** True when the bounded cleanup window expired with the process group still present. */
+  readonly cleanupFailed: boolean;
   readonly stdout: string;
   readonly stderr: string;
   readonly durationMs: number;
@@ -52,6 +54,7 @@ export interface ProcessExitResult extends ProcessResultBase {
   readonly error: null;
   readonly timedOut: false;
   readonly cancelled: false;
+  readonly cleanupFailed: false;
 }
 
 export interface ProcessSignalResult extends ProcessResultBase {
@@ -61,6 +64,7 @@ export interface ProcessSignalResult extends ProcessResultBase {
   readonly error: null;
   readonly timedOut: false;
   readonly cancelled: false;
+  readonly cleanupFailed: false;
 }
 
 export interface ProcessSpawnErrorResult extends ProcessResultBase {
@@ -70,6 +74,7 @@ export interface ProcessSpawnErrorResult extends ProcessResultBase {
   readonly error: Error;
   readonly timedOut: false;
   readonly cancelled: false;
+  readonly cleanupFailed: false;
 }
 
 export interface ProcessTimeoutResult extends ProcessResultBase {
@@ -77,9 +82,7 @@ export interface ProcessTimeoutResult extends ProcessResultBase {
   readonly timedOut: true;
   readonly cancelled: false;
   readonly error: null;
-}
-
-export interface ProcessCancelledResult extends ProcessResultBase {
+}export interface ProcessCancelledResult extends ProcessResultBase {
   readonly kind: "cancelled";
   readonly timedOut: false;
   readonly cancelled: true;
@@ -172,6 +175,7 @@ export async function runProcess(
       error: error as Error,
       timedOut: false,
       cancelled: false,
+      cleanupFailed: false,
       stdout: "",
       stderr: "",
       durationMs: elapsed(),
@@ -217,7 +221,7 @@ export async function runProcess(
       resolve(result);
     };
 
-    const outcome = (): ProcessResult =>
+    const outcome = (cleanupFailed: boolean): ProcessResult =>
       terminalCause === "timeout"
         ? {
             kind: "timeout",
@@ -226,6 +230,7 @@ export async function runProcess(
             error: null,
             timedOut: true,
             cancelled: false,
+            cleanupFailed,
             stdout,
             stderr,
             durationMs: elapsed(),
@@ -238,6 +243,7 @@ export async function runProcess(
             error: null,
             timedOut: false,
             cancelled: true,
+            cleanupFailed,
             stdout,
             stderr,
             durationMs: elapsed(),
@@ -263,6 +269,7 @@ export async function runProcess(
         error,
         timedOut: false,
         cancelled: false,
+        cleanupFailed: false,
         stdout,
         stderr,
         durationMs: elapsed(),
@@ -286,6 +293,7 @@ export async function runProcess(
           error: null,
           timedOut: false,
           cancelled: false,
+          cleanupFailed: false,
           stdout,
           stderr,
           durationMs: elapsed(),
@@ -299,6 +307,7 @@ export async function runProcess(
           error: null,
           timedOut: false,
           cancelled: false,
+          cleanupFailed: false,
           stdout,
           stderr,
           durationMs: elapsed(),
@@ -309,16 +318,20 @@ export async function runProcess(
 
     /**
      * Terminate the complete child process group within the cleanup grace,
-     * escalating to SIGKILL, and resolve only after the group probe confirms it
-     * is empty (bounded by the grace periods so the executor can never hang).
+     * escalating to SIGKILL, and settle only after a group-empty probe passes.
+     * If the bounded window expires with the group still present, settle with
+     * `cleanupFailed` so the result never implies cleanup that did not happen.
      */
     const terminateGroup = () => {
       if (settled || terminalCause === null) return;
       const grace = options.cleanupGraceMs ?? DEFAULT_CLEANUP_GRACE_MS;
       if (group === undefined) {
-        finish(outcome());
+        finish(outcome(false));
         return;
       }
+      const settle = (cleanupFailed: boolean) => {
+        if (!settled) finish(outcome(cleanupFailed));
+      };
       let termSent = false;
       try {
         process.kill(group, "SIGTERM");
@@ -327,29 +340,37 @@ export async function runProcess(
         // Group already gone; the probe below confirms and settles.
         termSent = false;
       }
-      const settle = () => {
-        if (!settled) finish(outcome());
-      };
       if (!termSent && groupIsGone()) {
-        settle();
+        settle(false);
         return;
       }
       setTimeout(() => {
         if (settled) return;
         if (groupIsGone()) {
-          settle();
+          settle(false);
           return;
         }
         try {
           process.kill(group, "SIGKILL");
         } catch {
-          // Group already gone.
+          // Group already gone; the poll below confirms and settles.
         }
-        // Final bounded wait before settling: SIGKILL is uncatchable, so the
-        // group empties promptly; the extra grace covers reaping latency.
-        setTimeout(() => {
-          settle();
-        }, grace);
+        // Final bounded phase: poll the group-empty probe until it passes, or
+        // the window expires and cleanup is surfaced as an explicit failure.
+        const pollDeadline = Date.now() + grace;
+        const pollGroup = () => {
+          if (settled) return;
+          if (groupIsGone()) {
+            settle(false);
+            return;
+          }
+          if (Date.now() >= pollDeadline) {
+            settle(true);
+            return;
+          }
+          setTimeout(pollGroup, 25);
+        };
+        pollGroup();
       }, grace);
     };
 
@@ -389,6 +410,7 @@ export function describeProcessResult(result: ProcessResult): string {
   if (result.signal !== null) parts.push(`signal=${result.signal}`);
   if (result.timedOut) parts.push("timedOut");
   if (result.cancelled) parts.push("cancelled");
+  if (result.cleanupFailed) parts.push("cleanupFailed");
   if (result.error !== null) parts.push(`error=${result.error.message}`);
   parts.push(`durationMs=${result.durationMs}`);
   parts.push(`stdout=${snippet(result.stdout)}`);

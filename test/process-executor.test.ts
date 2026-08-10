@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,26 +23,20 @@ function shFixture(
   });
 }
 
-/** Prove a pid is no longer a live process, polling `ps` within a bounded budget. */
-async function assertNoProcess(pid: number, label: string, budgetMs = 3000): Promise<void> {
-  const deadline = Date.now() + budgetMs;
-  for (;;) {
-    let alive = true;
-    try {
-      const probe = execFileSync("ps", ["-p", String(pid), "-o", "pid="], {
-        encoding: "utf8",
-      }).trim();
-      alive = probe !== "";
-    } catch {
-      // `ps` exits nonzero when the process is absent; that is the success case.
-      alive = false;
-    }
-    if (!alive) return;
-    if (Date.now() > deadline) {
-      throw new Error(`expected ${label} (pid ${pid}) to be gone but it is still running`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+/**
+ * Prove a pid is no longer a live process at this instant. The executor only
+ * settles cleanup once its group-empty probe passes, so this check must hold
+ * immediately on resolution — a post-resolution poll would mask cleanup that
+ * finished after `runProcess` returned.
+ */
+function expectProcessGone(pid: number, label: string): void {
+  let alive = true;
+  try {
+    process.kill(pid, 0);
+  } catch {
+    alive = false;
   }
+  expect(alive, `${label} (pid ${pid}) must already be gone when runProcess resolves`).toBe(false);
 }
 
 describe("runProcess result contract", () => {
@@ -113,6 +106,7 @@ describe("runProcess result contract", () => {
     const elapsedMs = Date.now() - started;
     expect(result.kind).toBe("timeout");
     expect(result.timedOut).toBe(true);
+    expect(result.cleanupFailed).toBe(false);
     expect(result.exitCode).toBeNull();
     expect(elapsedMs).toBeLessThan(5000);
   });
@@ -120,10 +114,10 @@ describe("runProcess result contract", () => {
   test("timeout kills the whole process group including descendants", async () => {
     const result = await shFixture("sleep 30 & echo child=$!; wait", { deadlineMs: 300 });
     expect(result.kind).toBe("timeout");
+    expect(result.cleanupFailed).toBe(false);
     const match = /child=(\d+)/.exec(result.stdout);
     expect(match?.[1]).toBeTruthy();
-    const childPid = Number(match![1]);
-    await assertNoProcess(childPid, "descendant sleep");
+    expectProcessGone(Number(match![1]), "descendant sleep");
   });
 
   test("abort cancels the child and cleans up its process group", async () => {
@@ -142,6 +136,7 @@ describe("runProcess result contract", () => {
     expect(result.kind).toBe("cancelled");
     expect(result.cancelled).toBe(true);
     expect(result.timedOut).toBe(false);
+    expect(result.cleanupFailed).toBe(false);
     expect(result.exitCode).toBeNull();
   });
 
@@ -167,6 +162,7 @@ describe("runProcess result contract", () => {
     expect(result.kind).toBe("cancelled");
     expect(result.cancelled).toBe(true);
     expect(result.timedOut).toBe(false);
+    expect(result.cleanupFailed).toBe(false);
   });
 
   test("timeout cleanup kills a TERM-resistant descendant that closed inherited pipes", async () => {
@@ -202,9 +198,13 @@ setInterval(() => {}, 1000);
         commandLabel: "TERM-resistant descendant fixture",
       });
       expect(result.kind).toBe("timeout");
+      // Cleanup must be proven complete before resolution: the group is
+      // already empty the instant runProcess settles, not merely by a later
+      // poll. A cleanup that could not complete is surfaced as cleanupFailed.
+      expect(result.cleanupFailed).toBe(false);
       const match = /child=(\d+)/.exec(result.stdout);
       expect(match?.[1]).toBeTruthy();
-      await assertNoProcess(Number(match![1]), "TERM-resistant descendant");
+      expectProcessGone(Number(match![1]), "TERM-resistant descendant");
     } finally {
       rmSync(fixtureDir, { recursive: true, force: true });
     }
@@ -232,10 +232,10 @@ setInterval(() => {}, 1000);
       commandLabel: "stalled PTY fixture",
     });
     expect(result.kind).toBe("timeout");
+    expect(result.cleanupFailed).toBe(false);
     const match = /pty-child=(\d+)/.exec(result.stdout);
     expect(match?.[1]).toBeTruthy();
-    const childPid = Number(match![1]);
-    await assertNoProcess(childPid, "PTY descendant sleep");
+    expectProcessGone(Number(match![1]), "PTY descendant sleep");
   });
 
   test("an invalid deadline is rejected at the boundary", async () => {
