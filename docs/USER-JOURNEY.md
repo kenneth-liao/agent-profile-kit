@@ -445,6 +445,9 @@ diagnostics, `unbind` teardown, temporary-installation receipts and blocked
 output, and `uninstall` Git-exclusion targets use one shortest-unambiguous path
 presenter, while Local Configuration, Installation State, receipts, JSON, and
 unrelated authoring output retain their canonical or authored paths.
+Blocked temporary-installation diagnostics fall back to a home-relative or full
+identity when run from inside the Project, preventing a bare `.` from losing the
+blocked message's subject.
 
 ### ~~UJ-08~~
 ~~`Uninstalled 1 Profile Installation` omits the project, the outputs removed, the
