@@ -32,6 +32,7 @@ import {
   inventoryTopicNames,
 } from "../cli/inventory-topics.js";
 import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
+import { PREVIEW_PROGRESS_LABEL } from "../cli/progress.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installation.js";
 import { ENGINE_VERSION } from "../installer/version.js";
@@ -300,7 +301,14 @@ function installFakeClaude(home: string, version = "2.1.0"): string {
 function installFakeCodex(home: string, version = "0.145.0"): string {
   const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "codex-cli ${version}"\n`);
+  writeFileSync(
+    join(bin, "codex"),
+    `#!/bin/sh
+if [ -n "\${APKIT_TEST_CODEX_DELAY:-}" ]; then sleep "$APKIT_TEST_CODEX_DELAY"; fi
+if [ -n "\${APKIT_TEST_CODEX_FAIL:-}" ]; then echo "$APKIT_TEST_CODEX_FAIL" >&2; exit 1; fi
+echo "codex-cli ${version}"
+`,
+  );
   execFileSync("chmod", ["+x", join(bin, "codex")]);
   return bin;
 }
@@ -6413,6 +6421,75 @@ describe("responsive lifecycle reports", () => {
     expect(colored.stdout).toMatch(/\u001b\[/);
     expect(colored.stdout.split("\n").filter((line) => line.includes("\u001b[2m"))).toHaveLength(1);
     expect(colored.stdout).toContain("\u001b[2mA Profile");
+  });
+});
+
+describe("delayed interactive progress", () => {
+  test("interactive long-running preview shows delayed progress cleared before the final report", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    const bindResult = await runCli(home, "bind", "example", projectPath, "--host", "codex");
+    expectExitCode(bindResult, 0);
+
+    const result = await runCliInPtyWithEnvironment(
+      home,
+      80,
+      { APKIT_TEST_CODEX_DELAY: "1.5", NO_COLOR: "1" },
+      "preview",
+    );
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain(PREVIEW_PROGRESS_LABEL);
+
+    const reportIndex = result.stdout.indexOf("Ready to apply");
+    expect(reportIndex).toBeGreaterThan(-1);
+    const beforeReport = result.stdout.slice(0, reportIndex);
+    const afterReport = result.stdout.slice(reportIndex);
+    expect(afterReport).not.toContain(PREVIEW_PROGRESS_LABEL);
+    // Only tick dots and the space-padded clear may sit between the last redraw
+    // and the report: the cleared progress line must not corrupt the report line.
+    const lastLabel = beforeReport.lastIndexOf(PREVIEW_PROGRESS_LABEL);
+    expect(lastLabel).toBeGreaterThan(-1);
+    expect(beforeReport.slice(lastLabel + PREVIEW_PROGRESS_LABEL.length)).toMatch(/^\.* *$/);
+  });
+
+  test("redirected and JSON preview contain no progress bytes even when the operation outlives the threshold", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    const bindResult = await runCli(home, "bind", "example", projectPath, "--host", "codex");
+    expectExitCode(bindResult, 0);
+
+    const piped = await runCliWithEnvironment(home, { APKIT_TEST_CODEX_DELAY: "0.6" }, "preview");
+    expectExitCode(piped, 0);
+    expect(piped.stdout).not.toContain(PREVIEW_PROGRESS_LABEL);
+    expect(piped.stdout).not.toMatch(/\r/);
+    expect(piped.stdout).not.toMatch(/\u001b\[/);
+
+    const json = await runCliWithEnvironment(
+      home,
+      { APKIT_TEST_CODEX_DELAY: "0.6" },
+      "preview",
+      "--json",
+    );
+    expectExitCode(json, 0);
+    expect(json.stdout).not.toContain(PREVIEW_PROGRESS_LABEL);
+    expect(json.stdout).not.toMatch(/\r/);
+    expect(() => JSON.parse(json.stdout)).not.toThrow();
+
+    // A slow failing probe in a non-interactive run must also stay progress-free.
+    const failed = await runCliWithEnvironment(
+      home,
+      { APKIT_TEST_CODEX_DELAY: "0.6", APKIT_TEST_CODEX_FAIL: "probe failed" },
+      "preview",
+    );
+    expectExitCode(failed, 2);
+    const failedOutput = `${failed.stdout}${failed.stderr}`;
+    expect(failedOutput).toContain("probe failed");
+    expect(failedOutput).not.toContain(PREVIEW_PROGRESS_LABEL);
+    expect(failedOutput).not.toMatch(/\r/);
+    expect(failedOutput).not.toMatch(/\u001b\[/);
   });
 });
 
