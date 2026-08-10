@@ -39,6 +39,7 @@ import {
   formatUninstallResult,
   formatValidationResult,
   lifecycleExitCode,
+  presentTemporaryBlockedMessages,
   type LifecycleCommand,
 } from "./presentation.js";
 import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
@@ -633,13 +634,16 @@ async function main(): Promise<void> {
     }
     const recovery = result.recovery === "authored-path"
       ? "  Recovery: exact authored path match; canonical project identity could not be proven\n"
-      : `  Canonical project: ${result.canonicalProject}\n`;
+      : `  Canonical project: ${displayProjectPath(result.canonicalProject, result.project)}\n`;
     const next = await generatedOutputSurvivesUnbind(home, result)
       ? `Next: ${COMMAND_NAME} preview && ${COMMAND_NAME} apply\n`
       : "";
+    const presentedProject = result.recovery === "canonical"
+      ? displayProjectPath(result.canonicalProject, result.project)
+      : displayProjectPath(result.project, result.project);
     writeHuman(
       process.stdout,
-      `Removed Project Binding for ${result.project}\n` +
+      `Removed Project Binding for ${presentedProject}\n` +
         recovery +
         `  Profile: ${result.profile}\n` +
         `  Hosts: ${result.hosts.join(", ")}\n` +
@@ -894,7 +898,15 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("install-temp", error.blockers),
           );
         } else {
-          writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+          const message = error.canonicalProject === undefined
+            ? formatError(error)
+            : presentTemporaryBlockedMessages(
+                error.blockers,
+                error.canonicalProject,
+                parsed.project,
+                home,
+              );
+          writeHuman(process.stderr, `${COMMAND_NAME}: ${message}\n`);
         }
         process.exitCode = 2;
         return;
@@ -954,7 +966,15 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("remove-temp", error.blockers),
           );
         } else {
-          writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+          const message = error.canonicalProject === undefined
+            ? formatError(error)
+            : presentTemporaryBlockedMessages(
+                error.blockers,
+                error.canonicalProject,
+                error.canonicalProject,
+                home,
+              );
+          writeHuman(process.stderr, `${COMMAND_NAME}: ${message}\n`);
         }
         process.exitCode = 2;
         return;

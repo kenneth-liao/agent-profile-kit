@@ -95,6 +95,19 @@ function gitRepository(prefix = "agent-profile-kit-git-"): string {
   return path;
 }
 
+/** A Git repository under the isolated HOME, so the presenter can render it home-relative. */
+function homeGitRepository(home: string, name: string): string {
+  const path = join(home, "projects", name);
+  mkdirSync(path, { recursive: true });
+  execFileSync("git", ["init", "-q", path]);
+  execFileSync("git", ["-C", path, "config", "user.email", "tests@example.com"]);
+  execFileSync("git", ["-C", path, "config", "user.name", "Agent Profile Kit Tests"]);
+  writeFileSync(join(path, "README.md"), "fixture\n");
+  execFileSync("git", ["-C", path, "add", "README.md"]);
+  execFileSync("git", ["-C", path, "commit", "-qm", "fixture"]);
+  return path;
+}
+
 function addWorktree(repository: string, name: string): string {
   const path = project(`agent-profile-kit-${name}-`);
   rmSync(path, { recursive: true });
@@ -5413,8 +5426,9 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCliAt(home, projectPath, "unbind");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed Project Binding");
-    expect(result.stdout).toContain(realpathSync(projectPath));
+    expect(result.stdout).toContain("Removed Project Binding for .");
+    expect(result.stdout).toContain("Canonical project: .");
+    expect(result.stdout).not.toContain(realpathSync(projectPath));
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
     expect(result.stdout).toContain(configPath(home));
@@ -8343,6 +8357,92 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(blocked.outcome).toBe("blocked");
     expect(blocked.blockers.some((blocker) => /active Temporary Profile Installation/i.test(blocker.message)))
       .toBe(true);
+  });
+
+  test("blocked install-temp human output identifies the Project with the shortest path", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const projectPath = homeGitRepository(home, "blocked-temp");
+    const authored = "~/projects/blocked-temp";
+    bind(home, authored);
+    expectExitCode(await runCli(home, "apply"), 0);
+
+    const result = await runCli(home, "install-temp", "coding", authored, "--host", "codex");
+
+    expectExitCode(result, 2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(
+      `${authored} already has an ordinary Profile Installation`,
+    );
+    expect(result.stderr).not.toContain(projectPath);
+  });
+
+  test("one Project keeps one shortest identity across bind, inventory, lifecycle, teardown, and temporary installation", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const projectPath = homeGitRepository(home, "one-identity");
+    const authored = "~/projects/one-identity";
+    const canonical = realpathSync(projectPath);
+
+    // Receipt-owned temporary lifetime first: an ordinary Profile Installation on
+    // the same Project blocks install-temp (ADR-0015).
+    const install = await runCli(home, "install-temp", "coding", authored, "--host", "codex");
+    expectExitCode(install, 0);
+    expect(install.stdout).toContain(`Project: ${authored}\n`);
+    expect(install.stdout).not.toContain(canonical);
+    const temporaryInstallationId = install.stdout.match(/Temporary installation: (\S+)/)![1]!;
+
+    const temporary = await runCli(home, "list", "temporary");
+    expectExitCode(temporary, 0);
+    expect(temporary.stdout).toContain(`Project: ${authored}\n`);
+    expect(temporary.stdout).not.toContain(canonical);
+
+    const remove = await runCli(home, "remove-temp", temporaryInstallationId);
+    expectExitCode(remove, 0);
+    expect(remove.stdout).toContain(`Project: ${authored}\n`);
+    expect(remove.stdout).not.toContain(canonical);
+
+    const bind = await runCli(home, "bind", "coding", authored, "--host", "codex");
+    expectExitCode(bind, 0);
+    expect(bind.stdout).toContain(`Recorded Project Binding for ${authored}\n`);
+    expect(bind.stdout).not.toContain(canonical);
+
+    const list = await runCli(home, "list", "projects");
+    expectExitCode(list, 0);
+    expect(list.stdout).toContain(`Project: ${authored}\n`);
+    expect(list.stdout).not.toContain(canonical);
+
+    const preview = await runCli(home, "preview");
+    expectExitCode(preview, 0);
+    expect(preview.stdout).toContain(`Project: ${authored}\n`);
+    expect(preview.stdout).not.toContain(canonical);
+
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 0);
+    expect(applied.stdout).toContain(`- ${authored}:`);
+
+    // Machine contracts stay canonical/authored.
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      readonly installations: readonly { readonly project: string }[];
+    };
+    expect(state.installations[0]?.project).toBe(canonical);
+    expect(readFileSync(configPath(home), "utf8")).toContain(authored);
+
+    const uninstall = await runCli(home, "uninstall");
+    expectExitCode(uninstall, 0);
+    expect(uninstall.stdout).toContain(`Project: ${authored}\n`);
+    expect(uninstall.stdout).not.toContain(canonical);
+
+    const unbind = await runCli(home, "unbind", authored);
+    expectExitCode(unbind, 0);
+    expect(unbind.stdout).toContain(`Removed Project Binding for ${authored}\n`);
+    expect(unbind.stdout).toContain(`Canonical project: ${authored}\n`);
+    expect(unbind.stdout).not.toContain(canonical);
+    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
   });
 });
 

@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Use one shortest-unambiguous Project path presenter across every human command, including `unbind` teardown, temporary-installation receipts and Host Setup Steps, blocked `install-temp`/`remove-temp` output, and `uninstall` Git-exclusion targets, so bind, inventory, lifecycle, teardown, and temporary installation never identify the same Project differently; Local Configuration, Installation State, receipts, and JSON retain their existing canonical or authored paths ([#171](https://github.com/kenneth-liao/agent-profile-kit/issues/171)).
+
 - Give every packed-CLI and PTY test child one bounded, diagnostic process-execution boundary: a shared async executor runs each launch as a process-group leader with a finite deadline, terminates the complete group within a short cleanup grace (escalating to SIGKILL) on timeout or cancellation, and returns one typed result distinguishing exit, signal termination, spawn failure, timeout, and cancellation with exit code, signal, error, captured output, and elapsed duration. Packed-CLI, PTY, restricted-PATH, environment, and Claude-parity helpers all delegate to it, and assertions report the available evidence instead of a bare `status: null` ([#191](https://github.com/kenneth-liao/agent-profile-kit/issues/191)).
 
 ### Added

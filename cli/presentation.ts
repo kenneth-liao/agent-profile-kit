@@ -710,9 +710,10 @@ export function formatUninstallResult(result: UninstallResult): string {
       : `Removed proven Agent Profile Kit-owned output from ${plural(projectCount, "Project")}.`,
   ];
   for (const project of result.projects) {
+    const presentedProject = displayProjectPath(project.project);
     lines.push(
       "",
-      `Project: ${displayProjectPath(project.project)}`,
+      `Project: ${presentedProject}`,
       "  Removed generated paths:",
       ...project.outputs.map((path) => `  - ${path}`),
     );
@@ -720,7 +721,13 @@ export function formatUninstallResult(result: UninstallResult): string {
       lines.push(
         "  Cleaned Git exclusions:",
         ...project.repositoryExclusions.flatMap((exclusion) =>
-          exclusion.entries.map((entry) => `  - ${entry} (${exclusion.target})`)
+          exclusion.entries.map((entry) =>
+            `  - ${entry} (${replaceProjectReference(
+              exclusion.target,
+              project.project,
+              presentedProject,
+            )})`
+          )
         ),
       );
     }
@@ -2289,7 +2296,10 @@ export function formatTemporaryInstallationHuman(
   command: TemporaryInstallCommand,
   receipt: TemporaryInstallationReceiptView,
   options: { readonly context?: TerminalPresentationContext } = {},
+  home = homedir(),
+  cwd = process.cwd(),
 ): string {
+  const project = displayProjectPath(receipt.project, receipt.project, cwd, home);
   if (command === "install-temp") {
     const warningLines = receipt.warnings.length === 0
       ? []
@@ -2308,7 +2318,9 @@ export function formatTemporaryInstallationHuman(
               left.message.localeCompare(right.message)
             )
             .flatMap((step) => {
-              const message = temporarySetupStepMessage(step, receipt.project);
+              const message = step.path === "bound-project"
+                ? `${step.message} ${project}`
+                : step.message;
               return [
                 `- ${message}`,
                 ...(step.consequence === undefined
@@ -2321,12 +2333,12 @@ export function formatTemporaryInstallationHuman(
       `Installed Profile temporarily\n` +
       `  Profile: ${receipt.profileId}\n` +
       `  Host: ${receipt.host}\n` +
-      `  Project: ${receipt.project}\n` +
+      `  Project: ${project}\n` +
       `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
       (warningLines.length > 0 ? `${warningLines.join("\n")}\n` : "") +
       (setupLines.length > 0 ? `${setupLines.join("\n")}\n` : "")
     ), options.context, [
-      receipt.project,
+      project,
       receipt.temporaryInstallationId,
       receipt.profileId,
       ...receipt.diagnosticValues,
@@ -2336,11 +2348,62 @@ export function formatTemporaryInstallationHuman(
   return responsiveLifecycleOutput((
     `Removed temporary Profile installation\n` +
     `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
-    `  Project: ${receipt.project}\n`
+    `  Project: ${project}\n`
   ), options.context, [
-    receipt.project,
+    project,
     receipt.temporaryInstallationId,
   ]);
+}
+
+/**
+ * Render the blocked temporary-installation messages with the one canonical
+ * Project path presenter, so a blocked install/remove identifies the Project
+ * the same way every other human view does. The legacy message projections
+ * (and JSON) remain unchanged.
+ */
+export function presentTemporaryBlockedMessages(
+  messages: readonly string[],
+  canonicalProject: string,
+  authoredProject = canonicalProject,
+  home = homedir(),
+  cwd = process.cwd(),
+): string {
+  const presented = displayProjectPath(canonicalProject, authoredProject, cwd, home);
+  return messages
+    .map((message) => replaceProjectReference(message, canonicalProject, presented))
+    .join("\n");
+}
+
+/**
+ * Boundary-aware canonical Project replacement inside one blocker message.
+ * Boundary rules and the cwd-dot child elision intentionally mirror
+ * `shortenProjectReferences` so every human view shares one replacement policy.
+ */
+function replaceProjectReference(
+  message: string,
+  project: string,
+  replacement: string,
+): string {
+  let cursor = 0;
+  let formatted = "";
+  while (cursor < message.length) {
+    const index = message.indexOf(project, cursor);
+    if (index < 0) return formatted + message.slice(cursor);
+    const previous = message[index - 1];
+    const next = message[index + project.length];
+    const startsAtBoundary = index === 0 || previous === undefined ||
+      /[\s("'=:/]/.test(previous);
+    const endsAtBoundary = next === undefined || /[\s)"'/:,;]/.test(next);
+    if (!startsAtBoundary || !endsAtBoundary) {
+      formatted += message.slice(cursor, index + 1);
+      cursor = index + 1;
+      continue;
+    }
+    const cwdChild = replacement === "." && next === "/";
+    formatted += message.slice(cursor, index) + (cwdChild ? "" : replacement);
+    cursor = index + project.length + (cwdChild ? 1 : 0);
+  }
+  return formatted;
 }
 
 export function formatTemporaryInstallationBlockedJson(
