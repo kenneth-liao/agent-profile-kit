@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Fixed
+
+- Give every packed-CLI and PTY test child one bounded, diagnostic process-execution boundary: a shared async executor runs each launch as a process-group leader with a finite deadline, terminates the complete group within a short cleanup grace (escalating to SIGKILL) on timeout or cancellation, and returns one typed result distinguishing exit, signal termination, spawn failure, timeout, and cancellation with exit code, signal, error, captured output, and elapsed duration. Packed-CLI, PTY, restricted-PATH, environment, and Claude-parity helpers all delegate to it, and assertions report the available evidence instead of a bare `status: null` ([#191](https://github.com/kenneth-liao/agent-profile-kit/issues/191)).
+
 ### Added
 
 - Make lifecycle and temporary-installation human reports width-aware for interactive terminals and wrap redirected human output at the deterministic 80-column default, while preserving copyable values and separating Host Setup Step actions from consequences ([#166](https://github.com/kenneth-liao/agent-profile-kit/issues/166)).
