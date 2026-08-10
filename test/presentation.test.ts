@@ -16,6 +16,7 @@ import {
   formatLifecycleToolErrorJson,
   formatTemporaryInstallationHuman,
   formatUninstallResult,
+  presentTemporaryBlockedMessages,
   type TemporaryInstallationReceiptView,
   displayPath,
   lifecycleExitCode,
@@ -72,6 +73,28 @@ function applyResult(
   resultingState: ReconciliationReport = receipt,
 ): ApplyReconciliationResult {
   return { receipt, resultingState };
+}
+
+function temporaryReceipt(
+  overrides: Partial<TemporaryInstallationReceiptView> = {},
+): TemporaryInstallationReceiptView {
+  return {
+    adapterVersion: "codex-project-v2",
+    completionState: "installed",
+    engineVersion: "0.62.0",
+    host: "codex",
+    hostVersion: "native-project-sessionstart-v1",
+    outputs: [".agent-profile-kit/codex/context.md"],
+    profileId: "coding",
+    project: "/tmp/temporary-project",
+    repositoryExclusion: undefined,
+    setupSteps: [],
+    temporaryInstallationId: "temporary-installation-opaque-id",
+    diagnosticValues: [],
+    warnings: [],
+    workspaceInputHash: "workspace-hash",
+    ...overrides,
+  };
 }
 
 function identityReport(
@@ -675,6 +698,197 @@ describe("responsive lifecycle presentation", () => {
     for (const line of output.trimEnd().split("\n")) {
       if (line.includes(receipt.project)) continue;
       expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
+  });
+});
+
+describe("temporary-installation Project identity presentation", () => {
+  test("presents the temporary-installation Project through the canonical path presenter", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const project = join(home, "projects", "alpha");
+      const receipt = temporaryReceipt({ project });
+
+      const install = formatTemporaryInstallationHuman(
+        "install-temp",
+        receipt,
+        {},
+        process.cwd(),
+        home,
+      );
+      const remove = formatTemporaryInstallationHuman(
+        "remove-temp",
+        receipt,
+        {},
+        process.cwd(),
+        home,
+      );
+
+      expect(install).toContain("Project: ~/projects/alpha\n");
+      expect(install).not.toContain(project);
+      expect(remove).toContain("Project: ~/projects/alpha\n");
+      expect(remove).not.toContain(project);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  test("presents the temporary-installation Project relative to the working directory", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const project = join(home, "projects", "alpha");
+      const receipt = temporaryReceipt({ project });
+
+      const inside = formatTemporaryInstallationHuman(
+        "install-temp",
+        receipt,
+        {},
+        project,
+        home,
+      );
+      const ancestor = formatTemporaryInstallationHuman(
+        "install-temp",
+        receipt,
+        {},
+        join(project, "nested"),
+        home,
+      );
+
+      expect(inside).toContain("Project: .\n");
+      expect(inside).not.toContain(project);
+      expect(ancestor).toContain("Project: ..\n");
+      expect(ancestor).not.toContain(project);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps same-basename temporary-installation Projects distinct", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const first = temporaryReceipt({ project: join(home, "team-a", "project") });
+      const second = temporaryReceipt({ project: join(home, "team-b", "project") });
+
+      const install = formatTemporaryInstallationHuman(
+        "install-temp",
+        first,
+        {},
+        process.cwd(),
+        home,
+      ) +
+        formatTemporaryInstallationHuman("install-temp", second, {}, process.cwd(), home);
+
+      expect(install).toContain("Project: ~/team-a/project\n");
+      expect(install).toContain("Project: ~/team-b/project\n");
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  test("presents bound-project Host Setup Steps through the canonical path presenter", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const project = join(home, "projects", "alpha");
+      const receipt = temporaryReceipt({
+        project,
+        setupSteps: [{
+          host: "codex",
+          kind: "launch-constraint",
+          message: "Launch Codex from the exact bound project root:",
+          path: "bound-project",
+        }],
+      });
+
+      const install = formatTemporaryInstallationHuman(
+        "install-temp",
+        receipt,
+        {},
+        process.cwd(),
+        home,
+      );
+
+      expect(install.split("\n").find((line) => line.startsWith("- Launch Codex from"))).toBe(
+        "- Launch Codex from the exact bound project root: ~/projects/alpha",
+      );
+      expect(install).not.toContain(project);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  test("presents temporary-installation blocked messages through the canonical path presenter", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const canonical = join(home, "projects", "alpha");
+      const messages = [
+        `${canonical} already has an ordinary Profile Installation; remove it before installing a temporary Profile`,
+        `Cannot remove Temporary Profile Installation at ${canonical}: owned output .codex/hooks.json is a symlink`,
+      ];
+
+      const rendered = presentTemporaryBlockedMessages(
+        messages,
+        canonical,
+        "~/projects/alpha",
+        process.cwd(),
+        home,
+      );
+
+      expect(rendered).toContain(
+        "~/projects/alpha already has an ordinary Profile Installation",
+      );
+      expect(rendered).toContain(
+        "Cannot remove Temporary Profile Installation at ~/projects/alpha:",
+      );
+      expect(rendered).not.toContain(canonical);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps the Project subject in blocked messages when running from inside it", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const canonical = join(home, "projects", "alpha");
+      const messages = [
+        `${canonical} already has an ordinary Profile Installation; remove it before installing a temporary Profile`,
+      ];
+
+      const rendered = presentTemporaryBlockedMessages(messages, canonical, canonical, canonical, home);
+
+      expect(rendered).toContain(
+        "~/projects/alpha already has an ordinary Profile Installation",
+      );
+      expect(rendered).not.toMatch(/^\. /);
+      expect(rendered).not.toContain(canonical);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  test("replaces both canonical and authored-absolute Project spellings in blocked messages", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const canonical = join(home, "real-project");
+      const authored = join(home, "alias-project");
+      const messages = [
+        `${authored} cannot be resolved: the authored spelling differs from ${canonical}`,
+      ];
+
+      const rendered = presentTemporaryBlockedMessages(
+        messages,
+        canonical,
+        authored,
+        process.cwd(),
+        home,
+      );
+
+      expect(rendered).toContain(
+        "~/real-project cannot be resolved: the authored spelling differs from ~/real-project",
+      );
+      expect(rendered).not.toContain(canonical);
+      expect(rendered).not.toContain(authored);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
     }
   });
 });

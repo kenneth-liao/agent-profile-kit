@@ -710,9 +710,10 @@ export function formatUninstallResult(result: UninstallResult): string {
       : `Removed proven Agent Profile Kit-owned output from ${plural(projectCount, "Project")}.`,
   ];
   for (const project of result.projects) {
+    const presentedProject = displayProjectPath(project.project);
     lines.push(
       "",
-      `Project: ${displayProjectPath(project.project)}`,
+      `Project: ${presentedProject}`,
       "  Removed generated paths:",
       ...project.outputs.map((path) => `  - ${path}`),
     );
@@ -720,7 +721,13 @@ export function formatUninstallResult(result: UninstallResult): string {
       lines.push(
         "  Cleaned Git exclusions:",
         ...project.repositoryExclusions.flatMap((exclusion) =>
-          exclusion.entries.map((entry) => `  - ${entry} (${exclusion.target})`)
+          exclusion.entries.map((entry) =>
+            `  - ${entry} (${replaceProjectReference(
+              exclusion.target,
+              project.project,
+              presentedProject,
+            )})`
+          )
         ),
       );
     }
@@ -988,28 +995,43 @@ function shortenProjectReferences(message: string, groups: readonly ProjectGroup
   }).sort((left, right) =>
     right.project.length - left.project.length || left.project.localeCompare(right.project)
   );
-  return references.reduce((rendered, reference) => {
-    const { project, replacement } = reference;
-    let cursor = 0;
-    let formatted = "";
-    while (cursor < rendered.length) {
-      const index = rendered.indexOf(project, cursor);
-      if (index < 0) return formatted + rendered.slice(cursor);
-      const previous = rendered[index - 1];
-      const next = rendered[index + project.length];
-      const startsAtBoundary = index === 0 || previous === undefined || /[\s("'=:/]/.test(previous);
-      const endsAtBoundary = next === undefined || /[\s)"':/,;]/.test(next);
-      if (!startsAtBoundary || !endsAtBoundary) {
-        formatted += rendered.slice(cursor, index + 1);
-        cursor = index + 1;
-        continue;
-      }
-      const cwdChild = replacement === "." && next === "/";
-      formatted += rendered.slice(cursor, index) + (cwdChild ? "" : replacement);
-      cursor = index + project.length + (cwdChild ? 1 : 0);
+  return references.reduce(
+    (rendered, reference) =>
+      replaceProjectReference(rendered, reference.project, reference.replacement),
+    message,
+  );
+}
+
+/**
+ * The one canonical Project-reference replacement policy shared by every human
+ * view: boundary-aware so a longer path sharing the Project prefix is never
+ * mangled, and cwd-dot children elide the slash so `./x` renders as `x`.
+ */
+function replaceProjectReference(
+  message: string,
+  project: string,
+  replacement: string,
+): string {
+  let cursor = 0;
+  let formatted = "";
+  while (cursor < message.length) {
+    const index = message.indexOf(project, cursor);
+    if (index < 0) return formatted + message.slice(cursor);
+    const previous = message[index - 1];
+    const next = message[index + project.length];
+    const startsAtBoundary = index === 0 || previous === undefined ||
+      /[\s("'=:/]/.test(previous);
+    const endsAtBoundary = next === undefined || /[\s)"':/,;]/.test(next);
+    if (!startsAtBoundary || !endsAtBoundary) {
+      formatted += message.slice(cursor, index + 1);
+      cursor = index + 1;
+      continue;
     }
-    return formatted;
-  }, message);
+    const cwdChild = replacement === "." && next === "/";
+    formatted += message.slice(cursor, index) + (cwdChild ? "" : replacement);
+    cursor = index + project.length + (cwdChild ? 1 : 0);
+  }
+  return formatted;
 }
 
 function formatProjectPaths(message: string, projects: readonly string[]): string {
@@ -1267,12 +1289,10 @@ function hostSetupLines(
     }
     for (const step of installation.setupSteps) {
       if (!visibleKinds.has(step.kind)) continue;
-      const message = step.path === "bound-project"
-        ? `${step.message} ${displayProjectPath(
-          installation.canonicalProject,
-          installation.project,
-        )}`
-        : step.message;
+      const message = setupStepMessage(
+        step,
+        displayProjectPath(installation.canonicalProject, installation.project),
+      );
       const renderedStep = { ...step, message };
       const steps = byHost.get(step.host) ?? new Map<string, HostSetupStep>();
       steps.set(`${step.kind}\0${message}\0${step.consequence ?? ""}`, renderedStep);
@@ -2237,10 +2257,13 @@ export interface TemporaryInstallationReceiptView {
   readonly workspaceInputHash: string;
 }
 
-function temporarySetupStepMessage(
-  step: HostSetupStep,
-  project: string,
-): string {
+/**
+ * One home for the bound-project setup-step rule: a step that identifies its
+ * path semantically as the Project renders the caller's chosen Project
+ * identity, while JSON keeps the canonical spelling and human views pass the
+ * presented one.
+ */
+function setupStepMessage(step: HostSetupStep, project: string): string {
   return step.path === "bound-project" ? `${step.message} ${project}` : step.message;
 }
 
@@ -2248,7 +2271,7 @@ function temporarySetupStepJson(step: HostSetupStep, project: string) {
   return {
     host: step.host,
     kind: step.kind,
-    message: temporarySetupStepMessage(step, project),
+    message: setupStepMessage(step, project),
     ...(step.consequence === undefined ? {} : { consequence: step.consequence }),
     ...(step.path === undefined ? {} : { path: step.path }),
   };
@@ -2289,7 +2312,10 @@ export function formatTemporaryInstallationHuman(
   command: TemporaryInstallCommand,
   receipt: TemporaryInstallationReceiptView,
   options: { readonly context?: TerminalPresentationContext } = {},
+  cwd = process.cwd(),
+  home = homedir(),
 ): string {
+  const project = displayProjectPath(receipt.project, receipt.project, cwd, home);
   if (command === "install-temp") {
     const warningLines = receipt.warnings.length === 0
       ? []
@@ -2308,7 +2334,7 @@ export function formatTemporaryInstallationHuman(
               left.message.localeCompare(right.message)
             )
             .flatMap((step) => {
-              const message = temporarySetupStepMessage(step, receipt.project);
+              const message = setupStepMessage(step, project);
               return [
                 `- ${message}`,
                 ...(step.consequence === undefined
@@ -2321,12 +2347,12 @@ export function formatTemporaryInstallationHuman(
       `Installed Profile temporarily\n` +
       `  Profile: ${receipt.profileId}\n` +
       `  Host: ${receipt.host}\n` +
-      `  Project: ${receipt.project}\n` +
+      `  Project: ${project}\n` +
       `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
       (warningLines.length > 0 ? `${warningLines.join("\n")}\n` : "") +
       (setupLines.length > 0 ? `${setupLines.join("\n")}\n` : "")
     ), options.context, [
-      receipt.project,
+      project,
       receipt.temporaryInstallationId,
       receipt.profileId,
       ...receipt.diagnosticValues,
@@ -2336,11 +2362,41 @@ export function formatTemporaryInstallationHuman(
   return responsiveLifecycleOutput((
     `Removed temporary Profile installation\n` +
     `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
-    `  Project: ${receipt.project}\n`
+    `  Project: ${project}\n`
   ), options.context, [
-    receipt.project,
+    project,
     receipt.temporaryInstallationId,
   ]);
+}
+
+/**
+ * Render the blocked temporary-installation messages with the one canonical
+ * Project path presenter, so a blocked install/remove identifies the Project
+ * the same way every other human view does. The legacy message projections
+ * (and JSON) remain unchanged.
+ */
+export function presentTemporaryBlockedMessages(
+  messages: readonly string[],
+  canonicalProject: string,
+  authoredProject = canonicalProject,
+  cwd = process.cwd(),
+  home = homedir(),
+): string {
+  let presented = displayProjectPath(canonicalProject, authoredProject, cwd, home);
+  if (presented === "." || presented === ".." || presented.startsWith("../")) {
+    // A bare cwd-relative identity would lose the blocked message's subject;
+    // blocked diagnostics identify the Project independently of the caller's
+    // working directory.
+    presented = displayProjectPath(canonicalProject, authoredProject, home, home);
+  }
+  const references = [...new Set([canonicalProject, absoluteAuthoredPath(authoredProject, home)])]
+    .sort((left, right) => right.length - left.length || left.localeCompare(right));
+  return messages
+    .map((message) => references.reduce(
+      (rendered, project) => replaceProjectReference(rendered, project, presented),
+      message,
+    ))
+    .join("\n");
 }
 
 export function formatTemporaryInstallationBlockedJson(

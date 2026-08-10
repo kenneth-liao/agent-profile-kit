@@ -79,17 +79,20 @@ export function isTemporaryInstallationHost(
 
 export class TemporaryInstallationBlockedError extends Error {
   readonly #canonical: readonly ReconciliationBlocker[];
+  readonly #canonicalProject: string;
 
   /**
    * Accept one canonical blocker-input collection, normalize it once, and derive
    * the legacy string projection and Error.message from it so the two public
-   * views can never diverge.
+   * views can never diverge. The canonical Project the blocked operation
+   * targeted is part of the error's identity, so it is required.
    */
-  constructor(inputs: readonly BlockerInput[]) {
+  constructor(inputs: readonly BlockerInput[], canonicalProject: string) {
     const canonical = inputs.map((input) => normalizeBlocker(input));
     super(canonical.map((blocker) => blocker.message).join("\n"));
     this.name = "TemporaryInstallationBlockedError";
     this.#canonical = canonical;
+    this.#canonicalProject = canonicalProject;
   }
 
   /** Legacy message projection consumed by temporary-installation JSON and human output. */
@@ -100,6 +103,11 @@ export class TemporaryInstallationBlockedError extends Error {
   /** Complete structured evidence for each emitted blocker; projected until the typed JSON migration. */
   get structured(): readonly ReconciliationBlocker[] {
     return this.#canonical;
+  }
+
+  /** Canonical Project root the blocked operation targeted. */
+  get canonicalProject(): string {
+    return this.#canonicalProject;
   }
 }
 
@@ -452,7 +460,7 @@ export async function installTemporaryProfile(options: {
         ...(await desiredOutputConflicts(desired, undefined, temporaryInstallationId)),
       );
       if (structuredBlockers.length > 0) {
-        throw new TemporaryInstallationBlockedError(structuredBlockers);
+        throw new TemporaryInstallationBlockedError(structuredBlockers, canonicalProject);
       }
 
       const manifest = manifestFor(desired, temporaryInstallationId);
@@ -674,7 +682,7 @@ export async function removeTemporaryProfile(options: {
               outputs: existing.outputs.map((output) => output.path),
               project: existing.project,
             }),
-          ]);
+          ], existing.project);
         }
         throw error;
       }

@@ -437,12 +437,17 @@ blocker, exclusion-target, warning, and verbose diagnostic lines can still carry
 the full absolute project root; a blocked run can therefore repeat it several
 times.~~
 
-Shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116)
-and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152): `bind`,
-lifecycle project blocks, blockers, warnings, Git exclusions, and verbose
-diagnostics use one shortest-unambiguous path presenter, while Local
-Configuration, Installation State, JSON, and unrelated authoring output retain
-their canonical or authored paths.
+Shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116),
+[#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152), and
+[#171](https://github.com/kenneth-liao/agent-profile-kit/issues/171): `bind`,
+lifecycle project blocks, blockers, warnings, Git exclusions, verbose
+diagnostics, `unbind` teardown, temporary-installation receipts and blocked
+output, and `uninstall` Git-exclusion targets use one shortest-unambiguous path
+presenter, while Local Configuration, Installation State, receipts, JSON, and
+unrelated authoring output retain their canonical or authored paths.
+Blocked temporary-installation diagnostics fall back to a home-relative or full
+identity when run from inside the Project, preventing a bare `.` from losing the
+blocked message's subject.
 
 ### ~~UJ-08~~
 ~~`Uninstalled 1 Profile Installation` omits the project, the outputs removed, the

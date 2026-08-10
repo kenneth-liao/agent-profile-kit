@@ -39,6 +39,7 @@ import {
   formatUninstallResult,
   formatValidationResult,
   lifecycleExitCode,
+  presentTemporaryBlockedMessages,
   type LifecycleCommand,
 } from "./presentation.js";
 import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
@@ -637,9 +638,12 @@ async function main(): Promise<void> {
     const next = await generatedOutputSurvivesUnbind(home, result)
       ? `Next: ${COMMAND_NAME} preview && ${COMMAND_NAME} apply\n`
       : "";
+    const presentedProject = result.recovery === "canonical"
+      ? displayProjectPath(result.canonicalProject, result.project)
+      : displayProjectPath(result.project, result.project);
     writeHuman(
       process.stdout,
-      `Removed Project Binding for ${result.project}\n` +
+      `Removed Project Binding for ${presentedProject}\n` +
         recovery +
         `  Profile: ${result.profile}\n` +
         `  Hosts: ${result.hosts.join(", ")}\n` +
@@ -894,7 +898,13 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("install-temp", error.blockers),
           );
         } else {
-          writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+          writeHuman(
+            process.stderr,
+            `${COMMAND_NAME}: ${presentTemporaryBlockedMessages(
+              error.blockers,
+              error.canonicalProject,
+            )}\n`,
+          );
         }
         process.exitCode = 2;
         return;
@@ -954,7 +964,13 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("remove-temp", error.blockers),
           );
         } else {
-          writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+          writeHuman(
+            process.stderr,
+            `${COMMAND_NAME}: ${presentTemporaryBlockedMessages(
+              error.blockers,
+              error.canonicalProject,
+            )}\n`,
+          );
         }
         process.exitCode = 2;
         return;
