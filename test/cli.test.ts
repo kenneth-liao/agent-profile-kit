@@ -5427,8 +5427,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("Removed Project Binding for .");
-    expect(result.stdout).toContain("Canonical project: .");
-    expect(result.stdout).not.toContain(realpathSync(projectPath));
+    expect(result.stdout).toContain(`Canonical project: ${realpathSync(projectPath)}`);
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
     expect(result.stdout).toContain(configPath(home));
@@ -8440,8 +8439,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     const unbind = await runCli(home, "unbind", authored);
     expectExitCode(unbind, 0);
     expect(unbind.stdout).toContain(`Removed Project Binding for ${authored}\n`);
-    expect(unbind.stdout).toContain(`Canonical project: ${authored}\n`);
-    expect(unbind.stdout).not.toContain(canonical);
+    expect(unbind.stdout).toContain(`Canonical project: ${canonical}\n`);
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
   });
 });

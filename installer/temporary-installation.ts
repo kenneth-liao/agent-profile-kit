@@ -79,14 +79,15 @@ export function isTemporaryInstallationHost(
 
 export class TemporaryInstallationBlockedError extends Error {
   readonly #canonical: readonly ReconciliationBlocker[];
-  readonly #canonicalProject: string | undefined;
+  readonly #canonicalProject: string;
 
   /**
    * Accept one canonical blocker-input collection, normalize it once, and derive
    * the legacy string projection and Error.message from it so the two public
-   * views can never diverge.
+   * views can never diverge. The canonical Project the blocked operation
+   * targeted is part of the error's identity, so it is required.
    */
-  constructor(inputs: readonly BlockerInput[], canonicalProject?: string) {
+  constructor(inputs: readonly BlockerInput[], canonicalProject: string) {
     const canonical = inputs.map((input) => normalizeBlocker(input));
     super(canonical.map((blocker) => blocker.message).join("\n"));
     this.name = "TemporaryInstallationBlockedError";
@@ -104,8 +105,8 @@ export class TemporaryInstallationBlockedError extends Error {
     return this.#canonical;
   }
 
-  /** Canonical Project root the blocked operation targeted; undefined when unknown. */
-  get canonicalProject(): string | undefined {
+  /** Canonical Project root the blocked operation targeted. */
+  get canonicalProject(): string {
     return this.#canonicalProject;
   }
 }

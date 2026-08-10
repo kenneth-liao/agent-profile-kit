@@ -129,8 +129,11 @@ describe("shared blocker contract", () => {
     expect(formatTemporaryInstallationBlockedJson("install-temp", [blockerMessage(structured)])).toBe(
       formatTemporaryInstallationBlockedJson("install-temp", [structured.message]),
     );
-    const structuredError = new TemporaryInstallationBlockedError([blockerMessage(structured)]);
-    const legacyError = new TemporaryInstallationBlockedError([structured.message]);
+    const structuredError = new TemporaryInstallationBlockedError(
+      [blockerMessage(structured)],
+      "/project-a",
+    );
+    const legacyError = new TemporaryInstallationBlockedError([structured.message], "/project-a");
     expect(structuredError.message).toBe(legacyError.message);
   });
 
@@ -147,7 +150,7 @@ describe("shared blocker contract", () => {
 
     // One canonical blocker-input collection; the legacy string projection and
     // Error.message must both derive from it, so they cannot diverge.
-    const error = new TemporaryInstallationBlockedError([structured, "legacy blocker"]);
+    const error = new TemporaryInstallationBlockedError([structured, "legacy blocker"], "/project-a");
     expect(error.blockers).toEqual(["Codex CLI is unavailable", "legacy blocker"]);
     expect(error.structured).toEqual([structured, { message: "legacy blocker" }]);
     expect(error.message).toBe("Codex CLI is unavailable\nlegacy blocker");

@@ -634,7 +634,7 @@ async function main(): Promise<void> {
     }
     const recovery = result.recovery === "authored-path"
       ? "  Recovery: exact authored path match; canonical project identity could not be proven\n"
-      : `  Canonical project: ${displayProjectPath(result.canonicalProject, result.project)}\n`;
+      : `  Canonical project: ${result.canonicalProject}\n`;
     const next = await generatedOutputSurvivesUnbind(home, result)
       ? `Next: ${COMMAND_NAME} preview && ${COMMAND_NAME} apply\n`
       : "";
@@ -898,15 +898,13 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("install-temp", error.blockers),
           );
         } else {
-          const message = error.canonicalProject === undefined
-            ? formatError(error)
-            : presentTemporaryBlockedMessages(
-                error.blockers,
-                error.canonicalProject,
-                parsed.project,
-                home,
-              );
-          writeHuman(process.stderr, `${COMMAND_NAME}: ${message}\n`);
+          writeHuman(
+            process.stderr,
+            `${COMMAND_NAME}: ${presentTemporaryBlockedMessages(
+              error.blockers,
+              error.canonicalProject,
+            )}\n`,
+          );
         }
         process.exitCode = 2;
         return;
@@ -966,15 +964,13 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("remove-temp", error.blockers),
           );
         } else {
-          const message = error.canonicalProject === undefined
-            ? formatError(error)
-            : presentTemporaryBlockedMessages(
-                error.blockers,
-                error.canonicalProject,
-                error.canonicalProject,
-                home,
-              );
-          writeHuman(process.stderr, `${COMMAND_NAME}: ${message}\n`);
+          writeHuman(
+            process.stderr,
+            `${COMMAND_NAME}: ${presentTemporaryBlockedMessages(
+              error.blockers,
+              error.canonicalProject,
+            )}\n`,
+          );
         }
         process.exitCode = 2;
         return;

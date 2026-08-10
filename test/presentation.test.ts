@@ -709,8 +709,20 @@ describe("temporary-installation Project identity presentation", () => {
       const project = join(home, "projects", "alpha");
       const receipt = temporaryReceipt({ project });
 
-      const install = formatTemporaryInstallationHuman("install-temp", receipt, {}, home);
-      const remove = formatTemporaryInstallationHuman("remove-temp", receipt, {}, home);
+      const install = formatTemporaryInstallationHuman(
+        "install-temp",
+        receipt,
+        {},
+        process.cwd(),
+        home,
+      );
+      const remove = formatTemporaryInstallationHuman(
+        "remove-temp",
+        receipt,
+        {},
+        process.cwd(),
+        home,
+      );
 
       expect(install).toContain("Project: ~/projects/alpha\n");
       expect(install).not.toContain(project);
@@ -727,13 +739,19 @@ describe("temporary-installation Project identity presentation", () => {
       const project = join(home, "projects", "alpha");
       const receipt = temporaryReceipt({ project });
 
-      const inside = formatTemporaryInstallationHuman("install-temp", receipt, {}, home, project);
+      const inside = formatTemporaryInstallationHuman(
+        "install-temp",
+        receipt,
+        {},
+        project,
+        home,
+      );
       const ancestor = formatTemporaryInstallationHuman(
         "install-temp",
         receipt,
         {},
-        home,
         join(project, "nested"),
+        home,
       );
 
       expect(inside).toContain("Project: .\n");
@@ -751,8 +769,14 @@ describe("temporary-installation Project identity presentation", () => {
       const first = temporaryReceipt({ project: join(home, "team-a", "project") });
       const second = temporaryReceipt({ project: join(home, "team-b", "project") });
 
-      const install = formatTemporaryInstallationHuman("install-temp", first, {}, home) +
-        formatTemporaryInstallationHuman("install-temp", second, {}, home);
+      const install = formatTemporaryInstallationHuman(
+        "install-temp",
+        first,
+        {},
+        process.cwd(),
+        home,
+      ) +
+        formatTemporaryInstallationHuman("install-temp", second, {}, process.cwd(), home);
 
       expect(install).toContain("Project: ~/team-a/project\n");
       expect(install).toContain("Project: ~/team-b/project\n");
@@ -775,7 +799,13 @@ describe("temporary-installation Project identity presentation", () => {
         }],
       });
 
-      const install = formatTemporaryInstallationHuman("install-temp", receipt, {}, home);
+      const install = formatTemporaryInstallationHuman(
+        "install-temp",
+        receipt,
+        {},
+        process.cwd(),
+        home,
+      );
 
       expect(install.split("\n").find((line) => line.startsWith("- Launch Codex from"))).toBe(
         "- Launch Codex from the exact bound project root: ~/projects/alpha",
@@ -799,6 +829,7 @@ describe("temporary-installation Project identity presentation", () => {
         messages,
         canonical,
         "~/projects/alpha",
+        process.cwd(),
         home,
       );
 
@@ -809,6 +840,53 @@ describe("temporary-installation Project identity presentation", () => {
         "Cannot remove Temporary Profile Installation at ~/projects/alpha:",
       );
       expect(rendered).not.toContain(canonical);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps the Project subject in blocked messages when running from inside it", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const canonical = join(home, "projects", "alpha");
+      const messages = [
+        `${canonical} already has an ordinary Profile Installation; remove it before installing a temporary Profile`,
+      ];
+
+      const rendered = presentTemporaryBlockedMessages(messages, canonical, canonical, canonical, home);
+
+      expect(rendered).toContain(
+        "~/projects/alpha already has an ordinary Profile Installation",
+      );
+      expect(rendered).not.toMatch(/^\. /);
+      expect(rendered).not.toContain(canonical);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  test("replaces both canonical and authored-absolute Project spellings in blocked messages", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const canonical = join(home, "real-project");
+      const authored = join(home, "alias-project");
+      const messages = [
+        `${authored} cannot be resolved: the authored spelling differs from ${canonical}`,
+      ];
+
+      const rendered = presentTemporaryBlockedMessages(
+        messages,
+        canonical,
+        authored,
+        process.cwd(),
+        home,
+      );
+
+      expect(rendered).toContain(
+        "~/real-project cannot be resolved: the authored spelling differs from ~/real-project",
+      );
+      expect(rendered).not.toContain(canonical);
+      expect(rendered).not.toContain(authored);
     } finally {
       rmSync(home, { force: true, recursive: true });
     }
