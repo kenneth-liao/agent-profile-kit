@@ -2486,6 +2486,7 @@ export function presentTemporaryBlockedMessages(
   authoredProject = canonicalProject,
   cwd = process.cwd(),
   home = homedir(),
+  context?: TerminalPresentationContext,
 ): string {
   let presented = displayProjectPath(canonicalProject, authoredProject, cwd, home);
   if (presented === "." || presented === ".." || presented.startsWith("../")) {
@@ -2496,12 +2497,17 @@ export function presentTemporaryBlockedMessages(
   }
   const references = [...new Set([canonicalProject, absoluteAuthoredPath(authoredProject, home)])]
     .sort((left, right) => right.length - left.length || left.localeCompare(right));
-  return messages
+  const rendered = messages
     .map((message) => references.reduce(
-      (rendered, project) => replaceProjectReference(rendered, project, presented),
+      (reduced, project) => replaceProjectReference(reduced, project, presented),
       message,
     ))
     .join("\n");
+  return responsiveHumanText(rendered, context, [
+    presented,
+    canonicalProject,
+    absoluteAuthoredPath(authoredProject, home),
+  ]);
 }
 
 export function formatTemporaryInstallationBlockedJson(

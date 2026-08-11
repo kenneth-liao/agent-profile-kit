@@ -127,6 +127,14 @@ function humanOutput(
   return responsiveHumanText(text, stdoutPresentationContext, copyableValues);
 }
 
+/** Diagnostic output (errors and warnings) wrapped through the shared human boundary. */
+function humanError(
+  text: string,
+  copyableValues: readonly string[] = [],
+): string {
+  return responsiveHumanText(text, stderrPresentationContext, copyableValues);
+}
+
 function formatError(error: unknown): string {
   if (error instanceof MissingProfileError) return formatMissingProfileError(error);
   if (error instanceof AggregateError) {
@@ -322,7 +330,11 @@ function parseOrExit<T>(command: string, parse: () => T): T | undefined {
   try {
     return parse();
   } catch (error) {
-    writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n${commandUsage(command)}`, stderrPresentationContext);
+    writeHuman(
+      process.stderr,
+      humanError(`${COMMAND_NAME}: ${formatError(error)}\n`) + commandUsage(command),
+      stderrPresentationContext,
+    );
     process.exitCode = 1;
     return undefined;
   }
@@ -617,7 +629,7 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     const result = await initializeWorkspace(home, parsed);
     for (const warning of result.warnings) {
-      writeHuman(process.stderr, `${COMMAND_NAME}: warning: ${warning}\n`, stderrPresentationContext);
+      writeHuman(process.stderr, humanError(`${COMMAND_NAME}: warning: ${warning}\n`), stderrPresentationContext);
     }
     if (result.outcome === "migrated") {
       writeHuman(
@@ -782,7 +794,7 @@ async function main(): Promise<void> {
           formatInfoToolErrorJson(applicationInfoLocations(home), formatError(error)),
         );
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`, stderrPresentationContext);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -816,7 +828,7 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProjectInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`, stderrPresentationContext);
+            writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
           }
           process.exitCode = 1;
         }
@@ -837,7 +849,7 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProfileInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`, stderrPresentationContext);
+            writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
           }
           process.exitCode = 1;
         }
@@ -876,7 +888,7 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatTemporaryInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`, stderrPresentationContext);
+            writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
           }
           process.exitCode = 1;
         }
@@ -908,7 +920,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("preview", formatError(error)));
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`, stderrPresentationContext);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -966,7 +978,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`, stderrPresentationContext);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -995,7 +1007,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("status", formatError(error)));
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`, stderrPresentationContext);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -1044,6 +1056,10 @@ async function main(): Promise<void> {
             `${COMMAND_NAME}: ${presentTemporaryBlockedMessages(
               error.blockers,
               error.canonicalProject,
+              error.canonicalProject,
+              process.cwd(),
+              homedir(),
+              stderrPresentationContext,
             )}\n`,
             stderrPresentationContext,
           );
@@ -1062,8 +1078,11 @@ async function main(): Promise<void> {
         } else {
           writeHuman(
             process.stderr,
-            `${COMMAND_NAME}: ${formatError(error)}\n` +
-              `${COMMAND_NAME}: removal is required; run ${COMMAND_NAME} remove-temp ${error.temporaryInstallationId}\n`,
+            humanError(
+              `${COMMAND_NAME}: ${formatError(error)}\n` +
+                `${COMMAND_NAME}: removal is required; run ${COMMAND_NAME} remove-temp ${error.temporaryInstallationId}\n`,
+              [error.temporaryInstallationId],
+            ),
             stderrPresentationContext,
           );
         }
@@ -1075,7 +1094,7 @@ async function main(): Promise<void> {
           formatTemporaryInstallationToolErrorJson("install-temp", formatError(error)),
         );
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`, stderrPresentationContext);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -1112,6 +1131,10 @@ async function main(): Promise<void> {
             `${COMMAND_NAME}: ${presentTemporaryBlockedMessages(
               error.blockers,
               error.canonicalProject,
+              error.canonicalProject,
+              process.cwd(),
+              homedir(),
+              stderrPresentationContext,
             )}\n`,
             stderrPresentationContext,
           );
@@ -1124,7 +1147,7 @@ async function main(): Promise<void> {
           formatTemporaryInstallationToolErrorJson("remove-temp", formatError(error)),
         );
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`, stderrPresentationContext);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -1140,6 +1163,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`, stderrPresentationContext);
+  writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
   process.exitCode = 1;
 });
