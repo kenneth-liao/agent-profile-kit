@@ -74,7 +74,7 @@ jobs:
         run: bun run build
 
       - name: Run test suite
-        run: bun test
+        run: bun run test
 
       - name: Verify clean generated output
         run: |

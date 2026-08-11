@@ -96,7 +96,7 @@ git worktree add --detach "$recovery_path" "v$version"
   bun install --frozen-lockfile
   bun run typecheck
   bun run build
-  bun test
+  bun run test
   mkdir release
   npm pack --ignore-scripts --pack-destination release
 )
