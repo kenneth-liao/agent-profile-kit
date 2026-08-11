@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,7 +40,36 @@ function expectProcessGone(pid: number, label: string): void {
   expect(alive, `${label} (pid ${pid}) must already be gone when runProcess resolves`).toBe(false);
 }
 
+/**
+ * Reject a live process while accepting either an absent PID or a terminated
+ * process awaiting macOS process-table reaping. The bounded ps invocation is
+ * an independent oracle for the executor's process-group cleanup result.
+ */
+function expectProcessNotLive(pid: number, label: string): void {
+  const inspection = spawnSync("ps", ["-o", "state=", "-p", String(pid)], {
+    encoding: "utf8",
+    timeout: 1000,
+  });
+  if (inspection.error !== undefined) {
+    throw new Error(`${label} (pid ${pid}) state inspection failed: ${inspection.error.message}`);
+  }
+  const state = inspection.stdout.trim();
+  if (inspection.status === 1 && state === "") return;
+  if (inspection.status !== 0) {
+    throw new Error(
+      `${label} (pid ${pid}) state inspection exited ${String(inspection.status)}: ${inspection.stderr.trim()}`,
+    );
+  }
+  if (!state.startsWith("Z")) {
+    throw new Error(`${label} (pid ${pid}) is still live (state ${state || "unknown"})`);
+  }
+}
+
 describe("runProcess result contract", () => {
+  test("process-state cleanup verification rejects a genuinely live process", () => {
+    expect(() => expectProcessNotLive(process.pid, "current test process")).toThrow(/still live/);
+  });
+
   test("normal exit reports exitCode, output, and elapsed duration", async () => {
     const result = await shFixture('printf "out"; printf "err" >&2; exit 0');
     expect(result.kind).toBe("exit");
@@ -198,14 +228,14 @@ setInterval(() => {}, 1000);
         commandLabel: "TERM-resistant descendant fixture",
       });
       expect(result.kind).toBe("timeout");
-      // The executor's group-empty probe is the canonical cleanup proof. A
-      // second PID probe cannot strengthen it on macOS: kill(pid, 0) also
-      // succeeds briefly for a terminated orphan awaiting process-table
-      // reaping, which is not a live leaked descendant. Incomplete cleanup is
-      // surfaced through cleanupFailed before runProcess resolves.
+      // The executor's group-empty probe owns the cleanup result, while the
+      // process-state query independently proves that the named descendant is
+      // absent or terminated. Unlike kill(pid, 0), it does not misclassify a
+      // terminated orphan awaiting macOS process-table reaping as a live leak.
       expect(result.cleanupFailed).toBe(false);
       const match = /child=(\d+)/.exec(result.stdout);
       expect(match?.[1]).toBeTruthy();
+      expectProcessNotLive(Number(match![1]), "TERM-resistant descendant");
     } finally {
       rmSync(fixtureDir, { recursive: true, force: true });
     }
