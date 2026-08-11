@@ -16,6 +16,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Use the process executor's canonical group-empty result for TERM-resistant descendant cleanup verification instead of treating a terminated orphan awaiting macOS process-table reaping as a live leak ([#211](https://github.com/kenneth-liao/agent-profile-kit/issues/211)).
+
 - Keep Adapter capability evidence Adapter-owned at its host/path subset and translate it into the shared blocker affected-item vocabulary at the Installer boundary, so Adapters never import Installer-owned blocker types and out-of-vocabulary Adapter evidence is rejected loudly ([#172](https://github.com/kenneth-liao/agent-profile-kit/issues/172)).
 
 - Use one shortest-unambiguous Project path presenter across every human command, including `unbind` teardown, temporary-installation receipts and Host Setup Steps, blocked `install-temp`/`remove-temp` output, and `uninstall` Git-exclusion targets, so bind, inventory, lifecycle, teardown, and temporary installation identify the same Project consistently without exposing canonical paths; blocked temporary-installation diagnostics fall back to a home-relative or full identity when the caller's working directory is inside the Project, preventing a bare `.` from losing the blocked message's subject; Local Configuration, Installation State, receipts, and JSON retain their existing canonical or authored paths ([#171](https://github.com/kenneth-liao/agent-profile-kit/issues/171)).
