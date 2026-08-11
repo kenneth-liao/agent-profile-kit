@@ -6517,6 +6517,21 @@ describe("shared presentation boundary", () => {
       }
     }
 
+    // A genuinely long tool error must wrap too: an unconfigured home yields a
+    // Local Configuration error carrying a long config path (path stays whole).
+    const unconfigured = isolatedHome();
+    const longError = await runCliInPty(unconfigured, 40, "list", "projects");
+    expectExitCode(longError, 1);
+    const longErrorOutput = `${longError.stdout}${longError.stderr}`;
+    for (const line of longErrorOutput.split("\n")) {
+      if (line.includes(unconfigured)) continue;
+      expect(
+        line.length,
+        `long error line exceeds TTY width: ${line}`,
+      ).toBeLessThanOrEqual(40);
+    }
+    expect(longErrorOutput).toContain("apkit init");
+
     // Machine surfaces stay byte-identical across widths and ANSI-free.
     for (const arguments_ of [
       ["list", "projects", "--json"],
