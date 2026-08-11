@@ -6,7 +6,13 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Make the Blocker contract exhaustively structured: every Adapter and Installer emitter carries typed `kind`, `scope`, `problem`, `requirement`, `remedy`, and affected-item evidence from one closed typed vocabulary, message-only blockers can no longer be represented or emitted, and malformed internal blockers fail fast instead of degrading to a message. Lifecycle JSON and blocked `install-temp`/`remove-temp` JSON advance to `schemaVersion: 2` with each blocker serialized directly from its structured record, so no human-rendered prose must be parsed to construct machine output. Human default grouping and verbose completeness continue to derive from the same records, and exit codes, blocker ordering, ownership refusal, and Host behavior remain unchanged ([#172](https://github.com/kenneth-liao/agent-profile-kit/issues/172)).
+
 ### Fixed
+
+- Keep Adapter capability evidence Adapter-owned at its host/path subset and translate it into the shared blocker affected-item vocabulary at the Installer boundary, so Adapters never import Installer-owned blocker types and out-of-vocabulary Adapter evidence is rejected loudly ([#172](https://github.com/kenneth-liao/agent-profile-kit/issues/172)).
 
 - Use one shortest-unambiguous Project path presenter across every human command, including `unbind` teardown, temporary-installation receipts and Host Setup Steps, blocked `install-temp`/`remove-temp` output, and `uninstall` Git-exclusion targets, so bind, inventory, lifecycle, teardown, and temporary installation identify the same Project consistently without exposing canonical paths; blocked temporary-installation diagnostics fall back to a home-relative or full identity when the caller's working directory is inside the Project, preventing a bare `.` from losing the blocked message's subject; Local Configuration, Installation State, receipts, and JSON retain their existing canonical or authored paths ([#171](https://github.com/kenneth-liao/agent-profile-kit/issues/171)).
 

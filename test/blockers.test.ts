@@ -11,10 +11,13 @@ import {
   lifecycleExitCode,
 } from "../cli/presentation.js";
 import {
+  AFFECTED_ITEM_KINDS,
+  BLOCKER_KINDS,
   blockerMessage,
   isStructuredBlocker,
   normalizeBlocker,
   OUTPUT_OWNERSHIP_CONFLICT,
+  type ReconciliationBlocker,
 } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
@@ -39,15 +42,20 @@ function compileOnlyPartialBlocker(): void {
 
 void compileOnlyPartialBlocker;
 
+const HOST_CAPABILITY_INPUT = {
+  affectedItems: [{ kind: "host", value: "codex" }],
+  kind: "host-capability",
+  message: "Codex CLI is unavailable",
+  problem: "Codex CLI is unavailable",
+  remedy: "Install a supported Codex CLI, then retry",
+  requirement: "The selected Profile requires Codex project delivery",
+  scope: "global",
+} as const;
+
 describe("shared blocker contract", () => {
   test("normalizes complete structured evidence into a scoped blocker", () => {
     const input = {
-      affectedItems: [{ kind: "host", value: "codex" }],
-      kind: "host-capability",
-      message: "Codex CLI is unavailable",
-      problem: "Codex CLI is unavailable",
-      remedy: "Install a supported Codex CLI, then retry",
-      requirement: "The selected Profile requires Codex project delivery",
+      ...HOST_CAPABILITY_INPUT,
       project: "/project-a",
       scope: "project",
     } as const;
@@ -68,13 +76,15 @@ describe("shared blocker contract", () => {
       .toThrow(/fallback project.*kind="host-capability".*project="\/project-b"/);
   });
 
-  test("keeps legacy message-only blockers unchanged at the boundary", () => {
-    const blocker = normalizeBlocker("occupied output", "/project-a");
-    expect(isStructuredBlocker(blocker)).toBe(false);
-    expect(blocker).toEqual({
-      message: "occupied output",
-      project: "/project-a",
-    });
+  test("message-only blockers can no longer be represented or normalized", () => {
+    // @ts-expect-error The blocker contract is exhaustively structured; message-only blockers no longer exist.
+    const legacy: ReconciliationBlocker = { message: "occupied output", project: "/project-a" };
+    void legacy;
+
+    expect(() => normalizeBlocker("occupied output" as never))
+      .toThrow("Blocker input must be a structured blocker object");
+    expect(() => normalizeBlocker({ message: "occupied output", project: "/project-a" } as never))
+      .toThrow(/Legacy message-only blockers are no longer supported/);
   });
 
   test("rejects partially populated structured evidence at runtime", () => {
@@ -110,50 +120,93 @@ describe("shared blocker contract", () => {
     } as never)).toThrow("Structured blocker scope must be 'global' or 'project'");
   });
 
-  test("rejects malformed legacy blocker objects at runtime", () => {
-    expect(() => normalizeBlocker({ project: "/project-a" } as never))
-      .toThrow("Legacy blocker message must be a string");
-  });
+  test("unknown blocker and affected-item kinds are rejected at runtime", () => {
+    expect(() => normalizeBlocker({
+      affectedItems: [],
+      kind: "unknown-kind",
+      message: "Codex CLI is unavailable",
+      problem: "Codex CLI is unavailable",
+      remedy: "Install a supported Codex CLI, then retry",
+      requirement: "The selected Profile requires Codex project delivery",
+      scope: "global",
+    } as never)).toThrow(/Unknown structured blocker kind "unknown-kind"/);
 
-  test("temporary-installation JSON keeps the legacy blocker schema", () => {
-    const structured = normalizeBlocker({
-      affectedItems: [{ kind: "host", value: "codex" }],
+    expect(() => normalizeBlocker({
+      affectedItems: [{ kind: "unknown-item", value: "codex" }],
       kind: "host-capability",
       message: "Codex CLI is unavailable",
       problem: "Codex CLI is unavailable",
       remedy: "Install a supported Codex CLI, then retry",
       requirement: "The selected Profile requires Codex project delivery",
       scope: "global",
-    });
-
-    expect(formatTemporaryInstallationBlockedJson("install-temp", [blockerMessage(structured)])).toBe(
-      formatTemporaryInstallationBlockedJson("install-temp", [structured.message]),
-    );
-    const structuredError = new TemporaryInstallationBlockedError(
-      [blockerMessage(structured)],
-      "/project-a",
-    );
-    const legacyError = new TemporaryInstallationBlockedError([structured.message], "/project-a");
-    expect(structuredError.message).toBe(legacyError.message);
+    } as never)).toThrow(/Unknown structured blocker affected-item kind "unknown-item"/);
   });
 
-  test("TemporaryInstallationBlockedError derives projections from one canonical collection", () => {
-    const structured = normalizeBlocker({
-      affectedItems: [{ kind: "host", value: "codex" }],
-      kind: "host-capability",
-      message: "Codex CLI is unavailable",
-      problem: "Codex CLI is unavailable",
-      remedy: "Install a supported Codex CLI, then retry",
-      requirement: "The selected Profile requires Codex project delivery",
-      scope: "global",
+  test("blocker kinds form one exhaustive typed vocabulary", () => {
+    expect(BLOCKER_KINDS).toEqual([
+      "host-capability",
+      "host-capability-unclassified",
+      "output-ownership-conflict",
+      "installation-state-unreadable",
+      "repository-exclusion-record",
+      "repository-exclusion-target-unproven",
+      "repository-exclusion-section-missing",
+      "repository-exclusion-invalid",
+      "occupied-output",
+      "installation-marker",
+      "installation-ownership",
+      "temporary-installation-conflict",
+      "temporary-installation-removal",
+    ]);
+    expect(AFFECTED_ITEM_KINDS).toEqual(["host", "path", "installation-id"]);
+  });
+
+  test("temporary-installation blocked JSON publishes structured evidence at schema version 2", () => {
+    const structured = normalizeBlocker(HOST_CAPABILITY_INPUT);
+
+    const payload = JSON.parse(
+      formatTemporaryInstallationBlockedJson("install-temp", [structured]),
+    ) as Record<string, unknown>;
+    expect(payload).toEqual({
+      schemaVersion: 2,
+      command: "install-temp",
+      outcome: "blocked",
+      blockers: [{
+        kind: "host-capability",
+        scope: "global",
+        message: "Codex CLI is unavailable",
+        problem: "Codex CLI is unavailable",
+        requirement: "The selected Profile requires Codex project delivery",
+        remedy: "Install a supported Codex CLI, then retry",
+        affectedItems: [{ kind: "host", value: "codex" }],
+      }],
+    });
+  });
+
+  test("TemporaryInstallationBlockedError derives projections from one canonical structured collection", () => {
+    const structured = normalizeBlocker(HOST_CAPABILITY_INPUT);
+    const removal = normalizeBlocker({
+      affectedItems: [],
+      kind: "temporary-installation-conflict",
+      message: "/project-a already hosts an installation",
+      problem: "The Project already hosts an installation with a conflicting lifetime",
+      remedy: "Remove the existing installation, then retry",
+      requirement: "A Project hosts at most one Profile Installation at a time",
+      project: "/project-a",
+      scope: "project",
     });
 
-    // One canonical blocker-input collection; the legacy string projection and
+    // One canonical blocker-input collection; the message projection and
     // Error.message must both derive from it, so they cannot diverge.
-    const error = new TemporaryInstallationBlockedError([structured, "legacy blocker"], "/project-a");
-    expect(error.blockers).toEqual(["Codex CLI is unavailable", "legacy blocker"]);
-    expect(error.structured).toEqual([structured, { message: "legacy blocker" }]);
-    expect(error.message).toBe("Codex CLI is unavailable\nlegacy blocker");
+    const error = new TemporaryInstallationBlockedError([structured, removal], "/project-a");
+    expect(error.blockers).toEqual([
+      "Codex CLI is unavailable",
+      "/project-a already hosts an installation",
+    ]);
+    expect(error.structured).toEqual([structured, removal]);
+    expect(error.message).toBe(
+      "Codex CLI is unavailable\n/project-a already hosts an installation",
+    );
     expect(error.blockers.join("\n")).toBe(error.message);
   });
 
@@ -179,20 +232,14 @@ describe("shared blocker contract", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     } as const;
+    const projectBlocker = {
+      ...HOST_CAPABILITY_INPUT,
+      project: canonicalProject,
+      scope: "project",
+    } as const;
+
     const report = await previewReconciliation(
-      [{
-        ...installation,
-        blockers: [{
-          affectedItems: [{ kind: "host", value: "codex" }],
-          kind: "host-capability",
-          message: "Codex CLI is unavailable",
-          problem: "Codex CLI is unavailable",
-          remedy: "Install a supported Codex CLI, then retry",
-          requirement: "The selected Profile requires Codex project delivery",
-          project: canonicalProject,
-          scope: "project",
-        }],
-      }],
+      [{ ...installation, blockers: [projectBlocker] }],
       emptyState,
     );
 
@@ -205,24 +252,24 @@ describe("shared blocker contract", () => {
     expect(formatLifecycleReport("preview", report)).toContain(
       "Blocker: Codex CLI is unavailable",
     );
-    expect(JSON.parse(formatLifecycleJson("preview", report)).blockers).toEqual([{
-      message: "Codex CLI is unavailable",
+    const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
+      readonly blockers: readonly Record<string, unknown>[];
+      readonly schemaVersion: number;
+    };
+    expect(machine.schemaVersion).toBe(2);
+    expect(machine.blockers).toEqual([{
+      kind: "host-capability",
+      scope: "project",
       project: canonicalProject,
+      message: "Codex CLI is unavailable",
+      problem: "Codex CLI is unavailable",
+      requirement: "The selected Profile requires Codex project delivery",
+      remedy: "Install a supported Codex CLI, then retry",
+      affectedItems: [{ kind: "host", value: "codex" }],
     }]);
 
     const globalReport = await previewReconciliation(
-      [{
-        ...installation,
-        blockers: [{
-          affectedItems: [{ kind: "host", value: "codex" }],
-          kind: "host-capability",
-          message: "Codex CLI is unavailable",
-          problem: "Codex CLI is unavailable",
-          remedy: "Install a supported Codex CLI, then retry",
-          requirement: "The selected Profile requires Codex project delivery",
-          scope: "global",
-        }],
-      }],
+      [{ ...installation, blockers: [HOST_CAPABILITY_INPUT] }],
       emptyState,
     );
     expect(globalReport.blockers[0]).toMatchObject({
@@ -230,45 +277,28 @@ describe("shared blocker contract", () => {
       scope: "global",
     });
     expect(globalReport.blockers[0]?.project).toBeUndefined();
+    const globalMachine = JSON.parse(
+      formatLifecycleJson("preview", globalReport),
+    ) as { readonly blockers: readonly Record<string, unknown>[] };
+    expect(globalMachine.blockers[0]).not.toHaveProperty("project");
 
-    const mixedReport = await previewReconciliation(
-      [{
-        ...installation,
-        blockers: [
-          { message: "Codex CLI is unavailable", project: canonicalProject },
-          {
-            affectedItems: [{ kind: "host", value: "codex" }],
-            kind: "host-capability",
-            message: "Codex CLI is unavailable",
-            problem: "Codex CLI is unavailable",
-            remedy: "Install a supported Codex CLI, then retry",
-            requirement: "The selected Profile requires Codex project delivery",
-            project: canonicalProject,
-            scope: "project",
-          },
-        ],
-      }],
+    // Identical structured evidence deduplicates on message and Project identity.
+    const deduplicatedReport = await previewReconciliation(
+      [{ ...installation, blockers: [projectBlocker, projectBlocker] }],
       emptyState,
     );
-    expect(mixedReport.blockers).toHaveLength(1);
-    expect(isStructuredBlocker(mixedReport.blockers[0])).toBe(true);
+    expect(deduplicatedReport.blockers).toHaveLength(1);
+    expect(isStructuredBlocker(deduplicatedReport.blockers[0])).toBe(true);
 
-    const malformedReport = await previewReconciliation(
-      [{
-        ...installation,
-        blockers: [{
-          kind: "host-capability",
-          message: "Codex CLI is unavailable",
-          scope: "global",
-        } as never],
-      }],
+    // Malformed internal blockers fail fast instead of degrading to messages.
+    await expect(previewReconciliation(
+      [{ ...installation, blockers: [{
+        kind: "host-capability",
+        message: "Codex CLI is unavailable",
+        scope: "global",
+      } as never] }],
       emptyState,
-    );
-    expect(malformedReport.blockers).toEqual([{
-      message: expect.stringMatching(/Invalid blocker: .*kind=\"host-capability\"/),
-      project: canonicalProject,
-    }]);
-    expect(lifecycleExitCode(malformedReport)).toBe(2);
+    )).rejects.toThrow("Structured blocker problem must be a non-empty string");
   });
 });
 
@@ -350,22 +380,43 @@ describe("tracked-output ownership conflicts", () => {
     );
     expect(lifecycleExitCode(report)).toBe(2);
 
-    // String-only consumers (temporary-installation output, lifecycle JSON) read
-    // the legacy message projection; the grouped conflict count must survive so
-    // a user fixing one conflict at a time still sees how many remain.
+    // String-only human consumers read the legacy message projection; machine
+    // consumers read the structured records, including the grouped conflict
+    // count in the message so a user fixing one conflict at a time still sees
+    // how many remain.
     const conflicts = await desiredOutputConflicts(
       desired.installations[0]!,
       undefined,
       "temporary-installation-id",
     );
-    const temporaryMessages = conflicts.map(blockerMessage);
-    expect(temporaryMessages).toHaveLength(1);
-    expect(temporaryMessages[0]).toBe(
+    expect(conflicts).toHaveLength(1);
+    expect(blockerMessage(conflicts[0]!)).toBe(
       `${desired.installations[0]!.binding.canonicalProject}/.agent-profile-kit/codex/context.md ` +
       "and 4 more tracked project paths",
     );
-    expect(
-      JSON.parse(formatTemporaryInstallationBlockedJson("install-temp", temporaryMessages)).blockers,
-    ).toEqual([{ message: temporaryMessages[0] }]);
+    const machineBlockers = JSON.parse(
+      formatTemporaryInstallationBlockedJson(
+        "install-temp",
+        conflicts.map((input) => normalizeBlocker(input)),
+      ),
+    ).blockers as readonly Record<string, unknown>[];
+    expect(machineBlockers).toEqual([{
+      kind: OUTPUT_OWNERSHIP_CONFLICT,
+      scope: "project",
+      project: desired.installations[0]!.binding.canonicalProject,
+      message:
+        `${desired.installations[0]!.binding.canonicalProject}/.agent-profile-kit/codex/context.md ` +
+        "and 4 more tracked project paths",
+      problem: expect.stringContaining("tracked by Git"),
+      requirement: expect.stringContaining("Generated files must be exclusively managed"),
+      remedy: expect.stringContaining("keep repository ownership"),
+      affectedItems: [
+        { kind: "path", value: ".agent-profile-kit/codex/context.md" },
+        { kind: "path", value: ".agents/skills/s01" },
+        { kind: "path", value: ".agents/skills/s02" },
+        { kind: "path", value: ".agents/skills/s03" },
+        { kind: "path", value: ".codex/hooks.json" },
+      ],
+    }]);
   });
 });

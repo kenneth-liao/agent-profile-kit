@@ -117,10 +117,13 @@ describe("structured Installer blocker evidence", () => {
     expect(blocker).toMatchObject({
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
-      problem: expect.any(String),
-      remedy: expect.any(String),
-      requirement: expect.any(String),
     });
+    // Plain value checks: asymmetric matchers in toMatchObject replace the
+    // matched properties on the shared blocker, corrupting later JSON reads.
+    for (const field of ["problem", "remedy", "requirement"] as const) {
+      expect(typeof blocker[field]).toBe("string");
+      expect(blocker[field].length).toBeGreaterThan(0);
+    }
     expect(blocker.project).toBeUndefined();
     expect(blocker.message).toContain("Installation State");
     expect(blocker.affectedItems).toEqual([{ kind: "path", value: statePath }]);
@@ -128,9 +131,20 @@ describe("structured Installer blocker evidence", () => {
     const human = formatLifecycleReport("preview", report);
     expect(human).toContain("Global blockers:");
     expect(human).toContain(blocker.message);
-    expect(JSON.parse(formatLifecycleJson("preview", report)).blockers).toEqual([
-      { message: blocker.message },
-    ]);
+    const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
+      readonly blockers: readonly Record<string, unknown>[];
+      readonly schemaVersion: number;
+    };
+    expect(machine.schemaVersion).toBe(2);
+    expect(machine.blockers).toEqual([{
+      kind: INSTALLATION_STATE_UNREADABLE,
+      scope: "global",
+      message: blocker.message,
+      problem: "Installation State could not be read",
+      requirement: "Lifecycle commands require readable Installation State",
+      remedy: "Restore or repair the Installation State file, then retry",
+      affectedItems: [{ kind: "path", value: statePath }],
+    }]);
     expect(lifecycleExitCode(report)).toBe(2);
   });
 
@@ -203,10 +217,13 @@ describe("structured Installer blocker evidence", () => {
       kind: REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
       message: "/p Git target cannot be proven: project root is missing",
       scope: "global",
-      problem: expect.any(String),
-      remedy: expect.any(String),
-      requirement: expect.any(String),
     });
+    // Plain value checks: asymmetric matchers in toMatchObject replace the
+    // matched properties on the shared blocker, corrupting later JSON reads.
+    for (const field of ["problem", "remedy", "requirement"] as const) {
+      expect(typeof unproven[field]).toBe("string");
+      expect(unproven[field].length).toBeGreaterThan(0);
+    }
     expect(unproven.project).toBeUndefined();
     expect(unproven.affectedItems).toEqual([{ kind: "path", value: "/p" }]);
 
@@ -254,14 +271,19 @@ describe("structured Installer blocker evidence", () => {
     expect(blocker.affectedItems).toEqual([{ kind: "installation-id", value: installationId }]);
     expect(lifecycleExitCode(report)).toBe(2);
 
-    // Human output keeps the legacy projection, including the default-view lexicon.
+    // Human output keeps the message projection, including the default-view lexicon.
     const human = formatLifecycleReport("preview", report);
     expect(human).toContain("Global blockers:");
     expect(human).toContain("missing its Git exclusion record");
-    const machineBlockers = JSON.parse(formatLifecycleJson("preview", report)).blockers as readonly {
-      readonly message: string;
-    }[];
-    expect(machineBlockers.some((candidate) => candidate.message === blocker.message)).toBe(true);
+    const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
+      readonly blockers: readonly Record<string, unknown>[];
+    };
+    expect(machine.blockers.some((candidate) => candidate.message === blocker.message)).toBe(true);
+    expect(machine.blockers.some((candidate) => candidate.kind === REPOSITORY_EXCLUSION_RECORD)).toBe(true);
+    expect(machine.blockers.some((candidate) => candidate.scope === "global")).toBe(true);
+    expect(machine.blockers.some((candidate) => (
+      candidate.affectedItems as readonly { kind: string; value: string }[]
+    ).some((item) => item.kind === "installation-id" && item.value === installationId))).toBe(true);
   });
 
   test("a Repository Exclusion Record on the wrong Git target emits structured global evidence", async () => {
@@ -348,10 +370,13 @@ describe("structured Installer blocker evidence", () => {
       kind: INSTALLATION_MARKER,
       project: canonicalProject,
       scope: "project",
-      problem: expect.any(String),
-      remedy: expect.any(String),
-      requirement: expect.any(String),
     });
+    // Plain value checks: asymmetric matchers in toMatchObject replace the
+    // matched properties on the shared blocker, corrupting later JSON reads.
+    for (const field of ["problem", "remedy", "requirement"] as const) {
+      expect(typeof marker[field]).toBe("string");
+      expect(marker[field].length).toBeGreaterThan(0);
+    }
     expect(marker.message).toContain("is malformed");
     expect(lifecycleExitCode(report)).toBe(2);
   });
@@ -391,10 +416,13 @@ describe("structured Installer blocker evidence", () => {
       kind: INSTALLATION_OWNERSHIP,
       project: canonicalProject,
       scope: "project",
-      problem: expect.any(String),
-      remedy: expect.any(String),
-      requirement: expect.any(String),
     });
+    // Plain value checks: asymmetric matchers in toMatchObject replace the
+    // matched properties on the shared blocker, corrupting later JSON reads.
+    for (const field of ["problem", "remedy", "requirement"] as const) {
+      expect(typeof ownership[field]).toBe("string");
+      expect(ownership[field].length).toBeGreaterThan(0);
+    }
     expect(ownership.message).toMatch(/^Cannot reconcile Profile Installation at /);
     expect(ownership.message).toContain("will not overwrite your edit");
   });

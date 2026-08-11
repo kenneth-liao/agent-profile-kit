@@ -27,7 +27,11 @@ import {
   renderHumanOutput,
   type TerminalPresentationContext,
 } from "../cli/terminal-presentation.js";
-import { normalizeBlocker, outputOwnershipConflictBlocker } from "../installer/blockers.js";
+import {
+  normalizeBlocker,
+  outputOwnershipConflictBlocker,
+  type ReconciliationBlocker,
+} from "../installer/blockers.js";
 import type {
   ApplyReconciliationResult,
   BlockedReconciliationReport,
@@ -39,6 +43,30 @@ function asBlockedReport(report: ReconciliationReport): BlockedReconciliationRep
   const [blocker, ...remainingBlockers] = report.blockers;
   if (!blocker) throw new Error("blocked report fixture requires a blocker");
   return { ...report, blockers: [blocker, ...remainingBlockers] };
+}
+
+/** One structured fixture blocker; global without a project, project-scoped with one. */
+function fixtureBlocker(message: string, project?: string): ReconciliationBlocker {
+  return project === undefined
+    ? normalizeBlocker({
+        affectedItems: [],
+        kind: "installation-state-unreadable",
+        message,
+        problem: message,
+        remedy: "Resolve the reported blocker, then retry",
+        requirement: "Lifecycle commands cannot proceed while blocked",
+        scope: "global",
+      })
+    : normalizeBlocker({
+        affectedItems: [],
+        kind: "occupied-output",
+        message,
+        problem: message,
+        remedy: "Resolve the reported blocker, then retry",
+        requirement: "Lifecycle commands cannot proceed while blocked",
+        project,
+        scope: "project",
+      });
 }
 
 type DesiredFixture = Omit<ReconciliationReport["desired"][number], "hosts" | "setupSteps"> & {
@@ -419,7 +447,7 @@ describe("Host Setup Step presentation", () => {
 
   test("blocked preview and apply suppress post-apply setup while status retains its reminder", () => {
     const report = emptyReport({
-      blockers: [{ message: "occupied output", project: "/project-a" }],
+      blockers: [fixtureBlocker("occupied output", "/project-a")],
       desired: [{
         canonicalProject: "/project-a",
         context: "composed",
@@ -484,10 +512,12 @@ describe("responsive lifecycle presentation", () => {
     });
     const attention = identityReport("/project-a");
     const blocked = emptyReport({
-      blockers: [{
-        message: "The selected generated output cannot be replaced until ownership is resolved.",
-        project: "/project-a",
-      }],
+      blockers: [
+        fixtureBlocker(
+          "The selected generated output cannot be replaced until ownership is resolved.",
+          "/project-a",
+        ),
+      ],
       desired: [{
         canonicalProject: "/project-a",
         context: "composed",
@@ -899,7 +929,7 @@ test("terminal styling follows lifecycle labels emitted by the formatter", () =>
   const blocked = formatLifecycleReport(
     "preview",
     emptyReport({
-      blockers: [{ message: "occupied output", project: "/project-a" }],
+      blockers: [fixtureBlocker("occupied output", "/project-a")],
       items: [{ kind: "blocked", project: "/project-a" }],
     }),
   );
@@ -1038,10 +1068,9 @@ describe("formatLifecycleReport concise terminology", () => {
       }],
       items: [{ kind: "blocked", project: "/project-a", reason: "occupied output" }],
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-      blockers: [{
-        message: "/project-a/a.md is occupied by unowned or drifted output",
-        project: "/project-a",
-      }],
+      blockers: [
+        fixtureBlocker("/project-a/a.md is occupied by unowned or drifted output", "/project-a"),
+      ],
     });
 
     for (const command of ["preview", "apply", "status"] as const) {
@@ -1055,10 +1084,7 @@ describe("formatLifecycleReport concise terminology", () => {
     }
   });
 
-  test("structured blocker evidence preserves legacy human and JSON output", () => {
-    const legacy = emptyReport({
-      blockers: [{ message: "Codex CLI is unavailable", project: "/project-a" }],
-    });
+  test("structured blocker evidence drives human and machine views from one record", () => {
     const structured = emptyReport({
       blockers: [normalizeBlocker({
         affectedItems: [{ kind: "host", value: "codex" }],
@@ -1072,12 +1098,24 @@ describe("formatLifecycleReport concise terminology", () => {
       })],
     });
 
-    expect(formatLifecycleReport("preview", structured)).toBe(
-      formatLifecycleReport("preview", legacy),
+    // Human views keep the message projection; machine JSON publishes the
+    // complete structured evidence without parsing rendered prose.
+    expect(formatLifecycleReport("preview", structured)).toContain(
+      "Blocker: Codex CLI is unavailable",
     );
-    expect(JSON.parse(formatLifecycleJson("preview", structured))).toEqual(
-      JSON.parse(formatLifecycleJson("preview", legacy)),
-    );
+    expect(JSON.parse(formatLifecycleJson("preview", structured))).toMatchObject({
+      schemaVersion: 2,
+      blockers: [{
+        affectedItems: [{ kind: "host", value: "codex" }],
+        kind: "host-capability",
+        message: "Codex CLI is unavailable",
+        problem: "Codex CLI is unavailable",
+        project: "/project-a",
+        remedy: "Install a supported Codex CLI, then retry",
+        requirement: "The selected Profile requires Codex project delivery",
+        scope: "project",
+      }],
+    });
   });
 
   test("groups tracked-output ownership conflicts into one explained blocker with capped paths", () => {
@@ -1391,13 +1429,13 @@ describe("formatLifecycleReport concise terminology", () => {
         ],
         blockers: kind === "blocked"
           ? [
-              {
-                message: "/project-a: Cannot reconcile Profile Installation desired state",
-                project: "/project-a",
-              },
-              {
-                message: "Installer-owned generated output has a Repository Exclusion Artifact ID blocker",
-              },
+              fixtureBlocker(
+                "/project-a: Cannot reconcile Profile Installation desired state",
+                "/project-a",
+              ),
+              fixtureBlocker(
+                "Installer-owned generated output has a Repository Exclusion Artifact ID blocker",
+              ),
             ]
           : [],
       });
@@ -1676,7 +1714,7 @@ describe("formatLifecycleReport concise terminology", () => {
             : { kind, project: "/solo" },
         ],
         blockers: kind === "blocked"
-          ? [{ message: "/solo: hooks disabled", project: "/solo" }]
+          ? [fixtureBlocker("/solo: hooks disabled", "/solo")]
           : [],
       });
 
@@ -1765,7 +1803,7 @@ describe("formatLifecycleReport concise terminology", () => {
         { kind: "update", path: "b.md", project: "/project-b" },
         { kind: "addition", path: "c.md", project: "/project-b" },
       ],
-      blockers: [{ message: "/project-b: hooks disabled", project: "/project-b" }],
+      blockers: [fixtureBlocker("/project-b: hooks disabled", "/project-b")],
     });
 
     const concise = formatLifecycleReport("status", report);
@@ -1867,7 +1905,7 @@ describe("formatLifecycleReport concise terminology", () => {
         resolvedArtifacts: [],
       }],
       items: [{ kind: "blocked", project: "/repo", reason: "occupied output" }],
-      blockers: [{ message: "/repo: occupied output", project: "/repo" }],
+      blockers: [fixtureBlocker("/repo: occupied output", "/repo")],
       repositoryExclusionRepairs: [{
         entries: ["/.agent-profile-kit/codex/context.md"],
         target: "/repo/.git/info/exclude",
@@ -1910,7 +1948,7 @@ describe("formatLifecycleReport concise terminology", () => {
         target: "/project-a/.git/info/exclude",
       }],
       warnings: ["example warning"],
-      blockers: [{ message: "/project-a: example blocker", project: "/project-a" }],
+      blockers: [fixtureBlocker("/project-a: example blocker", "/project-a")],
     });
 
     const verbose = formatLifecycleReport("preview", report, { verbose: true });
@@ -2067,7 +2105,7 @@ describe("formatLifecycleReport concise terminology", () => {
         resolvedArtifacts: [],
       }],
       items: [{ kind: "blocked", project: "/project-a", reason: "changed after commit" }],
-      blockers: [{ message: "changed after commit", project: "/project-a" }],
+      blockers: [fixtureBlocker("changed after commit", "/project-a")],
     });
 
     const concise = formatApplyReport(applyResult(emptyReport(), resultingState));
@@ -2165,7 +2203,7 @@ describe("formatLifecycleReport next-action guidance", () => {
         resolvedArtifacts: [],
       }],
       items: [{ kind: "blocked", project: "/project-a", reason: "hooks disabled" }],
-      blockers: [{ message: "/project-a: hooks disabled", project: "/project-a" }],
+      blockers: [fixtureBlocker("/project-a: hooks disabled", "/project-a")],
     });
 
     const statusNext = nextActionLines(formatLifecycleReport("status", report));
@@ -2187,7 +2225,7 @@ describe("formatLifecycleReport next-action guidance", () => {
         resolvedArtifacts: [],
       }],
       items: [{ kind: "blocked", project: "/project-a", reason: "hooks disabled" }],
-      blockers: [{ message: "/project-a: hooks disabled", project: "/project-a" }],
+      blockers: [fixtureBlocker("/project-a: hooks disabled", "/project-a")],
     });
 
     const preview = formatLifecycleReport("preview", report);
@@ -2211,7 +2249,7 @@ describe("formatLifecycleReport next-action guidance", () => {
         resolvedArtifacts: [],
       }],
       items: [{ kind: "blocked", project: "/project-a", reason: "hooks disabled" }],
-      blockers: [{ message: "/project-a: hooks disabled", project: "/project-a" }],
+      blockers: [fixtureBlocker("/project-a: hooks disabled", "/project-a")],
     });
 
     const next = nextActionLines(formatApplyReport(applyResult(report)));
@@ -2331,7 +2369,7 @@ describe("formatLifecycleReport next-action guidance", () => {
         { kind: "update", path: "a.md", project: "/project-a" },
         { kind: "update", path: "b.md", project: "/project-b" },
       ],
-      blockers: [{ message: "/project-b: hooks disabled", project: "/project-b" }],
+      blockers: [fixtureBlocker("/project-b: hooks disabled", "/project-b")],
     });
 
     const status = formatLifecycleReport("status", mixedBlocked);
@@ -2356,7 +2394,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       }],
       items: [{ kind: "stale source", project: "/project-a" }],
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
-      blockers: [{ message: "Installation State is unreadable", project: "" }],
+      blockers: [fixtureBlocker("Installation State is unreadable")],
     });
 
     const status = formatLifecycleReport("status", globallyBlocked);
@@ -2499,8 +2537,8 @@ describe("formatLifecycleReport next-action guidance", () => {
         { kind: "blocked", project: "/b", reason: "tracked path" },
       ],
       blockers: [
-        { message: "/a: hooks disabled", project: "/a" },
-        { message: "/b: tracked path", project: "/b" },
+        fixtureBlocker("/a: hooks disabled", "/a"),
+        fixtureBlocker("/b: tracked path", "/b"),
       ],
     });
 
@@ -2539,17 +2577,26 @@ describe("Machine surface JSON and exit codes", () => {
         { kind: "addition", path: ".codex/skills/demo", project: "/project-a" },
         { kind: "addition", path: "AGENTS.md", project: "/project-a" },
       ],
-      blockers: [{ message: "Claude CLI missing", project: "/project-a" }],
+      blockers: [fixtureBlocker("Claude CLI missing", "/project-a")],
       warnings: ["workspace source is large"],
     });
 
     const payload = JSON.parse(formatLifecycleJson("preview", report)) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       command: "preview",
       outcome: "blocked",
-      blockers: [{ message: "Claude CLI missing", project: "/project-a" }],
+      blockers: [{
+        affectedItems: [],
+        kind: "occupied-output",
+        message: "Claude CLI missing",
+        problem: "Claude CLI missing",
+        project: "/project-a",
+        remedy: "Resolve the reported blocker, then retry",
+        requirement: "Lifecycle commands cannot proceed while blocked",
+        scope: "project",
+      }],
       warnings: ["workspace source is large"],
     });
     expect(payload.installations).toEqual([{
@@ -2612,7 +2659,7 @@ describe("Machine surface JSON and exit codes", () => {
         resolvedArtifacts: [],
       }],
       items: [{ kind: "blocked", project: "/project-a", reason: "tracked path" }],
-      blockers: [{ message: "tracked path", project: "/project-a" }],
+      blockers: [fixtureBlocker("tracked path", "/project-a")],
     });
 
     for (const command of ["status", "preview"] as const) {
@@ -2651,7 +2698,7 @@ describe("Machine surface JSON and exit codes", () => {
     const payload = JSON.parse(formatApplyJson(applyResult(receipt, resultingState))) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       command: "apply",
       outcome: "clean",
       installations: [{
@@ -2689,16 +2736,25 @@ describe("Machine surface JSON and exit codes", () => {
         resolvedArtifacts: [],
       }],
       items: [{ kind: "blocked", project: "/project-a", reason: "CLI missing" }],
-      blockers: [{ message: "CLI missing", project: "/project-a" }],
+      blockers: [fixtureBlocker("CLI missing", "/project-a")],
     }));
 
     const payload = JSON.parse(formatBlockedApplyJson(report)) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       command: "apply",
       outcome: "blocked",
-      blockers: [{ message: "CLI missing", project: "/project-a" }],
+      blockers: [{
+        affectedItems: [],
+        kind: "occupied-output",
+        message: "CLI missing",
+        problem: "CLI missing",
+        project: "/project-a",
+        remedy: "Resolve the reported blocker, then retry",
+        requirement: "Lifecycle commands cannot proceed while blocked",
+        scope: "project",
+      }],
     });
     expect(payload.applied).toBeUndefined();
     expect(lifecycleExitCode(report)).toBe(2);
@@ -2716,7 +2772,7 @@ describe("Machine surface JSON and exit codes", () => {
       }],
       items: [{ kind: "addition", project: "/project-a" }],
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-      blockers: [{ message: "still blocked", project: "/project-a" }],
+      blockers: [fixtureBlocker("still blocked", "/project-a")],
     });
 
     const payload = JSON.parse(
@@ -2724,11 +2780,20 @@ describe("Machine surface JSON and exit codes", () => {
     ) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       command: "apply",
       outcome: "error",
       error: "post-apply verification failed: boom",
-      blockers: [{ message: "still blocked", project: "/project-a" }],
+      blockers: [{
+        affectedItems: [],
+        kind: "occupied-output",
+        message: "still blocked",
+        problem: "still blocked",
+        project: "/project-a",
+        remedy: "Resolve the reported blocker, then retry",
+        requirement: "Lifecycle commands cannot proceed while blocked",
+        scope: "project",
+      }],
       applied: {
         outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
       },
@@ -2798,7 +2863,7 @@ describe("Machine surface JSON and exit codes", () => {
         formatLifecycleToolErrorJson(command, "Local Configuration is missing"),
       ) as Record<string, unknown>;
       expect(payload).toMatchObject({
-        schemaVersion: 1,
+        schemaVersion: 2,
         command,
         outcome: "error",
         error: "Local Configuration is missing",

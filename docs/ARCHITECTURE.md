@@ -119,10 +119,14 @@ Commands separate binding authoring from global reconciliation:
 JSON serializer in `cli/presentation.ts`: exit `0` means no tool error and no
 blockers (JSON `outcome` may still be `attention` for pending work), exit `1`
 is a tool error (`outcome: "error"` under `--json` when flags were accepted),
-and exit `2` means blockers are present. The JSON contract is versioned
-(`schemaVersion: 1`) and is not stability-guaranteed before 1.0. Temporary
+and exit `2` means blockers are present. The lifecycle JSON contract is versioned
+(`schemaVersion: 2`), serializes every Blocker directly from its exhaustive
+structured record (`kind`, `scope`, Project identity when scoped, `message`,
+`problem`, `requirement`, `remedy`, and `affectedItems`) without parsing rendered
+prose, and is not stability-guaranteed before 1.0. Blocked temporary-installation
+JSON advances to the same versioned structured blocker records. Temporary
 installation receipts use the same exit matrix (`0` / `1` / `2`) with their own
-versioned JSON schema.
+versioned JSON schema and carry no blocker records.
 
 `unbind` changes desired Project Binding state and directs the user to global
 `preview`/`apply` only when an Installation Manifest shows that generated output

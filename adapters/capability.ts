@@ -1,7 +1,10 @@
 import type { SupportedHost } from "../schemas/local-configuration.js";
 
+/** The affected-item evidence an Adapter capability failure can carry: a Host or a path. */
+export type AdapterCapabilityAffectedItemKind = "host" | "path";
+
 export interface AdapterCapabilityAffectedItem {
-  readonly kind: string;
+  readonly kind: AdapterCapabilityAffectedItemKind;
   readonly value: string;
 }
 
