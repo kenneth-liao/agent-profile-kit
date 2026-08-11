@@ -11,11 +11,18 @@ import {
   formatApplyJson,
   formatApplyVerificationFailureJson,
   formatBlockedApplyJson,
+  formatHostInventoryHuman,
+  formatInfoHuman,
+  formatInventoryIndex,
   formatLifecycleJson,
   formatLifecycleReport,
   formatLifecycleToolErrorJson,
+  formatProfileInventoryHuman,
+  formatProjectInventoryHuman,
   formatTemporaryInstallationHuman,
+  formatTemporaryInventoryHuman,
   formatUninstallResult,
+  formatValidationResult,
   presentTemporaryBlockedMessages,
   type TemporaryInstallationReceiptView,
   displayPath,
@@ -23,6 +30,7 @@ import {
   INTERNAL_ONLY_DEFAULT_TERMS,
   NON_CURRENT_STATE_ORDER,
 } from "../cli/presentation.js";
+import type { ApplicationInfo } from "../installer/info.js";
 import {
   renderHumanOutput,
   type TerminalPresentationContext,
@@ -2898,5 +2906,201 @@ describe("Machine surface JSON and exit codes", () => {
       hosts: ["codex"],
       state: "addition",
     }]);
+  });
+});
+
+describe("responsive inventory, info, validation, and teardown human surfaces", () => {
+  const context = (width: number): TerminalPresentationContext => ({
+    color: false,
+    interactive: true,
+    width,
+  });
+
+  test("info wraps prose at the selected width and keeps location lines whole", () => {
+    const info: ApplicationInfo = {
+      configurationState: "current",
+      engineVersion: "0.67.0",
+      installationState: "/home/.agents/agent-profile-kit/state/manifest.yaml",
+      localConfiguration: "/home/.agents/agent-profile-kit/config.yaml",
+      workspace: {
+        authored: "/home/.agents/agent-profile-kit/workspace",
+        canonical: "/home/.agents/agent-profile-kit/workspace",
+      },
+    };
+    const output = formatInfoHuman(info, { context: context(40) }, "/home", "/work");
+    for (const line of output.split("\n")) {
+      if (/^(?:Engine version|Workspace|Local Configuration|Installation State):/.test(line)) continue;
+      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
+    expect(output).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
+    expect(output).toContain("Local Configuration: ~/.agents/agent-profile-kit/config.yaml");
+    expect(output).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.yaml");
+    // Without a context the deterministic layout is preserved byte-for-byte.
+    expect(formatInfoHuman(info, {}, "/home", "/work")).toBe(
+      "Engine version: 0.67.0\n" +
+        "Workspace: ~/.agents/agent-profile-kit/workspace\n" +
+        "Local Configuration: ~/.agents/agent-profile-kit/config.yaml\n" +
+        "Installation State: ~/.agents/agent-profile-kit/state/manifest.yaml\n",
+    );
+  });
+
+  test("inventory index wraps topic descriptions at the selected width", () => {
+    const output = formatInventoryIndex({ context: context(40) });
+    for (const line of output.split("\n")) {
+      if (line.includes("apkit ")) continue;
+      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
+    expect(formatInventoryIndex()).toBe(
+      "Inventory topics:\n" +
+        "  apkit list projects\n" +
+        "    Project inventory from Local Configuration.\n" +
+        "    JSON example: apkit list projects --json\n" +
+        "  apkit list profiles\n" +
+        "    Profile inventory from the selected Workspace.\n" +
+        "    JSON example: apkit list profiles --json\n" +
+        "  apkit list hosts\n" +
+        "    Supported Agent Host inventory with Temporary Profile Installation eligibility.\n" +
+        "    JSON example: apkit list hosts --json\n" +
+        "  apkit list temporary\n" +
+        "    Active Temporary Profile Installation inventory from Installation State.\n" +
+        "    JSON example: apkit list temporary --json\n",
+    );
+  });
+
+  test("project inventory wraps a long problem clause while keeping Project identity whole", () => {
+    const project = "/home/projects/a-very-long-project-identity";
+    const output = formatProjectInventoryHuman(
+      [{
+        canonicalProject: project,
+        hosts: ["claude", "codex"],
+        problem: "Configured project root does not exist on this machine and cannot be reconciled.",
+        profile: "engineering",
+        project,
+      }],
+      { context: context(40) },
+      "/home",
+      "/work",
+    );
+    for (const line of output.split("\n")) {
+      if (line.includes("apkit ") || line.includes("~/projects/")) continue;
+      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
+    expect(output).toContain("Project: ~/projects/a-very-long-project-identity");
+    expect(formatProjectInventoryHuman(
+      [{
+        canonicalProject: project,
+        hosts: ["claude", "codex"],
+        problem: "Configured project root does not exist on this machine and cannot be reconciled.",
+        profile: "engineering",
+        project,
+      }],
+      {},
+      "/home",
+      "/work",
+    )).toBe(
+      "Projects (1):\n" +
+        "\n" +
+        "Project: ~/projects/a-very-long-project-identity\n" +
+        "  Profile: engineering\n" +
+        "  Hosts: claude, codex\n" +
+        "  Problem: Configured project root does not exist on this machine and cannot be reconciled.\n" +
+        "\n" +
+        "Next: Run apkit status for Project lifecycle diagnostics.\n",
+    );
+  });
+
+  test("host, profile, and temporary inventory wrap prose at the selected width", () => {
+    const hosts = formatHostInventoryHuman(
+      [
+        { host: "claude", supportsTemporaryProfileInstallation: true },
+        { host: "grok", supportsTemporaryProfileInstallation: false },
+      ],
+      { context: context(40) },
+    );
+    for (const line of hosts.split("\n")) {
+      if (line.includes("apkit ") || line.includes("Temporary Profile Installation:")) continue;
+      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
+    expect(hosts).toContain("Host: claude");
+    expect(hosts).toContain("Temporary Profile Installation: supported");
+
+    const profiles = formatProfileInventoryHuman(
+      [{ contextModules: 2, id: "engineering", skills: 3 }],
+      { context: context(40) },
+    );
+    for (const line of profiles.split("\n")) {
+      if (line.includes("apkit ")) continue;
+      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
+    expect(profiles).toContain("Profile: engineering");
+
+    const temporary = formatTemporaryInventoryHuman(
+      [{
+        host: "codex",
+        profileId: "coding",
+        project: "/home/projects/temporary-project",
+        temporaryInstallationId: "temporary-installation-opaque-id",
+      }],
+      { context: context(40) },
+      "/home",
+      "/work",
+    );
+    for (const line of temporary.split("\n")) {
+      if (line.includes("apkit ") || line.includes("~/projects/") || line.startsWith("Temporary installation:")) continue;
+      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
+    expect(temporary).toContain("Project: ~/projects/temporary-project");
+    expect(formatTemporaryInventoryHuman([], {}, "/home", "/work")).toBe(
+      "No Temporary Profile Installations are active.\n" +
+        "Next: Run apkit install-temp <profile> <project> --host <host>.\n",
+    );
+  });
+
+  test("validation wraps long warning prose and keeps the count clause whole", () => {
+    const output = formatValidationResult({
+      bindings: 2,
+      hosts: ["claude", "codex"],
+      profiles: ["engineering"],
+      warnings: [
+        "This is an unusually long validation warning that must wrap cleanly at a narrow terminal measure.",
+      ],
+    }, { context: context(40) });
+    for (const line of output.split("\n")) {
+      if (line.includes("apkit ") || line.includes("(2 Profile")) continue;
+      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
+    expect(formatValidationResult({
+      bindings: 0,
+      hosts: [],
+      profiles: [],
+      warnings: [],
+    })).toBe(
+      "Workspace and Local Configuration valid (0 Profiles, 0 Project Bindings)\n" +
+        "Profiles found: none\n" +
+        "Hosts bound: none\n",
+    );
+  });
+
+  test("uninstall wraps prose at the selected width, keeps paths whole, and preserves the empty state", () => {
+    const output = formatUninstallResult({
+      projects: [{
+        outputs: [".agent-profile-kit/codex/context.md"],
+        project: "/home/projects/api",
+        repositoryExclusions: [],
+      }],
+    }, { context: context(40) });
+    expect(output).toContain("Project: /home/projects/api");
+    expect(output).toContain(".agent-profile-kit/codex/context.md");
+    const prose = output.split("\n").find((line) => line.startsWith("Removed proven"));
+    expect(prose).toBeDefined();
+    expect(prose!.length).toBeLessThanOrEqual(40);
+
+    expect(formatUninstallResult({ projects: [] })).toBe(
+      "No ordinary Agent Profile Kit-owned output is installed.\n\nProject Bindings preserved.\n",
+    );
+    const wrappedEmpty = formatUninstallResult({ projects: [] }, { context: context(40) });
+    for (const line of wrappedEmpty.split("\n")) {
+      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
   });
 });

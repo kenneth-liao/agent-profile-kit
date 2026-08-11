@@ -6450,6 +6450,82 @@ describe("responsive lifecycle reports", () => {
   });
 });
 
+describe("shared presentation boundary", () => {
+  test("inventory, info, and validation views wrap at interactive width while pipes and JSON stay deterministic", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const projectPath = project("agent-profile-kit-boundary-");
+    const workspace = workspacePath(home);
+
+    const unbreakableProject = (line: string) => line.includes(projectPath);
+    const unbreakableApkit = (line: string) => line.includes("apkit ");
+    const structuralLabel = (line: string) =>
+      /^\s*(?:Engine version|Workspace|Local Configuration|Installation State|Profiles found|Hosts bound|Project:|Removed generated paths:|Cleaned Git exclusions:|Project Bindings preserved\.|Temporary installation:|Temporary Profile Installation:)/.test(line);
+    const usageLine = (line: string) => line.startsWith("Usage:");
+
+    const assertions: Array<{
+      arguments_: readonly string[];
+      readonly exclude?: (line: string) => boolean;
+      readonly exitCode?: number;
+    }> = [
+      { arguments_: ["bind", "coding", projectPath, "--host", "codex"], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) },
+      { arguments_: ["list"], exclude: unbreakableApkit },
+      { arguments_: ["list", "hosts"], exclude: (line) => unbreakableApkit(line) || structuralLabel(line) },
+      { arguments_: ["list", "profiles"], exclude: unbreakableApkit },
+      { arguments_: ["list", "temporary"], exclude: unbreakableApkit },
+      { arguments_: ["list", "projects"], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) || structuralLabel(line) },
+      { arguments_: ["info"], exclude: structuralLabel },
+      { arguments_: ["validate"], exclude: structuralLabel },
+      { arguments_: ["uninstall"], exclude: structuralLabel },
+      { arguments_: ["init"], exclude: (line) => line.includes(workspace) },
+      { arguments_: ["unbind", projectPath], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) || structuralLabel(line) },
+      { arguments_: ["help", "status"], exclude: (line) => usageLine(line) || unbreakableApkit(line) || /^(?:Purpose|Writes|Next|Supported Hosts|Examples):/.test(line) },
+      { arguments_: ["unknown-command"], exclude: (line) => usageLine(line) || line.startsWith("apkit:"), exitCode: 1 },
+      { arguments_: ["bind"], exclude: (line) => usageLine(line) || line.startsWith("apkit:"), exitCode: 1 },
+    ];
+
+    for (const { arguments_, exclude = () => false, exitCode = 0 } of assertions) {
+      const narrow = await runCliInPty(home, 40, ...arguments_);
+      const pipedNarrow = await runCliWithEnvironment(home, { COLUMNS: "40" }, ...arguments_);
+      const pipedWide = await runCliWithEnvironment(home, { COLUMNS: "160" }, ...arguments_);
+      expectExitCode(narrow, exitCode);
+      expectExitCode(pipedNarrow, exitCode);
+      expectExitCode(pipedWide, exitCode);
+      expect(pipedNarrow.stdout).toBe(pipedWide.stdout);
+      expect(pipedNarrow.stderr).toBe(pipedWide.stderr);
+      expect(`${pipedNarrow.stdout}${pipedNarrow.stderr}`).not.toMatch(/\u001b\[/);
+      const output = `${narrow.stdout}${narrow.stderr}`;
+      for (const line of output.split("\n")) {
+        if (exclude(line)) continue;
+        expect(
+          line.length,
+          `apkit ${arguments_.join(" ")} line exceeds TTY width: ${line}`,
+        ).toBeLessThanOrEqual(40);
+      }
+    }
+
+    // Machine surfaces stay byte-identical across widths and ANSI-free.
+    for (const arguments_ of [
+      ["list", "projects", "--json"],
+      ["list", "profiles", "--json"],
+      ["list", "hosts", "--json"],
+      ["list", "temporary", "--json"],
+      ["info", "--json"],
+      ["preview", "--json"],
+      ["status", "--json"],
+    ] as const) {
+      const narrow = await runCliWithEnvironment(home, { COLUMNS: "40" }, ...arguments_);
+      const wide = await runCliWithEnvironment(home, { COLUMNS: "160" }, ...arguments_);
+      expectExitCode(narrow, 0);
+      expectExitCode(wide, 0);
+      expect(narrow.stdout).toBe(wide.stdout);
+      expect(narrow.stdout).not.toMatch(/\u001b\[/);
+    }
+  });
+});
+
 describe("delayed interactive progress", () => {
   test("interactive long-running preview shows delayed progress cleared before the final report", async () => {
     const home = isolatedHome();
@@ -6655,8 +6731,20 @@ describe("apkit root help", () => {
         .split("\n")
         .find((line) => new RegExp(`^\\s*${command.name}\\b`).test(line));
       expect(rootLine).toBeDefined();
-      const purpose = result.stdout.match(/^Purpose: (.+)$/m)?.[1];
-      expect(purpose).toBeDefined();
+      // Purpose prose wraps to the deterministic pipe width; join the wrapped
+      // continuation lines so the comparison stays word-for-word.
+      const purposeLines = result.stdout.split("\n");
+      const purposeIndex = purposeLines.findIndex((line) => line.startsWith("Purpose: "));
+      const purposeContinuations: string[] = [];
+      for (const line of purposeLines.slice(purposeIndex + 1)) {
+        if (!line.startsWith("  ")) break;
+        purposeContinuations.push(line.trim());
+      }
+      const purpose = [
+        purposeLines[purposeIndex]!.slice("Purpose: ".length),
+        ...purposeContinuations,
+      ].join(" ");
+      expect(purpose.length).toBeGreaterThan(0);
       const rootLines = root.stdout.split("\n");
       const rootLineIndex = rootLines.indexOf(rootLine!);
       const descriptionLines: string[] = [];
@@ -7093,9 +7181,12 @@ describe("apkit list", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Inventory topics:");
+    // Prose wraps to the deterministic pipe width; descriptions must remain
+    // present word-for-word, so compare with whitespace collapsed.
+    const collapsed = result.stdout.replace(/\s+/g, " ");
     for (const topic of INVENTORY_TOPICS) {
       expect(result.stdout).toContain(`apkit list ${topic.name}`);
-      expect(result.stdout).toContain(topic.description);
+      expect(collapsed).toContain(topic.description);
       expect(result.stdout).toContain(`apkit list ${topic.name} --json`);
     }
     expect(existsSync(configPath(home))).toBe(false);

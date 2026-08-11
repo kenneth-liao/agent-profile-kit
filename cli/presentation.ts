@@ -342,6 +342,7 @@ export function displayProjectPath(
 
 export function formatInfoHuman(
   info: ApplicationInfo,
+  options: { readonly context?: TerminalPresentationContext } = {},
   home = homedir(),
   cwd = process.cwd(),
 ): string {
@@ -357,11 +358,29 @@ export function formatInfoHuman(
           home,
         )})`
       : displayPath(info.workspace.canonical, info.workspace.authored, cwd, home);
-  return (
+  const localConfiguration = displayPath(
+    info.localConfiguration,
+    info.localConfiguration,
+    cwd,
+    home,
+  );
+  const installationState = displayPath(
+    info.installationState,
+    info.installationState,
+    cwd,
+    home,
+  );
+  return responsiveHumanText(
     `Engine version: ${info.engineVersion}\n` +
-    `Workspace: ${workspace}\n` +
-    `Local Configuration: ${displayPath(info.localConfiguration, info.localConfiguration, cwd, home)}\n` +
-    `Installation State: ${displayPath(info.installationState, info.installationState, cwd, home)}\n`
+      `Workspace: ${workspace}\n` +
+      `Local Configuration: ${localConfiguration}\n` +
+      `Installation State: ${installationState}\n`,
+    options.context,
+    [
+      `Workspace: ${workspace}`,
+      `Local Configuration: ${localConfiguration}`,
+      `Installation State: ${installationState}`,
+    ],
   );
 }
 
@@ -424,7 +443,9 @@ export function formatInfoToolErrorJson(
   });
 }
 
-export function formatInventoryIndex(): string {
+export function formatInventoryIndex(
+  options: { readonly context?: TerminalPresentationContext } = {},
+): string {
   const lines = ["Inventory topics:"];
   for (const topic of INVENTORY_TOPICS) {
     lines.push(
@@ -433,38 +454,49 @@ export function formatInventoryIndex(): string {
       `    JSON example: ${COMMAND_NAME} list ${topic.name} --json`,
     );
   }
-  return `${lines.join("\n")}\n`;
+  return responsiveHumanText(`${lines.join("\n")}\n`, options.context);
 }
 
 export function formatProjectInventoryHuman(
   projects: readonly ProjectInventoryRecord[],
+  options: { readonly context?: TerminalPresentationContext } = {},
   home = homedir(),
   cwd = process.cwd(),
 ): string {
   if (projects.length === 0) {
-    return (
+    return responsiveHumanText(
       "No Projects are configured.\n" +
-      `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.\n`
+        `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.\n`,
+      options.context,
     );
   }
 
   const lines = [`Projects (${projects.length}):`];
+  const copyable: string[] = [];
   for (const project of projects) {
+    const presented = displayProjectPath(
+      project.canonicalProject ?? project.project,
+      project.project,
+      cwd,
+      home,
+    );
     lines.push(
       "",
-      `Project: ${displayProjectPath(
-        project.canonicalProject ?? project.project,
-        project.project,
-        cwd,
-        home,
-      )}`,
+      `Project: ${presented}`,
       `  Profile: ${project.profile}`,
       `  Hosts: ${project.hosts.join(", ")}`,
     );
     if (project.problem !== null) lines.push(`  Problem: ${project.problem}`);
+    copyable.push(
+      `Project: ${presented}`,
+      presented,
+      project.canonicalProject ?? project.project,
+      project.project,
+      project.hosts.join(", "),
+    );
   }
   lines.push("", `Next: Run ${COMMAND_NAME} status for Project lifecycle diagnostics.`);
-  return `${lines.join("\n")}\n`;
+  return responsiveHumanText(`${lines.join("\n")}\n`, options.context, copyable);
 }
 
 interface ListInventoryMachineBase<Topic extends InventoryTopic> {
@@ -537,11 +569,13 @@ export function formatProjectInventoryToolErrorJson(message: string): string {
 
 export function formatProfileInventoryHuman(
   profiles: readonly ProfileInventoryRecord[],
+  options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
   if (profiles.length === 0) {
-    return (
+    return responsiveHumanText(
       "No Profiles are available.\n" +
-      `Next: Add a Profile to the selected Workspace, then run ${COMMAND_NAME} list profiles.\n`
+        `Next: Add a Profile to the selected Workspace, then run ${COMMAND_NAME} list profiles.\n`,
+      options.context,
     );
   }
 
@@ -555,7 +589,7 @@ export function formatProfileInventoryHuman(
     );
   }
   lines.push("", `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.`);
-  return `${lines.join("\n")}\n`;
+  return responsiveHumanText(`${lines.join("\n")}\n`, options.context);
 }
 
 type ProfileInventoryMachineBase = ListInventoryMachineBase<"profiles">;
@@ -595,17 +629,20 @@ export function formatProfileInventoryToolErrorJson(message: string): string {
 
 export function formatHostInventoryHuman(
   hosts: readonly HostInventoryRecord[],
+  options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
+  const capability = (host: HostInventoryRecord): string =>
+    `Temporary Profile Installation: ${host.supportsTemporaryProfileInstallation ? "supported" : "not supported"}`;
   const lines = [`Hosts (${hosts.length}):`];
   for (const host of hosts) {
     lines.push(
       "",
       `Host: ${host.host}`,
-      `  Temporary Profile Installation: ${host.supportsTemporaryProfileInstallation ? "supported" : "not supported"}`,
+      `  ${capability(host)}`,
     );
   }
   lines.push("", `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.`);
-  return `${lines.join("\n")}\n`;
+  return responsiveHumanText(`${lines.join("\n")}\n`, options.context, hosts.map(capability));
 }
 
 type HostInventoryMachineBase = ListInventoryMachineBase<"hosts">;
@@ -627,28 +664,38 @@ export function formatHostInventoryJson(
 
 export function formatTemporaryInventoryHuman(
   installations: readonly TemporaryInventoryRecord[],
+  options: { readonly context?: TerminalPresentationContext } = {},
   home = homedir(),
   cwd = process.cwd(),
 ): string {
   if (installations.length === 0) {
-    return (
+    return responsiveHumanText(
       "No Temporary Profile Installations are active.\n" +
-      `Next: Run ${COMMAND_NAME} install-temp <profile> <project> --host <host>.\n`
+        `Next: Run ${COMMAND_NAME} install-temp <profile> <project> --host <host>.\n`,
+      options.context,
     );
   }
 
   const lines = [`Temporary Profile Installations (${installations.length}):`];
+  const copyable: string[] = [];
   for (const installation of installations) {
+    const presented = displayProjectPath(installation.project, installation.project, cwd, home);
     lines.push(
       "",
       `Temporary installation: ${installation.temporaryInstallationId}`,
-      `  Project: ${displayProjectPath(installation.project, installation.project, cwd, home)}`,
+      `  Project: ${presented}`,
       `  Profile: ${installation.profileId}`,
       `  Host: ${installation.host}`,
     );
+    copyable.push(
+      `Temporary installation: ${installation.temporaryInstallationId}`,
+      `Project: ${presented}`,
+      presented,
+      installation.project,
+    );
   }
   lines.push("", `Next: Run ${COMMAND_NAME} remove-temp <temporary-installation-id> when finished.`);
-  return `${lines.join("\n")}\n`;
+  return responsiveHumanText(`${lines.join("\n")}\n`, options.context, copyable);
 }
 
 type TemporaryInventoryMachineBase = ListInventoryMachineBase<"temporary">;
@@ -696,22 +743,34 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled output kind: ${String(value)}`);
 }
 
-export function formatValidationResult(result: ValidationResult): string {
+export function formatValidationResult(
+  result: ValidationResult,
+  options: { readonly context?: TerminalPresentationContext } = {},
+): string {
   const profileCount = result.profiles.length;
-  return `Workspace and Local Configuration valid (` +
-    `${plural(profileCount, "Profile")}, ${plural(result.bindings, "Project Binding")})\n` +
+  const countClause = `(${plural(profileCount, "Profile")}, ${plural(result.bindings, "Project Binding")})`;
+  const output = `Workspace and Local Configuration valid ${countClause}\n` +
     `Profiles found: ${profileCount === 0 ? "none" : result.profiles.join(", ")}\n` +
     `Hosts bound: ${result.hosts.length === 0 ? "none" : result.hosts.join(", ")}\n` +
     result.warnings.map((warning) => `Warning: ${warning}\n`).join("");
+  return responsiveHumanText(output, options.context, [
+    countClause,
+    result.profiles.join(", "),
+    result.hosts.join(", "),
+  ]);
 }
 
-export function formatUninstallResult(result: UninstallResult): string {
+export function formatUninstallResult(
+  result: UninstallResult,
+  options: { readonly context?: TerminalPresentationContext } = {},
+): string {
   const projectCount = result.projects.length;
   const lines = [
     projectCount === 0
       ? "No ordinary Agent Profile Kit-owned output is installed."
       : `Removed proven Agent Profile Kit-owned output from ${plural(projectCount, "Project")}.`,
   ];
+  const copyable: string[] = [];
   for (const project of result.projects) {
     const presentedProject = displayProjectPath(project.project);
     lines.push(
@@ -720,6 +779,7 @@ export function formatUninstallResult(result: UninstallResult): string {
       "  Removed generated paths:",
       ...project.outputs.map((path) => `  - ${path}`),
     );
+    copyable.push(`Project: ${presentedProject}`, presentedProject, project.project);
     if (project.repositoryExclusions.length > 0) {
       lines.push(
         "  Cleaned Git exclusions:",
@@ -739,7 +799,7 @@ export function formatUninstallResult(result: UninstallResult): string {
   if (projectCount > 0) {
     lines.push(`Next: Run ${COMMAND_NAME} unbind for bindings you no longer want, or ${COMMAND_NAME} apply to reinstall.`);
   }
-  return `${lines.join("\n")}\n`;
+  return responsiveHumanText(`${lines.join("\n")}\n`, options.context, copyable);
 }
 
 function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputSummary {
@@ -1692,11 +1752,18 @@ function wrappedLifecycleLine(
     "value",
     "\u0001",
   );
+  const protectedProse = protectCommandInvocations(
+    protectCopyableValues(prose, copyableValueProtector, copyableMarker),
+    commandMarker,
+  );
+  // When the line already fits the selected measure, keep it intact: command
+  // invocations and copyable values move to dedicated lines only when wrapping
+  // is actually required (DEC-003).
+  if (prose.length <= Math.max(1, width - indentation.length - 2)) {
+    return [line];
+  }
   const wrapped = wrapLifecycleText(
-    protectCommandInvocations(
-      protectCopyableValues(prose, copyableValueProtector, copyableMarker),
-      commandMarker,
-    ),
+    protectedProse,
     Math.max(1, width - indentation.length - 2),
     commandMarker,
   ).map((part) =>
@@ -1769,6 +1836,26 @@ function responsiveLifecycleOutput(
     return wrappedLifecycleLine(line, context.width, copyableValueProtector);
   });
   return lines.join("\n");
+}
+
+/**
+ * Shared responsive wrapping for human surfaces that carry no lifecycle
+ * Context fences: inventory, info, validation, teardown, authoring, and error
+ * views receive the same trusted width policy as lifecycle reports. Structural
+ * copyable values (paths, identities, command lines) stay whole on dedicated
+ * lines while prose wraps to the selected measure.
+ */
+export function responsiveHumanText(
+  text: string,
+  context: TerminalPresentationContext | undefined,
+  copyableValues: readonly string[] = [],
+): string {
+  if (context === undefined) return text;
+  const copyableValueProtector = createCopyableValueProtector(copyableValues);
+  return text
+    .split("\n")
+    .flatMap((line) => wrappedLifecycleLine(line, context.width, copyableValueProtector))
+    .join("\n");
 }
 
 interface LifecycleHumanOptions {

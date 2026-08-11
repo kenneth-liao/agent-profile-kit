@@ -21,7 +21,12 @@ uninstall; unbind; missing and outdated Host CLIs; and a three-project,
 four-Host installation (Claude, Codex, Grok, Pi) including a Skills-only Profile,
 a non-Git project, and a disabled-model-invocation Skill. These captured excerpts
 predate the `apkit` rename and deliberately preserve the executable spelling that
-produced them.
+produced them. The presentation-gap evidence pass behind spec #154 measured root
+help at 129 columns, focused help at 167, focused guides at 154, and blocked
+lifecycle output at 201; a real 12-Project `status` took about 4.9 seconds,
+`preview` about 9.2 seconds, and a blocked run carried 42 blockers (41 per-path
+instances of one tracked-output class). Those observations are the basis for
+[UJ-24](#uj-24) through [UJ-30](#uj-30).
 
 ---
 
@@ -29,7 +34,7 @@ produced them.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]`, `list temporary [--json]` | Understand the command surface, command-specific guidance, which Projects are configured, which Profiles are available from the selected Workspace, which Hosts are supported, and which Temporary Profile Installations can be removed by identity |
+| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]`, `list temporary [--json]` | Understand the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, which Hosts are supported, and which Temporary Profile Installations can be removed by identity |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
@@ -41,10 +46,12 @@ produced them.
 | 10 | Re-sync | `status [--json]` → `preview` → `apply` | Notice Workspace drift and reconcile it |
 | 11 | Recover | `status`, `apply`, `uninstall` | Get unstuck from drifted, missing, or malformed state |
 | 12 | Tear down | `uninstall`, `unbind` | Remove output and/or desired state, with the boundary made clear |
+| 13 | Temporary Profile Installations | `install-temp <profile> <project> --host <host> [--json]`, `list temporary [--json]`, `remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently |
 
 Stages 1–8 are the first-run path. Stages 10–12 are the returning-user path.
 Stage 4 is the only stage with no CLI surface at all, and stage 9 the only one
-the CLI never speaks to.
+the CLI never speaks to. Stage 13 is the receipt-owned temporary flow, usable
+alongside either path.
 
 ---
 
@@ -81,8 +88,11 @@ Temporary Profile Installation capability sets without probing the machine.
 `list temporary` reads active Temporary Profile Installations from Installation
 State, preserving each durable identity alongside its Project, Profile, and Host
 so `remove-temp` can target the correct receipt; it does not enter ordinary
-Project lifecycle reconciliation. It is distinct from `status`, which remains the
-ordinary Project lifecycle diagnostic.
+Project lifecycle reconciliation. `info [--json]` reports the engine version and
+the selected Workspace, Local Configuration, and Installation State locations
+without reading bindings, artifacts, credentials, or Installation State
+contents. It is distinct from `status`, which remains the ordinary Project
+lifecycle diagnostic.
 
 Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
 
@@ -90,7 +100,8 @@ Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/age
 
 ```
 $ apkit init
-Initialized Agent Profile Kit Workspace and Local Configuration at <workspace>
+Initialized Agent Profile Kit Workspace and Local Configuration at
+<workspace>
 Next: from the project you want to try, run apkit bind example --host codex
 ```
 
@@ -347,6 +358,44 @@ Gaps: ~~[UJ-03](#uj-03)~~, ~~[UJ-08](#uj-08)~~, ~~[UJ-09](#uj-09)~~
 (shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124)).
 <!-- historical-command-excerpts:end -->
 
+### 13. Temporary Profile Installations
+
+A side journey for automation or one-off inspection, owned by a temporary
+installation receipt rather than a Project Binding (ADR-0015):
+
+```
+$ apkit install-temp coding ~/scratch --host codex
+Installed Profile temporarily
+  Profile: coding
+  Host: codex
+  Project: ~/scratch
+  Temporary installation: temporary-installation-…
+
+$ apkit list temporary
+Temporary Profile Installations (1):
+
+Temporary installation: temporary-installation-…
+  Project: ~/scratch
+  Profile: coding
+  Host: codex
+
+$ apkit remove-temp temporary-installation-…
+Removed temporary Profile installation
+  Temporary installation: temporary-installation-…
+  Project: ~/scratch
+```
+
+The temporary identity survives on the receipt and in `list temporary`, so
+`remove-temp` stays discoverable without touching ordinary Project lifecycle
+state or Local Configuration. Width, styling, and wrapping behave exactly like
+the ordinary lifecycle surfaces through the shared presentation boundary
+(ADR-0016).
+
+Gaps: ~~[UJ-24](#uj-24)~~, ~~[UJ-27](#uj-27)~~
+(shipped in [#162](https://github.com/kenneth-liao/agent-profile-kit/issues/162),
+[#166](https://github.com/kenneth-liao/agent-profile-kit/issues/166), and
+[#171](https://github.com/kenneth-liao/agent-profile-kit/issues/171)).
+
 ---
 
 ## Gap register
@@ -361,9 +410,16 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ~~[UJ-04](#uj-04)~~ | ~~High~~ | ~~8~~ | ~~"Changes" means two things on one `apply` screen~~ — shipped in [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122) |
 | ~~[UJ-19](#uj-19)~~ | ~~High~~ | ~~11~~ | ~~Blocked results lead with a plan that cannot happen~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-21](#uj-21)~~ | ~~High~~ | ~~8, 9~~ | ~~No post-apply Host guidance; Codex can break silently~~ — shipped across [#118](https://github.com/kenneth-liao/agent-profile-kit/issues/118) and [#125](https://github.com/kenneth-liao/agent-profile-kit/issues/125) |
+| ~~[UJ-24](#uj-24)~~ | ~~High~~ | ~~1, 3, 7, 11~~ | ~~Fixed-width output overflows any real terminal and ignores `COLUMNS`~~ — shipped in [#156](https://github.com/kenneth-liao/agent-profile-kit/issues/156), [#159](https://github.com/kenneth-liao/agent-profile-kit/issues/159), [#166](https://github.com/kenneth-liao/agent-profile-kit/issues/166), and [#173](https://github.com/kenneth-liao/agent-profile-kit/issues/173) |
+| ~~[UJ-25](#uj-25)~~ | ~~High~~ | ~~11~~ | ~~One blocker class repeats once per path and buries the remedy~~ — shipped in [#167](https://github.com/kenneth-liao/agent-profile-kit/issues/167), [#168](https://github.com/kenneth-liao/agent-profile-kit/issues/168), [#169](https://github.com/kenneth-liao/agent-profile-kit/issues/169), and [#172](https://github.com/kenneth-liao/agent-profile-kit/issues/172) |
+| ~~[UJ-26](#uj-26)~~ | ~~High~~ | ~~7, 10~~ | ~~Long inspections leave the terminal blank~~ — shipped in [#170](https://github.com/kenneth-liao/agent-profile-kit/issues/170) |
 | ~~[UJ-05](#uj-05)~~ | ~~Med-High~~ | ~~11~~ | ~~Blocked `apply` reports the same blockers three times~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-20](#uj-20)~~ | ~~Med-High~~ | ~~5, 7, 8~~ | ~~Hosts are invisible after `bind`~~ — shipped in [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) |
 | ~~[UJ-22](#uj-22)~~ | ~~Med-High~~ | ~~7~~ | ~~Non-Git project output is never shown at all~~ — shipped in [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120) |
+| ~~[UJ-27](#uj-27)~~ | ~~Med-High~~ | ~~1~~ | ~~No read-only inventory or orientation surface for Projects, Profiles, Hosts, temporary identities, or locations~~ — shipped in [#157](https://github.com/kenneth-liao/agent-profile-kit/issues/157), [#160](https://github.com/kenneth-liao/agent-profile-kit/issues/160), [#161](https://github.com/kenneth-liao/agent-profile-kit/issues/161), [#162](https://github.com/kenneth-liao/agent-profile-kit/issues/162), and [#163](https://github.com/kenneth-liao/agent-profile-kit/issues/163) |
+| ~~[UJ-28](#uj-28)~~ | ~~Med-High~~ | ~~1~~ | ~~No visual hierarchy, semantic color, or compact product identity~~ — shipped in [#164](https://github.com/kenneth-liao/agent-profile-kit/issues/164) |
+| ~~[UJ-29](#uj-29)~~ | ~~Med-High~~ | ~~1, 12~~ | ~~Command wording and Project identity are inconsistent across surfaces~~ — wording shipped in [#165](https://github.com/kenneth-liao/agent-profile-kit/issues/165); identity shipped in [#171](https://github.com/kenneth-liao/agent-profile-kit/issues/171) (alongside [UJ-07](#uj-07)) |
+| ~~[UJ-30](#uj-30)~~ | ~~Med-High~~ | ~~3~~ | ~~The full guide prints hundreds of lines without a compact index~~ — shipped in [#159](https://github.com/kenneth-liao/agent-profile-kit/issues/159) |
 | ~~[UJ-06](#uj-06)~~ | ~~Medium~~ | ~~11~~ | ~~One blocker fact rendered three ways per screen~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-07](#uj-07)~~ | ~~Medium~~ | ~~5, 7, 11~~ | ~~Absolute paths remain in bind, blocker, exclusion, and diagnostic lines~~ — shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152) |
 | ~~[UJ-08](#uj-08)~~ | ~~Medium~~ | ~~12~~ | ~~`uninstall` output omits what it did and what it kept~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
@@ -620,6 +676,98 @@ next-action guidance is derived per project, preserves otherwise-actionable work
 alongside blocked work without claiming it can apply independently, and is
 omitted for projects with nothing to change.
 
+### ~~UJ-24~~
+~~Output is laid out for one fixed width: root help reaches 129 columns, focused
+help 167, focused guides 154, and blocked lifecycle output 201. Setting
+`COLUMNS=60` or `COLUMNS=160` changes nothing; the CLI has no terminal-width
+model and leaves wrapping to the terminal.~~
+
+Shipped across
+[#156](https://github.com/kenneth-liao/agent-profile-kit/issues/156) (root help),
+[#159](https://github.com/kenneth-liao/agent-profile-kit/issues/159) (guides),
+[#166](https://github.com/kenneth-liao/agent-profile-kit/issues/166) (lifecycle
+and temporary reports), and
+[#173](https://github.com/kenneth-liao/agent-profile-kit/issues/173)
+(inventory, info, validation, focused help, authoring, and teardown): prose
+wraps to the interactive terminal measure with a clamped readable range and a
+deterministic redirected width, while copyable paths, commands, and identities
+stay whole on dedicated lines. ADR-0016 records the boundary.
+
+### ~~UJ-25~~
+~~At scale, one blocker class repeats once per affected path and buries the
+remedy: a real 12-Project `status` produced 42 blockers, 41 of them per-path
+instances of the same tracked-output ownership conflict, each restating a
+201-column explanation.~~
+
+Shipped in
+[#167](https://github.com/kenneth-liao/agent-profile-kit/issues/167) and
+[#169](https://github.com/kenneth-liao/agent-profile-kit/issues/169) (typed
+emitters), [#168](https://github.com/kenneth-liao/agent-profile-kit/issues/168)
+(grouped tracked-output conflicts with one explanation and a capped affected
+list), and [#172](https://github.com/kenneth-liao/agent-profile-kit/issues/172)
+(the exhaustive structured contract and `schemaVersion: 2` JSON). The blocker
+watch item below remains active for any blocker family that can fire once per
+selected artifact.
+
+### ~~UJ-26~~
+~~A multi-Project `status` (~4.9s) or `preview` (~9.2s) leaves the interactive
+terminal blank until the report arrives, so the command appears hung.~~
+
+Shipped in [#170](https://github.com/kenneth-liao/agent-profile-kit/issues/170):
+interactive long-running `status` and `preview` show delayed, ephemeral,
+operation-level progress after a short anti-flicker threshold, cleared before
+the final report; redirected output, JSON, and non-interactive errors never
+carry progress bytes.
+
+### ~~UJ-27~~
+~~There is no CLI way to ask which Projects are bound, which Profiles exist,
+which Hosts are supported, which Temporary Profile Installations are active, or
+where the Workspace, Local Configuration, and Installation State live. `status`
+intentionally hides current Projects, and during an active temporary
+installation it can report no Projects while the identity `remove-temp` needs is
+unreachable.~~
+
+Shipped in [#157](https://github.com/kenneth-liao/agent-profile-kit/issues/157)
+(`info`), [#160](https://github.com/kenneth-liao/agent-profile-kit/issues/160)
+(`list projects`), [#161](https://github.com/kenneth-liao/agent-profile-kit/issues/161)
+(`list profiles`), [#163](https://github.com/kenneth-liao/agent-profile-kit/issues/163)
+(`list hosts`), and [#162](https://github.com/kenneth-liao/agent-profile-kit/issues/162)
+(`list temporary`): read-only inventory and location views never probe Hosts or
+write state, and `list temporary` recovers the durable identity for
+`remove-temp` without entering ordinary reconciliation.
+
+### ~~UJ-28~~
+~~Interactive output has no visual hierarchy beyond blank lines and indentation:
+no semantic color, no compact product identity, and no distinction between
+headings, commands, paths, outcomes, warnings, blockers, and consequences.~~
+
+Shipped in [#164](https://github.com/kenneth-liao/agent-profile-kit/issues/164):
+TTY-safe semantic styling and a compact ASCII identity appear only for
+color-capable interactive human output, `NO_COLOR` and `TERM=dumb` disable ANSI,
+and redirected output, JSON, errors, and the agent guide stay plain.
+
+### ~~UJ-29~~
+~~Root help describes `uninstall` as removing Projects, and human Project
+identity drifts: lifecycle output shows a concise home-relative Project while
+`init`, `uninstall`, `unbind`, and temporary-installation output return to long
+authored or canonical paths.~~
+
+Shipped in [#165](https://github.com/kenneth-liao/agent-profile-kit/issues/165)
+(wording): command summaries are authored task language and `uninstall`
+describes removing proven owned output while preserving Projects and bindings;
+and in [#171](https://github.com/kenneth-liao/agent-profile-kit/issues/171)
+(identity): every human command uses the one shortest-unambiguous Project
+presenter, recorded alongside [UJ-07](#uj-07).
+
+### ~~UJ-30~~
+~~The full no-argument `guide` prints a 651-line document, so requesting guidance
+unexpectedly floods the terminal.~~
+
+Shipped in [#159](https://github.com/kenneth-liao/agent-profile-kit/issues/159):
+no-argument `guide` prints a concise topic index, `guide --full` keeps the
+complete human guide, `guide --agent` keeps the agent reference, and focused
+topics stay complete and copyable at terminal width.
+
 ---
 
 ## Watch items
@@ -634,9 +782,10 @@ blockers — 11 Skill-collision and 10 discovery-root — each restating its ful
 explanation, for two underlying classes. This is distinct from
 [UJ-06](#uj-06): those are legitimately separate blockers, so deduplication does
 not apply; what they want is grouping into one explanation plus the affected
-list. The later recurrence against 41 tracked-output conflicts (see #154) is now
-grouped at its emission boundary into one typed blocker with one explanation and
-a capped affected-path list ([#168](https://github.com/kenneth-liao/agent-profile-kit/issues/168)), so
+list. The later recurrence against 41 tracked-output conflicts (see #154) is
+registered as the shipped gap [UJ-25](#uj-25): it is grouped at its emission
+boundary into one typed blocker with one explanation and a capped affected-path
+list ([#168](https://github.com/kenneth-liao/agent-profile-kit/issues/168)), so
 the tracked-output family cannot repeat its explanation. Other per-path emitters
 (occupied destinations, ownership failures) remain ungrouped, keeping this
 watch active: any blocker that can fire once per selected artifact could

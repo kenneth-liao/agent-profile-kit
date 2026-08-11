@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- Qualify the complete CLI as one presentation system: every human surface (help, guides, inventory, info, lifecycle, errors, teardown, and temporary installation) receives one trusted terminal-presentation context read once at the CLI boundary, prose wraps to the interactive measure while copyable paths, commands, and identities stay whole on dedicated lines, redirected output remains deterministic and ANSI-free, and machine JSON and exit codes are unchanged. Record the responsive-terminal-presentation, read-only-inventory, and typed-blocker boundaries in ADR-0016, add a packed discovery-to-lifecycle acceptance journey covering root help → list Profiles/Hosts → bind → list Projects → preview/apply → current status → install-temp → list temporary → remove-temp, and extend the living user journey with the discovery and Temporary Profile Installation stages plus the shipped presentation gaps ([#173](https://github.com/kenneth-liao/agent-profile-kit/issues/173)).
+
 ### Changed
 
 - Make the Blocker contract exhaustively structured: every Adapter and Installer emitter carries typed `kind`, `scope`, `problem`, `requirement`, `remedy`, and affected-item evidence from one closed typed vocabulary, message-only blockers can no longer be represented or emitted, and malformed internal blockers fail fast instead of degrading to a message. Lifecycle JSON and blocked `install-temp`/`remove-temp` JSON advance to `schemaVersion: 2` with each blocker serialized directly from its structured record, so no human-rendered prose must be parsed to construct machine output. Human default grouping and verbose completeness continue to derive from the same records, and exit codes, blocker ordering, ownership refusal, and Host behavior remain unchanged ([#172](https://github.com/kenneth-liao/agent-profile-kit/issues/172)).

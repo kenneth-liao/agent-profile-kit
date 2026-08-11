@@ -1169,4 +1169,78 @@ describe("project-bound release candidate", () => {
     expect(agent.stdout).toMatch(/optional scaffolding|workspace\.yaml/i);
     expect(agent.stdout).toMatch(/explicit Workspace path|legacy.*migration/i);
   });
+
+  test("packed discovery-to-lifecycle acceptance journey covers the complete CLI surface", async () => {
+    const home = isolatedHome();
+
+    // Discovery: root help introduces the command surface.
+    const help = await runCli(home, ["--help"]);
+    expectExitCode(help, 0);
+    expect(help.stdout).toContain("Commands:");
+
+    expectExitCode(await runCli(home, ["init"]), 0);
+    enableCodexHooks(home);
+    writeWorkspaceAuthoring(home);
+
+    // Inventory: supported Hosts and available Profiles from canonical sources.
+    const hosts = await runCli(home, ["list", "hosts"]);
+    expectExitCode(hosts, 0);
+    expect(hosts.stdout).toContain("Host: codex");
+
+    const profiles = await runCli(home, ["list", "profiles"]);
+    expectExitCode(profiles, 0);
+    expect(profiles.stdout).toContain("Profile: coding");
+
+    // Bind, then inventory the Project Binding.
+    const projectPath = project();
+    const bind = await runCli(home, ["bind", "coding", projectPath, "--host", "codex"]);
+    expectExitCode(bind, 0);
+    expect(bind.stdout).toContain("Recorded Project Binding");
+
+    const projects = await runCli(home, ["list", "projects"]);
+    expectExitCode(projects, 0);
+    expect(projects.stdout).toContain(projectPath);
+    expect(projects.stdout).toContain("Profile: coding");
+
+    // Preview and apply with a controlled Codex CLI on PATH.
+    const pathWithHosts = installControlledHosts(home);
+    const preview = await runCli(home, ["preview"], { path: pathWithHosts });
+    expectExitCode(preview, 0);
+    expect(preview.stdout).toContain("Ready to apply");
+
+    const apply = await runCli(home, ["apply"], { path: pathWithHosts });
+    expectExitCode(apply, 0);
+    expect(apply.stdout).toContain("Apply complete");
+
+    const status = await runCli(home, ["status"], { path: pathWithHosts });
+    expectExitCode(status, 0);
+    expect(status.stdout).toMatch(/All Projects are current/);
+
+    // Temporary journey: install-temp → list temporary → remove-temp.
+    const temporaryProject = project("agent-profile-kit-rc-temporary-");
+    const installTemp = await runCli(
+      home,
+      ["install-temp", "coding", temporaryProject, "--host", "codex", "--json"],
+      { path: pathWithHosts },
+    );
+    expectExitCode(installTemp, 0);
+    const receipt = JSON.parse(installTemp.stdout) as {
+      readonly temporaryInstallationId: string;
+    };
+
+    const listTemporary = await runCli(home, ["list", "temporary"], { path: pathWithHosts });
+    expectExitCode(listTemporary, 0);
+    expect(listTemporary.stdout).toContain(receipt.temporaryInstallationId);
+
+    const removeTemp = await runCli(
+      home,
+      ["remove-temp", receipt.temporaryInstallationId, "--json"],
+      { path: pathWithHosts },
+    );
+    expectExitCode(removeTemp, 0);
+
+    const emptyTemporary = await runCli(home, ["list", "temporary"], { path: pathWithHosts });
+    expectExitCode(emptyTemporary, 0);
+    expect(emptyTemporary.stdout).toContain("No Temporary Profile Installations are active.");
+  }, 30_000);
 });
