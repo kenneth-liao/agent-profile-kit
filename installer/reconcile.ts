@@ -370,20 +370,9 @@ export function manifestFor(
       fingerprint.fingerprint,
     ]),
   );
-  const resolvedReferences = new Set(
-    desired.resolvedProfile.artifacts.map((artifact) =>
-      artifactReferenceKey(artifact.reference),
-    ),
-  );
   const outputOrigins: Record<string, readonly ArtifactReference[]> = {};
+  // Origins were validated against the resolved Profile at the planning boundary.
   for (const output of desired.outputs) {
-    for (const origin of output.origins) {
-      if (!resolvedReferences.has(artifactReferenceKey(origin))) {
-        throw new Error(
-          `Adapter output '${output.path}' references artifact '${artifactReferenceKey(origin)}' that is not resolved for Profile '${desired.profile.id}'`,
-        );
-      }
-    }
     outputOrigins[output.path] = output.origins;
   }
   outputOrigins[markerRelativePath()] = [];

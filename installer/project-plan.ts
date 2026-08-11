@@ -508,6 +508,30 @@ export function normalizeAdapterPlans(
   return normalized;
 }
 
+/**
+ * Reject normalized output origins that reference an artifact outside the resolved
+ * Profile at the planning boundary, so every Project fails before any write.
+ */
+export function assertResolvedOutputOrigins(
+  outputs: readonly DesiredProjectOutput[],
+  resolvedProfile: ResolvedProfile,
+): void {
+  const resolvedReferences = new Set(
+    resolvedProfile.artifacts.map((artifact) =>
+      artifactReferenceKey(artifact.reference),
+    ),
+  );
+  for (const output of outputs) {
+    for (const origin of output.origins) {
+      if (!resolvedReferences.has(artifactReferenceKey(origin))) {
+        throw new Error(
+          `Adapter output '${output.path}' references artifact '${artifactReferenceKey(origin)}' that is not resolved for Profile '${resolvedProfile.profile.id}'`,
+        );
+      }
+    }
+  }
+}
+
 export interface BuildDesiredStateOptions {
   /**
    * When false, skip Host CLI/version/surface capability preflight (status and
@@ -570,8 +594,7 @@ export async function buildDesiredState(
     const diagnosticValues: string[] = [];
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
       resolvedProfile.skills,
-    );
-    // Capability and planning follow selected categories: Context machinery is optional.
+    );    // Capability and planning follow selected categories: Context machinery is optional.
     const requireContext = resolvedProfile.contexts.length > 0;
     const requireSkills = resolvedProfile.skills.length > 0;
     const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
@@ -761,6 +784,8 @@ export async function buildDesiredState(
       const exhaustive: never = host;
       throw new Error(`Unsupported Agent Host '${String(exhaustive)}'`);
     }
+    const outputs = normalizeAdapterPlans(plans);
+    assertResolvedOutputOrigins(outputs, resolvedProfile);
     installations.push({
       adapterVersion: adapterVersionFor(binding.hosts),
       artifactFingerprints,
@@ -769,7 +794,7 @@ export async function buildDesiredState(
       engineVersion: ENGINE_VERSION,
       gitProject,
       hostVersions,
-      outputs: normalizeAdapterPlans(plans),
+      outputs,
       profile,
       resolvedProfile,
       setupSteps: plans.flatMap((plan) =>

@@ -13,6 +13,7 @@ import {
 } from "../schemas/installation-manifest.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
+  assertResolvedOutputOrigins,
   buildDesiredState,
   type DesiredInstallation,
 } from "../installer/project-plan.js";
@@ -405,6 +406,33 @@ describe("Receipt provenance at the planning boundary", () => {
       { id: "team-rules", type: "context" },
       { id: "team-style", type: "context" },
     ]);
+  });
+
+  test("planning rejects output origins that reference artifacts outside the resolved Profile", async () => {
+    const home = temporaryDirectory("apk-origin-unknown-home-");
+    const project = temporaryDirectory("apk-origin-unknown-project-");
+    const installation = await desiredWithContextAndSkill(
+      home,
+      project,
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+    const withForeignOrigin = {
+      ...installation,
+      outputs: installation.outputs.map((output) =>
+        output.path === ".agents/skills/review-pr"
+          ? { ...output, origins: [{ id: "ghost-skill", type: "skill" as const }] }
+          : output,
+      ),
+    };
+
+    expect(() =>
+      assertResolvedOutputOrigins(
+        withForeignOrigin.outputs,
+        withForeignOrigin.resolvedProfile,
+      ),
+    ).toThrow(
+      /Adapter output '\.agents\/skills\/review-pr' references artifact 'skill:ghost-skill' that is not resolved for Profile 'coding'/,
+    );
   });
 });
 
