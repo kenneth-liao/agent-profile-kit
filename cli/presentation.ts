@@ -17,6 +17,9 @@ import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exc
 import {
   isStructuredBlocker,
   OUTPUT_OWNERSHIP_CONFLICT,
+  type BlockerAffectedItem,
+  type BlockerKind,
+  type BlockerScope,
   type StructuredReconciliationBlocker,
 } from "../installer/blockers.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
@@ -1979,8 +1982,14 @@ interface MachineOutput {
 }
 
 interface MachineBlocker {
+  readonly affectedItems: readonly BlockerAffectedItem[];
+  readonly kind: BlockerKind;
   readonly message: string;
+  readonly problem: string;
   readonly project?: string;
+  readonly remedy: string;
+  readonly requirement: string;
+  readonly scope: BlockerScope;
 }
 
 interface MachineSetupStep {
@@ -2016,7 +2025,7 @@ interface LifecycleMachinePayload extends LifecycleMachineSnapshot {
   readonly command: LifecycleCommand;
   readonly error?: string;
   readonly outcome: MachineOutcome;
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly setupSteps: readonly MachineSetupStep[];
   readonly warnings: readonly string[];
 }
@@ -2104,12 +2113,21 @@ function machineOutputs(report: ReconciliationReport): readonly MachineOutput[] 
     );
 }
 
+function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
+  return {
+    kind: blocker.kind,
+    scope: blocker.scope,
+    ...(blocker.scope === "project" ? { project: blocker.project } : {}),
+    message: blocker.message,
+    problem: blocker.problem,
+    requirement: blocker.requirement,
+    remedy: blocker.remedy,
+    affectedItems: blocker.affectedItems.map((item) => ({ kind: item.kind, value: item.value })),
+  };
+}
+
 function machineBlockers(report: ReconciliationReport): readonly MachineBlocker[] {
-  return report.blockers.map((blocker) => (
-    blocker.project === undefined
-      ? { message: blocker.message }
-      : { message: blocker.message, project: blocker.project }
-  ));
+  return report.blockers.map(machineBlocker);
 }
 
 function machineSetupSteps(report: ReconciliationReport): readonly MachineSetupStep[] {
@@ -2170,7 +2188,7 @@ function lifecycleMachinePayload(
   applied?: ReconciliationReport,
 ): LifecycleMachinePayload {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     command,
     outcome: machineOutcome(report),
     ...machineSnapshot(report),
@@ -2219,7 +2237,7 @@ export function formatLifecycleToolErrorJson(
   message: string,
 ): string {
   return serializeMachinePayload({
-    schemaVersion: 1,
+    schemaVersion: 2,
     command,
     outcome: "error",
     error: message,
@@ -2372,8 +2390,8 @@ export function formatTemporaryInstallationHuman(
 /**
  * Render the blocked temporary-installation messages with the one canonical
  * Project path presenter, so a blocked install/remove identifies the Project
- * the same way every other human view does. The legacy message projections
- * (and JSON) remain unchanged.
+ * the same way every other human view does. Human views read the message
+ * projection; machine JSON publishes the structured blocker records.
  */
 export function presentTemporaryBlockedMessages(
   messages: readonly string[],
@@ -2401,14 +2419,14 @@ export function presentTemporaryBlockedMessages(
 
 export function formatTemporaryInstallationBlockedJson(
   command: TemporaryInstallCommand,
-  blockers: readonly string[],
+  blockers: readonly ReconciliationBlocker[],
 ): string {
   return `${JSON.stringify(
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       command,
       outcome: "blocked",
-      blockers: blockers.map((message) => ({ message })),
+      blockers: blockers.map(machineBlocker),
     },
     null,
     2,

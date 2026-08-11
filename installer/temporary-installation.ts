@@ -100,7 +100,7 @@ export class TemporaryInstallationBlockedError extends Error {
     return this.#canonical.map((blocker) => blocker.message);
   }
 
-  /** Complete structured evidence for each emitted blocker; projected until the typed JSON migration. */
+  /** Complete structured evidence for each emitted blocker, published in machine JSON. */
   get structured(): readonly ReconciliationBlocker[] {
     return this.#canonical;
   }

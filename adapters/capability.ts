@@ -1,7 +1,9 @@
 import type { SupportedHost } from "../schemas/local-configuration.js";
+import type { BlockerAffectedItemKind } from "../installer/blockers.js";
 
 export interface AdapterCapabilityAffectedItem {
-  readonly kind: string;
+  /** The shared typed blocker affected-item vocabulary (host, path, installation-id). */
+  readonly kind: BlockerAffectedItemKind;
   readonly value: string;
 }
 

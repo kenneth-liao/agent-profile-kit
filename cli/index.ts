@@ -921,7 +921,7 @@ async function main(): Promise<void> {
       if (error instanceof TemporaryInstallationBlockedError) {
         if (parsed.json) {
           process.stdout.write(
-            formatTemporaryInstallationBlockedJson("install-temp", error.blockers),
+            formatTemporaryInstallationBlockedJson("install-temp", error.structured),
           );
         } else {
           writeHuman(
@@ -987,7 +987,7 @@ async function main(): Promise<void> {
       if (error instanceof TemporaryInstallationBlockedError) {
         if (parsed.json) {
           process.stdout.write(
-            formatTemporaryInstallationBlockedJson("remove-temp", error.blockers),
+            formatTemporaryInstallationBlockedJson("remove-temp", error.structured),
           );
         } else {
           writeHuman(

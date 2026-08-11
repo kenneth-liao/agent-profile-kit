@@ -12,15 +12,21 @@ import {
 /** A blocker scope retains the legacy project identity as a separate projection. */
 export type BlockerScope = "global" | "project";
 
+/** The exhaustive kinds of affected-item evidence a blocker can carry. */
+export const AFFECTED_ITEM_KINDS = ["host", "path", "installation-id"] as const;
+
+/** Exhaustive typed affected-item kind. */
+export type BlockerAffectedItemKind = (typeof AFFECTED_ITEM_KINDS)[number];
+
 export interface BlockerAffectedItem {
-  readonly kind: string;
+  readonly kind: BlockerAffectedItemKind;
   readonly value: string;
 }
 
 interface StructuredBlockerCommon {
   readonly affectedItems: readonly BlockerAffectedItem[];
-  /** Typed blocker class; the exhaustive class vocabulary lands with the migration. */
-  readonly kind: string;
+  /** Typed blocker class; the exhaustive vocabulary is {@link BLOCKER_KINDS}. */
+  readonly kind: BlockerKind;
   readonly message: string;
   readonly problem: string;
   readonly remedy: string;
@@ -50,27 +56,15 @@ export type GlobalScopedBlockerInput = StructuredBlockerInput & {
   readonly scope: "global";
 };
 
-export interface LegacyBlocker {
-  readonly affectedItems?: never;
-  readonly kind?: never;
-  readonly message: string;
-  /** Canonical project identity; absent only for application-state blockers. */
-  readonly project?: string;
-  readonly problem?: never;
-  readonly remedy?: never;
-  readonly requirement?: never;
-  readonly scope?: never;
-}
-
 const STRUCTURED_BLOCKER: unique symbol = Symbol("structured blocker");
 
 /** A complete structured blocker returned by the normalization boundary. */
 export type StructuredReconciliationBlocker =
   | (StructuredBlockerInput & { readonly [STRUCTURED_BLOCKER]: true });
 
-export type ReconciliationBlocker = LegacyBlocker | StructuredReconciliationBlocker;
+export type ReconciliationBlocker = StructuredReconciliationBlocker;
 
-export type BlockerInput = string | LegacyBlocker | StructuredBlockerInput;
+export type BlockerInput = StructuredBlockerInput;
 
 /** Convert one Adapter capability failure to the shared structured contract. */
 export function hostCapabilityBlocker(
@@ -83,7 +77,7 @@ export function hostCapabilityBlocker(
   const message = failure?.message ?? (error instanceof Error ? error.message : String(error));
   return {
     affectedItems: failure?.affectedItems ?? [{ kind: "host", value: host }],
-    kind: failure === undefined ? "host-capability-unclassified" : "host-capability",
+    kind: failure === undefined ? HOST_CAPABILITY_UNCLASSIFIED : HOST_CAPABILITY,
     message: displayProject === undefined
       ? message
       : `${displayProject}: ${message}`,
@@ -94,6 +88,12 @@ export function hostCapabilityBlocker(
     scope: "project",
   };
 }
+
+/** Typed blocker class for a detected Agent Host capability failure. */
+export const HOST_CAPABILITY = "host-capability" as const;
+
+/** Typed blocker class for an unclassified Host capability preflight failure. */
+export const HOST_CAPABILITY_UNCLASSIFIED = "host-capability-unclassified" as const;
 
 /** Typed blocker class for planned output that conflicts with Git-tracked repository ownership. */
 export const OUTPUT_OWNERSHIP_CONFLICT = "output-ownership-conflict" as const;
@@ -128,9 +128,33 @@ export const TEMPORARY_INSTALLATION_CONFLICT = "temporary-installation-conflict"
 /** Typed blocker class for a Temporary Profile Installation that cannot be removed safely. */
 export const TEMPORARY_INSTALLATION_REMOVAL = "temporary-installation-removal" as const;
 
+/**
+ * The exhaustive typed blocker-class vocabulary. Every emitter must construct
+ * its class from these constants; adding a blocker class requires extending
+ * this list so the type-level union stays exhaustive.
+ */
+export const BLOCKER_KINDS = [
+  HOST_CAPABILITY,
+  HOST_CAPABILITY_UNCLASSIFIED,
+  OUTPUT_OWNERSHIP_CONFLICT,
+  INSTALLATION_STATE_UNREADABLE,
+  REPOSITORY_EXCLUSION_RECORD,
+  REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
+  REPOSITORY_EXCLUSION_SECTION_MISSING,
+  REPOSITORY_EXCLUSION_INVALID,
+  OCCUPIED_OUTPUT,
+  INSTALLATION_MARKER,
+  INSTALLATION_OWNERSHIP,
+  TEMPORARY_INSTALLATION_CONFLICT,
+  TEMPORARY_INSTALLATION_REMOVAL,
+] as const;
+
+/** Exhaustive typed blocker class. */
+export type BlockerKind = (typeof BLOCKER_KINDS)[number];
+
 function globalBlocker(input: {
   readonly affectedItems: readonly BlockerAffectedItem[];
-  readonly kind: string;
+  readonly kind: BlockerKind;
   readonly message: string;
   readonly problem: string;
   readonly remedy: string;
@@ -149,7 +173,7 @@ function globalBlocker(input: {
 
 function projectBlocker(input: {
   readonly affectedItems: readonly BlockerAffectedItem[];
-  readonly kind: string;
+  readonly kind: BlockerKind;
   readonly message: string;
   readonly problem: string;
   readonly project: string;
@@ -400,9 +424,10 @@ export function outputOwnershipConflictBlocker(options: {
   return {
     affectedItems: paths.map((path) => ({ kind: "path", value: path })),
     kind: OUTPUT_OWNERSHIP_CONFLICT,
-    // The legacy message projection is the only evidence string-only consumers
-    // (temporary-installation output, lifecycle JSON) read until the typed
-    // schema migration; when grouped it must stay self-describing.
+    // The message projection is the human presentation string; machine
+    // consumers read the structured evidence. When grouped it stays
+    // self-describing so a user fixing one conflict at a time still sees how
+    // many remain.
     message: paths.length === 1
       ? `${first} is a tracked project path`
       : `${first} and ${paths.length - 1} more tracked project ` +
@@ -465,6 +490,11 @@ function validateStructuredInput(input: StructuredBlockerInput): void {
   requireText(input.problem, "problem", input);
   requireText(input.requirement, "requirement", input);
   requireText(input.remedy, "remedy", input);
+  if (!(BLOCKER_KINDS as readonly string[]).includes(input.kind)) {
+    throw new TypeError(
+      `Unknown structured blocker kind ${JSON.stringify(input.kind)}${blockerContext(input)}`,
+    );
+  }
   if (input.scope !== "global" && input.scope !== "project") {
     throw new TypeError(
       `Structured blocker scope must be 'global' or 'project'${blockerContext(input)}`,
@@ -484,6 +514,11 @@ function validateStructuredInput(input: StructuredBlockerInput): void {
   for (const item of input.affectedItems) {
     requireText(item?.kind, "affectedItems.kind", input);
     requireText(item?.value, "affectedItems.value", input);
+    if (!(AFFECTED_ITEM_KINDS as readonly string[]).includes(item.kind)) {
+      throw new TypeError(
+        `Unknown structured blocker affected-item kind ${JSON.stringify(item.kind)}${blockerContext(input)}`,
+      );
+    }
   }
 }
 
@@ -523,36 +558,23 @@ function scopeMismatch(input: StructuredBlockerInput, fallbackProject: string): 
 
 /**
  * Normalize every blocker at the boundary where it enters a report or error.
- * Legacy messages retain their existing shape; structured inputs cannot omit
- * any evidence field and derive the legacy project projection from scope.
+ * The blocker contract is exhaustively structured; message-only blockers can
+ * no longer be represented, and malformed structured evidence is rejected
+ * loudly rather than degraded to a message.
  */
 export function normalizeBlocker(
   input: BlockerInput,
   fallbackProject?: string,
-): ReconciliationBlocker {
-  if (typeof input === "string") {
-    return fallbackProject === undefined
-      ? { message: input }
-      : { message: input, project: fallbackProject };
-  }
-
+): StructuredReconciliationBlocker {
   if (input === null || typeof input !== "object") {
-    throw new TypeError("Blocker input must be a message or blocker object");
+    throw new TypeError("Blocker input must be a structured blocker object");
   }
-
   if (!isStructuredInput(input)) {
-    if (typeof input.message !== "string") {
-      throw new TypeError("Legacy blocker message must be a string");
-    }
-    if (input.project !== undefined && typeof input.project !== "string") {
-      throw new TypeError("Legacy blocker project must be a string");
-    }
-    const project = input.project ?? fallbackProject;
-    return project === undefined
-      ? { message: input.message }
-      : { message: input.message, project };
+    throw new TypeError(
+      "Legacy message-only blockers are no longer supported; blockers must carry " +
+      "complete structured evidence",
+    );
   }
-
   validateStructuredInput(input);
   if (
     input.scope === "project" &&

@@ -57,7 +57,6 @@ import {
   installationMarkerBlocker,
   installationOwnershipBlocker,
   installationStateUnreadableBlocker,
-  isStructuredBlocker,
   normalizeBlocker,
   occupiedOutputBlocker,
   outputOwnershipConflictBlocker,
@@ -660,21 +659,6 @@ function pushDirectoryMemberItems(
   }
 }
 
-function normalizePreviewBlocker(
-  input: BlockerInput,
-  fallbackProject: string,
-): ReconciliationBlocker {
-  try {
-    return normalizeBlocker(input, fallbackProject);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      message: `Invalid blocker: ${message}`,
-      project: fallbackProject,
-    };
-  }
-}
-
 export async function previewReconciliation(
   desired: readonly DesiredInstallation[],
   state: InstallationState,
@@ -690,7 +674,7 @@ export async function previewReconciliation(
   } = await installationRetirementSelection(desired, state);
   const blockers: ReconciliationBlocker[] = desired.flatMap((installation) =>
     installation.blockers.map((input) =>
-      normalizePreviewBlocker(input, installation.binding.canonicalProject)
+      normalizeBlocker(input, installation.binding.canonicalProject)
     )
   );
   blockers.push(...(await gitExclusionBlockers(state, desired, {
@@ -794,9 +778,9 @@ export async function previewReconciliation(
     const outputConflicts = await desiredOutputConflicts(installation, previous, id);
     blockers.push(
       ...(await identityBlockers(installation, state, id)).map((input) =>
-        normalizePreviewBlocker(input, project)
+        normalizeBlocker(input, project)
       ),
-      ...outputConflicts.map((input) => normalizePreviewBlocker(input, project)),
+      ...outputConflicts.map((input) => normalizeBlocker(input, project)),
     );
     if (!previous && outputConflicts.length > 0) {
       let copiedInstallation = false;
@@ -812,7 +796,7 @@ export async function previewReconciliation(
         }
       }
       if (copiedInstallation) {
-        blockers.push(normalizePreviewBlocker(
+        blockers.push(normalizeBlocker(
           {
             ...ownershipBlocker(
               installation.binding.project,
@@ -847,7 +831,7 @@ export async function previewReconciliation(
     }
     if (moved) {
       if (ownership && !ownership.owned) {
-        blockers.push(normalizePreviewBlocker(
+        blockers.push(normalizeBlocker(
           { ...ownershipBlocker(installation.binding.project, ownership), project },
           project,
         ));
@@ -866,7 +850,7 @@ export async function previewReconciliation(
       const remaining = await proveRemainingOwnedOutputs(previous);
       repairableMissingMarker = remaining.owned;
       if (!remaining.owned) {
-        blockers.push(normalizePreviewBlocker(
+        blockers.push(normalizeBlocker(
           {
             ...ownershipBlocker(installation.binding.project, {
               ...remaining,
@@ -878,7 +862,7 @@ export async function previewReconciliation(
         ));
       }
     } else if (!proof.owned) {
-      blockers.push(normalizePreviewBlocker(
+      blockers.push(normalizeBlocker(
         { ...ownershipBlocker(installation.binding.project, proof), project },
         project,
       ));
@@ -949,7 +933,7 @@ export async function previewReconciliation(
       const remediation = proof.reason?.includes("Installation Marker")
         ? "; if this project moved, restore its Manifest-linked Installation Marker at the new root before retrying"
         : "";
-      blockers.push(normalizePreviewBlocker(
+      blockers.push(normalizeBlocker(
         installationOwnershipBlocker({
           message:
             `Cannot remove stale Profile Installation at ${installation.project}: ` +
@@ -992,15 +976,7 @@ export async function previewReconciliation(
   const deduplicated = new Map<string, ReconciliationBlocker>();
   for (const blocker of blockers) {
     const key = `${blocker.project ?? ""}\0${blocker.message}`;
-    const previous = deduplicated.get(key);
-    if (
-      previous === undefined ||
-      (!isStructuredBlocker(previous) && isStructuredBlocker(blocker))
-    ) {
-      // During emitter migration, structured evidence wins over its legacy twin
-      // while public presentation still deduplicates on the legacy projection.
-      deduplicated.set(key, blocker);
-    }
+    if (!deduplicated.has(key)) deduplicated.set(key, blocker);
   }
   return {
     blockers: [...deduplicated.values()].sort((left, right) =>

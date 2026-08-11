@@ -1892,12 +1892,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly command: string;
         readonly schemaVersion: number;
       };
-      expect(payload.schemaVersion).toBe(1);
+      expect(payload.schemaVersion).toBe(2);
       expect(payload.command).toBe(command);
 
       const both = await runCli(home, command, "--verbose", "--json");
       expectExitCode(both, 0);
-      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 1 });
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 2 });
 
       const unsupported = await runCli(home, command, "--yaml");
       expectExitCode(unsupported, 1);
@@ -1921,7 +1921,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
-        schemaVersion: 1,
+        schemaVersion: 2,
       });
     }
 
@@ -1962,7 +1962,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly schemaVersion: number;
       };
       expect(payload).toMatchObject({
-        schemaVersion: 1,
+        schemaVersion: 2,
         command,
         outcome: "error",
       });
@@ -1982,14 +1982,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
-        schemaVersion: 1,
+        schemaVersion: 2,
       });
     }
     const firstApply = await runCli(pendingHome, "apply", "--json");
     expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "apply",
-      schemaVersion: 1,
+      schemaVersion: 2,
     });
     expect(["clean", "attention"]).toContain(
       (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
@@ -8326,10 +8326,16 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expectExitCode(tracked, 2);
     const blocked = JSON.parse(tracked.stdout) as {
       readonly outcome: string;
-      readonly blockers: readonly { readonly message: string }[];
+      readonly schemaVersion: number;
+      readonly blockers: readonly Record<string, unknown>[];
     };
     expect(blocked.outcome).toBe("blocked");
-    expect(blocked.blockers.some((blocker) => /tracked project path/i.test(blocker.message))).toBe(true);
+    expect(blocked.schemaVersion).toBe(2);
+    expect(blocked.blockers.some((blocker) => /tracked project path/i.test(String(blocker.message)))).toBe(true);
+    expect(blocked.blockers.some((blocker) => blocker.kind === "output-ownership-conflict" && blocker.scope === "project")).toBe(true);
+    expect(blocked.blockers.some((blocker) => (
+      (blocker.affectedItems as readonly { kind: string }[]).some((item) => item.kind === "path")
+    ))).toBe(true);
     // Marker must not be published when blocked.
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
@@ -8457,10 +8463,14 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expectExitCode(second, 2);
     const blocked = JSON.parse(second.stdout) as {
       readonly outcome: string;
-      readonly blockers: readonly { readonly message: string }[];
+      readonly schemaVersion: number;
+      readonly blockers: readonly Record<string, unknown>[];
     };
     expect(blocked.outcome).toBe("blocked");
-    expect(blocked.blockers.some((blocker) => /active Temporary Profile Installation/i.test(blocker.message)))
+    expect(blocked.schemaVersion).toBe(2);
+    expect(blocked.blockers.some((blocker) => /active Temporary Profile Installation/i.test(String(blocker.message))))
+      .toBe(true);
+    expect(blocked.blockers.some((blocker) => blocker.kind === "temporary-installation-conflict" && blocker.scope === "project"))
       .toBe(true);
   });
 
@@ -8840,10 +8850,14 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expectExitCode(blocked, 2);
     const payload = JSON.parse(blocked.stdout) as {
       readonly outcome: string;
-      readonly blockers: readonly { readonly message: string }[];
+      readonly schemaVersion: number;
+      readonly blockers: readonly Record<string, unknown>[];
     };
     expect(payload.outcome).toBe("blocked");
-    expect(payload.blockers.some((blocker) => /Claude CLI|requires 2\.0\.64/i.test(blocker.message)))
+    expect(payload.schemaVersion).toBe(2);
+    expect(payload.blockers.some((blocker) => /Claude CLI|requires 2\.0\.64/i.test(String(blocker.message))))
+      .toBe(true);
+    expect(payload.blockers.some((blocker) => blocker.kind === "host-capability" && blocker.scope === "project"))
       .toBe(true);
   });
 });
