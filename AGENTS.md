@@ -31,6 +31,16 @@ Personal material belongs in the user's Workspace, not in this repository. A mai
 
 When a new category of fact does not fit these locations, record the placement decision in `docs/adr/` before spreading it across the repo.
 
+## Verification
+
+Prefer a focused suite while iterating and run the full suite before opening a PR:
+
+- `bun run test:focused -- <paths-or-filters>` — one explicitly selected run under the supervised lifecycle.
+- `bun run test` — one full-suite run under the supervised lifecycle.
+- `bun run test:stress` — up to ten sequential full-suite runs for repeated qualification.
+
+All three supervise the test runner through the repository's bounded process executor and report one concise summary with a retained diagnostic log. Prefer these canonical commands over invoking the runner directly or writing custom timeout or repetition loops.
+
 ## Agent skills
 
 ### Issue tracker
