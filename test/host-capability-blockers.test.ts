@@ -14,7 +14,11 @@ import { assertClaudeProjectCapability } from "../adapters/claude.js";
 import { assertCodexProjectCapability } from "../adapters/codex.js";
 import { assertGrokProjectCapability, parseGrokInspectDocument } from "../adapters/grok.js";
 import { assertPiProjectCapability } from "../adapters/pi.js";
-import { isAdapterCapabilityError } from "../adapters/capability.js";
+import {
+  capabilityFailure,
+  isAdapterCapabilityError,
+  type AdapterCapabilityAffectedItem,
+} from "../adapters/capability.js";
 import {
   hostCapabilityBlocker,
   isStructuredBlocker,
@@ -57,6 +61,15 @@ async function writeContextBinding(
     `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [${(typeof host === "string" ? [host] : host).join(", ")}]\n`,
   );
 }
+
+function compileOnlyAdapterCapabilityEvidenceKinds(): void {
+  // @ts-expect-error Adapter capability evidence stays host/path-only; Installer-only
+  // affected-item kinds belong to the Installer boundary, not the Adapter contract.
+  const item: AdapterCapabilityAffectedItem = { kind: "installation-id", value: "temp-1" };
+  void item;
+}
+
+void compileOnlyAdapterCapabilityEvidenceKinds;
 
 describe("Host capability blockers", () => {
   test("preserves the Codex preflight message while carrying structured evidence", async () => {
@@ -319,5 +332,14 @@ describe("Host capability blockers", () => {
       requirement: "The selected Profile requires Grok project delivery",
       scope: "project",
     });
+  });
+
+  test("hostCapabilityBlocker rejects out-of-vocabulary Adapter evidence at the boundary", () => {
+    const failure = capabilityFailure("codex", "preflight boom", "fix it", [
+      { kind: "not-a-kind" as never, value: "x" },
+    ]);
+    expect(() => hostCapabilityBlocker(failure, "codex", "/project-a")).toThrow(
+      /Adapter capability failure carries unknown affected-item kind "not-a-kind"/,
+    );
   });
 });

@@ -1,6 +1,7 @@
 import {
   capabilityRequirement,
   isAdapterCapabilityError,
+  type AdapterCapabilityAffectedItem,
 } from "../adapters/capability.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
 import { join } from "node:path";
@@ -76,7 +77,9 @@ export function hostCapabilityBlocker(
   const failure = isAdapterCapabilityError(error) ? error : undefined;
   const message = failure?.message ?? (error instanceof Error ? error.message : String(error));
   return {
-    affectedItems: failure?.affectedItems ?? [{ kind: "host", value: host }],
+    affectedItems: failure === undefined
+      ? [{ kind: "host", value: host }]
+      : capabilityAffectedItems(failure.affectedItems),
     kind: failure === undefined ? HOST_CAPABILITY_UNCLASSIFIED : HOST_CAPABILITY,
     message: displayProject === undefined
       ? message
@@ -87,6 +90,25 @@ export function hostCapabilityBlocker(
     requirement: failure?.requirement ?? capabilityRequirement(host),
     scope: "project",
   };
+}
+
+/**
+ * Translate Adapter-owned capability evidence (host/path) into the shared
+ * blocker affected-item vocabulary at the boundary where Adapter failures
+ * become blocker evidence, rejecting anything outside that vocabulary loudly
+ * instead of letting it flow downstream.
+ */
+function capabilityAffectedItems(
+  items: readonly AdapterCapabilityAffectedItem[],
+): BlockerAffectedItem[] {
+  return items.map((item) => {
+    if (!(AFFECTED_ITEM_KINDS as readonly string[]).includes(item.kind)) {
+      throw new TypeError(
+        `Adapter capability failure carries unknown affected-item kind ${JSON.stringify(item.kind)}`,
+      );
+    }
+    return { kind: item.kind, value: item.value };
+  });
 }
 
 /** Typed blocker class for a detected Agent Host capability failure. */

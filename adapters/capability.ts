@@ -1,9 +1,10 @@
 import type { SupportedHost } from "../schemas/local-configuration.js";
-import type { BlockerAffectedItemKind } from "../installer/blockers.js";
+
+/** The affected-item evidence an Adapter capability failure can carry: a Host or a path. */
+export type AdapterCapabilityAffectedItemKind = "host" | "path";
 
 export interface AdapterCapabilityAffectedItem {
-  /** The shared typed blocker affected-item vocabulary (host, path, installation-id). */
-  readonly kind: BlockerAffectedItemKind;
+  readonly kind: AdapterCapabilityAffectedItemKind;
   readonly value: string;
 }
 
