@@ -14,6 +14,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Show delayed ephemeral progress for interactive long-running `status` and `preview` inspections after a short anti-flicker threshold, cleared before the final report so completed output stays clean; redirected human output, JSON, and non-interactive errors never contain progress bytes ([#170](https://github.com/kenneth-liao/agent-profile-kit/issues/170)).
+
 - Make lifecycle and temporary-installation human reports width-aware for interactive terminals and wrap redirected human output at the deterministic 80-column default, while preserving copyable values and separating Host Setup Step actions from consequences ([#166](https://github.com/kenneth-liao/agent-profile-kit/issues/166)).
 
 - Add TTY-safe semantic color and compact interactive branding while keeping redirected human output and JSON plain ([#164](https://github.com/kenneth-liao/agent-profile-kit/issues/164)).

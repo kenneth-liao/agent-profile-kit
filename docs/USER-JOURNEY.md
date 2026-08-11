@@ -182,6 +182,10 @@ files — the exclusion line was the only place any path appeared, as one
 produced the files, and changed paths now appear directly beneath each project,
 including non-Git projects.
 
+Interactive previews that outlast a short anti-flicker threshold show delayed
+operation-level progress on the terminal line; the line is cleared before the
+report, and redirected output and JSON never carry progress bytes.
+
 Gaps: ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
 ~~[UJ-12](#uj-12)~~ (shipped in
@@ -251,8 +255,11 @@ Gaps: ~~[UJ-21](#uj-21)~~ (shipped across
 ### 10. Re-sync after a Workspace edit
 
 The tool's best-working loop: `stale source` is detected accurately, the gloss is
-useful the first time, and the next action is correct. The fully-current case
-says one thing three ways:
+useful the first time, and the next action is correct. Interactive status
+inspections that outlast a short anti-flicker threshold show delayed
+operation-level progress on the terminal line; the line is cleared before the
+report, and redirected output and JSON never carry progress bytes. The
+fully-current case says one thing three ways:
 
 ```
 All Profile Installations are current

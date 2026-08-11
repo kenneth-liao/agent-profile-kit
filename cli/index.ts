@@ -94,6 +94,11 @@ import {
   wrapPresentationText,
   type TerminalPresentationContext,
 } from "./terminal-presentation.js";
+import {
+  beginDelayedProgress,
+  PREVIEW_PROGRESS_LABEL,
+  STATUS_PROGRESS_LABEL,
+} from "./progress.js";
 
 const COMMAND_NAMES = COMMANDS.map((command) => command.name);
 
@@ -516,6 +521,21 @@ function parseLifecycleArguments(
   };
 }
 
+/**
+ * Delayed ephemeral progress for one interactive long-running inspection.
+ * Only interactive human views construct a reporter, so redirected output,
+ * JSON, and non-interactive errors can never contain progress bytes.
+ */
+function interactiveProgress(
+  context: TerminalPresentationContext,
+  json: boolean,
+  operation: string,
+): { readonly finish: () => void } | undefined {
+  return context.interactive && !json
+    ? beginDelayedProgress({ operation, stream: process.stdout })
+    : undefined;
+}
+
 async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
   const home = homedir();
@@ -758,8 +778,10 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("preview", () => parseLifecycleArguments("preview", arguments_.slice(1)));
     if (parsed === undefined) return;
     const context = terminalPresentationContext(process.stdout);
+    const progress = interactiveProgress(context, parsed.json, PREVIEW_PROGRESS_LABEL);
     try {
       const report = await previewApplication(home);
+      progress?.finish();
       if (parsed.json) {
         process.stdout.write(formatLifecycleJson("preview", report));
       } else {
@@ -771,6 +793,7 @@ async function main(): Promise<void> {
       }
       process.exitCode = lifecycleExitCode(report);
     } catch (error) {
+      progress?.finish();
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("preview", formatError(error)));
       } else {
@@ -842,8 +865,10 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("status", () => parseLifecycleArguments("status", arguments_.slice(1)));
     if (parsed === undefined) return;
     const context = terminalPresentationContext(process.stdout);
+    const progress = interactiveProgress(context, parsed.json, STATUS_PROGRESS_LABEL);
     try {
       const report = await statusApplication(home);
+      progress?.finish();
       if (parsed.json) {
         process.stdout.write(formatLifecycleJson("status", report));
       } else {
@@ -855,6 +880,7 @@ async function main(): Promise<void> {
       }
       process.exitCode = lifecycleExitCode(report);
     } catch (error) {
+      progress?.finish();
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("status", formatError(error)));
       } else {

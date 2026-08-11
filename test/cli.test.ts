@@ -32,6 +32,7 @@ import {
   inventoryTopicNames,
 } from "../cli/inventory-topics.js";
 import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
+import { PREVIEW_PROGRESS_LABEL } from "../cli/progress.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installation.js";
 import { ENGINE_VERSION } from "../installer/version.js";
@@ -158,18 +159,17 @@ async function runCliWithEnvironment(
   });
 }
 
-function cleanPtyResult(result: ProcessResult): ProcessResult {
+/** Strip only the typed-EOF artifacts macOS `script` records, keeping all other bytes. */
+function stripPtyControlArtifacts(text: string): string {
   // macOS `script` records the PTY's typed EOF as a literal `^D` plus erase controls.
+  return text.replace(/^\^D/, "").replace(/[\u0004\u0008]/g, "");
+}
+
+function cleanPtyResult(result: ProcessResult): ProcessResult {
   return {
     ...result,
-    stdout: result.stdout
-      .replace(/^\^D/, "")
-      .replace(/[\u0004\u0008]/g, "")
-      .replace(/\r/g, ""),
-    stderr: result.stderr
-      .replace(/^\^D/, "")
-      .replace(/[\u0004\u0008]/g, "")
-      .replace(/\r/g, ""),
+    stdout: stripPtyControlArtifacts(result.stdout).replace(/\r/g, ""),
+    stderr: stripPtyControlArtifacts(result.stderr).replace(/\r/g, ""),
   };
 }
 
@@ -181,12 +181,12 @@ async function runCliInPty(home: string, columns: number, ...arguments_: string[
   return await runCliInPtyWithEnvironment(home, columns, { NO_COLOR: "1" }, ...arguments_);
 }
 
-async function runCliInPtyWithEnvironment(
+async function runCliInPtyCaptured(
   home: string,
   columns: number,
   environment: NodeJS.ProcessEnv,
   ...arguments_: string[]
-) {
+): Promise<ProcessResult> {
   const command = [
     `stty cols ${columns};`,
     "exec",
@@ -205,14 +205,41 @@ async function runCliInPtyWithEnvironment(
   ) {
     delete childEnvironment.NO_COLOR;
   }
-  const result = await runProcess({
+  return runProcess({
     executable: "script",
     arguments_: ["-q", "/dev/null", "sh", "-c", command],
     environment: childEnvironment,
     deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI PTY",
   });
-  return cleanPtyResult(result);
+}
+
+async function runCliInPtyWithEnvironment(
+  home: string,
+  columns: number,
+  environment: NodeJS.ProcessEnv,
+  ...arguments_: string[]
+) {
+  return cleanPtyResult(await runCliInPtyCaptured(home, columns, environment, ...arguments_));
+}
+
+/**
+ * PTY capture that preserves carriage returns (only typed-EOF artifacts are
+ * stripped), so tests can assert terminal control sequences such as the
+ * progress-clear `\r` + spaces + `\r` immediately before a report.
+ */
+async function runCliInPtyWithEnvironmentRaw(
+  home: string,
+  columns: number,
+  environment: NodeJS.ProcessEnv,
+  ...arguments_: string[]
+): Promise<ProcessResult> {
+  const result = await runCliInPtyCaptured(home, columns, environment, ...arguments_);
+  return {
+    ...result,
+    stdout: stripPtyControlArtifacts(result.stdout),
+    stderr: stripPtyControlArtifacts(result.stderr),
+  };
 }
 
 async function runCliInPtyWithColumnsFallback(home: string, columns: number, ...arguments_: string[]) {
@@ -300,7 +327,14 @@ function installFakeClaude(home: string, version = "2.1.0"): string {
 function installFakeCodex(home: string, version = "0.145.0"): string {
   const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "codex-cli ${version}"\n`);
+  writeFileSync(
+    join(bin, "codex"),
+    `#!/bin/sh
+if [ -n "\${APKIT_TEST_CODEX_DELAY:-}" ]; then sleep "$APKIT_TEST_CODEX_DELAY"; fi
+if [ -n "\${APKIT_TEST_CODEX_FAIL:-}" ]; then echo "$APKIT_TEST_CODEX_FAIL" >&2; exit 1; fi
+echo "codex-cli ${version}"
+`,
+  );
   execFileSync("chmod", ["+x", join(bin, "codex")]);
   return bin;
 }
@@ -6413,6 +6447,78 @@ describe("responsive lifecycle reports", () => {
     expect(colored.stdout).toMatch(/\u001b\[/);
     expect(colored.stdout.split("\n").filter((line) => line.includes("\u001b[2m"))).toHaveLength(1);
     expect(colored.stdout).toContain("\u001b[2mA Profile");
+  });
+});
+
+describe("delayed interactive progress", () => {
+  test("interactive long-running preview shows delayed progress cleared before the final report", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    const bindResult = await runCli(home, "bind", "example", projectPath, "--host", "codex");
+    expectExitCode(bindResult, 0);
+
+    const result = await runCliInPtyWithEnvironmentRaw(
+      home,
+      80,
+      { APKIT_TEST_CODEX_DELAY: "1.5", NO_COLOR: "1" },
+      "preview",
+    );
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain(PREVIEW_PROGRESS_LABEL);
+
+    const reportIndex = result.stdout.indexOf("Ready to apply");
+    expect(reportIndex).toBeGreaterThan(-1);
+    const beforeReport = result.stdout.slice(0, reportIndex);
+    const afterReport = result.stdout.slice(reportIndex);
+    expect(afterReport).not.toContain(PREVIEW_PROGRESS_LABEL);
+    // The raw capture must end with the clear sequence (carriage return,
+    // spaces, carriage return) immediately before the report. This proves the
+    // orchestration cleared progress before rendering: without the finish
+    // wiring, the last redraw would run directly into the report and fail
+    // this match.
+    const lastLabel = beforeReport.lastIndexOf(PREVIEW_PROGRESS_LABEL);
+    expect(lastLabel).toBeGreaterThan(-1);
+    expect(beforeReport.slice(lastLabel + PREVIEW_PROGRESS_LABEL.length)).toMatch(/^\.*\r +\r$/);
+  });
+
+  test("redirected and JSON preview contain no progress bytes even when the operation outlives the threshold", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    const bindResult = await runCli(home, "bind", "example", projectPath, "--host", "codex");
+    expectExitCode(bindResult, 0);
+
+    const piped = await runCliWithEnvironment(home, { APKIT_TEST_CODEX_DELAY: "0.6" }, "preview");
+    expectExitCode(piped, 0);
+    expect(piped.stdout).not.toContain(PREVIEW_PROGRESS_LABEL);
+    expect(piped.stdout).not.toMatch(/\r/);
+    expect(piped.stdout).not.toMatch(/\u001b\[/);
+
+    const json = await runCliWithEnvironment(
+      home,
+      { APKIT_TEST_CODEX_DELAY: "0.6" },
+      "preview",
+      "--json",
+    );
+    expectExitCode(json, 0);
+    expect(json.stdout).not.toContain(PREVIEW_PROGRESS_LABEL);
+    expect(json.stdout).not.toMatch(/\r/);
+    expect(() => JSON.parse(json.stdout)).not.toThrow();
+
+    // A slow failing probe in a non-interactive run must also stay progress-free.
+    const failed = await runCliWithEnvironment(
+      home,
+      { APKIT_TEST_CODEX_DELAY: "0.6", APKIT_TEST_CODEX_FAIL: "probe failed" },
+      "preview",
+    );
+    expectExitCode(failed, 2);
+    const failedOutput = `${failed.stdout}${failed.stderr}`;
+    expect(failedOutput).toContain("probe failed");
+    expect(failedOutput).not.toContain(PREVIEW_PROGRESS_LABEL);
+    expect(failedOutput).not.toMatch(/\r/);
+    expect(failedOutput).not.toMatch(/\u001b\[/);
   });
 });
 
