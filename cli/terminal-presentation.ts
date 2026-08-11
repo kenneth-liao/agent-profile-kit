@@ -11,10 +11,10 @@ export const MAX_HUMAN_WIDTH = 100;
 
 /**
  * Width context for human CLI presentation. Root help, focused human guides,
- * lifecycle reports, and temporary-installation reports consume this context
- * for prose wrapping. Focused command help, full guides, inventory, info,
- * validation, binding, and uninstall surfaces remain pending adoption; semantic
- * report construction and machine surfaces remain independent of terminal state.
+ * lifecycle reports, temporary-installation reports, focused command help,
+ * inventory, info, validation, authoring, teardown, and error surfaces all
+ * consume this context from the CLI boundary; semantic report construction and
+ * machine surfaces remain independent of terminal state.
  */
 export interface TerminalPresentationContext {
   readonly color: boolean;

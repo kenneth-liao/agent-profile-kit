@@ -40,6 +40,7 @@ import {
   formatValidationResult,
   lifecycleExitCode,
   presentTemporaryBlockedMessages,
+  responsiveHumanText,
   type LifecycleCommand,
 } from "./presentation.js";
 import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
@@ -102,12 +103,36 @@ import {
 
 const COMMAND_NAMES = COMMANDS.map((command) => command.name);
 
+/**
+ * One trusted terminal-presentation context per human stream, read once at the
+ * CLI boundary (DEC-001). Every human view receives these instead of reading
+ * terminal state independently; machine surfaces never touch them.
+ */
+const stdoutPresentationContext = terminalPresentationContext(process.stdout);
+const stderrPresentationContext = terminalPresentationContext(process.stderr);
+
 function writeHuman(
   stream: WriteStream,
   text: string,
-  context = terminalPresentationContext(stream),
+  context: TerminalPresentationContext,
 ): void {
   stream.write(renderHumanOutput(text, context, { commandNames: COMMAND_NAMES }));
+}
+
+/** Authoring and teardown output wrapped through the shared human boundary. */
+function humanOutput(
+  text: string,
+  copyableValues: readonly string[] = [],
+): string {
+  return responsiveHumanText(text, stdoutPresentationContext, copyableValues);
+}
+
+/** Diagnostic output (errors and warnings) wrapped through the shared human boundary. */
+function humanError(
+  text: string,
+  copyableValues: readonly string[] = [],
+): string {
+  return responsiveHumanText(text, stderrPresentationContext, copyableValues);
 }
 
 function formatError(error: unknown): string {
@@ -225,17 +250,30 @@ function unknownCommandHelp(unknown: string, context: TerminalPresentationContex
     .join("\n") + "\n";
 }
 
-function perCommandHelp(command: CommandHelp): string {
+function perCommandHelp(
+  command: CommandHelp,
+  context: TerminalPresentationContext,
+): string {
   const supportedHosts = command.supportedHosts === undefined
     ? ""
     : `Supported Hosts: ${command.supportedHosts.join(", ")}\n\n`;
-  return `Purpose: ${command.summary}\n\n` + defaultViewText(
-    `${usageLine(command)}\n\n` +
-    "Examples:\n" +
-    command.examples.map((example) => `  ${COMMAND_NAME} ${example}\n`).join("") +
-    `\n${supportedHosts}` +
-    `Writes: ${command.writes}\n\n` +
-    `Next: ${command.next}\n`,
+  return responsiveHumanText(
+    `Purpose: ${command.summary}\n\n` + defaultViewText(
+      `${usageLine(command)}\n\n` +
+        "Examples:\n" +
+        command.examples.map((example) => `  ${COMMAND_NAME} ${example}\n`).join("") +
+        `\n${supportedHosts}` +
+        `Writes: ${command.writes}\n\n` +
+        `Next: ${command.next}\n`,
+    ),
+    context,
+    [
+      usageLine(command),
+      ...command.examples.map((example) => `${COMMAND_NAME} ${example}`),
+      ...(command.supportedHosts === undefined
+        ? []
+        : [`Supported Hosts: ${command.supportedHosts.join(", ")}`]),
+    ],
   );
 }
 
@@ -292,7 +330,11 @@ function parseOrExit<T>(command: string, parse: () => T): T | undefined {
   try {
     return parse();
   } catch (error) {
-    writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n${commandUsage(command)}`);
+    writeHuman(
+      process.stderr,
+      humanError(`${COMMAND_NAME}: ${formatError(error)}\n`) + commandUsage(command),
+      stderrPresentationContext,
+    );
     process.exitCode = 1;
     return undefined;
   }
@@ -548,33 +590,37 @@ async function main(): Promise<void> {
     arguments_.length === 0 ||
     (arguments_.length === 1 && ROOT_HELP_ALIASES.some((alias) => alias === arguments_[0]))
   ) {
-    const context = terminalPresentationContext(process.stdout);
+    const context = stdoutPresentationContext;
     writeHuman(process.stdout, rootHelp(context), context);
     return;
   }
   const focusedHelp = focusedHelpRequest(arguments_);
   if (focusedHelp?.kind === "root") {
-    const context = terminalPresentationContext(process.stdout);
+    const context = stdoutPresentationContext;
     writeHuman(process.stdout, rootHelp(context), context);
     return;
   }
   if (focusedHelp?.kind === "command") {
-    writeHuman(process.stdout, perCommandHelp(focusedHelp.command));
+    writeHuman(
+      process.stdout,
+      perCommandHelp(focusedHelp.command, stdoutPresentationContext),
+      stdoutPresentationContext,
+    );
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "guide") {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     if (parsed.kind === "index") {
-      const context = terminalPresentationContext(process.stdout);
+      const context = stdoutPresentationContext;
       writeHuman(process.stdout, guideIndex(context), context);
     } else if (parsed.kind === "topic") {
-      const context = terminalPresentationContext(process.stdout);
+      const context = stdoutPresentationContext;
       writeHuman(process.stdout, focusedGuide(parsed.topic, context), context);
     } else if (parsed.kind === "agent") {
       process.stdout.write(await agentGuide());
     } else {
-      writeHuman(process.stdout, await humanGuide());
+      writeHuman(process.stdout, await humanGuide(), stdoutPresentationContext);
     }
     return;
   }
@@ -583,20 +629,30 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     const result = await initializeWorkspace(home, parsed);
     for (const warning of result.warnings) {
-      writeHuman(process.stderr, `${COMMAND_NAME}: warning: ${warning}\n`);
+      writeHuman(process.stderr, humanError(`${COMMAND_NAME}: warning: ${warning}\n`), stderrPresentationContext);
     }
     if (result.outcome === "migrated") {
       writeHuman(
         process.stdout,
-        `Migrated Local Configuration and validated the Agent Profile Kit Workspace at ${result.path}\n` +
-          `Next: run ${COMMAND_NAME} validate, then preview and apply as needed\n`,
+        humanOutput(
+          `Migrated Local Configuration and validated the Agent Profile Kit Workspace at ${result.path}\n` +
+            `Next: run ${COMMAND_NAME} validate, then preview and apply as needed\n`,
+          [
+            `Migrated Local Configuration and validated the Agent Profile Kit Workspace at ${result.path}`,
+          ],
+        ),
+        stdoutPresentationContext,
       );
       return;
     }
     if (result.outcome === "unchanged") {
       writeHuman(
         process.stdout,
-        `Workspace and Local Configuration already initialized at ${result.path}; unchanged.\n`,
+        humanOutput(
+          `Workspace and Local Configuration already initialized at ${result.path}; unchanged.\n`,
+          [`Workspace and Local Configuration already initialized at ${result.path}; unchanged.`],
+        ),
+        stdoutPresentationContext,
       );
       return;
     }
@@ -605,7 +661,13 @@ async function main(): Promise<void> {
       : `Next: run ${COMMAND_NAME} validate\n`;
     writeHuman(
       process.stdout,
-      `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}\n` + next,
+      humanOutput(
+        `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}\n` + next,
+        [
+          `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}`,
+        ],
+      ),
+      stdoutPresentationContext,
     );
     return;
   }
@@ -621,19 +683,33 @@ async function main(): Promise<void> {
     if (result.outcome === "unchanged") {
       writeHuman(
         process.stdout,
-        `Project Binding unchanged for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
-          `  Profile: ${result.profile}\n` +
-          `  Hosts: ${result.hosts.join(", ")}\n` +
-          `Next: ${COMMAND_NAME} preview\n`,
+        humanOutput(
+          `Project Binding unchanged for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
+            `  Profile: ${result.profile}\n` +
+            `  Hosts: ${result.hosts.join(", ")}\n` +
+            `Next: ${COMMAND_NAME} preview\n`,
+          [
+            `Project Binding unchanged for ${displayProjectPath(result.canonicalProject, result.project)}`,
+            result.hosts.join(", "),
+          ],
+        ),
+        stdoutPresentationContext,
       );
       return;
     }
     writeHuman(
       process.stdout,
-      `Recorded Project Binding for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
-        `  Profile: ${result.profile}\n` +
-        `  Hosts: ${result.hosts.join(", ")}\n` +
-        `Next: ${COMMAND_NAME} preview\n`,
+      humanOutput(
+        `Recorded Project Binding for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
+          `  Profile: ${result.profile}\n` +
+          `  Hosts: ${result.hosts.join(", ")}\n` +
+          `Next: ${COMMAND_NAME} preview\n`,
+        [
+          `Recorded Project Binding for ${displayProjectPath(result.canonicalProject, result.project)}`,
+          result.hosts.join(", "),
+        ],
+      ),
+      stdoutPresentationContext,
     );
     return;
   }
@@ -647,14 +723,24 @@ async function main(): Promise<void> {
     if (result.outcome === "unchanged") {
       writeHuman(
         process.stdout,
-        `Project Binding unchanged; no binding matched ${result.requestedProject}\n` +
-          `  Local Configuration: ${result.configurationPath}\n`,
+        humanOutput(
+          `Project Binding unchanged; no binding matched ${result.requestedProject}\n` +
+            `  Local Configuration: ${result.configurationPath}\n`,
+          [
+            `Project Binding unchanged; no binding matched ${result.requestedProject}`,
+            `Local Configuration: ${result.configurationPath}`,
+          ],
+        ),
+        stdoutPresentationContext,
       );
       return;
     }
     const recovery = result.recovery === "authored-path"
       ? "  Recovery: exact authored path match; canonical project identity could not be proven\n"
       : `  Canonical project: ${result.canonicalProject}\n`;
+    const recoveryCopyable = result.recovery === "authored-path"
+      ? "Recovery: exact authored path match; canonical project identity could not be proven"
+      : `Canonical project: ${result.canonicalProject}`;
     const next = await generatedOutputSurvivesUnbind(home, result)
       ? `Next: ${COMMAND_NAME} preview && ${COMMAND_NAME} apply\n`
       : "";
@@ -663,12 +749,21 @@ async function main(): Promise<void> {
       : displayProjectPath(result.project, result.project);
     writeHuman(
       process.stdout,
-      `Removed Project Binding for ${presentedProject}\n` +
-        recovery +
-        `  Profile: ${result.profile}\n` +
-        `  Hosts: ${result.hosts.join(", ")}\n` +
-        `  Local Configuration: ${result.configurationPath}\n` +
-        next,
+      humanOutput(
+        `Removed Project Binding for ${presentedProject}\n` +
+          recovery +
+          `  Profile: ${result.profile}\n` +
+          `  Hosts: ${result.hosts.join(", ")}\n` +
+          `  Local Configuration: ${result.configurationPath}\n` +
+          next,
+        [
+          `Removed Project Binding for ${presentedProject}`,
+          recoveryCopyable,
+          result.hosts.join(", "),
+          `Local Configuration: ${result.configurationPath}`,
+        ],
+      ),
+      stdoutPresentationContext,
     );
     return;
   }
@@ -676,7 +771,7 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("validate", () => parseNoArguments("validate", arguments_.slice(1)));
     if (parsed === undefined) return;
     const result = await validateApplication(home);
-    writeHuman(process.stdout, formatValidationResult(result));
+    writeHuman(process.stdout, formatValidationResult(result, { context: stdoutPresentationContext }), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "info") {
@@ -687,7 +782,11 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatInfoJson(info));
       } else {
-        writeHuman(process.stdout, formatInfoHuman(info, home));
+        writeHuman(
+          process.stdout,
+          formatInfoHuman(info, { context: stdoutPresentationContext }, home),
+          stdoutPresentationContext,
+        );
       }
     } catch (error) {
       if (parsed.json) {
@@ -695,7 +794,7 @@ async function main(): Promise<void> {
           formatInfoToolErrorJson(applicationInfoLocations(home), formatError(error)),
         );
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -705,7 +804,7 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("list", () => parseListArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     if (parsed.kind === "index") {
-      writeHuman(process.stdout, formatInventoryIndex());
+      writeHuman(process.stdout, formatInventoryIndex({ context: stdoutPresentationContext }), stdoutPresentationContext);
       return;
     }
     switch (parsed.topic) {
@@ -715,13 +814,21 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProjectInventoryJson(projects));
           } else {
-            writeHuman(process.stdout, formatProjectInventoryHuman(projects, home));
+            writeHuman(
+              process.stdout,
+              formatProjectInventoryHuman(
+                projects,
+                { context: stdoutPresentationContext },
+                home,
+              ),
+              stdoutPresentationContext,
+            );
           }
         } catch (error) {
           if (parsed.json) {
             process.stdout.write(formatProjectInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+            writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
           }
           process.exitCode = 1;
         }
@@ -732,13 +839,17 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProfileInventoryJson(profiles));
           } else {
-            writeHuman(process.stdout, formatProfileInventoryHuman(profiles));
+            writeHuman(
+              process.stdout,
+              formatProfileInventoryHuman(profiles, { context: stdoutPresentationContext }),
+              stdoutPresentationContext,
+            );
           }
         } catch (error) {
           if (parsed.json) {
             process.stdout.write(formatProfileInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+            writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
           }
           process.exitCode = 1;
         }
@@ -749,7 +860,11 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatHostInventoryJson(hosts));
           } else {
-            writeHuman(process.stdout, formatHostInventoryHuman(hosts));
+            writeHuman(
+              process.stdout,
+              formatHostInventoryHuman(hosts, { context: stdoutPresentationContext }),
+              stdoutPresentationContext,
+            );
           }
         }
         return;
@@ -759,13 +874,21 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatTemporaryInventoryJson(installations));
           } else {
-            writeHuman(process.stdout, formatTemporaryInventoryHuman(installations, home));
+            writeHuman(
+              process.stdout,
+              formatTemporaryInventoryHuman(
+                installations,
+                { context: stdoutPresentationContext },
+                home,
+              ),
+              stdoutPresentationContext,
+            );
           }
         } catch (error) {
           if (parsed.json) {
             process.stdout.write(formatTemporaryInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+            writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
           }
           process.exitCode = 1;
         }
@@ -777,7 +900,7 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "preview") {
     const parsed = parseOrExit("preview", () => parseLifecycleArguments("preview", arguments_.slice(1)));
     if (parsed === undefined) return;
-    const context = terminalPresentationContext(process.stdout);
+    const context = stdoutPresentationContext;
     const progress = interactiveProgress(context, parsed.json, PREVIEW_PROGRESS_LABEL);
     try {
       const report = await previewApplication(home);
@@ -797,7 +920,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("preview", formatError(error)));
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -806,7 +929,7 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "apply") {
     const parsed = parseOrExit("apply", () => parseLifecycleArguments("apply", arguments_.slice(1)));
     if (parsed === undefined) return;
-    const context = terminalPresentationContext(process.stdout);
+    const context = stdoutPresentationContext;
     try {
       const applied = await applyApplication(home);
       if (parsed.json) {
@@ -855,7 +978,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -864,7 +987,7 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "status") {
     const parsed = parseOrExit("status", () => parseLifecycleArguments("status", arguments_.slice(1)));
     if (parsed === undefined) return;
-    const context = terminalPresentationContext(process.stdout);
+    const context = stdoutPresentationContext;
     const progress = interactiveProgress(context, parsed.json, STATUS_PROGRESS_LABEL);
     try {
       const report = await statusApplication(home);
@@ -884,7 +1007,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("status", formatError(error)));
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -893,13 +1016,17 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "uninstall") {
     const parsed = parseOrExit("uninstall", () => parseNoArguments("uninstall", arguments_.slice(1)));
     if (parsed === undefined) return;
-    writeHuman(process.stdout, formatUninstallResult(await uninstallApplication(home)));
+    writeHuman(
+      process.stdout,
+      formatUninstallResult(await uninstallApplication(home), { context: stdoutPresentationContext }),
+      stdoutPresentationContext,
+    );
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "install-temp") {
     const parsed = parseOrExit("install-temp", () => parseInstallTempArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
-    const context = terminalPresentationContext(process.stdout);
+    const context = stdoutPresentationContext;
     try {
       const receipt = await installTemporaryProfile({
         home,
@@ -924,12 +1051,17 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("install-temp", error.structured),
           );
         } else {
+          const blocked = presentTemporaryBlockedMessages(
+            error.blockers,
+            error.canonicalProject,
+          );
           writeHuman(
             process.stderr,
-            `${COMMAND_NAME}: ${presentTemporaryBlockedMessages(
-              error.blockers,
-              error.canonicalProject,
-            )}\n`,
+            humanError(
+              `${COMMAND_NAME}: ${blocked.text}\n`,
+              [blocked.presented, error.canonicalProject],
+            ),
+            stderrPresentationContext,
           );
         }
         process.exitCode = 2;
@@ -946,8 +1078,12 @@ async function main(): Promise<void> {
         } else {
           writeHuman(
             process.stderr,
-            `${COMMAND_NAME}: ${formatError(error)}\n` +
-              `${COMMAND_NAME}: removal is required; run ${COMMAND_NAME} remove-temp ${error.temporaryInstallationId}\n`,
+            humanError(
+              `${COMMAND_NAME}: ${formatError(error)}\n` +
+                `${COMMAND_NAME}: removal is required; run ${COMMAND_NAME} remove-temp ${error.temporaryInstallationId}\n`,
+              [error.temporaryInstallationId],
+            ),
+            stderrPresentationContext,
           );
         }
         process.exitCode = 1;
@@ -958,7 +1094,7 @@ async function main(): Promise<void> {
           formatTemporaryInstallationToolErrorJson("install-temp", formatError(error)),
         );
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -967,7 +1103,7 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "remove-temp") {
     const parsed = parseOrExit("remove-temp", () => parseRemoveTempArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
-    const context = terminalPresentationContext(process.stdout);
+    const context = stdoutPresentationContext;
     try {
       const receipt = await removeTemporaryProfile({
         home,
@@ -990,12 +1126,17 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("remove-temp", error.structured),
           );
         } else {
+          const blocked = presentTemporaryBlockedMessages(
+            error.blockers,
+            error.canonicalProject,
+          );
           writeHuman(
             process.stderr,
-            `${COMMAND_NAME}: ${presentTemporaryBlockedMessages(
-              error.blockers,
-              error.canonicalProject,
-            )}\n`,
+            humanError(
+              `${COMMAND_NAME}: ${blocked.text}\n`,
+              [blocked.presented, error.canonicalProject],
+            ),
+            stderrPresentationContext,
           );
         }
         process.exitCode = 2;
@@ -1006,7 +1147,7 @@ async function main(): Promise<void> {
           formatTemporaryInstallationToolErrorJson("remove-temp", formatError(error)),
         );
       } else {
-        writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
       }
       process.exitCode = 1;
     }
@@ -1016,12 +1157,12 @@ async function main(): Promise<void> {
   const unknown = focusedHelp?.kind === "unknown"
     ? focusedHelp.token
     : arguments_[0] ?? "";
-  const context = terminalPresentationContext(process.stderr);
+  const context = stderrPresentationContext;
   writeHuman(process.stderr, unknownCommandHelp(unknown, context), context);
   process.exitCode = 1;
 }
 
 main().catch((error: unknown) => {
-  writeHuman(process.stderr, `${COMMAND_NAME}: ${formatError(error)}\n`);
+  writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
   process.exitCode = 1;
 });

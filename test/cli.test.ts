@@ -570,7 +570,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "validate");
     expectExitCode(result, 1);
-    expect(result.stderr).toContain("Unsupported Workspace schema version 99");
+    expect(result.stderr.replace(/\s+/g, " ")).toContain("Unsupported Workspace schema version 99");
 
     writeFileSync(join(workspacePath(home), "workspace.yaml"), "not: valid: yaml: [\n");
     const invalidYaml = await runCli(home, "validate");
@@ -1535,8 +1535,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       writeFileSync(configPath(home), invalid.source);
       const result = await runCli(home, "validate");
       expectExitCode(result, 1);
-      expect(result.stderr).toContain(invalid.message);
-      if ("detail" in invalid) expect(result.stderr).toContain(invalid.detail);
+      expect(result.stderr.replace(/\s+/g, " ")).toContain(invalid.message);
+      if ("detail" in invalid) {
+        expect(result.stderr.replace(/\s+/g, " ")).toContain(invalid.detail);
+      }
     }
   });
 
@@ -3986,7 +3988,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "preview");
 
     expectExitCode(result, 1);
-    expect(`${result.stdout}\n${result.stderr}`).toMatch(/project.*(?:missing|existing)|missing.*project/i);
+    expect(`${result.stdout}\n${result.stderr}`.replace(/\s+/g, " ")).toMatch(
+      /project.*(?:missing|existing)|missing.*project/i,
+    );
     expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
   });
 
@@ -4308,9 +4312,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     chmodSync(second, 0o755);
     expectExitCode(failed, 1);
-    expect(failed.stderr).toContain(`completed projects: ${first}`);
-    expect(failed.stderr).toContain(`failed project: ${second}`);
-    expect(failed.stderr).toContain("pending projects: (none)");
+    expect(failed.stderr.replace(/\s+/g, " ")).toContain(`completed projects: ${first}`);
+    expect(failed.stderr.replace(/\s+/g, " ")).toContain(`failed project: ${second}`);
+    expect(failed.stderr.replace(/\s+/g, " ")).toContain("pending projects: (none)");
     expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
 
@@ -4623,7 +4627,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     const malformed = await runCli(malformedHome, "validate");
     expectExitCode(malformed, 1);
-    expect(malformed.stderr).toContain("allowed' or 'disabled");
+    expect(malformed.stderr.replace(/\s+/g, " ")).toContain("allowed' or 'disabled");
 
     const conflictHome = isolatedHome();
     await initialize(conflictHome);
@@ -5567,7 +5571,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", projectPath);
 
     expectExitCode(result, 1);
-    expect(result.stderr).toContain("No Profiles exist in the Workspace");
+    expect(result.stderr.replace(/\s+/g, " ")).toContain("No Profiles exist in the Workspace");
     expect(result.stderr).toMatch(/edit Local Configuration directly/i);
     expect(result.stderr).not.toContain("apkit guide");
     expect(readFileSync(configPath(home), "utf8")).toBe(source);
@@ -5955,7 +5959,9 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const unknownProfile = await runCli(home, "bind", "missing", projectPath, "--host", "codex");
     expectExitCode(unknownProfile, 1);
     expect(unknownProfile.stderr).toMatch(/does not exist|profile/i);
-    expect(unknownProfile.stderr).toContain("Available Profiles: coding, example, writing");
+    expect(unknownProfile.stderr.replace(/\s+/g, " ")).toContain(
+      "Available Profiles: coding, example, writing",
+    );
     expect(unknownProfile.stderr).not.toContain(configPath(home));
     expect(unknownProfile.stderr).not.toContain(realpathSync(workspacePath(home)));
 
@@ -5995,8 +6001,13 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
 
     expectExitCode(result, 1);
-    expect(result.stderr).toContain("No Profiles exist in the Workspace");
-    expect(result.stderr).toContain("Run apkit guide profile to learn how to add a Profile");
+    expect(result.stderr.replace(/\s+/g, " ")).toContain("No Profiles exist in the Workspace");
+    // The recovery guidance reflows around the long Workspace path and the
+    // protected `apkit guide profile` invocation; compare with whitespace
+    // collapsed so the words stay contiguous.
+    expect(result.stderr.replace(/\s+/g, " ")).toContain(
+      "Run apkit guide profile to learn how to add a Profile",
+    );
     expect(result.stderr).not.toContain("Available Profiles:");
   });
 
@@ -6450,6 +6461,135 @@ describe("responsive lifecycle reports", () => {
   });
 });
 
+describe("shared presentation boundary", () => {
+  test("inventory, info, and validation views wrap at interactive width while pipes and JSON stay deterministic", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const projectPath = project("agent-profile-kit-boundary-");
+    const workspace = workspacePath(home);
+
+    const unbreakableProject = (line: string) => line.includes(projectPath);
+    const unbreakableApkit = (line: string) => line.includes("apkit ");
+    const structuralLabel = (line: string) =>
+      /^\s*(?:Engine version|Workspace|Local Configuration|Installation State|Profiles found|Hosts bound|Project:|Removed generated paths:|Cleaned Git exclusions:|Project Bindings preserved\.|Temporary installation:|Temporary Profile Installation:)/.test(line);
+    const usageLine = (line: string) => line.startsWith("Usage:");
+
+    const assertions: Array<{
+      arguments_: readonly string[];
+      readonly exclude?: (line: string) => boolean;
+      readonly exitCode?: number;
+    }> = [
+      { arguments_: ["bind", "coding", projectPath, "--host", "codex"], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) },
+      { arguments_: ["list"], exclude: unbreakableApkit },
+      { arguments_: ["list", "hosts"], exclude: (line) => unbreakableApkit(line) || structuralLabel(line) },
+      { arguments_: ["list", "profiles"], exclude: unbreakableApkit },
+      { arguments_: ["list", "temporary"], exclude: unbreakableApkit },
+      { arguments_: ["list", "projects"], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) || structuralLabel(line) },
+      { arguments_: ["info"], exclude: structuralLabel },
+      { arguments_: ["validate"], exclude: structuralLabel },
+      { arguments_: ["uninstall"], exclude: structuralLabel },
+      { arguments_: ["init"], exclude: (line) => line.includes(workspace) },
+      { arguments_: ["unbind", projectPath], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) || structuralLabel(line) },
+      { arguments_: ["help", "status"], exclude: (line) => usageLine(line) || unbreakableApkit(line) || /^(?:Purpose|Writes|Next|Supported Hosts|Examples):/.test(line) },
+      { arguments_: ["unknown-command"], exclude: usageLine, exitCode: 1 },
+      { arguments_: ["bind"], exclude: usageLine, exitCode: 1 },
+    ];
+
+    for (const { arguments_, exclude = () => false, exitCode = 0 } of assertions) {
+      const narrow = await runCliInPty(home, 40, ...arguments_);
+      const pipedNarrow = await runCliWithEnvironment(home, { COLUMNS: "40" }, ...arguments_);
+      const pipedWide = await runCliWithEnvironment(home, { COLUMNS: "160" }, ...arguments_);
+      expectExitCode(narrow, exitCode);
+      expectExitCode(pipedNarrow, exitCode);
+      expectExitCode(pipedWide, exitCode);
+      expect(pipedNarrow.stdout).toBe(pipedWide.stdout);
+      expect(pipedNarrow.stderr).toBe(pipedWide.stderr);
+      expect(`${pipedNarrow.stdout}${pipedNarrow.stderr}`).not.toMatch(/\u001b\[/);
+      const output = `${narrow.stdout}${narrow.stderr}`;
+      for (const line of output.split("\n")) {
+        if (exclude(line)) continue;
+        expect(
+          line.length,
+          `apkit ${arguments_.join(" ")} line exceeds TTY width: ${line}`,
+        ).toBeLessThanOrEqual(40);
+      }
+    }
+
+    // A genuinely long tool error must wrap too: an unconfigured home yields a
+    // Local Configuration error carrying a long config path (path stays whole).
+    const unconfigured = isolatedHome();
+    const longError = await runCliInPty(unconfigured, 40, "list", "projects");
+    expectExitCode(longError, 1);
+    const longErrorOutput = `${longError.stdout}${longError.stderr}`;
+    for (const line of longErrorOutput.split("\n")) {
+      if (line.includes(unconfigured)) continue;
+      expect(
+        line.length,
+        `long error line exceeds TTY width: ${line}`,
+      ).toBeLessThanOrEqual(40);
+    }
+    expect(longErrorOutput).toContain("apkit init");
+
+    // A blocked temporary-installation diagnostic must wrap the complete
+    // prefixed line: the "apkit: " prefix counts toward the measure and the
+    // Project identity stays whole.
+    const tempHome = isolatedHome();
+    await initialize(tempHome);
+    removeScaffoldedExample(tempHome);
+    writeContextProfile(tempHome);
+    const tempProject = join(tempHome, "projects", "blocked-temp");
+    mkdirSync(tempProject, { recursive: true });
+    expectExitCode(
+      await runCli(tempHome, "bind", "coding", tempProject, "--host", "codex"),
+      0,
+    );
+    expectExitCode(await runCli(tempHome, "apply"), 0);
+    const blockedTemp = await runCliInPty(
+      tempHome,
+      40,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "codex",
+    );
+    expectExitCode(blockedTemp, 2);
+    const blockedTempOutput = `${blockedTemp.stdout}${blockedTemp.stderr}`;
+    expect(blockedTempOutput.replace(/\s+/g, " ")).toContain(
+      "already has an ordinary Profile Installation",
+    );
+    for (const line of blockedTempOutput.split("\n")) {
+      // Occupied-output lines carry project-relative path tokens that are
+      // unbreakable by design (DEC-003).
+      if (line.includes("blocked-temp/")) continue;
+      expect(
+        line.length,
+        `blocked temporary line exceeds TTY width: ${line}`,
+      ).toBeLessThanOrEqual(40);
+    }
+
+    // Machine surfaces stay byte-identical across widths and ANSI-free.
+    for (const arguments_ of [
+      ["list", "projects", "--json"],
+      ["list", "profiles", "--json"],
+      ["list", "hosts", "--json"],
+      ["list", "temporary", "--json"],
+      ["info", "--json"],
+      ["preview", "--json"],
+      ["status", "--json"],
+    ] as const) {
+      const narrow = await runCliWithEnvironment(home, { COLUMNS: "40" }, ...arguments_);
+      const wide = await runCliWithEnvironment(home, { COLUMNS: "160" }, ...arguments_);
+      expectExitCode(narrow, 0);
+      expectExitCode(wide, 0);
+      expect(narrow.stdout).toBe(wide.stdout);
+      expect(narrow.stdout).not.toMatch(/\u001b\[/);
+    }
+  });
+});
+
 describe("delayed interactive progress", () => {
   test("interactive long-running preview shows delayed progress cleared before the final report", async () => {
     const home = isolatedHome();
@@ -6655,8 +6795,20 @@ describe("apkit root help", () => {
         .split("\n")
         .find((line) => new RegExp(`^\\s*${command.name}\\b`).test(line));
       expect(rootLine).toBeDefined();
-      const purpose = result.stdout.match(/^Purpose: (.+)$/m)?.[1];
-      expect(purpose).toBeDefined();
+      // Purpose prose wraps to the deterministic pipe width; join the wrapped
+      // continuation lines so the comparison stays word-for-word.
+      const purposeLines = result.stdout.split("\n");
+      const purposeIndex = purposeLines.findIndex((line) => line.startsWith("Purpose: "));
+      const purposeContinuations: string[] = [];
+      for (const line of purposeLines.slice(purposeIndex + 1)) {
+        if (!line.startsWith("  ")) break;
+        purposeContinuations.push(line.trim());
+      }
+      const purpose = [
+        purposeLines[purposeIndex]!.slice("Purpose: ".length),
+        ...purposeContinuations,
+      ].join(" ");
+      expect(purpose.length).toBeGreaterThan(0);
       const rootLines = root.stdout.split("\n");
       const rootLineIndex = rootLines.indexOf(rootLine!);
       const descriptionLines: string[] = [];
@@ -7093,9 +7245,12 @@ describe("apkit list", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Inventory topics:");
+    // Prose wraps to the deterministic pipe width; descriptions must remain
+    // present word-for-word, so compare with whitespace collapsed.
+    const collapsed = result.stdout.replace(/\s+/g, " ");
     for (const topic of INVENTORY_TOPICS) {
       expect(result.stdout).toContain(`apkit list ${topic.name}`);
-      expect(result.stdout).toContain(topic.description);
+      expect(collapsed).toContain(topic.description);
       expect(result.stdout).toContain(`apkit list ${topic.name} --json`);
     }
     expect(existsSync(configPath(home))).toBe(false);
@@ -7593,8 +7748,8 @@ describe("apkit list", () => {
 
     expectExitCode(human, 1);
     expect(human.stdout).toBe("");
-    expect(human.stderr).toContain("Local Configuration is missing");
-    expect(human.stderr).toContain("run apkit init");
+    expect(human.stderr.replace(/\s+/g, " ")).toContain("Local Configuration is missing");
+    expect(human.stderr.replace(/\s+/g, " ")).toContain("run apkit init");
     expectExitCode(machine, 1);
     expect(machine.stderr).toBe("");
     expect(JSON.parse(machine.stdout)).toMatchObject({
@@ -7615,7 +7770,9 @@ describe("apkit list", () => {
     expectExitCode(result, 1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("list does not support topic 'unknown-topic'");
-    expect(result.stderr).toContain(`available topics: ${inventoryTopicNames().join(", ")}`);
+    expect(result.stderr.replace(/\s+/g, " ")).toContain(
+      `available topics: ${inventoryTopicNames().join(", ")}`,
+    );
     expect(result.stderr).toContain(`Usage: apkit ${inventoryCommandSyntax()}`);
   });
 
