@@ -47,7 +47,14 @@ import {
   type OwnedDirectoryMember,
   type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
-import { hashWorkspaceInputs } from "./hashes.js";
+import {
+  ARTIFACT_TYPES,
+  artifactReferenceKey,
+  requireArtifactId,
+  type ArtifactReference,
+  type ArtifactType,
+} from "../schemas/dependencies.js";
+import { hashWorkspaceInputs, type ResolvedArtifactFingerprint } from "./hashes.js";
 import { ingestApplication, stateDirectory } from "./local-configuration.js";
 import { requireProfile } from "./profile-selection.js";
 import { resolveProfileDependencies, type ResolvedProfile } from "./resolve-dependencies.js";
@@ -80,6 +87,7 @@ export interface DesiredProjectFileOutput {
   readonly consumingHosts: readonly string[];
   readonly hash: string;
   readonly mode: number;
+  readonly origins: readonly ArtifactReference[];
   readonly path: string;
   readonly requirements: readonly string[];
   readonly type: "file";
@@ -90,6 +98,7 @@ export interface DesiredProjectDirectoryOutput {
   readonly hash: string;
   readonly members: readonly DesiredDirectoryMember[];
   readonly mode: number;
+  readonly origins: readonly ArtifactReference[];
   readonly path: string;
   readonly requirements: readonly string[];
   readonly type: "directory";
@@ -101,6 +110,8 @@ export type DesiredProjectOutput =
 
 export interface DesiredInstallation {
   readonly adapterVersion: string;
+  /** Normalized canonical source fingerprints for every resolved artifact. */
+  readonly artifactFingerprints: readonly ResolvedArtifactFingerprint[];
   readonly binding: ProjectBinding;
   readonly blockers: readonly BlockerInput[];
   readonly engineVersion: string;
@@ -253,6 +264,7 @@ function outputDifference(
   if (left.type !== right.type) return "entry type";
   if (left.mode !== right.mode) return "mode";
   if (left.requirements.join("\n") !== right.requirements.join("\n")) return "semantic requirements";
+  if (!sameOrigins(left.origins, right.origins)) return "source origins";
   if (left.type === "file" && right.type === "file") {
     if (!exactBytesEqual(left.bytes, right.bytes)) return "bytes";
     return undefined;
@@ -376,6 +388,47 @@ function normalizeDirectoryMembers(
   return list;
 }
 
+/** Validate canonical Artifact source origins declared by an Adapter plan. */
+function normalizeOutputOrigins(
+  origins: readonly ArtifactReference[],
+  path: string,
+): readonly ArtifactReference[] {
+  if (!Array.isArray(origins)) {
+    throw new Error(`Adapter output '${path}' must declare typed source origins`);
+  }
+  const normalized = origins.map((origin, index) => {
+    const description = `Adapter output '${path}' origin[${index}]`;
+    if (typeof origin !== "object" || origin === null || Array.isArray(origin)) {
+      throw new Error(`${description} must be a canonical Artifact reference`);
+    }
+    const reference = origin as ArtifactReference;
+    if (!ARTIFACT_TYPES.includes(reference.type as ArtifactType)) {
+      throw new Error(`${description} type must be one of: ${ARTIFACT_TYPES.join(", ")}`);
+    }
+    return {
+      id: requireArtifactId(reference.id, `${description} id`),
+      type: reference.type,
+    };
+  });
+  const keys = normalized.map(artifactReferenceKey);
+  if (new Set(keys).size !== keys.length) {
+    throw new Error(
+      `Adapter output '${path}' must not declare an Artifact origin more than once`,
+    );
+  }
+  return normalized;
+}
+
+function sameOrigins(
+  left: readonly ArtifactReference[],
+  right: readonly ArtifactReference[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((origin, index) => artifactReferenceKey(origin) === artifactReferenceKey(right[index]!))
+  );
+}
+
 function normalizeProposedOutput(
   proposed: ProposedProjectOutput,
   host: string,
@@ -388,6 +441,7 @@ function normalizeProposedOutput(
   }
   const requirements = [...new Set(proposed.requirements)].sort();
   const mode = parseFileMode(proposed.mode, `Adapter output '${path}' mode`);
+  const origins = normalizeOutputOrigins(proposed.origins, path);
   if (proposed.type === "file") {
     if (typeof proposed.bytes !== "string" && !(proposed.bytes instanceof Uint8Array)) {
       throw new Error(`Adapter output '${path}' must provide exact regular-file bytes`);
@@ -397,6 +451,7 @@ function normalizeProposedOutput(
       consumingHosts: [host],
       hash: hashBytes(proposed.bytes),
       mode,
+      origins,
       path,
       requirements,
       type: "file",
@@ -414,6 +469,7 @@ function normalizeProposedOutput(
       hash: hashDirectoryMembers(members),
       members,
       mode,
+      origins,
       path,
       requirements,
       type: "directory",
@@ -503,7 +559,10 @@ export async function buildDesiredState(
       );
     }
     const gitProject = await findGitProject(binding.canonicalProject);
-    const sourceHash = await hashWorkspaceInputs(profile, resolvedProfile);
+    const { hash: sourceHash, fingerprints: artifactFingerprints } = await hashWorkspaceInputs(
+      profile,
+      resolvedProfile,
+    );
     const blockers: BlockerInput[] = [];
     const plans: AdapterProjectPlan[] = [];
     const hostVersions: Record<string, string> = {};
@@ -704,6 +763,7 @@ export async function buildDesiredState(
     }
     installations.push({
       adapterVersion: adapterVersionFor(binding.hosts),
+      artifactFingerprints,
       binding,
       blockers,
       engineVersion: ENGINE_VERSION,

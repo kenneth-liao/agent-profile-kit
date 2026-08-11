@@ -25,7 +25,7 @@ function installation(installationId: string, project: string) {
     profileId: "coding",
     project,
     resolvedArtifacts: [],
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     selectedContext: [],
     workspaceInputHash: hash,
   };

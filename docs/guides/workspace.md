@@ -548,6 +548,16 @@ older than 0.46.0 cannot read schema 4. Before the first write with 0.46.0, reta
 `manifest.yaml` if rollback may be needed; restore that backup before starting an
 older binary.
 
+Agent Profile Kit 0.68.0 advances the Installation Manifest inside any state
+version from schema v2 to v3: each resolved artifact records a normalized
+content fingerprint and every owned output records typed source origins, while
+provenance-absent legacy manifests stay readable and gain that evidence on the
+next successful ordinary `apply`. Manifest v3 receipts are written on the next
+0.68.0+ state publication; 0.67.x and earlier cannot read Installation State
+containing them. Before the first 0.68.0+ write, retain a copy of
+`manifest.yaml` if rollback may be needed; restore that backup before running an
+older binary.
+
 Agent Profile Kit 0.24.2 also records the installation-time `git_project`
 classification in each Installation Manifest without changing the Manifest
 schema version. It reads older Manifests that omit this field, but older

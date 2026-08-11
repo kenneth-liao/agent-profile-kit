@@ -11,12 +11,14 @@ import {
 import { dirname, join } from "node:path";
 
 import {
+  INSTALLATION_MANIFEST_SCHEMA_VERSION,
   INSTALLATION_MARKER_PATH,
   INSTALLATION_STATE_SCHEMA_VERSION,
   type InstallationState,
   type OwnedOutput,
   type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
+import { artifactReferenceKey, type ArtifactReference } from "../schemas/dependencies.js";
 import { formatInstallationMarker as markerText } from "../schemas/installation-manifest.js";
 import {
   hashBytes,
@@ -287,6 +289,72 @@ function ownedOutputFromDesired(output: DesiredProjectOutput): OwnedOutput {
   };
 }
 
+/**
+ * Complete the provenance evidence of a legacy manifest from current trusted
+ * desired state without rewriting any recorded ownership evidence. Short-circuits
+ * when the manifest already carries complete provenance.
+ */
+export function provenanceFromDesired(
+  manifest: ProjectInstallationManifest,
+  desired: DesiredInstallation,
+): ProjectInstallationManifest {
+  if (manifest.outputOrigins !== undefined) return manifest;
+  const fingerprintByReference = new Map(
+    desired.artifactFingerprints.map((fingerprint) => [
+      artifactReferenceKey(fingerprint.reference),
+      fingerprint.fingerprint,
+    ]),
+  );
+  const outputOrigins: Record<string, readonly ArtifactReference[]> = {};
+  for (const output of desired.outputs) {
+    outputOrigins[output.path] = output.origins;
+  }
+  outputOrigins[markerRelativePath()] = [];
+  for (const output of manifest.outputs) {
+    if (!(output.path in outputOrigins)) {
+      throw new Error(
+        `Cannot backfill provenance for legacy output '${output.path}': no matching desired output`,
+      );
+    }
+  }
+  return {
+    ...manifest,
+    outputOrigins,
+    resolvedArtifacts: manifest.resolvedArtifacts.map((artifact) => {
+      const fingerprint = fingerprintByReference.get(
+        artifactReferenceKey(artifact.reference),
+      );
+      if (fingerprint === undefined) {
+        throw new Error(
+          `Cannot backfill provenance for resolved artifact '${artifactReferenceKey(artifact.reference)}': no normalized fingerprint`,
+        );
+      }
+      return { ...artifact, fingerprint };
+    }),
+  };
+}
+
+function backfillLegacyProvenance(
+  state: InstallationState,
+  desired: readonly DesiredInstallation[],
+): InstallationState {
+  const byProject = new Map(
+    desired.map((installation) => [
+      installation.binding.canonicalProject,
+      installation,
+    ]),
+  );
+  return {
+    ...state,
+    installations: state.installations.map((installation) => {
+      const matching = byProject.get(installation.project);
+      return matching === undefined
+        ? installation
+        : provenanceFromDesired(installation, matching);
+    }),
+  };
+}
+
 export function manifestFor(
   desired: DesiredInstallation,
   installationId: string,
@@ -296,6 +364,29 @@ export function manifestFor(
     ...desired.outputs.map(ownedOutputFromDesired),
     { hash: hashMarker(marker), mode: 0o644, path: markerRelativePath(), type: "file" as const },
   ].sort((left, right) => left.path.localeCompare(right.path));
+  const fingerprintByReference = new Map(
+    desired.artifactFingerprints.map((fingerprint) => [
+      artifactReferenceKey(fingerprint.reference),
+      fingerprint.fingerprint,
+    ]),
+  );
+  const resolvedReferences = new Set(
+    desired.resolvedProfile.artifacts.map((artifact) =>
+      artifactReferenceKey(artifact.reference),
+    ),
+  );
+  const outputOrigins: Record<string, readonly ArtifactReference[]> = {};
+  for (const output of desired.outputs) {
+    for (const origin of output.origins) {
+      if (!resolvedReferences.has(artifactReferenceKey(origin))) {
+        throw new Error(
+          `Adapter output '${output.path}' references artifact '${artifactReferenceKey(origin)}' that is not resolved for Profile '${desired.profile.id}'`,
+        );
+      }
+    }
+    outputOrigins[output.path] = output.origins;
+  }
+  outputOrigins[markerRelativePath()] = [];
   return {
     adapterVersion: desired.adapterVersion,
     engineVersion: desired.engineVersion,
@@ -303,17 +394,29 @@ export function manifestFor(
     hosts: desired.binding.hosts,
     hostVersions: desired.hostVersions,
     installationId,
+    outputOrigins,
     outputs,
     profileId: desired.profile.id,
     project: desired.binding.canonicalProject,
-    resolvedArtifacts: desired.resolvedProfile.artifacts.map((artifact) => ({
-      inclusionReasons: artifact.inclusionReasons.map((reason) => ({
-        path: reason.path,
-        profile: reason.profileId,
-      })),
-      reference: artifact.reference,
-    })),
-    schemaVersion: 2,
+    resolvedArtifacts: desired.resolvedProfile.artifacts.map((artifact) => {
+      const fingerprint = fingerprintByReference.get(
+        artifactReferenceKey(artifact.reference),
+      );
+      if (fingerprint === undefined) {
+        throw new Error(
+          `Missing normalized fingerprint for resolved artifact '${artifactReferenceKey(artifact.reference)}'`,
+        );
+      }
+      return {
+        fingerprint,
+        inclusionReasons: artifact.inclusionReasons.map((reason) => ({
+          path: reason.path,
+          profile: reason.profileId,
+        })),
+        reference: artifact.reference,
+      };
+    }),
+    schemaVersion: INSTALLATION_MANIFEST_SCHEMA_VERSION,
     selectedContext: desired.profile.context,
     workspaceInputHash: desired.sourceHash,
   };
@@ -1360,7 +1463,7 @@ async function applyReconciliationLocked(
     }
   }
   if (migratedState) {
-    await writeState(home, workingState);
+    await writeState(home, backfillLegacyProvenance(workingState, desired));
   }
   const repairedExclusions = await stageGitExclusions(workingState, workingState);
   await repairedExclusions.commit();

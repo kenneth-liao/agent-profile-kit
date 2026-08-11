@@ -246,7 +246,10 @@ async function planTemporaryDesiredInstallation(options: {
     );
   }
   const gitProject = await findGitProject(options.project);
-  const sourceHash = await hashWorkspaceInputs(profile, resolvedProfile);
+  const { hash: sourceHash, fingerprints: artifactFingerprints } = await hashWorkspaceInputs(
+    profile,
+    resolvedProfile,
+  );
   const blockers: BlockerInput[] = [];
   const warnings: string[] = [];
   const diagnosticValues: string[] = [];
@@ -271,6 +274,7 @@ async function planTemporaryDesiredInstallation(options: {
   const hosts: readonly SupportedHost[] = [options.host];
   return {
     adapterVersion: adapterVersionFor(hosts),
+    artifactFingerprints,
     binding: {
       canonicalProject: options.project,
       hosts,

@@ -4036,7 +4036,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const bytes = "obsolete owned output\n";
     writeFileSync(obsolete, bytes);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{ outputs: Array<{ hash: string; mode: number; path: string; type: "file" }> }>;
+      installations: Array<{
+        output_origins: Record<string, unknown>;
+        outputs: Array<{ hash: string; mode: number; path: string; type: "file" }>;
+      }>;
     };
     state.installations[0]!.outputs.push({
       hash: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
@@ -4044,6 +4047,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       path: obsoleteRelative,
       type: "file",
     });
+    state.installations[0]!.output_origins[obsoleteRelative] = [];
     writeFileSync(statePath(home), stringify(state));
 
     const preview = await runCli(home, "preview", "--verbose");

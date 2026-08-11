@@ -516,6 +516,7 @@ export async function planCodexProject(
       {
         bytes: composeContextEnvelope(profileId, modules),
         mode: 0o644,
+        origins: modules.map((module) => ({ id: module.id, type: "context" as const })),
         path: join(".agent-profile-kit", "codex", "context.md"),
         requirements: ["Codex SessionStart delivers complete composed Context"],
         type: "file",
@@ -523,6 +524,9 @@ export async function planCodexProject(
       {
         bytes: hooks(contextPath),
         mode: 0o644,
+        // Adapter-authored; its content follows Host contract and project topology,
+        // not any single Workspace artifact, so it carries no source origin.
+        origins: [],
         path: join(".codex", "hooks.json"),
         requirements: [
           "Codex SessionStart runs on startup, clear, and compact",
