@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,7 +84,11 @@ function validate(options: SuiteSupervisorOptions): void {
   }
   const perRun = options.perRunDeadlineMs ?? DEFAULT_PER_RUN_DEADLINE_MS;
   assertPositiveFinite(perRun, "perRunDeadlineMs");
-  if (options.mode !== "focused" && (options.bunArguments?.length ?? 0) > 0) {
+  const argumentCount = options.bunArguments?.length ?? 0;
+  if (options.mode === "focused" && argumentCount === 0) {
+    throw new Error("suite supervisor focused mode requires an explicit test path or filter");
+  }
+  if (options.mode !== "focused" && argumentCount > 0) {
     throw new Error(`suite supervisor ${options.mode} accepts no test arguments; use focused`);
   }
   if (options.mode === "stress") {
@@ -107,8 +111,11 @@ function isGreen(result: ProcessResult): boolean {
 }
 
 function defaultLogDir(mode: SuiteMode): string {
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  return join(tmpdir(), "agent-profile-kit-test-runs", `${mode}-${stamp}-${process.pid}`);
+  const logDir = mkdtempSync(join(tmpdir(), `agent-profile-kit-test-${mode}-`));
+  // POSIX mkdtemp is private by default; chmod makes the invariant explicit
+  // even under an unusually restrictive or platform-specific caller umask.
+  chmodSync(logDir, 0o700);
+  return logDir;
 }
 
 function writeRunLog(
@@ -136,7 +143,7 @@ function writeRunLog(
     `--- stderr ---`,
     result.stderr,
   ];
-  writeFileSync(logPath, lines.join("\n") + "\n");
+  writeFileSync(logPath, lines.join("\n") + "\n", { mode: 0o600 });
   return logPath;
 }
 
@@ -159,7 +166,10 @@ export async function runSupervisedSuite(
   const aggregate =
     mode === "stress" ? (options.aggregateDeadlineMs ?? DEFAULT_AGGREGATE_DEADLINE_MS) : perRun;
   const logDir = options.logDir ?? defaultLogDir(mode);
-  const suiteCommand = options.suiteCommand ?? (["bun", "test"] as const);
+  // Canonical scripts run this module under Bun; reuse that exact executable so
+  // focused/full/stress runs cannot drift to another PATH entry or lose Bun
+  // under a restricted PATH.
+  const suiteCommand = options.suiteCommand ?? ([process.execPath, "test"] as const);
   const startedAt = Date.now();
   const runs: SupervisedRun[] = [];
   let interrupted = false;
@@ -299,6 +309,15 @@ async function main(args: readonly string[]): Promise<number> {
     bunArguments = rest[0] === "--" ? rest.slice(1) : rest;
   } else if (rest.length > 0) {
     console.error(`suite supervisor: ${modeArg} accepts no test arguments; use test:focused`);
+    return 2;
+  }
+
+  try {
+    // Validate before announcing a run so an empty focused invocation fails
+    // without looking as though a full suite started.
+    validate({ mode: modeArg, bunArguments });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     return 2;
   }
 

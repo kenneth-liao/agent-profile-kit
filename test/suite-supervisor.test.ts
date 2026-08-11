@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -366,6 +366,20 @@ describe("suite supervisor: retained diagnostic logs", () => {
     }
   });
 
+  test("default retained diagnostics are private regardless of the caller's umask", async () => {
+    const result = await runSupervisedSuite({
+      mode: "full",
+      suiteCommand: shFixture("exit 0"),
+      perRunDeadlineMs: 2000,
+    });
+    try {
+      expect(statSync(result.logDir).mode & 0o777).toBe(0o700);
+      expect(statSync(result.runs[0]!.logPath).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(result.logDir, { recursive: true, force: true });
+    }
+  });
+
   test("a real stalled Bun suite is terminated at the per-run deadline with a clean process group", async () => {
     const logDir = tempDir();
     try {
@@ -401,6 +415,13 @@ describe("suite supervisor: boundary validation", () => {
       runSupervisedSuite({ mode: "full", perRunDeadlineMs: 1000, bunArguments: ["test/foo.test.ts"] }),
     ).rejects.toThrow(/focused/);
     await expect(
+      runSupervisedSuite({
+        mode: "focused",
+        suiteCommand: shFixture("exit 0"),
+        perRunDeadlineMs: 1000,
+      }),
+    ).rejects.toThrow(/focused.*path.*filter/i);
+    await expect(
       runSupervisedSuite({ mode: "stress", perRunDeadlineMs: 5000, aggregateDeadlineMs: 2000 }),
     ).rejects.toThrow(/aggregate/);
     await expect(
@@ -410,6 +431,21 @@ describe("suite supervisor: boundary validation", () => {
 });
 
 describe("supervised CLI", () => {
+  test("rejects focused mode without an explicit path or filter", async () => {
+    const result = await runProcess({
+      executable: process.execPath,
+      arguments_: ["run", "test/support/suite-supervisor.ts", "focused"],
+      deadlineMs: 5000,
+      commandLabel: "empty focused CLI",
+    });
+    expect(result.kind).toBe("exit");
+    if (result.kind === "exit") {
+      expect(result.exitCode).not.toBe(0);
+    }
+    expect(result.stdout).not.toContain("starting");
+    expect(result.stderr).toMatch(/focused.*path.*filter/i);
+  });
+
   test("runs a focused real Bun suite and prints a concise summary with the retained log", async () => {
     const result = await runProcess({
       executable: process.execPath,
