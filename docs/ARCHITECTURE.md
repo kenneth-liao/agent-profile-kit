@@ -244,6 +244,8 @@ invocation-capable installation below 0.34.0.
 
 `preview` builds and validates the entire desired output for every bound project before `apply` writes anything. A predictable conflict in any project blocks all writes. Once preflight succeeds, each project is updated transactionally. An unexpected filesystem failure may leave later projects unapplied; the command reports the exact completed and pending set, and rerunning `apply` converges safely.
 
+Desired-state planning creates one invocation-scoped planning context after Workspace and Local Configuration ingestion (`installer/lifecycle-planning.ts`). Within that command only, the context is the single reader for reusable planning facts: resolved Profiles, resolved artifact fingerprints and workspace input hashes, portable Skill package source, composed Context envelopes, and Host projections whose complete normalized inputs match. Projection options that affect output—including Project-relative Codex Context paths and Grok/Claude topology—participate in the key so unsafe reuse is impossible. The context is discarded when the command exits; there is no persistent cache or cross-command memoization, and call sites do not add local fallback readers for the same facts.
+
 The apply presentation keeps the pre-commit receipt distinct from the
 post-commit snapshot in both concise and verbose output: `Applied` labels the
 receipt and `Pending` labels remaining work from the verified snapshot. The

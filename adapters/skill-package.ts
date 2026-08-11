@@ -2,6 +2,8 @@ import { join, posix } from "node:path";
 import { lstat, readdir, readFile } from "node:fs/promises";
 
 import type { Skill } from "../schemas/skill.js";
+import type { ContextModuleSource } from "./context-envelope.js";
+import { composeContextEnvelope } from "./context-envelope.js";
 import type {
   ProposedDirectoryMember,
   ProposedProjectDirectoryOutput,
@@ -27,6 +29,21 @@ export interface SkillPackageProjection {
     skill: Skill,
     base: readonly string[],
   ) => readonly string[];
+}
+
+/**
+ * Trusted planning materials shared with Adapters for one lifecycle invocation.
+ * Defaults read the filesystem and compose Context directly; an Installer context
+ * may supply invocation-scoped reuse without changing Adapter semantics.
+ */
+export interface AdapterPlanningMaterials {
+  readonly composeContext: (
+    profileId: string,
+    modules: readonly ContextModuleSource[],
+  ) => string;
+  readonly readSkillPackage: (
+    skill: Skill,
+  ) => Promise<readonly ProposedDirectoryMember[]>;
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -88,6 +105,11 @@ export async function skillPackageMembers(
   return members.sort((left, right) => left.path.localeCompare(right.path));
 }
 
+export const DEFAULT_ADAPTER_PLANNING_MATERIALS: AdapterPlanningMaterials = {
+  composeContext: composeContextEnvelope,
+  readSkillPackage: skillPackageMembers,
+};
+
 /** True when any resolved Skill requires disabled implicit model invocation. */
 export function skillsRequireDisabledModelInvocation(
   skills: readonly Skill[],
@@ -101,8 +123,9 @@ export async function planSkillPackageDirectory(
   discoveryRoot: string,
   baseRequirements: readonly string[],
   projection: SkillPackageProjection,
+  materials: AdapterPlanningMaterials = DEFAULT_ADAPTER_PLANNING_MATERIALS,
 ): Promise<ProposedProjectDirectoryOutput> {
-  const sourceMembers = await skillPackageMembers(skill);
+  const sourceMembers = await materials.readSkillPackage(skill);
   return {
     members: projection.projectMembers(skill, sourceMembers),
     mode: 0o755,
