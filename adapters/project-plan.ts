@@ -1,3 +1,4 @@
+import type { ArtifactReference } from "../schemas/dependencies.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
 
 export type ProjectOutputEntryType = "directory" | "file";
@@ -27,6 +28,11 @@ export interface ProposedProjectFileOutput {
   /** Exact file contents. Prefer Uint8Array for non-UTF-8 package members. */
   readonly bytes: string | Uint8Array;
   readonly mode: number;
+  /**
+   * Canonical Artifact references that generated this output. Zero, one, or
+   * multiple references are allowed; identity is never derived from paths.
+   */
+  readonly origins: readonly ArtifactReference[];
   readonly path: string;
   readonly requirements: readonly string[];
   readonly type: "file";
@@ -39,6 +45,8 @@ export interface ProposedProjectFileOutput {
 export interface ProposedProjectDirectoryOutput {
   readonly members: readonly ProposedDirectoryMember[];
   readonly mode: number;
+  /** Canonical Artifact references that generated this output. */
+  readonly origins: readonly ArtifactReference[];
   readonly path: string;
   readonly requirements: readonly string[];
   readonly type: "directory";

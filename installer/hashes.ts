@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { type ContextModule, type Profile } from "../schemas/context-profile.js";
 import { type Skill } from "../schemas/skill.js";
+import { type ArtifactReference } from "../schemas/dependencies.js";
 import { type ResolvedProfile } from "./resolve-dependencies.js";
 import { WORKSPACE_SCHEMA_VERSION } from "../schemas/workspace-manifest.js";
 
@@ -88,10 +89,32 @@ function normalizedDependencies(
     );
 }
 
+/** Normalized canonical source fingerprint for one resolved artifact. */
+export interface ResolvedArtifactFingerprint {
+  readonly fingerprint: string;
+  readonly reference: ArtifactReference;
+}
+
+export interface WorkspaceInputs {
+  readonly fingerprints: readonly ResolvedArtifactFingerprint[];
+  readonly hash: string;
+}
+
+/** Deterministic normalized fingerprint for one Context Module's source content. */
+function fingerprintContextContent(content: string): string {
+  return sha256(JSON.stringify({ content }));
+}
+
+/** Deterministic normalized fingerprint for one Skill package tree (sidecar excluded). */
+function fingerprintSkillInput(input: Awaited<ReturnType<typeof skillInput>>): string {
+  return sha256(JSON.stringify(input));
+}
+
 export async function hashWorkspaceInputs(
   profile: Profile,
   resolvedProfile: ResolvedProfile,
-): Promise<string> {
+): Promise<WorkspaceInputs> {
+  const fingerprints: ResolvedArtifactFingerprint[] = [];
   // Hash Host package contents separately from dependency/inclusion semantics.
   // Sidecar file bytes are omitted so formatting noise does not force reinstalls,
   // but normalized dependencies and inclusion reasons must participate so Manifest
@@ -100,6 +123,10 @@ export async function hashWorkspaceInputs(
     resolvedProfile.artifacts.map(async (resolved) => {
       if (resolved.reference.type === "context") {
         const context = resolved.artifact as ContextModule;
+        fingerprints.push({
+          fingerprint: fingerprintContextContent(context.content),
+          reference: resolved.reference,
+        });
         return {
           content: context.content,
           dependencies: normalizedDependencies(context.dependencies),
@@ -109,29 +136,37 @@ export async function hashWorkspaceInputs(
         };
       }
       const skill = resolved.artifact as Skill;
+      const input = await skillInput(skill, ["agent-profile-kit.yaml"]);
+      fingerprints.push({
+        fingerprint: fingerprintSkillInput(input),
+        reference: resolved.reference,
+      });
       return {
         dependencies: normalizedDependencies(skill.dependencies),
         id: skill.id,
         inclusion_reasons: normalizedInclusionReasons(resolved.inclusionReasons),
-        input: await skillInput(skill, ["agent-profile-kit.yaml"]),
+        input,
         type: "skill" as const,
       };
     }),
   );
-  return sha256(
-    JSON.stringify({
-      resolved_artifacts: resolvedArtifacts,
-      profile: {
-        agents: profile.agents,
-        context: profile.context,
-        hooks: profile.hooks,
-        id: profile.id,
-        skills: profile.skills,
-        tools: profile.tools,
-      },
-      workspace_schema_version: WORKSPACE_SCHEMA_VERSION,
-    }),
-  );
+  return {
+    fingerprints,
+    hash: sha256(
+      JSON.stringify({
+        resolved_artifacts: resolvedArtifacts,
+        profile: {
+          agents: profile.agents,
+          context: profile.context,
+          hooks: profile.hooks,
+          id: profile.id,
+          skills: profile.skills,
+          tools: profile.tools,
+        },
+        workspace_schema_version: WORKSPACE_SCHEMA_VERSION,
+      }),
+    ),
+  };
 }
 
 export async function hashOutputDirectory(

@@ -3,13 +3,16 @@ import { basename, dirname, isAbsolute, normalize, posix, win32 } from "node:pat
 
 import {
   ARTIFACT_TYPES,
+  artifactReferenceKey,
   requireArtifactId,
   type ArtifactReference,
   type ArtifactType,
 } from "./dependencies.js";
 import { isSupportedHost, SUPPORTED_HOSTS, type SupportedHost } from "./local-configuration.js";
 
-export const INSTALLATION_MANIFEST_SCHEMA_VERSION = 2;
+export const INSTALLATION_MANIFEST_SCHEMA_VERSION = 3;
+/** Manifest schema written before artifact fingerprints and output origins were recorded. */
+export const INSTALLATION_MANIFEST_LEGACY_SCHEMA_VERSION = 2;
 export const INSTALLATION_STATE_LEGACY_SCHEMA_VERSION = 2;
 export const INSTALLATION_STATE_PREVIOUS_SCHEMA_VERSION = 3;
 /** Schema version that introduced intended teardown provenance without temporary installations. */
@@ -59,6 +62,12 @@ export interface OwnedDirectoryOutput {
 export type OwnedOutput = OwnedDirectoryOutput | OwnedFileOutput;
 
 export interface ResolvedArtifactRecord {
+  /**
+   * Normalized canonical source fingerprint recorded as receipt evidence. Absent
+   * on legacy manifests ingested without provenance; a current manifest either
+   * carries a fingerprint for every resolved artifact or none at all.
+   */
+  readonly fingerprint?: string;
   readonly inclusionReasons: readonly {
     readonly path: readonly ArtifactReference[];
     readonly profile: string;
@@ -74,11 +83,19 @@ export interface ProjectInstallationManifest {
   readonly hosts: readonly string[];
   readonly hostVersions: Readonly<Record<string, string>>;
   readonly installationId: string;
+  /**
+   * Typed source origins for every owned output, keyed by exact output path.
+   * A value may hold zero, one, or multiple canonical Artifact references;
+   * the Installer-owned Marker always holds zero. Absent on legacy manifests
+   * that predate provenance recording; when present, evidence is complete and
+   * consistent with `resolvedArtifacts`.
+   */
+  readonly outputOrigins?: Readonly<Record<string, readonly ArtifactReference[]>>;
   readonly outputs: readonly OwnedOutput[];
   readonly profileId: string;
   readonly project: string;
   readonly resolvedArtifacts: readonly ResolvedArtifactRecord[];
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly selectedContext: readonly string[];
   readonly workspaceInputHash: string;
 }
@@ -384,7 +401,7 @@ function parseResolvedArtifacts(value: unknown): readonly ResolvedArtifactRecord
   const records = value.map((entry, index) => {
     const description = `Installation Manifest resolved_artifacts[${index}]`;
     const artifact = requireMapping(entry, description);
-    requireExactFields(artifact, ["type", "id", "inclusion_reasons"], description);
+    requireExactFields(artifact, ["type", "id", "inclusion_reasons", "fingerprint"], description);
     if (!Array.isArray(artifact.inclusion_reasons) || artifact.inclusion_reasons.length === 0) {
       throw new Error(`${description} inclusion_reasons must be a non-empty array`);
     }
@@ -403,6 +420,9 @@ function parseResolvedArtifacts(value: unknown): readonly ResolvedArtifactRecord
       };
     });
     return {
+      ...(artifact.fingerprint === undefined
+        ? {}
+        : { fingerprint: requireHash(artifact.fingerprint, `${description} fingerprint`) }),
       inclusionReasons,
       reference: requireArtifactReference(
         { id: artifact.id, type: artifact.type },
@@ -410,7 +430,7 @@ function parseResolvedArtifacts(value: unknown): readonly ResolvedArtifactRecord
       ),
     };
   });
-  const keys = records.map((record) => `${record.reference.type}:${record.reference.id}`);
+  const keys = records.map((record) => artifactReferenceKey(record.reference));
   if (new Set(keys).size !== keys.length) {
     throw new Error("Installation Manifest resolved_artifacts must not contain an Artifact more than once");
   }
@@ -513,32 +533,97 @@ function parseHosts(value: unknown): readonly string[] {
   return SUPPORTED_HOSTS.filter((host) => hosts.includes(host));
 }
 
+function parseOutputOrigins(
+  value: unknown,
+  outputs: readonly OwnedOutput[],
+  resolvedArtifacts: readonly ResolvedArtifactRecord[],
+): Readonly<Record<string, readonly ArtifactReference[]>> {
+  const mapping = requireMapping(value, "Installation Manifest output_origins");
+  const knownArtifacts = new Set(
+    resolvedArtifacts.map((artifact) => artifactReferenceKey(artifact.reference)),
+  );
+  const outputPaths = new Set(outputs.map((output) => output.path));
+  const result: Record<string, readonly ArtifactReference[]> = {};
+  for (const [path, originsValue] of Object.entries(mapping)) {
+    const description = `Installation Manifest output_origins.${path}`;
+    if (!outputPaths.has(path)) {
+      throw new Error(`${description} references unknown output path '${path}'`);
+    }
+    if (!Array.isArray(originsValue)) {
+      throw new Error(`${description} must be an array of Artifact references`);
+    }
+    const origins = originsValue.map((entry, index) =>
+      requireArtifactReference(entry, `${description}[${index}]`),
+    );
+    const keys = origins.map(artifactReferenceKey);
+    if (new Set(keys).size !== keys.length) {
+      throw new Error(`${description} must not contain an Artifact reference more than once`);
+    }
+    for (const origin of origins) {
+      if (!knownArtifacts.has(artifactReferenceKey(origin))) {
+        throw new Error(
+          `${description} references artifact '${artifactReferenceKey(origin)}' that is not recorded in resolved_artifacts`,
+        );
+      }
+    }
+    result[path] = origins;
+  }
+  for (const path of outputPaths) {
+    if (!(path in result)) {
+      throw new Error(`Installation Manifest output_origins must cover output '${path}'`);
+    }
+  }
+  return result;
+}
+
 function parseManifestMapping(value: unknown): ProjectInstallationManifest {
   const manifest = requireMapping(value, "Installation Manifest");
-  requireExactFields(
-    manifest,
-    [
-      "schema_version",
-      "installation_id",
-      "project",
-      "profile_id",
-      "selected_context",
-      "resolved_artifacts",
-      "hosts",
-      "host_versions",
-      "adapter_version",
-      "engine_version",
-      "git_project",
-      "workspace_input_hash",
-      "outputs",
-    ],
-    "Installation Manifest",
-  );
-  if (manifest.schema_version !== INSTALLATION_MANIFEST_SCHEMA_VERSION) {
+  const schemaVersion = manifest.schema_version;
+  if (
+    schemaVersion !== INSTALLATION_MANIFEST_SCHEMA_VERSION &&
+    schemaVersion !== INSTALLATION_MANIFEST_LEGACY_SCHEMA_VERSION
+  ) {
     throw new Error(
-      `Installation Manifest schema_version must be ${INSTALLATION_MANIFEST_SCHEMA_VERSION}`,
+      `Installation Manifest schema_version must be ${INSTALLATION_MANIFEST_LEGACY_SCHEMA_VERSION} or ${INSTALLATION_MANIFEST_SCHEMA_VERSION}`,
     );
   }
+  const isCurrent = schemaVersion === INSTALLATION_MANIFEST_SCHEMA_VERSION;
+  requireExactFields(
+    manifest,
+    isCurrent
+      ? [
+          "schema_version",
+          "installation_id",
+          "project",
+          "profile_id",
+          "selected_context",
+          "resolved_artifacts",
+          "hosts",
+          "host_versions",
+          "adapter_version",
+          "engine_version",
+          "git_project",
+          "workspace_input_hash",
+          "outputs",
+          "output_origins",
+        ]
+      : [
+          "schema_version",
+          "installation_id",
+          "project",
+          "profile_id",
+          "selected_context",
+          "resolved_artifacts",
+          "hosts",
+          "host_versions",
+          "adapter_version",
+          "engine_version",
+          "git_project",
+          "workspace_input_hash",
+          "outputs",
+        ],
+    "Installation Manifest",
+  );
   const selectedContext = manifest.selected_context;
   if (!Array.isArray(selectedContext)) {
     throw new Error("Installation Manifest selected_context must be an array");
@@ -555,6 +640,25 @@ function parseManifestMapping(value: unknown): ProjectInstallationManifest {
   if (hostVersionKeys.length !== hosts.length || hostVersionKeys.some((host, index) => host !== hosts.slice().sort()[index])) {
     throw new Error("Installation Manifest host_versions must match hosts exactly");
   }
+  const resolvedArtifacts = parseResolvedArtifacts(manifest.resolved_artifacts);
+  const outputs = parseOutputs(manifest.outputs);
+  let outputOrigins: Readonly<Record<string, readonly ArtifactReference[]>> | undefined;
+  if (isCurrent && "output_origins" in manifest) {
+    outputOrigins = parseOutputOrigins(manifest.output_origins, outputs, resolvedArtifacts);
+  }
+  const anyFingerprint = resolvedArtifacts.some(
+    (artifact) => artifact.fingerprint !== undefined,
+  );
+  if (outputOrigins !== undefined && resolvedArtifacts.some((artifact) => artifact.fingerprint === undefined)) {
+    throw new Error(
+      "Installation Manifest output_origins requires a fingerprint for every resolved artifact",
+    );
+  }
+  if (outputOrigins === undefined && anyFingerprint) {
+    throw new Error(
+      "Installation Manifest resolved_artifacts fingerprints require output_origins",
+    );
+  }
   return {
     adapterVersion: requireString(manifest.adapter_version, "Installation Manifest adapter_version"),
     engineVersion: requireString(manifest.engine_version, "Installation Manifest engine_version"),
@@ -564,11 +668,12 @@ function parseManifestMapping(value: unknown): ProjectInstallationManifest {
     hosts,
     hostVersions,
     installationId: requireString(manifest.installation_id, "Installation Manifest installation_id"),
-    outputs: parseOutputs(manifest.outputs),
+    ...(outputOrigins === undefined ? {} : { outputOrigins }),
+    outputs,
     profileId: requireArtifactId(manifest.profile_id, "Installation Manifest profile_id"),
     project: requireAbsoluteProject(manifest.project),
-    resolvedArtifacts: parseResolvedArtifacts(manifest.resolved_artifacts),
-    schemaVersion: 2,
+    resolvedArtifacts,
+    schemaVersion: INSTALLATION_MANIFEST_SCHEMA_VERSION,
     selectedContext: contextIds,
     workspaceInputHash: requireHash(manifest.workspace_input_hash, "Installation Manifest workspace_input_hash"),
   };
@@ -837,6 +942,9 @@ function manifestValue(manifest: ProjectInstallationManifest): Record<string, un
     resolved_artifacts: manifest.resolvedArtifacts.map((artifact) => ({
       type: artifact.reference.type,
       id: artifact.reference.id,
+      ...(artifact.fingerprint === undefined
+        ? {}
+        : { fingerprint: artifact.fingerprint }),
       inclusion_reasons: artifact.inclusionReasons.map((reason) => ({
         profile: reason.profile,
         path: reason.path,
@@ -877,6 +985,9 @@ function manifestValue(manifest: ProjectInstallationManifest): Record<string, un
             ),
           },
     ),
+    ...(manifest.outputOrigins === undefined
+      ? {}
+      : { output_origins: manifest.outputOrigins }),
   };
 }
 

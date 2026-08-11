@@ -322,6 +322,7 @@ function contextOutput(
   return {
     bytes: composeContextEnvelope(profileId, modules),
     mode: 0o644,
+    origins: modules.map((module) => ({ id: module.id, type: "context" as const })),
     path: PI_CONTEXT_PATH,
     requirements: [...PI_CONTEXT_REQUIREMENTS],
     type: "file",

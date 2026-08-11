@@ -104,6 +104,10 @@ describe("injected project filesystem failures", () => {
         )!.binding.canonicalProject
           ? {
               ...installation,
+              outputOrigins: {
+                ...installation.outputOrigins,
+                [obsoleteRelative]: [],
+              },
               outputs: [...installation.outputs, {
                 hash: hashBytes(obsoleteBytes),
                 mode: 0o644,

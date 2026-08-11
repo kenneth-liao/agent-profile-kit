@@ -714,7 +714,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
             profileId: "coding",
             project,
             resolvedArtifacts: [],
-            schemaVersion: 2,
+            schemaVersion: 3,
             selectedContext: [],
             workspaceInputHash: "sha256:test",
           },

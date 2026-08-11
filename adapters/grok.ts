@@ -706,6 +706,7 @@ function contextRule(
   return {
     bytes: composeContextEnvelope(profileId, modules),
     mode: 0o644,
+    origins: modules.map((module) => ({ id: module.id, type: "context" as const })),
     path,
     requirements,
     type: "file",

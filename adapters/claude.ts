@@ -356,6 +356,7 @@ function contextRule(
     // Unscoped rule: no YAML paths frontmatter, so Claude re-injects after compaction.
     bytes: composeContextEnvelope(profileId, modules),
     mode: 0o644,
+    origins: modules.map((module) => ({ id: module.id, type: "context" as const })),
     path: CLAUDE_CONTEXT_RULE_PATH,
     requirements: [...CLAUDE_CONTEXT_REQUIREMENTS],
     type: "file",

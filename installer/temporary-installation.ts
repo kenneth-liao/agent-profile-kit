@@ -47,6 +47,7 @@ import {
   appendDiagnosticWarnings,
   markerPath,
   normalizeAdapterPlans,
+  assertResolvedOutputOrigins,
   type DesiredInstallation,
 } from "./project-plan.js";
 import { resolveProfileDependencies } from "./resolve-dependencies.js";
@@ -246,7 +247,10 @@ async function planTemporaryDesiredInstallation(options: {
     );
   }
   const gitProject = await findGitProject(options.project);
-  const sourceHash = await hashWorkspaceInputs(profile, resolvedProfile);
+  const { hash: sourceHash, fingerprints: artifactFingerprints } = await hashWorkspaceInputs(
+    profile,
+    resolvedProfile,
+  );
   const blockers: BlockerInput[] = [];
   const warnings: string[] = [];
   const diagnosticValues: string[] = [];
@@ -269,8 +273,11 @@ async function planTemporaryDesiredInstallation(options: {
     warnings,
   });
   const hosts: readonly SupportedHost[] = [options.host];
+  const outputs = normalizeAdapterPlans([adapterPlan]);
+  assertResolvedOutputOrigins(outputs, resolvedProfile);
   return {
     adapterVersion: adapterVersionFor(hosts),
+    artifactFingerprints,
     binding: {
       canonicalProject: options.project,
       hosts,
@@ -281,7 +288,7 @@ async function planTemporaryDesiredInstallation(options: {
     engineVersion: ENGINE_VERSION,
     gitProject,
     hostVersions: { [options.host]: adapterPlan.hostVersion },
-    outputs: normalizeAdapterPlans([adapterPlan]),
+    outputs,
     profile,
     resolvedProfile,
     setupSteps: adapterPlan.setupSteps.map((step) => ({

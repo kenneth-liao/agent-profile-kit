@@ -23,6 +23,7 @@ function fileOutput(
   return {
     bytes: "shared\n",
     mode: 0o644,
+    origins: [],
     path: ".agents/shared.txt",
     requirements: ["loads as project Context"],
     type: "file",
@@ -54,6 +55,7 @@ function directoryOutput(
       },
     ],
     mode: 0o755,
+    origins: [{ id: "demo-skill", type: "skill" }],
     path: ".agents/skills/demo-skill",
     requirements: ["Host discovers Skill package"],
     type: "directory",
@@ -81,6 +83,7 @@ describe("Adapter output-plan normalization", () => {
         consumingHosts: ["claude", "codex"],
         hash: "sha256:cf99975aa7995fad86fae7f3b0905143f30a52501944dff26002afc99c3b8419",
         mode: 0o644,
+        origins: [],
         path: ".agents/shared.txt",
         requirements: ["loads as project Context"],
         type: "file",

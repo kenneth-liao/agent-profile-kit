@@ -106,6 +106,7 @@ export async function planSkillPackageDirectory(
   return {
     members: projection.projectMembers(skill, sourceMembers),
     mode: 0o755,
+    origins: [{ id: skill.id, type: "skill" }],
     path: posix.join(discoveryRoot, skill.id),
     requirements: projection.requirements(skill, baseRequirements),
     type: "directory",

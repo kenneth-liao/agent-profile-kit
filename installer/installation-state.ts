@@ -190,7 +190,9 @@ export async function readInstallationStateWithMigration(home: string): Promise<
         break;
     }
     return {
-      migrated: parsed.schemaVersion !== 5,
+      migrated: parsed.schemaVersion !== 5 || state.installations.some(
+        (installation) => installation.outputOrigins === undefined,
+      ),
       state: normalizedInstallationState(state),
     };
   } catch (error) {
