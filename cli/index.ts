@@ -1051,16 +1051,16 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("install-temp", error.structured),
           );
         } else {
+          const blocked = presentTemporaryBlockedMessages(
+            error.blockers,
+            error.canonicalProject,
+          );
           writeHuman(
             process.stderr,
-            `${COMMAND_NAME}: ${presentTemporaryBlockedMessages(
-              error.blockers,
-              error.canonicalProject,
-              error.canonicalProject,
-              process.cwd(),
-              homedir(),
-              stderrPresentationContext,
-            )}\n`,
+            humanError(
+              `${COMMAND_NAME}: ${blocked.text}\n`,
+              [blocked.presented, error.canonicalProject],
+            ),
             stderrPresentationContext,
           );
         }
@@ -1126,16 +1126,16 @@ async function main(): Promise<void> {
             formatTemporaryInstallationBlockedJson("remove-temp", error.structured),
           );
         } else {
+          const blocked = presentTemporaryBlockedMessages(
+            error.blockers,
+            error.canonicalProject,
+          );
           writeHuman(
             process.stderr,
-            `${COMMAND_NAME}: ${presentTemporaryBlockedMessages(
-              error.blockers,
-              error.canonicalProject,
-              error.canonicalProject,
-              process.cwd(),
-              homedir(),
-              stderrPresentationContext,
-            )}\n`,
+            humanError(
+              `${COMMAND_NAME}: ${blocked.text}\n`,
+              [blocked.presented, error.canonicalProject],
+            ),
             stderrPresentationContext,
           );
         }

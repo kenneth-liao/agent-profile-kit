@@ -863,7 +863,7 @@ describe("temporary-installation Project identity presentation", () => {
         `Cannot remove Temporary Profile Installation at ${canonical}: owned output .codex/hooks.json is a symlink`,
       ];
 
-      const rendered = presentTemporaryBlockedMessages(
+      const { presented, text: rendered } = presentTemporaryBlockedMessages(
         messages,
         canonical,
         "~/projects/alpha",
@@ -871,6 +871,7 @@ describe("temporary-installation Project identity presentation", () => {
         home,
       );
 
+      expect(presented).toBe("~/projects/alpha");
       expect(rendered).toContain(
         "~/projects/alpha already has an ordinary Profile Installation",
       );
@@ -891,7 +892,13 @@ describe("temporary-installation Project identity presentation", () => {
         `${canonical} already has an ordinary Profile Installation; remove it before installing a temporary Profile`,
       ];
 
-      const rendered = presentTemporaryBlockedMessages(messages, canonical, canonical, canonical, home);
+      const rendered = presentTemporaryBlockedMessages(
+        messages,
+        canonical,
+        canonical,
+        canonical,
+        home,
+      ).text;
 
       expect(rendered).toContain(
         "~/projects/alpha already has an ordinary Profile Installation",
@@ -918,7 +925,7 @@ describe("temporary-installation Project identity presentation", () => {
         authored,
         process.cwd(),
         home,
-      );
+      ).text;
 
       expect(rendered).toContain(
         "~/real-project cannot be resolved: the authored spelling differs from ~/real-project",

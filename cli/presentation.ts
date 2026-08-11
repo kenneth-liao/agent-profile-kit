@@ -2480,14 +2480,22 @@ export function formatTemporaryInstallationHuman(
  * the same way every other human view does. Human views read the message
  * projection; machine JSON publishes the structured blocker records.
  */
+/**
+ * Render the blocked temporary-installation messages with the one canonical
+ * Project path presenter, so a blocked install/remove identifies the Project
+ * the same way every other human view does. Human views read the message
+ * projection; machine JSON publishes the structured blocker records. The
+ * rendered text is intentionally unwrapped: callers compose the complete
+ * prefixed diagnostic and pass it through the shared human boundary so the
+ * command-name prefix counts toward the width measure.
+ */
 export function presentTemporaryBlockedMessages(
   messages: readonly string[],
   canonicalProject: string,
   authoredProject = canonicalProject,
   cwd = process.cwd(),
   home = homedir(),
-  context?: TerminalPresentationContext,
-): string {
+): { readonly presented: string; readonly text: string } {
   let presented = displayProjectPath(canonicalProject, authoredProject, cwd, home);
   if (presented === "." || presented === ".." || presented.startsWith("../")) {
     // A bare cwd-relative identity would lose the blocked message's subject;
@@ -2497,17 +2505,13 @@ export function presentTemporaryBlockedMessages(
   }
   const references = [...new Set([canonicalProject, absoluteAuthoredPath(authoredProject, home)])]
     .sort((left, right) => right.length - left.length || left.localeCompare(right));
-  const rendered = messages
+  const text = messages
     .map((message) => references.reduce(
       (reduced, project) => replaceProjectReference(reduced, project, presented),
       message,
     ))
     .join("\n");
-  return responsiveHumanText(rendered, context, [
-    presented,
-    canonicalProject,
-    absoluteAuthoredPath(authoredProject, home),
-  ]);
+  return { presented, text };
 }
 
 export function formatTemporaryInstallationBlockedJson(

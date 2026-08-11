@@ -6532,6 +6532,44 @@ describe("shared presentation boundary", () => {
     }
     expect(longErrorOutput).toContain("apkit init");
 
+    // A blocked temporary-installation diagnostic must wrap the complete
+    // prefixed line: the "apkit: " prefix counts toward the measure and the
+    // Project identity stays whole.
+    const tempHome = isolatedHome();
+    await initialize(tempHome);
+    removeScaffoldedExample(tempHome);
+    writeContextProfile(tempHome);
+    const tempProject = join(tempHome, "projects", "blocked-temp");
+    mkdirSync(tempProject, { recursive: true });
+    expectExitCode(
+      await runCli(tempHome, "bind", "coding", tempProject, "--host", "codex"),
+      0,
+    );
+    expectExitCode(await runCli(tempHome, "apply"), 0);
+    const blockedTemp = await runCliInPty(
+      tempHome,
+      40,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "codex",
+    );
+    expectExitCode(blockedTemp, 2);
+    const blockedTempOutput = `${blockedTemp.stdout}${blockedTemp.stderr}`;
+    expect(blockedTempOutput.replace(/\s+/g, " ")).toContain(
+      "already has an ordinary Profile Installation",
+    );
+    for (const line of blockedTempOutput.split("\n")) {
+      // Occupied-output lines carry project-relative path tokens that are
+      // unbreakable by design (DEC-003).
+      if (line.includes("blocked-temp/")) continue;
+      expect(
+        line.length,
+        `blocked temporary line exceeds TTY width: ${line}`,
+      ).toBeLessThanOrEqual(40);
+    }
+
     // Machine surfaces stay byte-identical across widths and ANSI-free.
     for (const arguments_ of [
       ["list", "projects", "--json"],
