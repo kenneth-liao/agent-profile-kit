@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
-import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
+import { type ContextModuleSource } from "./context-envelope.js";
 import { capabilityFailure } from "./capability.js";
 import type {
   AdapterProjectPlan,
@@ -15,9 +15,11 @@ import type {
   ProposedProjectOutput,
 } from "./project-plan.js";
 import {
+  DEFAULT_ADAPTER_PLANNING_MATERIALS,
   DISABLED_MODEL_INVOCATION_REQUIREMENT,
   planSkillPackageDirectory,
   skillsRequireDisabledModelInvocation,
+  type AdapterPlanningMaterials,
   type SkillPackageProjection,
 } from "./skill-package.js";
 
@@ -351,10 +353,11 @@ const CLAUDE_SKILL_PROJECTION: SkillPackageProjection = {
 function contextRule(
   profileId: string,
   modules: readonly ContextModuleSource[],
+  materials: AdapterPlanningMaterials,
 ): ProposedProjectFileOutput {
   return {
     // Unscoped rule: no YAML paths frontmatter, so Claude re-injects after compaction.
-    bytes: composeContextEnvelope(profileId, modules),
+    bytes: materials.composeContext(profileId, modules),
     mode: 0o644,
     origins: modules.map((module) => ({ id: module.id, type: "context" as const })),
     path: CLAUDE_CONTEXT_RULE_PATH,
@@ -371,7 +374,9 @@ export async function planClaudeProject(
   profileId: string,
   modules: readonly ContextModuleSource[],
   skills: readonly Skill[] = [],
+  options: { readonly materials?: AdapterPlanningMaterials } = {},
 ): Promise<ClaudeProjectPlan> {
+  const materials = options.materials ?? DEFAULT_ADAPTER_PLANNING_MATERIALS;
   const skillOutputs = await Promise.all(
     [...skills]
       .sort((left, right) => left.id.localeCompare(right.id))
@@ -381,6 +386,7 @@ export async function planClaudeProject(
           CLAUDE_SKILLS_DISCOVERY_ROOT,
           ["Claude discovers Skill package through native project .claude/skills"],
           CLAUDE_SKILL_PROJECTION,
+          materials,
         ),
       ),
   );
@@ -388,7 +394,7 @@ export async function planClaudeProject(
   // Do not invent an empty Context artifact.
   const outputs: ProposedProjectOutput[] =
     modules.length > 0
-      ? [contextRule(profileId, modules), ...skillOutputs]
+      ? [contextRule(profileId, modules, materials), ...skillOutputs]
       : [...skillOutputs];
   return {
     host: "claude",

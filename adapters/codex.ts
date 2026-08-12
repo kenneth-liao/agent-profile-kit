@@ -5,7 +5,6 @@ import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
-import { composeContextEnvelope } from "./context-envelope.js";
 import { capabilityFailure } from "./capability.js";
 import type {
   AdapterHostSetupStep,
@@ -16,9 +15,11 @@ import type {
   ProposedProjectOutput,
 } from "./project-plan.js";
 import {
+  DEFAULT_ADAPTER_PLANNING_MATERIALS,
   DISABLED_MODEL_INVOCATION_REQUIREMENT,
   planSkillPackageDirectory,
   skillsRequireDisabledModelInvocation,
+  type AdapterPlanningMaterials,
   type SkillPackageProjection,
 } from "./skill-package.js";
 import { parseTomlTable } from "./toml.js";
@@ -492,9 +493,11 @@ export async function planCodexProject(
   skills: readonly Skill[] = [],
   options: {
     readonly contextPath?: string;
+    readonly materials?: AdapterPlanningMaterials;
     readonly requiresBoundRootLaunch?: boolean;
   } = {},
 ): Promise<CodexProjectPlan> {
+  const materials = options.materials ?? DEFAULT_ADAPTER_PLANNING_MATERIALS;
   const skillOutputs = await Promise.all(
     [...skills]
       .sort((left, right) => left.id.localeCompare(right.id))
@@ -504,6 +507,7 @@ export async function planCodexProject(
           CODEX_SKILLS_DISCOVERY_ROOT,
           ["Codex discovers Skill package through native project .agents/skills"],
           CODEX_SKILL_PROJECTION,
+          materials,
         ),
       ),
   );
@@ -514,7 +518,7 @@ export async function planCodexProject(
     const contextPath = options.contextPath ?? DEFAULT_CONTEXT_PATH;
     outputs.unshift(
       {
-        bytes: composeContextEnvelope(profileId, modules),
+        bytes: materials.composeContext(profileId, modules),
         mode: 0o644,
         origins: modules.map((module) => ({ id: module.id, type: "context" as const })),
         path: join(".agent-profile-kit", "codex", "context.md"),

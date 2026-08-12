@@ -9,7 +9,7 @@ import {
   CLAUDE_CONTEXT_REQUIREMENTS,
   CLAUDE_CONTEXT_RULE_PATH,
 } from "./claude.js";
-import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
+import { type ContextModuleSource } from "./context-envelope.js";
 import { capabilityFailure } from "./capability.js";
 import type {
   AdapterHostSetupStep,
@@ -21,9 +21,11 @@ import type {
   ProposedProjectOutput,
 } from "./project-plan.js";
 import {
+  DEFAULT_ADAPTER_PLANNING_MATERIALS,
   DISABLED_MODEL_INVOCATION_REQUIREMENT,
   planSkillPackageDirectory,
   skillsRequireDisabledModelInvocation,
+  type AdapterPlanningMaterials,
   type SkillPackageProjection,
 } from "./skill-package.js";
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
@@ -132,6 +134,8 @@ export interface GrokProjectPlanOptions {
    * matches typical Host configuration.
    */
   readonly claudeRulesEnabled?: boolean;
+  /** Invocation-scoped Skill/Context materials; defaults to direct reads. */
+  readonly materials?: AdapterPlanningMaterials;
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -693,6 +697,7 @@ function contextRule(
   profileId: string,
   modules: readonly ContextModuleSource[],
   path: string,
+  materials: AdapterPlanningMaterials,
 ): ProposedProjectFileOutput {
   // When sharing Claude's rule path, emit the same requirements Claude plans so
   // Installer normalization can coalesce one physical output for both Hosts.
@@ -704,7 +709,7 @@ function contextRule(
           "Grok discovers owned rule through native project .grok/rules",
         ];
   return {
-    bytes: composeContextEnvelope(profileId, modules),
+    bytes: materials.composeContext(profileId, modules),
     mode: 0o644,
     origins: modules.map((module) => ({ id: module.id, type: "context" as const })),
     path,
@@ -810,6 +815,7 @@ export async function planGrokProject(
   skills: readonly Skill[] = [],
   options: GrokProjectPlanOptions = {},
 ): Promise<GrokProjectPlan> {
+  const materials = options.materials ?? DEFAULT_ADAPTER_PLANNING_MATERIALS;
   const path = resolveGrokContextRulePath(options);
   const skillOutputs = await Promise.all(
     [...skills]
@@ -820,12 +826,15 @@ export async function planGrokProject(
           GROK_SKILLS_DISCOVERY_ROOT,
           ["Grok discovers Skill package through native project .grok/skills"],
           GROK_SKILL_PROJECTION,
+          materials,
         ),
       ),
   );
   // Omit the Context rule when the Profile selects no Context Modules.
   const outputs: ProposedProjectOutput[] =
-    modules.length > 0 ? [contextRule(profileId, modules, path), ...skillOutputs] : [...skillOutputs];
+    modules.length > 0
+      ? [contextRule(profileId, modules, path, materials), ...skillOutputs]
+      : [...skillOutputs];
   const setupSteps: readonly AdapterHostSetupStep[] =
     modules.length > 0 && path === CLAUDE_CONTEXT_RULE_PATH
       ? [{

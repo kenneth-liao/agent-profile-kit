@@ -6,12 +6,14 @@ import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
-import { composeContextEnvelope, type ContextModuleSource } from "./context-envelope.js";
+import { type ContextModuleSource } from "./context-envelope.js";
 import { capabilityFailure } from "./capability.js";
 import {
+  DEFAULT_ADAPTER_PLANNING_MATERIALS,
   DISABLED_MODEL_INVOCATION_REQUIREMENT,
   planSkillPackageDirectory,
   skillsRequireDisabledModelInvocation,
+  type AdapterPlanningMaterials,
   type SkillPackageProjection,
 } from "./skill-package.js";
 import type {
@@ -318,9 +320,10 @@ export async function assertPiProjectCapability(
 function contextOutput(
   profileId: string,
   modules: readonly ContextModuleSource[],
+  materials: AdapterPlanningMaterials,
 ): ProposedProjectFileOutput {
   return {
-    bytes: composeContextEnvelope(profileId, modules),
+    bytes: materials.composeContext(profileId, modules),
     mode: 0o644,
     origins: modules.map((module) => ({ id: module.id, type: "context" as const })),
     path: PI_CONTEXT_PATH,
@@ -388,7 +391,10 @@ export function piSkillRequirements(
   ];
 }
 
-function skillOutputs(skills: readonly Skill[]) {
+function skillOutputs(
+  skills: readonly Skill[],
+  materials: AdapterPlanningMaterials,
+) {
   return Promise.all(
     [...skills]
       .sort((left, right) => left.id.localeCompare(right.id))
@@ -398,6 +404,7 @@ function skillOutputs(skills: readonly Skill[]) {
           PI_PROJECT_SKILLS_ROOT,
           ["Pi discovers Skill package through native project .pi/skills"],
           PI_SKILL_PROJECTION,
+          materials,
         ),
       ),
   );
@@ -408,10 +415,12 @@ export async function planPiProject(
   profileId: string,
   modules: readonly ContextModuleSource[],
   skills: readonly Skill[] = [],
+  options: { readonly materials?: AdapterPlanningMaterials } = {},
 ): Promise<PiProjectPlan> {
-  const packages = await skillOutputs(skills);
+  const materials = options.materials ?? DEFAULT_ADAPTER_PLANNING_MATERIALS;
+  const packages = await skillOutputs(skills, materials);
   const outputs: readonly ProposedProjectOutput[] = modules.length > 0
-    ? [contextOutput(profileId, modules), ...packages]
+    ? [contextOutput(profileId, modules, materials), ...packages]
     : packages;
   const setupSteps: readonly AdapterHostSetupStep[] = outputs.length > 0
     ? [{

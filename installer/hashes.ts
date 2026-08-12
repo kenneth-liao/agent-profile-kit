@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import type { ProposedDirectoryMember } from "../adapters/project-plan.js";
+import { skillPackageMembers } from "../adapters/skill-package.js";
 import { type ContextModule, type Profile } from "../schemas/context-profile.js";
 import { type Skill } from "../schemas/skill.js";
 import { type ArtifactReference } from "../schemas/dependencies.js";
@@ -25,38 +27,75 @@ function compareNames(
   return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
 }
 
-async function skillInput(
+function comparePaths(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * Rebuild the historical Skill-input tree order: depth-first visitation of
+ * code-point-sorted child names at each level. Global locale-aware path sorts
+ * (e.g. localeCompare putting `scripts` before `SKILL.md`) must not change
+ * workspace input hashes or artifact fingerprints for unchanged packages.
+ */
+function skillInputFromMembers(
   skill: Skill,
-  ignoredFiles: readonly string[] = [],
-): Promise<unknown> {
+  members: readonly ProposedDirectoryMember[],
+): unknown {
+  const byPath = new Map(members.map((member) => [member.path, member]));
   const entries: unknown[] = [];
-  async function visit(directory: string, prefix: string): Promise<void> {
-    const children = await readdir(directory, { withFileTypes: true });
-    children.sort(compareNames);
-    for (const child of children) {
-      const path = join(directory, child.name);
-      const relativePath = prefix.length === 0 ? child.name : `${prefix}/${child.name}`;
-      if (ignoredFiles.includes(relativePath)) continue;
-      const mode = (await lstat(path)).mode & 0o7777;
-      if (child.isDirectory()) {
-        entries.push({ mode, path: relativePath, type: "directory" });
-        await visit(path, relativePath);
-      } else if (child.isFile()) {
-        entries.push({ content: sha256(await readFile(path)), mode, path: relativePath, type: "file" });
-      } else {
-        throw new Error(`Skill '${skill.id}' contains unsupported entry '${relativePath}'`);
+
+  function childNames(prefix: string): readonly string[] {
+    const names = new Set<string>();
+    const rooted = prefix.length === 0 ? "" : `${prefix}/`;
+    for (const member of members) {
+      if (prefix.length === 0) {
+        names.add(member.path.split("/")[0]!);
+        continue;
       }
+      if (!member.path.startsWith(rooted)) continue;
+      names.add(member.path.slice(rooted.length).split("/")[0]!);
+    }
+    return [...names].sort(comparePaths);
+  }
+
+  function visit(prefix: string): void {
+    for (const name of childNames(prefix)) {
+      const path = prefix.length === 0 ? name : `${prefix}/${name}`;
+      const member = byPath.get(path);
+      if (member === undefined) {
+        throw new Error(
+          `Skill '${skill.id}' package is missing tree entry '${path}' required for fingerprinting`,
+        );
+      }
+      if (member.type === "directory") {
+        entries.push({ mode: member.mode, path, type: "directory" as const });
+        visit(path);
+        continue;
+      }
+      entries.push({
+        content: sha256(member.bytes),
+        mode: member.mode,
+        path,
+        type: "file" as const,
+      });
     }
   }
-  await visit(skill.path, "");
+
+  visit("");
   return { files: entries, id: skill.id };
+}
+
+async function skillInput(skill: Skill): Promise<unknown> {
+  // Sidecar omission matches skillPackageMembers so fingerprint and projection
+  // share one portable package shape.
+  return skillInputFromMembers(skill, await skillPackageMembers(skill));
 }
 
 export async function hashSkillCatalog(skills: ReadonlyMap<string, Skill>): Promise<string> {
   const entries = await Promise.all(
     [...skills.values()]
       .sort((left, right) => left.id.localeCompare(right.id))
-      .map((skill) => skillInput(skill, ["agent-profile-kit.yaml"])),
+      .map((skill) => skillInput(skill)),
   );
   return sha256(JSON.stringify({ skills: entries, workspace_schema_version: WORKSPACE_SCHEMA_VERSION }));
 }
@@ -100,21 +139,33 @@ export interface WorkspaceInputs {
   readonly hash: string;
 }
 
+export interface HashWorkspaceInputsOptions {
+  /**
+   * Invocation-scoped Skill package reader. When omitted, each Skill package is
+   * read directly from the filesystem.
+   */
+  readonly readSkillPackage?: (
+    skill: Skill,
+  ) => Promise<readonly ProposedDirectoryMember[]>;
+}
+
 /** Deterministic normalized fingerprint for one Context Module's source content. */
 function fingerprintContextContent(content: string): string {
   return sha256(JSON.stringify({ content }));
 }
 
 /** Deterministic normalized fingerprint for one Skill package tree (sidecar excluded). */
-function fingerprintSkillInput(input: Awaited<ReturnType<typeof skillInput>>): string {
+function fingerprintSkillInput(input: unknown): string {
   return sha256(JSON.stringify(input));
 }
 
 export async function hashWorkspaceInputs(
   profile: Profile,
   resolvedProfile: ResolvedProfile,
+  options: HashWorkspaceInputsOptions = {},
 ): Promise<WorkspaceInputs> {
   const fingerprints: ResolvedArtifactFingerprint[] = [];
+  const readSkillPackage = options.readSkillPackage ?? skillPackageMembers;
   // Hash Host package contents separately from dependency/inclusion semantics.
   // Sidecar file bytes are omitted so formatting noise does not force reinstalls,
   // but normalized dependencies and inclusion reasons must participate so Manifest
@@ -136,7 +187,7 @@ export async function hashWorkspaceInputs(
         };
       }
       const skill = resolved.artifact as Skill;
-      const input = await skillInput(skill, ["agent-profile-kit.yaml"]);
+      const input = skillInputFromMembers(skill, await readSkillPackage(skill));
       fingerprints.push({
         fingerprint: fingerprintSkillInput(input),
         reference: resolved.reference,

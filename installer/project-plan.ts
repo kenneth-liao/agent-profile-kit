@@ -54,15 +54,21 @@ import {
   type ArtifactReference,
   type ArtifactType,
 } from "../schemas/dependencies.js";
-import { hashWorkspaceInputs, type ResolvedArtifactFingerprint } from "./hashes.js";
+import { type ResolvedArtifactFingerprint } from "./hashes.js";
 import { ingestApplication, stateDirectory } from "./local-configuration.js";
+import {
+  createLifecyclePlanningContext,
+  type LifecyclePlanningInstrumentation,
+} from "./lifecycle-planning.js";
 import { requireProfile } from "./profile-selection.js";
-import { resolveProfileDependencies, type ResolvedProfile } from "./resolve-dependencies.js";
+import { type ResolvedProfile } from "./resolve-dependencies.js";
 import { ENGINE_VERSION } from "./version.js";
 import { findGitProject, type GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
 import { hostCapabilityBlocker, type BlockerInput } from "./blockers.js";
+
+export type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
 
 export interface DesiredDirectoryFileMember {
   readonly bytes: string | Uint8Array;
@@ -541,6 +547,11 @@ export interface BuildDesiredStateOptions {
   /** Injectable process environment for Host capability probes. */
   readonly env?: NodeJS.ProcessEnv;
   /**
+   * Counts only real planning work (cache misses) inside one invocation. Used by
+   * operation-budget tests; production callers omit this.
+   */
+  readonly planningInstrumentation?: LifecyclePlanningInstrumentation;
+  /**
    * Prior Installation Manifests used only to preserve applied Grok Context
    * delivery topology when live inspection is unavailable (status).
    */
@@ -558,6 +569,11 @@ export async function buildDesiredState(
   options: BuildDesiredStateOptions = {},
 ): Promise<DesiredState> {
   const { configuration, workspace } = await ingestApplication(home);
+  // One invocation-scoped planning context. Discarded when this call returns.
+  const planning = createLifecyclePlanningContext(
+    workspace,
+    options.planningInstrumentation ?? {},
+  );
   const previousByProject = new Map(
     (options.previousInstallations ?? []).map((installation) => [
       installation.project,
@@ -572,21 +588,15 @@ export async function buildDesiredState(
       workspace.profiles,
       binding.profile,
     );
-    const resolvedProfile = resolveProfileDependencies(
-      profile,
-      workspace.contexts,
-      workspace.skills,
-    );
+    const resolvedProfile = planning.resolveProfile(profile);
     if (profile.agents.length > 0 || profile.hooks.length > 0 || profile.tools.length > 0) {
       throw new Error(
         `Profile '${profile.id}' selects unsupported artifact categories; Agents, Hooks, and Tools are not supported in the project-bound slice`,
       );
     }
     const gitProject = await findGitProject(binding.canonicalProject);
-    const { hash: sourceHash, fingerprints: artifactFingerprints } = await hashWorkspaceInputs(
-      profile,
-      resolvedProfile,
-    );
+    const { hash: sourceHash, fingerprints: artifactFingerprints } =
+      await planning.hashWorkspaceInputs(profile, resolvedProfile);
     const blockers: BlockerInput[] = [];
     const plans: AdapterProjectPlan[] = [];
     const hostVersions: Record<string, string> = {};
@@ -594,7 +604,8 @@ export async function buildDesiredState(
     const diagnosticValues: string[] = [];
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
       resolvedProfile.skills,
-    );    // Capability and planning follow selected categories: Context machinery is optional.
+    );
+    // Capability and planning follow selected categories: Context machinery is optional.
     const requireContext = resolvedProfile.contexts.length > 0;
     const requireSkills = resolvedProfile.skills.length > 0;
     const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
@@ -698,26 +709,45 @@ export async function buildDesiredState(
           "codex",
           "context.md",
         ].filter((part) => part.length > 0).join("/");
-        const adapterPlan = await planCodexProject(
-          profile.id,
-          resolvedProfile.contexts,
-          resolvedProfile.skills,
+        const requiresBoundRootLaunch = !gitProject && requireContext;
+        const adapterPlan = await planning.planHost(
           {
-            contextPath,
-            ...(!gitProject && requireContext
-              ? { requiresBoundRootLaunch: true }
-              : {}),
+            host: "codex",
+            options: { contextPath, requiresBoundRootLaunch },
+            profileId: profile.id,
+            resolvedContexts: resolvedProfile.contexts,
+            resolvedSkills: resolvedProfile.skills,
           },
+          () => planCodexProject(
+            profile.id,
+            resolvedProfile.contexts,
+            resolvedProfile.skills,
+            {
+              contextPath,
+              materials: planning.materials,
+              ...(requiresBoundRootLaunch ? { requiresBoundRootLaunch: true } : {}),
+            },
+          ),
         );
         plans.push(adapterPlan);
         hostVersions.codex = adapterPlan.hostVersion;
         continue;
       }
       if (host === "claude") {
-        const adapterPlan = await planClaudeProject(
-          profile.id,
-          resolvedProfile.contexts,
-          resolvedProfile.skills,
+        const adapterPlan = await planning.planHost(
+          {
+            host: "claude",
+            options: {},
+            profileId: profile.id,
+            resolvedContexts: resolvedProfile.contexts,
+            resolvedSkills: resolvedProfile.skills,
+          },
+          () => planClaudeProject(
+            profile.id,
+            resolvedProfile.contexts,
+            resolvedProfile.skills,
+            { materials: planning.materials },
+          ),
         );
         plans.push(adapterPlan);
         hostVersions.claude = adapterPlan.hostVersion;
@@ -755,27 +785,51 @@ export async function buildDesiredState(
             );
           }
         }
-        const adapterPlan = await planGrokProject(
-          profile.id,
-          resolvedProfile.contexts,
-          resolvedProfile.skills,
+        // Grok's documented default is enabled when topology is not required
+        // (validate / hermetic tests / Context-free Profiles) or when Claude
+        // is not co-selected.
+        const effectiveClaudeRulesEnabled = claudeRulesEnabled ?? true;
+        const adapterPlan = await planning.planHost(
           {
-            claudeCoSelected,
-            // Grok's documented default is enabled when topology is not required
-            // (validate / hermetic tests / Context-free Profiles) or when Claude
-            // is not co-selected.
-            claudeRulesEnabled: claudeRulesEnabled ?? true,
+            host: "grok",
+            options: {
+              claudeCoSelected,
+              claudeRulesEnabled: effectiveClaudeRulesEnabled,
+            },
+            profileId: profile.id,
+            resolvedContexts: resolvedProfile.contexts,
+            resolvedSkills: resolvedProfile.skills,
           },
+          () => planGrokProject(
+            profile.id,
+            resolvedProfile.contexts,
+            resolvedProfile.skills,
+            {
+              claudeCoSelected,
+              claudeRulesEnabled: effectiveClaudeRulesEnabled,
+              materials: planning.materials,
+            },
+          ),
         );
         plans.push(adapterPlan);
         hostVersions.grok = adapterPlan.hostVersion;
         continue;
       }
       if (host === "pi") {
-        const adapterPlan = await planPiProject(
-          profile.id,
-          resolvedProfile.contexts,
-          resolvedProfile.skills,
+        const adapterPlan = await planning.planHost(
+          {
+            host: "pi",
+            options: {},
+            profileId: profile.id,
+            resolvedContexts: resolvedProfile.contexts,
+            resolvedSkills: resolvedProfile.skills,
+          },
+          () => planPiProject(
+            profile.id,
+            resolvedProfile.contexts,
+            resolvedProfile.skills,
+            { materials: planning.materials },
+          ),
         );
         plans.push(adapterPlan);
         hostVersions.pi = adapterPlan.hostVersion;
