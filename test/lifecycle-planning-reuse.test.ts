@@ -1,5 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -8,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { skillPackageMembers } from "../adapters/skill-package.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
   buildDesiredState,
@@ -280,5 +283,90 @@ describe("lifecycle planning reuse within one invocation", () => {
     expect(instrumentation.counts.hashWorkspaceInputs).toBe(2);
     expect(instrumentation.counts.readSkillPackage).toBe(1);
     expect(instrumentation.counts.composeContext).toBe(2);
+  });
+
+  test("Skill fingerprints keep historical code-point DFS order for SKILL.md before scripts", async () => {
+    const home = temporaryDirectory("apk-lifecycle-hash-order-home-");
+    const project = temporaryDirectory("apk-lifecycle-hash-order-project-");
+    await initializeWorkspace(home);
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    );
+    const skillRoot = join(workspace, "skills", "review-pr");
+    mkdirSync(join(skillRoot, "scripts"), { recursive: true });
+    const skillMd =
+      "---\nname: review-pr\ndescription: Skill review-pr.\n---\n\n# Review\n";
+    const script = "#!/bin/sh\necho review\n";
+    writeFileSync(join(skillRoot, "SKILL.md"), skillMd);
+    writeFileSync(join(skillRoot, "scripts", "run.sh"), script, { mode: 0o755 });
+    chmodSync(join(skillRoot, "scripts", "run.sh"), 0o755);
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [codex]\n`,
+    );
+
+    const members = await skillPackageMembers({
+      dependencies: [],
+      id: "review-pr",
+      modelInvocation: "allowed",
+      path: skillRoot,
+    });
+    const localeOrderedPaths = [...members]
+      .sort((left, right) => left.path.localeCompare(right.path))
+      .map((member) => member.path);
+    // Guard the fixture: locale-aware order must differ from historical DFS order
+    // or this regression would not catch the hash break.
+    expect(localeOrderedPaths[0]).toBe("scripts");
+
+    const sha = (source: string | Uint8Array) =>
+      `sha256:${createHash("sha256").update(source).digest("hex")}`;
+    const scriptMember = members.find(
+      (member) => member.type === "file" && member.path === "scripts/run.sh",
+    );
+    const skillMember = members.find(
+      (member) => member.type === "file" && member.path === "SKILL.md",
+    );
+    const scriptsDir = members.find(
+      (member) => member.type === "directory" && member.path === "scripts",
+    );
+    if (!scriptMember || scriptMember.type !== "file") throw new Error("missing script");
+    if (!skillMember || skillMember.type !== "file") throw new Error("missing SKILL.md");
+    if (!scriptsDir || scriptsDir.type !== "directory") throw new Error("missing scripts dir");
+
+    // Historical Skill-input shape: DFS of code-point-sorted names → SKILL.md, scripts, run.sh.
+    const historicalInput = {
+      files: [
+        {
+          content: sha(skillMember.bytes),
+          mode: skillMember.mode,
+          path: "SKILL.md",
+          type: "file",
+        },
+        { mode: scriptsDir.mode, path: "scripts", type: "directory" },
+        {
+          content: sha(scriptMember.bytes),
+          mode: scriptMember.mode,
+          path: "scripts/run.sh",
+          type: "file",
+        },
+      ],
+      id: "review-pr",
+    };
+    const expectedFingerprint = sha(JSON.stringify(historicalInput));
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const skillFingerprint = desired.installations[0]?.artifactFingerprints.find(
+      (fingerprint) => fingerprint.reference.id === "review-pr",
+    )?.fingerprint;
+    expect(skillFingerprint).toBe(expectedFingerprint);
   });
 });

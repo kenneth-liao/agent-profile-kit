@@ -27,23 +27,62 @@ function compareNames(
   return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
 }
 
+function comparePaths(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * Rebuild the historical Skill-input tree order: depth-first visitation of
+ * code-point-sorted child names at each level. Global locale-aware path sorts
+ * (e.g. localeCompare putting `scripts` before `SKILL.md`) must not change
+ * workspace input hashes or artifact fingerprints for unchanged packages.
+ */
 function skillInputFromMembers(
   skill: Skill,
   members: readonly ProposedDirectoryMember[],
 ): unknown {
-  const files = [...members]
-    .sort((left, right) => left.path.localeCompare(right.path))
-    .map((member) =>
-      member.type === "directory"
-        ? { mode: member.mode, path: member.path, type: "directory" as const }
-        : {
-            content: sha256(member.bytes),
-            mode: member.mode,
-            path: member.path,
-            type: "file" as const,
-          },
-    );
-  return { files, id: skill.id };
+  const byPath = new Map(members.map((member) => [member.path, member]));
+  const entries: unknown[] = [];
+
+  function childNames(prefix: string): readonly string[] {
+    const names = new Set<string>();
+    const rooted = prefix.length === 0 ? "" : `${prefix}/`;
+    for (const member of members) {
+      if (prefix.length === 0) {
+        names.add(member.path.split("/")[0]!);
+        continue;
+      }
+      if (!member.path.startsWith(rooted)) continue;
+      names.add(member.path.slice(rooted.length).split("/")[0]!);
+    }
+    return [...names].sort(comparePaths);
+  }
+
+  function visit(prefix: string): void {
+    for (const name of childNames(prefix)) {
+      const path = prefix.length === 0 ? name : `${prefix}/${name}`;
+      const member = byPath.get(path);
+      if (member === undefined) {
+        throw new Error(
+          `Skill '${skill.id}' package is missing tree entry '${path}' required for fingerprinting`,
+        );
+      }
+      if (member.type === "directory") {
+        entries.push({ mode: member.mode, path, type: "directory" as const });
+        visit(path);
+        continue;
+      }
+      entries.push({
+        content: sha256(member.bytes),
+        mode: member.mode,
+        path,
+        type: "file" as const,
+      });
+    }
+  }
+
+  visit("");
+  return { files: entries, id: skill.id };
 }
 
 async function skillInput(skill: Skill): Promise<unknown> {
