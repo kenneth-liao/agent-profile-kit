@@ -1,0 +1,588 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import type { AdapterProjectPlan } from "../adapters/project-plan.js";
+import type { SupportedHost } from "../schemas/local-configuration.js";
+import { initializeWorkspace } from "../installer/initialize-workspace.js";
+import {
+  buildDesiredState,
+  normalizeAdapterPlans,
+  type DesiredInstallation,
+  type DesiredProjectOutput,
+} from "../installer/project-plan.js";
+import {
+  applyReconciliation,
+  previewReconciliation,
+} from "../installer/reconcile.js";
+import { readInstallationState } from "../installer/installation-state.js";
+import {
+  createLifecycleOwnershipInspectionContext,
+  type LifecycleOwnershipInspection,
+  type LifecycleOwnershipInspectionInstrumentation,
+} from "../installer/lifecycle-ownership-inspection.js";
+import {
+  INSTALLATION_MARKER_PATH,
+  type OwnedOutput,
+} from "../schemas/installation-manifest.js";
+
+const temporaryDirectories: string[] = [];
+
+afterAll(() => {
+  for (const directory of temporaryDirectories) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+function temporaryDirectory(prefix: string): string {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  temporaryDirectories.push(directory);
+  return directory;
+}
+
+function emptyInstrumentation(): LifecycleOwnershipInspectionInstrumentation & {
+  readonly counts: {
+    inspectDirectory: number;
+    inspectFile: number;
+    inspectMarker: number;
+    unsafeParent: number;
+  };
+} {
+  const counts = {
+    inspectDirectory: 0,
+    inspectFile: 0,
+    inspectMarker: 0,
+    unsafeParent: 0,
+  };
+  return {
+    counts,
+    onInspectDirectory: () => {
+      counts.inspectDirectory += 1;
+    },
+    onInspectFile: () => {
+      counts.inspectFile += 1;
+    },
+    onInspectMarker: () => {
+      counts.inspectMarker += 1;
+    },
+    onUnsafeParent: () => {
+      counts.unsafeParent += 1;
+    },
+  };
+}
+
+function skillDirectoryPlan(
+  host: SupportedHost = "codex",
+  overrides: {
+    readonly bytes?: string;
+    readonly path?: string;
+  } = {},
+): AdapterProjectPlan {
+  const skillBytes = overrides.bytes ?? "# Demo Skill\n";
+  return {
+    host,
+    hostVersion: `${host}-v1`,
+    outputs: [
+      {
+        members: [
+          {
+            bytes: skillBytes,
+            mode: 0o644,
+            path: "SKILL.md",
+            type: "file",
+          },
+          {
+            mode: 0o755,
+            path: "scripts",
+            type: "directory",
+          },
+          {
+            bytes: "#!/bin/sh\necho demo\n",
+            mode: 0o755,
+            path: "scripts/run.sh",
+            type: "file",
+          },
+        ],
+        mode: 0o755,
+        origins: [],
+        path: overrides.path ?? ".agents/skills/demo-skill",
+        requirements: ["Host discovers Skill package"],
+        type: "directory",
+      },
+    ],
+    setupSteps: [],
+  };
+}
+
+async function contextInstallation(
+  home: string,
+  project: string,
+): Promise<DesiredInstallation> {
+  await initializeWorkspace(home);
+  const application = join(home, ".agents", "agent-profile-kit");
+  const workspace = join(application, "workspace");
+  writeFileSync(
+    join(workspace, "context", "team-rules.md"),
+    "---\nid: team-rules\ndependencies: []\n---\nShared ownership inspection context.\n",
+  );
+  writeFileSync(
+    join(workspace, "profiles", "coding.yaml"),
+    "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+  );
+  writeFileSync(
+    join(application, "config.yaml"),
+    `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+  );
+  const desired = await buildDesiredState(home, { checkHostCapability: false });
+  const installation = desired.installations[0];
+  if (!installation) throw new Error("expected one desired installation");
+  return installation;
+}
+
+function withDirectoryOutput(
+  installation: DesiredInstallation,
+  directory: DesiredProjectOutput,
+): DesiredInstallation {
+  return {
+    ...installation,
+    outputs: [...installation.outputs, directory].sort((left, right) =>
+      left.path.localeCompare(right.path)
+    ),
+  };
+}
+
+function normalizedDirectory(bytes = "# Demo Skill\n"): DesiredProjectOutput {
+  const output = normalizeAdapterPlans([skillDirectoryPlan("codex", { bytes })])[0];
+  if (!output || output.type !== "directory") throw new Error("expected directory output");
+  return output;
+}
+
+async function appliedDirectoryInstallation(home: string, project: string): Promise<{
+  readonly desired: readonly DesiredInstallation[];
+  readonly directory: DesiredProjectOutput;
+}> {
+  const base = await contextInstallation(home, project);
+  const directory = normalizedDirectory();
+  const desired = [withDirectoryOutput(base, directory)];
+  await applyReconciliation(home, desired);
+  return { desired, directory };
+}
+
+describe("one shared ownership inspection per generated output per pass", () => {
+  test("walks each owned directory once and reads each owned file once across ownership proof, member diagnostics, and output items", async () => {
+    const home = temporaryDirectory("apk-own-inspect-dir-once-home-");
+    const project = temporaryDirectory("apk-own-inspect-dir-once-project-");
+    const { desired } = await appliedDirectoryInstallation(home, project);
+    const installation = desired[0]!;
+    const expectedFiles = installation.outputs.filter(
+      (output) => output.path !== INSTALLATION_MARKER_PATH && output.type === "file",
+    ).length;
+    const expectedDirectories = installation.outputs.filter(
+      (output) => output.type === "directory",
+    ).length;
+    expect(expectedDirectories).toBeGreaterThan(0);
+
+    const instrumentation = emptyInstrumentation();
+    const ownershipInspection = createLifecycleOwnershipInspectionContext(instrumentation);
+    const report = await previewReconciliation(
+      desired,
+      await readInstallationState(home),
+      { ownershipInspection },
+    );
+
+    expect(report.blockers).toEqual([]);
+    expect(report.items.every((item) => item.kind === "current")).toBe(true);
+    // Ownership proof inspects every output; member diagnostics consume the same
+    // directory result instead of walking it again. Each output path also
+    // resolves its unsafe-parent evidence once even though ownership proof and
+    // repairable detection both consult it.
+    expect(instrumentation.counts.inspectFile).toBe(expectedFiles);
+    expect(instrumentation.counts.inspectDirectory).toBe(expectedDirectories);
+    expect(instrumentation.counts.inspectMarker).toBe(1);
+    expect(instrumentation.counts.unsafeParent).toBe(installation.outputs.length + 1);
+  });
+
+  test("missing-Marker repair reuses the same per-output inspection instead of re-walking outputs", async () => {
+    const home = temporaryDirectory("apk-own-inspect-repair-home-");
+    const project = temporaryDirectory("apk-own-inspect-repair-project-");
+    const { desired } = await appliedDirectoryInstallation(home, project);
+    const installation = desired[0]!;
+    const expectedFiles = installation.outputs.filter(
+      (output) => output.path !== INSTALLATION_MARKER_PATH && output.type === "file",
+    ).length;
+    const expectedDirectories = installation.outputs.filter(
+      (output) => output.type === "directory",
+    ).length;
+    rmSync(join(project, INSTALLATION_MARKER_PATH));
+
+    const instrumentation = emptyInstrumentation();
+    const ownershipInspection = createLifecycleOwnershipInspectionContext(instrumentation);
+    const report = await previewReconciliation(
+      desired,
+      await readInstallationState(home),
+      { ownershipInspection },
+    );
+
+    expect(report.items).toContainEqual({
+      kind: "update",
+      project,
+      reason: "Installation Marker is missing and repairable",
+    });
+    // Ownership proof of the remaining outputs and the repairable-Marker
+    // remaining-output proof share one inspection per output.
+    expect(instrumentation.counts.inspectFile).toBe(expectedFiles);
+    expect(instrumentation.counts.inspectDirectory).toBe(expectedDirectories);
+    expect(instrumentation.counts.inspectMarker).toBe(1);
+  });
+
+  test("drift and unexpected members keep exact classifications while sharing one directory walk", async () => {
+    const home = temporaryDirectory("apk-own-inspect-drift-home-");
+    const project = temporaryDirectory("apk-own-inspect-drift-project-");
+    const { desired } = await appliedDirectoryInstallation(home, project);
+    const directory = desired[0]!.outputs.find((output) => output.type === "directory");
+    if (!directory || directory.type !== "directory") throw new Error("expected directory output");
+    const member = join(project, directory.path, "SKILL.md");
+    writeFileSync(member, "# Drifted\n");
+    mkdirSync(join(project, directory.path, "extra"), { recursive: true });
+    writeFileSync(join(project, directory.path, "extra", "note.txt"), "unexpected\n");
+
+    const instrumentation = emptyInstrumentation();
+    const ownershipInspection = createLifecycleOwnershipInspectionContext(instrumentation);
+    const report = await previewReconciliation(
+      desired,
+      await readInstallationState(home),
+      { ownershipInspection },
+    );
+
+    expect(report.outputs).toContainEqual({
+      kind: "drifted member",
+      path: `${directory.path}/SKILL.md`,
+      project,
+    });
+    expect(report.outputs.some((item) =>
+      item.kind === "unexpected member" && item.path.startsWith(`${directory.path}/extra`)
+    )).toBe(true);
+    expect(report.blockers.some((blocker) => blocker.message.includes("owned output"))).toBe(true);
+    // Ownership proof and member diagnostics still share the one directory walk;
+    // the ordinary file outputs are each read once by ownership proof.
+    expect(instrumentation.counts.inspectDirectory).toBe(1);
+    expect(instrumentation.counts.inspectFile).toBe(
+      desired[0]!.outputs.filter(
+        (output) => output.path !== INSTALLATION_MARKER_PATH && output.type === "file",
+      ).length,
+    );
+  });
+
+  test("conflict detection for a copied installation reads each owned output through the shared context", async () => {
+    const home = temporaryDirectory("apk-own-inspect-copied-home-");
+    const firstProject = temporaryDirectory("apk-own-inspect-copied-origin-");
+    const base = await contextInstallation(home, firstProject);
+    const directory = normalizedDirectory();
+    await applyReconciliation(home, [withDirectoryOutput(base, directory)]);
+    const previousState = await readInstallationState(home);
+    const recorded = previousState.installations.find(
+      (installation) => installation.project === firstProject,
+    );
+    if (!recorded) throw new Error("expected one recorded installation");
+    const expectedFiles = recorded.outputs.filter(
+      (output) => output.path !== INSTALLATION_MARKER_PATH && output.type === "file",
+    ).length;
+    const expectedDirectories = recorded.outputs.filter(
+      (output) => output.type === "directory",
+    ).length;
+
+    // The project folder moves to a new root without its Installation Marker;
+    // conflict detection must prove the copied outputs at the new root.
+    const movedProject = temporaryDirectory("apk-own-inspect-copied-moved-");
+    execFileSync("cp", ["-R", join(firstProject, ".agent-profile-kit"), join(movedProject, ".agent-profile-kit")]);
+    execFileSync("cp", ["-R", join(firstProject, ".codex"), join(movedProject, ".codex")]);
+    execFileSync("cp", ["-R", join(firstProject, ".agents"), join(movedProject, ".agents")]);
+    rmSync(join(movedProject, INSTALLATION_MARKER_PATH));
+    rmSync(firstProject, { recursive: true, force: true });
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${movedProject}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const moved = desired.installations[0];
+    if (!moved) throw new Error("expected one desired installation");
+
+    const instrumentation = emptyInstrumentation();
+    const ownershipInspection = createLifecycleOwnershipInspectionContext(instrumentation);
+    const report = await previewReconciliation(
+      [withDirectoryOutput(moved, directory)],
+      previousState,
+      { ownershipInspection },
+    );
+
+    expect(report.blockers.some((blocker) =>
+      blocker.message.includes("Installation Marker is missing; if this project moved")
+    )).toBe(true);
+    // Conflict detection reads each copied owned output once at the moved root.
+    expect(instrumentation.counts.inspectFile).toBe(expectedFiles);
+    expect(instrumentation.counts.inspectDirectory).toBe(expectedDirectories);
+  });
+
+  test("apply preflight and post-commit verification each use a fresh ownership inspection pass", async () => {
+    const home = temporaryDirectory("apk-own-inspect-apply-home-");
+    const project = temporaryDirectory("apk-own-inspect-apply-project-");
+    const { desired } = await appliedDirectoryInstallation(home, project);
+    const contexts: LifecycleOwnershipInspection[] = [];
+    const fileReadsByContext: number[] = [];
+    const directoryWalksByContext: number[] = [];
+
+    const report = await applyReconciliation(home, desired, {
+      createOwnershipInspection: () => {
+        const contextId = contexts.length + 1;
+        const context = createLifecycleOwnershipInspectionContext({
+          onInspectFile: () => fileReadsByContext.push(contextId),
+          onInspectDirectory: () => directoryWalksByContext.push(contextId),
+        });
+        contexts.push(context);
+        return context;
+      },
+    });
+
+    expect(contexts.length).toBeGreaterThanOrEqual(2);
+    expect(contexts[0]).not.toBe(contexts[contexts.length - 1]);
+    // Preflight and post-commit verification each perform their own real reads.
+    expect(new Set(fileReadsByContext).size).toBeGreaterThanOrEqual(2);
+    expect(new Set(directoryWalksByContext).size).toBeGreaterThanOrEqual(2);
+    expect(report.resultingState.blockers).toEqual([]);
+    expect(report.resultingState.items.every((item) => item.kind === "current")).toBe(true);
+  });
+
+  test("one shared context re-inspects a path only when the expected output identity changes", async () => {
+    const home = temporaryDirectory("apk-own-inspect-content-key-home-");
+    const project = temporaryDirectory("apk-own-inspect-content-key-project-");
+    await appliedDirectoryInstallation(home, project);
+    const state = await readInstallationState(home);
+    const recorded = state.installations[0]?.outputs.find((output) => output.type === "directory");
+    if (!recorded || recorded.type !== "directory") throw new Error("expected directory output");
+
+    const instrumentation = emptyInstrumentation();
+    const ownershipInspection = createLifecycleOwnershipInspectionContext(instrumentation);
+    await ownershipInspection.inspectOutput(project, recorded);
+    await ownershipInspection.inspectOutput(project, recorded);
+    expect(instrumentation.counts.inspectDirectory).toBe(1);
+
+    // The same path proven against a different expected member tree must
+    // re-inspect rather than reuse evidence classified for the old manifest.
+    const changed: OwnedOutput = {
+      ...recorded,
+      hash: "changed-directory-hash",
+      members: recorded.members.map((member) =>
+        member.type === "file" ? { ...member, hash: "changed-member-hash" } : member
+      ),
+    };
+    await ownershipInspection.inspectOutput(project, changed);
+    expect(instrumentation.counts.inspectDirectory).toBe(2);
+  });
+
+  test("an unreadable owned directory fails closed instead of entering the repair path", async () => {
+    const home = temporaryDirectory("apk-own-inspect-unreadable-home-");
+    const project = temporaryDirectory("apk-own-inspect-unreadable-project-");
+    const { desired } = await appliedDirectoryInstallation(home, project);
+    const directory = desired[0]!.outputs.find((output) => output.type === "directory");
+    if (!directory || directory.type !== "directory") throw new Error("expected directory output");
+    chmodSync(join(project, directory.path), 0o000);
+    try {
+      const report = await previewReconciliation(
+        desired,
+        await readInstallationState(home),
+        { ownershipInspection: createLifecycleOwnershipInspectionContext() },
+      );
+      // An unreadable existing tree is never classified as repairable absence;
+      // ownership fails closed instead, so apply cannot rename and replace it.
+      expect(report.items.some((item) => item.kind === "repairable missing output")).toBe(false);
+      expect(report.items.some((item) => item.kind === "missing output")).toBe(true);
+      expect(report.blockers.some((blocker) =>
+        blocker.message.includes("Cannot reconcile Profile Installation")
+      )).toBe(true);
+    } finally {
+      chmodSync(join(project, directory.path), 0o755);
+    }
+  });
+
+  test("an unreadable owned file fails closed instead of entering the repair path", async () => {
+    const home = temporaryDirectory("apk-own-inspect-unreadable-file-home-");
+    const project = temporaryDirectory("apk-own-inspect-unreadable-file-project-");
+    const { desired } = await appliedDirectoryInstallation(home, project);
+    const contextPath = join(project, ".agent-profile-kit", "codex", "context.md");
+    chmodSync(contextPath, 0o000);
+    try {
+      const report = await previewReconciliation(
+        desired,
+        await readInstallationState(home),
+        { ownershipInspection: createLifecycleOwnershipInspectionContext() },
+      );
+      expect(report.items.some((item) => item.kind === "repairable missing output")).toBe(false);
+      expect(report.items.some((item) => item.kind === "missing output")).toBe(true);
+      expect(report.blockers.some((blocker) =>
+        blocker.message.includes("Cannot reconcile Profile Installation")
+      )).toBe(true);
+    } finally {
+      chmodSync(contextPath, 0o644);
+    }
+  });
+
+  test("a traversal-level failure with an extant root is never repairable", async () => {
+    const home = temporaryDirectory("apk-own-inspect-traversal-home-");
+    const project = temporaryDirectory("apk-own-inspect-traversal-project-");
+    const { desired } = await appliedDirectoryInstallation(home, project);
+    // Simulate a child vanishing between readdir and lstat during the walk:
+    // traversal-level ENOENT while the root itself remains present. Only the
+    // root absence check may classify an output as repairable missing.
+    const ownershipInspection = createLifecycleOwnershipInspectionContext({}, {
+      walkDirectory: async () => {
+        throw Object.assign(new Error("injected traversal ENOENT"), { code: "ENOENT" });
+      },
+    });
+    const report = await previewReconciliation(
+      desired,
+      await readInstallationState(home),
+      { ownershipInspection },
+    );
+
+    expect(report.items.some((item) => item.kind === "repairable missing output")).toBe(false);
+    expect(report.items.some((item) => item.kind === "missing output")).toBe(true);
+    expect(report.blockers.some((blocker) =>
+      blocker.message.includes("Cannot reconcile Profile Installation")
+    )).toBe(true);
+  });
+
+  test("stale-installation removal proves ownership with fresh evidence after earlier project commits", async () => {
+    const home = temporaryDirectory("apk-own-inspect-stale-fresh-home-");
+    const keep = temporaryDirectory("apk-own-inspect-stale-fresh-keep-");
+    const stale = temporaryDirectory("apk-own-inspect-stale-fresh-stale-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nStale removal proof context.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n` +
+        `  - project: ${keep}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${stale}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, desired.installations);
+    const keepInstallation = desired.installations.find(
+      (item) => item.binding.canonicalProject === keep,
+    );
+    if (!keepInstallation) throw new Error("expected keep installation");
+
+    const contexts: LifecycleOwnershipInspection[] = [];
+    const readsByContext: number[] = [];
+    const report = await applyReconciliation(home, [keepInstallation], {
+      createOwnershipInspection: () => {
+        const contextId = contexts.length;
+        const context = createLifecycleOwnershipInspectionContext({
+          onInspectDirectory: () => {
+            readsByContext[contextId] = (readsByContext[contextId] ?? 0) + 1;
+          },
+          onInspectFile: () => {
+            readsByContext[contextId] = (readsByContext[contextId] ?? 0) + 1;
+          },
+        });
+        contexts.push(context);
+        return context;
+      },
+    });
+
+    // Preflight, the stale-removal pass, and post-commit verification are
+    // distinct passes; the destructive removal proves ownership from evidence
+    // captured after preflight rather than reusing the preflight cache.
+    expect(contexts.length).toBeGreaterThanOrEqual(3);
+    expect(readsByContext[1] ?? 0).toBeGreaterThan(0);
+    expect((await readInstallationState(home)).installations.map((item) => item.project)).toEqual([keep]);
+    expect(report.resultingState.items.every((item) => item.kind === "current")).toBe(true);
+  });
+
+  test("stale removal refuses output drifted after preflight by re-proving ownership fresh", async () => {
+    const home = temporaryDirectory("apk-own-inspect-stale-mutate-home-");
+    const keep = temporaryDirectory("apk-own-inspect-stale-mutate-keep-");
+    const stale = temporaryDirectory("apk-own-inspect-stale-mutate-stale-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nStale mutation proof context.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n` +
+        `  - project: ${keep}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${stale}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, desired.installations);
+    const keepInstallation = desired.installations.find(
+      (item) => item.binding.canonicalProject === keep,
+    );
+    if (!keepInstallation) throw new Error("expected keep installation");
+    const staleContextPath = join(stale, ".agent-profile-kit", "codex", "context.md");
+    const drifted = "# Drifted by a concurrent process after preflight\n";
+    const staleState = await readInstallationState(home);
+
+    // The factory is invoked for preflight, the stale-removal pass, and post-commit
+    // verification. The stale-removal context mutates the stale output immediately
+    // before its fresh proof reads it, modelling a change made after preflight.
+    let contextIndex = 0;
+    let mutated = false;
+    await expect(applyReconciliation(home, [keepInstallation], {
+      createOwnershipInspection: () => {
+        const index = contextIndex;
+        contextIndex += 1;
+        const inner = createLifecycleOwnershipInspectionContext();
+        const wrapped: LifecycleOwnershipInspection = {
+          inspectMarker: (project) => inner.inspectMarker(project),
+          unsafeParent: (project, relativePath) => inner.unsafeParent(project, relativePath),
+          inspectOutput: async (project, output) => {
+            if (
+              index === 1 &&
+              !mutated &&
+              project === stale &&
+              output.path === ".agent-profile-kit/codex/context.md"
+            ) {
+              mutated = true;
+              writeFileSync(staleContextPath, drifted);
+            }
+            return inner.inspectOutput(project, output);
+          },
+        };
+        return wrapped;
+      },
+    })).rejects.toThrow(/failed project: removal/);
+
+    expect(mutated).toBe(true);
+    // The drifted output survives; the installation is not removed and the
+    // recorded state is untouched.
+    expect(readFileSync(staleContextPath, "utf8")).toBe(drifted);
+    expect((await readInstallationState(home)).installations).toEqual(staleState.installations);
+  });
+});
