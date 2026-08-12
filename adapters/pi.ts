@@ -263,15 +263,50 @@ async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string
   }
 }
 
-/** Prove the Pi project surface needed by the selected Profile before writes. */
-export async function assertPiProjectCapability(
-  project: string,
-  options: PiCapabilityOptions = {},
-): Promise<void> {
+/**
+ * Complete normalized machine-level requirements that affect the Pi CLI probe
+ * result. Callers route identical requirement sets through one probe per
+ * invocation so distinct sets cannot reuse incompatible evidence.
+ */
+export function piMachineRequirements(options: {
+  readonly requireDisabledModelInvocation?: boolean;
+}): Readonly<Record<string, boolean>> {
+  return {
+    requireDisabledModelInvocation: options.requireDisabledModelInvocation === true,
+  };
+}
+
+/**
+ * Resolve and validate the Pi CLI version at one machine-level boundary.
+ * Runs the `pi --version` executable at most once per unique requirement set
+ * per invocation when routed through the invocation-scoped planning context.
+ * Returns the normalized core semver or throws a capability failure for
+ * missing, unreadable, or outdated Host executables.
+ */
+export async function probePiMachineCapability(
+  options: PiCapabilityOptions,
+): Promise<string> {
   const version = await resolvePiCliVersion(options);
   assertPiCliVersionSupported(version, {
-    ...(options.requireDisabledModelInvocation ? { requireDisabledModelInvocation: true } : {}),
+    ...(options.requireDisabledModelInvocation
+      ? { requireDisabledModelInvocation: true }
+      : {}),
   });
+  return version;
+}
+
+/**
+ * Reject Pi project surfaces that cannot host planned outputs. The CLI floor
+ * is proven by the machine-level probe; this checks only Project-specific paths
+ * and still runs for every affected Project.
+ */
+export async function assertPiProjectSurface(
+  project: string,
+  options: {
+    readonly requireContext?: boolean;
+    readonly requireSkills?: boolean;
+  } = {},
+): Promise<void> {
   const piPath = join(project, ".pi");
   const piKind = await pathKind(piPath);
   if (piKind !== "missing" && piKind !== "directory") {
@@ -315,6 +350,15 @@ export async function assertPiProjectCapability(
       );
     }
   }
+}
+
+/** Prove the Pi project surface needed by the selected Profile before writes. */
+export async function assertPiProjectCapability(
+  project: string,
+  options: PiCapabilityOptions = {},
+): Promise<void> {
+  await probePiMachineCapability(options);
+  await assertPiProjectSurface(project, options);
 }
 
 function contextOutput(
