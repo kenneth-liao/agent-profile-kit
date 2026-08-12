@@ -1263,6 +1263,12 @@ export async function applyReconciliation(
   home: string,
   desired: readonly DesiredInstallation[],
   options: {
+    /**
+     * Factory for one Git inspection context. Apply creates a fresh context for
+     * preflight and another for post-commit verification so pre-write snapshots
+     * cannot prove post-write state. Tests may inject a counting factory.
+     */
+    readonly createGitInspection?: () => LifecycleGitInspection;
     readonly fileSystem?: Partial<ReconciliationFileSystem>;
     readonly lockTimeoutMs?: number;
     readonly verifyReconciliation?: typeof previewReconciliation;
@@ -1281,6 +1287,7 @@ async function applyReconciliationLocked(
   home: string,
   desired: readonly DesiredInstallation[],
   options: {
+    readonly createGitInspection?: () => LifecycleGitInspection;
     readonly fileSystem?: Partial<ReconciliationFileSystem>;
     readonly verifyReconciliation?: typeof previewReconciliation;
     readonly writeInstallationState?: typeof writeInstallationState;
@@ -1288,6 +1295,7 @@ async function applyReconciliationLocked(
 ): Promise<ApplyReconciliationResult> {
   const fileSystem: ReconciliationFileSystem = { ...nodeFileSystem, ...options.fileSystem };
   const writeState = options.writeInstallationState ?? writeInstallationState;
+  const createGitInspection = options.createGitInspection ?? createLifecycleGitInspectionContext;
   let before;
   let migratedState = false;
   try {
@@ -1299,7 +1307,10 @@ async function applyReconciliationLocked(
       await unreadableInstallationStateReport(home, desired, error),
     );
   }
-  const report = await previewReconciliation(desired, before);
+  // Fresh inspection pass: pre-write filesystem evidence only.
+  const report = await previewReconciliation(desired, before, {
+    gitInspection: createGitInspection(),
+  });
   const [blocker, ...remainingBlockers] = report.blockers;
   if (blocker) {
     throw new ApplyBlockedError({
@@ -1484,7 +1495,14 @@ async function applyReconciliationLocked(
   await repairedExclusions.commit();
   let resultingState: ReconciliationReport;
   try {
-    resultingState = await (options.verifyReconciliation ?? previewReconciliation)(desired, workingState);
+    // Fresh inspection pass: never reuse preflight Git/exclusion snapshots as
+    // proof of post-write ownership or exclusion bytes.
+    const verify = options.verifyReconciliation ?? (
+      (nextDesired, nextState) => previewReconciliation(nextDesired, nextState, {
+        gitInspection: createGitInspection(),
+      })
+    );
+    resultingState = await verify(desired, workingState);
   } catch (error) {
     throw new ApplyVerificationError(report, error);
   }

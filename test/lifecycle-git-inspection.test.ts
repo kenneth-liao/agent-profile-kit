@@ -346,4 +346,75 @@ describe("lifecycle Git inspection batching", () => {
     expect(report.blockers).toEqual([]);
     expect(report.items.every((item) => item.kind === "addition")).toBe(true);
   });
+
+  test("nested Projects that share one Git root classify through one index listing", async () => {
+    const { home, gitProjects, nestedProjects } = await fleetHome({
+      gitProjectCount: 1,
+      nestedProjectsPerGit: 1,
+      skillCount: 3,
+    });
+    const instrumentation = emptyInstrumentation();
+    const { desired, report } = await previewWithInspection(home, instrumentation);
+
+    expect(desired.installations).toHaveLength(gitProjects.length + nestedProjects.length);
+    expect(report.blockers).toEqual([]);
+    // One Git worktree root → one index query, even with multiple bound Projects.
+    expect(instrumentation.counts.classifyTrackedPaths).toBe(1);
+  });
+
+  test("apply post-commit verification uses a fresh Git inspection pass", async () => {
+    const { home, gitProjects } = await fleetHome({
+      gitProjectCount: 1,
+      skillCount: 2,
+    });
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const contexts: ReturnType<typeof createLifecycleGitInspectionContext>[] = [];
+    const excludeReadsByContext: number[] = [];
+    const classifyByContext: number[] = [];
+
+    const report = await applyReconciliation(home, desired.installations, {
+      createGitInspection: () => {
+        const contextId = contexts.length + 1;
+        const context = createLifecycleGitInspectionContext({
+          onClassifyTrackedPaths: () => {
+            classifyByContext.push(contextId);
+          },
+          onReadExcludeSnapshot: () => {
+            excludeReadsByContext.push(contextId);
+          },
+        });
+        contexts.push(context);
+        return context;
+      },
+    });
+
+    expect(gitProjects).toHaveLength(1);
+    expect(contexts.length).toBeGreaterThanOrEqual(2);
+    expect(contexts[0]).not.toBe(contexts[contexts.length - 1]);
+    expect(new Set(classifyByContext).size).toBeGreaterThanOrEqual(2);
+    expect(new Set(excludeReadsByContext).size).toBeGreaterThanOrEqual(2);
+    expect(report.resultingState.blockers).toEqual([]);
+    expect(report.resultingState.repositoryExclusionRepairs).toEqual([]);
+    expect(report.resultingState.items.every((item) => item.kind === "current")).toBe(true);
+  });
+
+  test("reusing one Git inspection context across apply preflight and verify leaves stale exclusion evidence", async () => {
+    const { home } = await fleetHome({
+      gitProjectCount: 1,
+      skillCount: 2,
+    });
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    // Deliberately broken: one shared context caches the pre-write empty exclude
+    // snapshot and would prove post-write state from preflight evidence.
+    const shared = createLifecycleGitInspectionContext();
+
+    const report = await applyReconciliation(home, desired.installations, {
+      createGitInspection: () => shared,
+    });
+
+    expect(report.resultingState.repositoryExclusionRepairs.length).toBeGreaterThan(0);
+    expect(report.resultingState.warnings.some((warning) =>
+      warning.includes("missing its Agent Profile Kit exclusion section")
+    )).toBe(true);
+  });
 });

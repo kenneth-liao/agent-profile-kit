@@ -1,6 +1,8 @@
-import { findGitProject, type GitProject } from "./git.js";
 import {
-  classifyTrackedGitDestinations,
+  classifyPathsAgainstGitIndex,
+  findGitProject,
+  listTrackedGitIndex,
+  type GitProject,
   type TrackedPathClassification,
 } from "./git.js";
 import {
@@ -47,7 +49,8 @@ export function createLifecycleGitInspectionContext(
   instrumentation: LifecycleGitInspectionInstrumentation = {},
 ): LifecycleGitInspection {
   const gitProjects = new Map<string, Promise<GitProject | undefined>>();
-  const trackedClassifications = new Map<string, Promise<TrackedPathClassification>>();
+  /** One index listing per Git worktree root within this pass. */
+  const trackedIndexes = new Map<string, Promise<readonly string[]>>();
   const excludeSnapshots = new Map<string, Promise<GitExcludeSnapshot>>();
 
   function findProject(project: string): Promise<GitProject | undefined> {
@@ -62,21 +65,25 @@ export function createLifecycleGitInspectionContext(
     });
   }
 
-  function classifyTrackedDestinations(
+  function listIndex(gitProject: GitProject): Promise<readonly string[]> {
+    const existing = trackedIndexes.get(gitProject.root);
+    if (existing) return existing;
+    instrumentation.onClassifyTrackedPaths?.();
+    const pending = listTrackedGitIndex(gitProject);
+    trackedIndexes.set(gitProject.root, pending);
+    return pending.catch((error) => {
+      trackedIndexes.delete(gitProject.root);
+      throw error;
+    });
+  }
+
+  async function classifyTrackedDestinations(
     gitProject: GitProject,
     projectRelativePaths: readonly string[],
   ): Promise<TrackedPathClassification> {
-    const uniquePaths = [...new Set(projectRelativePaths)].sort();
-    const key = `${gitProject.root}\0${gitProject.relativeProject}\0${uniquePaths.join("\n")}`;
-    const existing = trackedClassifications.get(key);
-    if (existing) return existing;
-    instrumentation.onClassifyTrackedPaths?.();
-    const pending = classifyTrackedGitDestinations(gitProject, uniquePaths);
-    trackedClassifications.set(key, pending);
-    return pending.catch((error) => {
-      trackedClassifications.delete(key);
-      throw error;
-    });
+    if (projectRelativePaths.length === 0) return new Set();
+    const indexedPaths = await listIndex(gitProject);
+    return classifyPathsAgainstGitIndex(gitProject, projectRelativePaths, indexedPaths);
   }
 
   function readExcludeSnapshot(
