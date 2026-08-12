@@ -2,7 +2,6 @@ import {
   mkdir,
   lstat,
   mkdtemp,
-  readdir,
   readFile,
   rename,
   rm,
@@ -29,6 +28,12 @@ import {
   type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
 import { findGitProject, gitExcludeEntry, type GitProject } from "./git.js";
+import {
+  createLifecycleOwnershipInspectionContext,
+  unsafeOutputParent,
+  type LifecycleOwnershipInspection,
+  type OwnedOutputInspection,
+} from "./lifecycle-ownership-inspection.js";
 import {
   hashBytes,
   markerPath,
@@ -266,168 +271,18 @@ export function newInstallationId(): string {
   return randomUUID();
 }
 
-async function unsafeOutputParent(
-  project: string,
-  relativePath: string,
-): Promise<string | undefined> {
-  const parts = relativePath.split("/");
-  let parent = project;
-  for (const part of parts.slice(0, -1)) {
-    let stats;
-    try {
-      stats = await lstat(parent);
-    } catch (error) {
-      if (hasErrorCode(error, "ENOENT")) return undefined;
-      if (hasErrorCode(error, "ENOTDIR")) return `${parent} is a non-directory parent`;
-      throw error;
-    }
-    if (stats.isSymbolicLink()) return `${parent} is a symlink parent`;
-    if (!stats.isDirectory()) return `${parent} is a non-directory parent`;
-    parent = join(parent, part);
-  }
-  let stats;
-  try {
-    stats = await lstat(parent);
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return undefined;
-    if (hasErrorCode(error, "ENOTDIR")) return `${parent} is a non-directory parent`;
-    throw error;
-  }
-  if (stats.isSymbolicLink()) return `${parent} is a symlink parent`;
-  if (!stats.isDirectory()) return `${parent} is a non-directory parent`;
-  return undefined;
-}
-
-export interface DirectoryOwnershipInspection {
-  readonly driftedMembers: readonly string[];
-  readonly missingMembers: readonly string[];
-  readonly modeDriftedMembers: readonly string[];
-  readonly unexpectedMembers: readonly string[];
-}
-
-async function listRelativeEntries(
-  root: string,
-  prefix = "",
-): Promise<readonly { readonly kind: "directory" | "file" | "other"; readonly path: string }[]> {
-  const entries = await readdir(root, { withFileTypes: true });
-  const result: { kind: "directory" | "file" | "other"; path: string }[] = [];
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    const relativePath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
-    const absolute = join(root, entry.name);
-    const stats = await lstat(absolute);
-    if (stats.isSymbolicLink()) {
-      result.push({ kind: "other", path: relativePath });
-      continue;
-    }
-    if (entry.isDirectory()) {
-      result.push({ kind: "directory", path: relativePath });
-      result.push(...await listRelativeEntries(absolute, relativePath));
-      continue;
-    }
-    if (entry.isFile()) {
-      result.push({ kind: "file", path: relativePath });
-      continue;
-    }
-    result.push({ kind: "other", path: relativePath });
-  }
-  return result;
-}
-
-/** Inspect one owned artifact directory for missing, drifted, and unexpected members. */
-export async function inspectOwnedDirectory(
-  project: string,
-  output: OwnedDirectoryOutput,
-): Promise<DirectoryOwnershipInspection> {
-  const root = join(project, output.path);
-  const missingMembers: string[] = [];
-  const driftedMembers: string[] = [];
-  const modeDriftedMembers: string[] = [];
-  const expected = new Map(output.members.map((member) => [member.path, member]));
-  let onDisk: readonly { readonly kind: "directory" | "file" | "other"; readonly path: string }[] = [];
-  try {
-    const stats = await lstat(root);
-    if (stats.isSymbolicLink() || !stats.isDirectory()) {
-      return {
-        driftedMembers: [],
-        missingMembers: output.members.map((member) => `${output.path}/${member.path}`),
-        modeDriftedMembers: [],
-        unexpectedMembers: [],
-      };
-    }
-    if ((stats.mode & 0o7777) !== output.mode) {
-      modeDriftedMembers.push(output.path);
-    }
-    onDisk = await listRelativeEntries(root);
-  } catch {
-    return {
-      driftedMembers: [],
-      missingMembers: [output.path, ...output.members.map((member) => `${output.path}/${member.path}`)],
-      modeDriftedMembers: [],
-      unexpectedMembers: [],
-    };
-  }
-
-  for (const member of output.members) {
-    const absolute = join(root, member.path);
-    const label = `${output.path}/${member.path}`;
-    try {
-      const stats = await lstat(absolute);
-      if (stats.isSymbolicLink()) {
-        missingMembers.push(label);
-        continue;
-      }
-      if (member.type === "directory") {
-        if (!stats.isDirectory()) {
-          missingMembers.push(label);
-          continue;
-        }
-        if ((stats.mode & 0o7777) !== member.mode) modeDriftedMembers.push(label);
-        continue;
-      }
-      if (!stats.isFile()) {
-        missingMembers.push(label);
-        continue;
-      }
-      if ((stats.mode & 0o7777) !== member.mode) modeDriftedMembers.push(label);
-      const content = await readFile(absolute);
-      if (hashBytes(content) !== member.hash) driftedMembers.push(label);
-    } catch {
-      missingMembers.push(label);
-    }
-  }
-
-  const unexpectedMembers = onDisk
-    .filter((entry) => !expected.has(entry.path) || entry.kind === "other")
-    .map((entry) => `${output.path}/${entry.path}`);
-
-  return {
-    driftedMembers,
-    missingMembers,
-    modeDriftedMembers,
-    unexpectedMembers,
-  };
-}
-
-async function proveFileOutput(
-  project: string,
+function proveFileOutput(
+  inspection: OwnedOutputInspection,
   output: Extract<OwnedOutput, { type: "file" }>,
-): Promise<{ readonly drifted: boolean; readonly missing: boolean; readonly modeDrifted: boolean }> {
-  const path = join(project, output.path);
-  try {
-    const stats = await lstat(path);
-    if (stats.isSymbolicLink() || !stats.isFile()) {
-      return { drifted: false, missing: true, modeDrifted: false };
-    }
-    const modeDrifted = (stats.mode & 0o7777) !== output.mode;
-    const content = await readFile(path, "utf8");
+): { readonly drifted: boolean; readonly missing: boolean; readonly modeDrifted: boolean } {
+  if (inspection.kind === "file") {
     return {
-      drifted: hashBytes(content) !== output.hash,
+      drifted: inspection.contentHash !== output.hash,
       missing: false,
-      modeDrifted,
+      modeDrifted: inspection.mode !== output.mode,
     };
-  } catch {
-    return { drifted: false, missing: true, modeDrifted: false };
   }
+  return { drifted: false, missing: true, modeDrifted: false };
 }
 
 export type OwnershipFailureKind = "drift" | "malformed" | "missing";
@@ -443,6 +298,7 @@ export interface OwnershipProof {
 async function proveOutputHashes(
   installation: ProjectInstallationManifest,
   includeMarker: boolean,
+  inspection: LifecycleOwnershipInspection,
 ): Promise<OwnershipProof> {
   const outputs = installation.outputs.filter(
     (output) => includeMarker || output.path !== INSTALLATION_MARKER_PATH,
@@ -459,7 +315,7 @@ async function proveOutputHashes(
   const modeDrifted: string[] = [];
   const unexpected: string[] = [];
   for (const output of outputs) {
-    const unsafeParent = await unsafeOutputParent(installation.project, output.path);
+    const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
     if (unsafeParent) {
       return {
         failureKind: "drift",
@@ -467,18 +323,18 @@ async function proveOutputHashes(
         reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
       };
     }
+    const result = await inspection.inspectOutput(installation.project, output);
     if (output.type === "file") {
-      const proof = await proveFileOutput(installation.project, output);
+      const proof = proveFileOutput(result, output);
       if (proof.missing) missing.push(output.path);
       if (proof.drifted) drifted.push(output.path);
       if (proof.modeDrifted) modeDrifted.push(output.path);
       continue;
     }
-    const inspection = await inspectOwnedDirectory(installation.project, output);
-    missing.push(...inspection.missingMembers);
-    drifted.push(...inspection.driftedMembers);
-    modeDrifted.push(...inspection.modeDriftedMembers);
-    unexpected.push(...inspection.unexpectedMembers);
+    missing.push(...result.missingMembers);
+    drifted.push(...result.driftedMembers);
+    modeDrifted.push(...result.modeDriftedMembers);
+    unexpected.push(...result.unexpectedMembers);
   }
   if (missing.length > 0 || drifted.length > 0 || modeDrifted.length > 0 || unexpected.length > 0) {
     const generatedOutputDrift = drifted.length > 0 || modeDrifted.length > 0;
@@ -510,8 +366,9 @@ async function proveOutputHashes(
 /** Prove ownership from non-marker output hashes, for safe marker repair. */
 export async function proveRemainingOwnedOutputs(
   installation: ProjectInstallationManifest,
+  inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<OwnershipProof> {
-  return proveOutputHashes(installation, false);
+  return proveOutputHashes(installation, false, inspection);
 }
 
 export interface InstallationOwnershipInspection extends OwnershipProof {
@@ -520,44 +377,23 @@ export interface InstallationOwnershipInspection extends OwnershipProof {
 
 /**
  * Inspect the Installation Marker and every recorded output once, distinguishing
- * whole-output absence from ambiguous partial absence or drift.
+ * whole-output absence from ambiguous partial absence or drift. Reads are routed
+ * through one shared ownership inspection result when a context is supplied.
  */
 export async function inspectInstallationOwnership(
   installation: ProjectInstallationManifest,
+  inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<InstallationOwnershipInspection> {
-  try {
-    const markerStats = await lstat(markerPath(installation.project));
-    if (markerStats.isSymbolicLink() || !markerStats.isFile()) {
-      return {
-        failureKind: "drift",
-        owned: false,
-        reason: "Installation Marker is not a regular file",
-        repairableMissingOutputs: [],
-      };
-    }
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return {
-        failureKind: "missing",
-        owned: false,
-        reason: "Installation Marker is missing",
-        repairableMissingOutputs: [],
-      };
-    }
-    throw error;
-  }
-  let marker;
-  try {
-    marker = await readMarker(installation.project);
-  } catch (error) {
+  const marker = await inspection.inspectMarker(installation.project);
+  if (marker.kind === "other") {
     return {
-      failureKind: "malformed",
+      failureKind: "drift",
       owned: false,
-      reason: `Installation Marker is malformed: ${error instanceof Error ? error.message : String(error)}`,
+      reason: "Installation Marker is not a regular file",
       repairableMissingOutputs: [],
     };
   }
-  if (!marker) {
+  if (marker.kind === "missing") {
     return {
       failureKind: "missing",
       owned: false,
@@ -565,7 +401,23 @@ export async function inspectInstallationOwnership(
       repairableMissingOutputs: [],
     };
   }
-  if (marker.installationId !== installation.installationId) {
+  if (marker.malformed !== undefined) {
+    return {
+      failureKind: "malformed",
+      owned: false,
+      reason: `Installation Marker is malformed: ${marker.malformed}`,
+      repairableMissingOutputs: [],
+    };
+  }
+  if (!marker.value) {
+    return {
+      failureKind: "missing",
+      owned: false,
+      reason: "Installation Marker is missing",
+      repairableMissingOutputs: [],
+    };
+  }
+  if (marker.value.installationId !== installation.installationId) {
     return {
       failureKind: "drift",
       owned: false,
@@ -577,7 +429,7 @@ export async function inspectInstallationOwnership(
   const repairableMissingOutputs: string[] = [];
   for (const output of installation.outputs) {
     if (output.path === INSTALLATION_MARKER_PATH) continue;
-    const unsafeParent = await unsafeOutputParent(installation.project, output.path);
+    const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
     if (unsafeParent) {
       return {
         failureKind: "drift",
@@ -586,14 +438,9 @@ export async function inspectInstallationOwnership(
         repairableMissingOutputs: [],
       };
     }
-    try {
-      await lstat(join(installation.project, output.path));
-    } catch (error) {
-      if (hasErrorCode(error, "ENOENT")) {
-        repairableMissingOutputs.push(output.path);
-        continue;
-      }
-      throw error;
+    const result = await inspection.inspectOutput(installation.project, output);
+    if (result.kind === "missing") {
+      repairableMissingOutputs.push(output.path);
     }
   }
   const missingPaths = new Set(repairableMissingOutputs);
@@ -603,7 +450,7 @@ export async function inspectInstallationOwnership(
       (output) => !missingPaths.has(output.path),
     ),
   };
-  const proof = await proveOutputHashes(surviving, true);
+  const proof = await proveOutputHashes(surviving, true, inspection);
   if (!proof.owned && repairableMissingOutputs.length > 0) {
     return {
       ...(proof.driftKind ? { driftKind: proof.driftKind } : {}),
@@ -621,16 +468,17 @@ export async function inspectInstallationOwnership(
 
 export async function proveOwnedInstallation(
   installation: ProjectInstallationManifest,
+  inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<OwnershipProof> {
-  const inspection = await inspectInstallationOwnership(installation);
-  if (inspection.repairableMissingOutputs.length > 0) {
+  const inspectionResult = await inspectInstallationOwnership(installation, inspection);
+  if (inspectionResult.repairableMissingOutputs.length > 0) {
     return {
       failureKind: "missing",
       owned: false,
-      reason: `owned output missing: ${inspection.repairableMissingOutputs.join(", ")}`,
+      reason: `owned output missing: ${inspectionResult.repairableMissingOutputs.join(", ")}`,
     };
   }
-  return inspection;
+  return inspectionResult;
 }
 
 export async function removeProvenInstallation(
@@ -647,8 +495,9 @@ export interface ProvenInstallationRemovalTransaction {
 
 export async function stageProvenInstallationRemoval(
   installation: ProjectInstallationManifest,
+  inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<ProvenInstallationRemovalTransaction> {
-  const proof = await proveOwnedInstallation(installation);
+  const proof = await proveOwnedInstallation(installation, inspection);
   if (!proof.owned) {
     throw new Error(
       `Cannot remove Profile Installation at ${installation.project}: ${proof.reason ?? "ownership could not be proven"}`,

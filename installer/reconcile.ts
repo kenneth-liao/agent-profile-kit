@@ -3,7 +3,6 @@ import {
   lstat,
   mkdir,
   mkdtemp,
-  readFile,
   rename,
   rm,
   writeFile,
@@ -31,13 +30,11 @@ import {
   type DesiredProjectOutput,
 } from "./project-plan.js";
 import {
-  inspectOwnedDirectory,
   inspectInstallationOwnership,
   newInstallationId,
   proveOwnedInstallation,
   proveRemainingOwnedOutputs,
   readInstallationStateWithMigration,
-  readMarker,
   stageProvenInstallationRemoval,
   writeInstallationState,
   type OwnershipProof,
@@ -47,6 +44,11 @@ import {
   createLifecycleGitInspectionContext,
   type LifecycleGitInspection,
 } from "./lifecycle-git-inspection.js";
+import {
+  createLifecycleOwnershipInspectionContext,
+  type LifecycleOwnershipInspection,
+  type OwnedOutputInspection,
+} from "./lifecycle-ownership-inspection.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import { COMMAND_NAME } from "./version.js";
 import {
@@ -478,27 +480,23 @@ async function parentConflicts(project: string, path: string): Promise<readonly 
   return blockers;
 }
 
-async function fileOutputMatches(
-  project: string,
+function fileOutputMatches(
+  inspection: OwnedOutputInspection,
   output: Extract<OwnedOutput, { type: "file" }>,
-): Promise<boolean> {
-  const path = join(project, output.path);
-  try {
-    const stats = await lstat(path);
-    if (stats.isSymbolicLink() || !stats.isFile() || (stats.mode & 0o7777) !== output.mode) return false;
-    const bytes = await readFile(path);
-    return hashMarker(bytes) === output.hash;
-  } catch {
-    return false;
-  }
+): boolean {
+  return (
+    inspection.kind === "file" &&
+    inspection.mode === output.mode &&
+    inspection.contentHash === output.hash
+  );
 }
 
-async function directoryOutputMatches(
-  project: string,
+function directoryOutputMatches(
+  inspection: OwnedOutputInspection,
   output: Extract<OwnedOutput, { type: "directory" }>,
-): Promise<boolean> {
-  const inspection = await inspectOwnedDirectory(project, output);
+): boolean {
   return (
+    inspection.kind === "directory" &&
     inspection.missingMembers.length === 0 &&
     inspection.driftedMembers.length === 0 &&
     inspection.modeDriftedMembers.length === 0 &&
@@ -509,9 +507,11 @@ async function directoryOutputMatches(
 async function ownedOutputMatches(
   project: string,
   output: OwnedOutput,
+  inspection: LifecycleOwnershipInspection,
 ): Promise<boolean> {
-  if (output.type === "file") return fileOutputMatches(project, output);
-  return directoryOutputMatches(project, output);
+  const result = await inspection.inspectOutput(project, output);
+  if (output.type === "file") return fileOutputMatches(result, output);
+  return directoryOutputMatches(result, output);
 }
 
 export async function desiredOutputConflicts(
@@ -602,26 +602,25 @@ async function identityBlockers(
   desired: DesiredInstallation,
   state: InstallationState,
   installationId: string,
+  inspection: LifecycleOwnershipInspection,
 ): Promise<readonly BlockerInput[]> {
   const project = desired.binding.canonicalProject;
   const marker = markerPath(project);
-  const markerKind = await pathKind(marker);
-  if (markerKind === "missing") return [];
-  if (markerKind !== "file") {
+  const markerEvidence = await inspection.inspectMarker(project);
+  if (markerEvidence.kind === "missing") return [];
+  if (markerEvidence.kind === "other") {
     return [installationMarkerBlocker({
       message: `${marker} is not a regular Installation Marker file`,
       project,
     })];
   }
-  let markerValue;
-  try {
-    markerValue = await readMarker(project);
-  } catch (error) {
+  if (markerEvidence.malformed !== undefined) {
     return [installationMarkerBlocker({
-      message: `${marker} is malformed: ${error instanceof Error ? error.message : String(error)}`,
+      message: `${marker} is malformed: ${markerEvidence.malformed}`,
       project,
     })];
   }
+  const markerValue = markerEvidence.value;
   if (!markerValue) {
     return [installationMarkerBlocker({ message: `${marker} is missing`, project })];
   }
@@ -648,16 +647,13 @@ async function previousFor(
   desired: DesiredInstallation,
   state: InstallationState,
   byProject: ReadonlyMap<string, ProjectInstallationManifest>,
+  inspection: LifecycleOwnershipInspection,
 ): Promise<ProjectInstallationManifest | undefined> {
   const canonicalProject = desired.binding.canonicalProject;
   const direct = byProject.get(canonicalProject);
   if (direct) return direct;
-  let marker;
-  try {
-    marker = await readMarker(canonicalProject);
-  } catch {
-    return undefined;
-  }
+  const markerEvidence = await inspection.inspectMarker(canonicalProject);
+  const marker = markerEvidence.malformed === undefined ? markerEvidence.value : undefined;
   if (!marker) return undefined;
   const owner = state.installations.find(
     (installation) => installation.installationId === marker.installationId,
@@ -680,12 +676,13 @@ interface InstallationRetirementSelection {
 async function installationRetirementSelection(
   desired: readonly DesiredInstallation[],
   state: InstallationState,
+  inspection: LifecycleOwnershipInspection,
 ): Promise<InstallationRetirementSelection> {
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
   const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
   const movedPreviousProjects = new Set<string>();
   for (const installation of desired) {
-    const previous = await previousFor(installation, state, byProject);
+    const previous = await previousFor(installation, state, byProject, inspection);
     if (previous && previous.project !== installation.binding.canonicalProject) {
       movedPreviousProjects.add(previous.project);
     }
@@ -748,7 +745,7 @@ function composedContextFromOutputs(outputs: readonly DesiredProjectOutput[]): s
 function pushDirectoryMemberItems(
   outputItems: OutputReconciliationItem[],
   project: string,
-  inspection: Awaited<ReturnType<typeof inspectOwnedDirectory>>,
+  inspection: OwnedOutputInspection,
 ): void {
   for (const path of inspection.missingMembers) {
     outputItems.push({ kind: "missing member", path, project });
@@ -767,6 +764,12 @@ export interface PreviewReconciliationOptions {
    * context is created for this pass only.
    */
   readonly gitInspection?: LifecycleGitInspection;
+  /**
+   * Invocation-scoped ownership inspection reader. When omitted, one short-lived
+   * context is created for this pass only. One reconciliation pass must reuse a
+   * single context so each owned output is read or walked at most once.
+   */
+  readonly ownershipInspection?: LifecycleOwnershipInspection;
 }
 
 export async function previewReconciliation(
@@ -775,6 +778,7 @@ export async function previewReconciliation(
   options: PreviewReconciliationOptions = {},
 ): Promise<ReconciliationReport> {
   const gitInspection = options.gitInspection ?? createLifecycleGitInspectionContext();
+  const inspection = options.ownershipInspection ?? createLifecycleOwnershipInspectionContext();
   const items: ReconciliationItem[] = [];
   const outputItems: OutputReconciliationItem[] = [];
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
@@ -783,7 +787,7 @@ export async function previewReconciliation(
     intentionallyDeletedInstallationIds,
     intentionallyDeletedProjects,
     movedPreviousProjects,
-  } = await installationRetirementSelection(desired, state);
+  } = await installationRetirementSelection(desired, state, inspection);
   const blockers: ReconciliationBlocker[] = desired.flatMap((installation) =>
     installation.blockers.map((input) =>
       normalizeBlocker(input, installation.binding.canonicalProject)
@@ -818,7 +822,7 @@ export async function previewReconciliation(
   });
   let projectedExclusions = state.repositoryExclusions;
   for (const installation of desired) {
-    const previous = await previousFor(installation, state, byProject);
+    const previous = await previousFor(installation, state, byProject, inspection);
     const moved = previous && previous.project !== installation.binding.canonicalProject;
     const id = previous?.installationId ?? newInstallationId();
     const projectedManifest = manifestFor(installation, id);
@@ -842,7 +846,7 @@ export async function previewReconciliation(
       ? { ...previous, project: installation.binding.canonicalProject }
       : previous;
     const ownership = ownershipTarget
-      ? await inspectInstallationOwnership(ownershipTarget)
+      ? await inspectInstallationOwnership(ownershipTarget, inspection)
       : undefined;
     const proposedOutputPaths = new Set(proposedOutputs.map((output) => output.path));
     const repairableMissingOutputs = new Set(
@@ -868,7 +872,7 @@ export async function previewReconciliation(
         pushDirectoryMemberItems(
           outputItems,
           installation.binding.project,
-          await inspectOwnedDirectory(installation.binding.canonicalProject, previousOutput),
+          await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput),
         );
       }
       previousOutputs.delete(output.path);
@@ -883,7 +887,7 @@ export async function previewReconciliation(
         pushDirectoryMemberItems(
           outputItems,
           installation.binding.project,
-          await inspectOwnedDirectory(installation.binding.canonicalProject, previousOutput),
+          await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput),
         );
       }
     }
@@ -895,7 +899,7 @@ export async function previewReconciliation(
       gitInspection,
     );
     blockers.push(
-      ...(await identityBlockers(installation, state, id)).map((input) =>
+      ...(await identityBlockers(installation, state, id, inspection)).map((input) =>
         normalizeBlocker(input, project)
       ),
       ...outputConflicts.map((input) => normalizeBlocker(input, project)),
@@ -907,7 +911,7 @@ export async function previewReconciliation(
         const copiedOutputs = candidate.outputs.filter((output) => output.path !== markerRelativePath());
         if (
           copiedOutputs.length > 0 &&
-          (await Promise.all(copiedOutputs.map((output) => ownedOutputMatches(project, output)))).every(Boolean)
+          (await Promise.all(copiedOutputs.map((output) => ownedOutputMatches(project, output, inspection)))).every(Boolean)
         ) {
           copiedInstallation = true;
           break;
@@ -961,11 +965,11 @@ export async function previewReconciliation(
       });
       continue;
     }
-    const markerKind = await pathKind(markerPath(installation.binding.canonicalProject));
-    const proof = ownership ?? await inspectInstallationOwnership(previous);
+    const markerEvidence = await inspection.inspectMarker(installation.binding.canonicalProject);
+    const proof = ownership ?? await inspectInstallationOwnership(previous, inspection);
     let repairableMissingMarker = false;
-    if (markerKind === "missing") {
-      const remaining = await proveRemainingOwnedOutputs(previous);
+    if (markerEvidence.kind === "missing") {
+      const remaining = await proveRemainingOwnedOutputs(previous, inspection);
       repairableMissingMarker = remaining.owned;
       if (!remaining.owned) {
         blockers.push(normalizeBlocker(
@@ -1046,7 +1050,7 @@ export async function previewReconciliation(
     const intentionallyDeleted = intentionallyDeletedProjects.has(installation.project);
     const proof = intentionallyDeleted
       ? { owned: true as const }
-      : await proveOwnedInstallation(installation);
+      : await proveOwnedInstallation(installation, inspection);
     if (!proof.owned) {
       const remediation = proof.reason?.includes("Installation Marker")
         ? "; if this project moved, restore its Manifest-linked Installation Marker at the new root before retrying"
@@ -1269,6 +1273,13 @@ export async function applyReconciliation(
      * cannot prove post-write state. Tests may inject a counting factory.
      */
     readonly createGitInspection?: () => LifecycleGitInspection;
+    /**
+     * Factory for one ownership inspection context. Apply creates a fresh
+     * context for preflight and another for post-commit verification so
+     * pre-write filesystem evidence cannot prove post-write state. Tests may
+     * inject a counting factory.
+     */
+    readonly createOwnershipInspection?: () => LifecycleOwnershipInspection;
     readonly fileSystem?: Partial<ReconciliationFileSystem>;
     readonly lockTimeoutMs?: number;
     readonly verifyReconciliation?: typeof previewReconciliation;
@@ -1288,6 +1299,13 @@ async function applyReconciliationLocked(
   desired: readonly DesiredInstallation[],
   options: {
     readonly createGitInspection?: () => LifecycleGitInspection;
+    /**
+     * Factory for one ownership inspection context. Apply creates a fresh
+     * context for preflight and another for post-commit verification so
+     * pre-write filesystem evidence cannot prove post-write state. Tests may
+     * inject a counting factory.
+     */
+    readonly createOwnershipInspection?: () => LifecycleOwnershipInspection;
     readonly fileSystem?: Partial<ReconciliationFileSystem>;
     readonly verifyReconciliation?: typeof previewReconciliation;
     readonly writeInstallationState?: typeof writeInstallationState;
@@ -1296,6 +1314,8 @@ async function applyReconciliationLocked(
   const fileSystem: ReconciliationFileSystem = { ...nodeFileSystem, ...options.fileSystem };
   const writeState = options.writeInstallationState ?? writeInstallationState;
   const createGitInspection = options.createGitInspection ?? createLifecycleGitInspectionContext;
+  const createOwnershipInspection =
+    options.createOwnershipInspection ?? createLifecycleOwnershipInspectionContext;
   let before;
   let migratedState = false;
   try {
@@ -1307,9 +1327,13 @@ async function applyReconciliationLocked(
       await unreadableInstallationStateReport(home, desired, error),
     );
   }
-  // Fresh inspection pass: pre-write filesystem evidence only.
+  // Fresh inspection pass: pre-write filesystem evidence only. One context
+  // serves the preflight report and the ownership proof for stale removals so
+  // each owned output is read or walked at most once before any write.
+  const preflightOwnershipInspection = createOwnershipInspection();
   const report = await previewReconciliation(desired, before, {
     gitInspection: createGitInspection(),
+    ownershipInspection: preflightOwnershipInspection,
   });
   const [blocker, ...remainingBlockers] = report.blockers;
   if (blocker) {
@@ -1318,7 +1342,7 @@ async function applyReconciliationLocked(
       blockers: [blocker, ...remainingBlockers],
     });
   }
-  const retirement = await installationRetirementSelection(desired, before);
+  const retirement = await installationRetirementSelection(desired, before, preflightOwnershipInspection);
   const currentProjects = new Set(
     report.items
       .filter((item) => item.kind === "current")
@@ -1332,7 +1356,7 @@ async function applyReconciliationLocked(
   const movedPreviousProjects = new Set(retirement.movedPreviousProjects);
   const completed: string[] = [];
   for (const [index, item] of desired.entries()) {
-    const previous = await previousFor(item, before, byProject);
+    const previous = await previousFor(item, before, byProject, preflightOwnershipInspection);
     const moved = previous && previous.project !== item.binding.canonicalProject;
     if (currentProjects.has(item.binding.project)) continue;
     let transaction: { readonly commit: () => Promise<void>; readonly rollback: () => Promise<void> } | undefined;
@@ -1420,6 +1444,13 @@ async function applyReconciliationLocked(
       !desired.some((item) => item.binding.canonicalProject === installation.project) &&
       !movedPreviousProjects.has(installation.project),
   );
+  // Destructive staging is a distinct removal pass: each stale removal re-proves
+  // ownership from filesystem evidence captured after all earlier project commits
+  // and never from preflight snapshots, so changed output cannot be removed
+  // without a fresh proof.
+  const staleRemovalOwnershipInspection = stale.length > 0
+    ? createOwnershipInspection()
+    : undefined;
   for (const [index, previous] of stale.entries()) {
     let transaction: Awaited<ReturnType<typeof stageProvenInstallationRemoval>> | undefined;
     let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
@@ -1427,7 +1458,7 @@ async function applyReconciliationLocked(
     try {
       const intentionallyDeleted = retirement.intentionallyDeletedProjects.has(previous.project);
       if (!intentionallyDeleted) {
-        transaction = await stageProvenInstallationRemoval(previous);
+        transaction = await stageProvenInstallationRemoval(previous, staleRemovalOwnershipInspection);
       }
       installationsByProject.delete(previous.project);
       const nextState: InstallationState = {
@@ -1495,11 +1526,12 @@ async function applyReconciliationLocked(
   await repairedExclusions.commit();
   let resultingState: ReconciliationReport;
   try {
-    // Fresh inspection pass: never reuse preflight Git/exclusion snapshots as
-    // proof of post-write ownership or exclusion bytes.
+    // Fresh inspection pass: never reuse preflight Git, exclusion, or ownership
+    // snapshots as proof of post-write ownership or exclusion bytes.
     const verify = options.verifyReconciliation ?? (
       (nextDesired, nextState) => previewReconciliation(nextDesired, nextState, {
         gitInspection: createGitInspection(),
+        ownershipInspection: createOwnershipInspection(),
       })
     );
     resultingState = await verify(desired, workingState);
