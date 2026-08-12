@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -284,9 +285,19 @@ describe("machine-level Host capability probes within one invocation", () => {
 
     expect(instrumentation.counts.probeHostCapability).toBe(1);
     expect(readProbeLog(home)).toEqual(["pi: --version"]);
-    expect(desired.installations[0]?.blockers).toEqual([]);
-    expect(desired.installations[1]?.blockers).toHaveLength(1);
-    expect(desired.installations[1]?.blockers[0]?.message).toContain(
+    // Installations are sorted by canonical Project path, not fixture creation
+    // order, so match each installation to its fixture Project explicitly.
+    const byProject = new Map(
+      desired.installations.map((installation) => [
+        installation.binding.canonicalProject,
+        installation,
+      ]),
+    );
+    const obstructed = byProject.get(realpathSync(projects[1]!));
+    const clean = byProject.get(realpathSync(projects[0]!));
+    expect(clean?.blockers).toEqual([]);
+    expect(obstructed?.blockers).toHaveLength(1);
+    expect(obstructed?.blockers[0]?.message).toContain(
       "Pi project surface cannot host outputs",
     );
   });
