@@ -18,8 +18,6 @@ Engineering skills use canonical category and state roles. This repository uses 
 | `ready-for-tickets` | `ready-for-tickets` | Settled spec ready for ticket decomposition |
 | `ready-for-agent` | `ready-for-agent` | Fully specified and ready for an AFK agent |
 | `ready-for-human` | `ready-for-human` | Requires human implementation or interaction |
-| `in-progress` | `in-progress` | Approved implementation work is underway |
-| `complete` | `complete` | Delivered and verified |
 | `wontfix` | `wontfix` | Will not be actioned |
 
 Every triaged issue carries exactly one role from each table.
