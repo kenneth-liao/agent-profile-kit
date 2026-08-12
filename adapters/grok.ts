@@ -243,7 +243,7 @@ export function assertGrokCliVersionSupported(
   }
 }
 
-async function resolveGrokCliVersion(options: GrokCapabilityOptions): Promise<string> {
+export async function resolveGrokCliVersion(options: GrokCapabilityOptions): Promise<string> {
   if (options.resolveVersion) return options.resolveVersion();
   try {
     const { stdout, stderr } = await execFileAsync("grok", ["version"], {
@@ -608,10 +608,33 @@ export function inferGrokClaudeRulesEnabledFromOutputs(
  * can host outputs. Authentication, trust, and unrelated Host configuration are
  * never inspected or written.
  */
-export async function assertGrokProjectCapability(
-  project: string,
-  options: GrokCapabilityOptions = {},
-): Promise<GrokInspection> {
+/**
+ * Complete normalized machine-level requirements that affect the Grok CLI probe
+ * result. Callers route identical requirement sets through one probe per
+ * invocation so distinct sets cannot reuse incompatible evidence.
+ */
+export function grokMachineRequirements(options: {
+  readonly requireContext?: boolean;
+  readonly requireSkills?: boolean;
+  readonly requireDisabledModelInvocation?: boolean;
+}): Readonly<Record<string, boolean>> {
+  return {
+    requireContext: options.requireContext !== false,
+    requireSkills: options.requireSkills === true,
+    requireDisabledModelInvocation: options.requireDisabledModelInvocation === true,
+  };
+}
+
+/**
+ * Resolve and validate the Grok CLI version at one machine-level boundary.
+ * Runs the `grok version` executable at most once per unique requirement set
+ * per invocation when routed through the invocation-scoped planning context.
+ * Returns the normalized core semver or throws a capability failure for
+ * missing, unreadable, or outdated Host executables.
+ */
+export async function probeGrokMachineCapability(
+  options: GrokCapabilityOptions,
+): Promise<string> {
   const requireContext = options.requireContext !== false;
   const requireSkills = options.requireSkills === true;
   const version = await resolveGrokCliVersion(options);
@@ -622,6 +645,22 @@ export async function assertGrokProjectCapability(
       ? { requireDisabledModelInvocation: true }
       : {}),
   });
+  return version;
+}
+
+/**
+ * Reject Grok project surfaces that cannot host planned outputs and resolve
+ * Project-specific Claude rules compatibility topology. The CLI floor is proven
+ * by the machine-level probe; `grok inspect --json` and path checks remain
+ * Project-specific and still run for every affected Project.
+ */
+export async function assertGrokProjectSurface(
+  project: string,
+  version: string,
+  options: GrokCapabilityOptions = {},
+): Promise<GrokInspection> {
+  const requireContext = options.requireContext !== false;
+  const requireSkills = options.requireSkills === true;
   const inspection = requireContext
     ? await inspectGrokProject(project, {
         ...options,
@@ -677,6 +716,20 @@ export async function assertGrokProjectCapability(
   }
 
   return inspection;
+}
+
+/**
+ * Reject project surfaces or Host installs that cannot host Grok project outputs.
+ * Proves CLI floor, inspectable configuration, and that required `.grok` surfaces
+ * can host outputs. Authentication, trust, and unrelated Host configuration are
+ * never inspected or written.
+ */
+export async function assertGrokProjectCapability(
+  project: string,
+  options: GrokCapabilityOptions = {},
+): Promise<GrokInspection> {
+  const version = await probeGrokMachineCapability(options);
+  return assertGrokProjectSurface(project, version, options);
 }
 
 /**

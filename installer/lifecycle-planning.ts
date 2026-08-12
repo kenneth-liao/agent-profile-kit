@@ -31,8 +31,15 @@ export interface LifecyclePlanningInstrumentation {
   readonly onComposeContext?: () => void;
   readonly onHashWorkspaceInputs?: () => void;
   readonly onPlanHost?: () => void;
+  readonly onProbeHostCapability?: () => void;
   readonly onReadSkillPackage?: () => void;
   readonly onResolveProfile?: () => void;
+}
+
+/** Complete trusted machine-level inputs that affect one Host probe result. */
+export interface HostCapabilityKey {
+  readonly host: SupportedHost;
+  readonly requirements: Readonly<Record<string, boolean>>;
 }
 
 export interface LifecyclePlanningContext {
@@ -50,6 +57,15 @@ export interface LifecyclePlanningContext {
     key: HostProjectionKey,
     plan: () => Promise<AdapterProjectPlan>,
   ): Promise<AdapterProjectPlan>;
+  /**
+   * Run one machine-level Host capability probe at most once per unique
+   * requirement set per invocation. Both supported and failed probe results are
+   * immutable evidence for this command only and are discarded on exit.
+   */
+  probeHostCapability(
+    key: HostCapabilityKey,
+    probe: () => Promise<string>,
+  ): Promise<string>;
   readSkillPackage(skill: Skill): Promise<readonly ProposedDirectoryMember[]>;
   resolveProfile(profile: Profile): ResolvedProfile;
 }
@@ -107,6 +123,7 @@ export function createLifecyclePlanningContext(
   const skillPackages = new Map<string, Promise<readonly ProposedDirectoryMember[]>>();
   const composedContexts = new Map<string, string>();
   const hostPlans = new Map<string, Promise<AdapterProjectPlan>>();
+  const hostCapabilities = new Map<string, Promise<string>>();
 
   async function readSkillPackage(
     skill: Skill,
@@ -184,6 +201,26 @@ export function createLifecyclePlanningContext(
     });
   }
 
+  function probeHostCapability(
+    key: HostCapabilityKey,
+    probe: () => Promise<string>,
+  ): Promise<string> {
+    const cacheKey = JSON.stringify({
+      host: key.host,
+      requirements: key.requirements,
+    });
+    const existing = hostCapabilities.get(cacheKey);
+    if (existing) return existing;
+    instrumentation.onProbeHostCapability?.();
+    const pending = probe();
+    // Unlike planning work, probe failures are retained for the invocation: a
+    // missing or outdated Host CLI cannot recover mid-command, and re-probing it
+    // for every Project is exactly the waste this boundary eliminates. Both
+    // success and failure are immutable machine-level evidence for this command.
+    hostCapabilities.set(cacheKey, pending);
+    return pending;
+  }
+
   const materials: AdapterPlanningMaterials = {
     composeContext,
     readSkillPackage,
@@ -194,6 +231,7 @@ export function createLifecyclePlanningContext(
     hashWorkspaceInputs: hashInputs,
     materials,
     planHost,
+    probeHostCapability,
     readSkillPackage,
     resolveProfile,
   };

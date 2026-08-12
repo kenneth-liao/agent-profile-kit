@@ -4986,6 +4986,88 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(true);
   });
 
+  test("packed fleet preview probes each unique machine-level Host requirement once", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const hostsByProject = ["codex", "claude", "grok", "pi"] as const;
+    const projects = hostsByProject.map(() => project());
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        hostsByProject
+          .map(
+            (host, index) =>
+              `  - project: ${projects[index]}\n    profile: coding\n    hosts: [${host}]\n`,
+          )
+          .join(""),
+    );
+    const bin = join(home, "probe-bin");
+    mkdirSync(bin, { recursive: true });
+    const record = (name: string): string =>
+      `printf '%s: %s\\n' '${name}' "$*" >> "$HOME/probe.log"\n`;
+    writeFileSync(
+      join(bin, "codex"),
+      `#!/bin/sh\n${record("codex")}echo "codex-cli 0.145.0"\n`,
+    );
+    writeFileSync(
+      join(bin, "claude"),
+      `#!/bin/sh\n${record("claude")}echo "2.0.64 (Claude Code)"\n`,
+    );
+    writeFileSync(
+      join(bin, "grok"),
+      `#!/bin/sh\n${record("grok")}if [ "$1" = "version" ]; then\n` +
+        `  echo "grok 0.2.111 (fake) [stable]"\n  exit 0\nfi\n` +
+        `if [ "$1" = "inspect" ] && [ "$2" = "--json" ]; then\n` +
+        `  cat <<'EOF'\n` +
+        `{"externalCompat":{"cells":[{"enabled":true,"source":"default","surface":"rules","vendor":"claude"}],"remoteSettingsLoaded":false},"groKVersion":"0.2.111","projectInstructions":[],"skills":[]}\n` +
+        `EOF\n  exit 0\nfi\n` +
+        `echo "unexpected grok invocation: $*" >&2\nexit 2\n`,
+    );
+    writeFileSync(
+      join(bin, "pi"),
+      `#!/bin/sh\n${record("pi")}echo "pi 0.82.1"\n`,
+    );
+    for (const name of ["codex", "claude", "grok", "pi"]) {
+      execFileSync("chmod", ["+x", join(bin, name)]);
+    }
+    const pathWithHosts = `${bin}:${process.env.PATH ?? ""}`;
+
+    const preview = await runCliWithPath(home, pathWithHosts, "preview", "--json");
+
+    expectExitCode(preview, 0);
+    const payload = JSON.parse(preview.stdout) as {
+      readonly installations: readonly unknown[];
+    };
+    expect(payload.installations).toHaveLength(4);
+    const counts = {
+      claude: 0,
+      codex: 0,
+      "grok-inspect": 0,
+      "grok-version": 0,
+      pi: 0,
+    };
+    const lines = readFileSync(join(home, "probe.log"), "utf8")
+      .split(/\r?\n/)
+      .filter((line) => line.length > 0);
+    for (const line of lines) {
+      if (line === "codex: --version") counts.codex += 1;
+      else if (line === "claude: --version") counts.claude += 1;
+      else if (line === "grok: version") counts["grok-version"] += 1;
+      else if (line === "grok: inspect --json") counts["grok-inspect"] += 1;
+      else if (line === "pi: --version") counts.pi += 1;
+      else throw new Error(`unexpected probe invocation '${line}'`);
+    }
+    expect(counts).toEqual({
+      claude: 1,
+      codex: 1,
+      "grok-inspect": 1,
+      "grok-version": 1,
+      pi: 1,
+    });
+  });
+
   test("packed CLI Claude+Grok binding coalesces onto one Context rule path", async () => {
     const home = isolatedHome();
     await initialize(home);

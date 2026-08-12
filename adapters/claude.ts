@@ -231,25 +231,50 @@ async function resolveClaudeCliVersion(
 }
 
 /**
- * Reject project surfaces or Host installs that cannot host Claude project outputs.
- * Every Claude plan shares the `.claude` root (Skills and/or Context). Unscoped-rule
- * surface preflight (`.claude/rules`) runs only when Context is selected.
- * When selected Skills require disabled model invocation, proves the CLI floor that
- * honors `disable-model-invocation` before any project or state write.
- * Authentication, trust, approvals, plugins, and sessions are never inspected or written.
+ * Complete normalized machine-level requirements that affect the Claude CLI
+ * probe result. Callers route identical requirement sets through one probe per
+ * invocation so distinct sets cannot reuse incompatible evidence.
  */
-export async function assertClaudeProjectCapability(
-  project: string,
-  options: ClaudeCapabilityOptions = {},
-): Promise<void> {
-  const requireContext = options.requireContext !== false;
+export function claudeMachineRequirements(options: {
+  readonly requireContext?: boolean;
+  readonly requireDisabledModelInvocation?: boolean;
+}): Readonly<Record<string, boolean>> {
+  return {
+    requireContext: options.requireContext !== false,
+    requireDisabledModelInvocation: options.requireDisabledModelInvocation === true,
+  };
+}
+
+/**
+ * Resolve and validate the Claude CLI version at one machine-level boundary.
+ * Runs the `claude --version` executable at most once per unique requirement
+ * set per invocation when routed through the invocation-scoped planning
+ * context. Returns the normalized core semver or throws a capability failure
+ * for missing, unreadable, or outdated Host executables.
+ */
+export async function probeClaudeMachineCapability(
+  options: ClaudeCapabilityOptions,
+): Promise<string> {
   const version = await resolveClaudeCliVersion(options);
   assertClaudeCliVersionSupported(version, {
-    requireContext,
+    requireContext: options.requireContext !== false,
     ...(options.requireDisabledModelInvocation
       ? { requireDisabledModelInvocation: true }
       : {}),
   });
+  return version;
+}
+
+/**
+ * Reject Claude project surfaces that cannot host planned outputs. The CLI
+ * floor is proven by the machine-level probe; this checks only Project-specific
+ * paths and still runs for every affected Project.
+ */
+export async function assertClaudeProjectSurface(
+  project: string,
+  options: { readonly requireContext?: boolean } = {},
+): Promise<void> {
+  const requireContext = options.requireContext !== false;
 
   // Skills-only and Context-bearing plans both write under `.claude/`.
   const claudePath = join(project, ".claude");
@@ -284,6 +309,22 @@ export async function assertClaudeProjectCapability(
       problem,
     );
   }
+}
+
+/**
+ * Reject project surfaces or Host installs that cannot host Claude project outputs.
+ * Every Claude plan shares the `.claude` root (Skills and/or Context). Unscoped-rule
+ * surface preflight (`.claude/rules`) runs only when Context is selected.
+ * When selected Skills require disabled model invocation, proves the CLI floor that
+ * honors `disable-model-invocation` before any project or state write.
+ * Authentication, trust, approvals, plugins, and sessions are never inspected or written.
+ */
+export async function assertClaudeProjectCapability(
+  project: string,
+  options: ClaudeCapabilityOptions = {},
+): Promise<void> {
+  await probeClaudeMachineCapability(options);
+  await assertClaudeProjectSurface(project, options);
 }
 
 /** Emit Claude Host SKILL.md with disable-model-invocation when policy is disabled. */

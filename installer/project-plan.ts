@@ -2,31 +2,39 @@ import { createHash } from "node:crypto";
 import { isAbsolute, join, posix } from "node:path";
 
 import {
-  assertClaudeProjectCapability,
+  assertClaudeProjectSurface,
+  claudeMachineRequirements,
   CLAUDE_ADAPTER_VERSION,
   planClaudeProject,
+  probeClaudeMachineCapability,
 } from "../adapters/claude.js";
 import {
-  assertCodexProjectCapability,
+  codexMachineRequirements,
   CODEX_ADAPTER_VERSION,
   detectCodexProjectConfigurationWarnings,
   planCodexProject,
+  probeCodexMachineCapability,
 } from "../adapters/codex.js";
 import {
-  assertGrokProjectCapability,
+  assertGrokProjectSurface,
   detectGrokProjectConfigurationWarnings,
+  grokMachineRequirements,
   GROK_ADAPTER_VERSION,
   grokClaudeRulesTopologyCapabilityError,
   inferGrokClaudeRulesEnabledFromOutputs,
   inspectGrokProject,
   planGrokProject,
+  probeGrokMachineCapability,
+  resolveGrokCliVersion,
   type GrokInspection,
 } from "../adapters/grok.js";
 import {
-  assertPiProjectCapability,
+  assertPiProjectSurface,
   detectPiSkillSettingsWarnings,
+  piMachineRequirements,
   PI_ADAPTER_VERSION,
   planPiProject,
+  probePiMachineCapability,
 } from "../adapters/pi.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
@@ -624,36 +632,89 @@ export async function buildDesiredState(
     const capabilityEnvironment = options.env === undefined ? {} : { env: options.env };
     for (const host of binding.hosts) {
       let grokInspection: GrokInspection | undefined;
-      if (
-        options.checkHostCapability !== false
-      ) {
+      if (options.checkHostCapability !== false) {
         try {
           if (host === "codex") {
-            await assertCodexProjectCapability(home, binding.canonicalProject, {
-              ...capabilityEnvironment,
-              requireContext,
-              requireDisabledModelInvocation,
-            });
+            if (requireContext || requireDisabledModelInvocation) {
+              await planning.probeHostCapability(
+                {
+                  host,
+                  requirements: codexMachineRequirements({
+                    requireContext,
+                    requireDisabledModelInvocation,
+                  }),
+                },
+                () => probeCodexMachineCapability({
+                  ...capabilityEnvironment,
+                  requireContext,
+                  requireDisabledModelInvocation,
+                }),
+              );
+            }
           } else if (host === "claude") {
-            await assertClaudeProjectCapability(binding.canonicalProject, {
-              ...capabilityEnvironment,
+            await planning.probeHostCapability(
+              {
+                host,
+                requirements: claudeMachineRequirements({
+                  requireContext,
+                  requireDisabledModelInvocation,
+                }),
+              },
+              () => probeClaudeMachineCapability({
+                ...capabilityEnvironment,
+                requireContext,
+                requireDisabledModelInvocation,
+              }),
+            );
+            await assertClaudeProjectSurface(binding.canonicalProject, {
               requireContext,
-              requireDisabledModelInvocation,
             });
           } else if (host === "grok") {
-            grokInspection = await assertGrokProjectCapability(binding.canonicalProject, {
-              ...capabilityEnvironment,
-              home,
-              requireContext,
-              requireSkills,
-              requireDisabledModelInvocation,
-            });
+            const version = await planning.probeHostCapability(
+              {
+                host,
+                requirements: grokMachineRequirements({
+                  requireContext,
+                  requireSkills,
+                  requireDisabledModelInvocation,
+                }),
+              },
+              () => probeGrokMachineCapability({
+                ...capabilityEnvironment,
+                requireContext,
+                requireSkills,
+                requireDisabledModelInvocation,
+              }),
+            );
+            grokInspection = await assertGrokProjectSurface(
+              binding.canonicalProject,
+              version,
+              {
+                ...capabilityEnvironment,
+                home,
+                requireContext,
+                requireSkills,
+                requireDisabledModelInvocation,
+              },
+            );
           } else if (host === "pi") {
-            await assertPiProjectCapability(binding.canonicalProject, {
-              ...capabilityEnvironment,
-              home,
+            await planning.probeHostCapability(
+              {
+                host,
+                requirements: piMachineRequirements({
+                  requireDisabledModelInvocation,
+                }),
+              },
+              () => probePiMachineCapability({
+                ...capabilityEnvironment,
+                home,
+                requireContext,
+                requireDisabledModelInvocation,
+                requireSkills,
+              }),
+            );
+            await assertPiProjectSurface(binding.canonicalProject, {
               requireContext,
-              requireDisabledModelInvocation,
               requireSkills,
             });
           }
@@ -672,9 +733,17 @@ export async function buildDesiredState(
           requireContext && binding.hosts.includes("claude");
         if (needsContextTopology) {
           try {
+            // Status is capability-free, but `grok version` is still a
+            // machine-level executable probe: resolve it once per invocation
+            // while `grok inspect --json` stays Project-specific.
+            const version = await planning.probeHostCapability(
+              { host, requirements: { resolveVersion: true } },
+              () => resolveGrokCliVersion(capabilityEnvironment),
+            );
             grokInspection = await inspectGrokProject(binding.canonicalProject, {
               ...capabilityEnvironment,
               home,
+              resolveVersion: async () => version,
             });
           } catch (error) {
             grokInspection = undefined;

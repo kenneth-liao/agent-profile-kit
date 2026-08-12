@@ -239,18 +239,49 @@ export async function assertCodexProjectCapability(
 ): Promise<void> {
   // SessionStart configuration is advisory and is reported separately by
   // detectCodexProjectConfigurationWarnings. Capability preflight proves only
-  // portable semantics that Codex must be able to represent.
+  // portable semantics that Codex must be able to represent. Codex has no
+  // Project-specific surface preflight beyond the machine-level version floor,
+  // so the whole assertion is one reusable machine probe.
   if (options.requireContext || options.requireDisabledModelInvocation) {
-    const version = await resolveCodexCliVersion(options);
-    // Check the higher Context floor first so a single upgrade message covers
-    // Profiles that also need disabled model invocation (0.99.0 ⊂ 0.145.0+).
-    if (options.requireContext) {
-      assertCodexCliVersionSupportsCompleteContext(version);
-    }
-    if (options.requireDisabledModelInvocation) {
-      assertCodexCliVersionSupportsDisabledModelInvocation(version);
-    }
+    await probeCodexMachineCapability(options);
   }
+}
+
+/**
+ * Complete normalized machine-level requirements that affect the Codex probe
+ * result. Callers route identical requirement sets through one probe per
+ * invocation so distinct sets cannot reuse incompatible evidence.
+ */
+export function codexMachineRequirements(options: {
+  readonly requireContext?: boolean;
+  readonly requireDisabledModelInvocation?: boolean;
+}): Readonly<Record<string, boolean>> {
+  return {
+    requireContext: options.requireContext === true,
+    requireDisabledModelInvocation: options.requireDisabledModelInvocation === true,
+  };
+}
+
+/**
+ * Resolve and validate the Codex CLI version at one machine-level boundary.
+ * Runs the `codex --version` executable at most once per unique requirement set
+ * per invocation when routed through the invocation-scoped planning context.
+ * Returns the normalized core semver or throws a capability failure for
+ * missing, unreadable, or outdated Host executables.
+ */
+export async function probeCodexMachineCapability(
+  options: CodexCapabilityOptions,
+): Promise<string> {
+  const version = await resolveCodexCliVersion(options);
+  // Check the higher Context floor first so a single upgrade message covers
+  // Profiles that also need disabled model invocation (0.99.0 ⊂ 0.145.0+).
+  if (options.requireContext) {
+    assertCodexCliVersionSupportsCompleteContext(version);
+  }
+  if (options.requireDisabledModelInvocation) {
+    assertCodexCliVersionSupportsDisabledModelInvocation(version);
+  }
+  return version;
 }
 
 /** Assert a normalized core semver against the complete-Context floor. */
