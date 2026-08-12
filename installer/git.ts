@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -102,15 +102,151 @@ export function gitExcludeEntry(
   return `/${[gitProject.relativeProject, slashPath(outputPath)].filter(Boolean).join("/")}`;
 }
 
+function rootRelativePath(gitProject: Pick<GitProject, "relativeProject">, path: string): string {
+  return slashPath(
+    [gitProject.relativeProject, path].filter((part) => part.length > 0).join("/"),
+  );
+}
+
+/** Exact project-relative paths that are tracked themselves or have tracked descendants. */
+export type TrackedPathClassification = ReadonlySet<string>;
+
+/**
+ * Sorted Git index paths for one worktree root. Built by streaming `git ls-files`
+ * so repository size is not bounded by a fixed whole-output buffer.
+ */
+export type GitTrackedIndex = readonly string[];
+
+/** First index of a value >= needle in a sorted ascending string array. */
+function lowerBound(sorted: readonly string[], needle: string): number {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (sorted[mid]! < needle) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+/**
+ * True when the sorted index owns `rootRelative` exactly or any path beneath it.
+ * Uses one binary search so classification is O(log index) per destination.
+ */
+function indexOwnsPathOrDescendant(
+  sortedIndex: GitTrackedIndex,
+  rootRelative: string,
+): boolean {
+  const start = lowerBound(sortedIndex, rootRelative);
+  if (start >= sortedIndex.length) return false;
+  const candidate = sortedIndex[start]!;
+  if (candidate === rootRelative) return true;
+  return candidate.startsWith(`${rootRelative}/`);
+}
+
+/**
+ * Stream the complete Git index once for a worktree root. Paths are returned in
+ * ascending order for binary-search classification. Real inspection failures
+ * fail closed. Does not buffer the whole stdout through `execFile`/`maxBuffer`.
+ */
+export async function listTrackedGitIndex(
+  gitProject: Pick<GitProject, "root">,
+): Promise<GitTrackedIndex> {
+  return await new Promise<GitTrackedIndex>((resolvePromise, rejectPromise) => {
+    const child = spawn(
+      "git",
+      ["-C", gitProject.root, "ls-files", "-z"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const paths: string[] = [];
+    let stdoutCarry = "";
+    let stderr = "";
+    let settled = false;
+
+    const fail = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      const failure = commandFailure(error);
+      rejectPromise(new Error(
+        `Cannot inspect tracked Git index at '${gitProject.root}': ${failure.message}`,
+      ));
+    };
+
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      const combined = `${stdoutCarry}${chunk}`;
+      const parts = combined.split("\0");
+      stdoutCarry = parts.pop() ?? "";
+      for (const part of parts) {
+        if (part.length > 0) paths.push(part);
+      }
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", fail);
+    child.on("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      if (stdoutCarry.length > 0) paths.push(stdoutCarry);
+      if (code === 0) {
+        // `git ls-files` is sorted; keep the contract explicit for synthetic indexes.
+        paths.sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+        resolvePromise(paths);
+        return;
+      }
+      const detail = stderr.trim() ||
+        (signal ? `terminated by signal ${signal}` : `exit ${code ?? "unknown"}`);
+      rejectPromise(new Error(
+        `Cannot inspect tracked Git index at '${gitProject.root}': ${detail}`,
+      ));
+    });
+  });
+}
+
+/**
+ * Classify project-relative destinations against one already-loaded sorted Git
+ * index. A destination is tracked when the index owns that exact path or any
+ * path beneath it (including deleted working-tree files that remain indexed).
+ * Work is O(index build already paid + destinations × log index).
+ */
+export function classifyPathsAgainstGitIndex(
+  gitProject: Pick<GitProject, "relativeProject">,
+  projectRelativePaths: readonly string[],
+  sortedIndex: GitTrackedIndex,
+): TrackedPathClassification {
+  if (projectRelativePaths.length === 0) return new Set();
+  const tracked = new Set<string>();
+  for (const path of new Set(projectRelativePaths)) {
+    const rootRelative = rootRelativePath(gitProject, path);
+    if (indexOwnsPathOrDescendant(sortedIndex, rootRelative)) tracked.add(path);
+  }
+  return tracked;
+}
+
+/**
+ * Classify many project-relative destinations against one Git index in a single
+ * streamed query. A destination is tracked when the index owns that exact path or
+ * any path beneath it (including deleted working-tree files that remain indexed).
+ * Real inspection failures fail closed.
+ */
+export async function classifyTrackedGitDestinations(
+  gitProject: GitProject,
+  projectRelativePaths: readonly string[],
+): Promise<TrackedPathClassification> {
+  if (projectRelativePaths.length === 0) return new Set();
+  const indexedPaths = await listTrackedGitIndex(gitProject);
+  return classifyPathsAgainstGitIndex(gitProject, projectRelativePaths, indexedPaths);
+}
+
 export async function isGitTrackedPath(
   project: string,
   path: string,
 ): Promise<boolean> {
   const gitProject = await findGitProject(project);
   if (!gitProject) return false;
-  const relativePath = slashPath(
-    [gitProject.relativeProject, path].filter((part) => part.length > 0).join("/"),
-  );
+  const relativePath = rootRelativePath(gitProject, path);
   try {
     const result = await execFileAsync(
       "git",
@@ -135,20 +271,19 @@ export async function hasTrackedGitDescendants(
 ): Promise<boolean> {
   const gitProject = await findGitProject(project);
   if (!gitProject) return false;
-  const relativePath = slashPath(
-    [gitProject.relativeProject, path].filter((part) => part.length > 0).join("/"),
-  );
+  const relativePath = rootRelativePath(gitProject, path);
   try {
-    const result = await execFileAsync(
-      "git",
-      ["-C", gitProject.root, "ls-files", "-z", "--", relativePath],
-      { encoding: "buffer" },
-    );
-    return result.stdout.length > 0;
+    const indexedPaths = await listTrackedGitIndex(gitProject);
+    return classifyPathsAgainstGitIndex(gitProject, [path], indexedPaths).has(path);
   } catch (error) {
     const failure = commandFailure(error);
+    // Preserve the historical single-path diagnostic surface used by callers and tests.
+    const detail = failure.message.replace(
+      /^Cannot inspect tracked Git index at '[^']+':\s*/,
+      "",
+    );
     throw new Error(
-      `Cannot inspect tracked Git descendants under '${relativePath}': ${failure.message}`,
+      `Cannot inspect tracked Git descendants under '${relativePath}': ${detail}`,
     );
   }
 }

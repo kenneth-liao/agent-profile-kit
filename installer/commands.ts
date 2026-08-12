@@ -5,6 +5,7 @@ import {
   type ApplyReconciliationResult,
   type ReconciliationReport,
 } from "./reconcile.js";
+import { createLifecycleGitInspectionContext } from "./lifecycle-git-inspection.js";
 import { buildDesiredState, stateManifestPath } from "./project-plan.js";
 import { INSTALLATION_STATE_SCHEMA_VERSION } from "../schemas/installation-manifest.js";
 import {
@@ -54,7 +55,8 @@ export async function validateApplication(home: string): Promise<ValidationResul
 }
 
 export async function previewApplication(home: string): Promise<ReconciliationReport> {
-  const desired = await buildDesiredState(home);
+  const gitInspection = createLifecycleGitInspectionContext();
+  const desired = await buildDesiredState(home, { gitInspection });
   let state;
   try {
     state = await readInstallationState(home);
@@ -65,7 +67,7 @@ export async function previewApplication(home: string): Promise<ReconciliationRe
       repositoryExclusions: [],
       temporaryInstallations: [],
       schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-    });
+    }, { gitInspection });
     return {
       ...desiredReport,
       blockers: [
@@ -77,32 +79,40 @@ export async function previewApplication(home: string): Promise<ReconciliationRe
       ],
     };
   }
-  return previewReconciliation(desired.installations, state);
+  return previewReconciliation(desired.installations, state, { gitInspection });
 }
 
 export async function applyApplication(home: string): Promise<ApplyReconciliationResult> {
-  const desired = await buildDesiredState(home);
+  // Desired-state planning reuses Git topology; apply's preflight and post-commit
+  // verification each create a fresh inspection pass for filesystem evidence.
+  const gitInspection = createLifecycleGitInspectionContext();
+  const desired = await buildDesiredState(home, { gitInspection });
   return applyReconciliation(home, desired.installations);
 }
 
 export async function statusApplication(home: string): Promise<ReconciliationReport> {
+  const gitInspection = createLifecycleGitInspectionContext();
   let state;
   try {
     state = await readInstallationState(home);
   } catch (error) {
     // Probe-free desired state: ownership is already malformed, so topology
     // resolution against prior Manifests is unavailable.
-    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const desired = await buildDesiredState(home, {
+      checkHostCapability: false,
+      gitInspection,
+    });
     return unreadableInstallationStateReport(home, desired.installations, error);
   }
   // Resolve Grok multi-Host Context topology from live inspect when possible,
   // otherwise preserve the applied delivery paths recorded on the Manifest.
   const desired = await buildDesiredState(home, {
     checkHostCapability: false,
+    gitInspection,
     previousInstallations: state.installations,
     resolveHostTopology: true,
   });
-  const report = await previewReconciliation(desired.installations, state);
+  const report = await previewReconciliation(desired.installations, state, { gitInspection });
   const blockedProjects = new Set(
     report.blockers.flatMap((blocker) => blocker.project ? [blocker.project] : []),
   );

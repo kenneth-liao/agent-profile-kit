@@ -12,6 +12,7 @@ import type {
   RepositoryExclusionRecord,
 } from "../schemas/installation-manifest.js";
 import { assertRealDirectoryPath, findGitProject, gitExcludeEntry, type GitProject } from "./git.js";
+import type { LifecycleGitInspection } from "./lifecycle-git-inspection.js";
 import type { DesiredInstallation } from "./project-plan.js";
 import { readMarker } from "./installation-state.js";
 import {
@@ -185,7 +186,7 @@ export function reconcileGitExcludeBytes(
   return Buffer.concat([prefix, separator, block, suffix]);
 }
 
-interface ExcludeSnapshot {
+export interface GitExcludeSnapshot {
   readonly bytes: Buffer;
   readonly exists: boolean;
   readonly mode: number;
@@ -221,7 +222,11 @@ async function assertSafeExcludePath(git: GitProject): Promise<{ readonly infoEx
   return { infoExists };
 }
 
-async function readSnapshot(git: GitProject, allowMissingTarget = false): Promise<ExcludeSnapshot> {
+/** Read one repository-local exclusion target. Prefer the invocation-scoped inspection reader. */
+export async function readGitExcludeSnapshot(
+  git: GitProject,
+  allowMissingTarget = false,
+): Promise<GitExcludeSnapshot> {
   try {
     await assertSafeExcludePath(git);
   } catch (error) {
@@ -249,6 +254,15 @@ async function readSnapshot(git: GitProject, allowMissingTarget = false): Promis
     }
     throw error;
   }
+}
+
+async function readSnapshot(
+  git: GitProject,
+  allowMissingTarget = false,
+  gitInspection?: LifecycleGitInspection,
+): Promise<GitExcludeSnapshot> {
+  if (gitInspection) return gitInspection.readExcludeSnapshot(git, allowMissingTarget);
+  return readGitExcludeSnapshot(git, allowMissingTarget);
 }
 
 interface Target {
@@ -657,7 +671,9 @@ async function retiringInstallationOwnershipBlockers(
 async function recordedInstallationOwnershipBlockers(
   state: InstallationState,
   retiringInstallationIds: ReadonlySet<string> = new Set(),
+  gitInspection?: LifecycleGitInspection,
 ): Promise<readonly BlockerInput[]> {
+  const resolveGit = gitInspection?.findGitProject ?? findGitProject;
   const blockers: BlockerInput[] = [];
   for (const installation of state.installations) {
     try {
@@ -676,7 +692,7 @@ async function recordedInstallationOwnershipBlockers(
     const contribution = contributionFor(state.repositoryExclusions, installation.installationId);
     let git: GitProject | undefined;
     try {
-      git = await findGitProject(installation.project);
+      git = await resolveGit(installation.project);
     } catch (error) {
       blockers.push(repositoryExclusionTargetUnprovenBlocker({
         message:
@@ -735,6 +751,7 @@ export async function gitExclusionBlockers(
   state: InstallationState,
   desired: readonly DesiredInstallation[] = [],
   options: {
+    readonly gitInspection?: LifecycleGitInspection;
     readonly retiringInstallationIds?: ReadonlySet<string>;
     readonly validateRecordedInstallations?: boolean;
   } = {},
@@ -748,12 +765,20 @@ export async function gitExclusionBlockers(
       options.retiringInstallationIds ?? new Set(),
     ),
     ...(validateRecordedInstallations
-      ? await recordedInstallationOwnershipBlockers(state, options.retiringInstallationIds)
+      ? await recordedInstallationOwnershipBlockers(
+        state,
+        options.retiringInstallationIds,
+        options.gitInspection,
+      )
       : []),
   ];
   for (const target of await inspectionTargets(state, desired, options.retiringInstallationIds)) {
     try {
-      const snapshot = await readSnapshot(target.git, target.allowMissingTarget);
+      const snapshot = await readSnapshot(
+        target.git,
+        target.allowMissingTarget,
+        options.gitInspection,
+      );
       const targetRecord = state.repositoryExclusions.find(
         (record) => record.target === target.git.excludeFile,
       );
@@ -787,12 +812,19 @@ export async function gitExclusionBlockers(
 export async function gitExclusionDiagnostics(
   state: InstallationState,
   desired: readonly DesiredInstallation[] = [],
+  options: {
+    readonly gitInspection?: LifecycleGitInspection;
+  } = {},
 ): Promise<RepositoryExclusionDiagnostics> {
   const warnings: string[] = [];
   const repairs: RepositoryExclusionRepair[] = [];
   for (const target of await inspectionTargets(state, desired)) {
     try {
-      const snapshot = await readSnapshot(target.git, target.allowMissingTarget);
+      const snapshot = await readSnapshot(
+        target.git,
+        target.allowMissingTarget,
+        options.gitInspection,
+      );
       const expected = new Set(target.current);
       if (expected.size > 0 && !parseOwnedSection(snapshot.bytes, target.git.excludeFile)) {
         warnings.push(`${target.git.excludeFile}${REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX}`);
@@ -812,8 +844,11 @@ export async function gitExclusionDiagnostics(
 export async function gitExclusionWarnings(
   state: InstallationState,
   desired: readonly DesiredInstallation[] = [],
+  options: {
+    readonly gitInspection?: LifecycleGitInspection;
+  } = {},
 ): Promise<readonly string[]> {
-  return (await gitExclusionDiagnostics(state, desired)).warnings;
+  return (await gitExclusionDiagnostics(state, desired, options)).warnings;
 }
 
 async function replace(git: GitProject, source: Buffer, mode: number): Promise<boolean> {
@@ -848,7 +883,7 @@ export async function stageGitExclusions(
   const plans: Array<{
     readonly git: GitProject;
     readonly allowMissingTarget: boolean;
-    readonly snapshot: ExcludeSnapshot;
+    readonly snapshot: GitExcludeSnapshot;
     readonly updated: Buffer;
   }> = [];
   for (const target of await targetsFor(current, next)) {
@@ -872,7 +907,7 @@ export async function stageGitExclusions(
     readonly allowMissingTarget: boolean;
     readonly createdInfo: boolean;
     readonly git: GitProject;
-    readonly snapshot: ExcludeSnapshot;
+    readonly snapshot: GitExcludeSnapshot;
     readonly updated: Buffer;
   }>();
   const rollbackChanges = async (): Promise<void> => {

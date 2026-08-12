@@ -60,15 +60,20 @@ import {
   createLifecyclePlanningContext,
   type LifecyclePlanningInstrumentation,
 } from "./lifecycle-planning.js";
+import {
+  createLifecycleGitInspectionContext,
+  type LifecycleGitInspection,
+} from "./lifecycle-git-inspection.js";
 import { requireProfile } from "./profile-selection.js";
 import { type ResolvedProfile } from "./resolve-dependencies.js";
 import { ENGINE_VERSION } from "./version.js";
-import { findGitProject, type GitProject } from "./git.js";
+import type { GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
 import { hostCapabilityBlocker, type BlockerInput } from "./blockers.js";
 
 export type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
+export type { LifecycleGitInspection } from "./lifecycle-git-inspection.js";
 
 export interface DesiredDirectoryFileMember {
   readonly bytes: string | Uint8Array;
@@ -552,6 +557,12 @@ export interface BuildDesiredStateOptions {
    */
   readonly planningInstrumentation?: LifecyclePlanningInstrumentation;
   /**
+   * Invocation-scoped Git inspection reader shared with reconciliation when the
+   * lifecycle command owns one pass. When omitted, one short-lived context is
+   * created for desired-state planning only.
+   */
+  readonly gitInspection?: LifecycleGitInspection;
+  /**
    * Prior Installation Manifests used only to preserve applied Grok Context
    * delivery topology when live inspection is unavailable (status).
    */
@@ -574,6 +585,7 @@ export async function buildDesiredState(
     workspace,
     options.planningInstrumentation ?? {},
   );
+  const gitInspection = options.gitInspection ?? createLifecycleGitInspectionContext();
   const previousByProject = new Map(
     (options.previousInstallations ?? []).map((installation) => [
       installation.project,
@@ -594,7 +606,7 @@ export async function buildDesiredState(
         `Profile '${profile.id}' selects unsupported artifact categories; Agents, Hooks, and Tools are not supported in the project-bound slice`,
       );
     }
-    const gitProject = await findGitProject(binding.canonicalProject);
+    const gitProject = await gitInspection.findGitProject(binding.canonicalProject);
     const { hash: sourceHash, fingerprints: artifactFingerprints } =
       await planning.hashWorkspaceInputs(profile, resolvedProfile);
     const blockers: BlockerInput[] = [];
