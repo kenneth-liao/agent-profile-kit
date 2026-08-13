@@ -327,12 +327,12 @@ describe("Typed lifecycle impacts", () => {
 
     expect(report.impacts).toEqual([{
       kind: "binding",
-      operation: "update",
+      operation: "addition",
       project: canonicalProject(desired.installations),
       profile: "coding",
       hosts: ["codex", "pi"],
       paths: [".pi/APPEND_SYSTEM.md", ".pi/skills/review-pr"],
-      reason: "Project Binding or Host selection changed",
+      reason: "Project Binding or Host selection added generated output",
     }]);
   });
 
@@ -350,15 +350,26 @@ describe("Typed lifecycle impacts", () => {
 
     const report = await previewReconciliation(desired.installations, await readInstallationState(home));
 
-    expect(report.impacts).toEqual([{
-      kind: "binding",
-      operation: "update",
-      project: canonicalProject(desired.installations),
-      profile: "design",
-      hosts: ["codex"],
-      paths: [".agent-profile-kit/codex/context.md", ".agents/skills/review-pr"],
-      reason: "Project Binding or Host selection changed",
-    }]);
+    expect(report.impacts).toEqual([
+      {
+        kind: "binding",
+        operation: "update",
+        project: canonicalProject(desired.installations),
+        profile: "design",
+        hosts: ["codex"],
+        paths: [".agent-profile-kit/codex/context.md"],
+        reason: "Project Binding or Host selection changed generated output",
+      },
+      {
+        kind: "binding",
+        operation: "removal",
+        project: canonicalProject(desired.installations),
+        profile: "design",
+        hosts: ["codex"],
+        paths: [".agents/skills/review-pr"],
+        reason: "Project Binding or Host selection removed generated output",
+      },
+    ]);
   });
 
   test("an Adapter version change with relocated output emits an adapter-capability impact", async () => {
@@ -381,15 +392,26 @@ describe("Typed lifecycle impacts", () => {
     );
     const report = await previewReconciliation(relocated, await readInstallationState(home));
 
-    expect(report.impacts).toEqual([{
-      kind: "adapter-capability",
-      operation: "update",
-      project: canonicalProject(initial.installations),
-      profile: "coding",
-      hosts: ["codex"],
-      paths: [".agent-profile-kit/codex/context-v2.md", ".agent-profile-kit/codex/context.md"],
-      reason: "Adapter version or Host capability changed",
-    }]);
+    expect(report.impacts).toEqual([
+      {
+        kind: "adapter-capability",
+        operation: "addition",
+        project: canonicalProject(initial.installations),
+        profile: "coding",
+        hosts: ["codex"],
+        paths: [".agent-profile-kit/codex/context-v2.md"],
+        reason: "Adapter version or Host capability added generated output",
+      },
+      {
+        kind: "adapter-capability",
+        operation: "removal",
+        project: canonicalProject(initial.installations),
+        profile: "coding",
+        hosts: ["codex"],
+        paths: [".agent-profile-kit/codex/context.md"],
+        reason: "Adapter version or Host capability removed generated output",
+      },
+    ]);
   });
 
   test("a missing generated output emits a repair impact", async () => {
@@ -579,6 +601,75 @@ describe("Typed lifecycle impacts", () => {
       hosts: ["codex"],
       paths: [".agents/skills/review-pr"],
       reason: "Exact generated paths changed without a proven source cause",
+    }]);
+    expect(report.impacts[0]).not.toHaveProperty("artifacts");
+  });
+
+  test("legacy output additions preserve their true operation without path parsing", async () => {
+    const home = temporaryDirectory("apk-impacts-legacy-add-home-");
+    const project = temporaryDirectory("apk-impacts-legacy-add-project-");
+    const workspace = await contextAndSkillSetup(home, project, ["team-rules"], ["review-pr"]);
+    const initial = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, initial.installations);
+    const recorded = (await readInstallationState(home)).installations[0]!;
+    const legacyState = stringify({
+      schema_version: 5,
+      intended_teardowns: [],
+      installations: [legacyManifestValue(recorded)],
+      repository_exclusions: [],
+      temporary_installations: [],
+    });
+
+    writeSkill(workspace, "second", "Second skill body.\n");
+    writeProfile(workspace, "coding", ["team-rules"], ["review-pr", "second"]);
+    writeFileSync(stateManifestPath(home), legacyState);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+
+    const report = await previewReconciliation(desired.installations, await readInstallationState(home));
+
+    expect(report.impacts).toEqual([{
+      kind: "generated-path",
+      operation: "addition",
+      project: canonicalProject(initial.installations),
+      profile: "coding",
+      hosts: ["codex"],
+      paths: [".agents/skills/second"],
+      reason: "Exact generated paths added without a proven source cause",
+    }]);
+    expect(report.impacts[0]).not.toHaveProperty("artifacts");
+  });
+
+  test("legacy output removals preserve their true operation without path parsing", async () => {
+    const home = temporaryDirectory("apk-impacts-legacy-remove-home-");
+    const project = temporaryDirectory("apk-impacts-legacy-remove-project-");
+    const workspace = await contextAndSkillSetup(home, project, ["team-rules"], ["review-pr", "second"]);
+    const initial = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, initial.installations);
+    const recorded = (await readInstallationState(home)).installations[0]!;
+    writeFileSync(
+      stateManifestPath(home),
+      stringify({
+        schema_version: 5,
+        intended_teardowns: [],
+        installations: [legacyManifestValue(recorded)],
+        repository_exclusions: [],
+        temporary_installations: [],
+      }),
+    );
+
+    writeProfile(workspace, "coding", ["team-rules"], ["review-pr"]);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+
+    const report = await previewReconciliation(desired.installations, await readInstallationState(home));
+
+    expect(report.impacts).toEqual([{
+      kind: "generated-path",
+      operation: "removal",
+      project: canonicalProject(initial.installations),
+      profile: "coding",
+      hosts: ["codex"],
+      paths: [".agents/skills/second"],
+      reason: "Exact generated paths removed without a proven source cause",
     }]);
     expect(report.impacts[0]).not.toHaveProperty("artifacts");
   });

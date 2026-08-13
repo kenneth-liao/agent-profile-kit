@@ -188,6 +188,43 @@ const ARTIFACT_OPERATION_REASONS: Readonly<Record<LifecycleImpactOperation, stri
   update: "Workspace artifact content changed",
 };
 
+const BINDING_OPERATION_REASONS: Readonly<Record<LifecycleImpactOperation, string>> = {
+  addition: "Project Binding or Host selection added generated output",
+  removal: "Project Binding or Host selection removed generated output",
+  update: "Project Binding or Host selection changed generated output",
+};
+
+const ADAPTER_OPERATION_REASONS: Readonly<Record<LifecycleImpactOperation, string>> = {
+  addition: "Adapter version or Host capability added generated output",
+  removal: "Adapter version or Host capability removed generated output",
+  update: "Adapter version or Host capability changed generated output",
+};
+
+const GENERATED_PATH_OPERATION_REASONS: Readonly<Record<LifecycleImpactOperation, string>> = {
+  addition: "Exact generated paths added without a proven source cause",
+  removal: "Exact generated paths removed without a proven source cause",
+  update: "Exact generated paths changed without a proven source cause",
+};
+
+/** The output direction of a per-output change kind. */
+function operationForChange(kind: OutputReconciliationKind): LifecycleImpactOperation {
+  return kind === "addition" ? "addition" : kind === "removal" ? "removal" : "update";
+}
+
+/** Append one path to a fallback bucket grouped by output operation. */
+function pushByOperation(
+  buckets: Map<LifecycleImpactOperation, string[]>,
+  operation: LifecycleImpactOperation,
+  path: string,
+): void {
+  const paths = buckets.get(operation);
+  if (paths) {
+    paths.push(path);
+  } else {
+    buckets.set(operation, [path]);
+  }
+}
+
 function artifactReason(operation: LifecycleImpactOperation): string {
   return ARTIFACT_OPERATION_REASONS[operation];
 }
@@ -292,9 +329,9 @@ export function installationImpacts(
   );
 
   const artifactBuckets = new Map<string, ArtifactBucket>();
-  const bindingPaths: string[] = [];
-  const adapterPaths: string[] = [];
-  const generatedPaths: string[] = [];
+  const bindingPaths = new Map<LifecycleImpactOperation, string[]>();
+  const adapterPaths = new Map<LifecycleImpactOperation, string[]>();
+  const generatedPaths = new Map<LifecycleImpactOperation, string[]>();
   const repairPaths: string[] = [];
   for (const path of changedPaths) {
     const changeKind = outputChanges.get(path) ?? "removal";
@@ -302,8 +339,11 @@ export function installationImpacts(
       repairPaths.push(path);
       continue;
     }
+    // Fallback buckets keep each path's true output direction, so the machine
+    // contract never reports an addition or removal as a generic update.
+    const changeOperation = operationForChange(changeKind);
     if (!provenanceComplete) {
-      generatedPaths.push(path);
+      pushByOperation(generatedPaths, changeOperation, path);
       continue;
     }
     const desiredOrigins = desired.outputs.find((output) => output.path === path)?.origins ?? [];
@@ -319,7 +359,7 @@ export function installationImpacts(
     let operation: LifecycleImpactOperation;
     if (profileSwitched) {
       if (contentChangedKeys.size === 0) {
-        bindingPaths.push(path);
+        pushByOperation(bindingPaths, changeOperation, path);
         continue;
       }
       sourceKeys = contentChangedKeys;
@@ -334,14 +374,14 @@ export function installationImpacts(
       }
       if (sourceKeys.size === 0) {
         if (bindingChanged) {
-          bindingPaths.push(path);
+          pushByOperation(bindingPaths, changeOperation, path);
           continue;
         }
         if (adapterChanged) {
-          adapterPaths.push(path);
+          pushByOperation(adapterPaths, changeOperation, path);
           continue;
         }
-        generatedPaths.push(path);
+        pushByOperation(generatedPaths, changeOperation, path);
         continue;
       }
       operation = [...sourceKeys].some((reference) => removedReferences.has(reference))
@@ -459,22 +499,22 @@ export function installationImpacts(
       artifactReason(bucket.operation),
     ));
   }
-  if (bindingPaths.length > 0) {
+  for (const [operation, paths] of bindingPaths) {
     impacts.push(makeImpact(
       "binding",
-      "update",
-      bindingPaths,
+      operation,
+      paths,
       undefined,
-      "Project Binding or Host selection changed",
+      BINDING_OPERATION_REASONS[operation],
     ));
   }
-  if (adapterPaths.length > 0) {
+  for (const [operation, paths] of adapterPaths) {
     impacts.push(makeImpact(
       "adapter-capability",
-      "update",
-      adapterPaths,
+      operation,
+      paths,
       undefined,
-      "Adapter version or Host capability changed",
+      ADAPTER_OPERATION_REASONS[operation],
     ));
   }
   if (repairPaths.length > 0) {
@@ -486,13 +526,13 @@ export function installationImpacts(
       "Owned generated file is missing; apply will recreate it from current Workspace source",
     ));
   }
-  if (generatedPaths.length > 0) {
+  for (const [operation, paths] of generatedPaths) {
     impacts.push(makeImpact(
       "generated-path",
-      "update",
-      generatedPaths,
+      operation,
+      paths,
       undefined,
-      "Exact generated paths changed without a proven source cause",
+      GENERATED_PATH_OPERATION_REASONS[operation],
     ));
   }
   return sortLifecycleImpacts(impacts);
