@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 
-import type { HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
+import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import type {
   ApplyReconciliationResult,
   BlockedReconciliationReport,
@@ -1342,73 +1342,236 @@ function warningsForPresentation(
   );
 }
 
-function hostSetupLines(
+/** Output kinds that make a transition-triggered Host Setup Step newly relevant. */
+const TRANSITION_TRIGGERING_OUTPUT_KINDS: ReadonlySet<OutputReconciliationKind> = new Set([
+  "addition",
+  "update",
+  "repair",
+]);
+
+/** A Host Setup Step selected for one surface, with its Project identities. */
+interface PresentedSetupStep {
+  readonly canonicalProject: string;
+  readonly message: string;
+  readonly step: HostSetupStep;
+}
+
+/** Projects whose receipt carried reconciliation work (apply standing reminder). */
+function projectsWithReconciliationWork(report: ReconciliationReport): ReadonlySet<string> {
+  const projects = new Set<string>();
+  for (const item of report.items) {
+    if (item.kind !== "current") projects.add(item.project);
+  }
+  for (const output of report.outputs) {
+    if (output.kind !== "unchanged") projects.add(output.project);
+  }
+  return projects;
+}
+
+/**
+ * Outputs whose addition, update, or repair makes transition-triggered setup
+ * relevant, keyed by authored Project identity.
+ */
+function transitionTriggeringOutputs(
+  report: ReconciliationReport,
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const byProject = new Map<string, Set<string>>();
+  for (const output of report.outputs) {
+    if (!TRANSITION_TRIGGERING_OUTPUT_KINDS.has(output.kind)) continue;
+    const paths = byProject.get(output.project) ?? new Set<string>();
+    paths.add(output.path);
+    byProject.set(output.project, paths);
+  }
+  return byProject;
+}
+
+/**
+ * Select the Host Setup Steps one lifecycle surface presents (DEC-036–DEC-038):
+ * transition-triggered steps appear only when the plan or applied receipt makes
+ * their output relevant, standing steps appear as a separate reminder after
+ * applied work or in `status`, and `preview` presents transition steps only.
+ * Verbose surfaces retain every step as complete evidence (DEC-034).
+ */
+function presentedSetupSteps(
   command: LifecycleCommand,
   report: ReconciliationReport,
-): readonly string[] {
+  changeEvidence: ReconciliationReport | undefined,
+  verbose: boolean,
+): readonly PresentedSetupStep[] {
   if (command !== "status" && report.blockers.length > 0) return [];
-  const visibleKinds = command === "preview"
-    ? new Set<HostSetupStepKind>(["approval-required", "launch-constraint"])
-    : new Set<HostSetupStepKind>(HOST_SETUP_STEP_ORDER);
-  const byHost = new Map<string, Map<string, HostSetupStep>>();
   const intentionallyUninstalledProjects = new Set(
     report.items
       .filter((item) => item.kind === "intended teardown")
       .map((item) => item.project),
   );
+  const changeReport = changeEvidence ?? report;
+  const triggeringOutputs = transitionTriggeringOutputs(changeReport);
+  const workProjects = projectsWithReconciliationWork(changeReport);
+  const steps: PresentedSetupStep[] = [];
   for (const installation of report.desired) {
-    if (
-      command === "status" &&
-      intentionallyUninstalledProjects.has(installation.project)
-    ) {
-      continue;
-    }
+    if (intentionallyUninstalledProjects.has(installation.project)) continue;
     for (const step of installation.setupSteps) {
-      if (!visibleKinds.has(step.kind)) continue;
       const message = setupStepMessage(
         step,
         displayProjectPath(installation.canonicalProject, installation.project),
       );
-      const renderedStep = { ...step, message };
-      const steps = byHost.get(step.host) ?? new Map<string, HostSetupStep>();
-      steps.set(`${step.kind}\0${message}\0${step.consequence ?? ""}`, renderedStep);
-      byHost.set(step.host, steps);
+      if (step.provenance === "transition") {
+        if (!verbose && command === "status") continue;
+        if (!verbose && !(triggeringOutputs.get(installation.project)?.has(step.output) ?? false)) {
+          continue;
+        }
+      } else if (!verbose && command === "preview") {
+        continue;
+      } else if (!verbose && command === "apply" && !workProjects.has(installation.project)) {
+        continue;
+      }
+      steps.push({
+        canonicalProject: installation.canonicalProject,
+        message,
+        step,
+      });
     }
   }
-  return [...byHost.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .flatMap(([host, steps]) => [
-      `${capitalize(host)} setup:`,
-      ...[...steps.values()]
-        .sort((left, right) =>
-          HOST_SETUP_STEP_ORDER.indexOf(left.kind) - HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
-          left.message.localeCompare(right.message)
-        )
-        .flatMap((step) => [
-          `- ${step.message}`,
-          ...(step.consequence === undefined
-            ? []
-            : [`  Consequence: ${step.consequence}`]),
-        ]),
-    ]);
+  return steps;
+}
+
+/** One deduplicated setup step group with its deterministic Project scope. */
+interface SetupStepGroup {
+  readonly message: string;
+  projects: string[];
+  readonly step: HostSetupStep;
+}
+
+/** The transition-triggered output reference, present only on transition steps. */
+function setupStepOutput(step: HostSetupStep): string | undefined {
+  return step.provenance === "transition" ? step.output : undefined;
+}
+
+function setupStepGroupKey(step: HostSetupStep, message: string): string {
+  return [
+    step.host,
+    step.kind,
+    step.provenance,
+    setupStepOutput(step) ?? "",
+    message,
+    step.consequence ?? "",
+  ].join("\u0000");
+}
+
+/**
+ * Collapse identical Host Setup Steps across Projects while distinct
+ * consequences and typed bound-project roots stay visible (US-048, US-049).
+ */
+function groupSetupSteps(
+  steps: readonly PresentedSetupStep[],
+): readonly SetupStepGroup[] {
+  const byKey = new Map<string, SetupStepGroup>();
+  for (const { message, step, canonicalProject } of steps) {
+    const key = setupStepGroupKey(step, message);
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.projects.push(canonicalProject);
+    } else {
+      byKey.set(key, { message, projects: [canonicalProject], step });
+    }
+  }
+  return [...byKey.values()]
+    .map((group) => ({
+      ...group,
+      projects: [...new Set(group.projects)].sort(compareCanonicalStrings),
+    }))
+    .sort((left, right) =>
+      left.step.host.localeCompare(right.step.host) ||
+      HOST_SETUP_STEP_ORDER.indexOf(left.step.kind) -
+        HOST_SETUP_STEP_ORDER.indexOf(right.step.kind) ||
+      left.message.localeCompare(right.message),
+    );
+}
+
+/** Compact affected-Project scope for a deduplicated setup step. */
+function setupProjectScope(projects: readonly string[], verbose: boolean): string {
+  if (projects.length === 1) return "";
+  if (verbose || projects.length <= PROJECT_SCOPE_LIMIT) {
+    return ` (${projects.map((project) => displayProjectPath(project)).join(", ")})`;
+  }
+  const visible = projects
+    .slice(0, PROJECT_SCOPE_LIMIT)
+    .map((project) => displayProjectPath(project));
+  return ` (${visible.join(", ")}, … ${plural(projects.length - PROJECT_SCOPE_LIMIT, "more Project")}; use --verbose to see all Projects)`;
+}
+
+function setupStepLines(group: SetupStepGroup, verbose: boolean): readonly string[] {
+  const lines = [`- ${group.message}${setupProjectScope(group.projects, verbose)}`];
+  if (group.step.consequence !== undefined) {
+    lines.push(`  Consequence: ${group.step.consequence}`);
+  }
+  return lines;
+}
+
+/**
+ * Host Setup presentation sections from already-selected steps: change-caused
+ * transition steps first, then a separate compact standing reminder (DEC-037,
+ * DEC-038).
+ */
+function setupSectionsFromPresented(
+  presented: readonly PresentedSetupStep[],
+  verbose: boolean,
+): readonly string[] {
+  const transition = groupSetupSteps(
+    presented.filter((item) => item.step.provenance === "transition"),
+  );
+  const standing = groupSetupSteps(
+    presented.filter((item) => item.step.provenance === "standing"),
+  );
+  const lines: string[] = [];
+  if (transition.length > 0) {
+    lines.push("Host setup:");
+    for (const group of transition) lines.push(...setupStepLines(group, verbose));
+  }
+  if (standing.length > 0) {
+    lines.push("Standing Host setup:");
+    for (const group of standing) lines.push(...setupStepLines(group, verbose));
+  }
+  return lines;
+}
+
+/** Select and render the Host Setup Steps for one surface. */
+function hostSetupSections(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  changeEvidence: ReconciliationReport | undefined,
+  verbose = false,
+): readonly string[] {
+  return setupSectionsFromPresented(
+    presentedSetupSteps(command, report, changeEvidence, verbose),
+    verbose,
+  );
 }
 
 function activationLines(
   report: ReconciliationReport,
   receipt: ReconciliationReport,
+  presented: readonly PresentedSetupStep[],
 ): readonly string[] {
   const changedProjects = new Set(
     receipt.items.filter((item) => item.kind !== "current").map((item) => item.project),
   );
+  const actionableByCanonical = new Map<string, number>();
+  for (const { step, canonicalProject } of presented) {
+    if (!ACTIONABLE_HOST_SETUP_STEP_KINDS.has(step.kind)) continue;
+    actionableByCanonical.set(
+      canonicalProject,
+      (actionableByCanonical.get(canonicalProject) ?? 0) + 1,
+    );
+  }
   return [...report.desired]
     .filter((installation) => changedProjects.has(installation.project))
     .sort((left, right) => left.canonicalProject.localeCompare(right.canonicalProject))
     .map((installation) => {
-      const setupCondition = installation.setupSteps.some((step) =>
-          ACTIONABLE_HOST_SETUP_STEP_KINDS.has(step.kind)
-        )
-        ? "After completing the Host setup above, "
-        : "No further Host setup is required. ";
+      const setupCondition =
+        (actionableByCanonical.get(installation.canonicalProject) ?? 0) > 0
+          ? "After completing the Host setup above, "
+          : "No further Host setup is required. ";
       return `${setupCondition}Profile ${installation.profile} becomes active on the next launch ` +
         `of each bound Host (${installation.hosts.join(", ")}) from ` +
         `${displayProjectPath(installation.canonicalProject, installation.project)}.`;
@@ -1909,7 +2072,13 @@ function conciseReport(
       lines.push(`- ${defaultDiagnosticText(shortenProjectReferences(warning, groups))}`);
     }
   }
-  const setup = hostSetupLines(command, report);
+  const presented = presentedSetupSteps(
+    command,
+    report,
+    command === "apply" ? receipt : undefined,
+    false,
+  );
+  const setup = setupSectionsFromPresented(presented, false);
   if (setup.length > 0) lines.push("", ...setup);
   const next = nextActionLines(command, report, {
     groups,
@@ -1918,7 +2087,7 @@ function conciseReport(
   if (next.length > 0) lines.push("", ...next);
   if (receipt) lines.push("", ...applyReceiptLines(receipt));
   if (command === "apply" && report.blockers.length === 0) {
-    const activation = receipt ? activationLines(report, receipt) : [];
+    const activation = receipt ? activationLines(report, receipt, presented) : [];
     if (activation.length > 0) lines.push("", ...activation);
   }
   return `${lines.join("\n")}\n`;
@@ -2261,7 +2430,7 @@ function verboseSections(
 }
 
 function verboseSetupSection(command: LifecycleCommand, report: ReconciliationReport): string {
-  const setup = hostSetupLines(command, report);
+  const setup = hostSetupSections(command, report, undefined, true);
   return `Host Setup:\n${setup.length > 0 ? setup.join("\n") : "(none)"}\n`;
 }
 
@@ -2283,7 +2452,11 @@ function verboseApplyReport(result: ApplyReconciliationResult): string {
     verboseSetupSection("apply", result.resultingState)
   );
   const activation = result.resultingState.blockers.length === 0
-    ? activationLines(result.resultingState, result.receipt)
+    ? activationLines(
+        result.resultingState,
+        result.receipt,
+        presentedSetupSteps("apply", result.resultingState, undefined, true),
+      )
     : [];
   return activation.length > 0 ? `${report}\n${activation.join("\n")}\n` : report;
 }
@@ -2321,7 +2494,7 @@ export function formatApplyVerificationFailure(
     defaultDiagnosticText(message),
     ...applyReceiptLines(receipt),
   ];
-  const setup = hostSetupLines("apply", receipt);
+  const setup = hostSetupSections("apply", receipt, receipt);
   if (setup.length > 0) lines.push("", ...setup);
   return responsiveLifecycleOutput(
     `${lines.join("\n")}\n`,
@@ -2403,8 +2576,10 @@ interface MachineSetupStep {
   readonly host: string;
   readonly kind: HostSetupStepKind;
   readonly message: string;
+  readonly output?: string;
   readonly path?: "bound-project";
   readonly project?: string;
+  readonly provenance: HostSetupProvenance;
 }
 
 interface MachineRepositoryExclusion {
@@ -2541,10 +2716,13 @@ function machineSetupSteps(report: ReconciliationReport): readonly MachineSetupS
   const steps: MachineSetupStep[] = [];
   for (const installation of report.desired) {
     for (const step of installation.setupSteps) {
+      const output = setupStepOutput(step);
       steps.push({
         host: step.host,
         kind: step.kind,
         message: step.message,
+        provenance: step.provenance,
+        ...(output === undefined ? {} : { output }),
         ...(step.consequence === undefined ? {} : { consequence: step.consequence }),
         ...(step.path === undefined ? {} : { path: step.path, project: installation.project }),
       });
@@ -2715,10 +2893,13 @@ function setupStepMessage(step: HostSetupStep, project: string): string {
 }
 
 function temporarySetupStepJson(step: HostSetupStep, project: string) {
+  const output = setupStepOutput(step);
   return {
     host: step.host,
     kind: step.kind,
     message: setupStepMessage(step, project),
+    provenance: step.provenance,
+    ...(output === undefined ? {} : { output }),
     ...(step.consequence === undefined ? {} : { consequence: step.consequence }),
     ...(step.path === undefined ? {} : { path: step.path }),
   };

@@ -304,6 +304,7 @@ describe("Pi Adapter", () => {
       consequence: "The Profile does not load until the project is trusted.",
       kind: "trust-required",
       message: "Trust the bound project in Pi.",
+      provenance: "standing",
     }]);
     const skillOutput = skillsOnly.outputs[0];
     if (!skillOutput || skillOutput.type !== "directory") throw new Error("expected Skill directory output");
@@ -345,6 +346,7 @@ describe("Pi Adapter", () => {
       consequence: "The Profile does not load until the project is trusted.",
       kind: "trust-required",
       message: "Trust the bound project in Pi.",
+      provenance: "standing",
     }]);
 
     const contextFree = await planPiProject("coding", []);
@@ -380,6 +382,7 @@ describe("Pi Adapter", () => {
       consequence: "The Profile does not load until the project is trusted.",
       kind: "trust-required",
       message: "Trust the bound project in Pi.",
+      provenance: "standing",
     }]);
 
     const applied = await applyReconciliation(home, desired.installations);

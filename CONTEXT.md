@@ -25,7 +25,7 @@ The single boundary that owns all host-specific knowledge for one Agent Host and
 _Avoid_: Installer, canonical source, duplicate implementation
 
 **Host Setup Step**:
-A typed, Adapter-authored action a user must take in an Agent Host after generated output is applied, including the consequence of skipping it when one exists. Presentation may order, filter, and render these steps but does not derive Host-specific requirements from installed files.
+A typed, Adapter-authored action a user must take in an Agent Host after generated output is applied, including the consequence of skipping it when one exists. Every step is classified once at the Adapter boundary as transition-triggered (caused by the current lifecycle transition and tied to the generated output that makes it relevant) or standing (a persistent constraint); presentation may order, filter, and render these steps but does not derive Host-specific requirements from installed files.
 _Avoid_: Activation, generated output, Installer-derived Host guidance
 
 **Capability Contract**:

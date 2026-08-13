@@ -163,11 +163,14 @@ describe("Codex project Skill packages", () => {
         consequence: "Declining the hook prevents Profile Context from loading.",
         kind: "approval-required",
         message: "Review and approve the generated SessionStart hook when Codex asks.",
+        output: ".codex/hooks.json",
+        provenance: "transition",
       },
       {
         consequence: "Profile Context does not load until the project is trusted.",
         kind: "trust-required",
         message: "Trust the bound project in Codex.",
+        provenance: "standing",
       },
     ]);
   });
@@ -185,6 +188,7 @@ describe("Codex project Skill packages", () => {
       kind: "launch-constraint",
       message: "Launch Codex from the exact bound project root:",
       path: "bound-project",
+      provenance: "standing",
     });
   });
 

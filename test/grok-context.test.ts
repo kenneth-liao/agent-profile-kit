@@ -249,6 +249,7 @@ describe("Grok Adapter planner", () => {
       kind: "shared-path",
       message:
         `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
+      provenance: "standing",
     }]);
 
     const compatibilityDisabled = await planGrokProject("coding", modules, [], {
@@ -542,6 +543,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
       kind: "shared-path",
       message:
         `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
+      provenance: "standing",
     });
 
     await applyReconciliation(home, desired.installations);
