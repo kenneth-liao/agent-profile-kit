@@ -22,6 +22,12 @@ import {
   expectExitCode,
   runProcess,
 } from "./support/process-executor.js";
+import { formatLifecycleJson } from "../cli/presentation.js";
+import { readInstallationState } from "../installer/installation-state.js";
+import { createLifecycleGitInspectionContext } from "../installer/lifecycle-git-inspection.js";
+import { createProjectReadScheduler } from "../installer/project-scheduler.js";
+import { buildDesiredState } from "../installer/project-plan.js";
+import { previewReconciliation } from "../installer/reconcile.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
@@ -1243,4 +1249,103 @@ describe("project-bound release candidate", () => {
     expectExitCode(emptyTemporary, 0);
     expect(emptyTemporary.stdout).toContain("No Temporary Profile Installations are active.");
   }, 30_000);
+
+  test("packed 12-Project fleet lifecycle produces the canonical sequential reconciliation result", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, ["init"]), 0);
+    enableCodexHooks(home);
+    writeWorkspaceAuthoring(home);
+    // One shared Profile with Context and a Skill so the fleet carries directory
+    // and file outputs across mixed Hosts and Git/non-Git Projects.
+    writeSkill(home, "review-pr");
+    writeProfile(home, "coding", { context: ["team-rules"], skills: ["review-pr"] });
+
+    // 12 Projects: 6 Git + 6 plain, with single- and multi-Host bindings.
+    const gitProjects = Array.from({ length: 6 }, (_, index) =>
+      gitRepository(`agent-profile-kit-rc-fleet-git-${index}-`),
+    );
+    const plainProjects = Array.from({ length: 6 }, (_, index) =>
+      project(`agent-profile-kit-rc-fleet-plain-${index}-`),
+    );
+    const bindings = [
+      ...gitProjects.map((repo, index) => ({
+        hosts: index % 2 === 0 ? ["codex"] : ["codex", "claude"],
+        project: repo,
+      })),
+      ...plainProjects.map((plain, index) => ({
+        hosts: index % 3 === 0
+          ? ["codex", "pi"]
+          : index % 3 === 1
+            ? ["codex", "claude"]
+            : ["codex", "claude", "pi"],
+        project: plain,
+      })),
+    ];
+    writeBindings(home, bindings);
+    const pathWithHosts = installControlledHosts(home, { piVersion: "0.82.1" });
+
+    // Preview through the packed CLI (bounded concurrency 4).
+    const preview = await runCli(home, ["preview", "--json"], { path: pathWithHosts });
+    expectExitCode(preview, 0);
+    const previewJson = JSON.parse(preview.stdout) as {
+      readonly blockers: readonly unknown[];
+      readonly installations: readonly {
+        readonly canonicalProject: string;
+        readonly state: string;
+      }[];
+      readonly outputs: readonly unknown[];
+    };
+    expect(previewJson.blockers).toEqual([]);
+    expect(previewJson.installations).toHaveLength(12);
+    // Canonical Project ordering is preserved across concurrent completion.
+    const canonicalOrder = bindings.map((binding) => realpathSync(binding.project)).sort();
+    expect(previewJson.installations.map((installation) => installation.canonicalProject)).toEqual(
+      canonicalOrder,
+    );
+    expect(previewJson.installations.every((installation) => installation.state === "addition")).toBe(
+      true,
+    );
+    expect(previewJson.outputs.length).toBeGreaterThan(0);
+
+    // The same fixture reconciled sequentially in-process must produce the
+    // identical versioned machine payload: the packed bounded-concurrency result
+    // equals the sequential implementation result.
+    const gitInspection = createLifecycleGitInspectionContext();
+    const sequentialDesired = await buildDesiredState(home, {
+      checkHostCapability: false,
+      gitInspection,
+      scheduler: createProjectReadScheduler(1),
+    });
+    const sequentialReport = await previewReconciliation(
+      sequentialDesired.installations,
+      await readInstallationState(home),
+      { gitInspection, scheduler: createProjectReadScheduler(1) },
+    );
+    expect(JSON.parse(formatLifecycleJson("preview", sequentialReport))).toEqual(previewJson);
+
+    // Apply once; every Project commits and the resulting state is current.
+    const apply = await runCli(home, ["apply", "--json"], { path: pathWithHosts });
+    expectExitCode(apply, 0);
+    const applyJson = JSON.parse(apply.stdout) as {
+      readonly applied: { readonly installations: readonly unknown[] };
+      readonly installations: readonly { readonly state: string }[];
+    };
+    expect(applyJson.applied.installations).toHaveLength(12);
+    expect(applyJson.installations).toHaveLength(12);
+    expect(applyJson.installations.every((installation) => installation.state === "current")).toBe(
+      true,
+    );
+
+    const status = await runCli(home, ["status", "--json"], { path: pathWithHosts });
+    expectExitCode(status, 0);
+    const statusJson = JSON.parse(status.stdout) as {
+      readonly installations: readonly { readonly state: string }[];
+      readonly outcome: string;
+    };
+    expect(statusJson.outcome).toBe("clean");
+    expect(statusJson.installations).toHaveLength(12);
+    expect(statusJson.installations.every((installation) => installation.state === "current")).toBe(
+      true,
+    );
+  }, 60_000);
 });

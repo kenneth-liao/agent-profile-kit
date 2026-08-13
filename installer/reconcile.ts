@@ -49,6 +49,10 @@ import {
   type LifecycleOwnershipInspection,
   type OwnedOutputInspection,
 } from "./lifecycle-ownership-inspection.js";
+import {
+  createProjectReadScheduler,
+  type ProjectReadScheduler,
+} from "./project-scheduler.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import { COMMAND_NAME } from "./version.js";
 import {
@@ -672,33 +676,42 @@ interface InstallationRetirementSelection {
  * Select stale installations that may be retired without project-tree ownership
  * proof after an exact-path unbind. Both preview and apply use this same reader
  * so deletion intent cannot silently lose its exclusion-ownership safeguards.
+ * Independent per-Project reads run through the shared bounded scheduler; the
+ * deletion-intent selection folds in canonical order afterwards.
  */
 async function installationRetirementSelection(
   desired: readonly DesiredInstallation[],
   state: InstallationState,
   inspection: LifecycleOwnershipInspection,
+  scheduler: ProjectReadScheduler = createProjectReadScheduler(),
 ): Promise<InstallationRetirementSelection> {
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
   const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
   const movedPreviousProjects = new Set<string>();
-  for (const installation of desired) {
+  const previousProjects = await scheduler.run(desired.map((installation) => async () => {
     const previous = await previousFor(installation, state, byProject, inspection);
-    if (previous && previous.project !== installation.binding.canonicalProject) {
-      movedPreviousProjects.add(previous.project);
-    }
+    return previous && previous.project !== installation.binding.canonicalProject
+      ? previous.project
+      : undefined;
+  }));
+  for (const previousProject of previousProjects) {
+    if (previousProject !== undefined) movedPreviousProjects.add(previousProject);
   }
   // Local Configuration is the sole canonical desired-state record. A successful
   // exact-path `unbind` (or an equivalent supported hand edit) is represented by
   // the binding's absence; no second retirement tombstone is persisted.
   const intentionallyDeletedProjects = new Set<string>();
-  for (const installation of state.installations) {
-    if (
-      !desiredProjects.has(installation.project) &&
-      !movedPreviousProjects.has(installation.project) &&
-      (await pathKind(installation.project)) === "missing"
-    ) {
-      intentionallyDeletedProjects.add(installation.project);
-    }
+  const retiredCandidates = state.installations.filter((installation) =>
+    !desiredProjects.has(installation.project) &&
+    !movedPreviousProjects.has(installation.project),
+  );
+  const deletedProjects = await scheduler.run(retiredCandidates.map((installation) => async () => {
+    return (await pathKind(installation.project)) === "missing"
+      ? installation.project
+      : undefined;
+  }));
+  for (const deletedProject of deletedProjects) {
+    if (deletedProject !== undefined) intentionallyDeletedProjects.add(deletedProject);
   }
   return {
     intentionallyDeletedInstallationIds: new Set(
@@ -770,6 +783,13 @@ export interface PreviewReconciliationOptions {
    * single context so each owned output is read or walked at most once.
    */
   readonly ownershipInspection?: LifecycleOwnershipInspection;
+  /**
+   * Invocation-scoped bounded scheduler for independent per-Project planning and
+   * inspection reads, shared with desired-state planning and apply so one
+   * concurrency boundary governs the whole lifecycle. When omitted, one
+   * short-lived scheduler is created for this pass only.
+   */
+  readonly scheduler?: ProjectReadScheduler;
 }
 
 export async function previewReconciliation(
@@ -779,6 +799,7 @@ export async function previewReconciliation(
 ): Promise<ReconciliationReport> {
   const gitInspection = options.gitInspection ?? createLifecycleGitInspectionContext();
   const inspection = options.ownershipInspection ?? createLifecycleOwnershipInspectionContext();
+  const scheduler = options.scheduler ?? createProjectReadScheduler();
   const items: ReconciliationItem[] = [];
   const outputItems: OutputReconciliationItem[] = [];
   const impacts: LifecycleImpact[] = [];
@@ -788,7 +809,7 @@ export async function previewReconciliation(
     intentionallyDeletedInstallationIds,
     intentionallyDeletedProjects,
     movedPreviousProjects,
-  } = await installationRetirementSelection(desired, state, inspection);
+  } = await installationRetirementSelection(desired, state, inspection, scheduler);
   const blockers: ReconciliationBlocker[] = desired.flatMap((installation) =>
     installation.blockers.map((input) =>
       normalizeBlocker(input, installation.binding.canonicalProject)
@@ -821,18 +842,15 @@ export async function previewReconciliation(
       setupSteps: installation.setupSteps,
     };
   });
-  let projectedExclusions = state.repositoryExclusions;
-  for (const installation of desired) {
+  // Independent per-Project planning and inspection reads run through the shared
+  // bounded scheduler (DEC-014); exclusion projections and report accumulation
+  // fold in canonical input order afterwards so scheduling order is never
+  // observable in human or machine output (DEC-016).
+  const desiredResults = await scheduler.run(desired.map((installation) => async () => {
     const previous = await previousFor(installation, state, byProject, inspection);
     const moved = previous && previous.project !== installation.binding.canonicalProject;
     const id = previous?.installationId ?? newInstallationId();
     const projectedManifest = manifestFor(installation, id);
-    projectedExclusions = replaceRepositoryExclusionContribution(
-      projectedExclusions,
-      id,
-      installation.gitProject,
-      projectedManifest.outputs,
-    );
     const proposedOutputs: OwnedOutput[] = [
       ...installation.outputs.map(ownedOutputFromDesired),
       {
@@ -857,6 +875,7 @@ export async function previewReconciliation(
     // (missing/drifted/unexpected members) are attention evidence, not planned
     // output changes, so they never enter this map.
     const outputChanges = new Map<string, OutputReconciliationKind>();
+    const projectOutputItems: OutputReconciliationItem[] = [];
     for (const output of proposedOutputs) {
       const previousOutput = previousOutputs.get(output.path);
       const kind: OutputReconciliationKind = repairableMissingOutputs.has(output.path)
@@ -869,14 +888,14 @@ export async function previewReconciliation(
           ? "unchanged"
           : "update";
       outputChanges.set(output.path, kind);
-      outputItems.push({
+      projectOutputItems.push({
         kind,
         path: output.path,
         project: installation.binding.project,
       });
       if (previousOutput?.type === "directory" && previous && kind !== "repair") {
         pushDirectoryMemberItems(
-          outputItems,
+          projectOutputItems,
           installation.binding.project,
           await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput),
         );
@@ -885,27 +904,28 @@ export async function previewReconciliation(
     }
     for (const [path, previousOutput] of previousOutputs) {
       outputChanges.set(path, "removal");
-      outputItems.push({
+      projectOutputItems.push({
         kind: "removal",
         path,
         project: installation.binding.project,
       });
       if (previousOutput.type === "directory" && previous) {
         pushDirectoryMemberItems(
-          outputItems,
+          projectOutputItems,
           installation.binding.project,
           await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput),
         );
       }
     }
     const project = installation.binding.canonicalProject;
+    const projectBlockers: ReconciliationBlocker[] = [];
     const outputConflicts = await desiredOutputConflicts(
       installation,
       previous,
       id,
       gitInspection,
     );
-    blockers.push(
+    projectBlockers.push(
       ...(await identityBlockers(installation, state, id, inspection)).map((input) =>
         normalizeBlocker(input, project)
       ),
@@ -925,7 +945,7 @@ export async function previewReconciliation(
         }
       }
       if (copiedInstallation) {
-        blockers.push(normalizeBlocker(
+        projectBlockers.push(normalizeBlocker(
           {
             ...ownershipBlocker(
               installation.binding.project,
@@ -941,6 +961,8 @@ export async function previewReconciliation(
         ));
       }
     }
+    const projectItems: ReconciliationItem[] = [];
+    const projectImpacts: LifecycleImpact[] = [];
     if (!previous) {
       const intendedTeardown = state.intendedTeardowns.some(
         (teardown) =>
@@ -949,138 +971,164 @@ export async function previewReconciliation(
           teardown.hosts.length === installation.binding.hosts.length &&
           teardown.hosts.every((host, index) => host === installation.binding.hosts[index]),
       );
-      items.push({
+      projectItems.push({
         kind: intendedTeardown ? "intended teardown" : "addition",
         project: installation.binding.project,
         ...(intendedTeardown
           ? { reason: "Output was removed by uninstall; Project Binding was preserved" }
           : {}),
       });
-      impacts.push(...installationImpacts(
+      projectImpacts.push(...installationImpacts(
         previous,
         installation,
         outputChanges,
         { intendedTeardown, moved: false, repairableMissingMarker: false },
       ));
-      continue;
-    }
-    if (moved) {
+    } else if (moved) {
       if (ownership && !ownership.owned) {
-        blockers.push(normalizeBlocker(
+        projectBlockers.push(normalizeBlocker(
           { ...ownershipBlocker(installation.binding.project, ownership), project },
           project,
         ));
       }
-      items.push({
+      projectItems.push({
         kind: "update",
         project: installation.binding.project,
         reason: "project moved",
       });
-      impacts.push(...installationImpacts(
+      projectImpacts.push(...installationImpacts(
         previous,
         installation,
         outputChanges,
         { intendedTeardown: false, moved: true, repairableMissingMarker: false },
       ));
-      continue;
-    }
-    const markerEvidence = await inspection.inspectMarker(installation.binding.canonicalProject);
-    const proof = ownership ?? await inspectInstallationOwnership(previous, inspection);
-    let repairableMissingMarker = false;
-    if (markerEvidence.kind === "missing") {
-      const remaining = await proveRemainingOwnedOutputs(previous, inspection);
-      repairableMissingMarker = remaining.owned;
-      if (!remaining.owned) {
-        blockers.push(normalizeBlocker(
-          {
-            ...ownershipBlocker(installation.binding.project, {
-              ...remaining,
-              reason: `Installation Marker is missing and ${remaining.reason ?? "remaining output ownership cannot be proven"}`,
-            }),
+    } else {
+      const markerEvidence = await inspection.inspectMarker(installation.binding.canonicalProject);
+      const proof = ownership ?? await inspectInstallationOwnership(previous, inspection);
+      let repairableMissingMarker = false;
+      if (markerEvidence.kind === "missing") {
+        const remaining = await proveRemainingOwnedOutputs(previous, inspection);
+        repairableMissingMarker = remaining.owned;
+        if (!remaining.owned) {
+          projectBlockers.push(normalizeBlocker(
+            {
+              ...ownershipBlocker(installation.binding.project, {
+                ...remaining,
+                reason: `Installation Marker is missing and ${remaining.reason ?? "remaining output ownership cannot be proven"}`,
+              }),
+              project,
+            },
             project,
-          },
+          ));
+        }
+      } else if (!proof.owned) {
+        projectBlockers.push(normalizeBlocker(
+          { ...ownershipBlocker(installation.binding.project, proof), project },
           project,
         ));
       }
-    } else if (!proof.owned) {
-      blockers.push(normalizeBlocker(
-        { ...ownershipBlocker(installation.binding.project, proof), project },
-        project,
+      const repairableMissingOutput = repairableMissingOutputs.size > 0;
+      if (!proof.owned && !repairableMissingMarker && !repairableMissingOutput) {
+        projectItems.push({
+          kind: proof.failureKind === "malformed"
+            ? "malformed ownership state"
+            : proof.failureKind === "missing"
+              ? "missing output"
+              : "drifted output",
+          project: installation.binding.project,
+          ...(proof.reason ? { reason: proof.reason } : {}),
+        });
+      // Surface safe recreation ahead of stale source because apply repairs from
+      // that current source; missing-Marker repair does not restore project output.
+      } else if (repairableMissingOutput) {
+        projectItems.push({
+          kind: "repairable missing output",
+          project: installation.binding.project,
+          reason: [...repairableMissingOutputs].join(", "),
+        });
+      } else if (previous.workspaceInputHash !== installation.sourceHash) {
+        projectItems.push({
+          kind: "stale source",
+          project: installation.binding.project,
+        });
+      } else if (
+        previous.adapterVersion !== installation.adapterVersion ||
+        !hostVersionsEqual(previous.hostVersions, installation.hostVersions) ||
+        previous.hosts.join("\n") !== installation.binding.hosts.join("\n") ||
+        previous.profileId !== installation.profile.id ||
+        previous.gitProject !== (installation.gitProject !== undefined) ||
+        previous.outputs.length !== proposedOutputs.length ||
+        proposedOutputs.some((output) => {
+          const previousOutput = previous.outputs.find((entry) => entry.path === output.path);
+          return previousOutput?.hash !== output.hash ||
+            previousOutput.mode !== output.mode ||
+            previousOutput.type !== output.type;
+        })
+      ) {
+        projectItems.push({
+          kind: "update",
+          project: installation.binding.project,
+          reason: "desired output changed",
+        });
+      } else if (repairableMissingMarker) {
+        projectItems.push({
+          kind: "update",
+          project: installation.binding.project,
+          reason: "Installation Marker is missing and repairable",
+        });
+      } else {
+        projectItems.push({
+          kind: "current",
+          project: installation.binding.project,
+        });
+      }
+      projectImpacts.push(...installationImpacts(
+        previous,
+        installation,
+        outputChanges,
+        { intendedTeardown: false, moved: false, repairableMissingMarker },
       ));
     }
-    const repairableMissingOutput = repairableMissingOutputs.size > 0;
-    if (!proof.owned && !repairableMissingMarker && !repairableMissingOutput) {
-      items.push({
-        kind: proof.failureKind === "malformed"
-          ? "malformed ownership state"
-          : proof.failureKind === "missing"
-            ? "missing output"
-            : "drifted output",
-        project: installation.binding.project,
-        ...(proof.reason ? { reason: proof.reason } : {}),
-      });
-    // Surface safe recreation ahead of stale source because apply repairs from
-    // that current source; missing-Marker repair does not restore project output.
-    } else if (repairableMissingOutput) {
-      items.push({
-        kind: "repairable missing output",
-        project: installation.binding.project,
-        reason: [...repairableMissingOutputs].join(", "),
-      });
-    } else if (previous.workspaceInputHash !== installation.sourceHash) {
-      items.push({
-        kind: "stale source",
-        project: installation.binding.project,
-      });
-    } else if (
-      previous.adapterVersion !== installation.adapterVersion ||
-      !hostVersionsEqual(previous.hostVersions, installation.hostVersions) ||
-      previous.hosts.join("\n") !== installation.binding.hosts.join("\n") ||
-      previous.profileId !== installation.profile.id ||
-      previous.gitProject !== (installation.gitProject !== undefined) ||
-      previous.outputs.length !== proposedOutputs.length ||
-      proposedOutputs.some((output) => {
-        const previousOutput = previous.outputs.find((entry) => entry.path === output.path);
-        return previousOutput?.hash !== output.hash ||
-          previousOutput.mode !== output.mode ||
-          previousOutput.type !== output.type;
-      })
-    ) {
-      items.push({
-        kind: "update",
-        project: installation.binding.project,
-        reason: "desired output changed",
-      });
-    } else if (repairableMissingMarker) {
-      items.push({
-        kind: "update",
-        project: installation.binding.project,
-        reason: "Installation Marker is missing and repairable",
-      });
-    } else {
-      items.push({
-        kind: "current",
-        project: installation.binding.project,
-      });
-    }
-    impacts.push(...installationImpacts(
-      previous,
-      installation,
-      outputChanges,
-      { intendedTeardown: false, moved: false, repairableMissingMarker },
-    ));
+    return {
+      blockers: projectBlockers,
+      gitProject: installation.gitProject,
+      id,
+      impacts: projectImpacts,
+      items: projectItems,
+      outputItems: projectOutputItems,
+      outputs: projectedManifest.outputs,
+    };
+  }));
+  // Exclusion contributions fold in canonical Project order: contribution
+  // ownership stays keyed by Installation ID exactly as before, so scheduling
+  // order never reaches the deterministic union or the report.
+  let projectedExclusions = state.repositoryExclusions;
+  for (const result of desiredResults) {
+    projectedExclusions = replaceRepositoryExclusionContribution(
+      projectedExclusions,
+      result.id,
+      result.gitProject,
+      result.outputs,
+    );
+    items.push(...result.items);
+    outputItems.push(...result.outputItems);
+    impacts.push(...result.impacts);
+    blockers.push(...result.blockers);
   }
-  for (const installation of state.installations) {
-    if (desiredProjects.has(installation.project) || movedPreviousProjects.has(installation.project)) continue;
+  const staleResults = await scheduler.run(state.installations.map((installation) => async () => {
+    if (desiredProjects.has(installation.project) || movedPreviousProjects.has(installation.project)) {
+      return undefined;
+    }
     const intentionallyDeleted = intentionallyDeletedProjects.has(installation.project);
     const proof = intentionallyDeleted
       ? { owned: true as const }
       : await proveOwnedInstallation(installation, inspection);
+    const projectBlockers: ReconciliationBlocker[] = [];
     if (!proof.owned) {
       const remediation = proof.reason?.includes("Installation Marker")
         ? "; if this project moved, restore its Manifest-linked Installation Marker at the new root before retrying"
         : "";
-      blockers.push(normalizeBlocker(
+      projectBlockers.push(normalizeBlocker(
         installationOwnershipBlocker({
           message:
             `Cannot remove stale Profile Installation at ${installation.project}: ` +
@@ -1090,29 +1138,38 @@ export async function previewReconciliation(
         installation.project,
       ));
     }
-    items.push({
-      kind: "removal",
-      project: installation.project,
-      ...(intentionallyDeleted
-        ? { reason: "project intentionally deleted" }
-        : proof.reason
-          ? { reason: proof.reason }
-          : {}),
-    });
-    impacts.push(...removalImpacts(installation, intentionallyDeleted));
-    for (const output of installation.outputs) {
-      outputItems.push({
-        kind: "removal",
+    return {
+      blockers: projectBlockers,
+      impacts: removalImpacts(installation, intentionallyDeleted),
+      installationId: installation.installationId,
+      items: [{
+        kind: "removal" as const,
+        project: installation.project,
+        ...(intentionallyDeleted
+          ? { reason: "project intentionally deleted" }
+          : proof.reason
+            ? { reason: proof.reason }
+            : {}),
+      }],
+      outputItems: installation.outputs.map((output) => ({
+        kind: "removal" as const,
         path: output.path,
         project: installation.project,
-      });
-    }
+      })),
+    };
+  }));
+  for (const result of staleResults) {
+    if (result === undefined) continue;
     projectedExclusions = replaceRepositoryExclusionContribution(
       projectedExclusions,
-      installation.installationId,
+      result.installationId,
       undefined,
       [],
     );
+    items.push(...result.items);
+    outputItems.push(...result.outputItems);
+    impacts.push(...result.impacts);
+    blockers.push(...result.blockers);
   }
   const projectedState: InstallationState = {
     intendedTeardowns: state.intendedTeardowns,
@@ -1309,6 +1366,12 @@ export async function applyReconciliation(
     readonly createOwnershipInspection?: () => LifecycleOwnershipInspection;
     readonly fileSystem?: Partial<ReconciliationFileSystem>;
     readonly lockTimeoutMs?: number;
+    /**
+     * Invocation-scoped bounded scheduler for independent Project reads. Apply
+     * passes it to preflight and post-commit verification while all mutation,
+     * publication, and rollback stay sequential.
+     */
+    readonly scheduler?: ProjectReadScheduler;
     readonly verifyReconciliation?: typeof previewReconciliation;
     readonly writeInstallationState?: typeof writeInstallationState;
   } = {},
@@ -1334,6 +1397,12 @@ async function applyReconciliationLocked(
      */
     readonly createOwnershipInspection?: () => LifecycleOwnershipInspection;
     readonly fileSystem?: Partial<ReconciliationFileSystem>;
+    /**
+     * Invocation-scoped bounded scheduler for independent Project reads. Apply
+     * passes it to preflight and post-commit verification while all mutation,
+     * publication, and rollback stay sequential.
+     */
+    readonly scheduler?: ProjectReadScheduler;
     readonly verifyReconciliation?: typeof previewReconciliation;
     readonly writeInstallationState?: typeof writeInstallationState;
   } = {},
@@ -1343,6 +1412,7 @@ async function applyReconciliationLocked(
   const createGitInspection = options.createGitInspection ?? createLifecycleGitInspectionContext;
   const createOwnershipInspection =
     options.createOwnershipInspection ?? createLifecycleOwnershipInspectionContext;
+  const scheduler = options.scheduler ?? createProjectReadScheduler();
   let before;
   let migratedState = false;
   try {
@@ -1361,6 +1431,7 @@ async function applyReconciliationLocked(
   const report = await previewReconciliation(desired, before, {
     gitInspection: createGitInspection(),
     ownershipInspection: preflightOwnershipInspection,
+    scheduler,
   });
   const [blocker, ...remainingBlockers] = report.blockers;
   if (blocker) {
@@ -1369,7 +1440,12 @@ async function applyReconciliationLocked(
       blockers: [blocker, ...remainingBlockers],
     });
   }
-  const retirement = await installationRetirementSelection(desired, before, preflightOwnershipInspection);
+  const retirement = await installationRetirementSelection(
+    desired,
+    before,
+    preflightOwnershipInspection,
+    scheduler,
+  );
   const currentProjects = new Set(
     report.items
       .filter((item) => item.kind === "current")
@@ -1559,6 +1635,7 @@ async function applyReconciliationLocked(
       (nextDesired, nextState) => previewReconciliation(nextDesired, nextState, {
         gitInspection: createGitInspection(),
         ownershipInspection: createOwnershipInspection(),
+        scheduler,
       })
     );
     resultingState = await verify(desired, workingState);

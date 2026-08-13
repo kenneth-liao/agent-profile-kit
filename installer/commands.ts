@@ -6,6 +6,7 @@ import {
   type ReconciliationReport,
 } from "./reconcile.js";
 import { createLifecycleGitInspectionContext } from "./lifecycle-git-inspection.js";
+import { createProjectReadScheduler } from "./project-scheduler.js";
 import { buildDesiredState, stateManifestPath } from "./project-plan.js";
 import { INSTALLATION_STATE_SCHEMA_VERSION } from "../schemas/installation-manifest.js";
 import {
@@ -43,7 +44,10 @@ export interface UninstallResult {
 }
 
 export async function validateApplication(home: string): Promise<ValidationResult> {
-  const desired = await buildDesiredState(home, { checkHostCapability: false });
+  const desired = await buildDesiredState(home, {
+    checkHostCapability: false,
+    scheduler: createProjectReadScheduler(),
+  });
   return {
     bindings: desired.bindingCount,
     hosts: [...new Set(
@@ -56,7 +60,8 @@ export async function validateApplication(home: string): Promise<ValidationResul
 
 export async function previewApplication(home: string): Promise<ReconciliationReport> {
   const gitInspection = createLifecycleGitInspectionContext();
-  const desired = await buildDesiredState(home, { gitInspection });
+  const scheduler = createProjectReadScheduler();
+  const desired = await buildDesiredState(home, { gitInspection, scheduler });
   let state;
   try {
     state = await readInstallationState(home);
@@ -79,19 +84,23 @@ export async function previewApplication(home: string): Promise<ReconciliationRe
       ],
     };
   }
-  return previewReconciliation(desired.installations, state, { gitInspection });
+  return previewReconciliation(desired.installations, state, { gitInspection, scheduler });
 }
 
 export async function applyApplication(home: string): Promise<ApplyReconciliationResult> {
   // Desired-state planning reuses Git topology; apply's preflight and post-commit
   // verification each create a fresh inspection pass for filesystem evidence.
+  // One scheduler spans planning and both verification passes so the concurrency
+  // boundary cannot drift; all apply writes stay sequential.
   const gitInspection = createLifecycleGitInspectionContext();
-  const desired = await buildDesiredState(home, { gitInspection });
-  return applyReconciliation(home, desired.installations);
+  const scheduler = createProjectReadScheduler();
+  const desired = await buildDesiredState(home, { gitInspection, scheduler });
+  return applyReconciliation(home, desired.installations, { scheduler });
 }
 
 export async function statusApplication(home: string): Promise<ReconciliationReport> {
   const gitInspection = createLifecycleGitInspectionContext();
+  const scheduler = createProjectReadScheduler();
   let state;
   try {
     state = await readInstallationState(home);
@@ -101,6 +110,7 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
     const desired = await buildDesiredState(home, {
       checkHostCapability: false,
       gitInspection,
+      scheduler,
     });
     return unreadableInstallationStateReport(home, desired.installations, error);
   }
@@ -111,8 +121,9 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
     gitInspection,
     previousInstallations: state.installations,
     resolveHostTopology: true,
+    scheduler,
   });
-  const report = await previewReconciliation(desired.installations, state, { gitInspection });
+  const report = await previewReconciliation(desired.installations, state, { gitInspection, scheduler });
   const blockedProjects = new Set(
     report.blockers.flatMap((blocker) => blocker.project ? [blocker.project] : []),
   );
