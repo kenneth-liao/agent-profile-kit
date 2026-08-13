@@ -1489,9 +1489,9 @@ function groupSetupSteps(
 }
 
 /** Compact affected-Project scope for a deduplicated setup step. */
-function setupProjectScope(projects: readonly string[]): string {
+function setupProjectScope(projects: readonly string[], verbose: boolean): string {
   if (projects.length === 1) return "";
-  if (projects.length <= PROJECT_SCOPE_LIMIT) {
+  if (verbose || projects.length <= PROJECT_SCOPE_LIMIT) {
     return ` (${projects.map((project) => displayProjectPath(project)).join(", ")})`;
   }
   const visible = projects
@@ -1500,8 +1500,8 @@ function setupProjectScope(projects: readonly string[]): string {
   return ` (${visible.join(", ")}, … ${plural(projects.length - PROJECT_SCOPE_LIMIT, "more Project")}; use --verbose to see all Projects)`;
 }
 
-function setupStepLines(group: SetupStepGroup): readonly string[] {
-  const lines = [`- ${group.message}${setupProjectScope(group.projects)}`];
+function setupStepLines(group: SetupStepGroup, verbose: boolean): readonly string[] {
+  const lines = [`- ${group.message}${setupProjectScope(group.projects, verbose)}`];
   if (group.step.consequence !== undefined) {
     lines.push(`  Consequence: ${group.step.consequence}`);
   }
@@ -1515,6 +1515,7 @@ function setupStepLines(group: SetupStepGroup): readonly string[] {
  */
 function setupSectionsFromPresented(
   presented: readonly PresentedSetupStep[],
+  verbose: boolean,
 ): readonly string[] {
   const transition = groupSetupSteps(
     presented.filter((item) => item.step.provenance === "transition"),
@@ -1525,11 +1526,11 @@ function setupSectionsFromPresented(
   const lines: string[] = [];
   if (transition.length > 0) {
     lines.push("Host setup:");
-    for (const group of transition) lines.push(...setupStepLines(group));
+    for (const group of transition) lines.push(...setupStepLines(group, verbose));
   }
   if (standing.length > 0) {
     lines.push("Standing Host setup:");
-    for (const group of standing) lines.push(...setupStepLines(group));
+    for (const group of standing) lines.push(...setupStepLines(group, verbose));
   }
   return lines;
 }
@@ -1543,6 +1544,7 @@ function hostSetupSections(
 ): readonly string[] {
   return setupSectionsFromPresented(
     presentedSetupSteps(command, report, changeEvidence, verbose),
+    verbose,
   );
 }
 
@@ -2076,7 +2078,7 @@ function conciseReport(
     command === "apply" ? receipt : undefined,
     false,
   );
-  const setup = setupSectionsFromPresented(presented);
+  const setup = setupSectionsFromPresented(presented, false);
   if (setup.length > 0) lines.push("", ...setup);
   const next = nextActionLines(command, report, {
     groups,

@@ -508,6 +508,15 @@ describe("Host Setup Step provenance and presentation", () => {
       "- Trust the bound project in Codex. (/p-1, /p-2, /p-3, /p-4, … 2 more Projects; use --verbose to see all Projects)",
     );
     expect(status.match(/- Trust the bound project in Codex\./g)).toHaveLength(1);
+
+    // The verbose surface honors the concise pointer: every Project appears and
+    // the escape-hatch text is gone (DEC-034, US-041).
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    expect(verbose).toContain(
+      "- Trust the bound project in Codex. (/p-1, /p-2, /p-3, /p-4, /p-5, /p-6)",
+    );
+    expect(verbose).not.toContain("use --verbose");
+    expect(verbose.match(/- Trust the bound project in Codex\./g)).toHaveLength(1);
   });
 
   test("blocked preview and apply suppress transition setup while status retains the standing reminder", () => {
