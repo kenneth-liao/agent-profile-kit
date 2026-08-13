@@ -1607,10 +1607,13 @@ function impactGroupLabel(group: ImpactPresentationGroup): string {
 }
 
 /**
- * Profile and Host clauses render only where they disambiguate groups: when
- * groups sharing the same change kind, operation, and source identity vary by
- * Profile or Host scope. Binding and Adapter groups always name their Hosts
- * because the Host selection is the change itself (US-026, US-027).
+ * Profile and Host clauses render where they disambiguate groups: when groups
+ * sharing the same change kind, operation, and source identity differ in
+ * Profile or Host scope. Variation is determined independently across every
+ * cause-sharing group, so correlated changes (Profile and Host varying
+ * together) still emit both clauses and no two cause-sharing groups can render
+ * identically. Binding and Adapter groups always name their Hosts because the
+ * Host selection is the change itself (US-026, US-027).
  */
 function impactDisambiguation(
   group: ImpactPresentationGroup,
@@ -1624,13 +1627,10 @@ function impactDisambiguation(
     candidate.operation === group.operation &&
     artifactKey(candidate) === artifactKey(group);
   const profileVaries = groups.some((candidate) =>
-    sharesCause(candidate) &&
-    candidate.hosts.join("\u0000") === group.hosts.join("\u0000") &&
-    candidate.profile !== group.profile
+    sharesCause(candidate) && candidate.profile !== group.profile
   );
   const hostVaries = groups.some((candidate) =>
     sharesCause(candidate) &&
-    candidate.profile === group.profile &&
     candidate.hosts.join("\u0000") !== group.hosts.join("\u0000")
   );
   const clauses: string[] = [];

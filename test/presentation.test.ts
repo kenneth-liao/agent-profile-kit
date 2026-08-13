@@ -3337,6 +3337,44 @@ describe("impact-first multi-Project presentation", () => {
     expect(concise).toContain("~ Skill review-pr · 1 file in 1 project · Profile design");
   });
 
+  test("correlated Profile and Host variation emits both disambiguation clauses", () => {
+    const report = emptyReport({
+      desired: ["/project-a", "/project-b"].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: [SKILL_PATH],
+        profile: project === "/project-a" ? "coding" : "design",
+        project,
+        resolvedArtifacts: [],
+        ...(project === "/project-a" ? {} : { hosts: ["pi"] }),
+      })),
+      items: ["/project-a", "/project-b"].map((project) => ({
+        kind: "update" as const,
+        project,
+      })),
+      outputs: ["/project-a", "/project-b"].map((project) => ({
+        kind: "update" as const,
+        path: SKILL_PATH,
+        project,
+      })),
+      impacts: ["/project-a", "/project-b"].map((project) => ({
+        kind: "artifact" as const,
+        operation: "update" as const,
+        project,
+        profile: project === "/project-a" ? "coding" : "design",
+        hosts: project === "/project-a" ? ["codex"] : ["pi"],
+        paths: [SKILL_PATH],
+        artifacts: [{ id: "review-pr", type: "skill" as const }],
+        reason: "Workspace artifact content changed",
+      })),
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("~ Skill review-pr · 1 file in 1 project · Profile coding · Hosts codex");
+    expect(concise).toContain("~ Skill review-pr · 1 file in 1 project · Profile design · Hosts pi");
+  });
+
   test("single-Project runs remain Project-first and never group", () => {
     const report = emptyReport({
       desired: [{
