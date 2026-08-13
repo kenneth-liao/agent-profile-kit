@@ -89,6 +89,7 @@ function emptyReport(
 ): ReconciliationReport {
   return {
     blockers: [],
+    impacts: [],
     items: [],
     outputs: [],
     repositoryExclusionRepairs: [],
