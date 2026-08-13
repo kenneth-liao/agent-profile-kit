@@ -69,6 +69,10 @@ import {
   type LifecyclePlanningInstrumentation,
 } from "./lifecycle-planning.js";
 import {
+  createProjectReadScheduler,
+  type ProjectReadScheduler,
+} from "./project-scheduler.js";
+import {
   createLifecycleGitInspectionContext,
   type LifecycleGitInspection,
 } from "./lifecycle-git-inspection.js";
@@ -571,6 +575,13 @@ export interface BuildDesiredStateOptions {
    */
   readonly gitInspection?: LifecycleGitInspection;
   /**
+   * Invocation-scoped bounded scheduler for independent per-Project planning
+   * work, shared with reconciliation so one concurrency boundary governs the
+   * whole lifecycle. When omitted, one short-lived scheduler is created for
+   * planning only.
+   */
+  readonly scheduler?: ProjectReadScheduler;
+  /**
    * Prior Installation Manifests used only to preserve applied Grok Context
    * delivery topology when live inspection is unavailable (status).
    */
@@ -594,16 +605,17 @@ export async function buildDesiredState(
     options.planningInstrumentation ?? {},
   );
   const gitInspection = options.gitInspection ?? createLifecycleGitInspectionContext();
+  const scheduler = options.scheduler ?? createProjectReadScheduler();
   const previousByProject = new Map(
     (options.previousInstallations ?? []).map((installation) => [
       installation.project,
       installation,
     ]),
   );
-  const installations: DesiredInstallation[] = [];
-  for (const binding of [...configuration.bindings].sort((left, right) =>
+  const bindings = [...configuration.bindings].sort((left, right) =>
     left.canonicalProject.localeCompare(right.canonicalProject)
-  )) {
+  );
+  const installations = await scheduler.run(bindings.map((binding) => async () => {
     const profile = requireProfile(
       workspace.profiles,
       binding.profile,
@@ -921,7 +933,7 @@ export async function buildDesiredState(
     }
     const outputs = normalizeAdapterPlans(plans);
     assertResolvedOutputOrigins(outputs, resolvedProfile);
-    installations.push({
+    return {
       adapterVersion: adapterVersionFor(binding.hosts),
       artifactFingerprints,
       binding,
@@ -938,11 +950,11 @@ export async function buildDesiredState(
       sourceHash,
       diagnosticValues: [...new Set(diagnosticValues)].sort(),
       warnings,
-    });
-  }
+    };
+  }));
   return {
     bindingCount: configuration.bindings.length,
-    installations: installations.sort((left, right) =>
+    installations: [...installations].sort((left, right) =>
       left.binding.canonicalProject.localeCompare(right.binding.canonicalProject)
     ),
     workspace,
