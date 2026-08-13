@@ -3112,3 +3112,486 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     }
   });
 });
+
+describe("impact-first multi-Project presentation", () => {
+  const SKILL_PATH = ".agents/skills/review-pr";
+  const CONTEXT_PATH = ".agent-profile-kit/codex/context.md";
+
+  /** Three Projects bound to the same Profile and Host, all with one shared Skill update. */
+  function sharedSkillFleet(overrides: Partial<ReconciliationReport> = {}): ReconciliationReport {
+    const projects = ["/project-a", "/project-b", "/project-c"];
+    return emptyReport({
+      desired: projects.map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: [SKILL_PATH, CONTEXT_PATH],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      })),
+      items: projects.map((project) => ({ kind: "update" as const, project })),
+      outputs: projects.flatMap((project) => [
+        { kind: "update" as const, path: SKILL_PATH, project },
+        { kind: "unchanged" as const, path: CONTEXT_PATH, project },
+      ]),
+      impacts: projects.map((project) => ({
+        kind: "artifact" as const,
+        operation: "update" as const,
+        project,
+        profile: "coding",
+        hosts: ["codex"],
+        paths: [SKILL_PATH],
+        artifacts: [{ id: "review-pr", type: "skill" as const }],
+        reason: "Workspace artifact content changed",
+      })),
+      ...overrides,
+    });
+  }
+
+  test("multi-Project preview renders each shared Workspace impact once with counts and scope", () => {
+    const concise = formatLifecycleReport("preview", sharedSkillFleet());
+
+    expect(concise).toContain("Ready to apply\n");
+    expect(concise).toContain("Workspace changes:\n  ~ Skill review-pr · 3 files in 3 projects");
+    expect(concise).not.toContain("Project: /project-a");
+    expect(concise).not.toContain("Project: /project-b");
+    expect(concise).not.toContain("Project: /project-c");
+    expectUserFacingVocabulary(concise);
+  });
+
+  test("a shared change affecting every Project of its Profile scope uses a count, not a list", () => {
+    const concise = formatLifecycleReport("preview", sharedSkillFleet());
+
+    expect(concise).toContain("~ Skill review-pr · 3 files in 3 projects");
+    expect(concise).not.toContain("in /project-a");
+  });
+
+  test("a small affected-Project set renders a complete Project list", () => {
+    const projects = ["/project-a", "/project-b", "/project-c", "/project-d"];
+    const report = emptyReport({
+      desired: projects.map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: [SKILL_PATH],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      })),
+      // Only the first two Projects changed; the other two are already current.
+      items: [
+        { kind: "update" as const, project: "/project-a" },
+        { kind: "update" as const, project: "/project-b" },
+        { kind: "current" as const, project: "/project-c" },
+        { kind: "current" as const, project: "/project-d" },
+      ],
+      outputs: [
+        { kind: "update" as const, path: SKILL_PATH, project: "/project-a" },
+        { kind: "update" as const, path: SKILL_PATH, project: "/project-b" },
+        { kind: "unchanged" as const, path: SKILL_PATH, project: "/project-c" },
+        { kind: "unchanged" as const, path: SKILL_PATH, project: "/project-d" },
+      ],
+      impacts: ["/project-a", "/project-b"].map((project) => ({
+        kind: "artifact" as const,
+        operation: "update" as const,
+        project,
+        profile: "coding",
+        hosts: ["codex"],
+        paths: [SKILL_PATH],
+        artifacts: [{ id: "review-pr", type: "skill" as const }],
+        reason: "Workspace artifact content changed",
+      })),
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("Workspace changes:\n  ~ Skill review-pr · 2 files in /project-a, /project-b");
+  });
+
+  test("a large affected-Project set is capped and points to --verbose", () => {
+    const projects = Array.from({ length: 8 }, (_, index) => `/project-${String.fromCharCode(97 + index)}`);
+    const report = emptyReport({
+      desired: projects.map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: [SKILL_PATH],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      })),
+      items: projects.map((project) => ({
+        kind: project === "/project-a" || project === "/project-b" || project === "/project-c" || project === "/project-d" || project === "/project-e"
+          ? ("update" as const)
+          : ("current" as const),
+        project,
+      })),
+      outputs: projects.map((project) => ({
+        kind: project === "/project-a" || project === "/project-b" || project === "/project-c" || project === "/project-d" || project === "/project-e"
+          ? ("update" as const)
+          : ("unchanged" as const),
+        path: SKILL_PATH,
+        project,
+      })),
+      impacts: ["/project-a", "/project-b", "/project-c", "/project-d", "/project-e"].map((project) => ({
+        kind: "artifact" as const,
+        operation: "update" as const,
+        project,
+        profile: "coding",
+        hosts: ["codex"],
+        paths: [SKILL_PATH],
+        artifacts: [{ id: "review-pr", type: "skill" as const }],
+        reason: "Workspace artifact content changed",
+      })),
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain(
+      "Workspace changes:\n  ~ Skill review-pr · 5 files in /project-a, /project-b, /project-c, /project-d, … 1 more Project; use --verbose to see all Projects",
+    );
+  });
+
+  test("Project Binding and Host-specific impacts stay separately attributable", () => {
+    const report = emptyReport({
+      desired: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: [SKILL_PATH, CONTEXT_PATH],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+        ...(project === "/project-c" ? { hosts: ["codex", "pi"] } : {}),
+      })),
+      items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        kind: "update" as const,
+        project,
+      })),
+      outputs: ["/project-a", "/project-b", "/project-c"].flatMap((project) => [
+        { kind: "update" as const, path: SKILL_PATH, project },
+        ...(project === "/project-c"
+          ? [{ kind: "update" as const, path: CONTEXT_PATH, project }]
+          : []),
+      ]),
+      impacts: [
+        ...["/project-a", "/project-b"].map((project) => ({
+          kind: "artifact" as const,
+          operation: "update" as const,
+          project,
+          profile: "coding",
+          hosts: ["codex"],
+          paths: [SKILL_PATH],
+          artifacts: [{ id: "review-pr", type: "skill" as const }],
+          reason: "Workspace artifact content changed",
+        })),
+        {
+          kind: "binding" as const,
+          operation: "update" as const,
+          project: "/project-c",
+          profile: "coding",
+          hosts: ["codex", "pi"],
+          paths: [CONTEXT_PATH],
+          reason: "Project Binding or Host selection changed generated output",
+        },
+      ],
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("Workspace changes:\n  ~ Skill review-pr · 2 files in 2 projects");
+    expect(concise).toContain("Project changes:\n  ~ Project Binding · 1 file in 1 project · Hosts codex, pi");
+  });
+
+  test("mixed-Profile fleets include the Profile clause where it disambiguates", () => {
+    const report = emptyReport({
+      desired: ["/project-a", "/project-b"].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: [SKILL_PATH],
+        profile: project === "/project-a" ? "coding" : "design",
+        project,
+        resolvedArtifacts: [],
+      })),
+      items: ["/project-a", "/project-b"].map((project) => ({
+        kind: "update" as const,
+        project,
+      })),
+      outputs: ["/project-a", "/project-b"].map((project) => ({
+        kind: "update" as const,
+        path: SKILL_PATH,
+        project,
+      })),
+      impacts: ["/project-a", "/project-b"].map((project) => ({
+        kind: "artifact" as const,
+        operation: "update" as const,
+        project,
+        profile: project === "/project-a" ? "coding" : "design",
+        hosts: ["codex"],
+        paths: [SKILL_PATH],
+        artifacts: [{ id: "review-pr", type: "skill" as const }],
+        reason: "Workspace artifact content changed",
+      })),
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("~ Skill review-pr · 1 file in 1 project · Profile coding");
+    expect(concise).toContain("~ Skill review-pr · 1 file in 1 project · Profile design");
+  });
+
+  test("correlated Profile and Host variation emits both disambiguation clauses", () => {
+    const report = emptyReport({
+      desired: ["/project-a", "/project-b"].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: [SKILL_PATH],
+        profile: project === "/project-a" ? "coding" : "design",
+        project,
+        resolvedArtifacts: [],
+        ...(project === "/project-a" ? {} : { hosts: ["pi"] }),
+      })),
+      items: ["/project-a", "/project-b"].map((project) => ({
+        kind: "update" as const,
+        project,
+      })),
+      outputs: ["/project-a", "/project-b"].map((project) => ({
+        kind: "update" as const,
+        path: SKILL_PATH,
+        project,
+      })),
+      impacts: ["/project-a", "/project-b"].map((project) => ({
+        kind: "artifact" as const,
+        operation: "update" as const,
+        project,
+        profile: project === "/project-a" ? "coding" : "design",
+        hosts: project === "/project-a" ? ["codex"] : ["pi"],
+        paths: [SKILL_PATH],
+        artifacts: [{ id: "review-pr", type: "skill" as const }],
+        reason: "Workspace artifact content changed",
+      })),
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("~ Skill review-pr · 1 file in 1 project · Profile coding · Hosts codex");
+    expect(concise).toContain("~ Skill review-pr · 1 file in 1 project · Profile design · Hosts pi");
+  });
+
+  test("single-Project runs remain Project-first and never group", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: [SKILL_PATH],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "update", path: SKILL_PATH, project: "/project-a" }],
+      impacts: [{
+        kind: "artifact",
+        operation: "update",
+        project: "/project-a",
+        profile: "coding",
+        hosts: ["codex"],
+        paths: [SKILL_PATH],
+        artifacts: [{ id: "review-pr", type: "skill" as const }],
+        reason: "Workspace artifact content changed",
+      }],
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("Project: /project-a\n  Profile: coding\n  Hosts: codex");
+    expect(concise).not.toContain("Workspace changes:");
+    expect(concise).not.toContain("Project changes:");
+  });
+
+  test("blocked multi-Project runs keep blockers first and never group impact detail", () => {
+    const report = sharedSkillFleet({
+      items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        kind: "blocked" as const,
+        project,
+        reason: "hooks disabled",
+      })),
+      blockers: ["/project-a", "/project-b", "/project-c"].map((project) =>
+        fixtureBlocker(`${project}: hooks disabled`, project),
+      ),
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise.startsWith("Cannot apply\n")).toBe(true);
+    expect(concise).toContain("Blocker:");
+    expect(concise).not.toContain("Workspace changes:");
+    expect(concise).not.toContain("Project changes:");
+  });
+
+  test("all-current multi-Project status stays current without grouping", () => {
+    const report = emptyReport({
+      desired: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: [SKILL_PATH],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      })),
+      items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        kind: "current" as const,
+        project,
+      })),
+      outputs: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        kind: "unchanged" as const,
+        path: SKILL_PATH,
+        project,
+      })),
+    });
+
+    const status = formatLifecycleReport("status", report);
+
+    expect(status).toBe("All Projects are current (3 Projects)\n");
+  });
+
+  test("multi-Project apply renders the shared receipt once with consistent symbols and counts", () => {
+    const receipt = sharedSkillFleet();
+    const resultingState = emptyReport({
+      desired: receipt.desired,
+      items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        kind: "current" as const,
+        project,
+      })),
+      outputs: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        kind: "unchanged" as const,
+        path: SKILL_PATH,
+        project,
+      })),
+    });
+
+    const apply = formatApplyReport({ receipt, resultingState });
+
+    expect(apply).toContain("Applied:\n  ~ Skill review-pr · 3 files in 3 projects");
+    expect(apply).not.toContain("Project: /project-a");
+    // The same group text must appear in the preview and the applied receipt.
+    expect(formatLifecycleReport("preview", receipt)).toContain(
+      "~ Skill review-pr · 3 files in 3 projects",
+    );
+  });
+
+  test("member-level attention that impacts do not carry stays visible as Project exceptions", () => {
+    const report = sharedSkillFleet({
+      outputs: [
+        ...sharedSkillFleet().outputs,
+        {
+          kind: "drifted member" as const,
+          path: `${SKILL_PATH}/SKILL.md`,
+          project: "/project-a",
+        },
+      ],
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("Project exceptions:\n  /project-a:\n    ! .agents/skills/review-pr/SKILL.md (drifted member)");
+  });
+
+  test("stale-source items already explained by an impact do not repeat as exceptions", () => {
+    const report = sharedSkillFleet({
+      items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        kind: "stale source" as const,
+        project,
+      })),
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("Workspace changes:\n  ~ Skill review-pr · 3 files in 3 projects");
+    expect(concise).not.toContain("Project exceptions:");
+    expect(concise).not.toContain("stale source");
+  });
+
+  test("stale-source Projects without any impact surface as Project exceptions", () => {
+    const report = sharedSkillFleet({
+      items: [
+        ...["/project-a", "/project-b"].map((project) => ({
+          kind: "stale source" as const,
+          project,
+        })),
+        { kind: "stale source" as const, project: "/project-c" },
+      ],
+      impacts: ["/project-a", "/project-b"].map((project) => ({
+        kind: "artifact" as const,
+        operation: "update" as const,
+        project,
+        profile: "coding",
+        hosts: ["codex"],
+        paths: [SKILL_PATH],
+        artifacts: [{ id: "review-pr", type: "skill" as const }],
+        reason: "Workspace artifact content changed",
+      })),
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    expect(concise).toContain("Project exceptions:\n  /project-c:\n    State: stale source");
+    expect(concise.match(/State: stale source/g)).toHaveLength(1);
+  });
+
+  test("verbose retains the full Project and path evidence alongside grouping", () => {
+    const verbose = formatLifecycleReport("preview", sharedSkillFleet(), { verbose: true });
+
+    expect(verbose).toContain("/project-a/.agents/skills/review-pr: update");
+    expect(verbose).toContain("/project-b/.agents/skills/review-pr: update");
+    expect(verbose).toContain("/project-c/.agents/skills/review-pr: update");
+  });
+
+  test("impact groups render in deterministic kind, operation, and source order", () => {
+    const projects = ["/project-a", "/project-b"];
+    const report = emptyReport({
+      desired: projects.map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: [SKILL_PATH, CONTEXT_PATH],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      })),
+      items: projects.map((project) => ({ kind: "update" as const, project })),
+      outputs: projects.flatMap((project) => [
+        { kind: "update" as const, path: SKILL_PATH, project },
+        { kind: "update" as const, path: CONTEXT_PATH, project },
+      ]),
+      impacts: projects.flatMap((project) => [
+        {
+          kind: "artifact" as const,
+          operation: "update" as const,
+          project,
+          profile: "coding",
+          hosts: ["codex"],
+          paths: [CONTEXT_PATH],
+          artifacts: [{ id: "team-rules", type: "context" as const }],
+          reason: "Workspace artifact content changed",
+        },
+        {
+          kind: "artifact" as const,
+          operation: "update" as const,
+          project,
+          profile: "coding",
+          hosts: ["codex"],
+          paths: [SKILL_PATH],
+          artifacts: [{ id: "review-pr", type: "skill" as const }],
+          reason: "Workspace artifact content changed",
+        },
+      ]),
+    });
+
+    const concise = formatLifecycleReport("preview", report);
+
+    const workspaceIndex = concise.indexOf("Workspace changes:");
+    const skillIndex = concise.indexOf("~ Skill review-pr");
+    const contextIndex = concise.indexOf("~ Context team-rules");
+    expect(workspaceIndex).toBeGreaterThanOrEqual(0);
+    // artifactReferenceKey sorts "context:team-rules" before "skill:review-pr".
+    expect(contextIndex).toBeGreaterThan(workspaceIndex);
+    expect(skillIndex).toBeGreaterThan(contextIndex);
+  });
+});

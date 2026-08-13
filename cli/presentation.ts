@@ -18,6 +18,10 @@ import type {
   LifecycleImpactKind,
   LifecycleImpactOperation,
 } from "../installer/impacts.js";
+import {
+  LIFECYCLE_IMPACT_KIND_ORDER,
+  LIFECYCLE_IMPACT_OPERATION_ORDER,
+} from "../installer/impacts.js";
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
 import {
   isStructuredBlocker,
@@ -48,6 +52,10 @@ import {
 import { COMMANDS } from "./command-help.js";
 import { INVENTORY_TOPICS, type InventoryTopic } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import {
+  artifactReferenceKey,
+  type ArtifactReference,
+} from "../schemas/dependencies.js";
 
 export type LifecycleCommand = "preview" | "apply" | "status";
 
@@ -1463,7 +1471,297 @@ function nextActionLines(
   return actions.length === 0 ? [] : ["Next:", ...actions.map((action) => `- ${action}`)];
 }
 
+/** Concise default view caps the rendered affected-Project list at this size. */
+const PROJECT_SCOPE_LIMIT = 4;
+
+/** Impact kinds presented as shared Workspace changes rather than Project changes. */
+const WORKSPACE_IMPACT_KINDS: ReadonlySet<LifecycleImpactKind> = new Set(["artifact"]);
+
+/** Output attention kinds that typed impacts never carry (member-level evidence). */
+const MEMBER_ATTENTION_KINDS: ReadonlySet<OutputReconciliationKind> = new Set([
+  "drifted member",
+  "missing member",
+  "unexpected member",
+]);
+
+/** Attention item kinds that typed impacts never represent as planned changes. */
+const EXCEPTION_ITEM_KINDS: ReadonlySet<ReconciliationKind> = new Set([
+  "drifted output",
+  "malformed ownership state",
+  "missing output",
+]);
+
+/**
+ * Stale-source items accompany the same change typed impacts already explain;
+ * they surface as exceptions only for a Project that carries no impact (e.g. a
+ * non-material source change that leaves every output identical).
+ */
+const STALE_SOURCE_KIND: ReconciliationKind = "stale source";
+
+const IMPACT_KIND_LABELS: Readonly<Record<Exclude<LifecycleImpactKind, "artifact">, string>> = {
+  "adapter-capability": "Adapter",
+  binding: "Project Binding",
+  "generated-path": "Paths",
+  "installation-removal": "Removal",
+  "metadata-only": "Receipt",
+  repair: "Repair",
+};
+
+/**
+ * Fleet-oriented grouping applies to unblocked reports whose typed impacts span
+ * more than one Project. Single-Project runs keep the recognizable Project-first
+ * detail, and blocked runs keep blockers prominent ahead of any informational
+ * impact detail (DEC-022, DEC-030, DEC-034).
+ */
+function useImpactFirstPresentation(report: ReconciliationReport, blocked: boolean): boolean {
+  if (blocked || report.impacts.length === 0) return false;
+  return new Set(report.impacts.map((impact) => impact.project)).size > 1;
+}
+
+interface ImpactPresentationGroup {
+  readonly kind: LifecycleImpactKind;
+  readonly operation: LifecycleImpactOperation;
+  readonly artifacts: readonly ArtifactReference[] | undefined;
+  readonly profile: string;
+  readonly hosts: readonly string[];
+  projects: string[];
+  /** Total exact changed paths across every affected Project. */
+  fileCount: number;
+}
+
+function impactGroupKey(group: ImpactPresentationGroup): string {
+  return [
+    group.kind,
+    group.operation,
+    (group.artifacts ?? []).map(artifactReferenceKey).join("\u0000"),
+    group.profile,
+    group.hosts.join("\u0000"),
+  ].join("\u0001");
+}
+
+function sameHostSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((host, index) => host === right[index]);
+}
+
+/**
+ * Aggregate typed impacts into deterministic presentation groups keyed by
+ * change kind, proven source identity, Profile, Host scope, and operation
+ * (DEC-029). Projects remain complete inside each group so the concise view can
+ * derive counts and scope from the same evidence; the file count totals exact
+ * changed paths across every affected Project.
+ */
+function groupImpacts(impacts: readonly LifecycleImpact[]): readonly ImpactPresentationGroup[] {
+  const byKey = new Map<string, ImpactPresentationGroup>();
+  for (const impact of impacts) {
+    const key = impactGroupKey({
+      kind: impact.kind,
+      operation: impact.operation,
+      artifacts: impact.artifacts,
+      profile: impact.profile,
+      hosts: impact.hosts,
+      projects: [],
+      fileCount: 0,
+    });
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.projects.push(impact.project);
+      existing.fileCount += impact.paths.length;
+    } else {
+      byKey.set(key, {
+        kind: impact.kind,
+        operation: impact.operation,
+        artifacts: impact.artifacts,
+        profile: impact.profile,
+        hosts: impact.hosts,
+        projects: [impact.project],
+        fileCount: impact.paths.length,
+      });
+    }
+  }
+  const artifactKey = (artifacts: readonly ArtifactReference[] | undefined): string =>
+    (artifacts ?? []).map(artifactReferenceKey).join("\u0000");
+  return [...byKey.values()]
+    .map((group) => ({
+      ...group,
+      projects: [...new Set(group.projects)].sort(compareCanonicalStrings),
+    }))
+    .sort((left, right) =>
+      LIFECYCLE_IMPACT_KIND_ORDER.indexOf(left.kind) -
+        LIFECYCLE_IMPACT_KIND_ORDER.indexOf(right.kind) ||
+      LIFECYCLE_IMPACT_OPERATION_ORDER.indexOf(left.operation) -
+        LIFECYCLE_IMPACT_OPERATION_ORDER.indexOf(right.operation) ||
+      compareCanonicalStrings(artifactKey(left.artifacts), artifactKey(right.artifacts)) ||
+      compareCanonicalStrings(left.profile, right.profile) ||
+      left.hosts.join("\u0000").localeCompare(right.hosts.join("\u0000")) ||
+      left.projects.join("\u0000").localeCompare(right.projects.join("\u0000"))
+    );
+}
+
+function impactGroupLabel(group: ImpactPresentationGroup): string {
+  if (group.kind === "artifact") {
+    const type = capitalize(group.artifacts?.[0]?.type ?? "artifact");
+    const ids = (group.artifacts ?? []).map((artifact) => artifact.id).join(", ");
+    return ids.length === 0 ? "Artifact" : `${type} ${ids}`;
+  }
+  return IMPACT_KIND_LABELS[group.kind];
+}
+
+/**
+ * Profile and Host clauses render where they disambiguate groups: when groups
+ * sharing the same change kind, operation, and source identity differ in
+ * Profile or Host scope. Variation is determined independently across every
+ * cause-sharing group, so correlated changes (Profile and Host varying
+ * together) still emit both clauses and no two cause-sharing groups can render
+ * identically. Binding and Adapter groups always name their Hosts because the
+ * Host selection is the change itself (US-026, US-027).
+ */
+function impactDisambiguation(
+  group: ImpactPresentationGroup,
+  groups: readonly ImpactPresentationGroup[],
+): readonly string[] {
+  const artifactKey = (candidate: ImpactPresentationGroup): string =>
+    (candidate.artifacts ?? []).map(artifactReferenceKey).join("\u0000");
+  const sharesCause = (candidate: ImpactPresentationGroup): boolean =>
+    candidate !== group &&
+    candidate.kind === group.kind &&
+    candidate.operation === group.operation &&
+    artifactKey(candidate) === artifactKey(group);
+  const profileVaries = groups.some((candidate) =>
+    sharesCause(candidate) && candidate.profile !== group.profile
+  );
+  const hostVaries = groups.some((candidate) =>
+    sharesCause(candidate) &&
+    candidate.hosts.join("\u0000") !== group.hosts.join("\u0000")
+  );
+  const clauses: string[] = [];
+  if (profileVaries) clauses.push(`Profile ${group.profile}`);
+  if (hostVaries || group.kind === "binding" || group.kind === "adapter-capability") {
+    clauses.push(`Hosts ${group.hosts.join(", ")}`);
+  }
+  return clauses;
+}
+
+function impactScopeClause(
+  group: ImpactPresentationGroup,
+  report: ReconciliationReport,
+  groups: readonly ImpactPresentationGroup[],
+): string {
+  const scopeProjects = report.desired
+    .filter((desired) =>
+      desired.profile === group.profile && sameHostSet(desired.hosts, group.hosts)
+    )
+    .map((desired) => desired.canonicalProject);
+  const allAffected =
+    scopeProjects.length > 0 &&
+    group.projects.length === scopeProjects.length &&
+    group.projects.every((project) => scopeProjects.includes(project));
+  let projectClause: string;
+  if (allAffected) {
+    projectClause = `in ${plural(group.projects.length, "project")}`;
+  } else if (group.projects.length <= PROJECT_SCOPE_LIMIT) {
+    projectClause = `in ${group.projects.map((project) => displayProjectPath(project)).join(", ")}`;
+  } else {
+    const visible = group.projects
+      .slice(0, PROJECT_SCOPE_LIMIT)
+      .map((project) => displayProjectPath(project));
+    projectClause =
+      `in ${visible.join(", ")}, … ${plural(group.projects.length - PROJECT_SCOPE_LIMIT, "more Project")}; ` +
+      "use --verbose to see all Projects";
+  }
+  const disambiguation = impactDisambiguation(group, groups);
+  return disambiguation.length === 0
+    ? projectClause
+    : `${projectClause} · ${disambiguation.join(" · ")}`;
+}
+
+function impactGroupLine(
+  group: ImpactPresentationGroup,
+  report: ReconciliationReport,
+  groups: readonly ImpactPresentationGroup[],
+): string {
+  const marker = group.operation === "addition" ? "+" : group.operation === "removal" ? "-" : "~";
+  const fileClause = group.fileCount === 0 ? undefined : plural(group.fileCount, "file");
+  const scope = impactScopeClause(group, report, groups);
+  return fileClause === undefined
+    ? `${marker} ${impactGroupLabel(group)} · ${scope}`
+    : `${marker} ${impactGroupLabel(group)} · ${fileClause} ${scope}`;
+}
+
+function impactAttentionLines(report: ReconciliationReport): readonly string[] {
+  const membersByProject = new Map<string, OutputReconciliationItem[]>();
+  for (const output of report.outputs) {
+    if (MEMBER_ATTENTION_KINDS.has(output.kind)) {
+      const members = membersByProject.get(output.project) ?? [];
+      members.push(output);
+      membersByProject.set(output.project, members);
+    }
+  }
+  const itemsByProject = new Map<string, ReconciliationItem[]>();
+  const impactProjects = new Set(report.impacts.map((impact) => impact.project));
+  for (const item of report.items) {
+    if (
+      EXCEPTION_ITEM_KINDS.has(item.kind) ||
+      (item.kind === STALE_SOURCE_KIND && !impactProjects.has(item.project))
+    ) {
+      const items = itemsByProject.get(item.project) ?? [];
+      items.push(item);
+      itemsByProject.set(item.project, items);
+    }
+  }
+  const projects = [...new Set([
+    ...membersByProject.keys(),
+    ...itemsByProject.keys(),
+  ])].sort(compareCanonicalStrings);
+  if (projects.length === 0) return [];
+  const lines = ["", "Project exceptions:"];
+  for (const project of projects) {
+    const presented = displayProjectPath(project);
+    const items = itemsByProject.get(project) ?? [];
+    const members = membersByProject.get(project) ?? [];
+    lines.push(`  ${presented}:`);
+    for (const item of items) lines.push(`    State: ${itemText(item)}`);
+    for (const member of members) lines.push(`    ! ${member.path} (${member.kind})`);
+  }
+  return lines;
+}
+
+/**
+ * Impact-first sections for concise multi-Project views: shared Workspace
+ * changes once, distinct Project changes, then Project-specific exceptions that
+ * typed impacts do not carry (DEC-022, DEC-029).
+ */
+function impactFirstSections(report: ReconciliationReport): readonly string[] {
+  const impactGroups = groupImpacts(report.impacts);
+  const lines: string[] = [];
+  const workspace = impactGroups.filter((group) => WORKSPACE_IMPACT_KINDS.has(group.kind));
+  const project = impactGroups.filter((group) => !WORKSPACE_IMPACT_KINDS.has(group.kind));
+  if (workspace.length > 0) {
+    lines.push("", "Workspace changes:");
+    for (const group of workspace) lines.push(`  ${impactGroupLine(group, report, impactGroups)}`);
+  }
+  if (project.length > 0) {
+    lines.push("", "Project changes:");
+    for (const group of project) lines.push(`  ${impactGroupLine(group, report, impactGroups)}`);
+  }
+  lines.push(...impactAttentionLines(report));
+  return lines;
+}
+
+function impactReceiptLines(receipt: ReconciliationReport): readonly string[] {
+  const impactGroups = groupImpacts(receipt.impacts);
+  const lines = [
+    "Applied:",
+    ...impactGroups.map((group) => `  ${impactGroupLine(group, receipt, impactGroups)}`),
+  ];
+  const exclusionClause = repositoryExclusionClause(receipt, true);
+  if (exclusionClause !== undefined) lines.push("", exclusionClause);
+  return lines;
+}
+
 function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
+  if (useImpactFirstPresentation(receipt, false)) {
+    return impactReceiptLines(receipt);
+  }
   const grouped = groupProjects(receipt);
   const entries = grouped.groups.flatMap((group) => {
     const paths = outputPathLines(group.outputs);
@@ -1537,8 +1835,13 @@ function conciseReport(
         (command === "apply" && groupHasReconciliationWork(receiptGroups.get(group.canonicalProject))) ||
         (showSingleCurrentGroup && group.items.every((item) => item.kind === "current")),
       );
+  const receiptImpactFirst = command === "apply" && receipt !== undefined &&
+    useImpactFirstPresentation(receipt, false);
+  const impactFirst = useImpactFirstPresentation(report, blocked) || receiptImpactFirst;
 
-  if (activeGroups.length === 0) {
+  if (impactFirst) {
+    lines.push(...impactFirstSections(report));
+  } else if (activeGroups.length === 0) {
     if (groups.length > 0 && report.blockers.length === 0 && !fullyCurrentStatus) {
       const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
       lines.push(

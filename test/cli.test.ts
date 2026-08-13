@@ -1830,6 +1830,72 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(second, ".agent-profile-kit"))).toBe(false);
   });
 
+  test("packed fleet preview renders one shared Skill impact group with compact Project scope", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    mkdirSync(join(workspacePath(home), "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    const projects = Array.from({ length: 12 }, () => project("agent-profile-kit-fleet-"));
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        projects.map((path) => `  - project: ${path}\n    profile: coding\n    hosts: [codex]\n`).join(""),
+    );
+
+    expectExitCode(await runCli(home, "apply"), 0);
+
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview with stricter checks.\n",
+    );
+    const preview = await runCli(home, "preview");
+
+    expectExitCode(preview, 0);
+    expect(preview.stdout).toContain(
+      "Workspace changes:\n  ~ Skill review-pr · 12 files in 12 projects",
+    );
+    expect(preview.stdout.match(/~ Skill review-pr/g)).toHaveLength(1);
+    expect(preview.stdout).not.toContain("Project changes:");
+    expect(preview.stdout.match(/Project: /g)).toBeNull();
+
+    const verbose = await runCli(home, "preview", "--verbose");
+    expectExitCode(verbose, 0);
+    for (const project of projects) {
+      expect(verbose.stdout).toContain(project);
+    }
+    expect(verbose.stdout).toContain("Outputs:");
+    expect(verbose.stdout).toContain(".agents/skills/review-pr");
+
+    const json = await runCli(home, "preview", "--json");
+    expectExitCode(json, 0);
+    const payload = JSON.parse(json.stdout) as { readonly impacts: readonly unknown[] };
+    expect(payload.impacts).toHaveLength(12);
+
+    const apply = await runCli(home, "apply");
+    expectExitCode(apply, 0);
+    expect(apply.stdout).toContain("Applied:\n  ~ Skill review-pr · 12 files in 12 projects");
+    expect(apply.stdout.match(/Applied:\n  ~ Skill review-pr/g)).toHaveLength(1);
+
+    // Status after apply reports the shared change once and one current fact.
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview again.\n",
+    );
+    const status = await runCli(home, "status");
+    expectExitCode(status, 0);
+    expect(status.stdout).toContain("~ Skill review-pr · 12 files in 12 projects");
+    expect(status.stdout).not.toContain("Project: ");
+  });
+
   test("blocked apply renders one apply report without duplicate stderr blockers", async () => {
     const home = isolatedHome();
     await initialize(home);
