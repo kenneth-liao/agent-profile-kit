@@ -13,6 +13,11 @@ import type {
   ReconciliationKind,
   ReconciliationReport,
 } from "../installer/reconcile.js";
+import type {
+  LifecycleImpact,
+  LifecycleImpactKind,
+  LifecycleImpactOperation,
+} from "../installer/impacts.js";
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
 import {
   isStructuredBlocker,
@@ -2068,6 +2073,17 @@ interface MachineOutput {
   readonly project: string;
 }
 
+interface MachineImpact {
+  readonly artifacts?: readonly { readonly id: string; readonly type: string }[];
+  readonly hosts: readonly string[];
+  readonly kind: LifecycleImpactKind;
+  readonly operation: LifecycleImpactOperation;
+  readonly paths: readonly string[];
+  readonly profile: string;
+  readonly project: string;
+  readonly reason: string;
+}
+
 interface MachineBlocker {
   readonly affectedItems: readonly BlockerAffectedItem[];
   readonly kind: BlockerKind;
@@ -2100,6 +2116,7 @@ interface MachineRepositoryExclusionRepair {
 }
 
 interface LifecycleMachineSnapshot {
+  readonly impacts: readonly MachineImpact[];
   readonly installations: readonly MachineInstallation[];
   readonly outputs: readonly MachineOutput[];
   readonly repositoryExclusionRepairs: readonly MachineRepositoryExclusionRepair[];
@@ -2260,8 +2277,29 @@ function machineRepositoryExclusionRepairs(
     .sort((left, right) => left.target.localeCompare(right.target));
 }
 
+function machineImpacts(report: ReconciliationReport): readonly MachineImpact[] {
+  return report.impacts.map((impact: LifecycleImpact) => ({
+    kind: impact.kind,
+    operation: impact.operation,
+    project: impact.project,
+    profile: impact.profile,
+    hosts: [...impact.hosts],
+    paths: [...impact.paths],
+    ...(impact.artifacts === undefined
+      ? {}
+      : {
+          artifacts: impact.artifacts.map((artifact) => ({
+            id: artifact.id,
+            type: artifact.type,
+          })),
+        }),
+    reason: impact.reason,
+  }));
+}
+
 function machineSnapshot(report: ReconciliationReport): LifecycleMachineSnapshot {
   return {
+    impacts: machineImpacts(report),
     installations: machineInstallations(report),
     outputs: machineOutputs(report),
     repositoryExclusions: machineRepositoryExclusions(report),
@@ -2329,6 +2367,7 @@ export function formatLifecycleToolErrorJson(
     outcome: "error",
     error: message,
     installations: [],
+    impacts: [],
     outputs: [],
     repositoryExclusions: [],
     repositoryExclusionRepairs: [],

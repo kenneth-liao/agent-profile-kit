@@ -72,6 +72,13 @@ import {
   type ProjectScopedBlockerInput,
   type ReconciliationBlocker,
 } from "./blockers.js";
+import {
+  hostVersionsEqual,
+  installationImpacts,
+  removalImpacts,
+  sortLifecycleImpacts,
+  type LifecycleImpact,
+} from "./impacts.js";
 
 export type { ReconciliationBlocker } from "./blockers.js";
 
@@ -152,6 +159,8 @@ export interface ReconciliationReport {
   }[];
   readonly items: readonly ReconciliationItem[];
   readonly outputs: readonly OutputReconciliationItem[];
+  /** Typed lifecycle impact records for this pass, deterministically ordered. */
+  readonly impacts: readonly LifecycleImpact[];
   readonly repositoryExclusionRepairs: readonly RepositoryExclusionRepair[];
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
   /** Structured values referenced by lifecycle diagnostics and warnings. */
@@ -227,6 +236,7 @@ export async function unreadableInstallationStateReport(
       reason: message,
     }],
     outputs: [],
+    impacts: [],
   };
 }
 
@@ -436,16 +446,6 @@ function stateWithInstallationExclusion(
     schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
     temporaryInstallations: state.temporaryInstallations,
   };
-}
-
-function hostVersionsEqual(
-  left: Readonly<Record<string, string>>,
-  right: Readonly<Record<string, string>>,
-): boolean {
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
-  if (leftKeys.length !== rightKeys.length) return false;
-  return leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
 }
 
 async function pathKind(path: string): Promise<"missing" | "file" | "directory" | "symlink" | "other"> {
@@ -781,6 +781,7 @@ export async function previewReconciliation(
   const inspection = options.ownershipInspection ?? createLifecycleOwnershipInspectionContext();
   const items: ReconciliationItem[] = [];
   const outputItems: OutputReconciliationItem[] = [];
+  const impacts: LifecycleImpact[] = [];
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
   const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
   const {
@@ -852,6 +853,10 @@ export async function previewReconciliation(
     const repairableMissingOutputs = new Set(
       (ownership?.repairableMissingOutputs ?? []).filter((path) => proposedOutputPaths.has(path)),
     );
+    // Per-output change kinds feeding typed impact derivation. Member-level items
+    // (missing/drifted/unexpected members) are attention evidence, not planned
+    // output changes, so they never enter this map.
+    const outputChanges = new Map<string, OutputReconciliationKind>();
     for (const output of proposedOutputs) {
       const previousOutput = previousOutputs.get(output.path);
       const kind: OutputReconciliationKind = repairableMissingOutputs.has(output.path)
@@ -863,6 +868,7 @@ export async function previewReconciliation(
             previousOutput.type === output.type
           ? "unchanged"
           : "update";
+      outputChanges.set(output.path, kind);
       outputItems.push({
         kind,
         path: output.path,
@@ -878,6 +884,7 @@ export async function previewReconciliation(
       previousOutputs.delete(output.path);
     }
     for (const [path, previousOutput] of previousOutputs) {
+      outputChanges.set(path, "removal");
       outputItems.push({
         kind: "removal",
         path,
@@ -949,6 +956,12 @@ export async function previewReconciliation(
           ? { reason: "Output was removed by uninstall; Project Binding was preserved" }
           : {}),
       });
+      impacts.push(...installationImpacts(
+        previous,
+        installation,
+        outputChanges,
+        { intendedTeardown, moved: false, repairableMissingMarker: false },
+      ));
       continue;
     }
     if (moved) {
@@ -963,6 +976,12 @@ export async function previewReconciliation(
         project: installation.binding.project,
         reason: "project moved",
       });
+      impacts.push(...installationImpacts(
+        previous,
+        installation,
+        outputChanges,
+        { intendedTeardown: false, moved: true, repairableMissingMarker: false },
+      ));
       continue;
     }
     const markerEvidence = await inspection.inspectMarker(installation.binding.canonicalProject);
@@ -1044,6 +1063,12 @@ export async function previewReconciliation(
         project: installation.binding.project,
       });
     }
+    impacts.push(...installationImpacts(
+      previous,
+      installation,
+      outputChanges,
+      { intendedTeardown: false, moved: false, repairableMissingMarker },
+    ));
   }
   for (const installation of state.installations) {
     if (desiredProjects.has(installation.project) || movedPreviousProjects.has(installation.project)) continue;
@@ -1074,6 +1099,7 @@ export async function previewReconciliation(
           ? { reason: proof.reason }
           : {}),
     });
+    impacts.push(...removalImpacts(installation, intentionallyDeleted));
     for (const output of installation.outputs) {
       outputItems.push({
         kind: "removal",
@@ -1109,6 +1135,7 @@ export async function previewReconciliation(
     outputs: outputItems.sort((left, right) =>
       left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
     ),
+    impacts: sortLifecycleImpacts(impacts),
     repositoryExclusionRepairs: exclusionDiagnostics.repairs,
     repositoryExclusions: repositoryExclusionChanges(state, projectedState),
     diagnosticValues: [...new Set(
