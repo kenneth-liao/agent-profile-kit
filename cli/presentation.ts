@@ -2093,17 +2093,9 @@ function conciseReport(
     ? aggregateLine(command, report, groups)
     : undefined;
   if (!blocked && summary !== undefined) lines.push(summary);
-  const receiptHasRepositoryWork = receipt !== undefined && (
-    changedRepositoryExclusions(receipt).length > 0 ||
-    receipt.repositoryExclusionRepairs.length > 0
-  );
-  const showSingleCurrentGroup = command === "apply" && receiptHasRepositoryWork && groups.length === 1;
   const activeGroups = blocked
     ? groups.filter((group) => group.blockers.length > 0)
-    : groups.filter((group) =>
-        groupNeedsAttention(group, command) ||
-        (showSingleCurrentGroup && group.items.every((item) => item.kind === "current")),
-      );
+    : groups.filter((group) => groupNeedsAttention(group, command));
   const receiptImpactFirst = command === "apply" && receipt !== undefined &&
     useImpactFirstPresentation(receipt, false);
   const impactFirst = useImpactFirstPresentation(report, blocked) || receiptImpactFirst;
@@ -2138,7 +2130,7 @@ function conciseReport(
         continue;
       }
       for (const item of group.items) {
-        if (item.kind !== "current" || (command === "apply" && showSingleCurrentGroup)) {
+        if (item.kind !== "current") {
           lines.push(`  State: ${itemText(item)}`);
         }
       }

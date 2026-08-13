@@ -3371,7 +3371,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const repaired = await runCli(home, "apply");
     expectExitCode(repaired, 0);
-    expect(repaired.stdout).toContain("State: current");
+    expect(repaired.stdout).not.toContain("State: current");
     expect(repaired.stdout).toContain("Applied:");
     expect(repaired.stdout).toContain("Git exclusions: 3 recorded entries restored.");
     expect(repaired.stdout).not.toContain(exclude);

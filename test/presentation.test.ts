@@ -2100,6 +2100,8 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatApplyReport(applyResult(receipt, result));
     expect(concise).toContain("Git exclusions: 1 recorded entry restored.");
+    expect(concise).not.toContain("Project: /repo");
+    expect(concise).not.toContain("State: current");
     expect(concise).not.toContain("/repo/.git/info/exclude");
     expect(concise).not.toContain("/.agent-profile-kit/codex/context.md");
 
@@ -3847,6 +3849,36 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(apply).not.toContain("Project: /project-a");
     expect(apply).not.toContain("State: current");
     expect(apply).not.toContain("State: addition");
+  });
+
+  test("exclusion-only apply does not reprint a current Project block", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/repo",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/repo",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/repo" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/repo" }],
+      repositoryExclusionRepairs: [{
+        entries: ["/.agent-profile-kit/codex/context.md"],
+        target: "/repo/.git/info/exclude",
+      }],
+    });
+    const resultingState = emptyReport({
+      desired: receipt.desired,
+      items: [{ kind: "current", project: "/repo" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/repo" }],
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).toContain("Apply complete");
+    expect(apply).toContain("Git exclusions: 1 recorded entry restored.");
+    expect(apply).not.toContain("Project: /repo");
+    expect(apply).not.toContain("State: current");
   });
 
   test("remaining attention after apply still appears", () => {
