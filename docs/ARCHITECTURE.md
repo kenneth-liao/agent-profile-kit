@@ -103,7 +103,7 @@ Commands separate binding authoring from global reconciliation:
   - `list hosts` renders the canonical supported-Host set and Temporary Profile Installation eligibility from capability constants without inspecting PATH, Host versions, configuration, or Project surfaces.
   - `list temporary` reads active Temporary Profile Installation records from Installation State, omits terminal removed identities and ordinary installations, and renders each temporary identity with its short Project path, Profile, and Host. It does not inspect Local Configuration, Workspace artifacts, Git, project output, or Host capabilities.
   - Each topic's `--json` view emits the same records with engine provenance; temporary JSON retains the canonical Project path and durable temporary installation identity. No inventory topic writes state.
-- `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states; `--json` emits the versioned machine payload described below.
+- `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states; `--json` emits the versioned machine payload described below. Multi-Project concise views are impact-first: shared Workspace changes render once with generated-file counts and a deterministic affected-Project scope, Project Binding and Host-specific changes stay distinct, and member-level attention remains visible as Project exceptions.
 - `apply` reconciles every binding and, after its commits, performs a fresh
   reconciliation to report the verified resulting state. It separately emits
   an `Applied` section containing the pre-apply generated-output and Repository
@@ -129,6 +129,23 @@ evidence, and is not stability-guaranteed before 1.0. Blocked temporary-installa
 JSON advances to the same versioned structured blocker records. Temporary
 installation receipts use the same exit matrix (`0` / `1` / `2`) with their own
 versioned JSON schema and carry no blocker records.
+
+Human lifecycle presentation in `cli/presentation.ts` is scale-aware
+(DEC-022): a single-Project run keeps the recognizable Project-first detail,
+while an unblocked run whose typed impacts span more than one Project derives
+one grouped view from the same impact model — shared Workspace Skill/Context
+changes once under `Workspace changes`, distinct Project Binding, Adapter,
+repair, removal, and unclassified-path changes under `Project changes`, and
+per-Project attention that impacts do not carry under `Project exceptions`.
+Group lines carry generated-file totals and a progressive affected-Project
+scope: a complete short list, a count when every Project of the Profile/Host
+scope is affected, or a capped representative list with an explicit `--verbose`
+pointer to every Project. Profile and Host clauses render only where they
+disambiguate groups (Binding and Adapter groups always name their Hosts). The
+multi-Project apply receipt groups the same facts with preview-consistent
+symbols and counts. Blockers stay prominent ahead of any impact detail, and
+`--verbose` plus the versioned JSON retain the complete per-Project and
+per-path evidence.
 
 `unbind` changes desired Project Binding state and directs the user to global
 `preview`/`apply` only when an Installation Manifest shows that generated output
