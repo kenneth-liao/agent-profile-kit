@@ -2076,10 +2076,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(preview.stdout).toContain(
       "Review and approve the generated SessionStart hook when Codex asks.",
     );
-    expect(humanText(preview.stdout)).toContain(
-      humanText(`Launch Codex from the exact bound project root: ${projectPath}`),
-    );
     expect(preview.stdout).not.toContain("Trust the bound project in Codex.");
+    expect(preview.stdout).not.toContain("Standing Host setup:");
     const result = await runCli(home, "apply");
 
     expectExitCode(result, 0);
@@ -2094,6 +2092,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "Review and approve the generated SessionStart hook when Codex asks.",
     );
     expect(result.stdout).toContain("Declining the hook prevents Profile Context from loading.");
+    expect(result.stdout).toContain("Standing Host setup:");
     expect(result.stdout).toContain("Trust the bound project in Codex.");
     expect(humanText(result.stdout)).toContain(
       humanText(`Launch Codex from the exact bound project root: ${projectPath}`),
@@ -2130,7 +2129,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
-    expect(status.stdout.match(/Codex setup:/g)).toHaveLength(1);
+    expect(status.stdout.match(/Standing Host setup:/g)).toHaveLength(1);
+    expect(status.stdout).not.toContain(
+      "Review and approve the generated SessionStart hook",
+    );
   });
 
   test("successful apply reports verified current state and a separate apply receipt", async () => {
@@ -2154,6 +2156,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toContain(humanText(`Project: ${projectPath}`));
     expect(result.stdout).toContain("State: current");
     expect(result.stdout).not.toContain("State: stale source");
+    // The hook was not part of this change: transition-triggered approval is
+    // not replayed, while the standing reminder remains (US-046, US-047).
+    expect(result.stdout).not.toContain(
+      "Review and approve the generated SessionStart hook when Codex asks.",
+    );
+    expect(result.stdout).toContain("Standing Host setup:");
+    expect(result.stdout).toContain("Trust the bound project in Codex.");
   });
 
   test("apply receipt work expands only the changed project in a multi-project binding", async () => {
@@ -3891,7 +3900,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Attention required");
     expect(result.stdout).not.toContain("missing output");
     expect(result.stdout).not.toContain("not a safe automatic repair");
-    expect(result.stdout).not.toContain("Codex setup:");
+    expect(result.stdout).not.toContain("Standing Host setup:");
   });
 
   test("uninstall names removed project files, cleaned Git exclusions, and preserved bindings", async () => {

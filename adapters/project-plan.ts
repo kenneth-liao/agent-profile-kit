@@ -62,16 +62,43 @@ export type HostSetupStepKind =
   | "shared-path"
   | "trust-required";
 
-export interface AdapterHostSetupStep {
+/**
+ * Whether a Host Setup Step is caused by the current lifecycle transition or
+ * is a standing constraint. Adapters classify every step at this boundary so
+ * every presenter consumes one trusted provenance (DEC-036).
+ */
+export type HostSetupProvenance = "transition" | "standing";
+
+/**
+ * A Host Setup Step that becomes relevant only when its associated generated
+ * output is added, updated, or repaired by the current change.
+ */
+export interface AdapterTransitionSetupStep {
   readonly consequence?: string;
   readonly kind: HostSetupStepKind;
   readonly message: string;
   readonly path?: "bound-project";
+  /**
+   * The exact generated output path whose addition, update, or repair makes
+   * this step newly relevant. One canonical Adapter-owned reference, never
+   * inferred from generated path naming.
+   */
+  readonly output: string;
+  readonly provenance: "transition";
 }
 
-export interface HostSetupStep extends AdapterHostSetupStep {
-  readonly host: SupportedHost;
+/** A persistent Host constraint presented as a compact standing reminder. */
+export interface AdapterStandingSetupStep {
+  readonly consequence?: string;
+  readonly kind: HostSetupStepKind;
+  readonly message: string;
+  readonly path?: "bound-project";
+  readonly provenance: "standing";
 }
+
+export type AdapterHostSetupStep = AdapterTransitionSetupStep | AdapterStandingSetupStep;
+
+export type HostSetupStep = AdapterHostSetupStep & { readonly host: SupportedHost };
 
 /** Adapter-authored warning plus the values its human presentation must keep intact. */
 export interface AdapterDiagnosticWarning {

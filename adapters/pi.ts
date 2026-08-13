@@ -471,6 +471,7 @@ export async function planPiProject(
         consequence: "The Profile does not load until the project is trusted.",
         kind: "trust-required",
         message: "Trust the bound project in Pi.",
+        provenance: "standing",
       }]
     : [];
   return {

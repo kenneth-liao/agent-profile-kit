@@ -471,6 +471,9 @@ function sessionStartCommandFor(contextPath: string): string {
   return `root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; cat "$root/${shellDoubleQuote(contextPath)}"`;
 }
 
+/** The owned Codex SessionStart hooks output path (project-relative). */
+export const CODEX_HOOKS_OUTPUT_PATH = join(".codex", "hooks.json");
+
 function hooks(contextPath: string): string {
   return `${JSON.stringify(
     {
@@ -500,11 +503,15 @@ function contextSetupSteps(requiresBoundRootLaunch = false): readonly AdapterHos
       consequence: "Declining the hook prevents Profile Context from loading.",
       kind: "approval-required",
       message: "Review and approve the generated SessionStart hook when Codex asks.",
+      // Newly relevant only when this apply adds or changes the hooks output.
+      output: CODEX_HOOKS_OUTPUT_PATH,
+      provenance: "transition",
     },
     {
       consequence: "Profile Context does not load until the project is trusted.",
       kind: "trust-required",
       message: "Trust the bound project in Codex.",
+      provenance: "standing",
     },
   ];
   if (requiresBoundRootLaunch) {
@@ -513,6 +520,7 @@ function contextSetupSteps(requiresBoundRootLaunch = false): readonly AdapterHos
       kind: "launch-constraint",
       message: "Launch Codex from the exact bound project root:",
       path: "bound-project",
+      provenance: "standing",
     });
   }
   return steps;
@@ -562,7 +570,7 @@ export async function planCodexProject(
         // Adapter-authored; its content follows Host contract and project topology,
         // not any single Workspace artifact, so it carries no source origin.
         origins: [],
-        path: join(".codex", "hooks.json"),
+        path: CODEX_HOOKS_OUTPUT_PATH,
         requirements: [
           "Codex SessionStart runs on startup, clear, and compact",
           "Codex SessionStart passes complete additionalContext directly to the model",
