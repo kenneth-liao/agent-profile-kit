@@ -1384,7 +1384,7 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatApplyReport(applyResult(receipt, resultingState));
 
-    expect(concise).toContain("Pending: none");
+    expect(concise).not.toContain("Pending: none");
     expect(concise).toContain("Applied:\n- /project-a:\n  + a.md");
     expect(concise).not.toContain("Changes:");
     expect(concise).not.toContain("Apply receipt:");
@@ -2165,7 +2165,8 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatApplyReport(applyResult(receipt, resultingState));
 
-    expect(concise).toContain("Project: /changed");
+    expect(concise).toContain("Applied:\n- /changed:\n  ~ changed.md");
+    expect(concise).not.toContain("Project: /changed");
     expect(concise).not.toContain("Project: /untouched");
   });
 
@@ -2451,7 +2452,7 @@ describe("formatLifecycleReport next-action guidance", () => {
 
     expect(status).toContain(
       "Next:\n" +
-        "- /project-a: After all blockers are resolved, run apkit preview to review its planned changes " +
+        "- /project-a: After all blockers are resolved, run apkit preview to review the planned changes " +
         "(read-only), then apply when ready.\n" +
         "- /project-b: Resolve the reported blocker, then run apkit status again.",
     );
@@ -2619,8 +2620,7 @@ describe("formatLifecycleReport next-action guidance", () => {
 
     const next = nextActionLines(formatLifecycleReport("status", report));
     expect(next).toEqual([
-      "/a: Resolve the reported blocker, then run apkit status again.",
-      "/b: Resolve the reported blocker, then run apkit status again.",
+      "Resolve the reported blocker, then run apkit status again.",
     ]);
   });
 });
@@ -3676,5 +3676,370 @@ describe("impact-first multi-Project presentation", () => {
     // artifactReferenceKey sorts "context:team-rules" before "skill:review-pr".
     expect(contextIndex).toBeGreaterThan(workspaceIndex);
     expect(skillIndex).toBeGreaterThan(contextIndex);
+  });
+});
+
+describe("lifecycle summaries, next actions, and readiness", () => {
+  test("successful summaries omit zero-value blocker and pending clauses", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+
+    const preview = formatLifecycleReport("preview", report);
+    expect(preview).toContain("Ready to apply");
+    expect(preview).toContain("Projects: 1 · Changes: 1 generated file addition");
+    expect(preview).not.toContain("Blockers: 0");
+    expect(preview).not.toContain("Changes: none");
+
+    const applied = formatApplyReport(applyResult(report, emptyReport({
+      desired: report.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    })));
+    expect(applied).toContain("Apply complete");
+    expect(applied).not.toContain("Blockers: 0");
+    expect(applied).not.toContain("Pending: none");
+    expect(applied).not.toContain("Changes: none");
+  });
+
+  test("blocked summaries still show the blocker count", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a", reason: "hooks disabled" }],
+      blockers: [fixtureBlocker("/project-a: hooks disabled", "/project-a")],
+    });
+
+    const preview = formatLifecycleReport("preview", report);
+    expect(preview).toContain("Cannot apply");
+    expect(preview).toContain("Blockers: 1");
+    expect(preview).not.toContain("Blockers: 0");
+
+    const apply = formatBlockedApplyReport(asBlockedReport(report));
+    expect(apply).toContain("Apply blocked");
+    expect(apply).toContain("Blockers: 1");
+    expect(apply).toContain("Pending: blocked");
+  });
+
+  test("identical next actions collapse once with Project scope", () => {
+    const report = emptyReport({
+      desired: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      })),
+      items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        kind: "update" as const,
+        project,
+      })),
+      outputs: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        kind: "update" as const,
+        path: "a.md",
+        project,
+      })),
+    });
+
+    const preview = formatLifecycleReport("preview", report);
+    expect(preview).toContain("Next:\n- Run apkit apply.");
+    expect(preview).not.toContain("/project-a: Run apkit apply.");
+    expect(preview.match(/Run apkit apply\./g)).toHaveLength(1);
+  });
+
+  test("aliased Project next actions keep the authored identity", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/private/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+
+    const preview = formatLifecycleReport("preview", report);
+    expect(preview).toContain("- /project-a: Run apkit apply.");
+    expect(preview).not.toContain("/private/project-a: Run apkit apply.");
+  });
+
+  test("differing next actions stay scoped", () => {
+    const report = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          outputs: ["b.md"],
+          profile: "coding",
+          project: "/project-b",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [
+        { kind: "stale source", project: "/project-a" },
+        { kind: "blocked", project: "/project-b", reason: "hooks disabled" },
+      ],
+      outputs: [
+        { kind: "update", path: "a.md", project: "/project-a" },
+        { kind: "update", path: "b.md", project: "/project-b" },
+      ],
+      blockers: [fixtureBlocker("/project-b: hooks disabled", "/project-b")],
+    });
+
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain(
+      "Next:\n" +
+        "- /project-a: After all blockers are resolved, run apkit preview to review the planned changes " +
+        "(read-only), then apply when ready.\n" +
+        "- /project-b: Resolve the reported blocker, then run apkit status again.",
+    );
+  });
+
+  test("successful apply does not print a current-Project matrix before Applied", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: receipt.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).toContain("Apply complete");
+    expect(apply).toContain("Applied:\n- /project-a:\n  + a.md");
+    expect(apply).not.toContain("Project: /project-a");
+    expect(apply).not.toContain("State: current");
+    expect(apply).not.toContain("State: addition");
+  });
+
+  test("remaining attention after apply still appears", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: receipt.desired,
+      items: [{ kind: "drifted output", project: "/project-a" }],
+      outputs: [{ kind: "drifted member", path: "a.md/SKILL.md", project: "/project-a" }],
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).toContain("Apply completed with attention");
+    expect(apply).toContain("Project: /project-a");
+    expect(apply).toContain("State: drifted output");
+    expect(apply).toContain("! a.md/SKILL.md");
+    expect(apply).toContain("Applied:\n- /project-a:\n  ~ a.md");
+  });
+
+  test("no-op preview states current once", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    const preview = formatLifecycleReport("preview", report);
+    expect(preview).toBe("Nothing to sync; all Projects are current.\n");
+    expect(preview).not.toContain("Ready to apply");
+    expect(preview).not.toContain("Blockers: 0");
+    expect(preview).not.toContain("Changes: none");
+    expect(preview).not.toContain("Projects: 1");
+  });
+
+  test("no-op apply states current once without readiness", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    const apply = formatApplyReport(applyResult(report));
+    expect(apply).toBe("Apply complete\nAll Projects were already current.\n");
+    expect(apply).not.toContain("Pending: none");
+    expect(apply).not.toContain("Applied: none");
+    expect(apply).not.toContain("Blockers: 0");
+    expect(apply).not.toContain("becomes active");
+    expect(apply).not.toContain("Host setup:");
+  });
+
+  test("readiness groups Projects that share Profile, Hosts, and setup condition", () => {
+    const hookApproval: HostSetupStep = {
+      host: "codex",
+      kind: "approval-required",
+      message: "Review and approve the generated SessionStart hook when Codex asks.",
+      consequence: "Declining the hook prevents Profile Context from loading.",
+      output: ".codex/hooks.json",
+      provenance: "transition",
+    };
+    const receipt = emptyReport({
+      desired: ["/project-a", "/project-b"].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: [".codex/hooks.json"],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+        setupSteps: [hookApproval],
+      })),
+      items: ["/project-a", "/project-b"].map((project) => ({
+        kind: "addition" as const,
+        project,
+      })),
+      outputs: ["/project-a", "/project-b"].map((project) => ({
+        kind: "addition" as const,
+        path: ".codex/hooks.json",
+        project,
+      })),
+    });
+    const resultingState = emptyReport({
+      desired: receipt.desired,
+      items: ["/project-a", "/project-b"].map((project) => ({
+        kind: "current" as const,
+        project,
+      })),
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply.match(/becomes active on the next launch/g)).toHaveLength(1);
+    expect(apply).toContain(
+      "After completing the Host setup above, Profile coding becomes active on the next launch " +
+        "of each bound Host (codex) in 2 projects.",
+    );
+    expect(apply).not.toContain("from /project-a");
+    expect(apply).not.toContain("from /project-b");
+  });
+
+  test("setup-dependent readiness appears only when setup remains relevant", () => {
+    const hookApproval: HostSetupStep = {
+      host: "codex",
+      kind: "approval-required",
+      message: "Review and approve the generated SessionStart hook when Codex asks.",
+      consequence: "Declining the hook prevents Profile Context from loading.",
+      output: ".codex/hooks.json",
+      provenance: "transition",
+    };
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [hookApproval],
+      }],
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: receipt.desired,
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).not.toContain("After completing the Host setup above");
+    expect(apply).toContain(
+      "No further Host setup is required. Profile coding becomes active on the next launch " +
+        "of each bound Host (codex) from /project-a.",
+    );
+  });
+
+  test("verbose evidence, JSON, and exit codes stay unchanged", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+
+    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    expect(verbose).toContain("Projects:");
+    expect(verbose).toContain("/project-a: addition");
+    expect(verbose).toContain("Outputs:");
+    expect(verbose).toContain("/project-a/a.md: addition");
+    expect(verbose).toContain("Desired State:");
+    expect(verbose).toContain("Blockers:");
+    expect(verbose).not.toContain("Next:");
+
+    const payload = JSON.parse(formatLifecycleJson("preview", report)) as {
+      readonly command: string;
+      readonly outcome: string;
+      readonly schemaVersion: number;
+    };
+    expect(payload).toMatchObject({
+      command: "preview",
+      outcome: "attention",
+      schemaVersion: 2,
+    });
+    expect(lifecycleExitCode(report)).toBe(0);
+    expect(lifecycleExitCode(emptyReport({
+      blockers: [fixtureBlocker("occupied output", "/project-a")],
+    }))).toBe(2);
   });
 });

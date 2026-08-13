@@ -706,7 +706,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const applyViaReal = await runCli(home, "apply");
     expectExitCode(applyViaReal, 0);
     expect(applyViaReal.stdout).toContain("Apply complete");
-    expect(applyViaReal.stdout).toContain("Pending: none");
+    expect(applyViaReal.stdout).not.toContain("Pending: none");
     // Installation identity/state must not rewrite solely because the authored alias changed.
     expect(readFileSync(statePath(home), "utf8")).toBe(stateAfterApply);
 
@@ -1866,6 +1866,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(preview.stdout.match(/~ Skill review-pr/g)).toHaveLength(1);
     expect(preview.stdout).not.toContain("Project changes:");
     expect(preview.stdout.match(/Project: /g)).toBeNull();
+    expect(preview.stdout).toContain("Next:\n- Run apkit apply.");
+    expect(preview.stdout.match(/Run apkit apply\./g)).toHaveLength(1);
+    expect(preview.stdout).not.toContain("Blockers: 0");
 
     const verbose = await runCli(home, "preview", "--verbose");
     expectExitCode(verbose, 0);
@@ -1882,8 +1885,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const apply = await runCli(home, "apply");
     expectExitCode(apply, 0);
-    expect(apply.stdout).toContain("Applied:\n  ~ Skill review-pr · 12 files in 12 projects");
-    expect(apply.stdout.match(/Applied:\n  ~ Skill review-pr/g)).toHaveLength(1);
+    expect(apply.stdout).toContain("Applied:");
+    expect(humanText(apply.stdout)).toContain(humanText("~ Skill review-pr · 12 files in 12 projects"));
+    expect(humanText(apply.stdout).match(/~ Skill review-pr/g)).toHaveLength(1);
+    expect(apply.stdout).not.toContain("Project: ");
+    expect(apply.stdout).not.toContain("State: current");
+    expect(humanText(apply.stdout).match(/becomes active on the next launch/g)).toHaveLength(1);
 
     // Status after apply reports the shared change once and one current fact.
     writeFileSync(
@@ -2082,7 +2089,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 0);
     expect(result.stdout.startsWith("Apply complete\n")).toBe(true);
-    expect(result.stdout).toContain("State: current");
+    expect(result.stdout).not.toContain("State: current");
     expect(result.stdout).not.toContain("State: addition");
     expect(result.stdout).toContain("Applied:");
     expect(result.stdout).toContain("+ .agent-profile-kit/codex/context.md");
@@ -2153,8 +2160,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(result.stdout).toContain("Applied:");
     expect(result.stdout).toContain("~ .agent-profile-kit/codex/context.md");
-    expect(humanText(result.stdout)).toContain(humanText(`Project: ${projectPath}`));
-    expect(result.stdout).toContain("State: current");
+    expect(humanText(result.stdout)).not.toContain(humanText(`Project: ${projectPath}`));
+    expect(result.stdout).not.toContain("State: current");
     expect(result.stdout).not.toContain("State: stale source");
     // The hook was not part of this change: transition-triggered approval is
     // not replayed, while the standing reminder remains (US-046, US-047).
@@ -2188,7 +2195,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "apply");
 
     expectExitCode(result, 0);
-    expect(humanText(result.stdout)).toContain(humanText(`Project: ${changedProject}`));
+    expect(humanText(result.stdout)).toContain(humanText(`- ${changedProject}:`));
+    expect(humanText(result.stdout)).not.toContain(humanText(`Project: ${changedProject}`));
     expect(humanText(result.stdout)).not.toContain(humanText(`Project: ${untouchedProject}`));
   });
 
@@ -2309,9 +2317,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("Apply complete");
-    expect(result.stdout).toContain("Pending: none");
+    expect(result.stdout).not.toContain("Pending: none");
     expect(result.stdout).toContain("All Projects were already current.");
-    expect(result.stdout).toContain("Applied: none");
+    expect(result.stdout).not.toContain("Applied: none");
     expect(result.stdout).not.toContain("becomes active");
     expect(result.stdout).not.toContain("generated file update");
     expect(result.stdout).not.toContain("unchanged generated file");
@@ -2345,7 +2353,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const applied = await runCli(home, "apply");
     expectExitCode(applied, 0);
-    expect(applied.stdout).toContain("Applied: none");
+    expect(applied.stdout).not.toContain("Applied: none");
+    expect(applied.stdout).toContain("All Projects were already current.");
     expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
     expect(outputPaths.map((path) => statSync(path).mtimeMs)).toEqual(outputTimesBefore);
   });

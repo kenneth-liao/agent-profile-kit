@@ -143,9 +143,13 @@ scope is affected, or a capped representative list with an explicit `--verbose`
 pointer to every Project. Profile and Host clauses render only where they
 disambiguate groups (Binding and Adapter groups always name their Hosts). The
 multi-Project apply receipt groups the same facts with preview-consistent
-symbols and counts. Blockers stay prominent ahead of any impact detail, and
-`--verbose` plus the versioned JSON retain the complete per-Project and
-per-path evidence.
+symbols and counts. Concise summaries omit zero-value blocker and pending
+clauses; identical next actions collapse once, while differing remedies stay
+scoped. Successful apply reports the receipt, remaining attention, Host
+guidance, and one grouped next-launch statement without reprinting verified-current
+Project blocks. No-op preview and apply state that everything is current once.
+Blockers stay prominent ahead of any impact detail, and `--verbose` plus the
+versioned JSON retain the complete per-Project and per-path evidence.
 
 `unbind` changes desired Project Binding state and directs the user to global
 `preview`/`apply` only when an Installation Manifest shows that generated output

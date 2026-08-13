@@ -1257,15 +1257,6 @@ function groupNeedsAttention(group: ProjectGroup, command: LifecycleCommand): bo
   );
 }
 
-function groupHasReconciliationWork(group: ProjectGroup | undefined): boolean {
-  if (group === undefined) return false;
-  return (
-    group.blockers.length > 0 ||
-    changeCount(summarizeOutputs(group.outputs)) > 0 ||
-    group.items.some((item) => item.kind !== "current")
-  );
-}
-
 function fullyCurrentProjectCount(report: ReconciliationReport): number | undefined {
   if (
     report.items.length === 0 ||
@@ -1277,12 +1268,40 @@ function fullyCurrentProjectCount(report: ReconciliationReport): number | undefi
   return new Set(report.items.map((item) => item.project)).size;
 }
 
+function reportHasReconciliationWork(report: ReconciliationReport): boolean {
+  return (
+    report.blockers.length > 0 ||
+    changeCount(summarizeOutputs(report.outputs)) > 0 ||
+    report.items.some((item) => item.kind !== "current") ||
+    changedRepositoryExclusions(report).length > 0 ||
+    report.repositoryExclusionRepairs.length > 0
+  );
+}
+
+function isNoOpApply(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  receipt: ReconciliationReport | undefined,
+): boolean {
+  return command === "apply" &&
+    receipt !== undefined &&
+    fullyCurrentProjectCount(report) !== undefined &&
+    !reportHasReconciliationWork(receipt);
+}
+
 function outcomeLine(
   command: LifecycleCommand,
   report: ReconciliationReport,
   applyCompleted = false,
 ): string {
-  if (command === "preview") return report.blockers.length > 0 ? "Cannot apply" : "Ready to apply";
+  if (command === "preview") {
+    if (report.blockers.length > 0) return "Cannot apply";
+    if (fullyCurrentProjectCount(report) !== undefined) {
+      const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
+      return `Nothing to ${DEFAULT_VIEW_LEXICON.reconciliation.base}; all ${projects} are current.`;
+    }
+    return "Ready to apply";
+  }
   if (command === "apply") {
     if (report.blockers.length > 0) return applyCompleted ? "Apply completed with blockers" : "Apply blocked";
     if (report.items.some((item) => item.kind !== "current")) return "Apply completed with attention";
@@ -1312,23 +1331,21 @@ function aggregateLine(
   command: LifecycleCommand,
   report: ReconciliationReport,
   groups: readonly ProjectGroup[],
-): string {
+): string | undefined {
   const installations = groups.length;
+  const parts = [
+    `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}: ${installations}`,
+  ];
   if (report.blockers.length > 0) {
-    const pending = command === "apply" ? " · Pending: blocked" : "";
-    return (
-      `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}: ${installations}${pending} · ` +
-      `Blockers: ${report.blockers.length}`
-    );
+    if (command === "apply") parts.push("Pending: blocked");
+    parts.push(`Blockers: ${report.blockers.length}`);
+    return parts.join(" · ");
   }
-  const summary = summarizeOutputs(report.outputs);
-  const changes = changeParts(summary);
-  const workLabel = command === "apply" ? "Pending" : "Changes";
-  return (
-    `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}: ${installations} · ` +
-    `${workLabel}: ${changes.length === 0 ? "none" : changes.join(", ")} · ` +
-    `Blockers: ${report.blockers.length}`
-  );
+  const changes = changeParts(summarizeOutputs(report.outputs));
+  if (changes.length > 0) {
+    parts.push(`${command === "apply" ? "Pending" : "Changes"}: ${changes.join(", ")}`);
+  }
+  return parts.length === 1 ? undefined : parts.join(" · ");
 }
 
 function warningsForPresentation(
@@ -1535,6 +1552,9 @@ function setupSectionsFromPresented(
   return lines;
 }
 
+/** Concise default view caps the rendered affected-Project list at this size. */
+const PROJECT_SCOPE_LIMIT = 4;
+
 /** Select and render the Host Setup Steps for one surface. */
 function hostSetupSections(
   command: LifecycleCommand,
@@ -1564,18 +1584,72 @@ function activationLines(
       (actionableByCanonical.get(canonicalProject) ?? 0) + 1,
     );
   }
-  return [...report.desired]
-    .filter((installation) => changedProjects.has(installation.project))
-    .sort((left, right) => left.canonicalProject.localeCompare(right.canonicalProject))
-    .map((installation) => {
-      const setupCondition =
-        (actionableByCanonical.get(installation.canonicalProject) ?? 0) > 0
-          ? "After completing the Host setup above, "
-          : "No further Host setup is required. ";
-      return `${setupCondition}Profile ${installation.profile} becomes active on the next launch ` +
-        `of each bound Host (${installation.hosts.join(", ")}) from ` +
-        `${displayProjectPath(installation.canonicalProject, installation.project)}.`;
+  const groups = new Map<string, {
+    readonly hosts: readonly string[];
+    readonly profile: string;
+    readonly requiresSetup: boolean;
+    projects: Array<{ readonly authored: string; readonly canonical: string }>;
+  }>();
+  for (const installation of report.desired) {
+    if (!changedProjects.has(installation.project)) continue;
+    const requiresSetup = (actionableByCanonical.get(installation.canonicalProject) ?? 0) > 0;
+    const key = [installation.profile, installation.hosts.join(","), requiresSetup ? "setup" : "ready"].join("\u0000");
+    const project = {
+      authored: installation.project,
+      canonical: installation.canonicalProject,
+    };
+    const existing = groups.get(key);
+    if (existing) {
+      existing.projects.push(project);
+    } else {
+      groups.set(key, {
+        hosts: installation.hosts,
+        profile: installation.profile,
+        projects: [project],
+        requiresSetup,
+      });
+    }
+  }
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      projects: [...group.projects].sort((left, right) =>
+        compareCanonicalStrings(left.canonical, right.canonical),
+      ),
+    }))
+    .sort((left, right) =>
+      left.profile.localeCompare(right.profile) ||
+      left.hosts.join(",").localeCompare(right.hosts.join(",")) ||
+      Number(right.requiresSetup) - Number(left.requiresSetup) ||
+      left.projects.map((project) => project.canonical).join("\u0000")
+        .localeCompare(right.projects.map((project) => project.canonical).join("\u0000")),
+    )
+    .map((group) => {
+      const setupCondition = group.requiresSetup
+        ? "After completing the Host setup above, "
+        : "No further Host setup is required. ";
+      const presented = group.projects.map((project) =>
+        displayProjectPath(project.canonical, project.authored),
+      );
+      const projectClause = presented.length === 1
+        ? `from ${presented[0]!}`
+        : `in ${plural(presented.length, "project")}`;
+      return `${setupCondition}Profile ${group.profile} becomes active on the next launch ` +
+        `of each bound Host (${group.hosts.join(", ")}) ${projectClause}.`;
     });
+}
+
+function nextActionScope(
+  projects: ReadonlyArray<{ readonly authored: string; readonly canonical: string }>,
+): string {
+  if (projects.length <= 1) return "";
+  const presented = projects.map((project) =>
+    displayProjectPath(project.canonical, project.authored),
+  );
+  if (presented.length <= PROJECT_SCOPE_LIMIT) {
+    return ` (${presented.join(", ")})`;
+  }
+  return ` (${presented.slice(0, PROJECT_SCOPE_LIMIT).join(", ")}, … ${plural(presented.length - PROJECT_SCOPE_LIMIT, "more Project")}; use --verbose to see all Projects)`;
 }
 
 function nextActionLines(
@@ -1589,53 +1663,84 @@ function nextActionLines(
   if (command === "apply" && report.blockers.length === 0) return [];
 
   const globalBlockers = report.blockers.filter((blocker) => blockerProject(blocker) === undefined);
-  const actions = surface.groups.flatMap((group) => {
-    const project = displayProjectPath(group.canonicalProject, group.project);
+  const grouped = new Map<string, Array<{ readonly authored: string; readonly canonical: string }>>();
+  const addAction = (
+    action: string,
+    project?: { readonly authored: string; readonly canonical: string },
+  ): void => {
+    const existing = grouped.get(action) ?? [];
+    if (project !== undefined) existing.push(project);
+    grouped.set(action, existing);
+  };
+  for (const group of surface.groups) {
+    const project = { authored: group.project, canonical: group.canonicalProject };
     if (group.blockers.length > 0) {
       const blockerWord = group.blockers.length === 1 ? "blocker" : "blockers";
-      return [`${project}: Resolve the reported ${blockerWord}, then run ${COMMAND_NAME} ${command} again.`];
+      addAction(
+        `Resolve the reported ${blockerWord}, then run ${COMMAND_NAME} ${command} again.`,
+        project,
+      );
+      continue;
     }
-    if (!groupNeedsAttention(group, command)) return [];
+    if (!groupNeedsAttention(group, command)) continue;
     if (report.blockers.length > 0 && globalBlockers.length === 0) {
       if (command === "status") {
-        return [
-          `${project}: After all blockers are resolved, run ${COMMAND_NAME} preview to review its ` +
-          "planned changes (read-only), then apply when ready.",
-        ];
+        addAction(
+          `After all blockers are resolved, run ${COMMAND_NAME} preview to review the ` +
+            "planned changes (read-only), then apply when ready.",
+          project,
+        );
+      } else {
+        addAction(
+          `After all blockers are resolved, run ${COMMAND_NAME} apply` +
+            `${command === "apply" ? " again" : ""}.`,
+          project,
+        );
       }
-      return [
-        `${project}: After all blockers are resolved, run ${COMMAND_NAME} apply` +
-        `${command === "apply" ? " again" : ""}.`,
-      ];
+      continue;
     }
-    if (globalBlockers.length > 0) return [];
+    if (globalBlockers.length > 0) continue;
     if (command === "status") {
-      return [
-        `${project}: Run ${COMMAND_NAME} preview to review its planned changes (read-only), then apply when ready.`,
-      ];
+      addAction(
+        `Run ${COMMAND_NAME} preview to review the planned changes (read-only), then apply when ready.`,
+        project,
+      );
+    } else {
+      addAction(`Run ${COMMAND_NAME} apply.`, project);
     }
-    return [`${project}: Run ${COMMAND_NAME} apply.`];
-  });
+  }
 
   if (globalBlockers.length > 0) {
     const blockerWord = globalBlockers.length === 1 ? "blocker" : "blockers";
-    actions.push(`Resolve the reported global ${blockerWord}, then run ${COMMAND_NAME} ${command} again.`);
+    addAction(`Resolve the reported global ${blockerWord}, then run ${COMMAND_NAME} ${command} again.`);
   }
   if (
     report.blockers.length === 0 &&
     surface.unscopedItems.some((item) => item.kind !== "current")
   ) {
-    actions.push(
+    addAction(
       command === "status"
         ? `Run ${COMMAND_NAME} preview to review the planned changes (read-only), then apply when ready.`
         : `Run ${COMMAND_NAME} apply.`,
     );
   }
+  const actions = [...grouped.entries()].map(([action, projects]) => {
+    const uniqueProjects = [...new Map(
+      projects.map((project) => [project.canonical, project]),
+    ).values()].sort((left, right) =>
+      compareCanonicalStrings(left.canonical, right.canonical),
+    );
+    if (uniqueProjects.length === 1) {
+      const project = uniqueProjects[0]!;
+      return `${displayProjectPath(project.canonical, project.authored)}: ${action}`;
+    }
+    // A single remaining next action is already fleet-scoped; listing every
+    // Project would replay the matrix this ticket collapses.
+    if (grouped.size === 1) return action;
+    return `${action}${nextActionScope(uniqueProjects)}`;
+  });
   return actions.length === 0 ? [] : ["Next:", ...actions.map((action) => `- ${action}`)];
 }
-
-/** Concise default view caps the rendered affected-Project list at this size. */
-const PROJECT_SCOPE_LIMIT = 4;
 
 /** Impact kinds presented as shared Workspace changes rather than Project changes. */
 const WORKSPACE_IMPACT_KINDS: ReadonlySet<LifecycleImpactKind> = new Set(["artifact"]);
@@ -1975,6 +2080,8 @@ function conciseReport(
     report.desired.length === 0 &&
     report.items.length === 0;
   const fullyCurrentStatus = command === "status" && fullyCurrentProjectCount(report) !== undefined;
+  const noOpPreview = command === "preview" && fullyCurrentProjectCount(report) !== undefined;
+  const noOpApply = isNoOpApply(command, report, receipt);
   const lines = emptyStatus
     ? [
         "No Projects are configured.",
@@ -1982,10 +2089,10 @@ function conciseReport(
           `${COMMAND_NAME} bind <profile> --host <host> to configure one.`,
       ]
     : [outcomeLine(command, report, receipt !== undefined)];
-  if (!emptyStatus && !blocked && !fullyCurrentStatus) lines.push(aggregateLine(command, report, groups));
-  const receiptGroups = receipt === undefined
-    ? new Map<string, ProjectGroup>()
-    : new Map(groupProjects(receipt).groups.map((group) => [group.canonicalProject, group]));
+  const summary = !emptyStatus && !fullyCurrentStatus && !noOpPreview && !noOpApply
+    ? aggregateLine(command, report, groups)
+    : undefined;
+  if (!blocked && summary !== undefined) lines.push(summary);
   const receiptHasRepositoryWork = receipt !== undefined && (
     changedRepositoryExclusions(receipt).length > 0 ||
     receipt.repositoryExclusionRepairs.length > 0
@@ -1995,7 +2102,6 @@ function conciseReport(
     ? groups.filter((group) => group.blockers.length > 0)
     : groups.filter((group) =>
         groupNeedsAttention(group, command) ||
-        (command === "apply" && groupHasReconciliationWork(receiptGroups.get(group.canonicalProject))) ||
         (showSingleCurrentGroup && group.items.every((item) => item.kind === "current")),
       );
   const receiptImpactFirst = command === "apply" && receipt !== undefined &&
@@ -2005,21 +2111,18 @@ function conciseReport(
   if (impactFirst) {
     lines.push(...impactFirstSections(report));
   } else if (activeGroups.length === 0) {
-    if (groups.length > 0 && report.blockers.length === 0 && !fullyCurrentStatus) {
+    if (groups.length > 0 && report.blockers.length === 0 && !fullyCurrentStatus && !noOpPreview) {
       const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-      lines.push(
-        command === "apply"
-          ? `All ${projects} were already current.`
-          : command === "preview"
-            ? `Nothing to ${DEFAULT_VIEW_LEXICON.reconciliation.base}; all ${projects} are current.`
+      if (command !== "preview") {
+        lines.push(
+          command === "apply"
+            ? `All ${projects} were already current.`
             : `No ${projects} need attention.`,
-      );
+        );
+      }
     }
   } else {
     for (const group of activeGroups) {
-      const receiptGroup = receiptGroups.get(group.canonicalProject);
-      const receiptHasWork = command === "apply" && groupHasReconciliationWork(receiptGroup);
-      const showCurrentState = receiptHasWork || showSingleCurrentGroup;
       lines.push(
         "",
         `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project)}`,
@@ -2035,10 +2138,7 @@ function conciseReport(
         continue;
       }
       for (const item of group.items) {
-        if (
-          item.kind !== "current" ||
-          (command === "apply" && showCurrentState)
-        ) {
+        if (item.kind !== "current" || (command === "apply" && showSingleCurrentGroup)) {
           lines.push(`  State: ${itemText(item)}`);
         }
       }
@@ -2060,7 +2160,7 @@ function conciseReport(
       lines.push(`- ${shortenProjectReferences(formatBlocker(blocker), groups)}`);
     }
   }
-  if (blocked) lines.push("", aggregateLine(command, report, groups));
+  if (blocked && summary !== undefined) lines.push("", summary);
   if (!blocked && grouped.unscopedItems.length > 0) {
     lines.push("", "Diagnostics:");
     for (const item of grouped.unscopedItems) lines.push(`- ${item.project}: ${itemText(item)}`);
@@ -2085,7 +2185,7 @@ function conciseReport(
     unscopedItems: grouped.unscopedItems,
   });
   if (next.length > 0) lines.push("", ...next);
-  if (receipt) lines.push("", ...applyReceiptLines(receipt));
+  if (receipt && !noOpApply) lines.push("", ...applyReceiptLines(receipt));
   if (command === "apply" && report.blockers.length === 0) {
     const activation = receipt ? activationLines(report, receipt, presented) : [];
     if (activation.length > 0) lines.push("", ...activation);
