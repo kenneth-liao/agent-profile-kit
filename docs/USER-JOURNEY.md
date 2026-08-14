@@ -36,13 +36,17 @@ addition. The compact lifecycle is impact-first: a shared Workspace change
 renders once per change kind, Profile, and Host scope with generated-file and
 affected-Project counts, Project Binding and Host changes stay distinct,
 member-level attention stays visible as Project exceptions, and one collapsed
-next action closes the run. Warm engine samples recorded during qualification
-(`installer/benchmark.ts`, in-process lifecycle layer, run count 3): `validate`
-≈ 0.035s, `status` ≈ 0.069s, `preview` ≈ 0.074s, and a changed-fleet `apply`
-(write path) ≈ 0.272s mean, versus the parent spec's pre-optimization
-installed-CLI baselines of `validate` ≈ 0.26s, `status --json` ≈ 6.00s, and
-`preview --json` ≈ 10.65s. These are warm engine samples, not CI timing gates;
-operation budgets are enforced structurally (see ADR-0017).
+next action closes the run. Comparable packed-CLI qualification used the same
+isolated 12-Project HOME, Workspace, Local Configuration, Project roots,
+controlled Host executables, and v0.63.0 Apply Receipt for both versions after
+one shared Skill update and one Pi Host addition. After one unmeasured warm-up per command, five runs on the same
+machine measured: v0.63.0 `validate` 0.107s, `status --json` 0.640s, and
+`preview --json` 0.710s mean; v0.79.0 measured 0.064s, 0.101s, and 0.110s
+respectively. Min/max ranges were 0.105–0.109s, 0.629–0.644s, and
+0.693–0.737s before versus 0.062–0.067s, 0.100–0.104s, and 0.107–0.113s
+after. These are release evidence, not CI timing gates; repeatable in-process
+samples remain available through `installer/benchmark.ts`, while operation
+budgets are enforced structurally (see ADR-0017).
 
 ---
 
