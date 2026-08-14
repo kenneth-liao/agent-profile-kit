@@ -6,6 +6,8 @@ import {
   type ReconciliationReport,
 } from "./reconcile.js";
 import { createLifecycleGitInspectionContext } from "./lifecycle-git-inspection.js";
+import { createLifecycleOwnershipInspectionContext } from "./lifecycle-ownership-inspection.js";
+import type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
 import { createProjectReadScheduler } from "./project-scheduler.js";
 import { buildDesiredState, stateManifestPath } from "./project-plan.js";
 import { INSTALLATION_STATE_SCHEMA_VERSION } from "../schemas/installation-manifest.js";
@@ -18,6 +20,7 @@ import {
 } from "./installation-state.js";
 import { gitExclusionBlockers, stageGitExclusions } from "./git-exclusions.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
+import type { LifecycleInstrumentation } from "./qualification-instrumentation.js";
 import { canonicalRepositoryExclusionRecord } from "../schemas/installation-manifest.js";
 import {
   blockerMessage,
@@ -32,6 +35,25 @@ export interface ValidationResult {
   readonly warnings: readonly string[];
 }
 
+/**
+ * Optional qualification seam for the lifecycle command layer. Production
+ * callers omit it; qualification tests inject one aggregate instrumentation set
+ * and read deterministic operation counters afterwards. Instrumentation never
+ * changes command behavior, ordering, or machine payloads.
+ */
+export interface LifecycleCommandOptions {
+  readonly instrumentation?: LifecycleInstrumentation;
+}
+
+/** Conditional planning-instrumentation option (exactOptionalPropertyTypes). */
+function planningInstrumentation(
+  instrumentation: LifecycleInstrumentation | undefined,
+): { readonly planningInstrumentation?: LifecyclePlanningInstrumentation } {
+  return instrumentation === undefined
+    ? {}
+    : { planningInstrumentation: instrumentation.planning };
+}
+
 export interface UninstallResult {
   readonly projects: readonly {
     readonly project: string;
@@ -43,9 +65,15 @@ export interface UninstallResult {
   }[];
 }
 
-export async function validateApplication(home: string): Promise<ValidationResult> {
+export async function validateApplication(
+  home: string,
+  options: LifecycleCommandOptions = {},
+): Promise<ValidationResult> {
+  const instrumentation = options.instrumentation;
   const desired = await buildDesiredState(home, {
     checkHostCapability: false,
+    gitInspection: createLifecycleGitInspectionContext(instrumentation?.git),
+    ...planningInstrumentation(instrumentation),
     scheduler: createProjectReadScheduler(),
   });
   return {
@@ -58,10 +86,18 @@ export async function validateApplication(home: string): Promise<ValidationResul
   };
 }
 
-export async function previewApplication(home: string): Promise<ReconciliationReport> {
-  const gitInspection = createLifecycleGitInspectionContext();
+export async function previewApplication(
+  home: string,
+  options: LifecycleCommandOptions = {},
+): Promise<ReconciliationReport> {
+  const instrumentation = options.instrumentation;
+  const gitInspection = createLifecycleGitInspectionContext(instrumentation?.git);
   const scheduler = createProjectReadScheduler();
-  const desired = await buildDesiredState(home, { gitInspection, scheduler });
+  const desired = await buildDesiredState(home, {
+    gitInspection,
+    ...planningInstrumentation(instrumentation),
+    scheduler,
+  });
   let state;
   try {
     state = await readInstallationState(home);
@@ -84,22 +120,43 @@ export async function previewApplication(home: string): Promise<ReconciliationRe
       ],
     };
   }
-  return previewReconciliation(desired.installations, state, { gitInspection, scheduler });
+  return previewReconciliation(desired.installations, state, {
+    gitInspection,
+    ownershipInspection: createLifecycleOwnershipInspectionContext(instrumentation?.ownership),
+    scheduler,
+  });
 }
 
-export async function applyApplication(home: string): Promise<ApplyReconciliationResult> {
+export async function applyApplication(
+  home: string,
+  options: LifecycleCommandOptions = {},
+): Promise<ApplyReconciliationResult> {
+  const instrumentation = options.instrumentation;
   // Desired-state planning reuses Git topology; apply's preflight and post-commit
   // verification each create a fresh inspection pass for filesystem evidence.
   // One scheduler spans planning and both verification passes so the concurrency
   // boundary cannot drift; all apply writes stay sequential.
-  const gitInspection = createLifecycleGitInspectionContext();
+  const gitInspection = createLifecycleGitInspectionContext(instrumentation?.git);
   const scheduler = createProjectReadScheduler();
-  const desired = await buildDesiredState(home, { gitInspection, scheduler });
-  return applyReconciliation(home, desired.installations, { scheduler });
+  const desired = await buildDesiredState(home, {
+    gitInspection,
+    ...planningInstrumentation(instrumentation),
+    scheduler,
+  });
+  return applyReconciliation(home, desired.installations, {
+    scheduler,
+    createGitInspection: () => createLifecycleGitInspectionContext(instrumentation?.git),
+    createOwnershipInspection: () =>
+      createLifecycleOwnershipInspectionContext(instrumentation?.ownership),
+  });
 }
 
-export async function statusApplication(home: string): Promise<ReconciliationReport> {
-  const gitInspection = createLifecycleGitInspectionContext();
+export async function statusApplication(
+  home: string,
+  options: LifecycleCommandOptions = {},
+): Promise<ReconciliationReport> {
+  const instrumentation = options.instrumentation;
+  const gitInspection = createLifecycleGitInspectionContext(instrumentation?.git);
   const scheduler = createProjectReadScheduler();
   let state;
   try {
@@ -110,6 +167,7 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
     const desired = await buildDesiredState(home, {
       checkHostCapability: false,
       gitInspection,
+      ...planningInstrumentation(instrumentation),
       scheduler,
     });
     return unreadableInstallationStateReport(home, desired.installations, error);
@@ -119,11 +177,16 @@ export async function statusApplication(home: string): Promise<ReconciliationRep
   const desired = await buildDesiredState(home, {
     checkHostCapability: false,
     gitInspection,
+    ...planningInstrumentation(instrumentation),
     previousInstallations: state.installations,
     resolveHostTopology: true,
     scheduler,
   });
-  const report = await previewReconciliation(desired.installations, state, { gitInspection, scheduler });
+  const report = await previewReconciliation(desired.installations, state, {
+    gitInspection,
+    ownershipInspection: createLifecycleOwnershipInspectionContext(instrumentation?.ownership),
+    scheduler,
+  });
   const blockedProjects = new Set(
     report.blockers.flatMap((blocker) => blocker.project ? [blocker.project] : []),
   );

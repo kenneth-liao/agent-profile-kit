@@ -28,6 +28,22 @@ lifecycle output at 201; a real 12-Project `status` took about 4.9 seconds,
 instances of one tracked-output class). Those observations are the basis for
 [UJ-24](#uj-24) through [UJ-30](#uj-30).
 
+Fleet-scale qualification (spec #193, ticket #205): the same 12-Project
+workload — one shared Profile across mixed Host sets, alternating Git and plain
+roots — is now an isolated, packed qualification fixture (`test/support/
+fleet-fixture.ts`) proven end to end for a shared Skill update plus a Host
+addition. The compact lifecycle is impact-first: a shared Workspace change
+renders once per change kind, Profile, and Host scope with generated-file and
+affected-Project counts, Project Binding and Host changes stay distinct,
+member-level attention stays visible as Project exceptions, and one collapsed
+next action closes the run. Warm engine samples recorded during qualification
+(`installer/benchmark.ts`, in-process lifecycle layer, run count 3): `validate`
+≈ 0.035s, `status` ≈ 0.069s, `preview` ≈ 0.074s, and a changed-fleet `apply`
+(write path) ≈ 0.272s mean, versus the parent spec's pre-optimization
+installed-CLI baselines of `validate` ≈ 0.26s, `status --json` ≈ 6.00s, and
+`preview --json` ≈ 10.65s. These are warm engine samples, not CI timing gates;
+operation budgets are enforced structurally (see ADR-0017).
+
 ---
 
 ## The journey at a glance
@@ -170,8 +186,37 @@ Gaps: ~~[UJ-17](#uj-17)~~ (shipped in
 ### 7. Preview
 
 Leading with the outcome (`Ready to apply` / `Cannot apply`) and closing with one
-next action is the right shape. It does not survive scale. Three projects across
-four Hosts:
+next action is the right shape, and it now survives scale. A multi-Project run
+derives one impact-first view instead of repeating the same Profile, Hosts,
+paths, and next action per Project: a shared Skill or Context change renders
+once per distinct Host scope with generated-file and affected-Project counts,
+Project Binding and Host additions stay in a distinct Project section,
+member-level attention that impacts do not carry stays visible as Project
+exceptions, and the run closes with one collapsed next action. A single-Project
+run keeps the recognizable Project-first detail. A qualified 12-Project
+preview of one shared Skill update plus one Host addition renders as:
+
+```
+Ready to apply
+Projects: 12 · Changes: 2 generated file additions, 27 generated file updates
+
+Workspace changes:
+  ~ Skill review-pr · 4 files in 2 projects · Hosts claude, codex
+  ~ Skill review-pr · 12 files in 3 projects · Hosts claude, codex, grok, pi
+  …
+
+Project changes:
+  + Project Binding · 1 file in 1 project · Hosts claude, codex, pi
+
+Next:
+- Run apkit apply.
+```
+
+Project lists use progressive disclosure: a complete short list when small, a
+count when every Project of the Profile/Host scope is affected, or a capped
+representative list with an explicit `--verbose` pointer to every Project.
+Verbose retains the full per-Project and per-path evidence, and the versioned
+JSON stays flat.
 
 ```
 Ready to apply
@@ -225,9 +270,13 @@ Apply receipt:
 ```
 
 Separating verified resulting state from the Apply Receipt is architecturally
-correct (`CONTEXT.md`, *Apply Receipt*), but `Changes: none` sits nine lines
-above a receipt totalling 19 additions. Conditional Host guidance now carries
-this journey into Codex, Claude Code, Grok, and Pi.
+correct (`CONTEXT.md`, *Apply Receipt*), and the receipt is now grouped and
+preview-consistent: `Applied:` lists the same impact groups with the same
+symbols and counts as the preceding preview, never reprints verified-current
+Project blocks, and is followed by change-relevant Host setup, one compact
+standing reminder, and grouped next-launch readiness (once per Host scope,
+never per Project). Conditional Host guidance carries this journey into Codex,
+Claude Code, Grok, and Pi.
 
 Gaps: ~~[UJ-04](#uj-04)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)), ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-20](#uj-20)~~,
@@ -266,17 +315,12 @@ Gaps: ~~[UJ-21](#uj-21)~~ (shipped across
 ### 10. Re-sync after a Workspace edit
 
 The tool's best-working loop: `stale source` is detected accurately, the gloss is
-useful the first time, and the next action is correct. Interactive status
-inspections that outlast a short anti-flicker threshold show delayed
-operation-level progress on the terminal line; the line is cleared before the
-report, and redirected output and JSON never carry progress bytes. The
-fully-current case says one thing three ways:
-
-```
-All Profile Installations are current
-Profile Installations: 3 · Changes: none · Blockers: 0
-No Profile Installations need attention.
-```
+useful the first time, and the next action is correct. A fully-current fleet
+states that fact once (`All Projects are current (12 Projects)`) and keeps one
+compact Host-level standing reminder instead of a per-Project matrix.
+Interactive status inspections that outlast a short anti-flicker threshold show
+delayed operation-level progress on the terminal line; the line is cleared
+before the report, and redirected output and JSON never carry progress bytes.
 
 Gaps: ~~[UJ-14](#uj-14)~~, ~~[UJ-15](#uj-15)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
@@ -420,6 +464,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ~~[UJ-28](#uj-28)~~ | ~~Med-High~~ | ~~1~~ | ~~No visual hierarchy, semantic color, or compact product identity~~ — shipped in [#164](https://github.com/kenneth-liao/agent-profile-kit/issues/164) |
 | ~~[UJ-29](#uj-29)~~ | ~~Med-High~~ | ~~1, 12~~ | ~~Command wording and Project identity are inconsistent across surfaces~~ — wording shipped in [#165](https://github.com/kenneth-liao/agent-profile-kit/issues/165); identity shipped in [#171](https://github.com/kenneth-liao/agent-profile-kit/issues/171) (alongside [UJ-07](#uj-07)) |
 | ~~[UJ-30](#uj-30)~~ | ~~Med-High~~ | ~~3~~ | ~~The full guide prints hundreds of lines without a compact index~~ — shipped in [#159](https://github.com/kenneth-liao/agent-profile-kit/issues/159) |
+| ~~[UJ-31](#uj-31)~~ | ~~Med-High~~ | ~~7, 8, 10~~ | ~~A fleet-wide lifecycle repeats identical Profile, Host, path, next-action, and readiness facts per Project and performs the same Workspace, Host, Git, and ownership work repeatedly~~ — shipped across [#194](https://github.com/kenneth-liao/agent-profile-kit/issues/194), [#195](https://github.com/kenneth-liao/agent-profile-kit/issues/195), [#196](https://github.com/kenneth-liao/agent-profile-kit/issues/196), [#197](https://github.com/kenneth-liao/agent-profile-kit/issues/197), [#198](https://github.com/kenneth-liao/agent-profile-kit/issues/198), [#199](https://github.com/kenneth-liao/agent-profile-kit/issues/199), [#200](https://github.com/kenneth-liao/agent-profile-kit/issues/200), [#201](https://github.com/kenneth-liao/agent-profile-kit/issues/201), [#202](https://github.com/kenneth-liao/agent-profile-kit/issues/202), [#203](https://github.com/kenneth-liao/agent-profile-kit/issues/203), and [#204](https://github.com/kenneth-liao/agent-profile-kit/issues/204); qualified in [#205](https://github.com/kenneth-liao/agent-profile-kit/issues/205) |
 | ~~[UJ-06](#uj-06)~~ | ~~Medium~~ | ~~11~~ | ~~One blocker fact rendered three ways per screen~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-07](#uj-07)~~ | ~~Medium~~ | ~~5, 7, 11~~ | ~~Absolute paths remain in bind, blocker, exclusion, and diagnostic lines~~ — shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152) |
 | ~~[UJ-08](#uj-08)~~ | ~~Medium~~ | ~~12~~ | ~~`uninstall` output omits what it did and what it kept~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
@@ -767,6 +812,33 @@ Shipped in [#159](https://github.com/kenneth-liao/agent-profile-kit/issues/159):
 no-argument `guide` prints a concise topic index, `guide --full` keeps the
 complete human guide, `guide --agent` keeps the agent reference, and focused
 topics stay complete and copyable at terminal width.
+
+### ~~UJ-31~~
+~~A fleet-wide lifecycle repeats the same Profile, Hosts, paths, next actions,
+and readiness facts once per Project, and performs the same Workspace,
+Host-capability, Git, and ownership work repeatedly, so a 12-Project
+synchronization takes seconds and prints a wall of repeated text.~~
+
+Shipped across the fleet-synchronization tickets
+[#194](https://github.com/kenneth-liao/agent-profile-kit/issues/194),
+[#195](https://github.com/kenneth-liao/agent-profile-kit/issues/195),
+[#196](https://github.com/kenneth-liao/agent-profile-kit/issues/196),
+[#197](https://github.com/kenneth-liao/agent-profile-kit/issues/197),
+[#198](https://github.com/kenneth-liao/agent-profile-kit/issues/198),
+[#199](https://github.com/kenneth-liao/agent-profile-kit/issues/199),
+[#200](https://github.com/kenneth-liao/agent-profile-kit/issues/200),
+[#201](https://github.com/kenneth-liao/agent-profile-kit/issues/201),
+[#202](https://github.com/kenneth-liao/agent-profile-kit/issues/202),
+[#203](https://github.com/kenneth-liao/agent-profile-kit/issues/203), and
+[#204](https://github.com/kenneth-liao/agent-profile-kit/issues/204): one
+invocation-scoped lifecycle resolves each shared Profile, Host capability, Git
+topology, and owned output once per command, independent Project reads run
+through one bounded scheduler, apply still verifies resulting state freshly,
+reconciliation publishes typed lifecycle impacts, and multi-Project reports
+lead with the shared change once per Host scope. Qualified in
+[#205](https://github.com/kenneth-liao/agent-profile-kit/issues/205) with the
+isolated 12-Project packed journey, structural operation budgets, recorded warm
+samples, and ADR-0017.
 
 ---
 
