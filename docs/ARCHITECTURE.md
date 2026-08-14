@@ -151,9 +151,14 @@ Project blocks. No-op preview and apply state that everything is current once.
 Blockers stay prominent ahead of any impact detail, and `--verbose` plus the
 versioned JSON retain the complete per-Project and per-path evidence.
 
-`unbind` changes desired Project Binding state and directs the user to global
-`preview`/`apply` only when an Installation Manifest shows that generated output
-still requires reconciliation. `uninstall` is the separate output-cleanup
+`unbind` changes desired Project Binding state and, when an Installation
+Manifest shows that generated output still requires reconciliation, states that
+generated files remain and directs the user to `preview`, which presents the
+eventual global `apply`. Successful `bind` and `unbind` receipts are compact
+task language: they name the short Project identity with the Profile and Hosts,
+omit the Local Configuration location and redundant canonical-path repetition
+in routine success, and retain recovery detail only for authored-path matches
+where canonical identity or configuration location is actionable. `uninstall` is the separate output-cleanup
 lifecycle: it removes only ownership-proven generated output and preserves
 bindings. There are no per-project filters on reconciliation commands. `bind`
 and `unbind` are recording-only; hand-editing Local Configuration remains valid,

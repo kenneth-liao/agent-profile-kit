@@ -724,25 +724,28 @@ async function main(): Promise<void> {
       writeHuman(
         process.stdout,
         humanOutput(
-          `Project Binding unchanged; no binding matched ${result.requestedProject}\n` +
-            `  Local Configuration: ${result.configurationPath}\n`,
-          [
-            `Project Binding unchanged; no binding matched ${result.requestedProject}`,
-            `Local Configuration: ${result.configurationPath}`,
-          ],
+          `Project Binding unchanged; no binding matched ${result.requestedProject}\n`,
+          [`Project Binding unchanged; no binding matched ${result.requestedProject}`],
         ),
         stdoutPresentationContext,
       );
       return;
     }
+    // Exceptional recovery keeps the diagnostic detail needed to act safely;
+    // routine removal stays compact (ADR-0014, DEC-041/DEC-043).
+    const recoveryExplanation =
+      "Recovery: exact authored path match; canonical project identity could not be proven";
     const recovery = result.recovery === "authored-path"
-      ? "  Recovery: exact authored path match; canonical project identity could not be proven\n"
-      : `  Canonical project: ${result.canonicalProject}\n`;
+      ? `  ${recoveryExplanation}\n` +
+        `  Local Configuration: ${result.configurationPath}\n`
+      : "";
     const recoveryCopyable = result.recovery === "authored-path"
-      ? "Recovery: exact authored path match; canonical project identity could not be proven"
-      : `Canonical project: ${result.canonicalProject}`;
-    const next = await generatedOutputSurvivesUnbind(home, result)
-      ? `Next: ${COMMAND_NAME} preview && ${COMMAND_NAME} apply\n`
+      ? [recoveryExplanation, `Local Configuration: ${result.configurationPath}`]
+      : [];
+    const generatedOutputSurvives = await generatedOutputSurvivesUnbind(home, result);
+    const survival = generatedOutputSurvives
+      ? "Generated files remain until apply\n" +
+        `Next: ${COMMAND_NAME} preview\n`
       : "";
     const presentedProject = result.recovery === "canonical"
       ? displayProjectPath(result.canonicalProject, result.project)
@@ -754,13 +757,11 @@ async function main(): Promise<void> {
           recovery +
           `  Profile: ${result.profile}\n` +
           `  Hosts: ${result.hosts.join(", ")}\n` +
-          `  Local Configuration: ${result.configurationPath}\n` +
-          next,
+          survival,
         [
           `Removed Project Binding for ${presentedProject}`,
-          recoveryCopyable,
+          ...recoveryCopyable,
           result.hosts.join(", "),
-          `Local Configuration: ${result.configurationPath}`,
         ],
       ),
       stdoutPresentationContext,

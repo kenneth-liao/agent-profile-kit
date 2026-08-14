@@ -4043,7 +4043,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const unbound = await runCli(home, "unbind", projectPath);
 
     expectExitCode(unbound, 0);
-    expect(unbound.stdout).toContain("Next: apkit preview && apkit apply");
+    expect(unbound.stdout).toContain("Generated files remain until apply");
+    expect(unbound.stdout).toContain("Next: apkit preview");
+    expect(unbound.stdout).not.toContain("Next: apkit preview && apkit apply");
     const preview = await runCli(home, "preview", "--verbose");
     expectExitCode(preview, 0);
     expect(humanText(preview.stdout)).toContain(humanText(`${projectPath}: removal`));
@@ -5635,10 +5637,10 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("Removed Project Binding for .");
-    expect(result.stdout).toContain(`Canonical project: ${realpathSync(projectPath)}`);
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
-    expect(result.stdout).toContain(configPath(home));
+    expect(result.stdout).not.toContain(realpathSync(projectPath));
+    expect(result.stdout).not.toContain(configPath(home));
     expect(result.stdout).not.toContain("Next:");
     expect(result.stdout).not.toContain("apkit apply");
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
@@ -5838,6 +5840,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("Project Binding unchanged");
+    expect(result.stdout).not.toContain(configPath(home));
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
 
@@ -5854,7 +5857,12 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     const removed = await runCli(home, "unbind", projectPath);
     expectExitCode(removed, 0);
-    expect(removed.stdout).toContain("Next: apkit preview && apkit apply");
+    expect(removed.stdout).toContain(`Removed Project Binding for ${projectPath}`);
+    expect(removed.stdout).not.toContain(realpathSync(projectPath));
+    expect(removed.stdout).not.toContain(configPath(home));
+    expect(removed.stdout).toContain("Generated files remain until apply");
+    expect(removed.stdout).toContain("Next: apkit preview");
+    expect(removed.stdout).not.toContain("Next: apkit preview && apkit apply");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
 
     const preview = await runCli(home, "preview");
@@ -5921,7 +5929,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain(`Removed Project Binding for ${projectPath}`);
-    expect(result.stdout).toContain("Canonical project:");
+    expect(result.stdout).not.toContain(realpathSync(projectPath));
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
     expect(existsSync(alias)).toBe(true);
   });
@@ -5980,7 +5988,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain(`Removed Project Binding for ${removed}`);
-    expect(result.stdout).toContain("Canonical project:");
+    expect(result.stdout).not.toContain(realpathSync(removed));
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
     const source = readFileSync(configPath(home), "utf8");
@@ -6071,6 +6079,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const second = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
     expectExitCode(second, 0);
     expect(second.stdout).toContain("unchanged");
+    expect(second.stdout).not.toContain(configPath(home));
     expect(readFileSync(configPath(home), "utf8")).toBe(afterFirst);
   });
 
@@ -8882,7 +8891,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     const unbind = await runCli(home, "unbind", authored);
     expectExitCode(unbind, 0);
     expect(unbind.stdout).toContain(`Removed Project Binding for ${authored}\n`);
-    expect(unbind.stdout).toContain(`Canonical project: ${canonical}\n`);
+    expect(unbind.stdout).not.toContain(canonical);
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
   });
 });
