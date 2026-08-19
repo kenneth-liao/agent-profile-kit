@@ -71,6 +71,7 @@ describe("shared .agents Skill projector", () => {
     const output = await planSharedSkillPackageDirectory(
       skillAt(source, "disabled"),
       ["qualified shared Skill package"],
+      "codex",
     );
 
     expect(output.path).toBe(`${SHARED_SKILLS_DISCOVERY_ROOT}/review-pr`);
@@ -123,7 +124,7 @@ describe("shared .agents Skill projector", () => {
     for (const source of sources) {
       let caught: unknown;
       try {
-        coalesceSharedSkillPolicy(skill, source);
+        coalesceSharedSkillPolicy({ ...skill, consumerHost: "codex" }, source);
       } catch (error) {
         caught = error;
       }
@@ -197,6 +198,7 @@ describe("shared .agents Skill projector", () => {
     const output = await planSharedSkillPackageDirectory(
       skillAt(source, "allowed"),
       ["qualified shared Skill package"],
+      "codex",
     );
     const skillMember = output.members.find((member) => member.path === "SKILL.md");
     const openAiMember = output.members.find((member) => member.path === "agents/openai.yaml");

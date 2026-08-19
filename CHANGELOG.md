@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Add Antigravity Skill delivery through the qualified shared `.agents/skills/<Artifact ID>` projector, with distinct Skills-only/combined Capability Contracts, disabled-invocation preservation, ownership-safe lifecycle coverage, and consuming-Host evidence ([#231](https://github.com/kenneth-liao/agent-profile-kit/issues/231)).
+
 - Add Antigravity as the `antigravity` Agent Host through `agy` 1.1.13+, delivering deterministic always-on Context rules under `.agents/rules` with module-boundary size blockers, Host-owned trust guidance, and the ordinary preview/apply/status/repair/deselection/uninstall lifecycle ([#230](https://github.com/kenneth-liao/agent-profile-kit/issues/230)).
 
 - Add a qualified shared `.agents/skills/<Artifact ID>` projector for Codex that preserves package content and metadata, composes deterministic disabled-invocation policy for both Host fields, and emits structured project blockers for malformed or contradictory Codex policy before writes ([#228](https://github.com/kenneth-liao/agent-profile-kit/issues/228)).

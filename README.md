@@ -12,8 +12,8 @@ through ordinary native project discovery. Global Host configuration and reposit
 instructions remain untouched.
 
 This release installs Profile Context for Antigravity, Codex, Claude, Grok,
-and Pi, and portable Skills for Codex, Claude, Grok, and Pi. Antigravity Skill
-delivery is not yet qualified. Codex and Pi consume one qualified shared package under
+and Pi, and portable Skills for Antigravity, Codex, Claude, Grok, and Pi.
+Antigravity, Codex, and Pi consume one qualified shared package under
 `.agents/skills/<Artifact ID>/`, alongside Host-native resolution and
 user-managed Skills. Disabled model-invocation Skills receive the shared
 Host-policy projection while remaining explicitly activatable by Artifact ID.
@@ -52,8 +52,9 @@ runs do not restore it.
 Antigravity loads Profile Context through deterministic always-on rules under
 `.agents/rules/` and requires `agy` 1.1.13+. Each rule preserves either the
 Profile envelope or one complete Context Module and stays within Antigravity's
-12,000-character limit. Trust remains Host-owned, and Antigravity Skill delivery
-is not yet qualified. Codex loads complete Context through a native project SessionStart hook (the
+12,000-character limit. Antigravity also discovers selected Skills through the
+qualified shared `.agents/skills/<Artifact ID>/` package; trust remains
+Host-owned. Codex loads complete Context through a native project SessionStart hook (the
 Adapter requires Codex CLI 0.145.0 or newer for direct delivery) and discovers
 selected Skills under `.agents/skills/`. Claude Code loads Context as an unscoped
 project rule and discovers selected Skills under `.claude/skills/`. Grok loads
@@ -66,9 +67,8 @@ Skills from the shared `.agents/skills/<Artifact ID>/` package; Pi trust and
 session overrides remain Pi-owned.
 Skills-only Profiles install only selected Skill packages for Hosts that support
 them. They do not install Context snapshots, Codex hooks, or Claude/Grok Context
-rules, and do not require Context-related Host capability. Antigravity bindings
-require a Context-only Profile because Antigravity Skill delivery is not yet
-qualified.
+rules, and do not require Context-related Host capability. Antigravity Skills-only
+bindings check only the shared `.agents` and `.agents/skills` surfaces.
 
 When a Profile includes Context for Codex, review and trust the generated project
 SessionStart hook in Codex for each bound project. Codex injects that Context on
@@ -118,8 +118,8 @@ Machine-readable command contracts:
   installations are omitted. It reads Installation State only and never runs
   reconciliation or changes state.
 - Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 2`
-  object with `outcome`, per-installation state, planned or committed paths,
-  per-path consuming-Host evidence, warnings, Host Setup Steps, repository-exclusion evidence, and blockers
+  object with `outcome`, per-installation state, ordered Capability Contracts,
+  planned or committed paths, per-path consuming-Host evidence, warnings, Host Setup Steps, repository-exclusion evidence, and blockers
   serialized from their exhaustive structured records: `kind`, `scope`, Project
   identity when scoped, `message`, `problem`, `requirement`, `remedy`, and
   `affectedItems`. Blocked `install-temp`/`remove-temp` JSON uses the same
@@ -133,8 +133,7 @@ Machine-readable command contracts:
 Launch Antigravity, Codex, Claude, Grok, or Pi from the bound project. For a
 non-Git project with Context, use the exact bound root so Codex can discover the
 generated project hook and Context. Antigravity receives Context through
-always-on `.agents/rules/` files; Antigravity Skill delivery is not yet
-qualified.
+always-on `.agents/rules/` files and Skills through `.agents/skills/`.
 
 ```sh
 apkit bind engineering --host codex

@@ -65,3 +65,15 @@ safe ordinary `apply`; modified old output and occupied or unowned new
 destinations remain ownership blockers. No standing `shared-path` Host Setup
 Step is emitted. Reconciliation evidence records every consuming Host for each
 normalized output path, and Antigravity remains a later consumer.
+
+## Amendment: qualify Antigravity as a shared Skill consumer
+
+Ticket #231 qualifies Antigravity CLI `1.1.13+` as the third shared Skill
+consumer. Antigravity plans the same complete `.agents/skills/<Artifact ID>/`
+package bytes as Codex and Pi, while its Adapter proves native discovery and
+both allowed and disabled-invocation behavior through distinct Capability
+Contracts for Skills-only and Context-plus-Skills Profiles. The Installer
+continues to coalesce only exact output equality and records all consuming Hosts
+outside portable Skill metadata. Antigravity checks `.agents/skills` only when
+Skills are selected, does not inspect effective Host inventories, and emits no
+standing `shared-path` notice.

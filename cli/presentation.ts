@@ -2493,9 +2493,16 @@ function verboseSections(
           const consumerSection = consumers.length === 0
             ? ""
             : `  Consuming Hosts:\n${consumers}\n`;
+          const capabilityContracts = installation.capabilityContracts === undefined
+            ? ""
+            : Object.entries(installation.capabilityContracts)
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([host, contract]) => `    - ${host}: ${contract}`)
+                .join("\n");
           return (
             `${shorten(`${installation.project}: Profile ${installation.profile}`)}\n` +
             `  Hosts: ${installation.hosts.join(", ")}\n` +
+            (capabilityContracts.length === 0 ? "" : `  Capability Contracts:\n${capabilityContracts}\n`) +
             `  Outputs: ${installation.outputs.join(", ")}\n` +
             consumerSection +
             `${resolved}\n` +
@@ -2641,6 +2648,7 @@ type MachineOutcome = "attention" | "blocked" | "clean" | "error";
 
 interface MachineInstallation {
   readonly canonicalProject: string;
+  readonly capabilityContracts?: Readonly<Record<string, string>>;
   readonly hosts?: readonly string[];
   readonly profile?: string;
   readonly project: string;
@@ -2774,6 +2782,9 @@ function machineInstallations(report: ReconciliationReport): readonly MachineIns
     const item = itemsByCanonical.get(installation.canonicalProject);
     return {
       canonicalProject: installation.canonicalProject,
+      ...(installation.capabilityContracts === undefined
+        ? {}
+        : { capabilityContracts: { ...installation.capabilityContracts } }),
       hosts: installation.hosts,
       profile: installation.profile,
       project: installation.project,

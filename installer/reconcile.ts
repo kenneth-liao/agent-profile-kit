@@ -160,6 +160,7 @@ export interface ReconciliationReport {
   readonly desired: readonly {
     /** Canonical project identity used to group authored and expanded paths. */
     readonly canonicalProject: string;
+    readonly capabilityContracts?: Readonly<Record<string, string>>;
     readonly context: string;
     readonly hosts: DesiredInstallation["binding"]["hosts"];
     readonly outputs: readonly string[];
@@ -831,6 +832,7 @@ export async function previewReconciliation(
   const desiredReport = desired.map((installation) => {
     return {
       canonicalProject: installation.binding.canonicalProject,
+      capabilityContracts: installation.hostVersions,
       context: composedContextFromOutputs(installation.outputs),
       hosts: installation.binding.hosts,
       outputs: [

@@ -5,11 +5,20 @@ import { promisify } from "node:util";
 
 import type { Skill } from "../schemas/skill.js";
 import {
-  composeContextEnvelope,
   composeContextModuleBoundary,
   type ContextModuleSource,
 } from "./context-envelope.js";
 import { capabilityFailure } from "./capability.js";
+import {
+  DEFAULT_ADAPTER_PLANNING_MATERIALS,
+  skillsRequireDisabledModelInvocation,
+  type AdapterPlanningMaterials,
+} from "./skill-package.js";
+import {
+  planSharedSkillPackageDirectory,
+  SHARED_SKILL_DISCOVERY_REQUIREMENT,
+  SHARED_SKILLS_DISCOVERY_ROOT,
+} from "./shared-skill.js";
 import type {
   AdapterHostSetupStep,
   AdapterProjectPlan,
@@ -19,12 +28,25 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
-export const ANTIGRAVITY_ADAPTER_VERSION = "antigravity-project-v1";
+export const ANTIGRAVITY_ADAPTER_VERSION = "antigravity-project-v2";
 /** Capability Contract for complete always-on project Context rules. */
 export const ANTIGRAVITY_HOST_VERSION = "native-project-always-on-rules-v1";
+/** Capability Contract for shared Skills without Antigravity Context rules. */
+export const ANTIGRAVITY_HOST_VERSION_WITH_SKILLS = "native-project-shared-skills-v1";
+/** Capability Contract for Antigravity Context plus shared Skills. */
+export const ANTIGRAVITY_HOST_VERSION_WITH_CONTEXT_AND_SKILLS =
+  "native-project-always-on-rules-shared-skills-v1";
+/** Capability Contract for shared Skills that remain explicit-only. */
+export const ANTIGRAVITY_HOST_VERSION_WITH_INVOCATION =
+  "native-project-shared-skills-invocation-v1";
+/** Capability Contract for Antigravity Context plus explicit-only shared Skills. */
+export const ANTIGRAVITY_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION =
+  "native-project-always-on-rules-shared-skills-invocation-v1";
 export const ANTIGRAVITY_MINIMUM_CLI_VERSION = "1.1.13";
 export const ANTIGRAVITY_RULE_CHARACTER_LIMIT = 12_000;
 export const ANTIGRAVITY_CONTEXT_RULES_ROOT = posix.join(".agents", "rules");
+/** Antigravity's native project Skill discovery root. */
+export const ANTIGRAVITY_SKILLS_DISCOVERY_ROOT = SHARED_SKILLS_DISCOVERY_ROOT;
 export const ANTIGRAVITY_CONTEXT_REQUIREMENTS = [
   "Antigravity loads always-on Profile Context from native project .agents/rules",
   "Antigravity rule content remains subordinate to repository-owned instructions",
@@ -42,6 +64,10 @@ export interface AntigravityCapabilityOptions {
   readonly resolveVersion?: () => Promise<string>;
   /** Whether the selected Profile requires Context rules. Defaults to true. */
   readonly requireContext?: boolean;
+  /** Whether the selected Profile requires shared Skills. */
+  readonly requireSkills?: boolean;
+  /** Whether the selected Skills require explicit-only invocation semantics. */
+  readonly requireDisabledModelInvocation?: boolean;
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -87,12 +113,20 @@ export function parseAntigravityCliVersion(source: string): string {
   return `${match[1]}.${match[2]}.${match[3]}`;
 }
 
-/** Reject CLI versions that cannot preserve Antigravity project rules. */
-export function assertAntigravityCliVersionSupported(version: string): void {
+/** Reject CLI versions that cannot preserve the selected Antigravity surfaces. */
+export function assertAntigravityCliVersionSupported(
+  version: string,
+  options: Pick<AntigravityCapabilityOptions, "requireContext" | "requireSkills" | "requireDisabledModelInvocation"> = {},
+): void {
   if (compareSemver(version, ANTIGRAVITY_MINIMUM_CLI_VERSION) < 0) {
+    const capability = options.requireSkills && options.requireContext === false
+      ? "native project Skills"
+      : options.requireDisabledModelInvocation
+        ? "shared disabled-invocation Skill policy"
+        : "native project always-on rules";
     throw capabilityFailure(
       "antigravity",
-      `Antigravity CLI ${version} does not support native project always-on rules (requires ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+)`,
+      `Antigravity CLI ${version} does not support ${capability} (requires ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+)`,
       "upgrade Antigravity CLI before previewing or applying the Profile",
     );
   }
@@ -139,9 +173,13 @@ async function resolveAntigravityCliVersion(
 /** Complete machine-level requirements for the Antigravity CLI probe. */
 export function antigravityMachineRequirements(options: {
   readonly requireContext?: boolean;
+  readonly requireSkills?: boolean;
+  readonly requireDisabledModelInvocation?: boolean;
 }): Readonly<Record<string, boolean>> {
   return {
     requireContext: options.requireContext !== false,
+    requireDisabledModelInvocation: options.requireDisabledModelInvocation === true,
+    requireSkills: options.requireSkills === true,
   };
 }
 
@@ -150,7 +188,7 @@ export async function probeAntigravityMachineCapability(
   options: AntigravityCapabilityOptions = {},
 ): Promise<string> {
   const version = await resolveAntigravityCliVersion(options);
-  assertAntigravityCliVersionSupported(version);
+  assertAntigravityCliVersionSupported(version, options);
   return version;
 }
 
@@ -173,20 +211,37 @@ function surfaceFailure(
 /** Reject required Antigravity project surfaces that are not real directories. */
 export async function assertAntigravityProjectSurface(
   project: string,
-  options: { readonly requireContext?: boolean } = {},
+  options: { readonly requireContext?: boolean; readonly requireSkills?: boolean } = {},
 ): Promise<void> {
-  if (options.requireContext === false) return;
+  const requireContext = options.requireContext !== false;
+  const requireSkills = options.requireSkills === true;
+  if (!requireContext && !requireSkills) return;
 
   const agentsPath = join(project, ".agents");
   const agentsKind = await pathKind(agentsPath);
   if (agentsKind !== "missing" && agentsKind !== "directory") {
-    throw surfaceFailure(project, ".agents", agentsKind, "Context");
+    throw surfaceFailure(
+      project,
+      ".agents",
+      agentsKind,
+      requireContext && requireSkills ? "Context and Skills" : requireContext ? "Context" : "Skills",
+    );
   }
 
-  const rulesPath = join(project, ...ANTIGRAVITY_CONTEXT_RULES_ROOT.split("/"));
-  const rulesKind = await pathKind(rulesPath);
-  if (rulesKind !== "missing" && rulesKind !== "directory") {
-    throw surfaceFailure(project, ANTIGRAVITY_CONTEXT_RULES_ROOT, rulesKind, "Context rules");
+  if (requireContext) {
+    const rulesPath = join(project, ...ANTIGRAVITY_CONTEXT_RULES_ROOT.split("/"));
+    const rulesKind = await pathKind(rulesPath);
+    if (rulesKind !== "missing" && rulesKind !== "directory") {
+      throw surfaceFailure(project, ANTIGRAVITY_CONTEXT_RULES_ROOT, rulesKind, "Context rules");
+    }
+  }
+
+  if (requireSkills) {
+    const skillsPath = join(project, ".agents", "skills");
+    const skillsKind = await pathKind(skillsPath);
+    if (skillsKind !== "missing" && skillsKind !== "directory") {
+      throw surfaceFailure(project, ".agents/skills", skillsKind, "Skills");
+    }
   }
 }
 
@@ -242,9 +297,10 @@ function assertRuleSize(path: string, bytes: string): void {
 
 function envelopeOutput(
   profileId: string,
+  materials: AdapterPlanningMaterials,
 ): ProposedProjectFileOutput {
   const path = rulePath(0);
-  const bytes = ruleBytes(composeContextEnvelope(profileId, []));
+  const bytes = ruleBytes(materials.composeContext(profileId, []));
   assertRuleSize(path, bytes);
   return {
     bytes,
@@ -276,27 +332,29 @@ function moduleOutput(
   };
 }
 
-/**
- * Pure Antigravity Adapter planner for Profile Context. Antigravity Skill
- * delivery is qualified by the follow-up Host integration ticket, so a Profile
- * selecting Skills is rejected rather than silently omitting them.
- */
+/** Pure Antigravity Adapter planner for Profile Context and shared Skills. */
 export async function planAntigravityProject(
   profileId: string,
   modules: readonly ContextModuleSource[],
   skills: readonly Skill[],
+  options: { readonly materials?: AdapterPlanningMaterials } = {},
 ): Promise<AntigravityProjectPlan> {
-  if (skills.length > 0) {
-    throw capabilityFailure(
-      "antigravity",
-      "Antigravity Skill delivery is not supported by this Adapter",
-      "remove Antigravity from the binding or select a Context-only Profile, then retry",
-    );
-  }
-
+  const materials = options.materials ?? DEFAULT_ADAPTER_PLANNING_MATERIALS;
+  const skillOutputs = await Promise.all(
+    [...skills]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((skill) =>
+        planSharedSkillPackageDirectory(
+          skill,
+          [SHARED_SKILL_DISCOVERY_REQUIREMENT],
+          "antigravity",
+          materials,
+        ),
+      ),
+  );
   const outputs: readonly ProposedProjectOutput[] = modules.length === 0
-    ? []
-    : [envelopeOutput(profileId), ...modules.map((module, index) => moduleOutput(module, index + 1))];
+    ? skillOutputs
+    : [envelopeOutput(profileId, materials), ...modules.map((module, index) => moduleOutput(module, index + 1)), ...skillOutputs];
   const setupSteps: readonly AdapterHostSetupStep[] = outputs.length > 0
     ? [{
         consequence: "The Profile does not load until the project is trusted.",
@@ -305,9 +363,18 @@ export async function planAntigravityProject(
         provenance: "standing",
       }]
     : [];
+  const requiresDisabledModelInvocation = skillsRequireDisabledModelInvocation(skills);
   return {
     host: "antigravity",
-    hostVersion: ANTIGRAVITY_HOST_VERSION,
+    hostVersion: skills.length === 0
+      ? ANTIGRAVITY_HOST_VERSION
+      : requiresDisabledModelInvocation
+        ? modules.length > 0
+          ? ANTIGRAVITY_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION
+          : ANTIGRAVITY_HOST_VERSION_WITH_INVOCATION
+        : modules.length > 0
+          ? ANTIGRAVITY_HOST_VERSION_WITH_CONTEXT_AND_SKILLS
+          : ANTIGRAVITY_HOST_VERSION_WITH_SKILLS,
     outputs,
     setupSteps,
   };

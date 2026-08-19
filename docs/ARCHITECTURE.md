@@ -1,6 +1,6 @@
 # Agent Profile Kit Architecture
 
-This document describes the implemented project-bound architecture for Profile Context and portable Skills on Antigravity CLI, Codex CLI, Claude Code, Grok, and Pi. Antigravity currently supports Profile Context; its Skill delivery is a later Host integration. The former per-session overlay implementation is removed.
+This document describes the implemented project-bound architecture for Profile Context and portable Skills on Antigravity CLI, Codex CLI, Claude Code, Grok, and Pi. Antigravity Context and shared Skill delivery use native project surfaces; the former per-session overlay implementation is removed.
 
 ## Purpose
 
@@ -103,7 +103,7 @@ Commands separate binding authoring from global reconciliation:
   - `list hosts` renders the canonical supported-Host set and Temporary Profile Installation eligibility from capability constants without inspecting PATH, Host versions, configuration, or Project surfaces.
   - `list temporary` reads active Temporary Profile Installation records from Installation State, omits terminal removed identities and ordinary installations, and renders each temporary identity with its short Project path, Profile, and Host. It does not inspect Local Configuration, Workspace artifacts, Git, project output, or Host capabilities.
   - Each topic's `--json` view emits the same records with engine provenance; temporary JSON retains the canonical Project path and durable temporary installation identity. No inventory topic writes state.
-- `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states; `--json` emits the versioned machine payload described below, including complete consuming-Host evidence for each desired generated path. Multi-Project concise views are impact-first: shared Workspace changes render once with generated-file counts and a deterministic affected-Project scope, Project Binding and Host-specific changes stay distinct, and member-level attention remains visible as Project exceptions.
+- `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states; `--json` emits the versioned machine payload described below, including ordered Capability Contracts and complete consuming-Host evidence for each desired generated path. Multi-Project concise views are impact-first: shared Workspace changes render once with generated-file counts and a deterministic affected-Project scope, Project Binding and Host-specific changes stay distinct, and member-level attention remains visible as Project exceptions.
 - `apply` reconciles every binding and, after its commits, performs a fresh
   reconciliation to report the verified resulting state. It separately emits
   an `Applied` section containing the pre-apply generated-output and Repository
@@ -166,7 +166,7 @@ and `bind` does not replace or remove an existing binding.
 
 ## Canonical Model
 
-Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Profile Context for Antigravity CLI, Codex, Claude, Grok, and Pi, and portable Skills for Codex, Claude, Grok, and Pi. Antigravity Skill delivery is not yet qualified and fails closed when selected for an Antigravity binding. Agents, Hooks, and Tools fail at ingestion before writes when selected for a Host that cannot preserve them. Trusted disabled model-invocation policy is projected into Pi-native frontmatter while explicit Artifact ID activation remains available. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
+Profiles are explicit flat selections of Context, Skills, Agents, Hooks, and Tools for a kind of work. The current slice accepts Profile Context for Antigravity CLI, Codex, Claude, Grok, and Pi, and portable Skills for Antigravity, Codex, Claude, Grok, and Pi. Antigravity, Codex, and Pi consume the qualified shared `.agents/skills/<Artifact ID>/` projection. Agents, Hooks, and Tools fail at ingestion before writes when selected for a Host that cannot preserve them. Trusted disabled model-invocation policy is projected into the qualified Host-native Skill package while explicit Artifact ID activation remains available. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; `apply` updates every project bound to that Profile. A project that needs different material binds to a different Profile rather than pinning an older revision.
 
 Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
@@ -206,7 +206,7 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, and Pi on macOS for Profile Context. Codex, Claude, Grok, and Pi also support portable Skills, including Pi-native projection of disabled model invocation; Antigravity Skill delivery remains a later Host integration. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
+The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, and Pi support portable Skills, with Antigravity, Codex, and Pi using the qualified shared projection and preserving disabled model invocation; Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
 
 ### Codex
 
@@ -282,23 +282,39 @@ in resolved Context order. Every rule includes `trigger: always_on` frontmatter
 and stays within Antigravity's 12,000-character limit. An oversized module is a
 structured capability Blocker; content is never truncated or omitted.
 
-Capability preflight checks `agy --version` and only the `.agents` and
-`.agents/rules` surfaces required by a Context-bearing Profile. Missing or real
-directory surfaces are safe; files, symlinks, and other entries block before
-writes. Antigravity trust, settings, native Project records, authentication,
-plugins, repository-owned `AGENTS.md`/`GEMINI.md`, and Host Resolution remain
-Host-owned. Every non-empty plan emits a standing `trust-required` Host Setup
-Step without reading or changing trust state. Antigravity Skill delivery is not
-qualified in this slice; selecting Skills for an Antigravity binding fails
-closed rather than omitting them. The Adapter uses ordinary exact-root Project
-Binding behavior and the shared preview/apply/status/repair/deselection/uninstall
-and Repository Exclusion lifecycle.
+For Skills, Antigravity consumes the qualified shared `.agents/skills/<Artifact
+ID>/` projection used by Codex and Pi. The complete package is composed once,
+including the top-level `disable-model-invocation: true` field and
+`agents/openai.yaml` `policy.allow_implicit_invocation: false` when the
+canonical Workspace policy is disabled. Allowed Skills add no restriction;
+explicit Skill activation remains available for disabled Skills. Portable
+members, bytes, modes, and unrelated package metadata are preserved, and the
+Agent Profile Kit sidecar is omitted. Native Antigravity discovery and
+resolution remain Host-owned; the Adapter does not inspect global, ancestor,
+package, plugin, extension, or other effective inventories.
 
-Installation State that records the `antigravity` Host requires Agent Profile Kit
-0.82.0+; unbind or uninstall Antigravity with 0.82.0+ before rolling back below
-0.82.0. A rollback without uninstall leaves the generated always-on rules
-visible to Antigravity even though the older CLI cannot ingest the configuration
-or Installation State.
+Capability preflight checks `agy --version` and only the `.agents`,
+`.agents/rules`, and `.agents/skills` surfaces required by the selected
+artifact categories. Missing or real directory surfaces are safe; files,
+symlinks, and other entries block before writes. Antigravity trust, settings,
+native Project records, authentication, plugins, repository-owned
+`AGENTS.md`/`GEMINI.md`, and Host Resolution remain Host-owned. Every non-empty
+plan emits a standing `trust-required` Host Setup Step without reading or
+changing trust state. Context-only, shared Skills-only, combined, and
+invocation-capable plans record distinct Adapter Capability Contracts:
+`native-project-always-on-rules-v1`, `native-project-shared-skills-v1`,
+`native-project-always-on-rules-shared-skills-v1`,
+`native-project-shared-skills-invocation-v1`, or
+`native-project-always-on-rules-shared-skills-invocation-v1`. The Adapter uses
+ordinary exact-root Project Binding behavior and the shared
+preview/apply/status/repair/deselection/uninstall and Repository Exclusion
+lifecycle.
+
+Installation State that records the new Antigravity Skill contracts requires
+Agent Profile Kit 0.83.0+; unbind or uninstall Antigravity with 0.83.0+ before
+rolling back below 0.83.0. A rollback without uninstall leaves generated
+always-on rules or shared Skills visible to Antigravity even though the older
+CLI cannot prove the newer Capability Contract.
 
 ## Reconciliation and Ownership
 

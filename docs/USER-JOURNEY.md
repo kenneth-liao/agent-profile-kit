@@ -296,7 +296,7 @@ Setup guidance is reported conditionally by Host *and* by what was installed:
 | Codex | Codex CLI 0.145.0+ for complete Context delivery, plus project trust **and** native review/trust of the generated `SessionStart` hook — only when Context is installed. Non-Git projects must be launched from the exact bound root. |
 | Grok | None, except when co-bound with Claude and rules compatibility is on: Grok reads Claude's rule file and **no `.grok/rules/` is created**. |
 | Pi | Native project trust; `--skill` / `--no-skills` runtime overrides fall outside the guarantee. |
-| Antigravity | `agy` 1.1.13+ and native project trust. Profile Context loads from deterministic always-on `.agents/rules/` files; Skills are not yet qualified. |
+| Antigravity | `agy` 1.1.13+ and native project trust. Profile Context loads from deterministic always-on `.agents/rules/` files and Skills from the qualified shared `.agents/skills/` packages. |
 
 **Codex Context floor (0.145.0+).** Context-bearing Codex installs probe
 `codex --version` on `preview`/`apply` and refuse writes below the floor (or when
