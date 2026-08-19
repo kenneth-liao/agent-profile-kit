@@ -340,6 +340,25 @@ echo "codex-cli ${version}"
 }
 
 /** Put a controlled Grok CLI stub first on PATH for version + inspect preflight. */
+/** Put a controlled Antigravity CLI stub first on PATH for version capability preflight. */
+function installFakeAntigravity(home: string, version = "1.1.13"): string {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(
+    join(bin, "agy"),
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "agy ${version} (fake)"
+  exit 0
+fi
+echo "unexpected agy invocation: $*" >&2
+exit 2
+`,
+  );
+  execFileSync("chmod", ["+x", join(bin, "agy")]);
+  return bin;
+}
+
 function installFakeGrok(
   home: string,
   options: {
@@ -4967,6 +4986,154 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(boundary.stdout).toContain(".claude/rules/agent-profile-kit.md");
   });
 
+  test("packed CLI Antigravity Context supports mixed lifecycle operations without touching project instructions", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const antigravityProject = gitRepository("agent-profile-kit-antigravity-");
+    const combinedProject = project("agent-profile-kit-antigravity-combined-");
+    writeFileSync(join(antigravityProject, "AGENTS.md"), "repository instructions\n");
+    writeFileSync(join(antigravityProject, "GEMINI.md"), "gemini instructions\n");
+    mkdirSync(join(antigravityProject, ".agents", "rules"), { recursive: true });
+    writeFileSync(join(antigravityProject, ".agents", "rules", "unrelated.md"), "keep this rule\n");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${antigravityProject}\n    profile: coding\n    hosts: [antigravity]\n` +
+        `  - project: ${combinedProject}\n    profile: coding\n    hosts: [codex, antigravity]\n`,
+    );
+    const antigravityBin = installFakeAntigravity(home);
+    const codexBin = installFakeCodex(home);
+    const pathWithHosts = `${antigravityBin}:${codexBin}:${process.env.PATH ?? ""}`;
+
+    const preview = await runCliWithPath(home, pathWithHosts, "preview", "--verbose");
+    expectExitCode(preview, 0);
+    expect(preview.stdout).toContain(".agents/rules/agent-profile-kit-000-envelope.md");
+    expect(preview.stdout).toContain("Trust the bound project in Antigravity.");
+    expect(existsSync(join(antigravityProject, ".agents", "rules", "agent-profile-kit-000-envelope.md"))).toBe(false);
+
+    const jsonPreview = await runCliWithPath(home, pathWithHosts, "preview", "--json");
+    expectExitCode(jsonPreview, 0);
+    const previewDocument = JSON.parse(jsonPreview.stdout) as {
+      installations: Array<{ hosts: string[] }>;
+      outputConsumers: Array<{ consumingHosts: string[]; path: string }>;
+    };
+    expect(previewDocument.installations).toHaveLength(2);
+    expect(previewDocument.installations.every((installation) => installation.hosts.includes("antigravity"))).toBe(true);
+    expect(previewDocument.outputConsumers.some(
+      (output) => output.path.includes(".agents/rules/") && output.consumingHosts.includes("antigravity"),
+    )).toBe(true);
+
+    const apply = await runCliWithPath(home, pathWithHosts, "apply");
+    expectExitCode(apply, 0);
+    expect(apply.stdout).toContain("Trust the bound project in Antigravity.");
+    const envelope = join(antigravityProject, ".agents", "rules", "agent-profile-kit-000-envelope.md");
+    const moduleRule = join(antigravityProject, ".agents", "rules", "agent-profile-kit-010-team-rules.md");
+    expect(readFileSync(envelope, "utf8")).toContain("trigger: always_on");
+    expect(readFileSync(envelope, "utf8")).toContain("Profile: coding");
+    const envelopeContent = readFileSync(envelope, "utf8");
+    expect(readFileSync(moduleRule, "utf8")).toContain("<!-- Context Module: team-rules -->");
+    expect(readFileSync(moduleRule, "utf8")).toContain("<!-- End Context Module: team-rules -->");
+    expect(readFileSync(join(antigravityProject, "AGENTS.md"), "utf8")).toBe("repository instructions\n");
+    expect(readFileSync(join(antigravityProject, "GEMINI.md"), "utf8")).toBe("gemini instructions\n");
+    expect(readFileSync(join(antigravityProject, ".agents", "rules", "unrelated.md"), "utf8")).toBe("keep this rule\n");
+    expect(existsSync(join(combinedProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: Array<{ hosts: string[]; host_versions: Record<string, string> }>;
+    };
+    const antigravityInstallation = state.installations.find((installation) => installation.hosts.join(",") === "antigravity");
+    expect(antigravityInstallation?.host_versions.antigravity).toBe("native-project-always-on-rules-v1");
+    const combinedInstallation = state.installations.find((installation) => installation.hosts.join(",") === "antigravity,codex");
+    expect(combinedInstallation?.host_versions.antigravity).toBe("native-project-always-on-rules-v1");
+    expect(combinedInstallation?.host_versions.codex).toBe("native-project-sessionstart-complete-context-v1");
+    expect(readFileSync(join(antigravityProject, ".git", "info", "exclude"), "utf8")).toContain(
+      ".agents/rules/agent-profile-kit-000-envelope.md",
+    );
+
+    const current = await runCliWithPath(home, pathWithHosts, "status");
+    expectExitCode(current, 0);
+    expect(current.stdout).toContain("All Projects are current");
+
+    rmSync(moduleRule);
+    const repair = await runCliWithPath(home, pathWithHosts, "status");
+    expectExitCode(repair, 0);
+    expect(repair.stdout).toMatch(/repairable|missing output/i);
+    expectExitCode(await runCliWithPath(home, pathWithHosts, "apply"), 0);
+    expect(existsSync(moduleRule)).toBe(true);
+
+    writeFileSync(envelope, "drifted\n");
+    const drift = await runCliWithPath(home, pathWithHosts, "status");
+    expectExitCode(drift, 2);
+    expect(drift.stdout).toMatch(/drifted/i);
+    writeFileSync(envelope, envelopeContent);
+
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${antigravityProject}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${combinedProject}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const deselection = await runCliWithPath(home, pathWithHosts, "apply");
+    expectExitCode(deselection, 0);
+    expect(existsSync(envelope)).toBe(false);
+    expect(existsSync(moduleRule)).toBe(false);
+    expect(existsSync(join(antigravityProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(readFileSync(join(antigravityProject, "AGENTS.md"), "utf8")).toBe("repository instructions\n");
+    expect(readFileSync(join(antigravityProject, "GEMINI.md"), "utf8")).toBe("gemini instructions\n");
+    expect(readFileSync(join(antigravityProject, ".agents", "rules", "unrelated.md"), "utf8")).toBe("keep this rule\n");
+
+    expectExitCode(await runCliWithPath(home, pathWithHosts, "uninstall"), 0);
+    expect(existsSync(join(antigravityProject, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(readFileSync(join(antigravityProject, ".agents", "rules", "unrelated.md"), "utf8")).toBe("keep this rule\n");
+    expect(readFileSync(join(antigravityProject, "AGENTS.md"), "utf8")).toBe("repository instructions\n");
+    expect(readFileSync(join(antigravityProject, ".git", "info", "exclude"), "utf8")).not.toContain(
+      "agent-profile-kit-000-envelope.md",
+    );
+  }, 15_000);
+
+  test("packed CLI Antigravity capability preflight blocks missing, unreadable, malformed, and old agy evidence", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project("agent-profile-kit-antigravity-capability-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [antigravity]\n`,
+    );
+
+    const emptyBin = join(home, "antigravity-empty-bin");
+    mkdirSync(emptyBin, { recursive: true });
+    const missing = await runCliWithPath(home, emptyBin, "preview");
+    expectExitCode(missing, 2);
+    expect(`${missing.stdout}${missing.stderr}`).toContain("Antigravity CLI was not found");
+    expect(existsSync(join(projectPath, ".agents"))).toBe(false);
+
+    const unreadableBin = join(home, "antigravity-unreadable-bin");
+    mkdirSync(unreadableBin, { recursive: true });
+    writeFileSync(join(unreadableBin, "agy"), "#!/bin/sh\nexit 1\n");
+    execFileSync("chmod", ["+x", join(unreadableBin, "agy")]);
+    const unreadable = await runCliWithPath(home, unreadableBin, "preview");
+    expectExitCode(unreadable, 2);
+    expect(`${unreadable.stdout}${unreadable.stderr}`).toMatch(/version could not be detected/i);
+
+    const malformedBin = installFakeAntigravity(home, "not-a-version");
+    const malformed = await runCliWithPath(home, `${malformedBin}:${process.env.PATH ?? ""}`, "preview");
+    expectExitCode(malformed, 2);
+    expect(`${malformed.stdout}${malformed.stderr}`).toMatch(/version is unreadable/i);
+
+    const oldBin = installFakeAntigravity(home, "1.1.12");
+    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
+    expectExitCode(old, 2);
+    expect(`${old.stdout}${old.stderr}`).toMatch(/requires 1\.1\.13\+/i);
+    expect(existsSync(join(projectPath, ".agents"))).toBe(false);
+
+    const supportedBin = installFakeAntigravity(home, "1.1.13");
+    const supported = await runCliWithPath(home, `${supportedBin}:${process.env.PATH ?? ""}`, "preview");
+    expectExitCode(supported, 0);
+    expect(supported.stdout).toContain(".agents/rules/agent-profile-kit-000-envelope.md");
+  });
+
   test("packed CLI Grok-only preview → apply → status → uninstall installs unscoped Context", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -7372,7 +7539,7 @@ describe("apkit root help", () => {
     const missingHost = await runCli(home, "bind", "coding");
     expectExitCode(missingHost, 1);
     expect(missingHost.stderr).toContain("bind requires at least one --host flag");
-    expect(missingHost.stderr).toContain("supported Hosts: claude, codex");
+    expect(missingHost.stderr).toContain("supported Hosts: antigravity");
     expect(missingHost.stderr).toContain("Usage: apkit bind <profile>");
 
     const tooManyInitPaths = await runCli(home, "init", "one", "two");
@@ -7460,6 +7627,7 @@ describe("apkit list", () => {
     for (const host of SUPPORTED_HOSTS) expect(result.stdout).toContain(`Host: ${host}`);
     expect(result.stdout).toContain("Temporary Profile Installation: supported");
     expect(result.stdout).toContain("Temporary Profile Installation: not supported");
+    expect(result.stdout.indexOf("Host: antigravity")).toBeLessThan(result.stdout.indexOf("Host: claude"));
     expect(result.stdout.indexOf("Host: claude")).toBeLessThan(result.stdout.indexOf("Host: codex"));
     expect(result.stdout.indexOf("Host: codex")).toBeLessThan(result.stdout.indexOf("Host: grok"));
     expect(result.stdout.indexOf("Host: grok")).toBeLessThan(result.stdout.indexOf("Host: pi"));
@@ -7487,6 +7655,7 @@ describe("apkit list", () => {
       outcome: "success",
       engineVersion: ENGINE_VERSION,
       hosts: [
+        { host: "antigravity", supportsTemporaryProfileInstallation: false },
         { host: "claude", supportsTemporaryProfileInstallation: true },
         { host: "codex", supportsTemporaryProfileInstallation: true },
         { host: "grok", supportsTemporaryProfileInstallation: false },

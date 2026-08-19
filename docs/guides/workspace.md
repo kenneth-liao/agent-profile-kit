@@ -182,11 +182,12 @@ when every consumer has upgraded to 0.16.1+.
 
 ## Author the Workspace
 
-This release supports Context Modules and portable Skills for Codex, Claude
-Code, Grok, and Pi. Pi Skills install through the qualified shared
-`.agents/skills/<Artifact ID>/` projection after project-surface capability
-checks; Pi resolves other Skills, extensions, and packages through its native
-Host behavior.
+This release supports Profile Context for Antigravity and Context Modules and
+portable Skills for Codex, Claude Code, Grok, and Pi. Antigravity Context uses
+`.agents/rules/`; Antigravity Skill delivery is not yet qualified. Pi Skills
+install through the qualified shared `.agents/skills/<Artifact ID>/` projection
+after project-surface capability checks; Pi resolves other Skills, extensions,
+and packages through its native Host behavior.
 Disabled model-invocation Skills are projected with Pi-native
 `disable-model-invocation: true` while explicit `/skill:<Artifact ID>`
 activation remains available. Profiles that select Agents, Hooks, or Tools are
@@ -263,11 +264,13 @@ Manifest.
 A Profile is a YAML file under `profiles/` with an `id` and explicit `context`,
 `skills`, `agents`, `hooks`, and `tools` arrays. In this release `agents`,
 `hooks`, and `tools` must be empty. At least one of `context` or `skills` must
-be non-empty. A Skills-only Profile installs only selected Skill packages and
-Installer lifecycle metadata—no Context snapshot, Codex SessionStart hooks, or
-Claude Context rule. Host capability preflight follows the selected categories
-(Skills-only does not require Context machinery). Profiles do not inherit, use
-wildcards, or carry Host settings.
+be non-empty. A Skills-only Profile installs only selected Skill packages for Hosts that
+support them and Installer lifecycle metadata—no Context snapshot, Codex
+SessionStart hooks, or Claude Context rule. Antigravity bindings require a
+Context-only Profile until Antigravity Skill delivery is qualified. Host
+capability preflight follows the selected categories (Skills-only does not
+require Context machinery). Profiles do not inherit, use wildcards, or carry
+Host settings.
 
 ### CLI compatibility for Skills-only Profiles
 
@@ -347,8 +350,8 @@ metadata:
 Project Bindings live only in machine-local
 `~/.agents/agent-profile-kit/config.yaml`. Each binding names exactly one
 existing absolute or home-relative project root, one Profile, and a non-empty set
-of supported Hosts (`codex`, `claude`, `grok`, `pi`). Host order and duplicate
-entries normalize at ingestion. There are no wildcards, recursive scans,
+of supported Hosts (`antigravity`, `codex`, `claude`, `grok`, `pi`). Host order
+and duplicate entries normalize at ingestion. There are no wildcards, recursive scans,
 hidden default projects, Host auto-detection, per-session Profile selection, or
 Profile version pins. A project root may appear in only one binding.
 
@@ -357,7 +360,7 @@ Hand-edit `config.yaml`, or record one binding with the authoring-only command
 
 ```sh
 apkit bind coding --host codex
-apkit bind coding ~/projects/tools/agent-profile-kit --host codex --host claude --host grok --host pi
+apkit bind coding ~/projects/tools/agent-profile-kit --host antigravity --host codex --host claude --host grok --host pi
 ```
 
 Omit the project argument to use the current working directory. At least one
@@ -483,9 +486,31 @@ unexpected directory members remain blockers and are never overwritten.
 
 ## Use Hosts natively
 
-After `apply`, launch Codex, Claude Code, Grok, or Pi from the bound project the
-way you normally would. Agent Profile Kit does not launch Hosts or manage their
-authentication, trust, approvals, plugins, or sessions.
+After `apply`, launch Antigravity, Codex, Claude Code, Grok, or Pi from the
+bound project the way you normally would. Agent Profile Kit does not manage their
+authentication, trust, approvals, plugins, or sessions, and does not launch
+Hosts.
+
+### Antigravity
+
+Antigravity receives Profile Context through deterministic always-on rules under
+`.agents/rules/`. The Adapter requires `agy` CLI 1.1.13 or newer and writes one
+rule for the Profile envelope followed by one complete rule per Context Module.
+Each generated rule contains `trigger: always_on` frontmatter and must stay at or
+below 12,000 characters. If one Context Module is too large, preview reports a
+structured blocker instead of truncating it.
+
+Antigravity discovers the rules from the current bound project; you do not need
+to create or select an Antigravity Project. Trust is Host-owned: after `apply`,
+trust the bound project in Antigravity if it asks. Agent Profile Kit does not
+read or change trust, settings, authentication, plugins, Project records,
+`AGENTS.md`, or `GEMINI.md`. A standing trust reminder appears for every
+non-empty Antigravity plan, but unproven trust never blocks safe writes.
+
+Antigravity Skill delivery is not yet qualified. A Profile that selects Skills
+cannot be installed for an Antigravity binding; remove Antigravity from that
+binding or use a Context-only Profile until the later Skill integration is
+available.
 
 ### Codex
 
@@ -633,8 +658,9 @@ This section is the Host-path detail for the
 Agent Profile Kit installs selected Skills only into the bound **project**
 (`.agents/skills/<Artifact ID>/` for Codex and Pi,
 `.claude/skills/<Artifact ID>/` for Claude, `.grok/skills/<Artifact ID>/` for
-Grok). It never installs into, adopts, disables, or removes personal/global
-Host Skill folders. Unselected Workspace
+Grok). Antigravity currently receives no Skill output; its Profile Context uses
+`.agents/rules/` instead. It never installs into, adopts, disables, or removes
+personal/global Host Skill folders. Unselected Workspace
 Skills are not installed into projects either; they may remain valid Workspace
 source without any APK-managed delivery.
 

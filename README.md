@@ -6,13 +6,14 @@ native Profile output for supported agent products without overwriting their
 existing configuration or capabilities.
 
 Profiles are reusable Workspace selections. Each machine-local Project Binding
-installs one Profile into one explicit project for the Hosts you name. Codex,
-Claude Code, Grok, and Pi on macOS then load that material through ordinary
-native project discovery. Global Host configuration and repository-owned
+installs one Profile into one explicit project for the Hosts you name.
+Antigravity, Codex, Claude Code, Grok, and Pi on macOS then load that material
+through ordinary native project discovery. Global Host configuration and repository-owned
 instructions remain untouched.
 
-This release installs Context Modules and portable Skills for Codex, Claude,
-Grok, and Pi. Codex and Pi consume one qualified shared package under
+This release installs Profile Context for Antigravity, Codex, Claude, Grok,
+and Pi, and portable Skills for Codex, Claude, Grok, and Pi. Antigravity Skill
+delivery is not yet qualified. Codex and Pi consume one qualified shared package under
 `.agents/skills/<Artifact ID>/`, alongside Host-native resolution and
 user-managed Skills. Disabled model-invocation Skills receive the shared
 Host-policy projection while remaining explicitly activatable by Artifact ID.
@@ -48,7 +49,11 @@ runs do not restore it.
 
 ## Project-bound Context and Skills
 
-Codex loads complete Context through a native project SessionStart hook (the
+Antigravity loads Profile Context through deterministic always-on rules under
+`.agents/rules/` and requires `agy` 1.1.13+. Each rule preserves either the
+Profile envelope or one complete Context Module and stays within Antigravity's
+12,000-character limit. Trust remains Host-owned, and Antigravity Skill delivery
+is not yet qualified. Codex loads complete Context through a native project SessionStart hook (the
 Adapter requires Codex CLI 0.145.0 or newer for direct delivery) and discovers
 selected Skills under `.agents/skills/`. Claude Code loads Context as an unscoped
 project rule and discovers selected Skills under `.claude/skills/`. Grok loads
@@ -59,9 +64,11 @@ and discovers selected Skills under `.grok/skills/`. Pi loads Profile Context
 from the owned `.pi/APPEND_SYSTEM.md` project surface and consumes selected
 Skills from the shared `.agents/skills/<Artifact ID>/` package; Pi trust and
 session overrides remain Pi-owned.
-Skills-only Profiles install only Skill packages—no Context snapshot,
-Codex hooks, or Claude/Grok Context rule—and do not require Context-related Host
-capability.
+Skills-only Profiles install only selected Skill packages for Hosts that support
+them. They do not install Context snapshots, Codex hooks, or Claude/Grok Context
+rules, and do not require Context-related Host capability. Antigravity bindings
+require a Context-only Profile because Antigravity Skill delivery is not yet
+qualified.
 
 When a Profile includes Context for Codex, review and trust the generated project
 SessionStart hook in Codex for each bound project. Codex injects that Context on
@@ -123,13 +130,15 @@ Machine-readable command contracts:
   Parse stdout as JSON only on exit `0` or `2`, or when exit `1` still emitted
   a JSON object under `--json`.
 
-Launch Codex, Claude, Grok, or Pi from the bound project. For a non-Git project
-with Context, use the exact bound root so Codex can discover the generated
-project hook and Context.
+Launch Antigravity, Codex, Claude, Grok, or Pi from the bound project. For a
+non-Git project with Context, use the exact bound root so Codex can discover the
+generated project hook and Context. Antigravity receives Context through
+always-on `.agents/rules/` files; Antigravity Skill delivery is not yet
+qualified.
 
 ```sh
 apkit bind engineering --host codex
-apkit bind engineering ~/projects/x --host codex --host claude --host grok --host pi
+apkit bind engineering ~/projects/x --host antigravity --host codex --host claude --host grok --host pi
 apkit unbind ~/projects/x
 apkit info
 apkit info --json
@@ -163,8 +172,8 @@ bindings: []
 ```
 
 Each binding names one existing absolute or home-relative project root, one
-Profile, and one or more Hosts (`codex`, `claude`, `grok`, or `pi`). Host order
-and duplicate entries normalize at ingestion. Use `bind` to append one
+Profile, and one or more Hosts (`antigravity`, `codex`, `claude`, `grok`, or
+`pi`). Host order and duplicate entries normalize at ingestion. Use `bind` to append one
 validated binding, or `unbind` to remove one binding, without reconciling
 output; hand-editing `config.yaml` remains supported. `unbind` defaults to the
 current working directory and only uses exact authored-path recovery when a

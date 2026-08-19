@@ -136,6 +136,7 @@ function grokInspectBody(version: string): string {
 function installProbeHosts(
   home: string,
   versions: {
+    readonly antigravity?: string;
     readonly claude?: string;
     readonly codex?: string;
     readonly grok?: string;
@@ -148,6 +149,14 @@ function installProbeHosts(
   const record = (name: string): string =>
     `printf '%s: %s\\n' '${name}' "$*" >> '${log}'\n`;
   const executables: string[] = [];
+  if (versions.antigravity !== undefined) {
+    const path = join(bin, "agy");
+    writeFileSync(
+      path,
+      `#!/bin/sh\n${record("antigravity")}echo "agy ${versions.antigravity}"\n`,
+    );
+    executables.push(path);
+  }
   if (versions.codex !== undefined) {
     const path = join(bin, "codex");
     writeFileSync(
@@ -450,6 +459,7 @@ describe("machine-level Host capability probes within one invocation", () => {
     await fleetWorkspace({
       home,
       bindings: [
+        { hosts: ["antigravity"], profile: "context-only" },
         { hosts: ["codex"], profile: "context-only" },
         { hosts: ["claude"], profile: "context-only" },
         { hosts: ["grok"], profile: "context-only" },
@@ -457,6 +467,7 @@ describe("machine-level Host capability probes within one invocation", () => {
       ],
     });
     const bin = installProbeHosts(home, {
+      antigravity: "1.1.13",
       claude: "2.0.64",
       codex: "0.145.0",
       grok: "0.2.111",
@@ -469,11 +480,12 @@ describe("machine-level Host capability probes within one invocation", () => {
       planningInstrumentation: instrumentation,
     });
 
-    expect(desired.installations).toHaveLength(4);
-    expect(instrumentation.counts.probeHostCapability).toBe(4);
-    const counts = { claude: 0, codex: 0, "grok-inspect": 0, "grok-version": 0, pi: 0 };
+    expect(desired.installations).toHaveLength(5);
+    expect(instrumentation.counts.probeHostCapability).toBe(5);
+    const counts = { antigravity: 0, claude: 0, codex: 0, "grok-inspect": 0, "grok-version": 0, pi: 0 };
     for (const line of readProbeLog(home)) {
-      if (line === "codex: --version") counts.codex += 1;
+      if (line === "antigravity: --version") counts.antigravity += 1;
+      else if (line === "codex: --version") counts.codex += 1;
       else if (line === "claude: --version") counts.claude += 1;
       else if (line === "grok: version") counts["grok-version"] += 1;
       else if (line === "grok: inspect --json") counts["grok-inspect"] += 1;
@@ -481,6 +493,7 @@ describe("machine-level Host capability probes within one invocation", () => {
       else throw new Error(`unexpected probe invocation '${line}'`);
     }
     expect(counts).toEqual({
+      antigravity: 1,
       claude: 1,
       codex: 1,
       "grok-inspect": 1,
