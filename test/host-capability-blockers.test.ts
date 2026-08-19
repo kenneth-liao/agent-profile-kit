@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { assertAntigravityProjectCapability } from "../adapters/antigravity.js";
 import { assertClaudeProjectCapability } from "../adapters/claude.js";
 import { assertCodexProjectCapability } from "../adapters/codex.js";
 import { assertGrokProjectCapability, parseGrokInspectDocument } from "../adapters/grok.js";
@@ -101,6 +102,12 @@ describe("Host capability blockers", () => {
   test("each Adapter capability boundary emits typed evidence and remains an Error", async () => {
     const project = temporaryDirectory("apkit-adapter-capability-project-");
     const attempts = [
+      {
+        host: "antigravity" as const,
+        run: () => assertAntigravityProjectCapability(project, {
+          resolveVersion: async () => "1.1.12",
+        }),
+      },
       {
         host: "claude" as const,
         run: () => assertClaudeProjectCapability(project, {
@@ -220,6 +227,7 @@ describe("Host capability blockers", () => {
   test("unexpected Adapter failures remain unclassified at the shared boundary", async () => {
     const project = temporaryDirectory("apkit-unclassified-capability-project-");
     const failures = [
+      new Error("injected Antigravity capability probe failure"),
       new Error("injected Claude capability probe failure"),
       new Error("injected Codex capability probe failure"),
       new Error("injected Grok capability probe failure"),
@@ -229,7 +237,7 @@ describe("Host capability blockers", () => {
       {
         failure: failures[0]!,
         run: () =>
-          assertClaudeProjectCapability(project, {
+          assertAntigravityProjectCapability(project, {
             resolveVersion: async () => {
               throw failures[0];
             },
@@ -238,8 +246,7 @@ describe("Host capability blockers", () => {
       {
         failure: failures[1]!,
         run: () =>
-          assertCodexProjectCapability("/tmp", project, {
-            requireContext: true,
+          assertClaudeProjectCapability(project, {
             resolveVersion: async () => {
               throw failures[1];
             },
@@ -248,7 +255,8 @@ describe("Host capability blockers", () => {
       {
         failure: failures[2]!,
         run: () =>
-          assertGrokProjectCapability(project, {
+          assertCodexProjectCapability("/tmp", project, {
+            requireContext: true,
             resolveVersion: async () => {
               throw failures[2];
             },
@@ -257,9 +265,18 @@ describe("Host capability blockers", () => {
       {
         failure: failures[3]!,
         run: () =>
-          assertPiProjectCapability(project, {
+          assertGrokProjectCapability(project, {
             resolveVersion: async () => {
               throw failures[3];
+            },
+          }),
+      },
+      {
+        failure: failures[4]!,
+        run: () =>
+          assertPiProjectCapability(project, {
+            resolveVersion: async () => {
+              throw failures[4];
             },
           }),
       },

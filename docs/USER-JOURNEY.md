@@ -62,7 +62,7 @@ budgets are enforced structurally (see ADR-0017).
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed |
 | 7 | Preview | `preview [--verbose] [--json]` | Know exactly what `apply` will write, before it writes |
 | 8 | Apply | `apply [--verbose] [--json]` | Generated output on disk, and proof of what changed |
-| 9 | Use | *(launch Codex/Claude/Grok/Pi)* | Material loads through native Host discovery |
+| 9 | Use | *(launch Antigravity/Codex/Claude/Grok/Pi)* | Material loads through native Host discovery |
 | 10 | Re-sync | `status [--json]` → `preview` → `apply` | Notice Workspace drift and reconcile it |
 | 11 | Recover | `status`, `apply`, `uninstall` | Get unstuck from drifted, missing, or malformed state |
 | 12 | Tear down | `uninstall`, `unbind` | Remove output and/or desired state, with the boundary made clear |
@@ -280,7 +280,7 @@ symbols and counts as the preceding preview, never reprints verified-current
 Project blocks, and is followed by change-relevant Host setup, one compact
 standing reminder, and grouped next-launch readiness (once per Host scope,
 never per Project). Conditional Host guidance carries this journey into Codex,
-Claude Code, Grok, and Pi.
+Claude Code, Grok, Pi, and Antigravity.
 
 Gaps: ~~[UJ-04](#uj-04)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)), ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-20](#uj-20)~~,
@@ -296,6 +296,7 @@ Setup guidance is reported conditionally by Host *and* by what was installed:
 | Codex | Codex CLI 0.145.0+ for complete Context delivery, plus project trust **and** native review/trust of the generated `SessionStart` hook — only when Context is installed. Non-Git projects must be launched from the exact bound root. |
 | Grok | None, except when co-bound with Claude and rules compatibility is on: Grok reads Claude's rule file and **no `.grok/rules/` is created**. |
 | Pi | Native project trust; `--skill` / `--no-skills` runtime overrides fall outside the guarantee. |
+| Antigravity | `agy` 1.1.13+ and native project trust. Profile Context loads from deterministic always-on `.agents/rules/` files; Skills are not yet qualified. |
 
 **Codex Context floor (0.145.0+).** Context-bearing Codex installs probe
 `codex --version` on `preview`/`apply` and refuse writes below the floor (or when

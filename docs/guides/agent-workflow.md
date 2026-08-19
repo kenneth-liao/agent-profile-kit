@@ -17,10 +17,11 @@ Use this workflow when helping a person author their Workspace and bind projects
    the reusable facts or workflow they want, and whether existing material
    already satisfies the need. Ask instead of inventing personal preferences,
    project facts, Host preferences, credentials, or machine paths.
-3. Create the smallest useful artifact set. This release accepts Context Modules
-   and portable Skills for Codex, Claude Code, Grok, and Pi. Put standing facts in Context Modules and reusable procedures in
-   Skills. A Profile needs at least one supported artifact (Context, Skills, or
-   both); Context is not mandatory—a
+3. Create the smallest useful artifact set. This release accepts Profile Context
+   for Antigravity and portable Context and Skills for Codex, Claude Code, Grok,
+   and Pi. Antigravity Skill delivery is not yet qualified. Put standing facts in
+   Context Modules and reusable procedures in Skills. A Profile needs at least
+   one supported artifact (Context, Skills, or both); Context is not mandatory—a
    Skills-only Profile is valid on CLI 0.17.0+ (convert or uninstall before
    rolling back to older binaries; see the human Workspace guide). For Skills
    that must not fire implicitly, use
@@ -39,8 +40,8 @@ Use this workflow when helping a person author their Workspace and bind projects
      machine-local Project Bindings and the explicit Workspace path. Current
      schema version 2 requires one existing absolute or home-relative Workspace
      path and each binding names one existing project root, one Profile, and a
-     supported Host set (`codex`, `claude`, `grok`, or `pi`); Host order and
-     duplicate entries normalize at ingestion. A version-1 configuration without
+     supported Host set (`antigravity`, `codex`, `claude`, `grok`, or `pi`); Host
+     order and duplicate entries normalize at ingestion. A version-1 configuration without
      `workspace` is legacy migration input only; run `apkit init` before any desired-state
      or binding-recording command.
    - **Project repositories** own project facts and repository-owned instructions.
@@ -79,13 +80,16 @@ Use this workflow when helping a person author their Workspace and bind projects
    no tool error and no blockers (JSON `outcome` may still be `attention`),
    exit `1` is a tool error, and exit `2` means blockers. The current Workspace
    schema version is 1.
-7. After apply, the user launches Codex, Claude, Grok, or Pi natively in the
-   bound project. Do not claim that Agent Profile Kit manages Host
-   authentication, trust, approvals, plugins, or sessions. Pi bindings load the
-   generated `.pi/APPEND_SYSTEM.md` and shared `.agents/skills/<Artifact ID>`
-   packages after Pi's native trust boundary; packages, extensions, and other
-   Skill sources coexist through Pi Host Resolution. For non-Git projects, remind the
-   user that Codex must launch from the exact bound root.
+7. After apply, the user launches Antigravity, Codex, Claude, Grok, or Pi
+   natively in the bound project. Do not claim that Agent Profile Kit manages
+   Host authentication, trust, approvals, plugins, or sessions. Antigravity
+   bindings load deterministic always-on Context rules under `.agents/rules/`
+   after the user's native trust step; Antigravity Skill delivery is not yet
+   qualified. Pi bindings load the generated `.pi/APPEND_SYSTEM.md` and shared
+   `.agents/skills/<Artifact ID>` packages after Pi's native trust boundary;
+   packages, extensions, and other Skill sources coexist through Pi Host
+   Resolution. For non-Git projects, remind the user that Codex must launch from
+   the exact bound root.
 8. Use `apkit status` to focus on Profile Installations needing attention; its concise
    result reports all-current state when nothing needs action, labels change
    paths with `+`, `~`, `-`, or `!` markers, caps long lists with a pointer to

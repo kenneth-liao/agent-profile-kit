@@ -36,6 +36,13 @@ import {
   planPiProject,
   probePiMachineCapability,
 } from "../adapters/pi.js";
+import {
+  assertAntigravityProjectSurface,
+  antigravityMachineRequirements,
+  ANTIGRAVITY_ADAPTER_VERSION,
+  planAntigravityProject,
+  probeAntigravityMachineCapability,
+} from "../adapters/antigravity.js";
 import { isAdapterCapabilityError } from "../adapters/capability.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
@@ -175,6 +182,7 @@ export function adapterVersionFor(hosts: readonly SupportedHost[]): string {
     if (host === "codex") return CODEX_ADAPTER_VERSION;
     if (host === "grok") return GROK_ADAPTER_VERSION;
     if (host === "pi") return PI_ADAPTER_VERSION;
+    if (host === "antigravity") return ANTIGRAVITY_ADAPTER_VERSION;
     const exhaustive: never = host;
     throw new Error(`Unsupported Agent Host '${String(exhaustive)}'`);
   });
@@ -730,6 +738,20 @@ export async function buildDesiredState(
               requireContext,
               requireSkills,
             });
+          } else if (host === "antigravity") {
+            await planning.probeHostCapability(
+              {
+                host,
+                requirements: antigravityMachineRequirements({ requireContext }),
+              },
+              () => probeAntigravityMachineCapability({
+                ...capabilityEnvironment,
+                requireContext,
+              }),
+            );
+            await assertAntigravityProjectSurface(binding.canonicalProject, {
+              requireContext,
+            });
           }
         } catch (error) {
           blockers.push(
@@ -942,6 +964,40 @@ export async function buildDesiredState(
         );
         plans.push(adapterPlan);
         hostVersions.pi = adapterPlan.hostVersion;
+        continue;
+      }
+      if (host === "antigravity") {
+        let adapterPlan: AdapterProjectPlan | undefined;
+        try {
+          adapterPlan = await planning.planHost(
+            {
+              host: "antigravity",
+              options: {},
+              profileId: profile.id,
+              resolvedContexts: resolvedProfile.contexts,
+              resolvedSkills: resolvedProfile.skills,
+            },
+            () => planAntigravityProject(
+              profile.id,
+              resolvedProfile.contexts,
+              resolvedProfile.skills,
+            ),
+          );
+        } catch (error) {
+          if (!isAdapterCapabilityError(error)) throw error;
+          blockers.push(
+            hostCapabilityBlocker(
+              error,
+              "antigravity",
+              binding.canonicalProject,
+              binding.project,
+            ),
+          );
+        }
+        if (adapterPlan !== undefined) {
+          plans.push(adapterPlan);
+          hostVersions.antigravity = adapterPlan.hostVersion;
+        }
         continue;
       }
       const exhaustive: never = host;
