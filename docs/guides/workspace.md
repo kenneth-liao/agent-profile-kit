@@ -228,12 +228,15 @@ Adapters translate the trusted policy only in generated Host output:
 | Canonical policy | Claude / Grok / Pi generated output | Codex generated output |
 | --- | --- | --- |
 | `allowed` (default) | No Host restriction field | No Host restriction field |
-| `disabled` | `disable-model-invocation: true` in generated `SKILL.md` | `policy.allow_implicit_invocation: false` in generated `agents/openai.yaml` |
+| `disabled` | `disable-model-invocation: true` in generated `SKILL.md` | `disable-model-invocation: true` in generated `SKILL.md` plus `policy.allow_implicit_invocation: false` in generated `agents/openai.yaml` |
 
 Existing source `agents/openai.yaml` content is preserved. An equivalent
-invocation policy coalesces; a conflicting policy fails before any project
-write. When any selected Skill disables model invocation, capability preflight
-proves each selected Host can enforce it before writes: Claude Code CLI
+invocation policy coalesces; malformed, wrong-type, or conflicting policy
+produces one structured project Blocker naming the Workspace and Codex
+authorities with a Workspace repair remedy before any project write. Generated
+policy fields carry short deterministic comments. When any selected Skill
+disables model invocation, capability preflight proves each selected Host can
+enforce it before writes: Claude Code CLI
 `2.0.64+` (same floor as unscoped rules and native Skill discovery, which
 honors `disable-model-invocation`), Grok CLI `0.2.0+` (same floor as project
 rules and native Skill discovery, which honors `disable-model-invocation`),

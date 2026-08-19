@@ -4741,8 +4741,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(conflictHome)}\nbindings:\n  - project: ${conflictProject}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
     const conflict = await runCli(conflictHome, "preview");
-    expectExitCode(conflict, 1);
-    expect(conflict.stderr).toContain("conflicting model-invocation authorities");
+    expectExitCode(conflict, 2);
+    expect(conflict.stdout).toContain("conflicting model-invocation authorities");
+    expect(conflict.stdout).toContain("canonical Workspace metadata.agent-profile-kit.model-invocation");
+    expect(conflict.stdout).toContain("agents/openai.yaml policy.allow_implicit_invocation");
     expect(existsSync(join(conflictProject, ".agents", "skills", "to-spec"))).toBe(false);
 
     const preview = await runCliWithPath(home, pathValue, "preview", "--verbose");
@@ -9070,6 +9072,85 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     // Ordinary Claude Profile Installation remains after temporary lifecycle.
     expect(existsSync(join(boundProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
+  });
+
+  test("ordinary and temporary Codex installations use the same shared Skill package shape", async () => {
+    const home = isolatedHome();
+    await prepareClaudeTempWorkspace(home);
+    const skillPath = join(workspacePath(home), "skills", "review-pr", "SKILL.md");
+    const boundProject = realpathSync(gitRepository("agent-profile-kit-shared-codex-bound-"));
+    const temporaryProject = realpathSync(gitRepository("agent-profile-kit-shared-codex-temp-"));
+    writeFileSync(
+      skillPath,
+      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\nReview the change carefully.\n",
+    );
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${boundProject}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const applyDisabled = await runCliWithClaude(home, "apply");
+    expectExitCode(applyDisabled, 0);
+    const installDisabled = await runCliWithClaude(
+      home,
+      "install-temp",
+      "coding",
+      temporaryProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expectExitCode(installDisabled, 0);
+    const disabledOpenAiPath = join(".agents", "skills", "review-pr", "agents", "openai.yaml");
+    const disabledSkillPath = join(".agents", "skills", "review-pr", "SKILL.md");
+    expect(readFileSync(join(boundProject, disabledSkillPath), "utf8")).toBe(
+      readFileSync(join(temporaryProject, disabledSkillPath), "utf8"),
+    );
+    expect(readFileSync(join(boundProject, disabledOpenAiPath), "utf8")).toBe(
+      readFileSync(join(temporaryProject, disabledOpenAiPath), "utf8"),
+    );
+    expect(readFileSync(join(boundProject, disabledSkillPath), "utf8")).toContain(
+      "disable-model-invocation: true",
+    );
+    expect(parse(readFileSync(join(boundProject, disabledOpenAiPath), "utf8"))).toMatchObject({
+      policy: { allow_implicit_invocation: false },
+    });
+    const disabledReceipt = JSON.parse(installDisabled.stdout) as {
+      readonly temporaryInstallationId: string;
+    };
+    expectExitCode(
+      await runCliWithClaude(home, "remove-temp", disabledReceipt.temporaryInstallationId),
+      0,
+    );
+
+    writeFileSync(
+      skillPath,
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\nReview the change carefully.\n",
+    );
+    expectExitCode(await runCliWithClaude(home, "apply"), 0);
+    const installAllowed = await runCliWithClaude(
+      home,
+      "install-temp",
+      "coding",
+      temporaryProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expectExitCode(installAllowed, 0);
+    expect(readFileSync(join(boundProject, disabledSkillPath), "utf8")).toBe(
+      readFileSync(join(temporaryProject, disabledSkillPath), "utf8"),
+    );
+    expect(existsSync(join(boundProject, disabledOpenAiPath))).toBe(false);
+    expect(existsSync(join(temporaryProject, disabledOpenAiPath))).toBe(false);
+    const allowedReceipt = JSON.parse(installAllowed.stdout) as {
+      readonly temporaryInstallationId: string;
+    };
+    expectExitCode(
+      await runCliWithClaude(home, "remove-temp", allowedReceipt.temporaryInstallationId),
+      0,
+    );
+    expectExitCode(await runCliWithClaude(home, "uninstall"), 0);
   });
 
   test("Claude and Codex receipts share protocol shape with Host-truthful provenance", async () => {

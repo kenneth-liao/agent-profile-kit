@@ -389,7 +389,7 @@ describe("project-bound release candidate", () => {
     };
     expect(state.installations).toHaveLength(1);
     expect(state.installations[0]?.engine_version).toBe(packageVersion);
-    expect(state.installations[0]?.adapter_version).toBe("codex-project-v2");
+    expect(state.installations[0]?.adapter_version).toBe("codex-project-v3");
   });
 
   test("installing the package alone changes no Workspace, Local Configuration, project, Git, or Host state", async () => {
