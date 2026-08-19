@@ -11,6 +11,7 @@ import {
   detectCodexProjectConfigurationWarnings,
   planCodexProject,
 } from "../adapters/codex.js";
+import { isAdapterCapabilityError } from "../adapters/capability.js";
 import type { AdapterProjectPlan, HostSetupStep } from "../adapters/project-plan.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
@@ -273,7 +274,9 @@ async function planTemporaryDesiredInstallation(options: {
     warnings,
   });
   const hosts: readonly SupportedHost[] = [options.host];
-  const outputs = normalizeAdapterPlans([adapterPlan]);
+  const outputs = normalizeAdapterPlans(
+    adapterPlan === undefined ? [] : [adapterPlan],
+  );
   assertResolvedOutputOrigins(outputs, resolvedProfile);
   return {
     adapterVersion: adapterVersionFor(hosts),
@@ -287,14 +290,18 @@ async function planTemporaryDesiredInstallation(options: {
     blockers,
     engineVersion: ENGINE_VERSION,
     gitProject,
-    hostVersions: { [options.host]: adapterPlan.hostVersion },
+    hostVersions: adapterPlan === undefined
+      ? {}
+      : { [options.host]: adapterPlan.hostVersion },
     outputs,
     profile,
     resolvedProfile,
-    setupSteps: adapterPlan.setupSteps.map((step) => ({
-      ...step,
-      host: adapterPlan.host,
-    })),
+    setupSteps: adapterPlan === undefined
+      ? []
+      : adapterPlan.setupSteps.map((step) => ({
+          ...step,
+          host: adapterPlan.host,
+        })),
     sourceHash,
     diagnosticValues: [...new Set(diagnosticValues)].sort(),
     warnings,
@@ -318,7 +325,7 @@ async function planTemporaryHostAdapter(options: {
   readonly resolvedSkills: readonly Skill[];
   readonly diagnosticValues: string[];
   readonly warnings: string[];
-}): Promise<AdapterProjectPlan> {
+}): Promise<AdapterProjectPlan | undefined> {
   switch (options.host) {
     case "claude": {
       try {
@@ -357,17 +364,25 @@ async function planTemporaryHostAdapter(options: {
         "codex",
         "context.md",
       ].filter((part) => part.length > 0).join("/");
-      return planCodexProject(
-        options.profileId,
-        options.resolvedContexts,
-        options.resolvedSkills,
-        {
-          contextPath,
-          ...(!options.gitProject && options.requireContext
-            ? { requiresBoundRootLaunch: true }
-            : {}),
-        },
-      );
+      try {
+        return await planCodexProject(
+          options.profileId,
+          options.resolvedContexts,
+          options.resolvedSkills,
+          {
+            contextPath,
+            ...(!options.gitProject && options.requireContext
+              ? { requiresBoundRootLaunch: true }
+              : {}),
+          },
+        );
+      } catch (error) {
+        if (!isAdapterCapabilityError(error)) throw error;
+        options.blockers.push(
+          hostCapabilityBlocker(error, "codex", options.project),
+        );
+        return undefined;
+      }
     }
     default: {
       const exhaustive: never = options.host;

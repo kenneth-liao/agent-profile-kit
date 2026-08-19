@@ -1,32 +1,33 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { join, posix, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { parse, stringify } from "yaml";
-
-import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
+import type { Skill } from "../schemas/skill.js";
 import { capabilityFailure } from "./capability.js";
 import type {
   AdapterHostSetupStep,
   AdapterDiagnosticWarning,
   AdapterProjectPlan,
-  ProposedDirectoryFileMember,
-  ProposedDirectoryMember,
   ProposedProjectOutput,
 } from "./project-plan.js";
 import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
-  DISABLED_MODEL_INVOCATION_REQUIREMENT,
-  planSkillPackageDirectory,
   skillsRequireDisabledModelInvocation,
   type AdapterPlanningMaterials,
-  type SkillPackageProjection,
 } from "./skill-package.js";
+import {
+  coalesceSharedSkillPolicy,
+  planSharedSkillPackageDirectory,
+  projectSharedSkillMembers,
+  sharedSkillRequirements,
+  SHARED_SKILL_OPENAI_YAML,
+  SHARED_SKILLS_DISCOVERY_ROOT,
+} from "./shared-skill.js";
 import { parseTomlTable } from "./toml.js";
 
 const execFileAsync = promisify(execFile);
 
-export const CODEX_ADAPTER_VERSION = "codex-project-v2";
+export const CODEX_ADAPTER_VERSION = "codex-project-v3";
 
 /**
  * Capability-contract token for Codex project Context via SessionStart hooks
@@ -69,11 +70,11 @@ export const CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT = "0.145.0";
  */
 export const CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION = "0.99.0";
 
-/** Codex Skill metadata path for Host-native invocation policy. */
-export const CODEX_SKILL_OPENAI_YAML = "agents/openai.yaml";
+/** Codex Skill policy path within the shared package. */
+export const CODEX_SKILL_OPENAI_YAML = SHARED_SKILL_OPENAI_YAML;
 
 /** Codex native project Skill discovery root (project-relative). */
-export const CODEX_SKILLS_DISCOVERY_ROOT = posix.join(".agents", "skills");
+export const CODEX_SKILLS_DISCOVERY_ROOT = SHARED_SKILLS_DISCOVERY_ROOT;
 
 export type CodexProjectPlan = AdapterProjectPlan;
 
@@ -89,25 +90,6 @@ export interface CodexCapabilityOptions {
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
-}
-
-function parseYaml(source: string, description: string): unknown {
-  try {
-    return parse(source);
-  } catch {
-    throw new Error(`${description} is invalid YAML`);
-  }
-}
-
-function requireMapping(value: unknown, description: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${description} must be a YAML mapping`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function memberBytesAsString(bytes: string | Uint8Array): string {
-  return typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8");
 }
 
 export function parseCodexHooksFeatureSetting(source: string, path: string): boolean | undefined {
@@ -338,128 +320,26 @@ export async function detectCodexProjectConfigurationWarnings(
   }
 }
 
-function readAllowImplicitInvocation(
-  document: Record<string, unknown>,
-  skillId: string,
-): boolean | undefined {
-  if (!("policy" in document)) return undefined;
-  const policy = document.policy;
-  if (typeof policy !== "object" || policy === null || Array.isArray(policy)) {
-    throw new Error(
-      `Skill '${skillId}' ${CODEX_SKILL_OPENAI_YAML} policy must be a YAML mapping`,
-    );
-  }
-  const mapping = policy as Record<string, unknown>;
-  if (!("allow_implicit_invocation" in mapping)) return undefined;
-  const value = mapping.allow_implicit_invocation;
-  if (typeof value !== "boolean") {
-    throw new Error(
-      `Skill '${skillId}' ${CODEX_SKILL_OPENAI_YAML} policy.allow_implicit_invocation must be a boolean`,
-    );
-  }
-  return value;
-}
-
 /**
- * Coalesce or reject Codex-native invocation policy against the trusted Skill policy.
- * Equivalent policies coalesce; conflicting authorities fail before writes.
+ * Keep the existing Codex API while making the shared projector the one policy
+ * normalization boundary used by all future qualified `.agents` consumers.
  */
 export function coalesceCodexInvocationPolicy(
   skillId: string,
-  modelInvocation: ModelInvocationPolicy,
+  modelInvocation: Skill["modelInvocation"],
   existingOpenAiYaml: string | undefined,
-): { readonly action: "leave"; readonly bytes?: string } | { readonly action: "write"; readonly bytes: string } {
-  let document: Record<string, unknown> = {};
-  let existingAllow: boolean | undefined;
-  if (existingOpenAiYaml !== undefined) {
-    document = requireMapping(
-      parseYaml(existingOpenAiYaml, `Skill '${skillId}' ${CODEX_SKILL_OPENAI_YAML}`),
-      `Skill '${skillId}' ${CODEX_SKILL_OPENAI_YAML}`,
-    );
-    existingAllow = readAllowImplicitInvocation(document, skillId);
-  }
-
-  if (modelInvocation === "disabled") {
-    if (existingAllow === true) {
-      throw new Error(
-        `Skill '${skillId}' has conflicting model-invocation authorities: canonical policy is disabled but ${CODEX_SKILL_OPENAI_YAML} sets policy.allow_implicit_invocation: true`,
-      );
-    }
-    if (existingAllow === false && existingOpenAiYaml !== undefined) {
-      return { action: "leave", bytes: existingOpenAiYaml };
-    }
-    const policy =
-      typeof document.policy === "object" && document.policy !== null && !Array.isArray(document.policy)
-        ? { ...(document.policy as Record<string, unknown>) }
-        : {};
-    policy.allow_implicit_invocation = false;
-    document.policy = policy;
-    return { action: "write", bytes: `${stringify(document).trimEnd()}\n` };
-  }
-
-  if (existingAllow === false) {
-    throw new Error(
-      `Skill '${skillId}' has conflicting model-invocation authorities: canonical policy is allowed but ${CODEX_SKILL_OPENAI_YAML} sets policy.allow_implicit_invocation: false`,
-    );
-  }
-  if (existingOpenAiYaml === undefined) {
-    return { action: "leave" };
-  }
-  return { action: "leave", bytes: existingOpenAiYaml };
+): ReturnType<typeof coalesceSharedSkillPolicy> {
+  return coalesceSharedSkillPolicy(
+    { id: skillId, modelInvocation, path: skillId },
+    existingOpenAiYaml,
+  );
 }
 
-/** Codex-owned Skill package projection (Host-native model-invocation mapping). */
-export function projectCodexSkillMembers(
-  skill: Skill,
-  members: readonly ProposedDirectoryMember[],
-): readonly ProposedDirectoryMember[] {
-  const existingOpenAi = members.find(
-    (member): member is ProposedDirectoryFileMember =>
-      member.type === "file" && member.path === CODEX_SKILL_OPENAI_YAML,
-  );
-  const decision = coalesceCodexInvocationPolicy(
-    skill.id,
-    skill.modelInvocation,
-    existingOpenAi === undefined ? undefined : memberBytesAsString(existingOpenAi.bytes),
-  );
+/** Codex now consumes the complete qualified shared Skill package. */
+export const projectCodexSkillMembers = projectSharedSkillMembers;
 
-  if (decision.action === "leave") {
-    return members;
-  }
-
-  const withoutOpenAi = members.filter((member) => member.path !== CODEX_SKILL_OPENAI_YAML);
-  const hasAgentsDir = withoutOpenAi.some(
-    (member) => member.type === "directory" && member.path === "agents",
-  );
-  const next: ProposedDirectoryMember[] = [...withoutOpenAi];
-  if (!hasAgentsDir) {
-    next.push({ mode: 0o755, path: "agents", type: "directory" });
-  }
-  next.push({
-    bytes: decision.bytes,
-    mode: existingOpenAi?.mode ?? 0o644,
-    path: CODEX_SKILL_OPENAI_YAML,
-    type: "file",
-  });
-  return next.sort((left, right) => left.path.localeCompare(right.path));
-}
-
-export function codexSkillRequirements(
-  skill: Skill,
-  base: readonly string[],
-): readonly string[] {
-  if (skill.modelInvocation !== "disabled") return base;
-  return [
-    ...base,
-    DISABLED_MODEL_INVOCATION_REQUIREMENT,
-    "Codex agents/openai.yaml policy.allow_implicit_invocation enforces disabled model invocation",
-  ];
-}
-
-const CODEX_SKILL_PROJECTION: SkillPackageProjection = {
-  projectMembers: projectCodexSkillMembers,
-  requirements: codexSkillRequirements,
-};
+/** Codex records the shared package's complete disabled-policy requirement. */
+export const codexSkillRequirements = sharedSkillRequirements;
 
 const DEFAULT_CONTEXT_PATH = ".agent-profile-kit/codex/context.md";
 
@@ -541,11 +421,9 @@ export async function planCodexProject(
     [...skills]
       .sort((left, right) => left.id.localeCompare(right.id))
       .map((skill) =>
-        planSkillPackageDirectory(
+        planSharedSkillPackageDirectory(
           skill,
-          CODEX_SKILLS_DISCOVERY_ROOT,
           ["Codex discovers Skill package through native project .agents/skills"],
-          CODEX_SKILL_PROJECTION,
           materials,
         ),
       ),

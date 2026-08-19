@@ -36,6 +36,7 @@ import {
   planPiProject,
   probePiMachineCapability,
 } from "../adapters/pi.js";
+import { isAdapterCapabilityError } from "../adapters/capability.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
   AdapterDiagnosticWarning,
@@ -803,27 +804,42 @@ export async function buildDesiredState(
           "context.md",
         ].filter((part) => part.length > 0).join("/");
         const requiresBoundRootLaunch = !gitProject && requireContext;
-        const adapterPlan = await planning.planHost(
-          {
-            host: "codex",
-            options: { contextPath, requiresBoundRootLaunch },
-            profileId: profile.id,
-            resolvedContexts: resolvedProfile.contexts,
-            resolvedSkills: resolvedProfile.skills,
-          },
-          () => planCodexProject(
-            profile.id,
-            resolvedProfile.contexts,
-            resolvedProfile.skills,
+        let adapterPlan: AdapterProjectPlan | undefined;
+        try {
+          adapterPlan = await planning.planHost(
             {
-              contextPath,
-              materials: planning.materials,
-              ...(requiresBoundRootLaunch ? { requiresBoundRootLaunch: true } : {}),
+              host: "codex",
+              options: { contextPath, requiresBoundRootLaunch },
+              profileId: profile.id,
+              resolvedContexts: resolvedProfile.contexts,
+              resolvedSkills: resolvedProfile.skills,
             },
-          ),
-        );
-        plans.push(adapterPlan);
-        hostVersions.codex = adapterPlan.hostVersion;
+            () => planCodexProject(
+              profile.id,
+              resolvedProfile.contexts,
+              resolvedProfile.skills,
+              {
+                contextPath,
+                materials: planning.materials,
+                ...(requiresBoundRootLaunch ? { requiresBoundRootLaunch: true } : {}),
+              },
+            ),
+          );
+        } catch (error) {
+          if (!isAdapterCapabilityError(error)) throw error;
+          blockers.push(
+            hostCapabilityBlocker(
+              error,
+              "codex",
+              binding.canonicalProject,
+              binding.project,
+            ),
+          );
+        }
+        if (adapterPlan !== undefined) {
+          plans.push(adapterPlan);
+          hostVersions.codex = adapterPlan.hostVersion;
+        }
         continue;
       }
       if (host === "claude") {
