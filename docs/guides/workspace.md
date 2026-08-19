@@ -600,11 +600,13 @@ migration. Before the first 0.81.0 write, retain the current state:
 cp -p "$state_dir/manifest.yaml" "$state_dir/manifest.yaml.before-pi-shared-skill-migration"
 ```
 
-To roll back after migration, stop using 0.81.0, run its `apkit uninstall` to
-remove the migrated `.agents/skills/` output while the Installation State and
-Marker still prove ownership, restore the backup, and then run 0.80.x
-`apkit apply` to recreate the owned `.pi/skills/` packages. A blocked apply makes
-no migration writes and needs no cleanup. The backup restores machine-local
+To roll back after migration, stop using 0.81.0. While the current
+Installation State and project Markers still prove ownership, run its
+`apkit uninstall`. This removes all currently owned generated output for each
+affected installation, not only the migrated `.agents/skills/` packages. Restore
+the backup, then run 0.80.x `apkit apply` to recreate the pre-migration generated
+trees, including the owned `.pi/skills/` packages. A blocked apply makes no
+migration writes and needs no cleanup. The backup restores machine-local
 ownership evidence; it does not undo unrelated Workspace or project changes.
 
 For installations created before 0.24.2, run one live `apkit apply`
@@ -629,9 +631,10 @@ This section is the Host-path detail for the
 [Universal Workspace material](#universal-workspace-material) boundary.
 
 Agent Profile Kit installs selected Skills only into the bound **project**
-(`.agents/skills/<Artifact ID>/` for Codex, `.claude/skills/<Artifact ID>/` for
-Claude, `.grok/skills/<Artifact ID>/` for Grok). It never installs into, adopts,
-disables, or removes personal/global Host Skill folders. Unselected Workspace
+(`.agents/skills/<Artifact ID>/` for Codex and Pi,
+`.claude/skills/<Artifact ID>/` for Claude, `.grok/skills/<Artifact ID>/` for
+Grok). It never installs into, adopts, disables, or removes personal/global
+Host Skill folders. Unselected Workspace
 Skills are not installed into projects either; they may remain valid Workspace
 source without any APK-managed delivery.
 
