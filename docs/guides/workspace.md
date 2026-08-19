@@ -183,9 +183,10 @@ when every consumer has upgraded to 0.16.1+.
 ## Author the Workspace
 
 This release supports Context Modules and portable Skills for Codex, Claude
-Code, Grok, and Pi. Pi Skills install under `.pi/skills/<Artifact ID>/` after
-project-surface capability checks; Pi resolves other Skills, extensions, and
-packages through its native Host behavior.
+Code, Grok, and Pi. Pi Skills install through the qualified shared
+`.agents/skills/<Artifact ID>/` projection after project-surface capability
+checks; Pi resolves other Skills, extensions, and packages through its native
+Host behavior.
 Disabled model-invocation Skills are projected with Pi-native
 `disable-model-invocation: true` while explicit `/skill:<Artifact ID>`
 activation remains available. Profiles that select Agents, Hooks, or Tools are
@@ -247,8 +248,9 @@ official [Skills documentation](https://pi.dev/docs/latest/skills) says the
 field hides a Skill from the model's system prompt while users can still invoke
 it explicitly with `/skill:<name>`, and the behavior was introduced in
 [Pi 0.50.0](https://pi.dev/news/releases/0.50.0). Pi records
-`native-project-skills-invocation-v1` for Skills-only or
-`native-project-append-system-skills-invocation-v1` for combined Profiles.
+`native-project-shared-skills-invocation-v1` for Skills-only or
+`native-project-append-system-shared-skills-invocation-v1` for combined
+Profiles, proving the complete shared package.
 Unsupported versions fail closed rather than silently weakening the policy.
 
 Artifacts may declare required Dependencies with explicit typed references. Put
@@ -511,17 +513,20 @@ load that material. Claude project rules do not depend on Git.
 Pi receives Profile Context through the owned project file
 `.pi/APPEND_SYSTEM.md`. The Pi Adapter requires CLI 0.82.1 or newer and
 proves that `.pi` and the append-system destination are compatible before
-writes. Profiles with portable Skills also receive one package
-per resolved Artifact ID under `.pi/skills/<Artifact ID>/`; standard package
-bytes and modes are preserved and `agent-profile-kit.yaml` is omitted. Pi
-owns Skill resolution across personal, project, ancestor, package, extension,
-and configured sources. Disabled model-invocation Skills receive top-level
-`disable-model-invocation: true` in generated `SKILL.md` while the canonical
-Workspace source remains unchanged and explicit `/skill:<Artifact ID>`
-activation remains available. Malformed or unreadable relevant settings warn
-without blocking. Pi's native
-project trust, authentication, settings, prompt files, and per-session
-overrides remain Host-owned.
+Context writes; Skill-bearing Profiles instead prove the shared `.agents` and
+`.agents/skills` surfaces. Profiles with portable Skills receive one shared
+package per resolved Artifact ID under `.agents/skills/<Artifact ID>/`;
+standard package bytes and modes are preserved and `agent-profile-kit.yaml` is
+omitted. Codex and Pi co-own one normalized package when both are selected;
+the package carries every required Host policy field without adding consumer
+metadata to Skill source. Pi owns Skill resolution across personal, project,
+ancestor, package, extension, and configured sources. Disabled
+model-invocation Skills receive top-level `disable-model-invocation: true` in
+generated `SKILL.md` while the canonical Workspace source remains unchanged
+and explicit `/skill:<Artifact ID>` activation remains available. Malformed or
+unreadable relevant settings warn without blocking. Pi's native project trust,
+authentication, settings, prompt files, and per-session overrides remain
+Host-owned.
 
 ### Precedence and conflicts
 
@@ -585,6 +590,25 @@ Invocation-capable Pi `host_versions` are first recorded by Agent Profile Kit
 0.34.0. Unbind Pi or run `apply`/`uninstall` with 0.34.0+ before rolling back
 an invocation-capable installation below 0.34.0.
 
+Agent Profile Kit 0.81.0 migrates owned Pi Skill packages from
+`.pi/skills/<Artifact ID>/` to the qualified shared
+`.agents/skills/<Artifact ID>/` surface on the next successful `apply`. This is
+a pre-1.0 breaking change: do not run 0.80.x against a state file after that
+migration. Before the first 0.81.0 write, retain the current state:
+
+```sh
+cp -p "$state_dir/manifest.yaml" "$state_dir/manifest.yaml.before-pi-shared-skill-migration"
+```
+
+To roll back after migration, stop using 0.81.0. While the current
+Installation State and project Markers still prove ownership, run its
+`apkit uninstall`. This removes all currently owned generated output for each
+affected installation, not only the migrated `.agents/skills/` packages. Restore
+the backup, then run 0.80.x `apkit apply` to recreate the pre-migration generated
+trees, including the owned `.pi/skills/` packages. A blocked apply makes no
+migration writes and needs no cleanup. The backup restores machine-local
+ownership evidence; it does not undo unrelated Workspace or project changes.
+
 For installations created before 0.24.2, run one live `apkit apply`
 while each bound project root still exists. This records `git_project: false`
 for non-Git installations. Without that classification, deleting a non-Git
@@ -607,9 +631,10 @@ This section is the Host-path detail for the
 [Universal Workspace material](#universal-workspace-material) boundary.
 
 Agent Profile Kit installs selected Skills only into the bound **project**
-(`.agents/skills/<Artifact ID>/` for Codex, `.claude/skills/<Artifact ID>/` for
-Claude, `.grok/skills/<Artifact ID>/` for Grok). It never installs into, adopts,
-disables, or removes personal/global Host Skill folders. Unselected Workspace
+(`.agents/skills/<Artifact ID>/` for Codex and Pi,
+`.claude/skills/<Artifact ID>/` for Claude, `.grok/skills/<Artifact ID>/` for
+Grok). It never installs into, adopts, disables, or removes personal/global
+Host Skill folders. Unselected Workspace
 Skills are not installed into projects either; they may remain valid Workspace
 source without any APK-managed delivery.
 

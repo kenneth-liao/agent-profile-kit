@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  renameSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -23,7 +24,7 @@ import {
   runProcess,
 } from "./support/process-executor.js";
 import { formatLifecycleJson } from "../cli/presentation.js";
-import { readInstallationState } from "../installer/installation-state.js";
+import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
 import { createLifecycleGitInspectionContext } from "../installer/lifecycle-git-inspection.js";
 import { createProjectReadScheduler } from "../installer/project-scheduler.js";
 import { buildDesiredState } from "../installer/project-plan.js";
@@ -651,12 +652,12 @@ describe("project-bound release candidate", () => {
     const piOnlyInstallation = state.installations.find((installation) =>
       installation.hosts.length === 1 && installation.hosts[0] === "pi",
     );
-    expect(piOnlyInstallation?.adapter_version).toBe("pi-project-v1");
+    expect(piOnlyInstallation?.adapter_version).toBe("pi-project-v2");
     expect(piOnlyInstallation?.host_versions.pi).toBe("native-project-append-system-v1");
     const combinedInstallation = state.installations.find((installation) =>
       installation.hosts.join(",") === "claude,pi",
     );
-    expect(combinedInstallation?.adapter_version).toBe("claude-project-v1+pi-project-v1");
+    expect(combinedInstallation?.adapter_version).toBe("claude-project-v1+pi-project-v2");
     expect(combinedInstallation?.host_versions.pi).toBe("native-project-append-system-v1");
     expect(combinedInstallation?.host_versions.claude).toBe("native-project-unscoped-rules-skills-v1");
 
@@ -717,10 +718,10 @@ describe("project-bound release candidate", () => {
     const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
     const preview = await runCli(home, ["preview", "--verbose"], { path: supportedPath });
     expectExitCode(preview, 0);
-    expect(preview.stdout).toMatch(/\.pi\/skills\/review-pr|review-pr/i);
+    expect(preview.stdout).toMatch(/\.agents\/skills\/review-pr|review-pr/i);
     const apply = await runCli(home, ["apply"], { path: supportedPath });
     expectExitCode(apply, 0);
-    expect(readFileSync(join(projectPath, ".pi", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
+    expect(readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "name: review-pr",
     );
     const state = parse(readFileSync(statePath(home), "utf8")) as {
@@ -729,7 +730,7 @@ describe("project-bound release candidate", () => {
         resolved_artifacts: Array<{ id: string; type: string }>;
       }>;
     };
-    expect(state.installations[0]?.host_versions.pi).toBe("native-project-append-system-skills-v1");
+    expect(state.installations[0]?.host_versions.pi).toBe("native-project-append-system-shared-skills-v1");
     expect(state.installations[0]?.resolved_artifacts.some((artifact) => artifact.id === "review-pr" && artifact.type === "skill")).toBe(true);
     expect(readFileSync(join(home, ".pi", "agent", "settings.json"), "utf8")).toBe(globalSettings);
     expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe(projectSettings);
@@ -741,9 +742,57 @@ describe("project-bound release candidate", () => {
     expect(resolvedStatus.stdout).toContain("All Projects are current");
     expect(`${resolvedStatus.stdout}${resolvedStatus.stderr}`).not.toMatch(/dynamic\.ts|blocked/i);
     expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe(dynamicSettings);
-    expect(readFileSync(join(projectPath, ".pi", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
+    expect(readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "name: review-pr",
     );
+  });
+
+  test("packed CLI migrates an owned Pi Skill package to the shared projection", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, ["init"]), 0);
+    writeWorkspaceAuthoring(home);
+    writeSkill(home, "review-pr", { body: "# Review\n" });
+    writeProfile(home, "skills-only", { skills: ["review-pr"] });
+    const projectPath = project("agent-profile-kit-rc-pi-migration-");
+    writeBindings(home, [{ project: projectPath, profile: "skills-only", hosts: ["pi"] }]);
+    const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
+
+    expectExitCode(await runCli(home, ["apply"], { path: supportedPath }), 0);
+    const state = await readInstallationState(home);
+    const current = state.installations[0];
+    if (!current || current.outputOrigins === undefined) throw new Error("expected current Pi receipt");
+    const sharedPath = ".agents/skills/review-pr";
+    const oldPath = ".pi/skills/review-pr";
+    mkdirSync(join(projectPath, ".pi", "skills"), { recursive: true });
+    renameSync(
+      join(projectPath, ".agents", "skills", "review-pr"),
+      join(projectPath, oldPath),
+    );
+    const { [sharedPath]: sharedOrigins, ...remainingOrigins } = current.outputOrigins;
+    if (sharedOrigins === undefined) throw new Error("expected shared Skill provenance");
+    await writeInstallationState(home, {
+      ...state,
+      installations: [{
+        ...current,
+        adapterVersion: "pi-project-v1",
+        hostVersions: { ...current.hostVersions, pi: "native-project-skills-v1" },
+        outputOrigins: { ...remainingOrigins, [oldPath]: sharedOrigins },
+        outputs: current.outputs.map((output) =>
+          output.path === sharedPath ? { ...output, path: oldPath } : output,
+        ),
+      }],
+    });
+
+    const migrated = await runCli(home, ["apply"], { path: supportedPath });
+    expectExitCode(migrated, 0);
+    expect(existsSync(join(projectPath, ".pi", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expectExitCode(await runCli(home, ["apply"], { path: supportedPath }), 0);
+    expectExitCode(await runCli(home, ["status"], { path: supportedPath }), 0);
+
+    expectExitCode(await runCli(home, ["uninstall"], { path: supportedPath }), 0);
+    expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(projectPath, ".pi", "skills", "review-pr"))).toBe(false);
   });
 
   test("packed CLI projects mixed Pi invocation policies with independent Skills-only and combined contracts", async () => {
@@ -776,21 +825,21 @@ describe("project-bound release candidate", () => {
     expectExitCode(apply, 0);
 
     const generatedSkillsOnly = readFileSync(
-      join(skillsOnlyProject, ".pi", "skills", "explicit-skill", "SKILL.md"),
+      join(skillsOnlyProject, ".agents", "skills", "explicit-skill", "SKILL.md"),
       "utf8",
     );
     const generatedCombined = readFileSync(
-      join(combinedProject, ".pi", "skills", "explicit-skill", "SKILL.md"),
+      join(combinedProject, ".agents", "skills", "explicit-skill", "SKILL.md"),
       "utf8",
     );
     expect(generatedSkillsOnly).toContain("name: explicit-skill");
     expect(generatedSkillsOnly).toContain("disable-model-invocation: true");
     expect(generatedCombined).toContain("name: explicit-skill");
     expect(generatedCombined).toContain("disable-model-invocation: true");
-    expect(readFileSync(join(skillsOnlyProject, ".pi", "skills", "allowed-skill", "SKILL.md"), "utf8")).toContain(
+    expect(readFileSync(join(skillsOnlyProject, ".agents", "skills", "allowed-skill", "SKILL.md"), "utf8")).toContain(
       "name: allowed-skill",
     );
-    expect(readFileSync(join(skillsOnlyProject, ".pi", "skills", "allowed-skill", "SKILL.md"), "utf8")).not.toContain(
+    expect(readFileSync(join(skillsOnlyProject, ".agents", "skills", "allowed-skill", "SKILL.md"), "utf8")).not.toContain(
       "disable-model-invocation",
     );
     expect(readFileSync(join(workspacePath(home), "skills", "explicit-skill", "SKILL.md"), "utf8")).toBe(
@@ -806,12 +855,12 @@ describe("project-bound release candidate", () => {
     const skillsOnlyInstallation = state.installations.find(
       (installation) => installation.hosts.join(",") === "pi",
     );
-    expect(skillsOnlyInstallation?.host_versions.pi).toBe("native-project-skills-invocation-v1");
+    expect(skillsOnlyInstallation?.host_versions.pi).toBe("native-project-shared-skills-invocation-v1");
     const combinedInstallation = state.installations.find(
       (installation) => installation.hosts.join(",") === "claude,pi",
     );
     expect(combinedInstallation?.host_versions.pi).toBe(
-      "native-project-append-system-skills-invocation-v1",
+      "native-project-append-system-shared-skills-invocation-v1",
     );
 
     const unsupportedHome = isolatedHome();

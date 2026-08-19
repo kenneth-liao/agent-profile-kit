@@ -274,7 +274,7 @@ describe("machine-level Host capability probes within one invocation", () => {
         { hosts: ["pi"], profile: "skills-only" },
       ],
     });
-    writeFileSync(join(projects[1]!, ".pi"), "not a directory\n");
+    writeFileSync(join(projects[1]!, ".agents"), "not a directory\n");
     const bin = installProbeHosts(home, { pi: "0.82.1" });
     const instrumentation = emptyInstrumentation();
 
@@ -298,7 +298,7 @@ describe("machine-level Host capability probes within one invocation", () => {
     expect(clean?.blockers).toEqual([]);
     expect(obstructed?.blockers).toHaveLength(1);
     expect(obstructed?.blockers[0]?.message).toContain(
-      "Pi project surface cannot host outputs",
+      "Pi shared project surface cannot host Skills",
     );
   });
 

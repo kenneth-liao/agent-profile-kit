@@ -21,6 +21,10 @@ import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 /** Shared native Skill discovery root used by qualified Agent Hosts. */
 export const SHARED_SKILLS_DISCOVERY_ROOT = posix.join(".agents", "skills");
 
+/** Semantic requirement shared by every Adapter consuming the qualified package. */
+export const SHARED_SKILL_DISCOVERY_REQUIREMENT =
+  "Qualified Agent Hosts discover Skill packages through native project .agents/skills";
+
 /** Codex's additional policy file inside a shared Skill package. */
 export const SHARED_SKILL_OPENAI_YAML = "agents/openai.yaml";
 

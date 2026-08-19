@@ -12,11 +12,10 @@ native project discovery. Global Host configuration and repository-owned
 instructions remain untouched.
 
 This release installs Context Modules and portable Skills for Codex, Claude,
-Grok, and Pi. Pi Skills are delivered under `.pi/skills/<Artifact ID>/` with
-Host-native resolution alongside user-managed Skills, extensions, and packages.
-Disabled model-invocation Skills receive Pi-native
-`disable-model-invocation: true` projection while remaining explicitly
-activatable by Artifact ID.
+Grok, and Pi. Codex and Pi consume one qualified shared package under
+`.agents/skills/<Artifact ID>/`, alongside Host-native resolution and
+user-managed Skills. Disabled model-invocation Skills receive the shared
+Host-policy projection while remaining explicitly activatable by Artifact ID.
 A Profile needs at least one supported artifact
 (Context, Skills, or both); Context is not mandatory. Profiles selecting
 Agents, Hooks, or Tools are rejected until those artifact categories have native
@@ -57,8 +56,9 @@ Context as an unscoped project rule under `.grok/rules/` (or, when Claude is als
 bound and Grok Claude rules compatibility is enabled, shares Claude’s
 `.claude/rules/agent-profile-kit.md` path so Grok receives one effective copy)
 and discovers selected Skills under `.grok/skills/`. Pi loads Profile Context
-from the owned `.pi/APPEND_SYSTEM.md` project surface and selected Skills under
-`.pi/skills/<Artifact ID>/`; Pi trust and session overrides remain Pi-owned.
+from the owned `.pi/APPEND_SYSTEM.md` project surface and consumes selected
+Skills from the shared `.agents/skills/<Artifact ID>/` package; Pi trust and
+session overrides remain Pi-owned.
 Skills-only Profiles install only Skill packages—no Context snapshot,
 Codex hooks, or Claude/Grok Context rule—and do not require Context-related Host
 capability.
@@ -112,7 +112,7 @@ Machine-readable command contracts:
   reconciliation or changes state.
 - Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 2`
   object with `outcome`, per-installation state, planned or committed paths,
-  warnings, Host Setup Steps, repository-exclusion evidence, and blockers
+  per-path consuming-Host evidence, warnings, Host Setup Steps, repository-exclusion evidence, and blockers
   serialized from their exhaustive structured records: `kind`, `scope`, Project
   identity when scoped, `message`, `problem`, `requirement`, `remedy`, and
   `affectedItems`. Blocked `install-temp`/`remove-temp` JSON uses the same

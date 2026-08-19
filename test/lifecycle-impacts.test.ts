@@ -331,7 +331,7 @@ describe("Typed lifecycle impacts", () => {
       project: canonicalProject(desired.installations),
       profile: "coding",
       hosts: ["codex", "pi"],
-      paths: [".pi/APPEND_SYSTEM.md", ".pi/skills/review-pr"],
+      paths: [".pi/APPEND_SYSTEM.md"],
       reason: "Project Binding or Host selection added generated output",
     }]);
   });

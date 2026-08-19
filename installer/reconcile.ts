@@ -139,6 +139,13 @@ export interface OutputReconciliationItem {
   readonly project: string;
 }
 
+/** Complete consuming-Host evidence for one desired generated output path. */
+export interface OutputConsumerEvidence {
+  readonly consumingHosts: readonly string[];
+  readonly path: string;
+  readonly project: string;
+}
+
 export interface DesiredResolvedArtifactPreview {
   readonly id: string;
   readonly inclusionReasons: readonly {
@@ -165,6 +172,7 @@ export interface ReconciliationReport {
   readonly outputs: readonly OutputReconciliationItem[];
   /** Typed lifecycle impact records for this pass, deterministically ordered. */
   readonly impacts: readonly LifecycleImpact[];
+  readonly outputConsumers: readonly OutputConsumerEvidence[];
   readonly repositoryExclusionRepairs: readonly RepositoryExclusionRepair[];
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
   /** Structured values referenced by lifecycle diagnostics and warnings. */
@@ -842,6 +850,15 @@ export async function previewReconciliation(
       setupSteps: installation.setupSteps,
     };
   });
+  const outputConsumers = desired
+    .flatMap((installation) => installation.outputs.map((output) => ({
+      consumingHosts: [...output.consumingHosts],
+      path: output.path,
+      project: installation.binding.project,
+    })))
+    .sort((left, right) =>
+      left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
+    );
   // Independent per-Project planning and inspection reads run through the shared
   // bounded scheduler (DEC-014); exclusion projections and report accumulation
   // fold in canonical input order afterwards so scheduling order is never
@@ -1193,6 +1210,7 @@ export async function previewReconciliation(
       left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
     ),
     impacts: sortLifecycleImpacts(impacts),
+    outputConsumers,
     repositoryExclusionRepairs: exclusionDiagnostics.repairs,
     repositoryExclusions: repositoryExclusionChanges(state, projectedState),
     diagnosticValues: [...new Set(

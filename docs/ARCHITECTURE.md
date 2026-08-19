@@ -103,7 +103,7 @@ Commands separate binding authoring from global reconciliation:
   - `list hosts` renders the canonical supported-Host set and Temporary Profile Installation eligibility from capability constants without inspecting PATH, Host versions, configuration, or Project surfaces.
   - `list temporary` reads active Temporary Profile Installation records from Installation State, omits terminal removed identities and ordinary installations, and renders each temporary identity with its short Project path, Profile, and Host. It does not inspect Local Configuration, Workspace artifacts, Git, project output, or Host capabilities.
   - Each topic's `--json` view emits the same records with engine provenance; temporary JSON retains the canonical Project path and durable temporary installation identity. No inventory topic writes state.
-- `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states; `--json` emits the versioned machine payload described below. Multi-Project concise views are impact-first: shared Workspace changes render once with generated-file counts and a deterministic affected-Project scope, Project Binding and Host-specific changes stay distinct, and member-level attention remains visible as Project exceptions.
+- `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states; `--json` emits the versioned machine payload described below, including complete consuming-Host evidence for each desired generated path. Multi-Project concise views are impact-first: shared Workspace changes render once with generated-file counts and a deterministic affected-Project scope, Project Binding and Host-specific changes stay distinct, and member-level attention remains visible as Project exceptions.
 - `apply` reconciles every binding and, after its commits, performs a fresh
   reconciliation to report the verified resulting state. It separately emits
   an `Applied` section containing the pre-apply generated-output and Repository
@@ -230,43 +230,46 @@ The Grok Adapter generates the same canonical Context envelope as an unscoped ow
 
 The Pi Adapter requires Pi CLI `0.82.1+` and plans the canonical Context
 envelope as the complete owned project file `.pi/APPEND_SYSTEM.md`. It plans
-each resolved Skill once under `.pi/skills/<Artifact ID>/`, preserving standard
-package bytes and modes while omitting the `agent-profile-kit.yaml` sidecar.
-Allowed-invocation Skills retain their source `SKILL.md`; disabled-invocation
-Skills receive top-level Pi-native `disable-model-invocation: true`, which Pi
-honors by hiding them from the model's system prompt while preserving the
-canonical `name` used by explicit `/skill:<Artifact ID>` activation. Pi's
-official Skills documentation defines this enforcement behavior, introduced in
-Pi 0.50.0 and included in the supported 0.82.1+ floor:
+each resolved Skill once through the qualified shared `.agents/skills/<Artifact ID>/`
+projection, preserving standard package bytes and modes while omitting the
+`agent-profile-kit.yaml` sidecar. Codex and Pi use the same complete package
+shape and the normalized output records every consuming Host; no consumer list
+is added to portable Skill metadata. Allowed-invocation Skills retain their
+source `SKILL.md`; disabled-invocation Skills receive the shared top-level
+`disable-model-invocation: true` restriction and Codex policy field. Pi honors
+the top-level field by hiding the Skill from the model's system prompt while
+preserving the canonical `name` used by explicit `/skill:<Artifact ID>` activation.
+Pi's official Skills documentation defines this enforcement behavior, introduced
+in Pi 0.50.0 and included in the supported 0.82.1+ floor:
 <https://pi.dev/docs/latest/skills> and <https://pi.dev/news/releases/0.50.0>.
-Before writes it proves `.pi` and the selected output surfaces. Pi owns
-discovery and resolution across personal, ancestor, project, package, extension,
-and other configured Skill sources; the Adapter does not scan or approximate
-that inventory. For Skill-bearing Profiles, it reads the canonical global and
-project Pi settings only to warn when relevant configuration is malformed or
-unreadable. Extensions, packages, and additional Skill sources
-coexist through Pi Host Resolution and do not block installation. Context-only
-Profiles skip this settings inspection. Pi's native project trust,
+Before writes it proves `.pi` and the append-system destination only when
+Context is selected, and `.agents` plus `.agents/skills` only when Skills are
+selected. Pi owns discovery and resolution across personal, ancestor, project,
+package, extension, and other configured Skill sources; the Adapter does not
+scan or approximate that inventory. For Skill-bearing Profiles, it reads the
+canonical global and project Pi settings only to warn when relevant
+configuration is malformed or unreadable. Extensions, packages, and additional
+Skill sources coexist through Pi Host Resolution and do not block installation.
+Context-only Profiles skip this settings inspection. Pi's native project trust,
 authentication, settings, prompt files, and per-session overrides remain
 Host-owned and are never changed; explicit runtime `--skill` and `--no-skills`
 overrides remain outside the Installation guarantee. Every non-empty Pi plan
-therefore emits a standing `trust-required` Host Setup Step; an empty plan emits none.
-Context-only installations
-record `native-project-append-system-v1`; allowed Skills-only and combined
-installations record `native-project-skills-v1` and
-`native-project-append-system-skills-v1`; installations with at least one
-disabled-invocation Skill record `native-project-skills-invocation-v1` or
-`native-project-append-system-skills-invocation-v1`, all under Adapter version
-`pi-project-v1`.
+therefore emits a standing `trust-required` Host Setup Step; it emits no
+standing shared-path notice. Context-only installations record
+`native-project-append-system-v1`; shared Skills-only and combined installations
+record `native-project-shared-skills-v1` and
+`native-project-append-system-shared-skills-v1`; installations with at least one
+disabled-invocation Skill record `native-project-shared-skills-invocation-v1` or
+`native-project-append-system-shared-skills-invocation-v1`, all under Adapter
+version `pi-project-v2`.
 
 Installation State with Pi Skill-capable `host_versions` requires Agent Profile
 Kit 0.32.0+; unbind Pi or re-apply/uninstall with 0.32.0+ before rolling back
 below 0.32.0. Context-only Pi state remains readable with 0.31.0+, and any
 Installation State that records the `pi` Host requires 0.31.0+ before rolling
-back to 0.30.3 or older.
-Invocation-capable Pi `host_versions` are first recorded by Agent Profile Kit
-0.34.0; unbind Pi or re-apply/uninstall with 0.34.0+ before rolling back an
-invocation-capable installation below 0.34.0.
+back to 0.30.3 or older. Invocation-capable Pi `host_versions` are first
+recorded by Agent Profile Kit 0.34.0; unbind Pi or re-apply/uninstall with
+0.34.0+ before rolling back an invocation-capable installation below 0.34.0.
 
 ## Reconciliation and Ownership
 
