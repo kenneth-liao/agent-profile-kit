@@ -54,3 +54,14 @@ remain separate tickets.
   source of Skill policy and content.
 - Existing generated Codex packages gain the shared top-level policy field on
   the next successful reconciliation when the canonical policy is disabled.
+
+## Amendment: migrate Pi Skills to the qualified shared package
+
+Ticket #229 makes Pi the second consumer. Pi plans the same shared package and
+qualified discovery requirement as Codex, while its Context remains on
+`.pi/APPEND_SYSTEM.md`. The Installer migrates existing owned Pi Skill roots
+from `.pi/skills/<Artifact ID>/` to `.agents/skills/<Artifact ID>/` on the next
+safe ordinary `apply`; modified old output and occupied or unowned new
+destinations remain ownership blockers. No standing `shared-path` Host Setup
+Step is emitted. Reconciliation evidence records every consuming Host for each
+normalized output path, and Antigravity remains a later consumer.

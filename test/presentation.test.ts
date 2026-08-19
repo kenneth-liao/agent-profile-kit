@@ -91,6 +91,7 @@ function emptyReport(
     blockers: [],
     impacts: [],
     items: [],
+    outputConsumers: [],
     outputs: [],
     repositoryExclusionRepairs: [],
     repositoryExclusions: [],

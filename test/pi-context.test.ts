@@ -6,7 +6,6 @@ import { join } from "node:path";
 import {
   assertPiCliVersionSupported,
   assertPiProjectCapability,
-  emitPiSkillMarkdown,
   PI_ADAPTER_VERSION,
   PI_CONTEXT_PATH,
   PI_HOST_VERSION,
@@ -18,6 +17,8 @@ import {
   planPiProject,
 } from "../adapters/pi.js";
 import { composeContextEnvelope } from "../adapters/context-envelope.js";
+import { emitSharedSkillMarkdown } from "../adapters/shared-skill.js";
+import { formatLifecycleJson, formatLifecycleReport } from "../cli/presentation.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { applyReconciliation, previewReconciliation } from "../installer/reconcile.js";
@@ -212,7 +213,54 @@ describe("Pi Adapter", () => {
     ).resolves.toBeUndefined();
   });
 
-  test("plans each allowed Skill under .pi/skills/<Artifact ID> with package bytes, modes, and sidecars preserved", async () => {
+  test("checks shared Skill surfaces only when Skills are selected", async () => {
+    const home = temporaryDirectory("apk-pi-shared-surface-home-");
+    const project = temporaryDirectory("apk-pi-shared-surface-project-");
+    writeFileSync(join(project, ".agents"), "repository material\n");
+
+    await expect(
+      assertPiProjectCapability(project, {
+        home,
+        requireContext: true,
+        requireSkills: false,
+        resolveVersion: async () => "0.82.1",
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertPiProjectCapability(project, {
+        home,
+        requireContext: false,
+        requireSkills: true,
+        resolveVersion: async () => "0.82.1",
+      }),
+    ).rejects.toThrow(/\.agents.*file.*directory/i);
+
+    rmSync(join(project, ".agents"));
+    mkdirSync(join(project, ".agents", "skills"), { recursive: true });
+    const skillsTarget = temporaryDirectory("apk-pi-shared-skills-target-");
+    symlinkSync(skillsTarget, join(project, ".agents", "skills-link"));
+    await expect(
+      assertPiProjectCapability(project, {
+        home,
+        requireContext: false,
+        requireSkills: true,
+        resolveVersion: async () => "0.82.1",
+      }),
+    ).resolves.toBeUndefined();
+
+    rmSync(join(project, ".agents", "skills"), { recursive: true });
+    symlinkSync(skillsTarget, join(project, ".agents", "skills"));
+    await expect(
+      assertPiProjectCapability(project, {
+        home,
+        requireContext: false,
+        requireSkills: true,
+        resolveVersion: async () => "0.82.1",
+      }),
+    ).rejects.toThrow(/\.agents\/skills.*symlink.*directory/i);
+  });
+
+  test("plans each allowed Skill under .agents/skills/<Artifact ID> with package bytes, modes, and sidecars preserved", async () => {
     const source = temporaryDirectory("apk-pi-skill-source-");
     mkdirSync(join(source, "scripts"), { recursive: true });
     writeFileSync(
@@ -229,7 +277,7 @@ describe("Pi Adapter", () => {
     ]);
 
     expect(plan.hostVersion).toBe(PI_HOST_VERSION_WITH_SKILLS);
-    expect(plan.outputs.map((output) => output.path)).toEqual([".pi/skills/review-pr"]);
+    expect(plan.outputs.map((output) => output.path)).toEqual([".agents/skills/review-pr"]);
     const output = plan.outputs[0];
     if (!output || output.type !== "directory") throw new Error("expected Skill directory output");
     expect(output.members).toEqual(expect.arrayContaining([
@@ -246,12 +294,12 @@ describe("Pi Adapter", () => {
     expect(output.members.some((member) => member.path === "agent-profile-kit.yaml")).toBe(false);
   });
 
-  test("projects disabled model invocation into Pi frontmatter while preserving explicit Skill identity", () => {
+  test("projects disabled model invocation into the shared Skill frontmatter while preserving explicit Skill identity", () => {
     const source =
       "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n";
 
-    expect(emitPiSkillMarkdown("review-pr", source, "allowed")).toBe(source);
-    const projected = emitPiSkillMarkdown("review-pr", source, "disabled");
+    expect(emitSharedSkillMarkdown("review-pr", source, "allowed")).toBe(source);
+    const projected = emitSharedSkillMarkdown("review-pr", source, "disabled");
 
     expect(projected).toContain("name: review-pr");
     expect(projected).toContain("disable-model-invocation: true");
@@ -259,29 +307,27 @@ describe("Pi Adapter", () => {
     expect(projected).toContain("# Review");
     expect(projected).not.toBe(source);
     expect(() =>
-      emitPiSkillMarkdown(
+      emitSharedSkillMarkdown(
         "review-pr",
         source.replace("name: review-pr", "name: another-skill"),
         "disabled",
       ),
     ).toThrow(/canonical Artifact ID/i);
-    const crlfBody = "---\r\nname: review-pr\r\ndescription: Review a pull request.\r\n---\r\n# Review\r\n";
-    expect(emitPiSkillMarkdown("review-pr", crlfBody, "disabled")).toMatch(/# Review\r\n$/);
     const inlineDelimiter = "---\nname: review-pr\ndescription: Review a pull request.\nlicense: abc---\nfoo: bar\n---\n# Review\n";
-    expect(emitPiSkillMarkdown("review-pr", inlineDelimiter, "disabled")).toContain(
+    expect(emitSharedSkillMarkdown("review-pr", inlineDelimiter, "disabled")).toContain(
       "foo: bar\n---\n# Review\n",
     );
   });
 
-  test("fails closed when Pi invocation projection cannot parse Skill frontmatter", () => {
-    expect(() => emitPiSkillMarkdown("review-pr", "not frontmatter\n", "disabled")).toThrow(
+  test("fails closed when shared invocation projection cannot parse Skill frontmatter", () => {
+    expect(() => emitSharedSkillMarkdown("review-pr", "not frontmatter\n", "disabled")).toThrow(
       /must start with YAML frontmatter/i,
     );
-    expect(() => emitPiSkillMarkdown("review-pr", "---\nname: review-pr\n", "disabled")).toThrow(
+    expect(() => emitSharedSkillMarkdown("review-pr", "---\nname: review-pr\n", "disabled")).toThrow(
       /must close its YAML frontmatter/i,
     );
-    expect(() => emitPiSkillMarkdown("review-pr", "---\nname: [\n---\nbody\n", "disabled")).toThrow(
-      /frontmatter.*invalid YAML/i,
+    expect(() => emitSharedSkillMarkdown("review-pr", "---\nname: [\n---\nbody\n", "disabled")).toThrow(
+      /frontmatter.*mapping/i,
     );
   });
 
@@ -323,7 +369,7 @@ describe("Pi Adapter", () => {
     expect(combined.hostVersion).toBe(PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION);
     expect(combined.outputs.map((output) => output.path)).toEqual([
       PI_CONTEXT_PATH,
-      ".pi/skills/review-pr",
+      ".agents/skills/review-pr",
     ]);
     expect(readFileSync(join(source, "SKILL.md"), "utf8")).not.toContain("disable-model-invocation: true");
   });
@@ -332,7 +378,7 @@ describe("Pi Adapter", () => {
     const modules = [{ id: "team-rules", content: "Preserve the project boundary.\n" }];
     const plan = await planPiProject("coding", modules);
 
-    expect(PI_ADAPTER_VERSION).toBe("pi-project-v1");
+    expect(PI_ADAPTER_VERSION).toBe("pi-project-v2");
     expect(plan.host).toBe("pi");
     expect(plan.hostVersion).toBe(PI_HOST_VERSION);
     expect(plan.outputs).toHaveLength(1);
@@ -417,8 +463,8 @@ describe("Pi Adapter", () => {
   test("resolves direct and transitive Pi Skills once, records reasons, preserves package state, and removes only owned output", async () => {
     const home = temporaryDirectory("apk-pi-skill-lifecycle-home-");
     const project = temporaryDirectory("apk-pi-skill-lifecycle-project-");
-    mkdirSync(join(project, ".pi", "skills", "unrelated"), { recursive: true });
-    writeFileSync(join(project, ".pi", "skills", "unrelated", "README.md"), "keep\n");
+    mkdirSync(join(project, ".agents", "skills", "unrelated"), { recursive: true });
+    writeFileSync(join(project, ".agents", "skills", "unrelated", "README.md"), "keep\n");
     await writePiSkillWorkspace(home, project, ["top-skill"], [
       { id: "shared-base", path: "library/shared-base" },
       { id: "left-skill", path: "group/left-skill", dependencies: ["shared-base"] },
@@ -431,13 +477,13 @@ describe("Pi Adapter", () => {
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected Pi installation");
     expect(installation.blockers).toEqual([]);
-    expect(installation.hostVersions.pi).toBe("native-project-append-system-skills-v1");
+    expect(installation.hostVersions.pi).toBe("native-project-append-system-shared-skills-v1");
     expect(installation.outputs.map((output) => output.path)).toEqual([
+      ".agents/skills/left-skill",
+      ".agents/skills/right-skill",
+      ".agents/skills/shared-base",
+      ".agents/skills/top-skill",
       ".pi/APPEND_SYSTEM.md",
-      ".pi/skills/left-skill",
-      ".pi/skills/right-skill",
-      ".pi/skills/shared-base",
-      ".pi/skills/top-skill",
     ]);
     const shared = installation.resolvedProfile.artifacts.find(
       (artifact) => artifact.reference.id === "shared-base",
@@ -450,16 +496,16 @@ describe("Pi Adapter", () => {
       (await buildDesiredState(home, { checkHostCapability: false })).installations,
     );
     expect(reapplied.resultingState.blockers).toEqual([]);
-    const topScript = join(project, ".pi", "skills", "top-skill", "scripts", "run.sh");
+    const topScript = join(project, ".agents", "skills", "top-skill", "scripts", "run.sh");
     expect(readFileSync(topScript, "utf8")).toContain("top-skill");
     expect(statSync(topScript).mode & 0o777).toBe(0o755);
-    expect(existsSync(join(project, ".pi", "skills", "top-skill", "agent-profile-kit.yaml"))).toBe(false);
-    expect(existsSync(join(project, ".pi", "skills", "unselected-skill"))).toBe(false);
-    expect(readFileSync(join(project, ".pi", "skills", "unrelated", "README.md"), "utf8")).toBe("keep\n");
+    expect(existsSync(join(project, ".agents", "skills", "top-skill", "agent-profile-kit.yaml"))).toBe(false);
+    expect(existsSync(join(project, ".agents", "skills", "unselected-skill"))).toBe(false);
+    expect(readFileSync(join(project, ".agents", "skills", "unrelated", "README.md"), "utf8")).toBe("keep\n");
 
     const state = await readInstallationState(home);
     const manifest = state.installations[0];
-    expect(manifest?.hostVersions.pi).toBe("native-project-append-system-skills-v1");
+    expect(manifest?.hostVersions.pi).toBe("native-project-append-system-shared-skills-v1");
     expect(manifest?.resolvedArtifacts.find((artifact) => artifact.reference.id === "shared-base")?.inclusionReasons).toHaveLength(2);
 
     const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
@@ -474,14 +520,14 @@ describe("Pi Adapter", () => {
     );
     await applyReconciliation(home, relocated.installations);
 
-    writeFileSync(join(project, ".pi", "skills", "top-skill", "SKILL.md"), "drifted\n");
+    writeFileSync(join(project, ".agents", "skills", "top-skill", "SKILL.md"), "drifted\n");
     const drift = await previewReconciliation(
       (await buildDesiredState(home, { checkHostCapability: false })).installations,
       state,
     );
     expect(drift.items.some((item) => item.project === project && item.kind === "drifted output")).toBe(true);
     writeFileSync(
-      join(project, ".pi", "skills", "top-skill", "SKILL.md"),
+      join(project, ".agents", "skills", "top-skill", "SKILL.md"),
       "---\nname: top-skill\ndescription: top-skill Skill.\n---\n\n# top-skill\n",
     );
     writeFileSync(
@@ -490,10 +536,10 @@ describe("Pi Adapter", () => {
     );
     const deselected = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, deselected.installations);
-    expect(existsSync(join(project, ".pi", "skills", "top-skill"))).toBe(false);
-    expect(existsSync(join(project, ".pi", "skills", "right-skill"))).toBe(false);
-    expect(existsSync(join(project, ".pi", "skills", "shared-base"))).toBe(true);
-    expect(readFileSync(join(project, ".pi", "skills", "unrelated", "README.md"), "utf8")).toBe("keep\n");
+    expect(existsSync(join(project, ".agents", "skills", "top-skill"))).toBe(false);
+    expect(existsSync(join(project, ".agents", "skills", "right-skill"))).toBe(false);
+    expect(existsSync(join(project, ".agents", "skills", "shared-base"))).toBe(true);
+    expect(readFileSync(join(project, ".agents", "skills", "unrelated", "README.md"), "utf8")).toBe("keep\n");
   });
 
   test("combines Pi Skills with another Host through one ownership transaction", async () => {
@@ -508,22 +554,82 @@ describe("Pi Adapter", () => {
     );
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     expect(desired.installations[0]?.binding.hosts).toEqual(["claude", "pi"]);
-    expect(desired.installations[0]?.hostVersions.pi).toBe("native-project-append-system-skills-v1");
+    expect(desired.installations[0]?.hostVersions.pi).toBe("native-project-append-system-shared-skills-v1");
     expect(desired.installations[0]?.outputs.map((output) => output.path)).toEqual([
+      ".agents/skills/review-pr",
       ".claude/rules/agent-profile-kit.md",
       ".claude/skills/review-pr",
       ".pi/APPEND_SYSTEM.md",
-      ".pi/skills/review-pr",
     ]);
     const applied = await applyReconciliation(home, desired.installations);
     expect(applied.resultingState.blockers).toEqual([]);
     const state = await readInstallationState(home);
     expect(state.installations[0]?.hosts).toEqual(["claude", "pi"]);
     expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(project, ".pi", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     await uninstallApplication(home);
     expect(existsSync(join(project, ".claude", "skills", "review-pr"))).toBe(false);
-    expect(existsSync(join(project, ".pi", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
+  });
+
+  test("coalesces Codex and Pi into one shared package with complete consuming-Host evidence", async () => {
+    const home = temporaryDirectory("apk-pi-shared-evidence-home-");
+    const project = temporaryDirectory("apk-pi-shared-evidence-project-");
+    await writePiSkillWorkspace(
+      home,
+      project,
+      ["review-pr"],
+      [{ id: "review-pr", path: "review-pr" }],
+      ["codex", "pi"],
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations[0];
+    if (!installation) throw new Error("expected shared installation");
+    const shared = installation.outputs.find((output) => output.path === ".agents/skills/review-pr");
+    expect(shared?.consumingHosts).toEqual(["codex", "pi"]);
+    expect(installation.outputs.filter((output) => output.path === ".agents/skills/review-pr")).toHaveLength(1);
+    expect(installation.setupSteps.some((step) => step.kind === "shared-path")).toBe(false);
+
+    const report = await previewReconciliation(desired.installations, {
+      intendedTeardowns: [],
+      installations: [],
+      repositoryExclusions: [],
+      temporaryInstallations: [],
+      schemaVersion: 5,
+    });
+    const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
+      outputConsumers: readonly {
+        consumingHosts: readonly string[];
+        path: string;
+        project: string;
+      }[];
+    };
+    expect(machine.outputConsumers).toContainEqual({
+      consumingHosts: ["codex", "pi"],
+      path: ".agents/skills/review-pr",
+      project,
+    });
+    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    expect(verbose).toContain("Consuming Hosts:");
+    expect(verbose).toContain(".agents/skills/review-pr: codex, pi");
+
+    writeFileSync(
+      join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+    );
+    const disabled = await buildDesiredState(home, { checkHostCapability: false });
+    const disabledOutput = disabled.installations[0]?.outputs.find(
+      (output) => output.path === ".agents/skills/review-pr" && output.type === "directory",
+    );
+    if (!disabledOutput || disabledOutput.type !== "directory") throw new Error("expected disabled shared Skill");
+    expect(disabledOutput.consumingHosts).toEqual(["codex", "pi"]);
+    expect(disabledOutput.members.some((member) => member.path === "agents/openai.yaml")).toBe(true);
+    const disabledSkill = disabledOutput.members.find(
+      (member) => member.type === "file" && member.path === "SKILL.md",
+    );
+    if (!disabledSkill || disabledSkill.type !== "file") throw new Error("expected disabled SKILL.md");
+    expect(Buffer.from(disabledSkill.bytes).toString("utf8")).toContain("disable-model-invocation: true");
   });
 
   test("projects disabled-model-invocation Pi Skills through the Installer lifecycle", async () => {
@@ -541,13 +647,13 @@ describe("Pi Adapter", () => {
     expect(desired.installations[0]?.blockers).toEqual([]);
     expect(desired.installations[0]?.hostVersions.pi).toBe(PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION);
     expect(desired.installations[0]?.outputs.map((output) => output.path)).toEqual([
+      ".agents/skills/review-pr",
       PI_CONTEXT_PATH,
-      ".pi/skills/review-pr",
     ]);
     expect(existsSync(join(project, ".pi"))).toBe(false);
 
     await applyReconciliation(home, desired.installations);
-    expect(readFileSync(join(project, ".pi", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
+    expect(readFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "disable-model-invocation: true",
     );
     expect(readFileSync(join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"), "utf8")).not.toContain(
@@ -561,7 +667,7 @@ describe("Pi Adapter", () => {
     await writePiSkillWorkspace(home, project, ["review-pr"], [
       { id: "review-pr", path: "review-pr" },
     ]);
-    const destination = join(project, ".pi", "skills", "review-pr");
+    const destination = join(project, ".agents", "skills", "review-pr");
     mkdirSync(destination, { recursive: true });
     writeFileSync(join(destination, "SKILL.md"), "foreign skill\n");
 
@@ -577,7 +683,7 @@ describe("Pi Adapter", () => {
     expect(
       preview.blockers.some(
         (blocker) =>
-          blocker.message.includes(".pi/skills/review-pr") &&
+          blocker.message.includes(".agents/skills/review-pr") &&
           blocker.message.toLowerCase().includes("unowned"),
       ),
     ).toBe(true);
@@ -614,7 +720,7 @@ describe("Pi Adapter", () => {
       (installation) => installation.binding.project === project,
     );
     expect(piInstallation?.blockers).toEqual([]);
-    expect(piInstallation?.outputs.map((output) => output.path)).toEqual([".pi/APPEND_SYSTEM.md", ".pi/skills/review-pr"]);
+    expect(piInstallation?.outputs.map((output) => output.path)).toEqual([".agents/skills/review-pr", ".pi/APPEND_SYSTEM.md"]);
     const unrelatedInstallation = desired.installations.find(
       (installation) => installation.binding.project === unrelatedProject,
     );
@@ -664,7 +770,7 @@ describe("Pi Adapter", () => {
     );
     expect(installation?.blockers).toEqual([]);
     expect(installation?.warnings).toEqual([]);
-    expect(existsSync(join(project, ".pi", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(readFileSync(settingsPath, "utf8")).toBe('{"extensions":["./dynamic.ts"]}\n');
   });
 

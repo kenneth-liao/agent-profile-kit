@@ -6,6 +6,7 @@ import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../a
 import type {
   ApplyReconciliationResult,
   BlockedReconciliationReport,
+  OutputConsumerEvidence,
   OutputReconciliationItem,
   OutputReconciliationKind,
   ReconciliationBlocker,
@@ -2360,6 +2361,10 @@ function lifecycleCopyableValues(
       values.add(output.project);
       values.add(output.path);
     }
+    for (const consumer of report.outputConsumers) {
+      values.add(consumer.project);
+      values.add(consumer.path);
+    }
     for (const blocker of report.blockers) {
       if (blocker.project !== undefined) values.add(blocker.project);
       for (const item of blocker.affectedItems ?? []) values.add(item.value);
@@ -2481,10 +2486,18 @@ function verboseSections(
                 }).join("; ");
                 return `    - ${artifact.type}:${artifact.id} (${reasons})`;
               }).join("\n")}`;
+          const consumers = report.outputConsumers
+            .filter((consumer) => consumer.project === installation.project)
+            .map((consumer) => `    - ${consumer.path}: ${consumer.consumingHosts.join(", ")}`)
+            .join("\n");
+          const consumerSection = consumers.length === 0
+            ? ""
+            : `  Consuming Hosts:\n${consumers}\n`;
           return (
             `${shorten(`${installation.project}: Profile ${installation.profile}`)}\n` +
             `  Hosts: ${installation.hosts.join(", ")}\n` +
             `  Outputs: ${installation.outputs.join(", ")}\n` +
+            consumerSection +
             `${resolved}\n` +
             `  Context:\n${delimitedContext(installation.context)}`
           );
@@ -2641,6 +2654,12 @@ interface MachineOutput {
   readonly project: string;
 }
 
+interface MachineOutputConsumer {
+  readonly consumingHosts: readonly string[];
+  readonly path: string;
+  readonly project: string;
+}
+
 interface MachineImpact {
   readonly artifacts?: readonly { readonly id: string; readonly type: string }[];
   readonly hosts: readonly string[];
@@ -2688,6 +2707,7 @@ interface MachineRepositoryExclusionRepair {
 interface LifecycleMachineSnapshot {
   readonly impacts: readonly MachineImpact[];
   readonly installations: readonly MachineInstallation[];
+  readonly outputConsumers: readonly MachineOutputConsumer[];
   readonly outputs: readonly MachineOutput[];
   readonly repositoryExclusionRepairs: readonly MachineRepositoryExclusionRepair[];
   readonly repositoryExclusions: readonly MachineRepositoryExclusion[];
@@ -2787,6 +2807,20 @@ function machineOutputs(report: ReconciliationReport): readonly MachineOutput[] 
     );
 }
 
+function machineOutputConsumers(
+  consumers: readonly OutputConsumerEvidence[],
+): readonly MachineOutputConsumer[] {
+  return consumers
+    .map((consumer) => ({
+      consumingHosts: [...consumer.consumingHosts],
+      path: consumer.path,
+      project: consumer.project,
+    }))
+    .sort((left, right) =>
+      left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
+    );
+}
+
 function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
   return {
     kind: blocker.kind,
@@ -2874,6 +2908,7 @@ function machineSnapshot(report: ReconciliationReport): LifecycleMachineSnapshot
   return {
     impacts: machineImpacts(report),
     installations: machineInstallations(report),
+    outputConsumers: machineOutputConsumers(report.outputConsumers),
     outputs: machineOutputs(report),
     repositoryExclusions: machineRepositoryExclusions(report),
     repositoryExclusionRepairs: machineRepositoryExclusionRepairs(report),
@@ -2941,6 +2976,7 @@ export function formatLifecycleToolErrorJson(
     error: message,
     installations: [],
     impacts: [],
+    outputConsumers: [],
     outputs: [],
     repositoryExclusions: [],
     repositoryExclusionRepairs: [],

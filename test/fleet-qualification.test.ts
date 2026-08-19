@@ -184,7 +184,7 @@ describe("fleet-wide synchronization qualification", () => {
     expectExitCode(preview, 0);
     // The concise header totals the fleet change once.
     expect(preview.stdout).toContain(
-      "Projects: 12 · Changes: 2 generated file additions, 27 generated file updates",
+      "Projects: 12 · Changes: 1 generated file addition, 21 generated file updates",
     );
     // The shared Skill change renders once per distinct Host scope (not once
     // per Project), with deterministic file and Project counts.
@@ -193,16 +193,16 @@ describe("fleet-wide synchronization qualification", () => {
       "  ~ Skill review-pr · 4 files in 2 projects · Hosts claude, codex",
     );
     expect(preview.stdout).toContain(
-      "  ~ Skill review-pr · 12 files in 3 projects · Hosts claude, codex, grok, pi",
+      "  ~ Skill review-pr · 9 files in 3 projects · Hosts claude, codex, grok, pi",
     );
     expect(preview.stdout).toContain(
-      "  ~ Skill review-pr · 3 files in 1 project · Hosts claude, codex, pi",
+      "  ~ Skill review-pr · 2 files in 1 project · Hosts claude, codex, pi",
     );
     expect(preview.stdout).toContain(
       "  ~ Skill review-pr · 3 files in 3 projects · Hosts codex",
     );
     expect(preview.stdout).toContain(
-      "  ~ Skill review-pr · 6 files in 3 projects · Hosts codex, pi",
+      "  ~ Skill review-pr · 3 files in 3 projects · Hosts codex, pi",
     );
     // The Pi Host addition stays a distinct Project Binding change with scope.
     expect(preview.stdout).toContain("Project changes:");
@@ -242,10 +242,10 @@ describe("fleet-wide synchronization qualification", () => {
       "  + Project Binding · 1 file in 1 project · Hosts claude, codex, pi",
     );
     expect(apply.stdout).toContain(
-      "  ~ Skill review-pr · 12 files in 3 projects · Hosts claude, codex, grok, pi",
+      "  ~ Skill review-pr · 9 files in 3 projects · Hosts claude, codex, grok, pi",
     );
     expect(apply.stdout).toContain(
-      "  ~ Skill review-pr · 6 files in 3 projects · Hosts codex, pi",
+      "  ~ Skill review-pr · 3 files in 3 projects · Hosts codex, pi",
     );
     expect(apply.stdout).not.toContain("State: current");
     // Grouped readiness appears once per Host scope, never per Project.

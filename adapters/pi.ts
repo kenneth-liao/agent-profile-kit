@@ -3,36 +3,35 @@ import { homedir } from "node:os";
 import { lstat, readFile } from "node:fs/promises";
 import { join, posix, resolve } from "node:path";
 import { promisify } from "node:util";
-import { parse, stringify } from "yaml";
-
-import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
+import type { Skill } from "../schemas/skill.js";
 import { type ContextModuleSource } from "./context-envelope.js";
 import { capabilityFailure } from "./capability.js";
 import {
+  planSharedSkillPackageDirectory,
+  SHARED_SKILLS_DISCOVERY_ROOT,
+  SHARED_SKILL_DISCOVERY_REQUIREMENT,
+} from "./shared-skill.js";
+import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
-  DISABLED_MODEL_INVOCATION_REQUIREMENT,
-  planSkillPackageDirectory,
   skillsRequireDisabledModelInvocation,
   type AdapterPlanningMaterials,
-  type SkillPackageProjection,
 } from "./skill-package.js";
 import type {
   AdapterHostSetupStep,
   AdapterDiagnosticWarning,
   AdapterProjectPlan,
-  ProposedDirectoryFileMember,
-  ProposedDirectoryMember,
   ProposedProjectFileOutput,
   ProposedProjectOutput,
 } from "./project-plan.js";
 
 const execFileAsync = promisify(execFile);
 
-export const PI_ADAPTER_VERSION = "pi-project-v1";
+export const PI_ADAPTER_VERSION = "pi-project-v2";
 export const PI_HOST_VERSION = "native-project-append-system-v1";
-export const PI_HOST_VERSION_WITH_SKILLS = "native-project-skills-v1";
+/** Capability Contracts for Pi's complete qualified shared Skill package. */
+export const PI_HOST_VERSION_WITH_SKILLS = "native-project-shared-skills-v1";
 export const PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS =
-  "native-project-append-system-skills-v1";
+  "native-project-append-system-shared-skills-v1";
 /**
  * Pi 0.82.1+ enforces these contracts: `disable-model-invocation: true`
  * hides a Skill from the model's system prompt while explicit `/skill:<name>`
@@ -42,12 +41,13 @@ export const PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS =
  * https://pi.dev/news/releases/0.50.0
  */
 export const PI_HOST_VERSION_WITH_INVOCATION =
-  "native-project-skills-invocation-v1";
+  "native-project-shared-skills-invocation-v1";
 export const PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION =
-  "native-project-append-system-skills-invocation-v1";
+  "native-project-append-system-shared-skills-invocation-v1";
 export const PI_MINIMUM_CLI_VERSION = "0.82.1";
 export const PI_CONTEXT_PATH = posix.join(".pi", "APPEND_SYSTEM.md");
-export const PI_PROJECT_SKILLS_ROOT = posix.join(".pi", "skills");
+/** Pi discovers Profile Skills through the qualified shared project surface. */
+export const PI_PROJECT_SKILLS_ROOT = SHARED_SKILLS_DISCOVERY_ROOT;
 export const PI_GLOBAL_SETTINGS_PATH = posix.join(".pi", "agent", "settings.json");
 export const PI_PROJECT_SETTINGS_PATH = posix.join(".pi", "settings.json");
 
@@ -85,52 +85,6 @@ async function pathKind(
     if (hasErrorCode(error, "ENOTDIR")) return "other";
     throw error;
   }
-}
-
-interface PiSkillFrontmatter {
-  readonly body: string;
-  readonly header: Record<string, unknown>;
-}
-
-function originalOffsetForNormalizedOffset(source: string, target: number): number {
-  let originalOffset = 0;
-  let normalizedOffset = 0;
-  while (originalOffset < source.length && normalizedOffset < target) {
-    if (source[originalOffset] === "\r") {
-      originalOffset += 1;
-      if (source[originalOffset] === "\n") originalOffset += 1;
-    } else {
-      originalOffset += 1;
-    }
-    normalizedOffset += 1;
-  }
-  return originalOffset;
-}
-
-function parsePiSkillFrontmatter(source: string, path: string): PiSkillFrontmatter {
-  const withoutBom = source.replace(/^\uFEFF/, "");
-  const normalized = withoutBom.replace(/\r\n?/g, "\n");
-  const delimiter = "---\n";
-  if (!normalized.startsWith(delimiter)) {
-    throw new Error(`Skill ${path} must start with YAML frontmatter`);
-  }
-  const closing = normalized.indexOf(delimiter, delimiter.length);
-  if (closing === -1) {
-    throw new Error(`Skill ${path} must close its YAML frontmatter`);
-  }
-  let header: unknown;
-  try {
-    header = parse(normalized.slice(delimiter.length, closing));
-  } catch {
-    throw new Error(`Skill ${path} frontmatter is invalid YAML`);
-  }
-  if (typeof header !== "object" || header === null || Array.isArray(header)) {
-    throw new Error(`Skill ${path} frontmatter must be a YAML mapping`);
-  }
-  return {
-    body: withoutBom.slice(originalOffsetForNormalizedOffset(withoutBom, closing + delimiter.length)),
-    header: header as Record<string, unknown>,
-  };
 }
 
 type PiSettingsScope = "global" | "project";
@@ -307,28 +261,27 @@ export async function assertPiProjectSurface(
     readonly requireSkills?: boolean;
   } = {},
 ): Promise<void> {
-  const piPath = join(project, ".pi");
-  const piKind = await pathKind(piPath);
-  if (piKind !== "missing" && piKind !== "directory") {
-    const problem = `Pi project surface cannot host outputs: ${piPath} is a ${piKind}, not a directory`;
-    throw capabilityFailure(
-      "pi",
-      problem,
-      "ensure the Pi project surface is a directory, then retry",
-      [{ kind: "path", value: piPath }],
-      problem,
-    );
-  }
-
   if (options.requireSkills) {
-    const skillsPath = join(project, ".pi", "skills");
-    const skillsKind = await pathKind(skillsPath);
-    if (skillsKind !== "missing" && skillsKind !== "directory") {
-      const problem = `Pi project surface cannot host Skills: ${skillsPath} is a ${skillsKind}, not a directory`;
+    const agentsPath = join(project, ".agents");
+    const agentsKind = await pathKind(agentsPath);
+    if (agentsKind !== "missing" && agentsKind !== "directory") {
+      const problem = `Pi shared project surface cannot host Skills: ${agentsPath} is a ${agentsKind}, not a directory`;
       throw capabilityFailure(
         "pi",
         problem,
-        "ensure the Pi Skills surface is a directory, then retry",
+        "ensure the shared .agents project surface is a directory, then retry",
+        [{ kind: "path", value: agentsPath }],
+        problem,
+      );
+    }
+    const skillsPath = join(project, ...PI_PROJECT_SKILLS_ROOT.split("/"));
+    const skillsKind = await pathKind(skillsPath);
+    if (skillsKind !== "missing" && skillsKind !== "directory") {
+      const problem = `Pi shared project surface cannot host Skills: ${skillsPath} is a ${skillsKind}, not a directory`;
+      throw capabilityFailure(
+        "pi",
+        problem,
+        "ensure the shared .agents/skills surface is a directory, then retry",
         [{ kind: "path", value: skillsPath }],
         problem,
       );
@@ -336,6 +289,18 @@ export async function assertPiProjectSurface(
   }
 
   if (options.requireContext !== false) {
+    const piPath = join(project, ".pi");
+    const piKind = await pathKind(piPath);
+    if (piKind !== "missing" && piKind !== "directory") {
+      const problem = `Pi project surface cannot host outputs: ${piPath} is a ${piKind}, not a directory`;
+      throw capabilityFailure(
+        "pi",
+        problem,
+        "ensure the Pi project surface is a directory, then retry",
+        [{ kind: "path", value: piPath }],
+        problem,
+      );
+    }
     const contextPath = join(project, ...PI_CONTEXT_PATH.split("/"));
     const contextKind = await pathKind(contextPath);
     if (contextKind !== "missing" && contextKind !== "file") {
@@ -376,65 +341,6 @@ function contextOutput(
   };
 }
 
-const PI_SKILL_PROJECTION: SkillPackageProjection = {
-  projectMembers: projectPiSkillMembers,
-  requirements: piSkillRequirements,
-};
-
-/** Emit Pi-native SKILL.md frontmatter for one portable model-invocation policy. */
-export function emitPiSkillMarkdown(
-  skillId: string,
-  source: string,
-  modelInvocation: ModelInvocationPolicy,
-): string {
-  if (modelInvocation === "allowed") return source;
-
-  const delimiter = "---\n";
-  const { body, header: mapping } = parsePiSkillFrontmatter(
-    source,
-    `'${skillId}' SKILL.md`,
-  );
-  if (mapping.name !== skillId) {
-    throw new Error(
-      `Skill '${skillId}' SKILL.md name must remain the canonical Artifact ID '${skillId}'`,
-    );
-  }
-  mapping["disable-model-invocation"] = true;
-  return `${delimiter}${stringify(mapping).trimEnd()}\n---\n${body}`;
-}
-
-/** Project one Pi Skill package while translating only its invocation policy. */
-export function projectPiSkillMembers(
-  skill: Skill,
-  members: readonly ProposedDirectoryMember[],
-): readonly ProposedDirectoryMember[] {
-  if (skill.modelInvocation === "allowed") return members;
-  return members.map((member) => {
-    if (member.type !== "file" || member.path !== "SKILL.md") return member;
-    const projected: ProposedDirectoryFileMember = {
-      ...member,
-      bytes: emitPiSkillMarkdown(
-        skill.id,
-        typeof member.bytes === "string" ? member.bytes : Buffer.from(member.bytes).toString("utf8"),
-        skill.modelInvocation,
-      ),
-    };
-    return projected;
-  });
-}
-
-export function piSkillRequirements(
-  skill: Skill,
-  base: readonly string[],
-): readonly string[] {
-  if (skill.modelInvocation !== "disabled") return base;
-  return [
-    ...base,
-    DISABLED_MODEL_INVOCATION_REQUIREMENT,
-    "Pi disable-model-invocation frontmatter enforces disabled model invocation",
-  ];
-}
-
 function skillOutputs(
   skills: readonly Skill[],
   materials: AdapterPlanningMaterials,
@@ -443,11 +349,9 @@ function skillOutputs(
     [...skills]
       .sort((left, right) => left.id.localeCompare(right.id))
       .map((skill) =>
-        planSkillPackageDirectory(
+        planSharedSkillPackageDirectory(
           skill,
-          PI_PROJECT_SKILLS_ROOT,
-          ["Pi discovers Skill package through native project .pi/skills"],
-          PI_SKILL_PROJECTION,
+          [SHARED_SKILL_DISCOVERY_REQUIREMENT],
           materials,
         ),
       ),

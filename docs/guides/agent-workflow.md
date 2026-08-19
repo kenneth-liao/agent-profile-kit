@@ -82,9 +82,9 @@ Use this workflow when helping a person author their Workspace and bind projects
 7. After apply, the user launches Codex, Claude, Grok, or Pi natively in the
    bound project. Do not claim that Agent Profile Kit manages Host
    authentication, trust, approvals, plugins, or sessions. Pi bindings load the
-   generated `.pi/APPEND_SYSTEM.md` and `.pi/skills/<Artifact ID>` packages after
-   Pi's native trust boundary; packages, extensions, and other Skill sources
-   coexist through Pi Host Resolution. For non-Git projects, remind the
+   generated `.pi/APPEND_SYSTEM.md` and shared `.agents/skills/<Artifact ID>`
+   packages after Pi's native trust boundary; packages, extensions, and other
+   Skill sources coexist through Pi Host Resolution. For non-Git projects, remind the
    user that Codex must launch from the exact bound root.
 8. Use `apkit status` to focus on Profile Installations needing attention; its concise
    result reports all-current state when nothing needs action, labels change

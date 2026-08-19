@@ -20,6 +20,7 @@ import {
   planSharedSkillPackageDirectory,
   projectSharedSkillMembers,
   sharedSkillRequirements,
+  SHARED_SKILL_DISCOVERY_REQUIREMENT,
   SHARED_SKILL_OPENAI_YAML,
   SHARED_SKILLS_DISCOVERY_ROOT,
 } from "./shared-skill.js";
@@ -423,7 +424,7 @@ export async function planCodexProject(
       .map((skill) =>
         planSharedSkillPackageDirectory(
           skill,
-          ["Codex discovers Skill package through native project .agents/skills"],
+          [SHARED_SKILL_DISCOVERY_REQUIREMENT],
           materials,
         ),
       ),
