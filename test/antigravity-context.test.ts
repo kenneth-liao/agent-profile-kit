@@ -60,7 +60,7 @@ describe("Antigravity Context Adapter", () => {
       await planAntigravityProject("engineering", [{
         id: "oversized",
         content: "x".repeat(ANTIGRAVITY_RULE_CHARACTER_LIMIT),
-      }]);
+      }], []);
     } catch (caught) {
       error = caught;
     }
@@ -72,7 +72,7 @@ describe("Antigravity Context Adapter", () => {
   });
 
   test("does not invent output or trust guidance for an empty Context plan", async () => {
-    const plan = await planAntigravityProject("engineering", []);
+    const plan = await planAntigravityProject("engineering", [], []);
     expect(plan.outputs).toEqual([]);
     expect(plan.setupSteps).toEqual([]);
   });
@@ -82,7 +82,7 @@ describe("Antigravity Context Adapter", () => {
       { id: "first", content: "a".repeat(7_000) },
       { id: "second", content: "b".repeat(7_000) },
     ];
-    const plan = await planAntigravityProject("engineering", modules);
+    const plan = await planAntigravityProject("engineering", modules, []);
 
     expect(plan.outputs).toHaveLength(3);
     expect(plan.outputs.every((output) => output.type === "file" && output.bytes.length <= ANTIGRAVITY_RULE_CHARACTER_LIMIT)).toBe(true);
@@ -102,6 +102,52 @@ describe("Antigravity Context Adapter", () => {
         path: temporaryDirectory("apkit-antigravity-skill-source-"),
       }]),
     ).rejects.toThrow(/Skill delivery is not supported/i);
+  });
+
+  test("blocks selected Skills at the desired-state boundary before emitting Context", async () => {
+    const home = temporaryDirectory("apkit-antigravity-skills-home-");
+    const project = temporaryDirectory("apkit-antigravity-skills-project-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+    writeFileSync(
+      join(workspace, "context", "rules.md"),
+      "---\nid: rules\ndependencies: []\n---\nKeep repository instructions authoritative.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: [rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [antigravity]\n`,
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    expect(desired.installations[0]?.outputs).toEqual([]);
+    expect(desired.installations[0]?.blockers[0]).toMatchObject({
+      affectedItems: [{ kind: "host", value: "antigravity" }],
+      kind: "host-capability",
+      scope: "project",
+      problem: expect.stringMatching(/Skill delivery is not supported/i),
+      remedy: expect.stringMatching(/Context-only Profile/i),
+    });
+  });
+
+  test("rejects rule indexes that would sort after earlier modules", async () => {
+    const modules = Array.from({ length: 100 }, (_, index) => ({
+      id: `module-${index}`,
+      content: "module\n",
+    }));
+
+    await expect(planAntigravityProject("engineering", modules, [])).rejects.toThrow(
+      /rule sequence.*cannot preserve stable lexical order/i,
+    );
   });
 
   test("checks only required Context surfaces and rejects files or symlinks", async () => {
@@ -200,7 +246,7 @@ describe("Antigravity Context Adapter", () => {
     const plan = await planAntigravityProject("engineering", [
       { id: "communication", content: "Prefer concise communication.\n" },
       { id: "engineering", content: "Use safe changes.\n" },
-    ]);
+    ], []);
 
     expect(plan.host).toBe("antigravity");
     expect(plan.hostVersion).toBe(ANTIGRAVITY_HOST_VERSION);

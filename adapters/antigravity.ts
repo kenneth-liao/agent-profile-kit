@@ -32,6 +32,7 @@ export const ANTIGRAVITY_CONTEXT_REQUIREMENTS = [
 
 const ANTIGRAVITY_RULE_FRONTMATTER = "---\ntrigger: always_on\n---\n\n";
 const ANTIGRAVITY_RULE_PREFIX = "agent-profile-kit";
+const ANTIGRAVITY_RULE_SEQUENCE_WIDTH = 3;
 
 export type AntigravityProjectPlan = AdapterProjectPlan;
 
@@ -203,7 +204,19 @@ function ruleCharacterCount(source: string): number {
 }
 
 function rulePath(index: number, moduleId?: string): string {
-  const sequence = String(index * 10).padStart(3, "0");
+  const numericSequence = String(index * 10);
+  if (numericSequence.length > ANTIGRAVITY_RULE_SEQUENCE_WIDTH) {
+    const problem =
+      `Antigravity rule sequence '${numericSequence}' cannot preserve stable lexical order within ${ANTIGRAVITY_RULE_SEQUENCE_WIDTH}-digit rule names`;
+    throw capabilityFailure(
+      "antigravity",
+      problem,
+      "select fewer Context Modules and retry",
+      [],
+      problem,
+    );
+  }
+  const sequence = numericSequence.padStart(ANTIGRAVITY_RULE_SEQUENCE_WIDTH, "0");
   return posix.join(
     ANTIGRAVITY_CONTEXT_RULES_ROOT,
     `${ANTIGRAVITY_RULE_PREFIX}-${sequence}-${moduleId ?? "envelope"}.md`,
@@ -271,7 +284,7 @@ function moduleOutput(
 export async function planAntigravityProject(
   profileId: string,
   modules: readonly ContextModuleSource[],
-  skills: readonly Skill[] = [],
+  skills: readonly Skill[],
 ): Promise<AntigravityProjectPlan> {
   if (skills.length > 0) {
     throw capabilityFailure(

@@ -294,6 +294,12 @@ closed rather than omitting them. The Adapter uses ordinary exact-root Project
 Binding behavior and the shared preview/apply/status/repair/deselection/uninstall
 and Repository Exclusion lifecycle.
 
+Installation State that records the `antigravity` Host requires Agent Profile Kit
+0.82.0+; unbind or uninstall Antigravity with 0.82.0+ before rolling back below
+0.82.0. A rollback without uninstall leaves the generated always-on rules
+visible to Antigravity even though the older CLI cannot ingest the configuration
+or Installation State.
+
 ## Reconciliation and Ownership
 
 `preview` builds and validates the entire desired output for every bound project before `apply` writes anything. A predictable conflict in any project blocks all writes. Once preflight succeeds, each project is updated transactionally. An unexpected filesystem failure may leave later projects unapplied; the command reports the exact completed and pending set, and rerunning `apply` converges safely.
