@@ -183,13 +183,13 @@ when every consumer has upgraded to 0.16.1+.
 ## Author the Workspace
 
 This release supports Profile Context for Antigravity and Context Modules and
-portable Skills for Codex, Claude Code, Grok, and Pi. Antigravity Context uses
-`.agents/rules/`; Antigravity Skill delivery is not yet qualified. Pi Skills
-install through the qualified shared `.agents/skills/<Artifact ID>/` projection
+portable Skills for Antigravity, Codex, Claude Code, Grok, and Pi. Antigravity
+Context uses `.agents/rules/`; Antigravity, Codex, and Pi Skills install through
+the qualified shared `.agents/skills/<Artifact ID>/` projection
 after project-surface capability checks; Pi resolves other Skills, extensions,
 and packages through its native Host behavior.
-Disabled model-invocation Skills are projected with Pi-native
-`disable-model-invocation: true` while explicit `/skill:<Artifact ID>`
+Disabled model-invocation Skills are projected with the shared
+`disable-model-invocation: true` field while explicit `/skill:<Artifact ID>`
 activation remains available. Profiles that select Agents, Hooks, or Tools are
 rejected. A Profile must select at least one supported artifact overall
 (Context Module,
@@ -227,15 +227,15 @@ validate, preview, or apply.
 
 Adapters translate the trusted policy only in generated Host output:
 
-| Canonical policy | Claude / Grok / Pi generated output | Codex generated output |
+| Canonical policy | Claude / Grok generated output | Antigravity / Codex / Pi shared output |
 | --- | --- | --- |
 | `allowed` (default) | No Host restriction field | No Host restriction field |
 | `disabled` | `disable-model-invocation: true` in generated `SKILL.md` | `disable-model-invocation: true` in generated `SKILL.md` plus `policy.allow_implicit_invocation: false` in generated `agents/openai.yaml` |
 
 Existing source `agents/openai.yaml` content is preserved. An equivalent
 invocation policy coalesces; malformed, wrong-type, or conflicting policy
-produces one structured project Blocker naming the Workspace and Codex
-authorities with a Workspace repair remedy before any project write. Generated
+produces one structured project Blocker naming the Workspace and shared
+Host-policy authorities with a Workspace repair remedy before any project write. Generated
 policy fields carry short deterministic comments. When any selected Skill
 disables model invocation, capability preflight proves each selected Host can
 enforce it before writes: Claude Code CLI
@@ -251,8 +251,11 @@ it explicitly with `/skill:<name>`, and the behavior was introduced in
 [Pi 0.50.0](https://pi.dev/news/releases/0.50.0). Pi records
 `native-project-shared-skills-invocation-v1` for Skills-only or
 `native-project-append-system-shared-skills-invocation-v1` for combined
-Profiles, proving the complete shared package.
-Unsupported versions fail closed rather than silently weakening the policy.
+Profiles, proving the complete shared package. Antigravity records
+`native-project-shared-skills-invocation-v1` or
+`native-project-always-on-rules-shared-skills-invocation-v1` for the same two
+shapes. Unsupported versions fail closed rather than silently weakening the
+policy.
 
 Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each
@@ -266,11 +269,10 @@ A Profile is a YAML file under `profiles/` with an `id` and explicit `context`,
 `hooks`, and `tools` must be empty. At least one of `context` or `skills` must
 be non-empty. A Skills-only Profile installs only selected Skill packages for Hosts that
 support them and Installer lifecycle metadata—no Context snapshot, Codex
-SessionStart hooks, or Claude Context rule. Antigravity bindings require a
-Context-only Profile until Antigravity Skill delivery is qualified. Host
-capability preflight follows the selected categories (Skills-only does not
-require Context machinery). Profiles do not inherit, use wildcards, or carry
-Host settings.
+SessionStart hooks, or Claude Context rule. Antigravity Skills-only bindings
+check only the shared `.agents` and `.agents/skills` surfaces. Host capability
+preflight follows the selected categories (Skills-only does not require Context
+machinery). Profiles do not inherit, use wildcards, or carry Host settings.
 
 ### CLI compatibility for Skills-only Profiles
 
@@ -507,10 +509,12 @@ read or change trust, settings, authentication, plugins, Project records,
 `AGENTS.md`, or `GEMINI.md`. A standing trust reminder appears for every
 non-empty Antigravity plan, but unproven trust never blocks safe writes.
 
-Antigravity Skill delivery is not yet qualified. A Profile that selects Skills
-cannot be installed for an Antigravity binding; remove Antigravity from that
-binding or use a Context-only Profile until the later Skill integration is
-available.
+Antigravity also discovers selected Skills through the qualified shared
+`.agents/skills/<Artifact ID>/` projection used by Codex and Pi. The complete
+package preserves standard members and, for disabled Skills, both the generated
+`disable-model-invocation: true` field and Codex `agents/openai.yaml` policy.
+Antigravity's native discovery, trust, settings, and effective inventory remain
+Host-owned.
 
 ### Codex
 
@@ -656,10 +660,10 @@ This section is the Host-path detail for the
 [Universal Workspace material](#universal-workspace-material) boundary.
 
 Agent Profile Kit installs selected Skills only into the bound **project**
-(`.agents/skills/<Artifact ID>/` for Codex and Pi,
+(`.agents/skills/<Artifact ID>/` for Antigravity, Codex, and Pi,
 `.claude/skills/<Artifact ID>/` for Claude, `.grok/skills/<Artifact ID>/` for
-Grok). Antigravity currently receives no Skill output; its Profile Context uses
-`.agents/rules/` instead. It never installs into, adopts, disables, or removes
+Grok). Antigravity Profile Context uses `.agents/rules/` alongside its shared
+Skill packages. It never installs into, adopts, disables, or removes
 personal/global Host Skill folders. Unselected Workspace
 Skills are not installed into projects either; they may remain valid Workspace
 source without any APK-managed delivery.

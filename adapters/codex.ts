@@ -331,13 +331,18 @@ export function coalesceCodexInvocationPolicy(
   existingOpenAiYaml: string | undefined,
 ): ReturnType<typeof coalesceSharedSkillPolicy> {
   return coalesceSharedSkillPolicy(
-    { id: skillId, modelInvocation, path: skillId },
+    { id: skillId, modelInvocation, path: skillId, consumerHost: "codex" },
     existingOpenAiYaml,
   );
 }
 
 /** Codex now consumes the complete qualified shared Skill package. */
-export const projectCodexSkillMembers = projectSharedSkillMembers;
+export function projectCodexSkillMembers(
+  skill: Skill,
+  members: Parameters<typeof projectSharedSkillMembers>[1],
+): ReturnType<typeof projectSharedSkillMembers> {
+  return projectSharedSkillMembers(skill, members, "codex");
+}
 
 /** Codex records the shared package's complete disabled-policy requirement. */
 export const codexSkillRequirements = sharedSkillRequirements;
@@ -425,6 +430,7 @@ export async function planCodexProject(
         planSharedSkillPackageDirectory(
           skill,
           [SHARED_SKILL_DISCOVERY_REQUIREMENT],
+          "codex",
           materials,
         ),
       ),

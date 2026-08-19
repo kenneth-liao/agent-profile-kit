@@ -742,15 +742,22 @@ export async function buildDesiredState(
             await planning.probeHostCapability(
               {
                 host,
-                requirements: antigravityMachineRequirements({ requireContext }),
+                requirements: antigravityMachineRequirements({
+                  requireContext,
+                  requireDisabledModelInvocation,
+                  requireSkills,
+                }),
               },
               () => probeAntigravityMachineCapability({
                 ...capabilityEnvironment,
                 requireContext,
+                requireDisabledModelInvocation,
+                requireSkills,
               }),
             );
             await assertAntigravityProjectSurface(binding.canonicalProject, {
               requireContext,
+              requireSkills,
             });
           }
         } catch (error) {
@@ -981,6 +988,7 @@ export async function buildDesiredState(
               profile.id,
               resolvedProfile.contexts,
               resolvedProfile.skills,
+              { materials: planning.materials },
             ),
           );
         } catch (error) {

@@ -16,6 +16,7 @@ import {
   type AdapterPlanningMaterials,
   type SkillPackageProjection,
 } from "./skill-package.js";
+import type { SupportedHost } from "../schemas/local-configuration.js";
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 
 /** Shared native Skill discovery root used by qualified Agent Hosts. */
@@ -41,6 +42,8 @@ export interface SharedSkillPolicyInput {
   readonly id: string;
   readonly modelInvocation: ModelInvocationPolicy;
   readonly path: string;
+  /** Consumer receiving the shared package. */
+  readonly consumerHost: SupportedHost;
 }
 
 export type SharedSkillPolicyDecision =
@@ -58,7 +61,8 @@ function policyAuthorityFailure(
 ): ReturnType<typeof capabilityFailure> {
   const canonical =
     `canonical Workspace ${MODEL_INVOCATION_METADATA_FIELD} is '${skill.modelInvocation}'`;
-  const host = `Codex ${SHARED_SKILL_OPENAI_YAML} ${detail}`;
+  const hostLabel = `${skill.consumerHost[0]?.toUpperCase() ?? ""}${skill.consumerHost.slice(1)}`;
+  const host = `${hostLabel} ${SHARED_SKILL_OPENAI_YAML} ${detail}`;
   const problem =
     `Skill '${skill.id}' has ${kind === "conflict" ? "conflicting" : "invalid"} ` +
     `model-invocation authorities: ${canonical}; ${host}`;
@@ -66,7 +70,7 @@ function policyAuthorityFailure(
     `Repair the canonical Workspace Skill '${skill.id}' so ${MODEL_INVOCATION_METADATA_FIELD} ` +
     `remains authoritative and ${SHARED_SKILL_OPENAI_YAML} is absent or agrees, then retry`;
   return capabilityFailure(
-    "codex",
+    skill.consumerHost ?? "codex",
     problem,
     remedy,
     [{ kind: "path", value: join(skill.path, SHARED_SKILL_OPENAI_YAML) }],
@@ -257,7 +261,12 @@ export function coalesceSharedSkillPolicy(
 export function projectSharedSkillMembers(
   skill: Skill,
   members: readonly ProposedDirectoryMember[],
+  consumerHost: SupportedHost,
 ): readonly ProposedDirectoryMember[] {
+  const policySkill: SharedSkillPolicyInput = {
+    ...skill,
+    consumerHost,
+  };
   const packageMembers = members.filter(
     (member) =>
       member.path !== SKILL_PACKAGE_SIDECAR &&
@@ -275,13 +284,13 @@ export function projectSharedSkillMembers(
     ) && existingOpenAi === undefined
   ) {
     throw policyAuthorityFailure(
-      skill,
+      policySkill,
       `${CODEX_INVOCATION_FIELD} must be backed by a regular file`,
       "invalid",
     );
   }
   const decision = coalesceSharedSkillPolicy(
-    skill,
+    policySkill,
     existingOpenAi === undefined
       ? undefined
       : memberBytesAsString(existingOpenAi.bytes),
@@ -334,22 +343,23 @@ export function sharedSkillRequirements(
   ];
 }
 
-const SHARED_SKILL_PROJECTION: SkillPackageProjection = {
-  projectMembers: projectSharedSkillMembers,
-  requirements: sharedSkillRequirements,
-};
-
 /** Plan one Skill package at the shared `.agents/skills` discovery root. */
 export async function planSharedSkillPackageDirectory(
   skill: Skill,
   baseRequirements: readonly string[],
+  consumerHost: SupportedHost,
   materials: AdapterPlanningMaterials = DEFAULT_ADAPTER_PLANNING_MATERIALS,
 ): Promise<ProposedProjectDirectoryOutput> {
+  const projection: SkillPackageProjection = {
+    projectMembers: (candidate, members) =>
+      projectSharedSkillMembers(candidate, members, consumerHost),
+    requirements: sharedSkillRequirements,
+  };
   return planSkillPackageDirectory(
     skill,
     SHARED_SKILLS_DISCOVERY_ROOT,
     baseRequirements,
-    SHARED_SKILL_PROJECTION,
+    projection,
     materials,
   );
 }

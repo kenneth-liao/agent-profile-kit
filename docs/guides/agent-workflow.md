@@ -18,8 +18,8 @@ Use this workflow when helping a person author their Workspace and bind projects
    already satisfies the need. Ask instead of inventing personal preferences,
    project facts, Host preferences, credentials, or machine paths.
 3. Create the smallest useful artifact set. This release accepts Profile Context
-   for Antigravity and portable Context and Skills for Codex, Claude Code, Grok,
-   and Pi. Antigravity Skill delivery is not yet qualified. Put standing facts in
+   and shared Skills for Antigravity, plus portable Context and Skills for Codex,
+   Claude Code, Grok, and Pi. Put standing facts in
    Context Modules and reusable procedures in Skills. A Profile needs at least
    one supported artifact (Context, Skills, or both); Context is not mandatory—a
    Skills-only Profile is valid on CLI 0.17.0+ (convert or uninstall before
@@ -84,8 +84,8 @@ Use this workflow when helping a person author their Workspace and bind projects
    natively in the bound project. Do not claim that Agent Profile Kit manages
    Host authentication, trust, approvals, plugins, or sessions. Antigravity
    bindings load deterministic always-on Context rules under `.agents/rules/`
-   after the user's native trust step; Antigravity Skill delivery is not yet
-   qualified. Pi bindings load the generated `.pi/APPEND_SYSTEM.md` and shared
+   and shared `.agents/skills/<Artifact ID>` packages after the user's native
+   trust step. Pi bindings load the generated `.pi/APPEND_SYSTEM.md` and shared
    `.agents/skills/<Artifact ID>` packages after Pi's native trust boundary;
    packages, extensions, and other Skill sources coexist through Pi Host
    Resolution. For non-Git projects, remind the user that Codex must launch from

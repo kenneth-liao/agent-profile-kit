@@ -358,6 +358,15 @@ exit 2
   return bin;
 }
 
+/** Put a controlled Pi CLI stub first on PATH for shared Skill preflight. */
+function installFakePi(home: string, version = "0.84.2"): string {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "pi"), `#!/bin/sh\necho "pi ${version}"\n`);
+  execFileSync("chmod", ["+x", join(bin, "pi")]);
+  return bin;
+}
+
 /** Put a controlled Grok CLI stub first on PATH for version + inspect preflight. */
 function installFakeGrok(
   home: string,
@@ -5092,6 +5101,189 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   }, 15_000);
 
+  test("packed CLI Antigravity Skills qualify shared packages across lifecycle and Host subsets", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const antigravityProject = gitRepository("agent-profile-kit-antigravity-skills-only-");
+    const combinedProject = gitRepository("agent-profile-kit-antigravity-skills-combined-");
+    for (const projectPath of [antigravityProject, combinedProject]) {
+      writeFileSync(join(projectPath, "AGENTS.md"), "repository instructions\n");
+      writeFileSync(join(projectPath, "GEMINI.md"), "gemini instructions\n");
+      mkdirSync(join(projectPath, ".agents", "skills", "native"), { recursive: true });
+      writeFileSync(join(projectPath, ".agents", "skills", "native", "README.md"), "keep native\n");
+    }
+
+    const workspace = workspacePath(home);
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nKeep repository instructions authoritative.\n",
+    );
+    const baseSkill = join(workspace, "skills", "shared-base");
+    const topSkill = join(workspace, "skills", "top-skill");
+    const disabledSkill = join(workspace, "skills", "disabled-skill");
+    const unselectedSkill = join(workspace, "skills", "unselected-skill");
+    mkdirSync(baseSkill, { recursive: true });
+    mkdirSync(topSkill, { recursive: true });
+    mkdirSync(disabledSkill, { recursive: true });
+    mkdirSync(unselectedSkill, { recursive: true });
+    writeFileSync(
+      join(baseSkill, "SKILL.md"),
+      "---\nname: shared-base\ndescription: Shared base Skill.\n---\n\n# Base\n",
+    );
+    writeFileSync(
+      join(topSkill, "SKILL.md"),
+      "---\nname: top-skill\ndescription: Top Skill.\n---\n\n# Top\n",
+    );
+    writeFileSync(
+      join(topSkill, "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: shared-base\n",
+    );
+    writeFileSync(
+      join(disabledSkill, "SKILL.md"),
+      "---\nname: disabled-skill\ndescription: Explicit-only Skill.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Explicit only\n",
+    );
+    writeFileSync(
+      join(unselectedSkill, "SKILL.md"),
+      "---\nname: unselected-skill\ndescription: Unselected Skill.\n---\n\n# Unselected\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "skills.yaml"),
+      "id: skills\ncontext: []\nskills: [top-skill, disabled-skill]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "combined.yaml"),
+      "id: combined\ncontext: [team-rules]\nskills: [top-skill, disabled-skill]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n` +
+        `  - project: ${antigravityProject}\n    profile: skills\n    hosts: [antigravity]\n` +
+        `  - project: ${combinedProject}\n    profile: combined\n    hosts: [pi, codex, antigravity]\n`,
+    );
+
+    const antigravityBin = installFakeAntigravity(home, "1.1.13");
+    const codexBin = installFakeCodex(home, "0.147.0");
+    const piBin = installFakePi(home, "0.84.2");
+    const pathWithHosts = `${antigravityBin}:${codexBin}:${piBin}:${process.env.PATH ?? ""}`;
+
+    const humanPreview = await runCliWithPath(home, pathWithHosts, "preview", "--verbose");
+    expectExitCode(humanPreview, 0);
+    expect(humanPreview.stdout).toContain("Capability Contracts:");
+    expect(humanPreview.stdout).toContain("native-project-always-on-rules-shared-skills-invocation-v1");
+    expect(humanPreview.stdout).not.toContain("shared-path");
+
+    const preview = await runCliWithPath(home, pathWithHosts, "preview", "--json");
+    expectExitCode(preview, 0);
+    const previewDocument = JSON.parse(preview.stdout) as {
+      readonly installations: readonly {
+        readonly capabilityContracts?: Readonly<Record<string, string>>;
+        readonly hosts: readonly string[];
+      }[];
+      readonly outputConsumers: readonly {
+        readonly consumingHosts: readonly string[];
+        readonly path: string;
+        readonly project: string;
+      }[];
+    };
+    expect(previewDocument.installations.map((installation) => installation.hosts.join(",")).sort()).toEqual([
+      "antigravity",
+      "antigravity,codex,pi",
+    ]);
+    const combinedPreview = previewDocument.installations.find(
+      (installation) => installation.hosts.join(",") === "antigravity,codex,pi",
+    );
+    expect(combinedPreview?.capabilityContracts).toEqual({
+      antigravity: "native-project-always-on-rules-shared-skills-invocation-v1",
+      codex: "native-project-sessionstart-complete-context-skills-invocation-v1",
+      pi: "native-project-append-system-shared-skills-invocation-v1",
+    });
+    expect(previewDocument.outputConsumers).toContainEqual({
+      consumingHosts: ["antigravity", "codex", "pi"],
+      path: ".agents/skills/disabled-skill",
+      project: combinedProject,
+    });
+
+    const apply = await runCliWithPath(home, pathWithHosts, "apply");
+    expectExitCode(apply, 0);
+    for (const projectPath of [antigravityProject, combinedProject]) {
+      expect(existsSync(join(projectPath, ".agents", "skills", "top-skill", "SKILL.md"))).toBe(true);
+      expect(existsSync(join(projectPath, ".agents", "skills", "shared-base", "SKILL.md"))).toBe(true);
+      expect(existsSync(join(projectPath, ".agents", "skills", "disabled-skill", "agents", "openai.yaml"))).toBe(true);
+      expect(existsSync(join(projectPath, ".agents", "skills", "unselected-skill"))).toBe(false);
+      expect(existsSync(join(projectPath, ".agents", "skills", "top-skill", "agent-profile-kit.yaml"))).toBe(false);
+      expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository instructions\n");
+      expect(readFileSync(join(projectPath, "GEMINI.md"), "utf8")).toBe("gemini instructions\n");
+      expect(readFileSync(join(projectPath, ".agents", "skills", "native", "README.md"), "utf8")).toBe("keep native\n");
+    }
+    expect(readFileSync(join(antigravityProject, ".agents", "skills", "top-skill", "SKILL.md"), "utf8"))
+      .toBe(readFileSync(join(combinedProject, ".agents", "skills", "top-skill", "SKILL.md"), "utf8"));
+    expect(readFileSync(join(antigravityProject, ".agents", "skills", "disabled-skill", "agents", "openai.yaml"), "utf8"))
+      .toBe(readFileSync(join(combinedProject, ".agents", "skills", "disabled-skill", "agents", "openai.yaml"), "utf8"));
+    expect(parse(readFileSync(join(combinedProject, ".agents", "skills", "disabled-skill", "agents", "openai.yaml"), "utf8")))
+      .toMatchObject({ policy: { allow_implicit_invocation: false } });
+    expect(readFileSync(join(combinedProject, ".agents", "skills", "disabled-skill", "SKILL.md"), "utf8"))
+      .toContain("disable-model-invocation: true");
+
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      readonly installations: readonly {
+        readonly hosts: readonly string[];
+        readonly host_versions: Readonly<Record<string, string>>;
+        readonly project: string;
+        readonly resolved_artifacts: readonly {
+          readonly id: string;
+          readonly inclusion_reasons: readonly unknown[];
+        }[];
+      }[];
+    };
+    const skillsInstallation = state.installations.find((installation) => installation.project === realpathSync(antigravityProject));
+    const combinedInstallation = state.installations.find((installation) => installation.project === realpathSync(combinedProject));
+    expect(skillsInstallation?.host_versions.antigravity).toBe("native-project-shared-skills-invocation-v1");
+    expect(combinedInstallation?.host_versions.antigravity).toBe("native-project-always-on-rules-shared-skills-invocation-v1");
+    expect(combinedInstallation?.resolved_artifacts.find((artifact) => artifact.id === "shared-base")?.inclusion_reasons.length)
+      .toBeGreaterThanOrEqual(1);
+
+    const current = await runCliWithPath(home, pathWithHosts, "status");
+    expectExitCode(current, 0);
+    expect(current.stdout).toContain("All Projects are current");
+
+    rmSync(join(antigravityProject, ".agents", "skills", "top-skill"), { recursive: true, force: true });
+    const repairStatus = await runCliWithPath(home, pathWithHosts, "status");
+    expectExitCode(repairStatus, 0);
+    expect(repairStatus.stdout).toMatch(/repairable|missing output/i);
+    expectExitCode(await runCliWithPath(home, pathWithHosts, "apply"), 0);
+    expect(existsSync(join(antigravityProject, ".agents", "skills", "top-skill", "SKILL.md"))).toBe(true);
+
+    const disabledSkillPath = join(combinedProject, ".agents", "skills", "disabled-skill", "SKILL.md");
+    const disabledSkillBytes = readFileSync(disabledSkillPath, "utf8");
+    writeFileSync(disabledSkillPath, "drifted\n");
+    const drift = await runCliWithPath(home, pathWithHosts, "status");
+    expectExitCode(drift, 2);
+    expect(drift.stdout).toMatch(/drifted/i);
+    writeFileSync(disabledSkillPath, disabledSkillBytes);
+
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n` +
+        `  - project: ${antigravityProject}\n    profile: skills\n    hosts: [antigravity]\n` +
+        `  - project: ${combinedProject}\n    profile: combined\n    hosts: [pi, codex]\n`,
+    );
+    expectExitCode(await runCliWithPath(home, pathWithHosts, "apply"), 0);
+    const deselectedState = parse(readFileSync(statePath(home), "utf8")) as {
+      readonly installations: readonly { readonly hosts: readonly string[]; readonly project: string }[];
+    };
+    expect(deselectedState.installations.find((installation) => installation.project === realpathSync(combinedProject))?.hosts)
+      .toEqual(["codex", "pi"]);
+    expect(existsSync(join(combinedProject, ".agents", "skills", "disabled-skill", "SKILL.md"))).toBe(true);
+
+    expectExitCode(await runCliWithPath(home, pathWithHosts, "uninstall"), 0);
+    for (const projectPath of [antigravityProject, combinedProject]) {
+      expect(existsSync(join(projectPath, ".agents", "skills", "top-skill"))).toBe(false);
+      expect(existsSync(join(projectPath, ".agents", "skills", "disabled-skill"))).toBe(false);
+      expect(readFileSync(join(projectPath, ".agents", "skills", "native", "README.md"), "utf8")).toBe("keep native\n");
+      expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository instructions\n");
+    }
+  }, 20_000);
+
   test("packed CLI Antigravity capability preflight blocks missing, unreadable, malformed, and old agy evidence", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -5132,6 +5324,35 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const supported = await runCliWithPath(home, `${supportedBin}:${process.env.PATH ?? ""}`, "preview");
     expectExitCode(supported, 0);
     expect(supported.stdout).toContain(".agents/rules/agent-profile-kit-000-envelope.md");
+  });
+
+  test("packed CLI Antigravity Skills checks only the required shared Skill surface", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project("agent-profile-kit-antigravity-skills-capability-");
+    const workspace = workspacePath(home);
+    mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\n# Review\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "skills.yaml"),
+      "id: skills\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${projectPath}\n    profile: skills\n    hosts: [antigravity]\n`,
+    );
+    mkdirSync(join(projectPath, ".agents"), { recursive: true });
+    writeFileSync(join(projectPath, ".agents", "skills"), "not a directory\n");
+
+    const antigravityBin = installFakeAntigravity(home);
+    const result = await runCliWithPath(home, `${antigravityBin}:${process.env.PATH ?? ""}`, "preview");
+    expectExitCode(result, 2);
+    expect(`${result.stdout}${result.stderr}`).toContain(".agents/skills");
+    expect(`${result.stdout}${result.stderr}`).toMatch(/not a directory/i);
+    expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
   });
 
   test("packed CLI Grok-only preview → apply → status → uninstall installs unscoped Context", async () => {

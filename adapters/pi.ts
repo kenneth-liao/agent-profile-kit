@@ -352,6 +352,7 @@ function skillOutputs(
         planSharedSkillPackageDirectory(
           skill,
           [SHARED_SKILL_DISCOVERY_REQUIREMENT],
+          "pi",
           materials,
         ),
       ),

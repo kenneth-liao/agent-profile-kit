@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,8 +8,13 @@ import { buildDesiredState } from "../installer/project-plan.js";
 import { isAdapterCapabilityError } from "../adapters/capability.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
 import {
+  ANTIGRAVITY_ADAPTER_VERSION,
   ANTIGRAVITY_CONTEXT_RULES_ROOT,
   ANTIGRAVITY_HOST_VERSION,
+  ANTIGRAVITY_HOST_VERSION_WITH_CONTEXT_AND_SKILLS,
+  ANTIGRAVITY_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION,
+  ANTIGRAVITY_HOST_VERSION_WITH_INVOCATION,
+  ANTIGRAVITY_HOST_VERSION_WITH_SKILLS,
   ANTIGRAVITY_MINIMUM_CLI_VERSION,
   ANTIGRAVITY_RULE_CHARACTER_LIMIT,
   assertAntigravityCliVersionSupported,
@@ -93,18 +98,31 @@ describe("Antigravity Context Adapter", () => {
     expect(second.bytes).toContain(`<!-- Context Module: second -->\n${"b".repeat(7_000)}`);
   });
 
-  test("rejects Antigravity Skill delivery instead of omitting selected Skills", async () => {
-    await expect(
-      planAntigravityProject("engineering", [], [{
-        dependencies: [],
-        id: "review-pr",
-        modelInvocation: "allowed",
-        path: temporaryDirectory("apkit-antigravity-skill-source-"),
-      }]),
-    ).rejects.toThrow(/Skill delivery is not supported/i);
+  test("plans selected Skills through the qualified shared project surface", async () => {
+    const source = temporaryDirectory("apkit-antigravity-skill-source-");
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+
+    const plan = await planAntigravityProject("engineering", [], [{
+      dependencies: [],
+      id: "review-pr",
+      modelInvocation: "allowed",
+      path: source,
+    }]);
+
+    expect(plan.hostVersion).toBe(ANTIGRAVITY_HOST_VERSION_WITH_SKILLS);
+    expect(plan.outputs.map((output) => output.path)).toEqual([
+      ".agents/skills/review-pr",
+    ]);
+    const skill = plan.outputs[0];
+    expect(skill?.type).toBe("directory");
+    if (!skill || skill.type !== "directory") throw new Error("expected shared Skill package");
+    expect(skill.members.map((member) => member.path)).toContain("SKILL.md");
   });
 
-  test("blocks selected Skills at the desired-state boundary before emitting Context", async () => {
+  test("plans selected Skills alongside Context at the desired-state boundary", async () => {
     const home = temporaryDirectory("apkit-antigravity-skills-home-");
     const project = temporaryDirectory("apkit-antigravity-skills-project-");
     await initializeWorkspace(home);
@@ -129,13 +147,157 @@ describe("Antigravity Context Adapter", () => {
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.outputs).toEqual([]);
-    expect(desired.installations[0]?.blockers[0]).toMatchObject({
-      affectedItems: [{ kind: "host", value: "antigravity" }],
+    expect(desired.installations[0]?.blockers).toEqual([]);
+    expect(desired.installations[0]?.outputs.map((output) => output.path)).toContain(
+      ".agents/skills/review-pr",
+    );
+  });
+
+  test("records distinct Context and invocation Capability Contracts for shared Skills", async () => {
+    const allowedSource = temporaryDirectory("apkit-antigravity-combined-skill-");
+    writeFileSync(
+      join(allowedSource, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+    const allowed = await planAntigravityProject(
+      "engineering",
+      [{ id: "rules", content: "Keep project rules authoritative.\n" }],
+      [{ dependencies: [], id: "review-pr", modelInvocation: "allowed", path: allowedSource }],
+    );
+    expect(allowed.hostVersion).toBe(ANTIGRAVITY_HOST_VERSION_WITH_CONTEXT_AND_SKILLS);
+
+    const disabledSource = temporaryDirectory("apkit-antigravity-disabled-skill-");
+    writeFileSync(
+      join(disabledSource, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+    );
+    const disabled = await planAntigravityProject(
+      "engineering",
+      [{ id: "rules", content: "Keep project rules authoritative.\n" }],
+      [{ dependencies: [], id: "review-pr", modelInvocation: "disabled", path: disabledSource }],
+    );
+    expect(disabled.hostVersion).toBe(ANTIGRAVITY_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION);
+    const disabledPackage = disabled.outputs.find((output) => output.path === ".agents/skills/review-pr");
+    if (!disabledPackage || disabledPackage.type !== "directory") throw new Error("expected shared Skill package");
+    const skill = disabledPackage.members.find((member) => member.path === "SKILL.md");
+    const policy = disabledPackage.members.find((member) => member.path === "agents/openai.yaml");
+    expect(skill?.type).toBe("file");
+    expect(policy?.type).toBe("file");
+    if (skill?.type === "file") expect(String(skill.bytes)).toContain("disable-model-invocation: true");
+    if (policy?.type === "file") expect(String(policy.bytes)).toContain("allow_implicit_invocation: false");
+  });
+
+  test("attributes contradictory shared policy to the Antigravity consumer", async () => {
+    const source = temporaryDirectory("apkit-antigravity-policy-conflict-");
+    mkdirSync(join(source, "agents"), { recursive: true });
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+    writeFileSync(
+      join(source, "agents", "openai.yaml"),
+      "policy:\n  allow_implicit_invocation: true\n",
+    );
+
+    let error: unknown;
+    try {
+      await planAntigravityProject("engineering", [], [{
+        dependencies: [],
+        id: "review-pr",
+        modelInvocation: "disabled",
+        path: source,
+      }]);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(isAdapterCapabilityError(error)).toBe(true);
+    if (isAdapterCapabilityError(error)) {
+      expect(error.host).toBe("antigravity");
+      expect(error.affectedItems[0]).toEqual({ kind: "host", value: "antigravity" });
+      expect(error.message).toContain("conflicting model-invocation authorities");
+    }
+  });
+
+  test("attributes a non-file shared policy path to the Antigravity consumer", async () => {
+    const source = temporaryDirectory("apkit-antigravity-policy-directory-");
+    mkdirSync(join(source, "agents", "openai.yaml"), { recursive: true });
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+
+    let error: unknown;
+    try {
+      await planAntigravityProject("engineering", [], [{
+        dependencies: [],
+        id: "review-pr",
+        modelInvocation: "allowed",
+        path: source,
+      }]);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(isAdapterCapabilityError(error)).toBe(true);
+    if (isAdapterCapabilityError(error)) {
+      expect(error.host).toBe("antigravity");
+      expect(error.affectedItems[0]).toEqual({ kind: "host", value: "antigravity" });
+      expect(error.message).toContain("must be backed by a regular file");
+    }
+  });
+
+  test("records the shared invocation contract for a disabled Skills-only Profile", async () => {
+    const source = temporaryDirectory("apkit-antigravity-disabled-skills-only-");
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+    const plan = await planAntigravityProject("engineering", [], [{
+      dependencies: [],
+      id: "review-pr",
+      modelInvocation: "disabled",
+      path: source,
+    }]);
+    expect(plan.hostVersion).toBe(ANTIGRAVITY_HOST_VERSION_WITH_INVOCATION);
+  });
+
+  test("normalizes shared invocation policy failures as Antigravity project Blockers", async () => {
+    const home = temporaryDirectory("apkit-antigravity-policy-blocker-home-");
+    const project = temporaryDirectory("apkit-antigravity-policy-blocker-project-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    const skillRoot = join(workspace, "skills", "review-pr");
+    mkdirSync(join(skillRoot, "agents"), { recursive: true });
+    writeFileSync(
+      join(skillRoot, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+    );
+    writeFileSync(
+      join(skillRoot, "agents", "openai.yaml"),
+      "policy:\n  allow_implicit_invocation: true\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "skills.yaml"),
+      "id: skills\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: skills\n    hosts: [antigravity]\n`,
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations[0];
+    expect(installation?.outputs).toEqual([]);
+    expect(installation?.blockers).toHaveLength(1);
+    expect(installation?.blockers[0]).toMatchObject({
+      affectedItems: [
+        { kind: "host", value: "antigravity" },
+        { kind: "path", value: realpathSync(join(skillRoot, "agents", "openai.yaml")) },
+      ],
       kind: "host-capability",
+      project: realpathSync(project),
       scope: "project",
-      problem: expect.stringMatching(/Skill delivery is not supported/i),
-      remedy: expect.stringMatching(/Context-only Profile/i),
     });
   });
 
@@ -178,6 +340,31 @@ describe("Antigravity Context Adapter", () => {
 
     // A Context-free check does not inspect surfaces that this plan does not need.
     await expect(assertAntigravityProjectSurface(project, { requireContext: false })).resolves.toBeUndefined();
+
+    const skillsProject = temporaryDirectory("apkit-antigravity-skills-surface-project-");
+    await expect(
+      assertAntigravityProjectCapability(skillsProject, {
+        requireContext: false,
+        requireSkills: true,
+        resolveVersion: async () => "1.1.13",
+      }),
+    ).resolves.toBeUndefined();
+    writeFileSync(join(skillsProject, ".agents"), "repository material\n");
+    await expect(
+      assertAntigravityProjectSurface(skillsProject, {
+        requireContext: false,
+        requireSkills: true,
+      }),
+    ).rejects.toThrow(/\.agents.*file.*directory/i);
+    rmSync(join(skillsProject, ".agents"));
+    mkdirSync(join(skillsProject, ".agents"));
+    writeFileSync(join(skillsProject, ".agents", "skills"), "repository material\n");
+    await expect(
+      assertAntigravityProjectSurface(skillsProject, {
+        requireContext: false,
+        requireSkills: true,
+      }),
+    ).rejects.toThrow(/\.agents\/skills.*file.*directory/i);
   });
 
   test("plans Antigravity Context through the ordinary desired-state boundary", async () => {
@@ -202,7 +389,7 @@ describe("Antigravity Context Adapter", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     expect(installation?.binding.hosts).toEqual(["antigravity"]);
-    expect(installation?.adapterVersion).toBe("antigravity-project-v1");
+    expect(installation?.adapterVersion).toBe(ANTIGRAVITY_ADAPTER_VERSION);
     expect(installation?.hostVersions.antigravity).toBe(ANTIGRAVITY_HOST_VERSION);
     expect(installation?.outputs.map((output) => output.path)).toEqual([
       `${ANTIGRAVITY_CONTEXT_RULES_ROOT}/agent-profile-kit-000-envelope.md`,
