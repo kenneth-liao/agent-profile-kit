@@ -46,6 +46,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Make Antigravity Skill rejection mandatory at the desired-state boundary, preserve stable rule ordering limits, and document Host rollback requirements ([#230](https://github.com/kenneth-liao/agent-profile-kit/issues/230)).
+
 - Use the process executor's canonical group-empty result for TERM-resistant descendant cleanup verification instead of treating a terminated orphan awaiting macOS process-table reaping as a live leak ([#211](https://github.com/kenneth-liao/agent-profile-kit/issues/211)).
 
 - Keep Adapter capability evidence Adapter-owned at its host/path subset and translate it into the shared blocker affected-item vocabulary at the Installer boundary, so Adapters never import Installer-owned blocker types and out-of-vocabulary Adapter evidence is rejected loudly ([#172](https://github.com/kenneth-liao/agent-profile-kit/issues/172)).

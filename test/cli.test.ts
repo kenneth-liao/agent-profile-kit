@@ -339,7 +339,6 @@ echo "codex-cli ${version}"
   return bin;
 }
 
-/** Put a controlled Grok CLI stub first on PATH for version + inspect preflight. */
 /** Put a controlled Antigravity CLI stub first on PATH for version capability preflight. */
 function installFakeAntigravity(home: string, version = "1.1.13"): string {
   const bin = join(home, "bin");
@@ -359,6 +358,7 @@ exit 2
   return bin;
 }
 
+/** Put a controlled Grok CLI stub first on PATH for version + inspect preflight. */
 function installFakeGrok(
   home: string,
   options: {
