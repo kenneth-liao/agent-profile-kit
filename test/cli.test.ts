@@ -1858,7 +1858,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(second, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("packed fleet preview renders one shared Skill impact group with compact Project scope", async () => {
+  test("packed fleet lifecycle summarizes observable operations without artifact causality", async () => {
     const home = isolatedHome();
     await initialize(home);
     removeScaffoldedExample(home);
@@ -1889,10 +1889,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(preview, 0);
     expect(preview.stdout).toContain(
-      "Workspace changes:\n  ~ Skill review-pr · 12 files in 12 projects",
+      "Project changes:\n  ~ 12 generated file updates in 12 projects",
     );
-    expect(preview.stdout.match(/~ Skill review-pr/g)).toHaveLength(1);
-    expect(preview.stdout).not.toContain("Project changes:");
+    expect(preview.stdout).not.toContain("Skill review-pr");
+    expect(preview.stdout).not.toContain("Workspace changes:");
     expect(preview.stdout.match(/Project: /g)).toBeNull();
     expect(preview.stdout).toContain("Next:\n- Run apkit apply.");
     expect(preview.stdout.match(/Run apkit apply\./g)).toHaveLength(1);
@@ -1908,14 +1908,21 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const json = await runCli(home, "preview", "--json");
     expectExitCode(json, 0);
-    const payload = JSON.parse(json.stdout) as { readonly impacts: readonly unknown[] };
-    expect(payload.impacts).toHaveLength(12);
+    const payload = JSON.parse(json.stdout) as {
+      readonly schemaVersion: number;
+      readonly outputs: readonly { readonly kind: string }[];
+    };
+    expect(payload.schemaVersion).toBe(3);
+    expect(payload).not.toHaveProperty("impacts");
+    expect(payload.outputs.filter((output) => output.kind === "update")).toHaveLength(12);
 
     const apply = await runCli(home, "apply");
     expectExitCode(apply, 0);
     expect(apply.stdout).toContain("Applied:");
-    expect(humanText(apply.stdout)).toContain(humanText("~ Skill review-pr · 12 files in 12 projects"));
-    expect(humanText(apply.stdout).match(/~ Skill review-pr/g)).toHaveLength(1);
+    expect(humanText(apply.stdout)).toContain(
+      humanText("~ 12 generated file updates in 12 projects"),
+    );
+    expect(apply.stdout).not.toContain("Skill review-pr");
     expect(apply.stdout).not.toContain("Project: ");
     expect(apply.stdout).not.toContain("State: current");
     expect(humanText(apply.stdout).match(/becomes active on the next launch/g)).toHaveLength(1);
@@ -1927,7 +1934,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toContain("~ Skill review-pr · 12 files in 12 projects");
+    expect(status.stdout).toContain("~ 12 generated file updates in 12 projects");
     expect(status.stdout).not.toContain("Project: ");
   });
 
@@ -1995,12 +2002,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly command: string;
         readonly schemaVersion: number;
       };
-      expect(payload.schemaVersion).toBe(2);
+      expect(payload.schemaVersion).toBe(3);
       expect(payload.command).toBe(command);
 
       const both = await runCli(home, command, "--verbose", "--json");
       expectExitCode(both, 0);
-      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 2 });
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 3 });
 
       const unsupported = await runCli(home, command, "--yaml");
       expectExitCode(unsupported, 1);
@@ -2024,7 +2031,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
-        schemaVersion: 2,
+        schemaVersion: 3,
       });
     }
 
@@ -2065,7 +2072,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly schemaVersion: number;
       };
       expect(payload).toMatchObject({
-        schemaVersion: 2,
+        schemaVersion: 3,
         command,
         outcome: "error",
       });
@@ -2085,14 +2092,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
-        schemaVersion: 2,
+        schemaVersion: 3,
       });
     }
     const firstApply = await runCli(pendingHome, "apply", "--json");
     expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "apply",
-      schemaVersion: 2,
+      schemaVersion: 3,
     });
     expect(["clean", "attention"]).toContain(
       (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
@@ -2223,9 +2230,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "apply");
 
     expectExitCode(result, 0);
-    expect(humanText(result.stdout)).toContain(humanText(`- ${changedProject}:`));
-    expect(humanText(result.stdout)).not.toContain(humanText(`Project: ${changedProject}`));
-    expect(humanText(result.stdout)).not.toContain(humanText(`Project: ${untouchedProject}`));
+    expect(humanText(result.stdout)).toContain("Applied: ~ 1 generated file update");
+    expect(humanText(result.stdout)).toContain(humanText(realpathSync(changedProject)));
+    expect(humanText(result.stdout)).not.toContain(humanText(realpathSync(untouchedProject)));
   });
 
   test("verbose apply labels pending and applied work separately", async () => {
@@ -5067,7 +5074,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(moduleRule);
     const repair = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(repair, 0);
-    expect(repair.stdout).toMatch(/repairable|missing output/i);
+    expect(repair.stdout).toContain("1 generated file repair");
     expectExitCode(await runCliWithPath(home, pathWithHosts, "apply"), 0);
     expect(existsSync(moduleRule)).toBe(true);
 
@@ -5249,7 +5256,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(join(antigravityProject, ".agents", "skills", "top-skill"), { recursive: true, force: true });
     const repairStatus = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(repairStatus, 0);
-    expect(repairStatus.stdout).toMatch(/repairable|missing output/i);
+    expect(repairStatus.stdout).toContain("1 generated file repair");
     expectExitCode(await runCliWithPath(home, pathWithHosts, "apply"), 0);
     expect(existsSync(join(antigravityProject, ".agents", "skills", "top-skill", "SKILL.md"))).toBe(true);
 

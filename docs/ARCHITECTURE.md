@@ -103,7 +103,7 @@ Commands separate binding authoring from global reconciliation:
   - `list hosts` renders the canonical supported-Host set and Temporary Profile Installation eligibility from capability constants without inspecting PATH, Host versions, configuration, or Project surfaces.
   - `list temporary` reads active Temporary Profile Installation records from Installation State, omits terminal removed identities and ordinary installations, and renders each temporary identity with its short Project path, Profile, and Host. It does not inspect Local Configuration, Workspace artifacts, Git, project output, or Host capabilities.
   - Each topic's `--json` view emits the same records with engine provenance; temporary JSON retains the canonical Project path and durable temporary installation identity. No inventory topic writes state.
-- `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states; `--json` emits the versioned machine payload described below, including ordered Capability Contracts and complete consuming-Host evidence for each desired generated path. Multi-Project concise views are impact-first: shared Workspace changes render once with generated-file counts and a deterministic affected-Project scope, Project Binding and Host-specific changes stay distinct, and member-level attention remains visible as Project exceptions.
+- `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states; `--json` emits the versioned machine payload described below, including ordered Capability Contracts and complete consuming-Host evidence for each desired generated path. Multi-Project concise views group observable output operations with deterministic affected-Project scope without inferring artifact or binding causality; member-level attention remains visible as Project exceptions.
 - `apply` reconciles every binding and, after its commits, performs a fresh
   reconciliation to report the verified resulting state. It separately emits
   an `Applied` section containing the pre-apply generated-output and Repository
@@ -120,35 +120,32 @@ JSON serializer in `cli/presentation.ts`: exit `0` means no tool error and no
 blockers (JSON `outcome` may still be `attention` for pending work), exit `1`
 is a tool error (`outcome: "error"` under `--json` when flags were accepted),
 and exit `2` means blockers are present. The lifecycle JSON contract is versioned
-(`schemaVersion: 2`), serializes every Blocker directly from its exhaustive
+(`schemaVersion: 3`), serializes every Blocker directly from its exhaustive
 structured record (`kind`, `scope`, Project identity when scoped, `message`,
 `problem`, `requirement`, `remedy`, and `affectedItems`) without parsing rendered
-prose, publishes the normalized typed lifecycle impacts alongside the existing
-flat installations, outputs, blockers, setup steps, warning, and exclusion
-evidence, and is not stability-guaranteed before 1.0. Blocked temporary-installation
+prose, and publishes flat installations, observable output operations, blockers,
+setup steps, warning, and exclusion evidence. It carries no separate lifecycle-
+impact collection and is not stability-guaranteed before 1.0. Blocked temporary-installation
 JSON advances to the same versioned structured blocker records. Temporary
 installation receipts use the same exit matrix (`0` / `1` / `2`) with their own
 versioned JSON schema and carry no blocker records.
 
-Human lifecycle presentation in `cli/presentation.ts` is scale-aware
-(DEC-022): a single-Project run keeps the recognizable Project-first detail,
-while an unblocked run whose typed impacts span more than one Project derives
-one grouped view from the same impact model — shared Workspace Skill/Context
-changes once under `Workspace changes`, distinct Project Binding, Adapter,
-repair, removal, and unclassified-path changes under `Project changes`, and
-per-Project attention that impacts do not carry under `Project exceptions`.
-Group lines carry generated-file totals and a progressive affected-Project
-scope: a complete short list, a count when every Project of the Profile/Host
-scope is affected, or a capped representative list with an explicit `--verbose`
-pointer to every Project. Profile and Host clauses render only where they
-disambiguate groups (Binding and Adapter groups always name their Hosts). The
-multi-Project apply receipt groups the same facts with preview-consistent
-symbols and counts. Concise summaries omit zero-value blocker and pending
+Human lifecycle presentation in `cli/presentation.ts` is scale-aware: a
+single-Project run keeps the recognizable Project-first detail, while an
+unblocked multi-Project run groups additions, updates, repairs, and removals
+directly from output operation records under `Project changes`. Group lines
+carry generated-file totals and a progressive affected-Project scope: a
+complete short list when small, a count when every Project is affected, or a
+capped representative list with an explicit `--verbose` pointer to every
+Project. The summary does not infer Workspace Artifact, Project Binding, or
+Adapter causality. Per-Project ownership attention remains visible under
+`Project exceptions`, and the multi-Project apply receipt groups the same
+observable operations with preview-consistent symbols and counts. Concise summaries omit zero-value blocker and pending
 clauses; identical next actions collapse once, while differing remedies stay
 scoped. Successful apply reports the receipt, remaining attention, Host
 guidance, and one grouped next-launch statement without reprinting verified-current
 Project blocks. No-op preview and apply state that everything is current once.
-Blockers stay prominent ahead of any impact detail, and `--verbose` plus the
+Blockers stay prominent ahead of operation detail, and `--verbose` plus the
 versioned JSON retain the complete per-Project and per-path evidence.
 
 `unbind` changes desired Project Binding state and, when an Installation
@@ -338,7 +335,7 @@ One machine-local Installation Manifest records each project's selected Profile,
 
 The recorded `engine_version` is installation provenance, not desired state. A newer CLI leaves an otherwise-current Profile Installation untouched; the provenance advances only when another real reconciliation change publishes a new Manifest.
 
-Reconciliation derives one typed lifecycle impact per project and proven cause by comparing current desired state against the prior receipt's provenance (`installer/impacts.ts`): Workspace artifact changes use canonical Artifact references and normalized fingerprints; Project Binding/Host, Adapter/capability, and metadata-only changes keep their own kinds; repairs and installation removals are distinguished; and any multi-source, ambiguous, or provenance-absent change preserves the complete proven source set or falls back to exact generated paths without guessing. Impacts are never inferred from generated path naming. `preview`, the apply receipt, and the post-commit resulting state all derive impacts through this same comparison, and the machine JSON publishes the normalized records under `impacts` while retaining the flat installations, outputs, blockers, setup steps, warnings, and exclusion evidence.
+Reconciliation publishes observable per-path output operations without deriving a second causal lifecycle model. Concise fleet presentation groups those operations and affected Projects directly; verbose and machine views retain the complete flat evidence. The apply receipt remains the pre-apply work record, while a fresh post-commit reconciliation remains authoritative for resulting state.
 
 New Manifests also retain the installation-time `git_project` classification. It distinguishes a deleted Git installation whose Repository Exclusion Record is missing from a non-Git installation without rediscovering ancestors or Git worktree topology; Repository Exclusion Records remain the sole source for exclusion targets and entries.
 

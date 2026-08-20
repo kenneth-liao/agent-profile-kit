@@ -32,11 +32,10 @@ Fleet-scale qualification (spec #193, ticket #205): the same 12-Project
 workload — one shared Profile across mixed Host sets, alternating Git and plain
 roots — is now an isolated, packed qualification fixture (`test/support/
 fleet-fixture.ts`) proven end to end for a shared Skill update plus a Host
-addition. The compact lifecycle is impact-first: a shared Workspace change
-renders once per change kind, Profile, and Host scope with generated-file and
-affected-Project counts, Project Binding and Host changes stay distinct,
-member-level attention stays visible as Project exceptions, and one collapsed
-next action closes the run. Comparable packed-CLI qualification used the same
+addition. The compact lifecycle groups observable additions, updates, repairs,
+and removals with generated-file and affected-Project counts, without inferring
+Workspace Artifact or Project Binding causality. Member-level attention stays
+visible as Project exceptions, and one collapsed next action closes the run. Comparable packed-CLI qualification used the same
 isolated 12-Project HOME, Workspace, Local Configuration, Project roots,
 controlled Host executables, and v0.63.0 Apply Receipt for both versions after
 one shared Skill update and one Pi Host addition. After one unmeasured warm-up per command, five runs on the same
@@ -191,34 +190,29 @@ Gaps: ~~[UJ-17](#uj-17)~~ (shipped in
 
 Leading with the outcome (`Ready to apply` / `Cannot apply`) and closing with one
 next action is the right shape, and it now survives scale. A multi-Project run
-derives one impact-first view instead of repeating the same Profile, Hosts,
-paths, and next action per Project: a shared Skill or Context change renders
-once per distinct Host scope with generated-file and affected-Project counts,
-Project Binding and Host additions stay in a distinct Project section,
-member-level attention that impacts do not carry stays visible as Project
-exceptions, and the run closes with one collapsed next action. A single-Project
-run keeps the recognizable Project-first detail. A qualified 12-Project
-preview of one shared Skill update plus one Host addition renders as:
+groups observable output operations instead of repeating the same Profile,
+Hosts, paths, and next action per Project. Additions, updates, repairs, and
+removals carry generated-file and affected-Project counts without inferred
+artifact causality; member-level ownership attention stays visible as Project
+exceptions. A single-Project run keeps the recognizable Project-first detail.
+A qualified 12-Project preview of one shared Skill update plus one Host addition
+renders the operation shape as:
 
 ```
 Ready to apply
 Projects: 12 · Changes: 2 generated file additions, 27 generated file updates
 
-Workspace changes:
-  ~ Skill review-pr · 4 files in 2 projects · Hosts claude, codex
-  ~ Skill review-pr · 12 files in 3 projects · Hosts claude, codex, grok, pi
-  …
-
 Project changes:
-  + Project Binding · 1 file in 1 project · Hosts claude, codex, pi
+  + 2 generated file additions in <project>
+  ~ 27 generated file updates in 12 projects
 
 Next:
 - Run apkit apply.
 ```
 
 Project lists use progressive disclosure: a complete short list when small, a
-count when every Project of the Profile/Host scope is affected, or a capped
-representative list with an explicit `--verbose` pointer to every Project.
+count when every Project is affected, or a capped representative list with an
+explicit `--verbose` pointer to every Project.
 Verbose retains the full per-Project and per-path evidence, and the versioned
 JSON stays flat.
 
@@ -275,7 +269,7 @@ Apply receipt:
 
 Separating verified resulting state from the Apply Receipt is architecturally
 correct (`CONTEXT.md`, *Apply Receipt*), and the receipt is now grouped and
-preview-consistent: `Applied:` lists the same impact groups with the same
+preview-consistent: `Applied:` lists the same operation groups with the same
 symbols and counts as the preceding preview, never reprints verified-current
 Project blocks, and is followed by change-relevant Host setup, one compact
 standing reminder, and grouped next-launch readiness (once per Host scope,
@@ -839,8 +833,9 @@ Shipped across the fleet-synchronization tickets
 invocation-scoped lifecycle resolves each shared Profile, Host capability, Git
 topology, and owned output once per command, independent Project reads run
 through one bounded scheduler, apply still verifies resulting state freshly,
-reconciliation publishes typed lifecycle impacts, and multi-Project reports
-lead with the shared change once per Host scope. Qualified in
+reconciliation publishes observable output operations, and multi-Project
+reports group each operation with its affected Projects without inferring
+artifact causality. Qualified in
 [#205](https://github.com/kenneth-liao/agent-profile-kit/issues/205) with the
 isolated 12-Project packed journey, structural operation budgets, recorded warm
 samples, and ADR-0017.

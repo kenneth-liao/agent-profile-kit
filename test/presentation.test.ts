@@ -89,7 +89,6 @@ function emptyReport(
 ): ReconciliationReport {
   return {
     blockers: [],
-    impacts: [],
     items: [],
     outputConsumers: [],
     outputs: [],
@@ -1180,7 +1179,7 @@ describe("formatLifecycleReport concise terminology", () => {
       "Blocker: Codex CLI is unavailable",
     );
     expect(JSON.parse(formatLifecycleJson("preview", structured))).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       blockers: [{
         affectedItems: [{ kind: "host", value: "codex" }],
         kind: "host-capability",
@@ -1411,8 +1410,9 @@ describe("formatLifecycleReport concise terminology", () => {
   test("keeps displayed identities distinct for projects with the same basename", () => {
     const first = join(homedir(), "team-a", "project");
     const second = join(homedir(), "team-b", "project");
+    const current = join(homedir(), "other-project");
     const report = emptyReport({
-      desired: [first, second].map((project) => ({
+      desired: [first, second, current].map((project) => ({
         canonicalProject: project,
         context: "composed",
         outputs: ["a.md"],
@@ -1420,18 +1420,25 @@ describe("formatLifecycleReport concise terminology", () => {
         project,
         resolvedArtifacts: [],
       })),
-      items: [first, second].map((project) => ({ kind: "addition" as const, project })),
-      outputs: [first, second].map((project) => ({
-        kind: "addition" as const,
-        path: "a.md",
-        project,
-      })),
+      items: [
+        ...[first, second].map((project) => ({ kind: "addition" as const, project })),
+        { kind: "current" as const, project: current },
+      ],
+      outputs: [
+        ...[first, second].map((project) => ({
+          kind: "addition" as const,
+          path: "a.md",
+          project,
+        })),
+        { kind: "unchanged" as const, path: "a.md", project: current },
+      ],
     });
 
     const concise = formatLifecycleReport("preview", report);
 
-    expect(concise).toContain("Project: ~/team-a/project\n");
-    expect(concise).toContain("Project: ~/team-b/project\n");
+    expect(concise).toContain(
+      "Project changes:\n  + 2 generated file additions in ~/team-a/project, ~/team-b/project",
+    );
   });
 
   test("keeps an outside-home project absolute", () => {
@@ -2168,7 +2175,7 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatApplyReport(applyResult(receipt, resultingState));
 
-    expect(concise).toContain("Applied:\n- /changed:\n  ~ changed.md");
+    expect(concise).toContain("Applied:\n  ~ 1 generated file update in /changed");
     expect(concise).not.toContain("Project: /changed");
     expect(concise).not.toContain("Project: /untouched");
   });
@@ -2674,7 +2681,7 @@ describe("Machine surface JSON and exit codes", () => {
     const payload = JSON.parse(formatLifecycleJson("preview", report)) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       command: "preview",
       outcome: "blocked",
       blockers: [{
@@ -2700,6 +2707,7 @@ describe("Machine surface JSON and exit codes", () => {
       { kind: "addition", path: ".codex/skills/demo", project: "/project-a" },
       { kind: "addition", path: "AGENTS.md", project: "/project-a" },
     ]);
+    expect(payload).not.toHaveProperty("impacts");
     expect(payload.setupSteps).toEqual([
       {
         host: "codex",
@@ -2798,7 +2806,7 @@ describe("Machine surface JSON and exit codes", () => {
     const payload = JSON.parse(formatApplyJson(applyResult(receipt, resultingState))) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       command: "apply",
       outcome: "clean",
       installations: [{
@@ -2824,6 +2832,8 @@ describe("Machine surface JSON and exit codes", () => {
         provenance: "transition",
       }],
     });
+    expect(payload).not.toHaveProperty("impacts");
+    expect(payload.applied).not.toHaveProperty("impacts");
     expect(lifecycleExitCode(resultingState)).toBe(0);
   });
 
@@ -2844,7 +2854,7 @@ describe("Machine surface JSON and exit codes", () => {
     const payload = JSON.parse(formatBlockedApplyJson(report)) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       command: "apply",
       outcome: "blocked",
       blockers: [{
@@ -2882,7 +2892,7 @@ describe("Machine surface JSON and exit codes", () => {
     ) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       command: "apply",
       outcome: "error",
       error: "post-apply verification failed: boom",
@@ -2965,7 +2975,7 @@ describe("Machine surface JSON and exit codes", () => {
         formatLifecycleToolErrorJson(command, "Local Configuration is missing"),
       ) as Record<string, unknown>;
       expect(payload).toMatchObject({
-        schemaVersion: 2,
+        schemaVersion: 3,
         command,
         outcome: "error",
         error: "Local Configuration is missing",
@@ -2973,6 +2983,7 @@ describe("Machine surface JSON and exit codes", () => {
         installations: [],
         outputs: [],
       });
+      expect(payload).not.toHaveProperty("impacts");
     }
   });
 
@@ -3199,11 +3210,10 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
   });
 });
 
-describe("impact-first multi-Project presentation", () => {
+describe("operation-first multi-Project presentation", () => {
   const SKILL_PATH = ".agents/skills/review-pr";
   const CONTEXT_PATH = ".agent-profile-kit/codex/context.md";
 
-  /** Three Projects bound to the same Profile and Host, all with one shared Skill update. */
   function sharedSkillFleet(overrides: Partial<ReconciliationReport> = {}): ReconciliationReport {
     const projects = ["/project-a", "/project-b", "/project-c"];
     return emptyReport({
@@ -3220,81 +3230,48 @@ describe("impact-first multi-Project presentation", () => {
         { kind: "update" as const, path: SKILL_PATH, project },
         { kind: "unchanged" as const, path: CONTEXT_PATH, project },
       ]),
-      impacts: projects.map((project) => ({
-        kind: "artifact" as const,
-        operation: "update" as const,
-        project,
-        profile: "coding",
-        hosts: ["codex"],
-        paths: [SKILL_PATH],
-        artifacts: [{ id: "review-pr", type: "skill" as const }],
-        reason: "Workspace artifact content changed",
-      })),
       ...overrides,
     });
   }
 
-  test("multi-Project preview renders each shared Workspace impact once with counts and scope", () => {
+  test("multi-Project preview groups observable operations without inferring artifact causality", () => {
     const concise = formatLifecycleReport("preview", sharedSkillFleet());
 
     expect(concise).toContain("Ready to apply\n");
-    expect(concise).toContain("Workspace changes:\n  ~ Skill review-pr · 3 files in 3 projects");
+    expect(concise).toContain("Project changes:\n  ~ 3 generated file updates in 3 projects");
+    expect(concise).not.toContain("Skill review-pr");
+    expect(concise).not.toContain("Workspace changes:");
     expect(concise).not.toContain("Project: /project-a");
     expect(concise).not.toContain("Project: /project-b");
     expect(concise).not.toContain("Project: /project-c");
     expectUserFacingVocabulary(concise);
   });
 
-  test("a shared change affecting every Project of its Profile scope uses a count, not a list", () => {
-    const concise = formatLifecycleReport("preview", sharedSkillFleet());
-
-    expect(concise).toContain("~ Skill review-pr · 3 files in 3 projects");
-    expect(concise).not.toContain("in /project-a");
-  });
-
-  test("a small affected-Project set renders a complete Project list", () => {
-    const projects = ["/project-a", "/project-b", "/project-c", "/project-d"];
-    const report = emptyReport({
-      desired: projects.map((project) => ({
-        canonicalProject: project,
-        context: "composed",
-        outputs: [SKILL_PATH],
-        profile: "coding",
-        project,
-        resolvedArtifacts: [],
-      })),
-      // Only the first two Projects changed; the other two are already current.
-      items: [
-        { kind: "update" as const, project: "/project-a" },
-        { kind: "update" as const, project: "/project-b" },
-        { kind: "current" as const, project: "/project-c" },
-        { kind: "current" as const, project: "/project-d" },
-      ],
+  test("fleet summaries group each observable operation with its affected Projects", () => {
+    const report = sharedSkillFleet({
       outputs: [
-        { kind: "update" as const, path: SKILL_PATH, project: "/project-a" },
-        { kind: "update" as const, path: SKILL_PATH, project: "/project-b" },
-        { kind: "unchanged" as const, path: SKILL_PATH, project: "/project-c" },
-        { kind: "unchanged" as const, path: SKILL_PATH, project: "/project-d" },
+        { kind: "addition", path: ".agents/skills/new-skill", project: "/project-a" },
+        { kind: "update", path: SKILL_PATH, project: "/project-a" },
+        { kind: "update", path: SKILL_PATH, project: "/project-b" },
+        { kind: "repair", path: CONTEXT_PATH, project: "/project-b" },
+        { kind: "removal", path: ".agents/skills/old-skill", project: "/project-c" },
       ],
-      impacts: ["/project-a", "/project-b"].map((project) => ({
-        kind: "artifact" as const,
-        operation: "update" as const,
-        project,
-        profile: "coding",
-        hosts: ["codex"],
-        paths: [SKILL_PATH],
-        artifacts: [{ id: "review-pr", type: "skill" as const }],
-        reason: "Workspace artifact content changed",
-      })),
     });
 
     const concise = formatLifecycleReport("preview", report);
 
-    expect(concise).toContain("Workspace changes:\n  ~ Skill review-pr · 2 files in /project-a, /project-b");
+    expect(concise).toContain(
+      "Project changes:\n" +
+        "  + 1 generated file addition in /project-a\n" +
+        "  ~ 2 generated file updates in /project-a, /project-b\n" +
+        "  ~ 1 generated file repair in /project-b\n" +
+        "  - 1 generated file removal in /project-c",
+    );
   });
 
-  test("a large affected-Project set is capped and points to --verbose", () => {
+  test("large affected-Project sets are capped with a verbose pointer", () => {
     const projects = Array.from({ length: 8 }, (_, index) => `/project-${String.fromCharCode(97 + index)}`);
+    const changed = projects.slice(0, 5);
     const report = emptyReport({
       desired: projects.map((project) => ({
         canonicalProject: project,
@@ -3305,163 +3282,22 @@ describe("impact-first multi-Project presentation", () => {
         resolvedArtifacts: [],
       })),
       items: projects.map((project) => ({
-        kind: project === "/project-a" || project === "/project-b" || project === "/project-c" || project === "/project-d" || project === "/project-e"
-          ? ("update" as const)
-          : ("current" as const),
+        kind: changed.includes(project) ? ("update" as const) : ("current" as const),
         project,
       })),
       outputs: projects.map((project) => ({
-        kind: project === "/project-a" || project === "/project-b" || project === "/project-c" || project === "/project-d" || project === "/project-e"
-          ? ("update" as const)
-          : ("unchanged" as const),
+        kind: changed.includes(project) ? ("update" as const) : ("unchanged" as const),
         path: SKILL_PATH,
         project,
       })),
-      impacts: ["/project-a", "/project-b", "/project-c", "/project-d", "/project-e"].map((project) => ({
-        kind: "artifact" as const,
-        operation: "update" as const,
-        project,
-        profile: "coding",
-        hosts: ["codex"],
-        paths: [SKILL_PATH],
-        artifacts: [{ id: "review-pr", type: "skill" as const }],
-        reason: "Workspace artifact content changed",
-      })),
     });
 
-    const concise = formatLifecycleReport("preview", report);
-
-    expect(concise).toContain(
-      "Workspace changes:\n  ~ Skill review-pr · 5 files in /project-a, /project-b, /project-c, /project-d, … 1 more Project; use --verbose to see all Projects",
+    expect(formatLifecycleReport("preview", report)).toContain(
+      "~ 5 generated file updates in /project-a, /project-b, /project-c, /project-d, … 1 more Project; use --verbose to see all Projects",
     );
   });
 
-  test("Project Binding and Host-specific impacts stay separately attributable", () => {
-    const report = emptyReport({
-      desired: ["/project-a", "/project-b", "/project-c"].map((project) => ({
-        canonicalProject: project,
-        context: "composed",
-        outputs: [SKILL_PATH, CONTEXT_PATH],
-        profile: "coding",
-        project,
-        resolvedArtifacts: [],
-        ...(project === "/project-c" ? { hosts: ["codex", "pi"] } : {}),
-      })),
-      items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
-        kind: "update" as const,
-        project,
-      })),
-      outputs: ["/project-a", "/project-b", "/project-c"].flatMap((project) => [
-        { kind: "update" as const, path: SKILL_PATH, project },
-        ...(project === "/project-c"
-          ? [{ kind: "update" as const, path: CONTEXT_PATH, project }]
-          : []),
-      ]),
-      impacts: [
-        ...["/project-a", "/project-b"].map((project) => ({
-          kind: "artifact" as const,
-          operation: "update" as const,
-          project,
-          profile: "coding",
-          hosts: ["codex"],
-          paths: [SKILL_PATH],
-          artifacts: [{ id: "review-pr", type: "skill" as const }],
-          reason: "Workspace artifact content changed",
-        })),
-        {
-          kind: "binding" as const,
-          operation: "update" as const,
-          project: "/project-c",
-          profile: "coding",
-          hosts: ["codex", "pi"],
-          paths: [CONTEXT_PATH],
-          reason: "Project Binding or Host selection changed generated output",
-        },
-      ],
-    });
-
-    const concise = formatLifecycleReport("preview", report);
-
-    expect(concise).toContain("Workspace changes:\n  ~ Skill review-pr · 2 files in 2 projects");
-    expect(concise).toContain("Project changes:\n  ~ Project Binding · 1 file in 1 project · Hosts codex, pi");
-  });
-
-  test("mixed-Profile fleets include the Profile clause where it disambiguates", () => {
-    const report = emptyReport({
-      desired: ["/project-a", "/project-b"].map((project) => ({
-        canonicalProject: project,
-        context: "composed",
-        outputs: [SKILL_PATH],
-        profile: project === "/project-a" ? "coding" : "design",
-        project,
-        resolvedArtifacts: [],
-      })),
-      items: ["/project-a", "/project-b"].map((project) => ({
-        kind: "update" as const,
-        project,
-      })),
-      outputs: ["/project-a", "/project-b"].map((project) => ({
-        kind: "update" as const,
-        path: SKILL_PATH,
-        project,
-      })),
-      impacts: ["/project-a", "/project-b"].map((project) => ({
-        kind: "artifact" as const,
-        operation: "update" as const,
-        project,
-        profile: project === "/project-a" ? "coding" : "design",
-        hosts: ["codex"],
-        paths: [SKILL_PATH],
-        artifacts: [{ id: "review-pr", type: "skill" as const }],
-        reason: "Workspace artifact content changed",
-      })),
-    });
-
-    const concise = formatLifecycleReport("preview", report);
-
-    expect(concise).toContain("~ Skill review-pr · 1 file in 1 project · Profile coding");
-    expect(concise).toContain("~ Skill review-pr · 1 file in 1 project · Profile design");
-  });
-
-  test("correlated Profile and Host variation emits both disambiguation clauses", () => {
-    const report = emptyReport({
-      desired: ["/project-a", "/project-b"].map((project) => ({
-        canonicalProject: project,
-        context: "composed",
-        outputs: [SKILL_PATH],
-        profile: project === "/project-a" ? "coding" : "design",
-        project,
-        resolvedArtifacts: [],
-        ...(project === "/project-a" ? {} : { hosts: ["pi"] }),
-      })),
-      items: ["/project-a", "/project-b"].map((project) => ({
-        kind: "update" as const,
-        project,
-      })),
-      outputs: ["/project-a", "/project-b"].map((project) => ({
-        kind: "update" as const,
-        path: SKILL_PATH,
-        project,
-      })),
-      impacts: ["/project-a", "/project-b"].map((project) => ({
-        kind: "artifact" as const,
-        operation: "update" as const,
-        project,
-        profile: project === "/project-a" ? "coding" : "design",
-        hosts: project === "/project-a" ? ["codex"] : ["pi"],
-        paths: [SKILL_PATH],
-        artifacts: [{ id: "review-pr", type: "skill" as const }],
-        reason: "Workspace artifact content changed",
-      })),
-    });
-
-    const concise = formatLifecycleReport("preview", report);
-
-    expect(concise).toContain("~ Skill review-pr · 1 file in 1 project · Profile coding · Hosts codex");
-    expect(concise).toContain("~ Skill review-pr · 1 file in 1 project · Profile design · Hosts pi");
-  });
-
-  test("single-Project runs remain Project-first and never group", () => {
+  test("single-Project runs remain Project-first", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -3473,26 +3309,15 @@ describe("impact-first multi-Project presentation", () => {
       }],
       items: [{ kind: "update", project: "/project-a" }],
       outputs: [{ kind: "update", path: SKILL_PATH, project: "/project-a" }],
-      impacts: [{
-        kind: "artifact",
-        operation: "update",
-        project: "/project-a",
-        profile: "coding",
-        hosts: ["codex"],
-        paths: [SKILL_PATH],
-        artifacts: [{ id: "review-pr", type: "skill" as const }],
-        reason: "Workspace artifact content changed",
-      }],
     });
 
     const concise = formatLifecycleReport("preview", report);
 
     expect(concise).toContain("Project: /project-a\n  Profile: coding\n  Hosts: codex");
-    expect(concise).not.toContain("Workspace changes:");
     expect(concise).not.toContain("Project changes:");
   });
 
-  test("blocked multi-Project runs keep blockers first and never group impact detail", () => {
+  test("blocked fleets keep structured blockers ahead of operation detail", () => {
     const report = sharedSkillFleet({
       items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
         kind: "blocked" as const,
@@ -3508,37 +3333,10 @@ describe("impact-first multi-Project presentation", () => {
 
     expect(concise.startsWith("Cannot apply\n")).toBe(true);
     expect(concise).toContain("Blocker:");
-    expect(concise).not.toContain("Workspace changes:");
     expect(concise).not.toContain("Project changes:");
   });
 
-  test("all-current multi-Project status stays current without grouping", () => {
-    const report = emptyReport({
-      desired: ["/project-a", "/project-b", "/project-c"].map((project) => ({
-        canonicalProject: project,
-        context: "composed",
-        outputs: [SKILL_PATH],
-        profile: "coding",
-        project,
-        resolvedArtifacts: [],
-      })),
-      items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
-        kind: "current" as const,
-        project,
-      })),
-      outputs: ["/project-a", "/project-b", "/project-c"].map((project) => ({
-        kind: "unchanged" as const,
-        path: SKILL_PATH,
-        project,
-      })),
-    });
-
-    const status = formatLifecycleReport("status", report);
-
-    expect(status).toBe("All Projects are current (3 Projects)\n");
-  });
-
-  test("multi-Project apply renders the shared receipt once with consistent symbols and counts", () => {
+  test("apply summarizes applied operations separately from freshly verified state", () => {
     const receipt = sharedSkillFleet();
     const resultingState = emptyReport({
       desired: receipt.desired,
@@ -3555,15 +3353,12 @@ describe("impact-first multi-Project presentation", () => {
 
     const apply = formatApplyReport({ receipt, resultingState });
 
-    expect(apply).toContain("Applied:\n  ~ Skill review-pr · 3 files in 3 projects");
-    expect(apply).not.toContain("Project: /project-a");
-    // The same group text must appear in the preview and the applied receipt.
-    expect(formatLifecycleReport("preview", receipt)).toContain(
-      "~ Skill review-pr · 3 files in 3 projects",
-    );
+    expect(apply).toContain("Applied:\n  ~ 3 generated file updates in 3 projects");
+    expect(apply).not.toContain("State: current");
+    expect(apply).not.toContain("Skill review-pr");
   });
 
-  test("member-level attention that impacts do not carry stays visible as Project exceptions", () => {
+  test("member-level ownership attention remains visible as a Project exception", () => {
     const report = sharedSkillFleet({
       outputs: [
         ...sharedSkillFleet().outputs,
@@ -3575,110 +3370,17 @@ describe("impact-first multi-Project presentation", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("preview", report);
-
-    expect(concise).toContain("Project exceptions:\n  /project-a:\n    ! .agents/skills/review-pr/SKILL.md (drifted member)");
+    expect(formatLifecycleReport("preview", report)).toContain(
+      "Project exceptions:\n  /project-a:\n    ! .agents/skills/review-pr/SKILL.md (drifted member)",
+    );
   });
 
-  test("stale-source items already explained by an impact do not repeat as exceptions", () => {
-    const report = sharedSkillFleet({
-      items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
-        kind: "stale source" as const,
-        project,
-      })),
-    });
-
-    const concise = formatLifecycleReport("preview", report);
-
-    expect(concise).toContain("Workspace changes:\n  ~ Skill review-pr · 3 files in 3 projects");
-    expect(concise).not.toContain("Project exceptions:");
-    expect(concise).not.toContain("stale source");
-  });
-
-  test("stale-source Projects without any impact surface as Project exceptions", () => {
-    const report = sharedSkillFleet({
-      items: [
-        ...["/project-a", "/project-b"].map((project) => ({
-          kind: "stale source" as const,
-          project,
-        })),
-        { kind: "stale source" as const, project: "/project-c" },
-      ],
-      impacts: ["/project-a", "/project-b"].map((project) => ({
-        kind: "artifact" as const,
-        operation: "update" as const,
-        project,
-        profile: "coding",
-        hosts: ["codex"],
-        paths: [SKILL_PATH],
-        artifacts: [{ id: "review-pr", type: "skill" as const }],
-        reason: "Workspace artifact content changed",
-      })),
-    });
-
-    const concise = formatLifecycleReport("preview", report);
-
-    expect(concise).toContain("Project exceptions:\n  /project-c:\n    State: stale source");
-    expect(concise.match(/State: stale source/g)).toHaveLength(1);
-  });
-
-  test("verbose retains the full Project and path evidence alongside grouping", () => {
+  test("verbose retains complete per-Project operation evidence", () => {
     const verbose = formatLifecycleReport("preview", sharedSkillFleet(), { verbose: true });
 
     expect(verbose).toContain("/project-a/.agents/skills/review-pr: update");
     expect(verbose).toContain("/project-b/.agents/skills/review-pr: update");
     expect(verbose).toContain("/project-c/.agents/skills/review-pr: update");
-  });
-
-  test("impact groups render in deterministic kind, operation, and source order", () => {
-    const projects = ["/project-a", "/project-b"];
-    const report = emptyReport({
-      desired: projects.map((project) => ({
-        canonicalProject: project,
-        context: "composed",
-        outputs: [SKILL_PATH, CONTEXT_PATH],
-        profile: "coding",
-        project,
-        resolvedArtifacts: [],
-      })),
-      items: projects.map((project) => ({ kind: "update" as const, project })),
-      outputs: projects.flatMap((project) => [
-        { kind: "update" as const, path: SKILL_PATH, project },
-        { kind: "update" as const, path: CONTEXT_PATH, project },
-      ]),
-      impacts: projects.flatMap((project) => [
-        {
-          kind: "artifact" as const,
-          operation: "update" as const,
-          project,
-          profile: "coding",
-          hosts: ["codex"],
-          paths: [CONTEXT_PATH],
-          artifacts: [{ id: "team-rules", type: "context" as const }],
-          reason: "Workspace artifact content changed",
-        },
-        {
-          kind: "artifact" as const,
-          operation: "update" as const,
-          project,
-          profile: "coding",
-          hosts: ["codex"],
-          paths: [SKILL_PATH],
-          artifacts: [{ id: "review-pr", type: "skill" as const }],
-          reason: "Workspace artifact content changed",
-        },
-      ]),
-    });
-
-    const concise = formatLifecycleReport("preview", report);
-
-    const workspaceIndex = concise.indexOf("Workspace changes:");
-    const skillIndex = concise.indexOf("~ Skill review-pr");
-    const contextIndex = concise.indexOf("~ Context team-rules");
-    expect(workspaceIndex).toBeGreaterThanOrEqual(0);
-    // artifactReferenceKey sorts "context:team-rules" before "skill:review-pr".
-    expect(contextIndex).toBeGreaterThan(workspaceIndex);
-    expect(skillIndex).toBeGreaterThan(contextIndex);
   });
 });
 
@@ -4068,7 +3770,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(payload).toMatchObject({
       command: "preview",
       outcome: "attention",
-      schemaVersion: 2,
+      schemaVersion: 3,
     });
     expect(lifecycleExitCode(report)).toBe(0);
     expect(lifecycleExitCode(emptyReport({

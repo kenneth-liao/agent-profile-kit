@@ -42,6 +42,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Replace typed lifecycle impacts and artifact-causal fleet presentation with summaries derived directly from observable additions, updates, repairs, removals, blockers, and affected Projects. Lifecycle JSON advances to schema version 3 and removes the `impacts` collection while keeping applied work distinct from freshly verified resulting state. This is a pre-1.0 breaking change ([#240](https://github.com/kenneth-liao/agent-profile-kit/issues/240)).
+
 - Remove the unsupported `agents`, `hooks`, and `tools` Profile fields. Profiles now contain exactly `id`, `context`, and `skills`; validation tells existing Workspace authors to remove obsolete empty placeholders. This is a pre-1.0 breaking change ([#239](https://github.com/kenneth-liao/agent-profile-kit/issues/239)).
 
 - Migrate Pi Skills from `.pi/skills/<Artifact ID>/` to the qualified shared `.agents/skills/<Artifact ID>/` projection, coalescing Codex and Pi packages with complete consuming-Host evidence and ownership-safe migration. This is a pre-1.0 breaking change; retain a state backup before the first apply, then use the documented 0.81.0 uninstall → state restore → 0.80.x apply rollback procedure if needed ([#229](https://github.com/kenneth-liao/agent-profile-kit/issues/229)).
