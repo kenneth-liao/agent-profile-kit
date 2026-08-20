@@ -207,12 +207,9 @@ export async function hashWorkspaceInputs(
       JSON.stringify({
         resolved_artifacts: resolvedArtifacts,
         profile: {
-          agents: profile.agents,
           context: profile.context,
-          hooks: profile.hooks,
           id: profile.id,
           skills: profile.skills,
-          tools: profile.tools,
         },
         workspace_schema_version: WORKSPACE_SCHEMA_VERSION,
       }),

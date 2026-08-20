@@ -61,12 +61,9 @@ function rootReferences(profile: Profile): readonly ArtifactReference[] {
 
 function validationProfile(reference: ArtifactReference): Profile {
   return {
-    agents: [],
     context: reference.type === "context" ? [reference.id] : [],
-    hooks: [],
     id: "dependency-validation",
     skills: reference.type === "skill" ? [reference.id] : [],
-    tools: [],
   };
 }
 

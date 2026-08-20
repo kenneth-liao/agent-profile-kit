@@ -327,7 +327,7 @@ describe("Skill model-invocation policy", () => {
     writeFileSync(join(skillRoot, "SKILL.md"), DISABLED_BODY);
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [to-spec]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [to-spec]\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -488,7 +488,7 @@ describe("Skill model-invocation policy", () => {
     writeFileSync(join(workspace, "skills", "to-spec", "SKILL.md"), DISABLED_BODY);
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [to-spec]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [to-spec]\n",
     );
     writeFileSync(
       join(application, "config.yaml"),

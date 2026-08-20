@@ -190,9 +190,9 @@ after project-surface capability checks; Pi resolves other Skills, extensions,
 and packages through its native Host behavior.
 Disabled model-invocation Skills are projected with the shared
 `disable-model-invocation: true` field while explicit `/skill:<Artifact ID>`
-activation remains available. Profiles that select Agents, Hooks, or Tools are
-rejected. A Profile must select at least one supported artifact overall
-(Context Module,
+activation remains available. Profiles contain only `id`, `context`, and
+`skills`; Agents, Hooks, and Tools are not delivered by this release. A Profile
+must select at least one supported artifact overall (Context Module,
 Skill, or both); no individual category is mandatory. Context-only, Skills-only,
 and combined Profiles are valid.
 
@@ -264,15 +264,22 @@ Skill's Agent Profile Kit sidecar. Each reference contains `type` (`context` or
 resolved reason is retained in preview and the machine-local Installation
 Manifest.
 
-A Profile is a YAML file under `profiles/` with an `id` and explicit `context`,
-`skills`, `agents`, `hooks`, and `tools` arrays. In this release `agents`,
-`hooks`, and `tools` must be empty. At least one of `context` or `skills` must
-be non-empty. A Skills-only Profile installs only selected Skill packages for Hosts that
+A Profile is a YAML file under `profiles/` with exactly an `id`, a `context`
+array, and a `skills` array. At least one of `context` or `skills` must be
+non-empty. A Skills-only Profile installs only selected Skill packages for Hosts that
 support them and Installer lifecycle metadata—no Context snapshot, Codex
 SessionStart hooks, or Claude Context rule. Antigravity Skills-only bindings
 check only the shared `.agents` and `.agents/skills` surfaces. Host capability
 preflight follows the selected categories (Skills-only does not require Context
 machinery). Profiles do not inherit, use wildcards, or carry Host settings.
+
+### Remove obsolete Profile placeholders
+
+Agent Profile Kit 0.84.0 removes the former empty `agents`, `hooks`, and `tools`
+Profile placeholders. Before using 0.84.0 or later, remove those three fields
+from every existing Profile. `apkit validate` rejects any remaining placeholder
+and names the fields to remove. This pre-1.0 schema change does not add delivery
+for Agents, Hooks, or Tools, and older Profiles receive no compatibility shim.
 
 ### CLI compatibility for Skills-only Profiles
 
@@ -320,9 +327,6 @@ context:
   - engineering-rules
 skills:
   - review-pr
-agents: []
-hooks: []
-tools: []
 ```
 
 ```md

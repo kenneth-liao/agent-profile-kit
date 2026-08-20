@@ -70,7 +70,7 @@ function writeProfile(
 ): void {
   writeFileSync(
     join(workspace, "profiles", `${id}.yaml`),
-    `id: ${id}\ncontext: [${context.join(", ")}]\nskills: [${skills.join(", ")}]\nagents: []\nhooks: []\ntools: []\n`,
+    `id: ${id}\ncontext: [${context.join(", ")}]\nskills: [${skills.join(", ")}]\n`,
   );
 }
 

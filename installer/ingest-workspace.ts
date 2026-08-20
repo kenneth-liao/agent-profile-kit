@@ -132,17 +132,6 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
 
   validateDependencyCatalog(contexts, skills);
   for (const profile of profiles.values()) {
-    for (const [name, selection] of [
-      ["agents", profile.agents],
-      ["hooks", profile.hooks],
-      ["tools", profile.tools],
-    ] as const) {
-      if (selection.length > 0) {
-        throw new Error(
-          `Profile '${profile.id}' selects ${name}, which this release does not support`,
-        );
-      }
-    }
     // At least one currently supported artifact category must be selected. No single
     // category (including Context) is mandatory; empty Profiles fail at ingestion.
     if (profile.context.length === 0 && profile.skills.length === 0) {

@@ -122,7 +122,7 @@ async function contextInstallation(
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    "id: coding\ncontext: [team-rules]\nskills: []\n",
   );
   writeFileSync(
     join(application, "config.yaml"),

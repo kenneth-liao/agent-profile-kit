@@ -17,10 +17,11 @@ Antigravity, Codex, and Pi consume one qualified shared package under
 `.agents/skills/<Artifact ID>/`, alongside Host-native resolution and
 user-managed Skills. Disabled model-invocation Skills receive the shared
 Host-policy projection while remaining explicitly activatable by Artifact ID.
-A Profile needs at least one supported artifact
-(Context, Skills, or both); Context is not mandatory. Profiles selecting
-Agents, Hooks, or Tools are rejected until those artifact categories have native
-project delivery.
+A Profile contains only `id`, `context`, and `skills` and needs at least one
+supported artifact (Context, Skills, or both); Context is not mandatory. Agents,
+Hooks, and Tools are not delivered. Before using 0.84.0 or later, existing
+Workspace authors must remove obsolete empty `agents`, `hooks`, and `tools`
+placeholders; run `apkit guide --full` for migration guidance.
 
 ## Quick start
 

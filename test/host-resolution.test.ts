@@ -43,7 +43,7 @@ async function workspaceWithSkill(
   writeSkill(join(workspace, "skills"), "review-pr");
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    "id: coding\ncontext: []\nskills: [review-pr]\n",
   );
   writeFileSync(
     join(application, "config.yaml"),

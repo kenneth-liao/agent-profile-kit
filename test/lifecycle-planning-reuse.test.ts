@@ -98,7 +98,7 @@ async function multiProjectWorkspace(options: {
   writeSkill(workspace, "review-pr", "# Review a pull request.\n");
   writeFileSync(
     join(workspace, "profiles", "engineering.yaml"),
-    "id: engineering\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+    "id: engineering\ncontext: [team-rules]\nskills: [review-pr]\n",
   );
   if ((options.profileCount ?? 1) > 1) {
     writeFileSync(
@@ -107,7 +107,7 @@ async function multiProjectWorkspace(options: {
     );
     writeFileSync(
       join(workspace, "profiles", "operations.yaml"),
-      "id: operations\ncontext: [ops-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: operations\ncontext: [ops-rules]\nskills: [review-pr]\n",
     );
   }
   const projects: string[] = [];
@@ -192,7 +192,7 @@ describe("lifecycle planning reuse within one invocation", () => {
     writeSkill(workspace, "review-pr");
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: engineering\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
 
     // Git root with a nested bound Project changes Codex's relative context path.
@@ -307,7 +307,7 @@ describe("lifecycle planning reuse within one invocation", () => {
     chmodSync(join(skillRoot, "scripts", "run.sh"), 0o755);
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: engineering\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
