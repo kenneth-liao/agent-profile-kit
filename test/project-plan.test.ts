@@ -7,6 +7,7 @@ import type {
 import type { SupportedHost } from "../schemas/local-configuration.js";
 import {
   hashDirectoryMembers,
+  hashDirectoryMembersFromFiles,
   normalizeAdapterPlans,
 } from "../installer/project-plan.js";
 import { requireProfile } from "../installer/profile-selection.js";
@@ -74,6 +75,32 @@ function plan(
     setupSteps: [],
   };
 }
+
+describe("directory aggregate hashing", () => {
+  test("reads one file at a time in deterministic path order", async () => {
+    const bytes = new Map([
+      ["z.txt", "z\n"],
+      ["a.txt", "a\n"],
+    ]);
+    const members = [
+      { mode: 0o644, path: "z.txt", type: "file" as const },
+      { mode: 0o755, path: "empty", type: "directory" as const },
+      { mode: 0o644, path: "a.txt", type: "file" as const },
+    ];
+    const reads: string[] = [];
+
+    const streamed = await hashDirectoryMembersFromFiles(members, async (member) => {
+      reads.push(member.path);
+      return bytes.get(member.path)!;
+    });
+    const complete = hashDirectoryMembers(members.map((member) =>
+      member.type === "file" ? { ...member, bytes: bytes.get(member.path)! } : member
+    ));
+
+    expect(streamed).toBe(complete);
+    expect(reads).toEqual(["a.txt", "z.txt"]);
+  });
+});
 
 describe("Adapter output-plan normalization", () => {
   test("coalesces exactly identical shared output and retains every consuming Host", () => {

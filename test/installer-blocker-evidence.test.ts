@@ -136,7 +136,7 @@ describe("structured Installer blocker evidence", () => {
       readonly blockers: readonly Record<string, unknown>[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(3);
+    expect(machine.schemaVersion).toBe(4);
     expect(machine.blockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",

@@ -42,6 +42,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Prove generated-directory ownership through one deterministic aggregate-root hash and report drift only at that generated root, while preserving fail-closed detection and complete-root repair rules. Member-level directory change items are removed from lifecycle reports and presentation, and lifecycle JSON advances to schema version 4 for the changed output-kind contract. This is a pre-1.0 breaking change ([#241](https://github.com/kenneth-liao/agent-profile-kit/issues/241)).
+
 - Replace typed lifecycle impacts and artifact-causal fleet presentation with summaries derived directly from observable additions, updates, repairs, removals, blockers, and affected Projects. Lifecycle JSON advances to schema version 3 and removes the `impacts` collection while keeping applied work distinct from freshly verified resulting state. This is a pre-1.0 breaking change ([#240](https://github.com/kenneth-liao/agent-profile-kit/issues/240)).
 
 - Remove the unsupported `agents`, `hooks`, and `tools` Profile fields. Profiles now contain exactly `id`, `context`, and `skills`; validation tells existing Workspace authors to remove obsolete empty placeholders. This is a pre-1.0 breaking change ([#239](https://github.com/kenneth-liao/agent-profile-kit/issues/239)).

@@ -9,7 +9,7 @@ import {
   type OwnedFileOutput,
   type OwnedOutput,
 } from "../schemas/installation-manifest.js";
-import { hashBytes, markerPath } from "./project-plan.js";
+import { hashBytes, hashDirectoryMembersFromFiles, markerPath } from "./project-plan.js";
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
@@ -27,11 +27,9 @@ export interface LifecycleOwnershipInspectionInstrumentation {
 }
 
 /**
- * One normalized inspection of one owned file or directory. Directory outputs
- * always carry their member-level classification; file outputs leave the member
- * lists empty. Ownership proof, conflict detection, member diagnostics, and
- * report construction consume this same result rather than reading the output
- * again.
+ * One normalized inspection of one owned file or generated directory root.
+ * Directory output proof carries one aggregate root hash and never reconstructs
+ * member-level ownership evidence. Every consumer shares this result.
  */
 export interface OwnedOutputInspection {
   /**
@@ -44,12 +42,10 @@ export interface OwnedOutputInspection {
   readonly content?: string;
   /** Deterministic hash of `content` when the output root is a regular file. */
   readonly contentHash?: string;
+  /** Deterministic aggregate hash when the output root is a readable safe directory. */
+  readonly directoryHash?: string;
   /** Root mode when the output root is a regular file or directory. */
   readonly mode?: number;
-  readonly driftedMembers: readonly string[];
-  readonly missingMembers: readonly string[];
-  readonly modeDriftedMembers: readonly string[];
-  readonly unexpectedMembers: readonly string[];
 }
 
 /** One normalized Installation Marker evidence snapshot for one project root. */
@@ -68,7 +64,7 @@ export interface MarkerInspection {
 /**
  * One invocation-scoped reader for ordinary owned outputs, Installation Marker
  * evidence, and unsafe-parent evidence. Each owned output is read or walked at
- * most once per reconciliation pass; every consumer shares the same result.
+ * most once per reconciliation pass; every consumer shares the same root result.
  * Discarded when the lifecycle command exits; never persisted or shared across
  * commands.
  */
@@ -78,13 +74,22 @@ export interface LifecycleOwnershipInspection {
   unsafeParent(project: string, relativePath: string): Promise<string | undefined>;
 }
 
-const EMPTY_MEMBERS: readonly string[] = [];
-
 /** One on-disk entry recorded by a directory walk. */
-export interface DirectoryEntry {
-  readonly kind: "directory" | "file" | "other";
-  readonly path: string;
-}
+export type DirectoryEntry =
+  | {
+      readonly mode: number;
+      readonly path: string;
+      readonly type: "file";
+    }
+  | {
+      readonly mode: number;
+      readonly path: string;
+      readonly type: "directory";
+    }
+  | {
+      readonly path: string;
+      readonly type: "other";
+    };
 
 /** The recursive walker used to enumerate one owned directory tree. */
 export type DirectoryWalker = (
@@ -92,42 +97,31 @@ export type DirectoryWalker = (
   prefix?: string,
 ) => Promise<readonly DirectoryEntry[]>;
 
-function emptyMemberLists(): Pick<
-  OwnedOutputInspection,
-  "driftedMembers" | "missingMembers" | "modeDriftedMembers" | "unexpectedMembers"
-> {
-  return {
-    driftedMembers: EMPTY_MEMBERS,
-    missingMembers: EMPTY_MEMBERS,
-    modeDriftedMembers: EMPTY_MEMBERS,
-    unexpectedMembers: EMPTY_MEMBERS,
-  };
-}
-
 async function listRelativeEntries(
   root: string,
   prefix = "",
 ): Promise<readonly DirectoryEntry[]> {
   const entries = await readdir(root, { withFileTypes: true });
-  const result: { kind: "directory" | "file" | "other"; path: string }[] = [];
+  const result: DirectoryEntry[] = [];
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     const relativePath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
     const absolute = join(root, entry.name);
     const stats = await lstat(absolute);
     if (stats.isSymbolicLink()) {
-      result.push({ kind: "other", path: relativePath });
+      result.push({ path: relativePath, type: "other" });
       continue;
     }
-    if (entry.isDirectory()) {
-      result.push({ kind: "directory", path: relativePath });
+    const mode = stats.mode & 0o7777;
+    if (stats.isDirectory()) {
+      result.push({ mode, path: relativePath, type: "directory" });
       result.push(...await listRelativeEntries(absolute, relativePath));
       continue;
     }
-    if (entry.isFile()) {
-      result.push({ kind: "file", path: relativePath });
+    if (stats.isFile()) {
+      result.push({ mode, path: relativePath, type: "file" });
       continue;
     }
-    result.push({ kind: "other", path: relativePath });
+    result.push({ path: relativePath, type: "other" });
   }
   return result;
 }
@@ -138,87 +132,34 @@ async function inspectDirectoryOutput(
   walk: DirectoryWalker,
 ): Promise<OwnedOutputInspection> {
   const root = join(project, output.path);
-  const missingMembers: string[] = [];
-  const driftedMembers: string[] = [];
-  const modeDriftedMembers: string[] = [];
-  const expected = new Map(output.members.map((member) => [member.path, member]));
-  let onDisk: readonly DirectoryEntry[] = [];
-  // Root presence check: only a proven-absent root (lstat ENOENT) is
-  // repairable. Any other root failure is an explicit non-repairable
-  // inspection failure so an extant output can never enter the repair path.
+  let mode: number;
+  // Only a proven-absent root (lstat ENOENT) is repairable. Every other root or
+  // traversal failure is non-repairable so extant output cannot enter repair.
   try {
     const stats = await lstat(root);
-    if (stats.isSymbolicLink() || !stats.isDirectory()) {
-      return {
-        ...emptyMemberLists(),
-        kind: "other",
-        missingMembers: output.members.map((member) => `${output.path}/${member.path}`),
-      };
-    }
-    if ((stats.mode & 0o7777) !== output.mode) {
-      modeDriftedMembers.push(output.path);
-    }
+    if (stats.isSymbolicLink() || !stats.isDirectory()) return { kind: "other" };
+    mode = stats.mode & 0o7777;
   } catch (error) {
-    const labels = output.members.map((member) => `${output.path}/${member.path}`);
-    return {
-      ...emptyMemberLists(),
-      kind: hasErrorCode(error, "ENOENT") ? "missing" : "unreadable",
-      missingMembers: [output.path, ...labels],
-    };
+    return { kind: hasErrorCode(error, "ENOENT") ? "missing" : "unreadable" };
   }
-  // Traversal of an extant root: any failure, including a child disappearing
-  // between readdir and lstat (a traversal-level ENOENT), is non-repairable.
-  // Only the root presence check above may classify the output as missing.
+
   try {
-    onDisk = await walk(root);
-  } catch {
-    const labels = output.members.map((member) => `${output.path}/${member.path}`);
+    const entries = await walk(root);
+    if (entries.some((entry) => entry.type === "other")) return { kind: "other", mode };
+    const supported = entries.filter(
+      (entry): entry is Exclude<DirectoryEntry, { readonly type: "other" }> => entry.type !== "other",
+    );
     return {
-      ...emptyMemberLists(),
-      kind: "unreadable",
-      missingMembers: [output.path, ...labels],
+      directoryHash: await hashDirectoryMembersFromFiles(
+        supported,
+        async (entry) => readFile(join(root, entry.path)),
+      ),
+      kind: "directory",
+      mode,
     };
+  } catch {
+    return { kind: "unreadable", mode };
   }
-  for (const member of output.members) {
-    const absolute = join(root, member.path);
-    const label = `${output.path}/${member.path}`;
-    try {
-      const memberStats = await lstat(absolute);
-      if (memberStats.isSymbolicLink()) {
-        missingMembers.push(label);
-        continue;
-      }
-      if (member.type === "directory") {
-        if (!memberStats.isDirectory()) {
-          missingMembers.push(label);
-          continue;
-        }
-        if ((memberStats.mode & 0o7777) !== member.mode) modeDriftedMembers.push(label);
-        continue;
-      }
-      if (!memberStats.isFile()) {
-        missingMembers.push(label);
-        continue;
-      }
-      if ((memberStats.mode & 0o7777) !== member.mode) modeDriftedMembers.push(label);
-      const content = await readFile(absolute);
-      if (hashBytes(content) !== member.hash) driftedMembers.push(label);
-    } catch {
-      missingMembers.push(label);
-    }
-  }
-
-  const unexpectedMembers = onDisk
-    .filter((entry) => !expected.has(entry.path) || entry.kind === "other")
-    .map((entry) => `${output.path}/${entry.path}`);
-
-  return {
-    driftedMembers,
-    kind: "directory",
-    missingMembers,
-    modeDriftedMembers,
-    unexpectedMembers,
-  };
 }
 
 async function inspectFileOutput(
@@ -230,22 +171,16 @@ async function inspectFileOutput(
   try {
     stats = await lstat(path);
   } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return { ...emptyMemberLists(), kind: "missing" };
-    }
-    return { ...emptyMemberLists(), kind: "unreadable" };
+    return { kind: hasErrorCode(error, "ENOENT") ? "missing" : "unreadable" };
   }
-  if (stats.isSymbolicLink() || !stats.isFile()) {
-    return { ...emptyMemberLists(), kind: "other" };
-  }
+  if (stats.isSymbolicLink() || !stats.isFile()) return { kind: "other" };
   let content: string;
   try {
     content = await readFile(path, "utf8");
   } catch {
-    return { ...emptyMemberLists(), kind: "unreadable" };
+    return { kind: "unreadable" };
   }
   return {
-    ...emptyMemberLists(),
     content,
     contentHash: hashBytes(content),
     kind: "file",
@@ -355,21 +290,10 @@ export function createLifecycleOwnershipInspectionContext(
   }
 
   function inspectOutput(project: string, output: OwnedOutput): Promise<OwnedOutputInspection> {
-    // The cache key includes the complete expected output identity: the same
-    // path proven against a different expected hash, mode, or member tree must
-    // re-inspect rather than reuse evidence classified for another manifest.
-    const expected = output.type === "directory"
-      ? JSON.stringify({
-          members: output.members.map((member) => ({
-            hash: member.type === "file" ? member.hash : undefined,
-            mode: member.mode,
-            path: member.path,
-            type: member.type,
-          })),
-          mode: output.mode,
-          type: output.type,
-        })
-      : JSON.stringify({ hash: output.hash, mode: output.mode, type: output.type });
+    // The cache key includes the canonical expected root identity. Legacy
+    // directory member records are not ownership evidence and cannot cause a
+    // second inspection or an alternate comparison path.
+    const expected = JSON.stringify({ hash: output.hash, mode: output.mode, type: output.type });
     const key = `${project}\0${output.path}\0${expected}`;
     const existing = outputs.get(key);
     if (existing) return existing;
@@ -396,14 +320,13 @@ export function createLifecycleOwnershipInspectionContext(
     const marker = await inspectMarker(project);
     if (marker.kind === "file" && marker.content !== undefined && marker.mode !== undefined) {
       return {
-        ...emptyMemberLists(),
         content: marker.content,
         contentHash: hashBytes(marker.content),
         kind: "file",
         mode: marker.mode,
       };
     }
-    return { ...emptyMemberLists(), kind: marker.kind };
+    return { kind: marker.kind };
   }
 
   function unsafeParentEvidence(

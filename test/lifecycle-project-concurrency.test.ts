@@ -244,13 +244,7 @@ function gatedOwnershipInspection(projectCount: number): {
         await gateOnce(project);
         return missingMarker;
       },
-      inspectOutput: async () => ({
-        driftedMembers: [],
-        kind: "missing" as const,
-        missingMembers: [],
-        modeDriftedMembers: [],
-        unexpectedMembers: [],
-      }),
+      inspectOutput: async () => ({ kind: "missing" as const }),
       unsafeParent: async () => undefined,
     },
     maxInFlight: () => maxInFlight,
@@ -450,13 +444,7 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
           }),
           inspectOutput: async (project) => {
             if (project === failingProject) throw failure;
-            return {
-              driftedMembers: [],
-              kind: "missing",
-              missingMembers: [],
-              modeDriftedMembers: [],
-              unexpectedMembers: [],
-            };
+            return { kind: "missing" };
           },
           unsafeParent: async () => undefined,
         };

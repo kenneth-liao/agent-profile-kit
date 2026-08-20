@@ -193,8 +193,9 @@ next action is the right shape, and it now survives scale. A multi-Project run
 groups observable output operations instead of repeating the same Profile,
 Hosts, paths, and next action per Project. Additions, updates, repairs, and
 removals carry generated-file and affected-Project counts without inferred
-artifact causality; member-level ownership attention stays visible as Project
-exceptions. A single-Project run keeps the recognizable Project-first detail.
+artifact causality; generated-directory ownership attention identifies only the
+aggregate generated root as a Project exception. A single-Project run keeps the
+recognizable Project-first detail.
 A qualified 12-Project preview of one shared Skill update plus one Host addition
 renders the operation shape as:
 
@@ -602,9 +603,11 @@ explicit marker in concise reports.
 member`, because directory-level and member-level records print into one flat
 list. A reader cannot tell which is authoritative.~~
 
-Shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123):
-member-level attention records now replace the enclosing directory's
-`unchanged` record in verbose output.
+Shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123),
+then superseded by [#241](https://github.com/kenneth-liao/agent-profile-kit/issues/241):
+directory ownership attention now replaces the enclosing directory's
+`unchanged` record with one aggregate-root drift record; member-level records
+are no longer reconstructed.
 
 ### ~~UJ-13~~
 ~~`status` exits 0 while printing `Attention required` and two blockers; `preview`

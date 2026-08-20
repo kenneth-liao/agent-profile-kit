@@ -118,12 +118,10 @@ export interface ReconciliationItem {
 
 export type OutputReconciliationKind =
   | "addition"
-  | "drifted member"
-  | "missing member"
+  | "drifted output"
   | "removal"
   | "repair"
   | "unchanged"
-  | "unexpected member"
   | "update";
 
 export interface OutputReconciliationItem {
@@ -511,10 +509,8 @@ function directoryOutputMatches(
 ): boolean {
   return (
     inspection.kind === "directory" &&
-    inspection.missingMembers.length === 0 &&
-    inspection.driftedMembers.length === 0 &&
-    inspection.modeDriftedMembers.length === 0 &&
-    inspection.unexpectedMembers.length === 0
+    inspection.mode === output.mode &&
+    inspection.directoryHash === output.hash
   );
 }
 
@@ -738,15 +734,11 @@ function ownershipBlocker(project: string, proof: OwnershipProof): ProjectScoped
   const reason = proof.reason ?? "ownership could not be proven";
   let message: string;
   if (proof.driftKind) {
-    const deletionRoute = proof.driftKind === "unexpected-member"
-      ? "delete the unexpected file"
-      : proof.driftKind === "both"
-        ? "delete the edited generated file and the unexpected file"
-        : "delete the generated file";
+    const generatedBoundary = proof.driftKind === "generated-root" ? "root" : "file";
     message =
       `Cannot reconcile Profile Installation at ${project}: ${reason}. ` +
       "Agent Profile Kit will not overwrite your edit. Move the change into the Workspace, " +
-      `or ${deletionRoute}, then run ${COMMAND_NAME} apply to restore the generated output`;
+      `or delete the generated ${generatedBoundary}, then run ${COMMAND_NAME} apply to restore it`;
   } else {
     message = `Cannot reconcile Profile Installation at ${project}: ${reason}`;
   }
@@ -765,20 +757,11 @@ function composedContextFromOutputs(outputs: readonly DesiredProjectOutput[]): s
   return "";
 }
 
-function pushDirectoryMemberItems(
-  outputItems: OutputReconciliationItem[],
-  project: string,
+function directoryRootRequiresAttention(
+  output: Extract<OwnedOutput, { type: "directory" }>,
   inspection: OwnedOutputInspection,
-): void {
-  for (const path of inspection.missingMembers) {
-    outputItems.push({ kind: "missing member", path, project });
-  }
-  for (const path of new Set([...inspection.driftedMembers, ...inspection.modeDriftedMembers])) {
-    outputItems.push({ kind: "drifted member", path, project });
-  }
-  for (const path of inspection.unexpectedMembers) {
-    outputItems.push({ kind: "unexpected member", path, project });
-  }
+): boolean {
+  return inspection.kind !== "missing" && !directoryOutputMatches(inspection, output);
 }
 
 export interface PreviewReconciliationOptions {
@@ -893,7 +876,7 @@ export async function previewReconciliation(
     const projectOutputItems: OutputReconciliationItem[] = [];
     for (const output of proposedOutputs) {
       const previousOutput = previousOutputs.get(output.path);
-      const kind: OutputReconciliationKind = repairableMissingOutputs.has(output.path)
+      let kind: OutputReconciliationKind = repairableMissingOutputs.has(output.path)
         ? "repair"
         : previousOutput === undefined
         ? "addition"
@@ -902,33 +885,39 @@ export async function previewReconciliation(
             previousOutput.type === output.type
           ? "unchanged"
           : "update";
+      if (
+        previousOutput?.type === "directory" &&
+        previous &&
+        kind !== "repair" &&
+        directoryRootRequiresAttention(
+          previousOutput,
+          await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput),
+        )
+      ) {
+        kind = "drifted output";
+      }
       projectOutputItems.push({
         kind,
         path: output.path,
         project: installation.binding.project,
       });
-      if (previousOutput?.type === "directory" && previous && kind !== "repair") {
-        pushDirectoryMemberItems(
-          projectOutputItems,
-          installation.binding.project,
-          await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput),
-        );
-      }
       previousOutputs.delete(output.path);
     }
     for (const [path, previousOutput] of previousOutputs) {
+      const kind: OutputReconciliationKind =
+        previousOutput.type === "directory" &&
+          previous &&
+          directoryRootRequiresAttention(
+            previousOutput,
+            await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput),
+          )
+          ? "drifted output"
+          : "removal";
       projectOutputItems.push({
-        kind: "removal",
+        kind,
         path,
         project: installation.binding.project,
       });
-      if (previousOutput.type === "directory" && previous) {
-        pushDirectoryMemberItems(
-          projectOutputItems,
-          installation.binding.project,
-          await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput),
-        );
-      }
     }
     const project = installation.binding.canonicalProject;
     const projectBlockers: ReconciliationBlocker[] = [];

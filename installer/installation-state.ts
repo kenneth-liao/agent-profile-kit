@@ -316,7 +316,7 @@ function proveFileOutput(
 }
 
 export type OwnershipFailureKind = "drift" | "malformed" | "missing";
-export type OwnershipDriftKind = "generated-output" | "unexpected-member" | "both";
+export type OwnershipDriftKind = "generated-file" | "generated-root";
 
 export interface OwnershipProof {
   readonly driftKind?: OwnershipDriftKind;
@@ -343,7 +343,7 @@ async function proveOutputHashes(
   const missing: string[] = [];
   const drifted: string[] = [];
   const modeDrifted: string[] = [];
-  const unexpected: string[] = [];
+  let directoryDrift = false;
   for (const output of outputs) {
     const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
     if (unsafeParent) {
@@ -361,29 +361,28 @@ async function proveOutputHashes(
       if (proof.modeDrifted) modeDrifted.push(output.path);
       continue;
     }
-    missing.push(...result.missingMembers);
-    drifted.push(...result.driftedMembers);
-    modeDrifted.push(...result.modeDriftedMembers);
-    unexpected.push(...result.unexpectedMembers);
+    if (result.kind === "missing") {
+      missing.push(output.path);
+      continue;
+    }
+    if (result.kind !== "directory" || result.directoryHash !== output.hash) {
+      drifted.push(output.path);
+      directoryDrift = true;
+    }
+    if (result.kind === "directory" && result.mode !== output.mode) {
+      modeDrifted.push(output.path);
+      directoryDrift = true;
+    }
   }
-  if (missing.length > 0 || drifted.length > 0 || modeDrifted.length > 0 || unexpected.length > 0) {
-    const generatedOutputDrift = drifted.length > 0 || modeDrifted.length > 0;
-    const unexpectedMemberDrift = unexpected.length > 0;
+  if (missing.length > 0 || drifted.length > 0 || modeDrifted.length > 0) {
     const reasons = [
       ...(missing.length > 0 ? [`missing: ${missing.join(", ")}`] : []),
       ...(drifted.length > 0 ? [`drifted: ${drifted.join(", ")}`] : []),
       ...(modeDrifted.length > 0 ? [`drifted mode: ${modeDrifted.join(", ")}`] : []),
-      ...(unexpected.length > 0 ? [`unexpected: ${unexpected.join(", ")}`] : []),
     ];
     return {
-      ...(generatedOutputDrift || unexpectedMemberDrift
-        ? {
-            driftKind: generatedOutputDrift && unexpectedMemberDrift
-              ? "both" as const
-              : generatedOutputDrift
-                ? "generated-output" as const
-                : "unexpected-member" as const,
-          }
+      ...(drifted.length > 0 || modeDrifted.length > 0
+        ? { driftKind: directoryDrift ? "generated-root" as const : "generated-file" as const }
         : {}),
       failureKind: missing.length > 0 ? "missing" : "drift",
       owned: false,

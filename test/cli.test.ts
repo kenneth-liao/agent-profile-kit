@@ -1912,7 +1912,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly schemaVersion: number;
       readonly outputs: readonly { readonly kind: string }[];
     };
-    expect(payload.schemaVersion).toBe(3);
+    expect(payload.schemaVersion).toBe(4);
     expect(payload).not.toHaveProperty("impacts");
     expect(payload.outputs.filter((output) => output.kind === "update")).toHaveLength(12);
 
@@ -2002,12 +2002,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly command: string;
         readonly schemaVersion: number;
       };
-      expect(payload.schemaVersion).toBe(3);
+      expect(payload.schemaVersion).toBe(4);
       expect(payload.command).toBe(command);
 
       const both = await runCli(home, command, "--verbose", "--json");
       expectExitCode(both, 0);
-      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 3 });
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 4 });
 
       const unsupported = await runCli(home, command, "--yaml");
       expectExitCode(unsupported, 1);
@@ -2031,7 +2031,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
-        schemaVersion: 3,
+        schemaVersion: 4,
       });
     }
 
@@ -2072,7 +2072,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly schemaVersion: number;
       };
       expect(payload).toMatchObject({
-        schemaVersion: 3,
+        schemaVersion: 4,
         command,
         outcome: "error",
       });
@@ -2092,14 +2092,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
-        schemaVersion: 3,
+        schemaVersion: 4,
       });
     }
     const firstApply = await runCli(pendingHome, "apply", "--json");
     expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "apply",
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(["clean", "attention"]).toContain(
       (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
@@ -3618,7 +3618,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(statSync(context).mode & 0o777).toBe(0o600);
   });
 
-  test("unexpected members in an owned directory receive the same safe drift remedies", async () => {
+  test("unexpected directory content reports only the generated root with safe drift remedies", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -3642,11 +3642,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(blocked, 2);
     expect(blocked.stderr).toBe("");
-    expect(blocked.stdout).toContain("unexpected:");
+    expect(blocked.stdout).toContain(".agents/skills/review-pr");
+    expect(blocked.stdout).not.toContain("notes.md");
     expect(humanText(blocked.stdout)).toContain(humanText("will not overwrite your edit"));
     expect(humanText(blocked.stdout)).toContain(humanText("Move the change into the Workspace"));
-    expect(humanText(blocked.stdout)).toContain(humanText("delete the unexpected file"));
-    expect(humanText(blocked.stdout)).not.toContain(humanText("delete the generated file"));
+    expect(humanText(blocked.stdout)).toContain(humanText("delete the generated root"));
     expect(readFileSync(unexpected, "utf8")).toBe("user note\n");
   });
 
