@@ -212,7 +212,7 @@ describe("fleet-wide synchronization qualification", () => {
       readonly installations: readonly { readonly state: string }[];
       readonly schemaVersion: number;
     };
-    expect(payload.schemaVersion).toBe(3);
+    expect(payload.schemaVersion).toBe(4);
     expect(payload).not.toHaveProperty("impacts");
     expect(payload.installations).toHaveLength(12);
 

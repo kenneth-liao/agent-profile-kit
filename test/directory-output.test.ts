@@ -8,6 +8,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { rename } from "node:fs/promises";
@@ -243,6 +244,33 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(owned.members).toHaveLength(directory.members.length);
   });
 
+  test("directory ownership proof uses the aggregate root hash instead of the legacy member tree", async () => {
+    const home = temporaryDirectory("agent-profile-kit-dir-root-proof-home-");
+    const project = temporaryDirectory("agent-profile-kit-dir-root-proof-project-");
+    const base = await contextInstallation(home, project);
+    const directory = normalizedDirectory();
+    const desired = [withDirectoryOutput(base, directory)];
+    await applyReconciliation(home, desired);
+
+    const state = await readInstallationState(home);
+    const installation = state.installations[0]!;
+    await writeInstallationState(home, {
+      ...state,
+      installations: [{
+        ...installation,
+        outputs: installation.outputs.map((output) =>
+          output.type === "directory" ? { ...output, members: [] } : output
+        ),
+      }],
+    });
+
+    const report = await previewReconciliation(desired, await readInstallationState(home));
+
+    expect(report.blockers).toEqual([]);
+    expect(report.outputs).toContainEqual({ kind: "unchanged", path: directory.path, project });
+    expect(report.outputs).not.toContainEqual({ kind: "drifted output", path: directory.path, project });
+  });
+
   test("apply drops a wholly absent recorded directory that current Workspace state no longer desires", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-absent-removal-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-absent-removal-project-");
@@ -287,19 +315,12 @@ describe("Installer-owned artifact-directory outputs", () => {
     rmSync(join(project, directory.path, "scripts", "run.sh"));
 
     const drifted = await previewReconciliation(desired, await readInstallationState(home));
-    expect(drifted.outputs).toContainEqual({
-      kind: "drifted member",
-      path: `${directory.path}/SKILL.md`,
+    expect(drifted.outputs.filter((item) => item.path === directory.path)).toEqual([{
+      kind: "drifted output",
+      path: directory.path,
       project,
-    });
-    expect(drifted.outputs).toContainEqual({
-      kind: "missing member",
-      path: `${directory.path}/scripts/run.sh`,
-      project,
-    });
-    expect(drifted.outputs.some((item) =>
-      item.kind === "unexpected member" && item.path.startsWith(`${directory.path}/extra`)
-    )).toBe(true);
+    }]);
+    expect(drifted.outputs.every((item) => !item.path.startsWith(`${directory.path}/`))).toBe(true);
     expect(drifted.blockers.some((blocker) =>
       blocker.message.includes("owned output")
     )).toBe(true);
@@ -320,6 +341,49 @@ describe("Installer-owned artifact-directory outputs", () => {
       path: directory.path,
       project,
     });
+  });
+
+  test("aggregate-root proof rejects entry types, empty directories, symlinks, and root modes", async () => {
+    const home = temporaryDirectory("agent-profile-kit-dir-root-boundaries-home-");
+    const project = temporaryDirectory("agent-profile-kit-dir-root-boundaries-project-");
+    const base = await contextInstallation(home, project);
+    const directory = normalizedDirectory();
+    const desired = [withDirectoryOutput(base, directory)];
+    await applyReconciliation(home, desired);
+
+    async function expectRootDrift(): Promise<void> {
+      const report = await previewReconciliation(desired, await readInstallationState(home));
+      expect(report.outputs.filter((output) => output.kind === "drifted output")).toEqual([{
+        kind: "drifted output",
+        path: directory.path,
+        project,
+      }]);
+      expect(report.blockers).not.toEqual([]);
+    }
+
+    const skillPath = join(project, directory.path, "SKILL.md");
+    rmSync(skillPath);
+    mkdirSync(skillPath);
+    await expectRootDrift();
+    rmSync(skillPath, { recursive: true });
+    writeFileSync(skillPath, "# Demo Skill\n");
+
+    const emptyPath = join(project, directory.path, "empty");
+    mkdirSync(emptyPath);
+    await expectRootDrift();
+    rmSync(emptyPath, { recursive: true });
+
+    const scriptPath = join(project, directory.path, "scripts", "run.sh");
+    rmSync(scriptPath);
+    symlinkSync("../SKILL.md", scriptPath);
+    await expectRootDrift();
+    rmSync(scriptPath);
+    writeFileSync(scriptPath, "#!/bin/sh\necho demo\n");
+    chmodSync(scriptPath, 0o755);
+
+    chmodSync(join(project, directory.path), 0o700);
+    await expectRootDrift();
+    chmodSync(join(project, directory.path), 0o755);
   });
 
   test("preflight rejects an occupied unowned artifact directory without adopting it", async () => {
@@ -392,7 +456,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(existsSync(join(project, directory.path))).toBe(false);
   });
 
-  test("preview reports mode-only directory member drift", async () => {
+  test("preview reports member mode drift at the generated root", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-mode-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-mode-project-");
     const base = await contextInstallation(home, project);
@@ -405,16 +469,16 @@ describe("Installer-owned artifact-directory outputs", () => {
       await readInstallationState(home),
     );
     expect(report.outputs).toContainEqual({
-      kind: "drifted member",
-      path: `${directory.path}/SKILL.md`,
+      kind: "drifted output",
+      path: directory.path,
       project,
     });
     expect(report.blockers.some((blocker) =>
-      blocker.message.includes("drifted mode") || blocker.message.includes("unowned or drifted")
+      blocker.message.includes(directory.path) && blocker.message.includes("will not overwrite")
     )).toBe(true);
   });
 
-  test("preview reports combined content and mode member drift once", async () => {
+  test("preview reports combined member drift once at the generated root", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-combined-drift-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-combined-drift-project-");
     const base = await contextInstallation(home, project);
@@ -430,7 +494,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     );
 
     expect(report.outputs.filter((output) =>
-      output.kind === "drifted member" && output.path === memberPath
+      output.kind === "drifted output" && output.path === directory.path
     )).toHaveLength(1);
   });
 

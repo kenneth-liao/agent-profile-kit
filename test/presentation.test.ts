@@ -1179,7 +1179,7 @@ describe("formatLifecycleReport concise terminology", () => {
       "Blocker: Codex CLI is unavailable",
     );
     expect(JSON.parse(formatLifecycleJson("preview", structured))).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       blockers: [{
         affectedItems: [{ kind: "host", value: "codex" }],
         kind: "host-capability",
@@ -1620,7 +1620,7 @@ describe("formatLifecycleReport concise terminology", () => {
         { kind: "update", path: "c.md", project: "/project-a" },
         { kind: "repair", path: "d.md", project: "/project-a" },
         { kind: "removal", path: "e.md", project: "/project-a" },
-        { kind: "drifted member", path: "f.md", project: "/project-a" },
+        { kind: "drifted output", path: "f.md", project: "/project-a" },
       ],
     });
 
@@ -1628,7 +1628,7 @@ describe("formatLifecycleReport concise terminology", () => {
 
     expect(concise).toContain(
       "  Files:\n" +
-      "  ! f.md (drifted member)\n" +
+      "  ! f.md (drifted output)\n" +
       "  - e.md\n" +
       "  ~ c.md\n" +
       "  + a.md\n" +
@@ -1708,75 +1708,34 @@ describe("formatLifecycleReport concise terminology", () => {
       items: [{ kind: "update", project }],
       outputs: [
         ...additions,
-        { kind: "missing member", path: "z-attention.md", project },
+        { kind: "drifted output", path: "z-attention.md", project },
         { kind: "removal", path: "z-removal.md", project },
       ],
     });
 
     const concise = formatLifecycleReport("preview", report);
 
-    expect(concise).toContain("! z-attention.md (missing member)");
+    expect(concise).toContain("! z-attention.md (drifted output)");
     expect(concise).toContain("- z-removal.md");
     expect(concise.indexOf("! z-attention.md")).toBeLessThan(concise.indexOf("+ a-1.md"));
     expect(concise.indexOf("- z-removal.md")).toBeLessThan(concise.indexOf("+ a-1.md"));
     expect(concise).toContain("… 2 more files; use --verbose to see all paths");
   });
 
-  test("summarizes a missing directory member as missing rather than drift", () => {
-    const project = "/project-a";
-    const report = emptyReport({
-      desired: [{
-        canonicalProject: project,
-        context: "composed",
-        outputs: ["skill"],
-        profile: "coding",
-        project,
-        resolvedArtifacts: [],
-      }],
-      items: [{ kind: "missing output", project }],
-      outputs: [
-        { kind: "unchanged", path: "skill", project },
-        { kind: "missing member", path: "skill/SKILL.md", project },
-      ],
-    });
-
-    const concise = formatLifecycleReport("status", report);
-
-    expect(concise).toContain("Changes: 1 generated file missing");
-    expect(concise).not.toContain("generated file drift item");
-    expect(concise).toContain("! skill/SKILL.md (missing member)");
-
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain("/project-a/skill/SKILL.md: missing member");
-    expect(verbose).not.toContain("/project-a/skill: unchanged");
-  });
-
-  test("verbose output keeps member attention statuses authoritative", () => {
+  test("verbose output keeps generated-root attention authoritative", () => {
     const project = "/project-a";
     const report = emptyReport({
       outputs: [
-        { kind: "unchanged", path: "skill", project },
-        { kind: "drifted member", path: "skill/SKILL.md", project },
-        { kind: "missing member", path: "skill/scripts/run.sh", project },
-        { kind: "unexpected member", path: "skill/notes.txt", project },
-        { kind: "unchanged", path: "mode-only-skill", project },
-        { kind: "drifted member", path: "mode-only-skill", project },
-        { kind: "missing member", path: "ambiguous-member", project },
-        { kind: "unexpected member", path: "ambiguous-member", project },
+        { kind: "drifted output", path: "skill", project },
         { kind: "unchanged", path: "context.md", project },
       ],
     });
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    const concise = formatLifecycleReport("status", report);
+    expect(concise).toContain("! skill (drifted output)");
 
-    expect(verbose).not.toContain("/project-a/skill: unchanged");
-    expect(verbose).toContain("/project-a/skill/SKILL.md: drifted member");
-    expect(verbose).toContain("/project-a/skill/scripts/run.sh: missing member");
-    expect(verbose).toContain("/project-a/skill/notes.txt: unexpected member");
-    expect(verbose).not.toContain("/project-a/mode-only-skill: unchanged");
-    expect(verbose).toContain("/project-a/mode-only-skill: drifted member");
-    expect(verbose).toContain("/project-a/ambiguous-member: missing member");
-    expect(verbose).toContain("/project-a/ambiguous-member: unexpected member");
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    expect(verbose).toContain("/project-a/skill: drifted output");
     expect(verbose).toContain("/project-a/context.md: unchanged");
   });
 
@@ -2681,7 +2640,7 @@ describe("Machine surface JSON and exit codes", () => {
     const payload = JSON.parse(formatLifecycleJson("preview", report)) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       command: "preview",
       outcome: "blocked",
       blockers: [{
@@ -2806,7 +2765,7 @@ describe("Machine surface JSON and exit codes", () => {
     const payload = JSON.parse(formatApplyJson(applyResult(receipt, resultingState))) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       command: "apply",
       outcome: "clean",
       installations: [{
@@ -2854,7 +2813,7 @@ describe("Machine surface JSON and exit codes", () => {
     const payload = JSON.parse(formatBlockedApplyJson(report)) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       command: "apply",
       outcome: "blocked",
       blockers: [{
@@ -2892,7 +2851,7 @@ describe("Machine surface JSON and exit codes", () => {
     ) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       command: "apply",
       outcome: "error",
       error: "post-apply verification failed: boom",
@@ -2975,7 +2934,7 @@ describe("Machine surface JSON and exit codes", () => {
         formatLifecycleToolErrorJson(command, "Local Configuration is missing"),
       ) as Record<string, unknown>;
       expect(payload).toMatchObject({
-        schemaVersion: 3,
+        schemaVersion: 4,
         command,
         outcome: "error",
         error: "Local Configuration is missing",
@@ -3358,20 +3317,20 @@ describe("operation-first multi-Project presentation", () => {
     expect(apply).not.toContain("Skill review-pr");
   });
 
-  test("member-level ownership attention remains visible as a Project exception", () => {
+  test("generated-root ownership attention remains visible as a Project exception", () => {
     const report = sharedSkillFleet({
       outputs: [
         ...sharedSkillFleet().outputs,
         {
-          kind: "drifted member" as const,
-          path: `${SKILL_PATH}/SKILL.md`,
+          kind: "drifted output" as const,
+          path: SKILL_PATH,
           project: "/project-a",
         },
       ],
     });
 
     expect(formatLifecycleReport("preview", report)).toContain(
-      "Project exceptions:\n  /project-a:\n    ! .agents/skills/review-pr/SKILL.md (drifted member)",
+      "Project exceptions:\n  /project-a:\n    ! .agents/skills/review-pr (drifted output)",
     );
   });
 
@@ -3600,14 +3559,14 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const resultingState = emptyReport({
       desired: receipt.desired,
       items: [{ kind: "drifted output", project: "/project-a" }],
-      outputs: [{ kind: "drifted member", path: "a.md/SKILL.md", project: "/project-a" }],
+      outputs: [{ kind: "drifted output", path: "a.md", project: "/project-a" }],
     });
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
     expect(apply).toContain("Apply completed with attention");
     expect(apply).toContain("Project: /project-a");
     expect(apply).toContain("State: drifted output");
-    expect(apply).toContain("! a.md/SKILL.md");
+    expect(apply).toContain("! a.md");
     expect(apply).toContain("Applied:\n- /project-a:\n  ~ a.md");
   });
 
@@ -3770,7 +3729,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(payload).toMatchObject({
       command: "preview",
       outcome: "attention",
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(lifecycleExitCode(report)).toBe(0);
     expect(lifecycleExitCode(emptyReport({

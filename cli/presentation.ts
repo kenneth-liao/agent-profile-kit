@@ -90,9 +90,7 @@ const DEFAULT_VIEW_LEXICON = {
 } as const;
 
 const OUTPUT_PATH_PRIORITY = {
-  "drifted member": 0,
-  "missing member": 0,
-  "unexpected member": 0,
+  "drifted output": 0,
   removal: 1,
   update: 2,
   addition: 3,
@@ -258,10 +256,8 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
 interface OutputSummary {
   readonly additions: number;
   readonly drift: number;
-  readonly missing: number;
   readonly removals: number;
   readonly repairs: number;
-  readonly unexpected: number;
   readonly updates: number;
 }
 
@@ -809,25 +805,21 @@ function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputS
       switch (output.kind) {
         case "addition":
           return { ...summary, additions: summary.additions + 1 };
-        case "drifted member":
+        case "drifted output":
           return { ...summary, drift: summary.drift + 1 };
-        case "missing member":
-          return { ...summary, missing: summary.missing + 1 };
         case "removal":
           return { ...summary, removals: summary.removals + 1 };
         case "repair":
           return { ...summary, repairs: summary.repairs + 1 };
         case "unchanged":
           return summary;
-        case "unexpected member":
-          return { ...summary, unexpected: summary.unexpected + 1 };
         case "update":
           return { ...summary, updates: summary.updates + 1 };
         default:
           return assertNever(output.kind);
       }
     },
-    { additions: 0, drift: 0, missing: 0, removals: 0, repairs: 0, unexpected: 0, updates: 0 },
+    { additions: 0, drift: 0, removals: 0, repairs: 0, updates: 0 },
   );
 }
 
@@ -840,18 +832,11 @@ function changeParts(summary: OutputSummary): string[] {
   if (summary.repairs > 0) parts.push(plural(summary.repairs, `${generatedFile} repair`));
   if (summary.removals > 0) parts.push(plural(summary.removals, `${generatedFile} removal`));
   if (summary.drift > 0) parts.push(plural(summary.drift, `${generatedFile} drift item`));
-  if (summary.missing > 0) {
-    parts.push(`${summary.missing} generated ${summary.missing === 1 ? "file" : "files"} missing`);
-  }
-  if (summary.unexpected > 0) {
-    parts.push(plural(summary.unexpected, `unexpected ${generatedFile}`));
-  }
   return parts;
 }
 
 function changeCount(summary: OutputSummary): number {
-  return summary.additions + summary.updates + summary.repairs + summary.removals + summary.drift +
-    summary.missing + summary.unexpected;
+  return summary.additions + summary.updates + summary.repairs + summary.removals + summary.drift;
 }
 
 /** One canonical overflow pointer shared by every capped path list in default views. */
@@ -869,9 +854,7 @@ function outputPathLine(output: OutputReconciliationItem): string | undefined {
       return `~ ${output.path}`;
     case "removal":
       return `- ${output.path}`;
-    case "drifted member":
-    case "missing member":
-    case "unexpected member":
+    case "drifted output":
       return `! ${output.path} (${output.kind})`;
     case "unchanged":
       return undefined;
@@ -900,24 +883,6 @@ function outputPathLines(outputs: readonly OutputReconciliationItem[]): readonly
         overflowPointer(overflow, "file"),
       ]
     : paths;
-}
-
-function authoritativeVerboseOutputs(
-  outputs: readonly OutputReconciliationItem[],
-): readonly OutputReconciliationItem[] {
-  return outputs.filter((output) =>
-    output.kind !== "unchanged" || !outputs.some((candidate) =>
-      candidate.project === output.project &&
-      (
-        candidate.kind === "drifted member" ||
-        candidate.kind === "missing member" ||
-        candidate.kind === "unexpected member"
-      ) &&
-      // Directory member labels are constructed as `<output.path>/<member.path>`
-      // at ownership inspection, while root-mode drift uses the exact output path.
-      (candidate.path === output.path || candidate.path.startsWith(`${output.path}/`))
-    )
-  );
 }
 
 function changedRepositoryExclusions(report: ReconciliationReport): readonly ReconciliationReport["repositoryExclusions"][number][] {
@@ -1751,10 +1716,8 @@ const PLANNED_OUTPUT_OPERATION_MARKER: Readonly<Record<PlannedOutputOperation, s
 };
 
 /** Output attention kinds that remain visible beside the operation summary. */
-const MEMBER_ATTENTION_KINDS: ReadonlySet<OutputReconciliationKind> = new Set([
-  "drifted member",
-  "missing member",
-  "unexpected member",
+const OUTPUT_ATTENTION_KINDS: ReadonlySet<OutputReconciliationKind> = new Set([
+  "drifted output",
 ]);
 
 /** Attention item kinds that are not planned output operations. */
@@ -1842,12 +1805,12 @@ function operationGroupLine(
 }
 
 function operationAttentionLines(report: ReconciliationReport): readonly string[] {
-  const membersByProject = new Map<string, OutputReconciliationItem[]>();
+  const outputsByProject = new Map<string, OutputReconciliationItem[]>();
   for (const output of report.outputs) {
-    if (MEMBER_ATTENTION_KINDS.has(output.kind)) {
-      const members = membersByProject.get(output.project) ?? [];
-      members.push(output);
-      membersByProject.set(output.project, members);
+    if (OUTPUT_ATTENTION_KINDS.has(output.kind)) {
+      const outputs = outputsByProject.get(output.project) ?? [];
+      outputs.push(output);
+      outputsByProject.set(output.project, outputs);
     }
   }
   const itemsByProject = new Map<string, ReconciliationItem[]>();
@@ -1868,7 +1831,7 @@ function operationAttentionLines(report: ReconciliationReport): readonly string[
     }
   }
   const projects = [...new Set([
-    ...membersByProject.keys(),
+    ...outputsByProject.keys(),
     ...itemsByProject.keys(),
   ])].sort(compareCanonicalStrings);
   if (projects.length === 0) return [];
@@ -1876,10 +1839,10 @@ function operationAttentionLines(report: ReconciliationReport): readonly string[
   for (const project of projects) {
     const presented = displayProjectPath(project);
     const items = itemsByProject.get(project) ?? [];
-    const members = membersByProject.get(project) ?? [];
+    const outputs = outputsByProject.get(project) ?? [];
     lines.push(`  ${presented}:`);
     for (const item of items) lines.push(`    State: ${itemText(item)}`);
-    for (const member of members) lines.push(`    ! ${member.path} (${member.kind})`);
+    for (const output of outputs) lines.push(`    ! ${output.path} (${output.kind})`);
   }
   return lines;
 }
@@ -2395,7 +2358,7 @@ function verboseSections(
     : report.blockers.flatMap((blocker) => verboseBlockerLines(blocker, shorten)).join("\n");
   const outputs = report.outputs.length === 0
     ? "(none)"
-    : authoritativeVerboseOutputs(report.outputs)
+    : report.outputs
         .map((output) => shorten(`${output.project}/${output.path}: ${output.kind}`))
         .join("\n");
   const repositoryExclusions = changedRepositoryExclusions(report).length === 0
@@ -2589,13 +2552,15 @@ interface LifecycleMachineSnapshot {
   readonly repositoryExclusions: readonly MachineRepositoryExclusion[];
 }
 
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 4 as const;
+
 interface LifecycleMachinePayload extends LifecycleMachineSnapshot {
   readonly applied?: LifecycleMachineSnapshot;
   readonly blockers: readonly MachineBlocker[];
   readonly command: LifecycleCommand;
   readonly error?: string;
   readonly outcome: MachineOutcome;
-  readonly schemaVersion: 3;
+  readonly schemaVersion: typeof LIFECYCLE_MACHINE_SCHEMA_VERSION;
   readonly setupSteps: readonly MachineSetupStep[];
   readonly warnings: readonly string[];
 }
@@ -2779,7 +2744,7 @@ function lifecycleMachinePayload(
   applied?: ReconciliationReport,
 ): LifecycleMachinePayload {
   return {
-    schemaVersion: 3,
+    schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
     command,
     outcome: machineOutcome(report),
     ...machineSnapshot(report),
@@ -2828,7 +2793,7 @@ export function formatLifecycleToolErrorJson(
   message: string,
 ): string {
   return serializeMachinePayload({
-    schemaVersion: 3,
+    schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
     command,
     outcome: "error",
     error: message,

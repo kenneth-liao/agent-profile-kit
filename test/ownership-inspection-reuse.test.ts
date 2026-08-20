@@ -179,7 +179,7 @@ async function appliedDirectoryInstallation(home: string, project: string): Prom
 }
 
 describe("one shared ownership inspection per generated output per pass", () => {
-  test("walks each owned directory once and reads each owned file once across ownership proof, member diagnostics, and output items", async () => {
+  test("walks each owned directory once across ownership proof and root diagnostics", async () => {
     const home = temporaryDirectory("apk-own-inspect-dir-once-home-");
     const project = temporaryDirectory("apk-own-inspect-dir-once-project-");
     const { desired } = await appliedDirectoryInstallation(home, project);
@@ -202,10 +202,9 @@ describe("one shared ownership inspection per generated output per pass", () => 
 
     expect(report.blockers).toEqual([]);
     expect(report.items.every((item) => item.kind === "current")).toBe(true);
-    // Ownership proof inspects every output; member diagnostics consume the same
-    // directory result instead of walking it again. Each output path also
-    // resolves its unsafe-parent evidence once even though ownership proof and
-    // repairable detection both consult it.
+    // Ownership proof and root diagnostics consume the same directory result.
+    // Each output path also resolves its unsafe-parent evidence once even though
+    // ownership proof and repairable detection both consult it.
     expect(instrumentation.counts.inspectFile).toBe(expectedFiles);
     expect(instrumentation.counts.inspectDirectory).toBe(expectedDirectories);
     expect(instrumentation.counts.inspectMarker).toBe(1);
@@ -245,7 +244,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     expect(instrumentation.counts.inspectMarker).toBe(1);
   });
 
-  test("drift and unexpected members keep exact classifications while sharing one directory walk", async () => {
+  test("directory drift reports one generated root while sharing one directory walk", async () => {
     const home = temporaryDirectory("apk-own-inspect-drift-home-");
     const project = temporaryDirectory("apk-own-inspect-drift-project-");
     const { desired } = await appliedDirectoryInstallation(home, project);
@@ -265,16 +264,14 @@ describe("one shared ownership inspection per generated output per pass", () => 
     );
 
     expect(report.outputs).toContainEqual({
-      kind: "drifted member",
-      path: `${directory.path}/SKILL.md`,
+      kind: "drifted output",
+      path: directory.path,
       project,
     });
-    expect(report.outputs.some((item) =>
-      item.kind === "unexpected member" && item.path.startsWith(`${directory.path}/extra`)
-    )).toBe(true);
+    expect(report.outputs.every((item) => !item.path.startsWith(`${directory.path}/`))).toBe(true);
     expect(report.blockers.some((blocker) => blocker.message.includes("owned output"))).toBe(true);
-    // Ownership proof and member diagnostics still share the one directory walk;
-    // the ordinary file outputs are each read once by ownership proof.
+    // Ownership proof and root diagnostics share one directory walk; the
+    // ordinary file outputs are each read once by ownership proof.
     expect(instrumentation.counts.inspectDirectory).toBe(1);
     expect(instrumentation.counts.inspectFile).toBe(
       desired[0]!.outputs.filter(
@@ -378,16 +375,13 @@ describe("one shared ownership inspection per generated output per pass", () => 
     await ownershipInspection.inspectOutput(project, recorded);
     expect(instrumentation.counts.inspectDirectory).toBe(1);
 
-    // The same path proven against a different expected member tree must
-    // re-inspect rather than reuse evidence classified for the old manifest.
-    const changed: OwnedOutput = {
-      ...recorded,
-      hash: "changed-directory-hash",
-      members: recorded.members.map((member) =>
-        member.type === "file" ? { ...member, hash: "changed-member-hash" } : member
-      ),
-    };
-    await ownershipInspection.inspectOutput(project, changed);
+    // Legacy member records are not part of the canonical expected identity.
+    const changedMembers: OwnedOutput = { ...recorded, members: [] };
+    await ownershipInspection.inspectOutput(project, changedMembers);
+    expect(instrumentation.counts.inspectDirectory).toBe(1);
+
+    const changedHash: OwnedOutput = { ...recorded, hash: "changed-directory-hash" };
+    await ownershipInspection.inspectOutput(project, changedHash);
     expect(instrumentation.counts.inspectDirectory).toBe(2);
   });
 
@@ -407,7 +401,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
       // An unreadable existing tree is never classified as repairable absence;
       // ownership fails closed instead, so apply cannot rename and replace it.
       expect(report.items.some((item) => item.kind === "repairable missing output")).toBe(false);
-      expect(report.items.some((item) => item.kind === "missing output")).toBe(true);
+      expect(report.items.some((item) => item.kind === "drifted output")).toBe(true);
       expect(report.blockers.some((blocker) =>
         blocker.message.includes("Cannot reconcile Profile Installation")
       )).toBe(true);
@@ -457,7 +451,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     );
 
     expect(report.items.some((item) => item.kind === "repairable missing output")).toBe(false);
-    expect(report.items.some((item) => item.kind === "missing output")).toBe(true);
+    expect(report.items.some((item) => item.kind === "drifted output")).toBe(true);
     expect(report.blockers.some((blocker) =>
       blocker.message.includes("Cannot reconcile Profile Installation")
     )).toBe(true);

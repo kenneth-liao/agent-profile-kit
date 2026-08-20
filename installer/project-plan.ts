@@ -210,30 +210,66 @@ function exactBytesEqual(left: string | Uint8Array, right: string | Uint8Array):
   return Buffer.from(left).equals(Buffer.from(right));
 }
 
-/** Deterministic content hash for one complete artifact directory. */
-export function hashDirectoryMembers(
-  members: readonly {
-    readonly bytes?: string | Uint8Array;
-    readonly mode: number;
-    readonly path: string;
-    readonly type: ProjectOutputEntryType;
-  }[],
-): string {
-  const hash = createHash("sha256");
-  for (const member of [...members].sort((left, right) => left.path.localeCompare(right.path))) {
-    if (member.type === "directory") {
-      writeFrame(hash, "directory");
-      writeFrame(hash, member.path);
-      writeFrame(hash, String(member.mode));
-      continue;
+type DirectoryHashMember =
+  | {
+      readonly mode: number;
+      readonly path: string;
+      readonly type: "directory";
     }
-    if (member.bytes === undefined) {
+  | {
+      readonly bytes?: string | Uint8Array;
+      readonly mode: number;
+      readonly path: string;
+      readonly type: "file";
+    };
+
+function sortedDirectoryHashMembers<T extends DirectoryHashMember>(members: readonly T[]): readonly T[] {
+  return [...members].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function writeDirectoryHashMember(
+  hash: ReturnType<typeof createHash>,
+  member: DirectoryHashMember,
+  bytes?: string | Uint8Array,
+): void {
+  writeFrame(hash, member.type);
+  writeFrame(hash, member.path);
+  writeFrame(hash, String(member.mode));
+  if (member.type === "file") {
+    const content = bytes ?? member.bytes;
+    if (content === undefined) {
       throw new Error(`Directory member '${member.path}' must provide exact regular-file bytes`);
     }
-    writeFrame(hash, "file");
-    writeFrame(hash, member.path);
-    writeFrame(hash, String(member.mode));
-    writeFrame(hash, member.bytes);
+    writeFrame(hash, content);
+  }
+}
+
+/** Deterministic content hash for one complete artifact directory. */
+export function hashDirectoryMembers(members: readonly DirectoryHashMember[]): string {
+  const hash = createHash("sha256");
+  for (const member of sortedDirectoryHashMembers(members)) {
+    writeDirectoryHashMember(hash, member);
+  }
+  return `sha256:${hash.digest("hex")}`;
+}
+
+/**
+ * Hash one complete on-disk directory while retaining at most one file body.
+ * The caller proves entry types without following symlinks before this boundary.
+ */
+export async function hashDirectoryMembersFromFiles(
+  members: readonly DirectoryHashMember[],
+  readBytes: (
+    member: Extract<DirectoryHashMember, { readonly type: "file" }>,
+  ) => Promise<string | Uint8Array>,
+): Promise<string> {
+  const hash = createHash("sha256");
+  for (const member of sortedDirectoryHashMembers(members)) {
+    writeDirectoryHashMember(
+      hash,
+      member,
+      member.type === "file" ? await readBytes(member) : undefined,
+    );
   }
   return `sha256:${hash.digest("hex")}`;
 }

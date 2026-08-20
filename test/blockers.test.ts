@@ -256,7 +256,7 @@ describe("shared blocker contract", () => {
       readonly blockers: readonly Record<string, unknown>[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(3);
+    expect(machine.schemaVersion).toBe(4);
     expect(machine.blockers).toEqual([{
       kind: "host-capability",
       scope: "project",
