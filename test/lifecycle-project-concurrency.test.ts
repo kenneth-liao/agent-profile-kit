@@ -98,7 +98,7 @@ async function fleetWorkspace(options: {
   writeSkill(workspace, "ops-run");
   writeFileSync(
     join(workspace, "profiles", "engineering.yaml"),
-    "id: engineering\ncontext: [team-rules]\nskills: [review-pr, ops-run]\nagents: []\nhooks: []\ntools: []\n",
+    "id: engineering\ncontext: [team-rules]\nskills: [review-pr, ops-run]\n",
   );
   const hostSets = options.hostSets ?? [["codex"]];
   const projects: string[] = [];

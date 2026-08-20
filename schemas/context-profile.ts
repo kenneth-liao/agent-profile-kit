@@ -18,9 +18,6 @@ export interface Profile {
   readonly id: string;
   readonly context: readonly string[];
   readonly skills: readonly string[];
-  readonly agents: readonly string[];
-  readonly hooks: readonly string[];
-  readonly tools: readonly string[];
 }
 
 function requireExactFields(
@@ -97,7 +94,14 @@ export function parseContextModule(source: string, path: string): ContextModule 
 export function parseProfile(source: string, path: string): Profile {
   const value = parseYaml(source, `Profile ${path}`);
   const mapping = requireMapping(value, `Profile ${path}`);
-  const fields = ["id", "context", "skills", "agents", "hooks", "tools"] as const;
+  const fields = ["id", "context", "skills"] as const;
+  const obsoleteFields = ["agents", "hooks", "tools"].filter((field) => field in mapping);
+  if (obsoleteFields.length > 0) {
+    throw new Error(
+      `Profile ${path} no longer supports fields: ${obsoleteFields.join(", ")}. ` +
+        "Remove these obsolete Profile fields; earlier releases allowed them only as empty placeholders",
+    );
+  }
   requireExactFields(mapping, fields, `Profile ${path}`);
   for (const field of fields) {
     if (!(field in mapping)) {
@@ -108,8 +112,5 @@ export function parseProfile(source: string, path: string): Profile {
     id: requireArtifactId(mapping.id, `Profile ${path} id`),
     context: requireStringArray(mapping.context, `Profile ${path} context`),
     skills: requireStringArray(mapping.skills, `Profile ${path} skills`),
-    agents: requireStringArray(mapping.agents, `Profile ${path} agents`),
-    hooks: requireStringArray(mapping.hooks, `Profile ${path} hooks`),
-    tools: requireStringArray(mapping.tools, `Profile ${path} tools`),
   };
 }

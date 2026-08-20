@@ -28,8 +28,9 @@ Use this workflow when helping a person author their Workspace and bind projects
    `metadata.agent-profile-kit.model-invocation: disabled` (default is
    `allowed`); do not leave Host-native `disable-model-invocation` in
    Workspace source (Adapters project that field for Claude, Grok, and Pi). Profiles
-   selecting Agents, Hooks, or Tools are rejected. Do not create a new artifact
-   merely because a directory exists, and do not invent Agents, Hooks, or Tools
+   contain exactly `id`, `context`, and `skills`; remove obsolete empty `agents`,
+   `hooks`, and `tools` placeholders. Do not create a new artifact merely because
+   a directory exists, and do not invent Agents, Hooks, or Tools
    for this release.
 4. Preserve boundaries.
    - **Workspace** owns reusable cross-project Profiles and artifacts as the
@@ -70,7 +71,7 @@ Use this workflow when helping a person author their Workspace and bind projects
    existing paths canonically, and permits missing-path recovery only by exact
    authored spelling. `unbind` never removes generated output.
 6. Validate before applying. Context Modules use `id` frontmatter and flat
-   Profiles contain explicit arrays for every artifact category. Dependencies use
+   Profiles contain `id`, `context`, and `skills` only. Dependencies use
    explicit `{ type, id }` references. Run `apkit validate`, review
    the concise outcome from `apkit preview`, and ask before applying
    all configured Project Bindings with `apkit apply`. Use

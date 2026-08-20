@@ -89,7 +89,7 @@ async function writeContextWorkspace(
   }
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    `id: coding\ncontext: [team-rules]\nskills: [${(options.skills ?? []).join(", ")}]\nagents: []\nhooks: []\ntools: []\n`,
+    `id: coding\ncontext: [team-rules]\nskills: [${(options.skills ?? []).join(", ")}]\n`,
   );
   writeFileSync(
     join(application, "config.yaml"),
@@ -673,7 +673,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: []\nskills: [review-pr]\n",
     );
     writeFileSync(
       join(application, "config.yaml"),

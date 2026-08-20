@@ -114,7 +114,7 @@ async function fleetHome(options: {
   }
   writeFileSync(
     join(workspace, "profiles", "engineering.yaml"),
-    `id: engineering\ncontext: [team-rules]\nskills: [${skillIds.join(", ")}]\nagents: []\nhooks: []\ntools: []\n`,
+    `id: engineering\ncontext: [team-rules]\nskills: [${skillIds.join(", ")}]\n`,
   );
 
   const hosts = options.hosts ?? ["codex"];
@@ -296,7 +296,7 @@ describe("lifecycle Git inspection batching", () => {
     writeSkill(workspace, "review-pr");
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: engineering\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
 
     const repository = gitRepository("apk-git-inspect-shared-excl-repo-");

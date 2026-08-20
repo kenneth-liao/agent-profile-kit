@@ -242,11 +242,6 @@ async function planTemporaryDesiredInstallation(options: {
     workspace.contexts,
     workspace.skills,
   );
-  if (profile.agents.length > 0 || profile.hooks.length > 0 || profile.tools.length > 0) {
-    throw new Error(
-      `Profile '${profile.id}' selects unsupported artifact categories; Agents, Hooks, and Tools are not supported in the project-bound slice`,
-    );
-  }
   const gitProject = await findGitProject(options.project);
   const { hash: sourceHash, fingerprints: artifactFingerprints } = await hashWorkspaceInputs(
     profile,

@@ -139,7 +139,7 @@ describe("Antigravity Context Adapter", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: engineering\ncontext: [rules]\nskills: [review-pr]\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -279,7 +279,7 @@ describe("Antigravity Context Adapter", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "skills.yaml"),
-      "id: skills\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: skills\ncontext: []\nskills: [review-pr]\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -379,7 +379,7 @@ describe("Antigravity Context Adapter", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: engineering\ncontext: [rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -409,7 +409,7 @@ describe("Antigravity Context Adapter", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [oversized]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: engineering\ncontext: [oversized]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),

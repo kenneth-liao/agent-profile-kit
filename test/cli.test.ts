@@ -290,7 +290,7 @@ function writeContextProfile(home: string, profile = "coding"): void {
   );
   writeFileSync(
     join(workspace, "profiles", `${profile}.yaml`),
-    `id: ${profile}\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n`,
+    `id: ${profile}\ncontext:\n  - team-rules\nskills: []\n`,
   );
 }
 
@@ -661,7 +661,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(custom, "profiles", "coding.yaml"),
-      "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext:\n  - team-rules\nskills: []\n",
     );
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
     const projectPath = project();
@@ -697,7 +697,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(realWorkspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext:\n  - team-rules\nskills: []\n",
     );
     const link = join(home, "link-custom");
     symlinkSync(realWorkspace, link);
@@ -993,7 +993,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(custom, "profiles", "existing.yaml"),
-      "id: existing\ncontext: [existing-context]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: existing\ncontext: [existing-context]\nskills: []\n",
     );
 
     const result = await runCli(home, "init", custom);
@@ -1452,7 +1452,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(custom, "profiles", "coding.yaml"),
-      "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext:\n  - team-rules\nskills: []\n",
     );
     // Default path has a different Profile set (or is absent).
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
@@ -1479,7 +1479,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       join(workspacePath(home), "profiles", "writing.yaml"),
-      "id: writing\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: writing\ncontext:\n  - team-rules\nskills: []\n",
     );
     const first = project();
     const second = project();
@@ -1870,7 +1870,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
     const projects = Array.from({ length: 12 }, () => project("agent-profile-kit-fleet-"));
     writeFileSync(
@@ -2208,7 +2208,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     writeFileSync(
       join(workspacePath(home), "profiles", "alternate.yaml"),
-      "id: alternate\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: alternate\ncontext: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       configPath(home),
@@ -2572,7 +2572,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12]\n",
     );
     mkdirSync(join(projectPath, ".agent-profile-kit", "codex"), { recursive: true });
     mkdirSync(join(projectPath, ".codex"));
@@ -3624,7 +3624,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
     bind(home, projectPath);
     expectExitCode(await runCli(home, "apply"), 0);
@@ -4319,7 +4319,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     chmodSync(join(source, "scripts", "run.sh"), 0o755);
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
     bind(home, projectPath);
     expectExitCode(await runCli(home, "apply"), 0);
@@ -4625,7 +4625,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
     bind(home, projectPath);
 
@@ -4671,7 +4671,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(projectPath, ".agents", "skills", "foreign-skill", "SKILL.md"), "leave me\n");
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: []\n",
     );
     const deselect = await runCli(home, "apply");
     expectExitCode(deselect, 0);
@@ -4697,7 +4697,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [plain-skill]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [plain-skill]\n",
     );
     writeFileSync(
       configPath(home),
@@ -4721,7 +4721,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(workspacePath(home), "skills", "to-spec", "SKILL.md"), sourceBody);
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [to-spec]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [to-spec]\n",
     );
 
     const validate = await runCliWithPath(home, pathValue, "validate");
@@ -4737,7 +4737,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(malformedHome), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [bad-skill]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [bad-skill]\n",
     );
     writeFileSync(
       configPath(malformedHome),
@@ -4761,7 +4761,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(conflictHome), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [to-spec]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [to-spec]\n",
     );
     const conflictProject = project();
     writeFileSync(
@@ -4827,7 +4827,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: engineering\ncontext: []\nskills: [review-pr]\n",
     );
     writeFileSync(
       configPath(home),
@@ -4838,7 +4838,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(emptyHome, "init"), 0);
     writeFileSync(
       join(workspacePath(emptyHome), "profiles", "empty.yaml"),
-      "id: empty\ncontext: []\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: empty\ncontext: []\nskills: []\n",
     );
     const emptyValidate = await runCli(emptyHome, "validate");
     expectExitCode(emptyValidate, 1);
@@ -4886,7 +4886,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
     mkdirSync(join(projectPath, ".agents", "skills", "review-pr"), { recursive: true });
     writeFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "tracked\n");
@@ -5148,11 +5148,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "skills.yaml"),
-      "id: skills\ncontext: []\nskills: [top-skill, disabled-skill]\nagents: []\nhooks: []\ntools: []\n",
+      "id: skills\ncontext: []\nskills: [top-skill, disabled-skill]\n",
     );
     writeFileSync(
       join(workspace, "profiles", "combined.yaml"),
-      "id: combined\ncontext: [team-rules]\nskills: [top-skill, disabled-skill]\nagents: []\nhooks: []\ntools: []\n",
+      "id: combined\ncontext: [team-rules]\nskills: [top-skill, disabled-skill]\n",
     );
     writeFileSync(
       configPath(home),
@@ -5338,7 +5338,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "skills.yaml"),
-      "id: skills\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: skills\ncontext: []\nskills: [review-pr]\n",
     );
     writeFileSync(
       configPath(home),
@@ -5443,7 +5443,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
     const skillsBin = installFakeGrok(home);
     const skills = await runCliWithPath(
@@ -5612,7 +5612,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
     writeFileSync(
       configPath(home),
@@ -5682,7 +5682,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: []\n",
     );
     const deselectPreview = await runCliWithPath(home, pathWithClaude, "preview");
     expectExitCode(deselectPreview, 0);
@@ -6520,7 +6520,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     writeContextProfile(home);
     writeFileSync(
       join(workspacePath(home), "profiles", "writing.yaml"),
-      "id: writing\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: writing\ncontext:\n  - team-rules\nskills: []\n",
     );
     const projectPath = project();
     const before = readFileSync(configPath(home), "utf8");
@@ -8106,11 +8106,11 @@ describe("apkit list", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "alpha.yaml"),
-      "id: alpha\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: alpha\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
     writeFileSync(
       join(workspace, "profiles", "beta.yaml"),
-      "id: beta\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: beta\ncontext: []\nskills: [review-pr]\n",
     );
 
     const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "profiles");
@@ -8161,7 +8161,7 @@ describe("apkit list", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "combined.yaml"),
-      "id: combined\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: combined\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
     writeFileSync(
       configPath(home),
@@ -8789,7 +8789,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\n",
     );
     const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-"));
     const boundProject = realpathSync(gitRepository("agent-profile-kit-bound-"));
@@ -9107,7 +9107,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\n",
     );
     const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-dispose-cli-"));
     writeFileSync(join(tempProject, "user-notes.md"), "keep me\n");
@@ -9301,7 +9301,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\n",
     );
   }
 

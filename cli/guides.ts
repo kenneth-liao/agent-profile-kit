@@ -25,8 +25,7 @@ export const TOPIC_GUIDES = {
   profile: {
     title: "Profile",
     introduction:
-      "A Profile selects reusable material for a kind of work. Every category is explicit; " +
-      "agents, hooks, and tools are currently empty.",
+      "A Profile selects reusable material for a kind of work through its context and skills lists.",
     language: "yaml",
     next: `Next: run \`apkit bind ${AUTHORING_EXAMPLES.profile.id} --host codex\`.`,
   },

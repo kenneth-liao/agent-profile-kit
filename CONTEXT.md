@@ -137,7 +137,7 @@ A host-independent behavioral or safety constraint that an Agent requires. Every
 _Avoid_: Host setting, model preference
 
 **Profile**:
-An explicit named selection of Context, Skills, Agents, Hooks, and Tools suited to a kind of work and reusable across projects. A Project Binding selects one Profile for a project, and Adapters add its material without replacing user-managed Host or project configuration.
+An explicit named selection containing exactly an Artifact ID, Context, and Skills suited to a kind of work and reusable across projects. A Project Binding selects one Profile for a project, and Adapters add its material without replacing user-managed Host or project configuration. Agents, Hooks, and Tools are not implemented Profile selection categories.
 _Avoid_: Agent, Agent Host, Profile Installation
 
 **Project Binding**:

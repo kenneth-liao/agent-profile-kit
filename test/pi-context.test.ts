@@ -55,7 +55,7 @@ async function writeContextWorkspace(
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    "id: coding\ncontext: [team-rules]\nskills: []\n",
   );
   const bindings = projects
     .map(
@@ -109,7 +109,7 @@ async function writePiSkillWorkspace(
   }
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    `id: coding\ncontext: [team-rules]\nskills: [${selectedSkills.join(", ")}]\nagents: []\nhooks: []\ntools: []\n`,
+    `id: coding\ncontext: [team-rules]\nskills: [${selectedSkills.join(", ")}]\n`,
   );
   writeFileSync(
     join(application, "config.yaml"),
@@ -532,7 +532,7 @@ describe("Pi Adapter", () => {
     );
     writeFileSync(
       join(home, ".agents", "agent-profile-kit", "workspace", "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [left-skill]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [left-skill]\n",
     );
     const deselected = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, deselected.installations);
@@ -707,11 +707,11 @@ describe("Pi Adapter", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
     );
     writeFileSync(
       join(workspace, "profiles", "context-only.yaml"),
-      "id: context-only\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: context-only\ncontext: [team-rules]\nskills: []\n",
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });

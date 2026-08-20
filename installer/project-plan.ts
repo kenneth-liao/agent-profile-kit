@@ -630,11 +630,6 @@ export async function buildDesiredState(
       binding.profile,
     );
     const resolvedProfile = planning.resolveProfile(profile);
-    if (profile.agents.length > 0 || profile.hooks.length > 0 || profile.tools.length > 0) {
-      throw new Error(
-        `Profile '${profile.id}' selects unsupported artifact categories; Agents, Hooks, and Tools are not supported in the project-bound slice`,
-      );
-    }
     const gitProject = await gitInspection.findGitProject(binding.canonicalProject);
     const { hash: sourceHash, fingerprints: artifactFingerprints } =
       await planning.hashWorkspaceInputs(profile, resolvedProfile);

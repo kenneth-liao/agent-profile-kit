@@ -313,7 +313,7 @@ async function desiredWithContextAndSkill(
   writeFileSync(join(skillRoot, "SKILL.md"), skillBody);
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    `id: coding\ncontext: [${contextIds.join(", ")}]\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n`,
+    `id: coding\ncontext: [${contextIds.join(", ")}]\nskills: [review-pr]\n`,
   );
   writeFileSync(
     join(application, "config.yaml"),

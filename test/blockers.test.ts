@@ -316,7 +316,7 @@ describe("tracked-output ownership conflicts", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [s01, s02, s03]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [s01, s02, s03]\n",
     );
     for (const skill of ["s01", "s02", "s03"]) {
       mkdirSync(join(workspace, "skills", skill), { recursive: true });

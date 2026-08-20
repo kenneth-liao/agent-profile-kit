@@ -9,10 +9,7 @@ export const AUTHORING_EXAMPLES = {
       `id: ${profile}\n` +
       "context:\n" +
       "  - example-context\n" +
-      "skills: []\n" +
-      "agents: []\n" +
-      "hooks: []\n" +
-      "tools: []\n",
+      "skills: []\n",
   },
   context: {
     id: "example-context",

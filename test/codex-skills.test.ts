@@ -100,7 +100,7 @@ async function workspaceWithSkills(
   }
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    `id: coding\ncontext: [team-rules]\nskills: [${selectedSkills.join(", ")}]\nagents: []\nhooks: []\ntools: []\n`,
+    `id: coding\ncontext: [team-rules]\nskills: [${selectedSkills.join(", ")}]\n`,
   );
   writeFileSync(
     join(application, "config.yaml"),
@@ -439,7 +439,7 @@ describe("Codex project Skill packages", () => {
 
     writeFileSync(
       join(home, ".agents", "agent-profile-kit", "workspace", "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [write-notes]\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext: [team-rules]\nskills: [write-notes]\n",
     );
     const deselected = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, deselected.installations);

@@ -72,7 +72,7 @@ describe("optional Workspace scaffolding after initialization", () => {
     );
     writeFileSync(
       join(path, "profiles", "coding.yaml"),
-      "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+      "id: coding\ncontext:\n  - team-rules\nskills: []\n",
     );
 
     const workspace = await ingestDefaultWorkspace(home);
@@ -80,6 +80,20 @@ describe("optional Workspace scaffolding after initialization", () => {
     expect(workspace.contexts.has("team-rules")).toBe(true);
     expect(workspace.profiles.has("coding")).toBe(true);
     expect(workspace.skills.size).toBe(0);
+  });
+
+  test("obsolete Profile placeholders fail with actionable migration guidance", async () => {
+    const home = isolatedHome();
+    const path = writeManifestOnlyWorkspace(home);
+    mkdirSync(join(path, "profiles"));
+    writeFileSync(
+      join(path, "profiles", "legacy.yaml"),
+      "id: legacy\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    );
+
+    await expect(ingestDefaultWorkspace(home)).rejects.toThrow(
+      "Profile profiles/legacy.yaml no longer supports fields: agents, hooks, tools. Remove these obsolete Profile fields; earlier releases allowed them only as empty placeholders",
+    );
   });
 
   test("present malformed artifacts still fail at their ingestion boundary", async () => {
@@ -154,6 +168,9 @@ describe("optional Workspace scaffolding after initialization", () => {
     expect(existsSync(join(path, "AGENTS.md"))).toBe(true);
     expect(existsSync(join(path, ".gitignore"))).toBe(true);
     expect(readFileSync(join(path, "workspace.yaml"), "utf8")).toBe(WORKSPACE_MANIFEST);
+    expect(readFileSync(join(path, "profiles", "example.yaml"), "utf8")).toBe(
+      "id: example\ncontext:\n  - example-context\nskills: []\n",
+    );
 
     // Replace the full scaffold with a minimal Manifest-only Workspace.
     rmSync(path, { recursive: true, force: true });

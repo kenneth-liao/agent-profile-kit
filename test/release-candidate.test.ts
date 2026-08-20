@@ -253,7 +253,7 @@ function writeWorkspaceAuthoring(home: string): void {
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext:\n  - team-rules\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    "id: coding\ncontext:\n  - team-rules\nskills: []\n",
   );
 }
 
@@ -287,7 +287,7 @@ function writeProfile(
   const skills = options.skills ?? [];
   writeFileSync(
     join(workspacePath(home), "profiles", `${profileId}.yaml`),
-    `id: ${profileId}\ncontext: [${context.join(", ")}]\nskills: [${skills.join(", ")}]\nagents: []\nhooks: []\ntools: []\n`,
+    `id: ${profileId}\ncontext: [${context.join(", ")}]\nskills: [${skills.join(", ")}]\n`,
   );
 }
 
@@ -908,7 +908,9 @@ describe("project-bound release candidate", () => {
     writeBindings(home, [{ project: projectPath, hosts: ["codex"] }]);
     const unsupportedAgents = await runCli(home, ["apply"]);
     expectExitCode(unsupportedAgents, 1);
-    expect(unsupportedAgents.stderr).toMatch(/agents.*this release does not support/i);
+    expect(humanText(unsupportedAgents.stderr)).toMatch(
+      /no longer supports fields: agents, hooks, tools.*remove these obsolete Profile fields.*only as empty placeholders/i,
+    );
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
 
@@ -1162,7 +1164,7 @@ describe("project-bound release candidate", () => {
     mkdirSync(join(workspace, "profiles"), { recursive: true });
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: []\nskills: [review-pr]\nagents: []\nhooks: []\ntools: []\n",
+      "id: engineering\ncontext: []\nskills: [review-pr]\n",
     );
     expect(existsSync(join(workspace, "context"))).toBe(false);
     expect(existsSync(join(workspace, "agents"))).toBe(false);

@@ -55,7 +55,7 @@ async function writeContextBinding(
   );
   writeFileSync(
     join(workspace, "profiles", "engineering.yaml"),
-    "id: engineering\ncontext: [rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
+    "id: engineering\ncontext: [rules]\nskills: []\n",
   );
   writeFileSync(
     join(application, "config.yaml"),

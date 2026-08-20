@@ -42,6 +42,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Remove the unsupported `agents`, `hooks`, and `tools` Profile fields. Profiles now contain exactly `id`, `context`, and `skills`; validation tells existing Workspace authors to remove obsolete empty placeholders. This is a pre-1.0 breaking change ([#239](https://github.com/kenneth-liao/agent-profile-kit/issues/239)).
+
 - Migrate Pi Skills from `.pi/skills/<Artifact ID>/` to the qualified shared `.agents/skills/<Artifact ID>/` projection, coalescing Codex and Pi packages with complete consuming-Host evidence and ownership-safe migration. This is a pre-1.0 breaking change; retain a state backup before the first apply, then use the documented 0.81.0 uninstall → state restore → 0.80.x apply rollback procedure if needed ([#229](https://github.com/kenneth-liao/agent-profile-kit/issues/229)).
 
 - Make the Blocker contract exhaustively structured: every Adapter and Installer emitter carries typed `kind`, `scope`, `problem`, `requirement`, `remedy`, and affected-item evidence from one closed typed vocabulary, message-only blockers can no longer be represented or emitted, and malformed internal blockers fail fast instead of degrading to a message. Lifecycle JSON and blocked `install-temp`/`remove-temp` JSON advance to `schemaVersion: 2` with each blocker serialized directly from its structured record, so no human-rendered prose must be parsed to construct machine output. Human default grouping and verbose completeness continue to derive from the same records, and exit codes, blocker ordering, ownership refusal, and Host behavior remain unchanged ([#172](https://github.com/kenneth-liao/agent-profile-kit/issues/172)).
