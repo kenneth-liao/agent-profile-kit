@@ -76,13 +76,6 @@ import {
   type ProjectScopedBlockerInput,
   type ReconciliationBlocker,
 } from "./blockers.js";
-import {
-  hostVersionsEqual,
-  installationImpacts,
-  removalImpacts,
-  sortLifecycleImpacts,
-  type LifecycleImpact,
-} from "./impacts.js";
 
 export type { ReconciliationBlocker } from "./blockers.js";
 
@@ -171,8 +164,6 @@ export interface ReconciliationReport {
   }[];
   readonly items: readonly ReconciliationItem[];
   readonly outputs: readonly OutputReconciliationItem[];
-  /** Typed lifecycle impact records for this pass, deterministically ordered. */
-  readonly impacts: readonly LifecycleImpact[];
   readonly outputConsumers: readonly OutputConsumerEvidence[];
   readonly repositoryExclusionRepairs: readonly RepositoryExclusionRepair[];
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
@@ -249,12 +240,22 @@ export async function unreadableInstallationStateReport(
       reason: message,
     }],
     outputs: [],
-    impacts: [],
   };
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
+}
+
+function hostVersionsEqual(
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return leftKeys.length === rightKeys.length && leftKeys.every(
+    (key, index) => key === rightKeys[index] && left[key] === right[key],
+  );
 }
 
 function outputRelativePath(output: DesiredProjectOutput): string {
@@ -811,7 +812,6 @@ export async function previewReconciliation(
   const scheduler = options.scheduler ?? createProjectReadScheduler();
   const items: ReconciliationItem[] = [];
   const outputItems: OutputReconciliationItem[] = [];
-  const impacts: LifecycleImpact[] = [];
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
   const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
   const {
@@ -890,10 +890,6 @@ export async function previewReconciliation(
     const repairableMissingOutputs = new Set(
       (ownership?.repairableMissingOutputs ?? []).filter((path) => proposedOutputPaths.has(path)),
     );
-    // Per-output change kinds feeding typed impact derivation. Member-level items
-    // (missing/drifted/unexpected members) are attention evidence, not planned
-    // output changes, so they never enter this map.
-    const outputChanges = new Map<string, OutputReconciliationKind>();
     const projectOutputItems: OutputReconciliationItem[] = [];
     for (const output of proposedOutputs) {
       const previousOutput = previousOutputs.get(output.path);
@@ -906,7 +902,6 @@ export async function previewReconciliation(
             previousOutput.type === output.type
           ? "unchanged"
           : "update";
-      outputChanges.set(output.path, kind);
       projectOutputItems.push({
         kind,
         path: output.path,
@@ -922,7 +917,6 @@ export async function previewReconciliation(
       previousOutputs.delete(output.path);
     }
     for (const [path, previousOutput] of previousOutputs) {
-      outputChanges.set(path, "removal");
       projectOutputItems.push({
         kind: "removal",
         path,
@@ -981,7 +975,6 @@ export async function previewReconciliation(
       }
     }
     const projectItems: ReconciliationItem[] = [];
-    const projectImpacts: LifecycleImpact[] = [];
     if (!previous) {
       const intendedTeardown = state.intendedTeardowns.some(
         (teardown) =>
@@ -997,12 +990,6 @@ export async function previewReconciliation(
           ? { reason: "Output was removed by uninstall; Project Binding was preserved" }
           : {}),
       });
-      projectImpacts.push(...installationImpacts(
-        previous,
-        installation,
-        outputChanges,
-        { intendedTeardown, moved: false, repairableMissingMarker: false },
-      ));
     } else if (moved) {
       if (ownership && !ownership.owned) {
         projectBlockers.push(normalizeBlocker(
@@ -1015,12 +1002,6 @@ export async function previewReconciliation(
         project: installation.binding.project,
         reason: "project moved",
       });
-      projectImpacts.push(...installationImpacts(
-        previous,
-        installation,
-        outputChanges,
-        { intendedTeardown: false, moved: true, repairableMissingMarker: false },
-      ));
     } else {
       const markerEvidence = await inspection.inspectMarker(installation.binding.canonicalProject);
       const proof = ownership ?? await inspectInstallationOwnership(previous, inspection);
@@ -1101,18 +1082,11 @@ export async function previewReconciliation(
           project: installation.binding.project,
         });
       }
-      projectImpacts.push(...installationImpacts(
-        previous,
-        installation,
-        outputChanges,
-        { intendedTeardown: false, moved: false, repairableMissingMarker },
-      ));
     }
     return {
       blockers: projectBlockers,
       gitProject: installation.gitProject,
       id,
-      impacts: projectImpacts,
       items: projectItems,
       outputItems: projectOutputItems,
       outputs: projectedManifest.outputs,
@@ -1131,7 +1105,6 @@ export async function previewReconciliation(
     );
     items.push(...result.items);
     outputItems.push(...result.outputItems);
-    impacts.push(...result.impacts);
     blockers.push(...result.blockers);
   }
   const staleResults = await scheduler.run(state.installations.map((installation) => async () => {
@@ -1159,7 +1132,6 @@ export async function previewReconciliation(
     }
     return {
       blockers: projectBlockers,
-      impacts: removalImpacts(installation, intentionallyDeleted),
       installationId: installation.installationId,
       items: [{
         kind: "removal" as const,
@@ -1187,7 +1159,6 @@ export async function previewReconciliation(
     );
     items.push(...result.items);
     outputItems.push(...result.outputItems);
-    impacts.push(...result.impacts);
     blockers.push(...result.blockers);
   }
   const projectedState: InstallationState = {
@@ -1211,7 +1182,6 @@ export async function previewReconciliation(
     outputs: outputItems.sort((left, right) =>
       left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
     ),
-    impacts: sortLifecycleImpacts(impacts),
     outputConsumers,
     repositoryExclusionRepairs: exclusionDiagnostics.repairs,
     repositoryExclusions: repositoryExclusionChanges(state, projectedState),

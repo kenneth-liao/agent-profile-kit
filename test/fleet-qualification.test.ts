@@ -187,29 +187,14 @@ describe("fleet-wide synchronization qualification", () => {
     expect(preview.stdout).toContain(
       "Projects: 12 · Changes: 1 generated file addition, 21 generated file updates",
     );
-    // The shared Skill change renders once per distinct Host scope (not once
-    // per Project), with deterministic file and Project counts.
-    expect(preview.stdout).toContain("Workspace changes:");
-    expect(preview.stdout).toContain(
-      "  ~ Skill review-pr · 4 files in 2 projects · Hosts claude, codex",
-    );
-    expect(preview.stdout).toContain(
-      "  ~ Skill review-pr · 9 files in 3 projects · Hosts claude, codex, grok, pi",
-    );
-    expect(preview.stdout).toContain(
-      "  ~ Skill review-pr · 2 files in 1 project · Hosts claude, codex, pi",
-    );
-    expect(preview.stdout).toContain(
-      "  ~ Skill review-pr · 3 files in 3 projects · Hosts codex",
-    );
-    expect(preview.stdout).toContain(
-      "  ~ Skill review-pr · 3 files in 3 projects · Hosts codex, pi",
-    );
-    // The Pi Host addition stays a distinct Project Binding change with scope.
+    // Concise fleet output groups only observable operations and affected
+    // Projects; it does not infer Workspace artifact or Project Binding causes.
     expect(preview.stdout).toContain("Project changes:");
-    expect(preview.stdout).toContain(
-      "  + Project Binding · 1 file in 1 project · Hosts claude, codex, pi",
-    );
+    expect(preview.stdout).toContain("  + 1 generated file addition in");
+    expect(preview.stdout).toContain("  ~ 21 generated file updates in 12 projects");
+    expect(preview.stdout).not.toContain("Workspace changes:");
+    expect(preview.stdout).not.toContain("Skill review-pr");
+    expect(preview.stdout).not.toContain("Project Binding");
     // One collapsed next action; no repeated per-Project blocks or zero-value
     // blocker clauses.
     expect(preview.stdout.match(/Run apkit apply\./g)).toHaveLength(1);
@@ -224,11 +209,11 @@ describe("fleet-wide synchronization qualification", () => {
     const json = await runCli(home, pathWithHosts, "preview", "--json");
     expectExitCode(json, 0);
     const payload = JSON.parse(json.stdout) as {
-      readonly impacts: readonly { readonly kind: string; readonly project: string }[];
       readonly installations: readonly { readonly state: string }[];
+      readonly schemaVersion: number;
     };
-    expect(payload.impacts.length).toBeGreaterThanOrEqual(12);
-    expect(payload.impacts.some((impact) => impact.kind === "binding")).toBe(true);
+    expect(payload.schemaVersion).toBe(3);
+    expect(payload).not.toHaveProperty("impacts");
     expect(payload.installations).toHaveLength(12);
 
     // Apply reconciles the fleet and reports the receipt without a repeated
@@ -237,17 +222,11 @@ describe("fleet-wide synchronization qualification", () => {
     expectExitCode(apply, 0);
     expect(apply.stdout).toContain("Apply complete");
     expect(apply.stdout).toContain("Applied:");
-    // The receipt groups preview-consistent facts: the binding change first,
-    // then the shared Skill change per Host scope.
-    expect(apply.stdout).toContain(
-      "  + Project Binding · 1 file in 1 project · Hosts claude, codex, pi",
-    );
-    expect(apply.stdout).toContain(
-      "  ~ Skill review-pr · 9 files in 3 projects · Hosts claude, codex, grok, pi",
-    );
-    expect(apply.stdout).toContain(
-      "  ~ Skill review-pr · 3 files in 3 projects · Hosts codex, pi",
-    );
+    // The receipt repeats the same observable operation summary.
+    expect(apply.stdout).toContain("  + 1 generated file addition in");
+    expect(apply.stdout).toContain("  ~ 21 generated file updates in 12 projects");
+    expect(apply.stdout).not.toContain("Skill review-pr");
+    expect(apply.stdout).not.toContain("Project Binding");
     expect(apply.stdout).not.toContain("State: current");
     // Grouped readiness appears once per Host scope, never per Project.
     expect(humanText(apply.stdout).match(/becomes active on the next launch/g)).toHaveLength(5);

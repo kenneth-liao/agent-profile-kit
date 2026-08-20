@@ -118,9 +118,10 @@ Machine-readable command contracts:
   Project paths, Profile IDs, and Hosts. Removed identities and ordinary
   installations are omitted. It reads Installation State only and never runs
   reconciliation or changes state.
-- Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 2`
+- Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 3`
   object with `outcome`, per-installation state, ordered Capability Contracts,
-  planned or committed paths, per-path consuming-Host evidence, warnings, Host Setup Steps, repository-exclusion evidence, and blockers
+  planned or committed output operations, per-path consuming-Host evidence,
+  warnings, Host Setup Steps, repository-exclusion evidence, and blockers
   serialized from their exhaustive structured records: `kind`, `scope`, Project
   identity when scoped, `message`, `problem`, `requirement`, `remedy`, and
   `affectedItems`. Blocked `install-temp`/`remove-temp` JSON uses the same

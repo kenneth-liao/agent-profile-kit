@@ -289,7 +289,6 @@ function reportProjection(report: ReconciliationReport): unknown {
       profile: installation.profile,
       setupSteps: installation.setupSteps,
     })),
-    impacts: report.impacts,
     items: report.items,
     outputs: report.outputs,
     repositoryExclusionRepairs: report.repositoryExclusionRepairs,

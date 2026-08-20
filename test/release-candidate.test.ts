@@ -560,7 +560,7 @@ describe("project-bound release candidate", () => {
     );
     const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(staleStatus, 0);
-    expect(staleStatus.stdout).toMatch(/stale/i);
+    expect(staleStatus.stdout).toContain("generated file updates");
 
     const reapply = await runCli(home, ["apply"], { path: pathWithClaude });
     expectExitCode(reapply, 0);
@@ -1060,7 +1060,7 @@ describe("project-bound release candidate", () => {
     writeSkill(home, "review-pr", { body: "# Review updated for release candidate\n" });
     const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(staleStatus, 0);
-    expect(staleStatus.stdout).toMatch(/stale/i);
+    expect(staleStatus.stdout).toContain("generated file updates");
     const reapply = await runCli(home, ["apply"], { path: pathWithClaude });
     expectExitCode(reapply, 0);
     expect(
