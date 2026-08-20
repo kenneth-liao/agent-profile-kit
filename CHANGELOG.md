@@ -48,6 +48,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Recover supported high-alias YAML Installation State within explicit 8 MiB file and 100,000-alias expansion limits, keep hostile or oversized state fail-closed, and make every transitional YAML publication alias-free and exact-byte validated by the production reader before atomic replacement ([#238](https://github.com/kenneth-liao/agent-profile-kit/issues/238)).
+
 - Make Antigravity Skill rejection mandatory at the desired-state boundary, preserve stable rule ordering limits, and document Host rollback requirements ([#230](https://github.com/kenneth-liao/agent-profile-kit/issues/230)).
 
 - Use the process executor's canonical group-empty result for TERM-resistant descendant cleanup verification instead of treating a terminated orphan awaiting macOS process-table reaping as a live leak ([#211](https://github.com/kenneth-liao/agent-profile-kit/issues/211)).

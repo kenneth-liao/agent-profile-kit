@@ -2,6 +2,7 @@ import {
   mkdir,
   lstat,
   mkdtemp,
+  open,
   readFile,
   rename,
   rm,
@@ -15,6 +16,7 @@ import {
   canonicalRepositoryExclusionRecord,
   compareCanonicalStrings,
   INSTALLATION_MARKER_PATH,
+  INSTALLATION_STATE_MAX_BYTES,
   parseLegacyInstallationState,
   parsePreviousInstallationState,
   parseV4InstallationState,
@@ -43,6 +45,34 @@ import {
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
+}
+
+const STATE_READ_CHUNK_BYTES = 64 * 1024;
+
+/** Read Installation State without ever buffering more than the accepted size. */
+async function readInstallationStateSource(home: string): Promise<string> {
+  const handle = await open(stateManifestPath(home), "r");
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const chunk = Buffer.allocUnsafe(
+        Math.min(STATE_READ_CHUNK_BYTES, INSTALLATION_STATE_MAX_BYTES + 1 - total),
+      );
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+      if (total > INSTALLATION_STATE_MAX_BYTES) {
+        throw new Error(
+          `Installation State exceeds the ${INSTALLATION_STATE_MAX_BYTES} byte limit`,
+        );
+      }
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+    return Buffer.concat(chunks, total).toString("utf8");
+  } finally {
+    await handle.close();
+  }
 }
 
 export interface InstallationStateRead {
@@ -165,7 +195,7 @@ export function emptyInstallationState(): InstallationState {
 
 export async function readInstallationStateWithMigration(home: string): Promise<InstallationStateRead> {
   try {
-    const source = await readFile(stateManifestPath(home), "utf8");
+    const source = await readInstallationStateSource(home);
     const parsed = parseInstallationStateSource(source);
     let state: InstallationState;
     switch (parsed.schemaVersion) {
@@ -225,7 +255,7 @@ export async function readTemporaryInstallations(
 ): Promise<InstallationState["temporaryInstallations"]> {
   let source: string;
   try {
-    source = await readFile(stateManifestPath(home), "utf8");
+    source = await readInstallationStateSource(home);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) return [];
     throw error;
@@ -238,19 +268,19 @@ export async function writeInstallationState(
   home: string,
   state: InstallationState,
 ): Promise<void> {
+  const source = formatInstallationState({
+    ...normalizedInstallationState(state),
+    intendedTeardowns: [...state.intendedTeardowns]
+      .sort((left, right) => left.project.localeCompare(right.project)),
+  });
+  // Publication is allowed only when the production reader accepts the exact bytes.
+  parseInstallationState(source);
+
   const directory = stateDirectory(home);
   await mkdir(directory, { recursive: true });
   const destination = stateManifestPath(home);
   const temporary = join(directory, `.manifest-${process.pid}-${Date.now()}.tmp`);
-  await writeFile(
-    temporary,
-    formatInstallationState({
-      ...normalizedInstallationState(state),
-      intendedTeardowns: [...state.intendedTeardowns]
-        .sort((left, right) => left.project.localeCompare(right.project)),
-    }),
-    { flag: "wx" },
-  );
+  await writeFile(temporary, source, { flag: "wx" });
   try {
     await rename(temporary, destination);
   } finally {

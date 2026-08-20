@@ -4,6 +4,8 @@ import { parse, stringify } from "yaml";
 import {
   formatInstallationState,
   formatInstallationManifest,
+  INSTALLATION_STATE_MAX_ALIAS_COUNT,
+  INSTALLATION_STATE_MAX_BYTES,
   parseLegacyInstallationState,
   parseInstallationState,
   parsePreviousInstallationState,
@@ -50,6 +52,84 @@ function validState(): InstallationState {
     schemaVersion: 5,
   };
 }
+
+describe("Installation State YAML recovery", () => {
+  test("reads legitimate state whose shared Dependency paths exceed the YAML default alias limit", () => {
+    const sharedReference = { id: "shared-skill", type: "skill" };
+    const source = stringify({
+      schema_version: 5,
+      intended_teardowns: [],
+      installations: [{
+        ...parse(formatInstallationManifest(installation("install-a", "/repo/a"))),
+        resolved_artifacts: [{
+          type: "skill",
+          id: "shared-skill",
+          fingerprint: hash,
+          inclusion_reasons: Array.from({ length: 200 }, () => ({
+            profile: "coding",
+            path: [sharedReference],
+          })),
+        }],
+        output_origins: { ".agent-profile-kit/installation.json": [] },
+      }],
+      repository_exclusions: [],
+      temporary_installations: [],
+    });
+
+    expect((source.match(/\*/g) ?? [])).toHaveLength(199);
+    expect(parseInstallationState(source).installations[0]?.resolvedArtifacts[0]?.inclusionReasons)
+      .toHaveLength(200);
+  });
+
+  test("rejects Installation State larger than the explicit file-size limit", () => {
+    const source = `${formatInstallationState(validState())}#${"x".repeat(INSTALLATION_STATE_MAX_BYTES)}\n`;
+
+    expect(() => parseInstallationState(source)).toThrow(/exceeds the .* byte limit/);
+  });
+
+  test("rejects hostile YAML whose alias expansion exceeds the explicit limit", () => {
+    const levels = Math.ceil(Math.log2(INSTALLATION_STATE_MAX_ALIAS_COUNT)) + 1;
+    let source = [
+      "schema_version: 5",
+      "intended_teardowns: []",
+      "installations: []",
+      "repository_exclusions: []",
+      "temporary_installations: []",
+      "bomb_0: &bomb_0 [value]",
+    ].join("\n");
+    for (let level = 1; level <= levels; level += 1) {
+      source += `\nbomb_${level}: &bomb_${level} [*bomb_${level - 1}, *bomb_${level - 1}]`;
+    }
+
+    expect(Buffer.byteLength(source, "utf8")).toBeLessThan(INSTALLATION_STATE_MAX_BYTES);
+    expect(() => parseInstallationState(`${source}\n`)).toThrow(/invalid YAML/);
+  });
+
+  test("formats transitional Installation State without YAML aliases", () => {
+    const sharedPath = [{ id: "shared-skill", type: "skill" as const }];
+    const state: InstallationState = {
+      ...validState(),
+      installations: [{
+        ...installation("install-a", "/repo/a"),
+        resolvedArtifacts: [{
+          fingerprint: hash,
+          inclusionReasons: Array.from({ length: 200 }, () => ({
+            path: sharedPath,
+            profile: "coding",
+          })),
+          reference: sharedPath[0]!,
+        }],
+        outputOrigins: { ".agent-profile-kit/installation.json": [] },
+      }],
+      repositoryExclusions: [],
+    };
+
+    const source = formatInstallationState(state);
+
+    expect(source).not.toMatch(/(?:^|\s)[&*][a-zA-Z0-9_-]+/m);
+    expect(parseInstallationState(source).installations).toHaveLength(1);
+  });
+});
 
 describe("Repository Exclusion Record schema", () => {
   test("keeps schema-v2 state available to the explicit migration boundary", () => {
