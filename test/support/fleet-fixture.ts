@@ -107,18 +107,26 @@ function gitRepository(): string {
 
 export interface FleetFixture {
   readonly home: string;
-  /** Canonical project roots, one per FLEET_HOSTS entry. */
+  /** Canonical project roots, one per configured fleet entry. */
   readonly projects: readonly string[];
   /** Path value that prepends controlled Host CLI stubs. */
   readonly pathWithHosts: string;
 }
 
+export interface FleetFixtureOptions {
+  readonly dependencyRich?: boolean;
+  readonly projectCount?: number;
+}
+
 /**
- * Build one isolated Workspace, Local Configuration, and 12-Project fleet
- * inside `home`. Projects alternate Git and plain roots; Host sets follow
- * {@link FLEET_HOSTS}. Controlled Host CLI stubs are installed under the HOME.
+ * Build one isolated Workspace, Local Configuration, and fleet inside `home`.
+ * Projects alternate Git and plain roots; Host sets repeat {@link FLEET_HOSTS}.
+ * Controlled Host CLI stubs are installed under the HOME.
  */
-export function createFleetFixture(home: string): FleetFixture {
+export function createFleetFixture(
+  home: string,
+  options: FleetFixtureOptions = {},
+): FleetFixture {
   mkdirSync(workspacePath(home), { recursive: true });
   for (const category of ["agents", "context", "hooks", "profiles", "skills", "tools"]) {
     mkdirSync(join(workspacePath(home), category), { recursive: true });
@@ -135,17 +143,33 @@ export function createFleetFixture(home: string): FleetFixture {
     "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
   );
   writeSkill(home, FLEET_SKILL);
+  if (options.dependencyRich) {
+    const branches = Array.from({ length: 12 }, (_, index) => `branch-${index + 1}`);
+    writeSkill(home, "shared-base");
+    for (const id of branches) {
+      writeSkill(home, id);
+      writeFileSync(
+        join(workspacePath(home), "skills", id, "agent-profile-kit.yaml"),
+        "dependencies:\n  - type: skill\n    id: shared-base\n",
+      );
+    }
+    writeFileSync(
+      join(workspacePath(home), "skills", FLEET_SKILL, "agent-profile-kit.yaml"),
+      `dependencies:\n${branches.map((id) => `  - type: skill\n    id: ${id}\n`).join("")}`,
+    );
+  }
   writeFileSync(
     join(workspacePath(home), "profiles", `${FLEET_PROFILE}.yaml`),
     `id: ${FLEET_PROFILE}\ncontext: [team-rules]\nskills: [${FLEET_SKILL}]\nagents: []\nhooks: []\ntools: []\n`,
   );
-  const projects = FLEET_HOSTS.map((_, index) =>
+  const projectCount = options.projectCount ?? FLEET_HOSTS.length;
+  const projects = Array.from({ length: projectCount }, (_, index) =>
     index % 2 === 0 ? gitRepository() : plainProject(),
   );
   const body = projects
     .map(
       (project, index) =>
-        `  - project: ${project}\n    profile: ${FLEET_PROFILE}\n    hosts:\n${FLEET_HOSTS[index]!
+        `  - project: ${project}\n    profile: ${FLEET_PROFILE}\n    hosts:\n${FLEET_HOSTS[index % FLEET_HOSTS.length]!
           .map((host) => `      - ${host}\n`)
           .join("")}`,
     )

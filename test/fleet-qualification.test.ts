@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse, stringify } from "yaml";
 
 import { PREVIEW_PROGRESS_LABEL } from "../cli/progress.js";
 import {
@@ -31,7 +32,7 @@ import {
 import { createLifecycleGitInspectionContext } from "../installer/lifecycle-git-inspection.js";
 import { createLifecycleOwnershipInspectionContext } from "../installer/lifecycle-ownership-inspection.js";
 import { createProjectReadScheduler } from "../installer/project-scheduler.js";
-import { buildDesiredState } from "../installer/project-plan.js";
+import { buildDesiredState, stateManifestPath } from "../installer/project-plan.js";
 import {
   applyReconciliation,
   nodeFileSystem,
@@ -407,6 +408,53 @@ describe("fleet-wide synchronization qualification", () => {
     expect(applied.resultingState.items.every((item) => item.kind === "current")).toBe(true);
     const state = await readInstallationState(home);
     expect(state.installations).toHaveLength(12);
+  });
+
+  test("a fresh process recovers legitimate high-alias state for a dependency-rich 14-Project fleet and the next publication stays readable", async () => {
+    const home = isolatedHome();
+    const fixture = createFleetFixture(home, { dependencyRich: true, projectCount: 14 });
+    const statePath = stateManifestPath(home);
+
+    expectExitCode(await runCli(home, fixture.pathWithHosts, "apply"), 0);
+
+    const stateValue = parse(readFileSync(statePath, "utf8")) as {
+      installations: Array<{
+        resolved_artifacts: Array<{
+          inclusion_reasons: Array<{ path: Array<Record<string, unknown>> }>;
+        }>;
+      }>;
+    };
+    const references = new Map<string, Record<string, unknown>>();
+    for (const installation of stateValue.installations) {
+      for (const artifact of installation.resolved_artifacts) {
+        for (const reason of artifact.inclusion_reasons) {
+          reason.path = reason.path.map((reference) => {
+            const key = JSON.stringify(reference);
+            const shared = references.get(key) ?? reference;
+            references.set(key, shared);
+            return shared;
+          });
+        }
+      }
+    }
+    const legitimateHighAliasState = stringify(stateValue);
+    expect((legitimateHighAliasState.match(/(?:^|\s)\*[a-zA-Z0-9_-]+/gm) ?? []).length)
+      .toBeGreaterThan(50);
+    expect(() => parse(legitimateHighAliasState)).toThrow(/Excessive alias count/);
+    writeFileSync(statePath, legitimateHighAliasState);
+
+    const recovered = await runCli(home, fixture.pathWithHosts, "status");
+    expectExitCode(recovered, 0);
+    expect(recovered.stdout).toContain("All Projects are current (14 Projects)");
+
+    writeSkill(home, FLEET_SKILL, "# review-pr\n\nPublish alias-free state.\n");
+    expectExitCode(await runCli(home, fixture.pathWithHosts, "apply"), 0);
+    const published = readFileSync(statePath, "utf8");
+    expect(published).not.toMatch(/(?:^|\s)[&*][a-zA-Z0-9_-]+/m);
+
+    const nextRead = await runCli(home, fixture.pathWithHosts, "status");
+    expectExitCode(nextRead, 0);
+    expect(nextRead.stdout).toContain("All Projects are current (14 Projects)");
   });
 
   test("existing delayed progress integrates with the packed fleet without flicker and never emits in non-interactive modes", async () => {

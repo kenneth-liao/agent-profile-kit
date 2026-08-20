@@ -18,6 +18,10 @@ export const INSTALLATION_STATE_PREVIOUS_SCHEMA_VERSION = 3;
 /** Schema version that introduced intended teardown provenance without temporary installations. */
 export const INSTALLATION_STATE_V4_SCHEMA_VERSION = 4;
 export const INSTALLATION_STATE_SCHEMA_VERSION = 5;
+/** Maximum UTF-8 bytes accepted from transitional Installation State. */
+export const INSTALLATION_STATE_MAX_BYTES = 8 * 1024 * 1024;
+/** Maximum expanded YAML aliases accepted from supported transitional Installation State. */
+export const INSTALLATION_STATE_MAX_ALIAS_COUNT = 100_000;
 export const INSTALLATION_MARKER_SCHEMA_VERSION = 1;
 export const INSTALLATION_MARKER_PATH = ".agent-profile-kit/installation.json";
 
@@ -226,12 +230,27 @@ function requireExactFields(
   }
 }
 
-function parseYaml(source: string, description: string): unknown {
+function parseYaml(
+  source: string,
+  description: string,
+  options?: { readonly maxAliasCount: number },
+): unknown {
   try {
-    return parse(source);
+    return parse(source, options);
   } catch {
     throw new Error(`${description} is invalid YAML`);
   }
+}
+
+function parseInstallationStateYaml(source: string): unknown {
+  if (Buffer.byteLength(source, "utf8") > INSTALLATION_STATE_MAX_BYTES) {
+    throw new Error(
+      `Installation State exceeds the ${INSTALLATION_STATE_MAX_BYTES} byte limit`,
+    );
+  }
+  return parseYaml(source, "Installation State", {
+    maxAliasCount: INSTALLATION_STATE_MAX_ALIAS_COUNT,
+  });
 }
 
 function requireRelativeOutputPath(value: unknown, description: string): string {
@@ -992,7 +1011,7 @@ function manifestValue(manifest: ProjectInstallationManifest): Record<string, un
 }
 
 export function parseInstallationState(source: string): InstallationState {
-  const value = parseYaml(source, "Installation State");
+  const value = parseInstallationStateYaml(source);
   const state = requireMapping(value, "Installation State");
   requireExactFields(
     state,
@@ -1035,7 +1054,7 @@ export function parseV4InstallationState(source: string): {
   readonly repositoryExclusions: readonly RepositoryExclusionRecord[];
   readonly schemaVersion: 4;
 } {
-  const value = parseYaml(source, "Installation State");
+  const value = parseInstallationStateYaml(source);
   const state = requireMapping(value, "Installation State");
   requireExactFields(
     state,
@@ -1090,7 +1109,7 @@ export function parsePreviousInstallationState(source: string): {
   readonly repositoryExclusions: readonly RepositoryExclusionRecord[];
   readonly schemaVersion: 3;
 } {
-  const value = parseYaml(source, "Installation State");
+  const value = parseInstallationStateYaml(source);
   const state = requireMapping(value, "Installation State");
   requireExactFields(
     state,
@@ -1113,7 +1132,7 @@ export function parseLegacyInstallationState(source: string): {
   readonly installations: readonly ProjectInstallationManifest[];
   readonly schemaVersion: 2;
 } {
-  const value = parseYaml(source, "Installation State");
+  const value = parseInstallationStateYaml(source);
   const state = requireMapping(value, "Installation State");
   requireExactFields(state, ["schema_version", "installations"], "Installation State");
   if (state.schema_version !== INSTALLATION_STATE_LEGACY_SCHEMA_VERSION) {
@@ -1187,7 +1206,7 @@ export function formatInstallationState(state: InstallationState): string {
           })),
         entries: sortedEntries(record.entries),
       })),
-  });
+  }, { aliasDuplicateObjects: false });
 }
 
 export function parseInstallationMarker(source: string): InstallationMarker {

@@ -46,6 +46,7 @@ import { projectConflictBlockers } from "../installer/temporary-installation.js"
 import {
   canonicalRepositoryExclusionRecord,
   formatInstallationMarker,
+  INSTALLATION_STATE_MAX_BYTES,
   type InstallationState,
 } from "../schemas/installation-manifest.js";
 
@@ -102,12 +103,12 @@ function requireDefined<T>(value: T | undefined, description: string): T {
 }
 
 describe("structured Installer blocker evidence", () => {
-  test("unreadable Installation State emits one structured global blocker", async () => {
+  test("out-of-bound Installation State emits one structured global blocker", async () => {
     const project = temporaryDirectory("apkit-evidence-project-");
     const home = await prepareHome(project);
     const statePath = stateManifestPath(home);
     mkdirSync(dirname(statePath), { recursive: true });
-    writeFileSync(statePath, "not: a valid installation state\n");
+    writeFileSync(statePath, `#${"x".repeat(INSTALLATION_STATE_MAX_BYTES)}\n`);
 
     const report = await statusApplication(home);
 
