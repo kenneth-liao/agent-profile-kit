@@ -115,25 +115,23 @@ export interface DesiredInstallation {
   readonly resolvedProfile: ResolvedProfile;
   readonly sourceHash: string;
   readonly setupSteps: readonly HostSetupStep[];
-  /** Structured values referenced by adapter-authored warnings. */
-  readonly diagnosticValues: readonly string[];
-  readonly warnings: readonly string[];
+  /** Adapter-authored warnings retain copyable values beside their message. */
+  readonly warnings: readonly AdapterDiagnosticWarning[];
 }
 
-/** Normalize Adapter-authored diagnostics into the legacy text and typed value projections. */
+/** Normalize Adapter-authored diagnostics once while preserving their typed values. */
 export function appendDiagnosticWarnings(
-  warnings: string[],
-  diagnosticValues: string[],
+  warnings: AdapterDiagnosticWarning[],
   diagnostics: readonly AdapterDiagnosticWarning[],
   projectPrefix?: string,
 ): void {
   for (const diagnostic of diagnostics) {
-    warnings.push(
-      projectPrefix === undefined
+    warnings.push({
+      copyableValues: [...diagnostic.copyableValues],
+      message: projectPrefix === undefined
         ? diagnostic.message
         : `${projectPrefix}: ${diagnostic.message}`,
-    );
-    diagnosticValues.push(...diagnostic.copyableValues);
+    });
   }
 }
 
@@ -632,8 +630,7 @@ export async function buildDesiredState(
     const blockers: BlockerInput[] = [];
     const plans: AdapterProjectPlan[] = [];
     const hostVersions: Record<string, string> = {};
-    const warnings: string[] = [];
-    const diagnosticValues: string[] = [];
+    const warnings: AdapterDiagnosticWarning[] = [];
     for (const host of binding.hosts) {
       const result = await planRegisteredAdapter(
         host,
@@ -665,12 +662,7 @@ export async function buildDesiredState(
           ),
         );
       }
-      appendDiagnosticWarnings(
-        warnings,
-        diagnosticValues,
-        result.diagnostics,
-        binding.project,
-      );
+      appendDiagnosticWarnings(warnings, result.diagnostics, binding.project);
       if (result.plan !== undefined) {
         plans.push(result.plan);
         hostVersions[host] = result.plan.hostVersion;
@@ -693,7 +685,6 @@ export async function buildDesiredState(
         plan.setupSteps.map((step) => ({ ...step, host: plan.host }))
       ),
       sourceHash,
-      diagnosticValues: [...new Set(diagnosticValues)].sort(),
       warnings,
     };
   }));

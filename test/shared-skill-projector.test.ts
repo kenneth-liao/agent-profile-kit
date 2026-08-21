@@ -179,8 +179,8 @@ describe("shared .agents Skill projector", () => {
       project: realpathSync(project),
       scope: "project",
     });
-    expect(installation.blockers[0]?.message).toContain("canonical Workspace metadata.agent-profile-kit.model-invocation");
-    expect(installation.blockers[0]?.message).toContain("agents/openai.yaml policy.allow_implicit_invocation");
+    expect(installation.blockers[0]?.problem).toContain("canonical Workspace metadata.agent-profile-kit.model-invocation");
+    expect(installation.blockers[0]?.problem).toContain("agents/openai.yaml policy.allow_implicit_invocation");
     expect(installation.blockers[0]?.remedy).toContain("Repair the canonical Workspace Skill 'review-pr'");
   });
 

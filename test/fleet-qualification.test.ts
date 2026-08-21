@@ -157,14 +157,12 @@ describe("fleet-wide synchronization qualification", () => {
     const initialApply = await runCli(home, pathWithHosts, "apply", "--json");
     expectExitCode(initialApply, 0);
     const initialJson = JSON.parse(initialApply.stdout) as {
-      readonly applied: { readonly installations: readonly unknown[] };
-      readonly installations: readonly { readonly state: string }[];
+      readonly applied: { readonly projects: readonly unknown[] };
+      readonly projects: readonly { readonly state: { readonly kind: string } }[];
     };
-    expect(initialJson.applied.installations).toHaveLength(12);
-    expect(initialJson.installations).toHaveLength(12);
-    expect(initialJson.installations.every((installation) => installation.state === "current")).toBe(
-      true,
-    );
+    expect(initialJson.applied.projects).toHaveLength(12);
+    expect(initialJson.projects).toHaveLength(12);
+    expect(initialJson.projects.every((project) => project.state.kind === "current")).toBe(true);
     // Every Project carries its Installation Marker and owned output.
     for (const project of projects) {
       expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
@@ -201,7 +199,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(preview.stdout).not.toContain("Blockers: 0");
     expect(preview.stdout).not.toContain("State: current");
 
-    // Verbose retains the complete per-Project evidence; JSON stays flat.
+    // Verbose and JSON retain the complete per-Project evidence.
     const verbose = await runCli(home, pathWithHosts, "preview", "--verbose");
     expectExitCode(verbose, 0);
     for (const project of projects) expect(verbose.stdout).toContain(project);
@@ -209,12 +207,12 @@ describe("fleet-wide synchronization qualification", () => {
     const json = await runCli(home, pathWithHosts, "preview", "--json");
     expectExitCode(json, 0);
     const payload = JSON.parse(json.stdout) as {
-      readonly installations: readonly { readonly state: string }[];
+      readonly projects: readonly { readonly state: { readonly kind: string } }[];
       readonly schemaVersion: number;
     };
-    expect(payload.schemaVersion).toBe(4);
+    expect(payload.schemaVersion).toBe(5);
     expect(payload).not.toHaveProperty("impacts");
-    expect(payload.installations).toHaveLength(12);
+    expect(payload.projects).toHaveLength(12);
 
     // Apply reconciles the fleet and reports the receipt without a repeated
     // current-Project matrix; the resulting state is verified current.

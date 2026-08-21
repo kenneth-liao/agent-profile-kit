@@ -599,17 +599,16 @@ describe("Pi Adapter", () => {
       schemaVersion: 5,
     });
     const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
-      outputConsumers: readonly {
-        consumingHosts: readonly string[];
-        path: string;
+      projects: readonly {
         project: string;
+        outputs: readonly { consumingHosts: readonly string[]; path: string }[];
       }[];
     };
-    expect(machine.outputConsumers).toContainEqual({
+    expect(machine.projects[0]?.project).toBe(project);
+    expect(machine.projects[0]?.outputs).toContainEqual(expect.objectContaining({
       consumingHosts: ["codex", "pi"],
       path: ".agents/skills/review-pr",
-      project,
-    });
+    }));
     const verbose = formatLifecycleReport("preview", report, { verbose: true });
     expect(verbose).toContain("Consuming Hosts:");
     expect(verbose).toContain(".agents/skills/review-pr: codex, pi");
@@ -789,11 +788,11 @@ describe("Pi Adapter", () => {
       (candidate) => candidate.binding.project === project,
     );
     expect(installation?.blockers).toEqual([]);
-    expect(installation?.warnings.some((warning) => /project settings.*JSON/i.test(warning))).toBe(
-      true,
-    );
+    expect(installation?.warnings.some((warning) =>
+      /project settings.*JSON/i.test(warning.message)
+    )).toBe(true);
     const canonicalSettingsPath = join(realpathSync(project), ".pi", "settings.json");
-    expect(installation?.diagnosticValues).toContain(canonicalSettingsPath);
+    expect(installation?.warnings[0]?.copyableValues).toContain(canonicalSettingsPath);
     const report = await previewReconciliation(desired.installations, {
       intendedTeardowns: [],
       installations: [],

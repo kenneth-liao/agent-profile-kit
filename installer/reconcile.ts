@@ -61,6 +61,7 @@ import {
   gitExclusionDiagnostics,
   replaceRepositoryExclusionContribution,
   repositoryExclusionChanges,
+  REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX,
   stageGitExclusions,
   type RepositoryExclusionChange,
   type RepositoryExclusionRepair,
@@ -145,10 +146,51 @@ export interface DesiredResolvedArtifactPreview {
   readonly type: string;
 }
 
-export interface ReconciliationReport {
+export interface ReconciliationWarning {
+  readonly copyableValues: readonly string[];
+  readonly message: string;
+}
+
+export interface ReconciliationProjectOutput
+  extends Omit<OutputReconciliationItem, "project"> {
+  readonly consumingHosts: readonly string[];
+}
+
+export interface ReconciliationProjectRecord {
+  /** Canonical Project identity and deterministic report ordering key. */
+  readonly canonicalProject: string;
+  /** Authored Project spelling retained for presentation. */
+  readonly project: string;
+  readonly desired?: {
+    readonly capabilityContracts?: Readonly<Record<string, string>>;
+    readonly context: string;
+    readonly hosts: DesiredInstallation["binding"]["hosts"];
+    readonly outputs: readonly string[];
+    readonly profile: string;
+    readonly resolvedArtifacts: readonly DesiredResolvedArtifactPreview[];
+  };
+  readonly state: Omit<ReconciliationItem, "project">;
+  readonly outputs: readonly ReconciliationProjectOutput[];
+  readonly blockers: readonly ReconciliationBlocker[];
+  readonly warnings: readonly ReconciliationWarning[];
+  readonly setupSteps: DesiredInstallation["setupSteps"];
+  readonly repositoryExclusionRepairs: readonly RepositoryExclusionRepair[];
+  readonly repositoryExclusions: readonly RepositoryExclusionChange[];
+}
+
+/** Canonical reconciliation model: global evidence plus one complete record per Project. */
+interface CanonicalReconciliationReport {
+  readonly globalBlockers: readonly ReconciliationBlocker[];
+  readonly projects: readonly ReconciliationProjectRecord[];
+}
+
+/**
+ * Temporary compatibility projection consumed only by the existing human renderer.
+ * Ticket #249 removes this type when presentation reads Project records directly.
+ */
+export interface FlatReconciliationReport {
   readonly blockers: readonly ReconciliationBlocker[];
   readonly desired: readonly {
-    /** Canonical project identity used to group authored and expanded paths. */
     readonly canonicalProject: string;
     readonly capabilityContracts?: Readonly<Record<string, string>>;
     readonly context: string;
@@ -164,14 +206,96 @@ export interface ReconciliationReport {
   readonly outputConsumers: readonly OutputConsumerEvidence[];
   readonly repositoryExclusionRepairs: readonly RepositoryExclusionRepair[];
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
-  /** Structured values referenced by lifecycle diagnostics and warnings. */
   readonly diagnosticValues: readonly string[];
   readonly warnings: readonly string[];
 }
 
-export type BlockedReconciliationReport = Omit<ReconciliationReport, "blockers"> & {
-  readonly blockers: readonly [ReconciliationBlocker, ...ReconciliationBlocker[]];
-};
+/**
+ * Nested fields are canonical. Flat fields are the temporary typed human
+ * projection retained until #249 moves rendering directly onto Project records.
+ */
+export type ReconciliationReport = CanonicalReconciliationReport & FlatReconciliationReport;
+
+export type BlockedReconciliationReport = ReconciliationReport;
+
+export function flatReconciliationReport(report: CanonicalReconciliationReport): FlatReconciliationReport {
+  const desired = report.projects.flatMap((record) => record.desired === undefined ? [] : [{
+    canonicalProject: record.canonicalProject,
+    ...record.desired,
+    project: record.project,
+    setupSteps: record.setupSteps,
+  }]);
+  return {
+    blockers: [
+      ...report.globalBlockers,
+      ...report.projects.flatMap((record) => record.blockers),
+    ],
+    desired,
+    items: report.projects.map((record) => ({ ...record.state, project: record.project })),
+    outputs: report.projects.flatMap((record) => record.outputs.map(({ consumingHosts: _, ...output }) => ({
+      ...output,
+      project: record.project,
+    }))),
+    outputConsumers: report.projects.flatMap((record) => record.outputs.flatMap((output) =>
+      output.consumingHosts.length === 0 ? [] : [{
+        consumingHosts: output.consumingHosts,
+        path: output.path,
+        project: record.project,
+      }]
+    )),
+    repositoryExclusionRepairs: deduplicateByJson(
+      report.projects.flatMap((record) => record.repositoryExclusionRepairs),
+    ),
+    repositoryExclusions: deduplicateByJson(
+      report.projects.flatMap((record) => record.repositoryExclusions),
+    ),
+    diagnosticValues: [...new Set(
+      report.projects.flatMap((record) => record.warnings.flatMap((warning) => warning.copyableValues)),
+    )].sort(),
+    warnings: [...new Set(
+      report.projects.flatMap((record) => record.warnings.map((warning) => warning.message)),
+    )].sort(),
+  };
+}
+
+function deduplicateByJson<T>(values: readonly T[]): readonly T[] {
+  return [...new Map(values.map((value) => [JSON.stringify(value), value])).values()];
+}
+
+function withFlatHumanProjection(
+  canonical: CanonicalReconciliationReport,
+): ReconciliationReport {
+  const report = canonical as ReconciliationReport;
+  for (const key of [
+    "blockers",
+    "desired",
+    "items",
+    "outputs",
+    "outputConsumers",
+    "repositoryExclusionRepairs",
+    "repositoryExclusions",
+    "diagnosticValues",
+    "warnings",
+  ] as const) {
+    Object.defineProperty(report, key, {
+      configurable: false,
+      enumerable: false,
+      get: () => flatReconciliationReport(report)[key],
+    });
+  }
+  return report;
+}
+
+/** Replace Project records without exposing or reconstructing flat report collections. */
+export function reconciliationReportWithProjects(
+  report: ReconciliationReport,
+  projects: readonly ReconciliationProjectRecord[],
+): ReconciliationReport {
+  return withFlatHumanProjection({
+    globalBlockers: report.globalBlockers,
+    projects,
+  });
+}
 
 /**
  * The two distinct snapshots produced by a successful apply.
@@ -223,21 +347,20 @@ export async function unreadableInstallationStateReport(
     temporaryInstallations: [],
     schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
   });
-  return {
-    ...desiredReport,
-    blockers: [normalizeBlocker(installationStateUnreadableBlocker({
+  return withFlatHumanProjection({
+    globalBlockers: [normalizeBlocker(installationStateUnreadableBlocker({
       message,
       statePath: stateManifestPath(home),
     }))],
-    // Ownership cannot be read, so planned project states and output changes
-    // are not trustworthy diagnostics. Keep only the boundary failure.
-    items: [{
-      kind: "malformed ownership state",
-      project: stateManifestPath(home),
-      reason: message,
-    }],
-    outputs: [],
-  };
+    // Ownership cannot be read, so planned Project states and output changes
+    // are not trustworthy diagnostics. Keep desired identity plus the boundary failure.
+    projects: desiredReport.projects.map((project) => ({
+      ...project,
+      state: { kind: "malformed ownership state", reason: message },
+      outputs: [],
+      blockers: [],
+    })),
+  });
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -761,6 +884,125 @@ function directoryRootRequiresAttention(
   return inspection.kind !== "missing" && !directoryOutputMatches(inspection, output);
 }
 
+function nestedReconciliationReport(
+  flat: FlatReconciliationReport,
+  desiredInstallations: readonly DesiredInstallation[],
+  exclusionProjects: ReadonlyMap<string, ReadonlySet<string>>,
+): ReconciliationReport {
+  const canonicalByProject = new Map<string, string>();
+  for (const installation of flat.desired) {
+    canonicalByProject.set(installation.project, installation.canonicalProject);
+    canonicalByProject.set(installation.canonicalProject, installation.canonicalProject);
+  }
+  const canonicalProject = (project: string): string => canonicalByProject.get(project) ?? project;
+  const desiredByCanonical = new Map(flat.desired.map((entry) => [entry.canonicalProject, entry]));
+  const stateByCanonical = new Map(
+    flat.items.map((item) => [canonicalProject(item.project), item]),
+  );
+  const projectBlockers = new Map<string, ReconciliationBlocker[]>();
+  const globalBlockers: ReconciliationBlocker[] = [];
+  for (const blocker of flat.blockers) {
+    if (blocker.scope === "global") {
+      globalBlockers.push(blocker);
+      continue;
+    }
+    const key = canonicalProject(blocker.project);
+    const records = projectBlockers.get(key) ?? [];
+    records.push(blocker);
+    projectBlockers.set(key, records);
+  }
+  const outputsByCanonical = new Map<string, ReconciliationProjectOutput[]>();
+  const consumers = new Map(
+    flat.outputConsumers.map((consumer) => [
+      `${canonicalProject(consumer.project)}\0${consumer.path}`,
+      consumer.consumingHosts,
+    ]),
+  );
+  for (const output of flat.outputs) {
+    const key = canonicalProject(output.project);
+    const records = outputsByCanonical.get(key) ?? [];
+    records.push({
+      consumingHosts: consumers.get(`${key}\0${output.path}`) ?? [],
+      kind: output.kind,
+      path: output.path,
+    });
+    outputsByCanonical.set(key, records);
+  }
+  const warningsByCanonical = new Map<string, ReconciliationWarning[]>();
+  for (const installation of desiredInstallations) {
+    const key = installation.binding.canonicalProject;
+    warningsByCanonical.set(key, installation.warnings.map((warning) => ({
+      copyableValues: [...warning.copyableValues],
+      message: warning.message,
+    })));
+  }
+  const exclusionsByCanonical = new Map<string, RepositoryExclusionChange[]>();
+  for (const change of flat.repositoryExclusions) {
+    for (const project of exclusionProjects.get(change.target) ?? []) {
+      const key = canonicalProject(project);
+      const records = exclusionsByCanonical.get(key) ?? [];
+      records.push(change);
+      exclusionsByCanonical.set(key, records);
+    }
+  }
+  const repairsByCanonical = new Map<string, RepositoryExclusionRepair[]>();
+  for (const repair of flat.repositoryExclusionRepairs) {
+    for (const project of exclusionProjects.get(repair.target) ?? []) {
+      const key = canonicalProject(project);
+      const records = repairsByCanonical.get(key) ?? [];
+      records.push(repair);
+      repairsByCanonical.set(key, records);
+      const warnings = warningsByCanonical.get(key) ?? [];
+      warnings.push({
+        copyableValues: [repair.target],
+        message: `${repair.target}${REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX}`,
+      });
+      warningsByCanonical.set(key, warnings);
+    }
+  }
+  const projectKeys = new Set([
+    ...desiredByCanonical.keys(),
+    ...stateByCanonical.keys(),
+    ...projectBlockers.keys(),
+    ...outputsByCanonical.keys(),
+    ...exclusionsByCanonical.keys(),
+    ...repairsByCanonical.keys(),
+  ]);
+  return withFlatHumanProjection({
+    globalBlockers: [...globalBlockers],
+    projects: [...projectKeys].sort().map((key) => {
+      const desired = desiredByCanonical.get(key);
+      const state = stateByCanonical.get(key) ?? { kind: "current" as const, project: desired?.project ?? key };
+      return {
+        canonicalProject: key,
+        project: desired?.project ?? state.project,
+        ...(desired === undefined ? {} : {
+          desired: {
+            ...(desired.capabilityContracts === undefined
+              ? {}
+              : { capabilityContracts: desired.capabilityContracts }),
+            context: desired.context,
+            hosts: desired.hosts,
+            outputs: desired.outputs,
+            profile: desired.profile,
+            resolvedArtifacts: desired.resolvedArtifacts,
+          },
+        }),
+        state: {
+          kind: state.kind,
+          ...(state.reason === undefined ? {} : { reason: state.reason }),
+        },
+        outputs: outputsByCanonical.get(key) ?? [],
+        blockers: projectBlockers.get(key) ?? [],
+        warnings: warningsByCanonical.get(key) ?? [],
+        setupSteps: desired?.setupSteps ?? [],
+        repositoryExclusionRepairs: repairsByCanonical.get(key) ?? [],
+        repositoryExclusions: exclusionsByCanonical.get(key) ?? [],
+      };
+    }),
+  });
+}
+
 export interface PreviewReconciliationOptions {
   /**
    * Invocation-scoped Git inspection reader. When omitted, one short-lived
@@ -1146,10 +1388,18 @@ export async function previewReconciliation(
   };
   const deduplicated = new Map<string, ReconciliationBlocker>();
   for (const blocker of blockers) {
-    const key = `${blocker.project ?? ""}\0${blocker.message}`;
+    const key = JSON.stringify({
+      affectedItems: blocker.affectedItems,
+      kind: blocker.kind,
+      problem: blocker.problem,
+      project: blocker.project,
+      remedy: blocker.remedy,
+      requirement: blocker.requirement,
+      scope: blocker.scope,
+    });
     if (!deduplicated.has(key)) deduplicated.set(key, blocker);
   }
-  return {
+  const flat: FlatReconciliationReport = {
     blockers: [...deduplicated.values()].sort((left, right) =>
       (left.project ?? "").localeCompare(right.project ?? "") || left.message.localeCompare(right.message)
     ),
@@ -1162,13 +1412,31 @@ export async function previewReconciliation(
     repositoryExclusionRepairs: exclusionDiagnostics.repairs,
     repositoryExclusions: repositoryExclusionChanges(state, projectedState),
     diagnosticValues: [...new Set(
-      desired.flatMap((installation) => installation.diagnosticValues),
+      desired.flatMap((installation) =>
+        installation.warnings.flatMap((warning) => warning.copyableValues)
+      ),
     )].sort(),
     warnings: [...new Set([
-      ...desired.flatMap((installation) => installation.warnings),
+      ...desired.flatMap((installation) => installation.warnings.map((warning) => warning.message)),
       ...exclusionDiagnostics.warnings,
     ])].sort(),
   };
+  const projectByInstallationId = new Map(
+    state.installations.map((installation) => [installation.installationId, installation.project]),
+  );
+  desiredResults.forEach((result, index) => {
+    projectByInstallationId.set(result.id, desired[index]!.binding.project);
+  });
+  const exclusionProjects = new Map<string, Set<string>>();
+  for (const record of [...state.repositoryExclusions, ...projectedState.repositoryExclusions]) {
+    const projects = exclusionProjects.get(record.target) ?? new Set<string>();
+    for (const contribution of record.contributions) {
+      const project = projectByInstallationId.get(contribution.installationId);
+      if (project !== undefined) projects.add(project);
+    }
+    exclusionProjects.set(record.target, projects);
+  }
+  return nestedReconciliationReport(flat, desired, exclusionProjects);
 }
 
 export async function stageProjectOutputs(
@@ -1399,12 +1667,11 @@ async function applyReconciliationLocked(
     ownershipInspection: preflightOwnershipInspection,
     scheduler,
   });
-  const [blocker, ...remainingBlockers] = report.blockers;
-  if (blocker) {
-    throw new ApplyBlockedError({
-      ...report,
-      blockers: [blocker, ...remainingBlockers],
-    });
+  if (
+    report.globalBlockers.length > 0 ||
+    report.projects.some((project) => project.blockers.length > 0)
+  ) {
+    throw new ApplyBlockedError(report);
   }
   const retirement = await installationRetirementSelection(
     desired,
@@ -1413,9 +1680,9 @@ async function applyReconciliationLocked(
     scheduler,
   );
   const currentProjects = new Set(
-    report.items
-      .filter((item) => item.kind === "current")
-      .map((item) => item.project),
+    report.projects
+      .filter((project) => project.state.kind === "current")
+      .map((project) => project.project),
   );
   const byProject = new Map(before.installations.map((installation) => [installation.project, installation]));
   const installationsByProject = new Map(

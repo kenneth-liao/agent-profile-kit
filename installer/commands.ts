@@ -1,6 +1,7 @@
 import {
   applyReconciliation,
   previewReconciliation,
+  reconciliationReportWithProjects,
   unreadableInstallationStateReport,
   type ApplyReconciliationResult,
   type ReconciliationReport,
@@ -9,7 +10,7 @@ import { createLifecycleGitInspectionContext } from "./lifecycle-git-inspection.
 import { createLifecycleOwnershipInspectionContext } from "./lifecycle-ownership-inspection.js";
 import type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
 import { createProjectReadScheduler } from "./project-scheduler.js";
-import { buildDesiredState, stateManifestPath } from "./project-plan.js";
+import { buildDesiredState } from "./project-plan.js";
 import { INSTALLATION_STATE_SCHEMA_VERSION } from "../schemas/installation-manifest.js";
 import {
   proveOwnedInstallation,
@@ -22,11 +23,7 @@ import { gitExclusionBlockers, stageGitExclusions } from "./git-exclusions.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import type { LifecycleInstrumentation } from "./qualification-instrumentation.js";
 import { canonicalRepositoryExclusionRecord } from "../schemas/installation-manifest.js";
-import {
-  blockerMessage,
-  installationStateUnreadableBlocker,
-  normalizeBlocker,
-} from "./blockers.js";
+import { blockerMessage } from "./blockers.js";
 
 export interface ValidationResult {
   readonly bindings: number;
@@ -82,7 +79,11 @@ export async function validateApplication(
       desired.installations.flatMap((installation) => installation.binding.hosts),
     )].sort(),
     profiles: [...desired.workspace.profiles.keys()].sort(),
-    warnings: [...new Set(desired.installations.flatMap((installation) => installation.warnings))].sort(),
+    warnings: [...new Set(
+      desired.installations.flatMap((installation) =>
+        installation.warnings.map((warning) => warning.message)
+      ),
+    )].sort(),
   };
 }
 
@@ -102,23 +103,7 @@ export async function previewApplication(
   try {
     state = await readInstallationState(home);
   } catch (error) {
-    const desiredReport = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-    }, { gitInspection });
-    return {
-      ...desiredReport,
-      blockers: [
-        normalizeBlocker(installationStateUnreadableBlocker({
-          message: error instanceof Error ? error.message : String(error),
-          statePath: stateManifestPath(home),
-        })),
-        ...desiredReport.blockers,
-      ],
-    };
+    return unreadableInstallationStateReport(home, desired.installations, error);
   }
   return previewReconciliation(desired.installations, state, {
     gitInspection,
@@ -188,30 +173,34 @@ export async function statusApplication(
     scheduler,
   });
   const blockedProjects = new Set(
-    report.blockers.flatMap((blocker) => blocker.project ? [blocker.project] : []),
+    report.projects.flatMap((project) =>
+      project.blockers.length > 0 ? [project.canonicalProject] : []
+    ),
   );
-  return {
-    ...report,
-    items: report.items.map((item) => {
-      const installation = desired.installations.find(
-        (candidate) => candidate.binding.project === item.project,
-      );
-      const blocked = installation !== undefined &&
-        blockedProjects.has(installation.binding.canonicalProject);
+  return reconciliationReportWithProjects(
+    report,
+    report.projects.map((project) => {
+      const blocked = blockedProjects.has(project.canonicalProject);
       // Only remap otherwise-healthy states. Drift, ownership, and malformed kinds
       // already diagnose the problem and must keep their precise status labels.
-      if (blocked && (item.kind === "addition" || item.kind === "current")) {
-        return { ...item, kind: "blocked" as const };
+      if (
+        blocked &&
+        (project.state.kind === "addition" || project.state.kind === "current")
+      ) {
+        return { ...project, state: { ...project.state, kind: "blocked" as const } };
       }
-      if (item.kind === "addition") {
+      if (project.state.kind === "addition") {
         return {
-          ...item,
-          reason: "Profile Installation is not installed; apply will create it",
+          ...project,
+          state: {
+            ...project.state,
+            reason: "Profile Installation is not installed; apply will create it",
+          },
         };
       }
-      return item;
+      return project;
     }),
-  };
+  );
 }
 
 export async function uninstallApplication(home: string): Promise<UninstallResult> {

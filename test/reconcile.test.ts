@@ -1,13 +1,18 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { formatLifecycleJson } from "../cli/presentation.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState, hashBytes } from "../installer/project-plan.js";
-import { ApplyVerificationError, applyReconciliation } from "../installer/reconcile.js";
+import {
+  ApplyVerificationError,
+  applyReconciliation,
+  previewReconciliation,
+} from "../installer/reconcile.js";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
 
 const temporaryDirectories: string[] = [];
@@ -21,6 +26,99 @@ function temporaryDirectory(prefix: string): string {
   temporaryDirectories.push(directory);
   return directory;
 }
+
+describe("nested Project reconciliation report", () => {
+  test("keeps desired identity, state, output consumers, and evidence in one Project record", async () => {
+    const home = temporaryDirectory("agent-profile-kit-nested-report-home-");
+    const project = temporaryDirectory("agent-profile-kit-nested-report-project-");
+    execFileSync("git", ["init", "--quiet"], { cwd: project });
+    mkdirSync(join(project, ".codex"));
+    writeFileSync(join(project, ".codex", "hooks.json"), "repository-owned\n");
+    execFileSync("git", ["add", ".codex/hooks.json"], { cwd: project });
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nNested report.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const warningValue = join(project, ".codex", "config.toml");
+    const installations = desired.installations.map((installation) => ({
+      ...installation,
+      warnings: [{
+        copyableValues: [warningValue],
+        message: `Review ${warningValue} before continuing`,
+      }],
+    }));
+
+    const report = await previewReconciliation(installations, {
+      intendedTeardowns: [],
+      installations: [],
+      repositoryExclusions: [],
+      schemaVersion: 5,
+      temporaryInstallations: [],
+    });
+
+    expect(Object.keys(report).sort()).toEqual(["globalBlockers", "projects"]);
+    expect(report.projects).toHaveLength(1);
+    expect(report.projects[0]).toMatchObject({
+      canonicalProject: desired.installations[0]!.binding.canonicalProject,
+      project,
+      desired: {
+        hosts: ["codex"],
+        profile: "coding",
+      },
+      state: { kind: "addition" },
+      warnings: [{
+        copyableValues: [warningValue],
+        message: `Review ${warningValue} before continuing`,
+      }],
+    });
+    expect(report.projects[0]!.outputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        consumingHosts: ["codex"],
+        kind: "addition",
+      }),
+    ]));
+    expect(report.projects[0]!.setupSteps.length).toBeGreaterThan(0);
+    expect(report.projects[0]!.repositoryExclusions).toHaveLength(1);
+    expect(report.projects[0]!.repositoryExclusions[0]!.target).toContain("/info/exclude");
+
+    expect(report.projects[0]!.blockers).toHaveLength(1);
+    expect(report.projects[0]!.blockers[0]).toMatchObject({
+      affectedItems: [{ kind: "path", value: ".codex/hooks.json" }],
+      kind: "output-ownership-conflict",
+      scope: "project",
+    });
+    const json = JSON.parse(formatLifecycleJson("preview", report));
+    expect(json).toMatchObject({
+      schemaVersion: 5,
+      command: "preview",
+      outcome: "blocked",
+      globalBlockers: [],
+      projects: [{
+        canonicalProject: desired.installations[0]!.binding.canonicalProject,
+        project,
+        state: { kind: "addition" },
+        warnings: [{
+          copyableValues: [warningValue],
+          message: `Review ${warningValue} before continuing`,
+        }],
+      }],
+    });
+    expect(json).not.toHaveProperty("installations");
+    expect(json).not.toHaveProperty("outputs");
+  });
+});
 
 describe("injected project filesystem failures", () => {
   test("returns the completed receipt when post-commit verification fails", async () => {
@@ -58,10 +156,9 @@ describe("injected project filesystem failures", () => {
     expect((failure as ApplyVerificationError).message).toContain(
       "Apply committed; post-apply verification failed: injected verification read failure",
     );
-    expect((failure as ApplyVerificationError).receipt.items).toContainEqual({
-      kind: "addition",
-      project,
-    });
+    expect((failure as ApplyVerificationError).receipt.projects).toContainEqual(
+      expect.objectContaining({ project, state: { kind: "addition" } }),
+    );
     expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
@@ -87,10 +184,10 @@ describe("injected project filesystem failures", () => {
     );
     const initial = await buildDesiredState(home, { checkHostCapability: false });
     const initialReport = await applyReconciliation(home, initial.installations);
-    expect(initialReport.receipt.desired.find((entry) => entry.project === third)?.canonicalProject)
+    expect(initialReport.receipt.projects.find((entry) => entry.project === third)?.canonicalProject)
       .toBe(initial.installations.find((entry) => entry.binding.project === third)?.binding.canonicalProject);
-    expect(initialReport.receipt.items.every((item) => item.kind === "addition")).toBe(true);
-    expect(initialReport.resultingState.items.every((item) => item.kind === "current")).toBe(true);
+    expect(initialReport.receipt.projects.every((entry) => entry.state.kind === "addition")).toBe(true);
+    expect(initialReport.resultingState.projects.every((entry) => entry.state.kind === "current")).toBe(true);
     const obsoleteRelative = ".agent-profile-kit/codex/obsolete.txt";
     const obsolete = join(second, obsoleteRelative);
     const obsoleteBytes = "owned obsolete output\n";
@@ -201,11 +298,10 @@ describe("injected project filesystem failures", () => {
 
     const report = await applyReconciliation(home, changed);
 
-    expect(report.receipt.items).toContainEqual({
-      kind: "update",
+    expect(report.receipt.projects).toContainEqual(expect.objectContaining({
       project,
-      reason: "desired output changed",
-    });
+      state: { kind: "update", reason: "desired output changed" },
+    }));
     expect(statSync(join(project, ".agent-profile-kit", "codex", "context.md")).mode & 0o777).toBe(0o600);
     const state = await readInstallationState(home);
     expect(state.installations[0]!.outputs.find((output) => output.path.endsWith("context.md"))?.mode).toBe(0o600);

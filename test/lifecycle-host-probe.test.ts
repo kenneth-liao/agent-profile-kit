@@ -263,7 +263,7 @@ describe("machine-level Host capability probes within one invocation", () => {
     expect(contextInstallations).toHaveLength(2);
     for (const installation of contextInstallations) {
       expect(installation.blockers).toHaveLength(1);
-      expect(installation.blockers[0]?.message).toContain(
+      expect(installation.blockers[0]?.problem).toContain(
         "cannot deliver complete Context",
       );
     }
@@ -306,7 +306,7 @@ describe("machine-level Host capability probes within one invocation", () => {
     const clean = byProject.get(realpathSync(projects[0]!));
     expect(clean?.blockers).toEqual([]);
     expect(obstructed?.blockers).toHaveLength(1);
-    expect(obstructed?.blockers[0]?.message).toContain(
+    expect(obstructed?.blockers[0]?.problem).toContain(
       "Pi shared project surface cannot host Skills",
     );
   });
@@ -418,7 +418,7 @@ describe("machine-level Host capability probes within one invocation", () => {
           expect(installation.blockers).toEqual([]);
         } else {
           expect(installation.blockers).toHaveLength(1);
-          expect(installation.blockers[0]?.message).toContain(scenario.expected);
+          expect(installation.blockers[0]?.problem).toContain(scenario.expected);
         }
       }
     }

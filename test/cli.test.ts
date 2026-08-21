@@ -1910,11 +1910,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(json, 0);
     const payload = JSON.parse(json.stdout) as {
       readonly schemaVersion: number;
-      readonly outputs: readonly { readonly kind: string }[];
+      readonly projects: readonly { readonly outputs: readonly { readonly kind: string }[] }[];
     };
-    expect(payload.schemaVersion).toBe(4);
+    expect(payload.schemaVersion).toBe(5);
     expect(payload).not.toHaveProperty("impacts");
-    expect(payload.outputs.filter((output) => output.kind === "update")).toHaveLength(12);
+    expect(payload.projects.flatMap((project) => project.outputs)
+      .filter((output) => output.kind === "update")).toHaveLength(12);
 
     const apply = await runCli(home, "apply");
     expectExitCode(apply, 0);
@@ -2002,12 +2003,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly command: string;
         readonly schemaVersion: number;
       };
-      expect(payload.schemaVersion).toBe(4);
+      expect(payload.schemaVersion).toBe(5);
       expect(payload.command).toBe(command);
 
       const both = await runCli(home, command, "--verbose", "--json");
       expectExitCode(both, 0);
-      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 4 });
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 5 });
 
       const unsupported = await runCli(home, command, "--yaml");
       expectExitCode(unsupported, 1);
@@ -2031,7 +2032,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
-        schemaVersion: 4,
+        schemaVersion: 5,
       });
     }
 
@@ -2050,11 +2051,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       const blockedJson = await runCli(blockedHome, command, "--json");
       expectExitCode(blockedJson, 2);
       const payload = JSON.parse(blockedJson.stdout) as {
-        readonly blockers: readonly unknown[];
+        readonly globalBlockers: readonly unknown[];
+        readonly projects: readonly { readonly blockers: readonly unknown[] }[];
         readonly outcome: string;
       };
       expect(payload.outcome).toBe("blocked");
-      expect(payload.blockers.length).toBeGreaterThan(0);
+      expect([
+        ...payload.globalBlockers,
+        ...payload.projects.flatMap((project) => project.blockers),
+      ].length).toBeGreaterThan(0);
     }
 
     const toolErrorHome = isolatedHome();
@@ -2072,7 +2077,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly schemaVersion: number;
       };
       expect(payload).toMatchObject({
-        schemaVersion: 4,
+        schemaVersion: 5,
         command,
         outcome: "error",
       });
@@ -2092,14 +2097,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
-        schemaVersion: 4,
+        schemaVersion: 5,
       });
     }
     const firstApply = await runCli(pendingHome, "apply", "--json");
     expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "apply",
-      schemaVersion: 4,
+      schemaVersion: 5,
     });
     expect(["clean", "attention"]).toContain(
       (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
@@ -5132,14 +5137,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const jsonPreview = await runCliWithPath(home, pathWithHosts, "preview", "--json");
     expectExitCode(jsonPreview, 0);
     const previewDocument = JSON.parse(jsonPreview.stdout) as {
-      installations: Array<{ hosts: string[] }>;
-      outputConsumers: Array<{ consumingHosts: string[]; path: string }>;
+      projects: Array<{
+        desired: { hosts: string[] };
+        outputs: Array<{ consumingHosts: string[]; path: string }>;
+      }>;
     };
-    expect(previewDocument.installations).toHaveLength(2);
-    expect(previewDocument.installations.every((installation) => installation.hosts.includes("antigravity"))).toBe(true);
-    expect(previewDocument.outputConsumers.some(
-      (output) => output.path.includes(".agents/rules/") && output.consumingHosts.includes("antigravity"),
+    expect(previewDocument.projects).toHaveLength(2);
+    expect(previewDocument.projects.every((project) =>
+      project.desired.hosts.includes("antigravity")
     )).toBe(true);
+    expect(previewDocument.projects.some((project) => project.outputs.some(
+      (output) => output.path.includes(".agents/rules/") && output.consumingHosts.includes("antigravity"),
+    ))).toBe(true);
 
     const apply = await runCliWithPath(home, pathWithHosts, "apply");
     expectExitCode(apply, 0);
@@ -5283,33 +5292,35 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const preview = await runCliWithPath(home, pathWithHosts, "preview", "--json");
     expectExitCode(preview, 0);
     const previewDocument = JSON.parse(preview.stdout) as {
-      readonly installations: readonly {
-        readonly capabilityContracts?: Readonly<Record<string, string>>;
-        readonly hosts: readonly string[];
-      }[];
-      readonly outputConsumers: readonly {
-        readonly consumingHosts: readonly string[];
-        readonly path: string;
+      readonly projects: readonly {
+        readonly desired: {
+          readonly capabilityContracts?: Readonly<Record<string, string>>;
+          readonly hosts: readonly string[];
+        };
+        readonly outputs: readonly {
+          readonly consumingHosts: readonly string[];
+          readonly path: string;
+        }[];
         readonly project: string;
       }[];
     };
-    expect(previewDocument.installations.map((installation) => installation.hosts.join(",")).sort()).toEqual([
+    expect(previewDocument.projects.map((project) => project.desired.hosts.join(",")).sort()).toEqual([
       "antigravity",
       "antigravity,codex,pi",
     ]);
-    const combinedPreview = previewDocument.installations.find(
-      (installation) => installation.hosts.join(",") === "antigravity,codex,pi",
+    const combinedPreview = previewDocument.projects.find(
+      (project) => project.desired.hosts.join(",") === "antigravity,codex,pi",
     );
-    expect(combinedPreview?.capabilityContracts).toEqual({
+    expect(combinedPreview?.desired.capabilityContracts).toEqual({
       antigravity: "native-project-always-on-rules-shared-skills-invocation-v1",
       codex: "native-project-sessionstart-complete-context-skills-invocation-v1",
       pi: "native-project-append-system-shared-skills-invocation-v1",
     });
-    expect(previewDocument.outputConsumers).toContainEqual({
+    expect(combinedPreview?.project).toBe(combinedProject);
+    expect(combinedPreview?.outputs).toContainEqual(expect.objectContaining({
       consumingHosts: ["antigravity", "codex", "pi"],
       path: ".agents/skills/disabled-skill",
-      project: combinedProject,
-    });
+    }));
 
     const apply = await runCliWithPath(home, pathWithHosts, "apply");
     expectExitCode(apply, 0);
@@ -5622,9 +5633,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(preview, 0);
     const payload = JSON.parse(preview.stdout) as {
-      readonly installations: readonly unknown[];
+      readonly projects: readonly unknown[];
     };
-    expect(payload.installations).toHaveLength(4);
+    expect(payload.projects).toHaveLength(4);
     const counts = {
       claude: 0,
       codex: 0,

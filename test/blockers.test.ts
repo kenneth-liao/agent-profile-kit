@@ -35,7 +35,6 @@ function compileOnlyPartialBlocker(): void {
   normalizeBlocker({
     affectedItems: [],
     kind: "host-capability",
-    message: "Codex CLI is unavailable",
     scope: "global",
   });
 }
@@ -45,7 +44,6 @@ void compileOnlyPartialBlocker;
 const HOST_CAPABILITY_INPUT = {
   affectedItems: [{ kind: "host", value: "codex" }],
   kind: "host-capability",
-  message: "Codex CLI is unavailable",
   problem: "Codex CLI is unavailable",
   remedy: "Install a supported Codex CLI, then retry",
   requirement: "The selected Profile requires Codex project delivery",
@@ -188,8 +186,7 @@ describe("shared blocker contract", () => {
     const removal = normalizeBlocker({
       affectedItems: [],
       kind: "temporary-installation-conflict",
-      message: "/project-a already hosts an installation",
-      problem: "The Project already hosts an installation with a conflicting lifetime",
+      problem: "/project-a already hosts an installation",
       remedy: "Remove the existing installation, then retry",
       requirement: "A Project hosts at most one Profile Installation at a time",
       project: "/project-a",
@@ -253,11 +250,11 @@ describe("shared blocker contract", () => {
       "Blocker: Codex CLI is unavailable",
     );
     const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
-      readonly blockers: readonly Record<string, unknown>[];
+      readonly projects: readonly { readonly blockers: readonly Record<string, unknown>[] }[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(4);
-    expect(machine.blockers).toEqual([{
+    expect(machine.schemaVersion).toBe(5);
+    expect(machine.projects[0]!.blockers).toEqual([{
       kind: "host-capability",
       scope: "project",
       project: canonicalProject,
@@ -279,8 +276,8 @@ describe("shared blocker contract", () => {
     expect(globalReport.blockers[0]?.project).toBeUndefined();
     const globalMachine = JSON.parse(
       formatLifecycleJson("preview", globalReport),
-    ) as { readonly blockers: readonly Record<string, unknown>[] };
-    expect(globalMachine.blockers[0]).not.toHaveProperty("project");
+    ) as { readonly globalBlockers: readonly Record<string, unknown>[] };
+    expect(globalMachine.globalBlockers[0]).not.toHaveProperty("project");
 
     // Identical structured evidence deduplicates on message and Project identity.
     const deduplicatedReport = await previewReconciliation(

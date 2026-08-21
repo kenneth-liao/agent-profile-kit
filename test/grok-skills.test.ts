@@ -770,7 +770,7 @@ exit 2
     expect(desired.installations[0]?.blockers).toEqual([]);
     expect(
       desired.installations[0]?.warnings.some((warning) =>
-        /Grok.*review-pr.*disabled.*may not load/i.test(warning),
+        /Grok.*review-pr.*disabled.*may not load/i.test(warning.message),
       ),
     ).toBe(true);
   });

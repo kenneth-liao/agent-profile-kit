@@ -6,7 +6,7 @@ import {
   TEMPORARY_INSTALLATION_HOSTS,
   type TemporaryInstallationHost,
 } from "../adapters/registry.js";
-import type { HostSetupStep } from "../adapters/project-plan.js";
+import type { AdapterDiagnosticWarning, HostSetupStep } from "../adapters/project-plan.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
 import {
   isSupportedHost,
@@ -231,8 +231,7 @@ async function planTemporaryDesiredInstallation(options: {
   const { hash: sourceHash, fingerprints: artifactFingerprints } =
     await planning.hashWorkspaceInputs(profile, resolvedProfile);
   const blockers: BlockerInput[] = [];
-  const warnings: string[] = [];
-  const diagnosticValues: string[] = [];
+  const warnings: AdapterDiagnosticWarning[] = [];
   const result = await planRegisteredAdapter(
     options.host,
     {
@@ -252,7 +251,7 @@ async function planTemporaryDesiredInstallation(options: {
   for (const error of result.capabilityFailures) {
     blockers.push(hostCapabilityBlocker(error, options.host, options.project));
   }
-  appendDiagnosticWarnings(warnings, diagnosticValues, result.diagnostics);
+  appendDiagnosticWarnings(warnings, result.diagnostics);
   const adapterPlan = result.plan;
   const hosts: readonly SupportedHost[] = [options.host];
   const outputs = normalizeAdapterPlans(
@@ -284,7 +283,6 @@ async function planTemporaryDesiredInstallation(options: {
           host: adapterPlan.host,
         })),
     sourceHash,
-    diagnosticValues: [...new Set(diagnosticValues)].sort(),
     warnings,
   };
 }
@@ -495,9 +493,11 @@ export async function installTemporaryProfile(options: {
         temporaryRecord,
         exclusionContributionFor(nextState, temporaryInstallationId),
         {
-          diagnosticValues: desired.diagnosticValues,
+          diagnosticValues: [...new Set(
+            desired.warnings.flatMap((warning) => warning.copyableValues),
+          )].sort(),
           setupSteps: desired.setupSteps,
-          warnings: desired.warnings,
+          warnings: desired.warnings.map((warning) => warning.message),
         },
       );
     },
