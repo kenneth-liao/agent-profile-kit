@@ -3,6 +3,10 @@ import { isAbsolute, join, posix } from "node:path";
 
 import { adapterVersionFor, hostRegistrationFor } from "../adapters/registry.js";
 import type {
+  AdapterProjectInput,
+  AdapterProjectResult,
+} from "../adapters/adapter-contract.js";
+import type {
   AdapterDiagnosticWarning,
   AdapterProjectPlan,
   HostSetupStep,
@@ -31,6 +35,7 @@ import { type ResolvedArtifactFingerprint } from "./hashes.js";
 import { ingestApplication, stateDirectory } from "./local-configuration.js";
 import {
   createLifecyclePlanningContext,
+  type LifecyclePlanningContext,
   type LifecyclePlanningInstrumentation,
 } from "./lifecycle-planning.js";
 import {
@@ -542,6 +547,23 @@ export function assertResolvedOutputOrigins(
   }
 }
 
+/**
+ * Route one Host through its canonical registered Adapter and invocation-scoped
+ * planning services. Ordinary and temporary lifetimes share this boundary.
+ */
+export function planRegisteredAdapter(
+  host: SupportedHost,
+  input: AdapterProjectInput,
+  planning: LifecyclePlanningContext,
+): Promise<AdapterProjectResult> {
+  return hostRegistrationFor(host).adapter.planProject(input, {
+    materials: planning.materials,
+    planProjection: (key, plan) => planning.planHost(key, plan),
+    probeMachineCapability: (requirements, probe) =>
+      planning.probeHostCapability({ host, requirements }, probe),
+  });
+}
+
 export interface BuildDesiredStateOptions {
   /**
    * When false, skip Host CLI/version/surface capability preflight (status and
@@ -613,8 +635,8 @@ export async function buildDesiredState(
     const warnings: string[] = [];
     const diagnosticValues: string[] = [];
     for (const host of binding.hosts) {
-      const registration = hostRegistrationFor(host);
-      const result = await registration.adapter.planOrdinaryProject(
+      const result = await planRegisteredAdapter(
+        host,
         {
           authoredProject: binding.project,
           checkHostCapability: options.checkHostCapability !== false,
@@ -631,12 +653,7 @@ export async function buildDesiredState(
             : { resolveHostTopology: options.resolveHostTopology }),
           selectedHosts: binding.hosts,
         },
-        {
-          materials: planning.materials,
-          planProjection: (key, plan) => planning.planHost(key, plan),
-          probeMachineCapability: (requirements, probe) =>
-            planning.probeHostCapability({ host, requirements }, probe),
-        },
+        planning,
       );
       for (const error of result.capabilityFailures) {
         blockers.push(

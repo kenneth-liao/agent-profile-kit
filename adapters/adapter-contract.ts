@@ -13,8 +13,8 @@ export interface AdapterPreviousInstallation {
   readonly outputs: readonly { readonly path: string }[];
 }
 
-/** Complete ordinary-planning input available to one Host Adapter. */
-export interface AdapterOrdinaryProjectInput {
+/** Complete Project-planning input available to one Host Adapter. */
+export interface AdapterProjectInput {
   readonly authoredProject: string;
   readonly checkHostCapability: boolean;
   readonly env?: NodeJS.ProcessEnv;
@@ -54,21 +54,22 @@ export interface AdapterInvocationServices {
 }
 
 /** Complete Adapter result retained before Installer-specific blocker normalization. */
-export interface AdapterOrdinaryProjectResult {
+export interface AdapterProjectResult {
   readonly capabilityFailures: readonly unknown[];
   readonly diagnostics: readonly AdapterDiagnosticWarning[];
   readonly plan: AdapterProjectPlan | undefined;
 }
 
 /**
- * One complete Host boundary for ordinary planning. The Adapter owns capability
- * probing, Project-surface inspection, warnings, topology, Capability Contract
- * selection, output planning, and Host Setup Steps behind this method.
+ * One complete Host boundary for ordinary and temporary planning. The Adapter
+ * owns capability probing, Project-surface inspection, warnings, topology,
+ * Capability Contract selection, output planning, and Host Setup Steps behind
+ * this method.
  */
 export interface CompleteHostAdapter {
   readonly host: SupportedHost;
-  planOrdinaryProject(
-    input: AdapterOrdinaryProjectInput,
+  planProject(
+    input: AdapterProjectInput,
     services: AdapterInvocationServices,
-  ): Promise<AdapterOrdinaryProjectResult>;
+  ): Promise<AdapterProjectResult>;
 }

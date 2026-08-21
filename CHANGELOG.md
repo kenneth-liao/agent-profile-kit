@@ -42,6 +42,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Route Temporary Profile Installation capability checks, Project-surface checks, warnings, Capability Contracts, setup steps, and outputs through each eligible Host's canonical registered Adapter while preserving the temporary install/remove contract ([#247](https://github.com/kenneth-liao/agent-profile-kit/issues/247)).
+
 - Route Grok capability probing, dynamic inspection, Project-surface validation, warnings, topology, setup, and output planning through its registered complete Adapter; ordinary Installer planning now iterates every selected Adapter without Host-specific fallback ([#246](https://github.com/kenneth-liao/agent-profile-kit/issues/246)).
 
 - Route Pi and Antigravity capability probing, Project-surface inspection, warnings, output planning, Capability Contract selection, and setup steps through their registered complete Adapters without changing qualified native delivery; Installer legacy dispatch now remains only for Grok ([#245](https://github.com/kenneth-liao/agent-profile-kit/issues/245)).
