@@ -331,8 +331,6 @@ function outputDifference(
 ): string | undefined {
   if (left.type !== right.type) return "entry type";
   if (left.mode !== right.mode) return "mode";
-  if (left.requirements.join("\n") !== right.requirements.join("\n")) return "semantic requirements";
-  if (!sameOrigins(left.origins, right.origins)) return "source origins";
   if (left.type === "file" && right.type === "file") {
     if (!exactBytesEqual(left.bytes, right.bytes)) return "bytes";
     return undefined;
@@ -487,16 +485,6 @@ function normalizeOutputOrigins(
   return normalized;
 }
 
-function sameOrigins(
-  left: readonly ArtifactReference[],
-  right: readonly ArtifactReference[],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((origin, index) => artifactReferenceKey(origin) === artifactReferenceKey(right[index]!))
-  );
-}
-
 function normalizeProposedOutput(
   proposed: ProposedProjectOutput,
   host: string,
@@ -568,7 +556,18 @@ export function normalizeAdapterPlans(
         );
       }
       const hosts = [...new Set([...existing.consumingHosts, plan.host])].sort();
-      outputs.set(normalized.path, { ...existing, consumingHosts: hosts });
+      const origins = [...new Map(
+        [...existing.origins, ...normalized.origins].map((origin) => [artifactReferenceKey(origin), origin]),
+      ).values()].sort((left, right) =>
+        artifactReferenceKey(left).localeCompare(artifactReferenceKey(right))
+      );
+      const requirements = [...new Set([...existing.requirements, ...normalized.requirements])].sort();
+      outputs.set(normalized.path, {
+        ...existing,
+        consumingHosts: hosts,
+        origins,
+        requirements,
+      });
     }
   }
   const normalized = [...outputs.values()].sort((left, right) => left.path.localeCompare(right.path));

@@ -42,6 +42,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Coalesce compatible multi-Host Adapter output solely by normalized physical identity—path, entry type, mode, and exact file bytes or complete directory tree—while retaining all consuming Hosts and descriptive provenance; physical disagreements remain deterministic pre-write conflicts ([#243](https://github.com/kenneth-liao/agent-profile-kit/issues/243)).
+
 - Keep `uninstall` independent of Workspace and Project Binding input while removing all ownership-proven ordinary output and Git exclusion contributions, preserving bindings and Temporary Profile Installations, and reporting still-bound Projects as not installed and ready for `apply`. Intended-teardown records are no longer written or consulted; the inert persisted field remains until the final ownership-state contraction. This is a pre-1.0 breaking change ([#242](https://github.com/kenneth-liao/agent-profile-kit/issues/242)).
 
 - Prove generated-directory ownership through one deterministic aggregate-root hash and report drift only at that generated root, while preserving fail-closed detection and complete-root repair rules. Member-level directory change items are removed from lifecycle reports and presentation, and lifecycle JSON advances to schema version 4 for the changed output-kind contract. This is a pre-1.0 breaking change ([#241](https://github.com/kenneth-liao/agent-profile-kit/issues/241)).
