@@ -1,5 +1,7 @@
+import { antigravityAdapter } from "./antigravity.js";
 import { claudeAdapter } from "./claude.js";
 import { codexAdapter } from "./codex.js";
+import { piAdapter } from "./pi.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 import {
   HOST_CATALOG,
@@ -21,8 +23,10 @@ export {
 } from "./host-catalog.js";
 
 const COMPLETE_ADAPTERS = {
+  antigravity: antigravityAdapter,
   claude: claudeAdapter,
   codex: codexAdapter,
+  pi: piAdapter,
 } as const satisfies {
   readonly [H in CompleteOrdinaryPlanningHost]: CompleteHostAdapter & {
     readonly host: H;

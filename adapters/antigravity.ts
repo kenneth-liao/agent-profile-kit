@@ -4,12 +4,13 @@ import { join, posix } from "node:path";
 import { promisify } from "node:util";
 
 import type { Skill } from "../schemas/skill.js";
+import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { ANTIGRAVITY_ADAPTER_VERSION } from "./host-catalog.js";
 import {
   composeContextModuleBoundary,
   type ContextModuleSource,
 } from "./context-envelope.js";
-import { capabilityFailure } from "./capability.js";
+import { capabilityFailure, isAdapterCapabilityError } from "./capability.js";
 import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
   skillsRequireDisabledModelInvocation,
@@ -379,3 +380,62 @@ export async function planAntigravityProject(
     setupSteps,
   };
 }
+
+export const antigravityAdapter = {
+  host: "antigravity",
+  async planOrdinaryProject(input, services) {
+    const requireContext = input.resolvedContexts.length > 0;
+    const requireSkills = input.resolvedSkills.length > 0;
+    const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
+      input.resolvedSkills,
+    );
+    const capabilityFailures: unknown[] = [];
+    if (input.checkHostCapability) {
+      try {
+        await services.probeMachineCapability(
+          antigravityMachineRequirements({
+            requireContext,
+            requireDisabledModelInvocation,
+            requireSkills,
+          }),
+          () => probeAntigravityMachineCapability({
+            ...(input.env === undefined ? {} : { env: input.env }),
+            requireContext,
+            requireDisabledModelInvocation,
+            requireSkills,
+          }),
+        );
+        await assertAntigravityProjectSurface(input.project, {
+          requireContext,
+          requireSkills,
+        });
+      } catch (error) {
+        capabilityFailures.push(error);
+      }
+    }
+
+    let plan: AdapterProjectPlan | undefined;
+    try {
+      plan = await services.planProjection(
+        {
+          host: "antigravity",
+          options: {},
+          profileId: input.profileId,
+          resolvedContexts: input.resolvedContexts,
+          resolvedSkills: input.resolvedSkills,
+        },
+        () => planAntigravityProject(
+          input.profileId,
+          input.resolvedContexts,
+          input.resolvedSkills,
+          { materials: services.materials },
+        ),
+      );
+    } catch (error) {
+      if (!isAdapterCapabilityError(error)) throw error;
+      capabilityFailures.push(error);
+    }
+
+    return { capabilityFailures, diagnostics: [], plan };
+  },
+} satisfies CompleteHostAdapter;

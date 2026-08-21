@@ -99,6 +99,34 @@ describe("Host capability blockers", () => {
     expect(isStructuredBlocker(normalizeBlocker(input as StructuredBlockerInput))).toBe(true);
   });
 
+  test("registered Antigravity planning preserves project-surface blocker evidence", async () => {
+    const home = temporaryDirectory("apkit-antigravity-surface-home-");
+    const project = temporaryDirectory("apkit-antigravity-surface-project-");
+    await writeContextBinding(home, project, "antigravity");
+    writeFileSync(join(project, ".agents"), "not a directory\n");
+
+    const bin = temporaryDirectory("apkit-antigravity-surface-bin-");
+    writeFileSync(join(bin, "agy"), "#!/bin/sh\nprintf '%s\\n' '1.1.13'\n");
+    chmodSync(join(bin, "agy"), 0o755);
+
+    const desired = await buildDesiredState(home, {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    });
+
+    expect(desired.installations[0]?.blockers).toEqual([
+      expect.objectContaining({
+        affectedItems: [
+          { kind: "host", value: "antigravity" },
+          { kind: "path", value: join(realpathSync(project), ".agents") },
+        ],
+        kind: "host-capability",
+        problem: expect.stringContaining("Antigravity project surface cannot host Context"),
+        project: realpathSync(project),
+        scope: "project",
+      }),
+    ]);
+  });
+
   test("each Adapter capability boundary emits typed evidence and remains an Error", async () => {
     const project = temporaryDirectory("apkit-adapter-capability-project-");
     const attempts = [

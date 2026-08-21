@@ -7,7 +7,7 @@ export const HOST_CATALOG = [
   {
     adapterVersion: "antigravity-project-v2",
     host: "antigravity",
-    ordinaryPlanning: "legacy",
+    ordinaryPlanning: "complete",
     supportsTemporaryProfileInstallation: false,
   },
   {
@@ -31,7 +31,7 @@ export const HOST_CATALOG = [
   {
     adapterVersion: "pi-project-v2",
     host: "pi",
-    ordinaryPlanning: "legacy",
+    ordinaryPlanning: "complete",
     supportsTemporaryProfileInstallation: false,
   },
 ] as const;

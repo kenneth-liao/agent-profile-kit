@@ -4,6 +4,7 @@ import { lstat, readFile } from "node:fs/promises";
 import { join, posix, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Skill } from "../schemas/skill.js";
+import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { PI_ADAPTER_VERSION } from "./host-catalog.js";
 import { type ContextModuleSource } from "./context-envelope.js";
 import { capabilityFailure } from "./capability.js";
@@ -394,3 +395,58 @@ export async function planPiProject(
     setupSteps,
   };
 }
+
+export const piAdapter = {
+  host: "pi",
+  async planOrdinaryProject(input, services) {
+    const requireContext = input.resolvedContexts.length > 0;
+    const requireSkills = input.resolvedSkills.length > 0;
+    const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
+      input.resolvedSkills,
+    );
+    const capabilityFailures: unknown[] = [];
+    if (input.checkHostCapability) {
+      try {
+        await services.probeMachineCapability(
+          piMachineRequirements({ requireDisabledModelInvocation }),
+          () => probePiMachineCapability({
+            ...(input.env === undefined ? {} : { env: input.env }),
+            home: input.home,
+            requireContext,
+            requireDisabledModelInvocation,
+            requireSkills,
+          }),
+        );
+        await assertPiProjectSurface(input.project, {
+          requireContext,
+          requireSkills,
+        });
+      } catch (error) {
+        capabilityFailures.push(error);
+      }
+    }
+
+    const diagnostics = requireSkills
+      ? await detectPiSkillSettingsWarnings({
+          home: input.home,
+          project: input.project,
+        })
+      : [];
+    const plan = await services.planProjection(
+      {
+        host: "pi",
+        options: {},
+        profileId: input.profileId,
+        resolvedContexts: input.resolvedContexts,
+        resolvedSkills: input.resolvedSkills,
+      },
+      () => planPiProject(
+        input.profileId,
+        input.resolvedContexts,
+        input.resolvedSkills,
+        { materials: services.materials },
+      ),
+    );
+    return { capabilityFailures, diagnostics, plan };
+  },
+} satisfies CompleteHostAdapter;

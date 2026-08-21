@@ -42,6 +42,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Route Pi and Antigravity capability probing, Project-surface inspection, warnings, output planning, Capability Contract selection, and setup steps through their registered complete Adapters without changing qualified native delivery; Installer legacy dispatch now remains only for Grok ([#245](https://github.com/kenneth-liao/agent-profile-kit/issues/245)).
+
 - Introduce one canonical Host registry and complete ordinary-planning Adapter contract, migrate Claude and Codex capability probing, Project-surface inspection, warnings, output planning, Capability Contract selection, and setup steps behind that boundary, and retain explicit legacy dispatch only for Grok, Pi, and Antigravity ([#244](https://github.com/kenneth-liao/agent-profile-kit/issues/244)).
 
 - Coalesce compatible multi-Host Adapter output solely by normalized physical identity—path, entry type, mode, and exact file bytes or complete directory tree—while retaining all consuming Hosts and descriptive provenance; physical disagreements remain deterministic pre-write conflicts ([#243](https://github.com/kenneth-liao/agent-profile-kit/issues/243)).
