@@ -291,10 +291,10 @@ describe("Adapter output-plan normalization", () => {
     }))])).toThrow("file 'scripts' is an ancestor of 'scripts/run.sh'");
   });
 
-  test("rejects the Installer-owned Installation Marker path", () => {
+  test("rejects the Agent Profile Kit-managed Installation Marker path", () => {
     expect(() => normalizeAdapterPlans([
       plan("codex", fileOutput({ path: ".agent-profile-kit/installation.json" }),
-    )])).toThrow("reserved for the Installer-owned Installation Marker");
+    )])).toThrow("reserved for the Agent Profile Kit-managed Installation Marker");
   });
 
   test("rejects modes that cannot be persisted as owned-output state", () => {
@@ -318,15 +318,15 @@ describe("Adapter output-plan normalization", () => {
     ])).toThrow("directory '.agents/skills' is an ancestor of '.agents/skills/extra.txt'");
   });
 
-  test("rejects an Adapter file that is an ancestor of the Installer-owned Marker", () => {
+  test("rejects an Adapter file that is an ancestor of the Agent Profile Kit-managed Marker", () => {
     expect(() => normalizeAdapterPlans([
       plan("codex", fileOutput({ path: ".agent-profile-kit" })),
-    ])).toThrow("file '.agent-profile-kit' is an ancestor of Installer-owned '.agent-profile-kit/installation.json'");
+    ])).toThrow("file '.agent-profile-kit' is an ancestor of Agent Profile Kit-managed '.agent-profile-kit/installation.json'");
   });
 
   test("rejects an Adapter directory that would own the Installation Marker path", () => {
     expect(() => normalizeAdapterPlans([
       plan("codex", directoryOutput({ path: ".agent-profile-kit" })),
-    ])).toThrow("directory '.agent-profile-kit' is an ancestor of Installer-owned '.agent-profile-kit/installation.json'");
+    ])).toThrow("directory '.agent-profile-kit' is an ancestor of Agent Profile Kit-managed '.agent-profile-kit/installation.json'");
   });
 });

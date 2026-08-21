@@ -39,6 +39,13 @@ import { buildDesiredState } from "../installer/project-plan.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { statusApplication, uninstallApplication } from "../installer/commands.js";
 import type { Skill } from "../schemas/skill.js";
+import {
+  reportBlockers,
+  reportDesired,
+  reportItems,
+  reportOutputs,
+  reportWarnings,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -239,13 +246,13 @@ describe("Grok project Skill packages", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.blockers).toEqual([]);
+    expect(reportBlockers(preview)).toEqual([]);
     expect(
-      preview.outputs.some((item) =>
+      reportOutputs(preview).some((item) =>
         item.kind === "addition" && item.path === ".grok/skills/top-skill"
       ),
     ).toBe(true);
-    const sharedReasons = preview.desired[0]?.resolvedArtifacts.find(
+    const sharedReasons = reportDesired(preview)[0]?.resolvedArtifacts.find(
       (artifact) => artifact.id === "shared-base",
     )?.inclusionReasons ?? [];
     expect(sharedReasons.length).toBeGreaterThanOrEqual(2);
@@ -308,7 +315,7 @@ describe("Grok project Skill packages", () => {
     expect(skillOutput?.type).toBe("directory");
     const preview = await previewReconciliation(second.installations, await readInstallationState(home));
     expect(
-      preview.outputs.find((item) => item.path === ".grok/skills/review-pr")?.kind,
+      reportOutputs(preview).find((item) => item.path === ".grok/skills/review-pr")?.kind,
     ).toBe("unchanged");
   });
 
@@ -332,7 +339,7 @@ describe("Grok project Skill packages", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.blockers.some((blocker) =>
+    expect(reportBlockers(preview).some((blocker) =>
       blocker.message.includes(".grok/skills/review-pr") &&
       blocker.message.toLowerCase().includes("unowned")
     )).toBe(true);
@@ -374,12 +381,12 @@ describe("Grok project Skill packages", () => {
     );
 
     const current = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(current.items.some((item) => item.kind === "current")).toBe(true);
+    expect(reportItems(current).some((item) => item.kind === "current")).toBe(true);
 
     rmSync(join(project, ".grok", "skills", "write-notes"), { recursive: true, force: true });
     const missing = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(missing.items.some((item) => item.kind === "repairable missing output")).toBe(true);
-    expect(missing.outputs.some((item) =>
+    expect(reportItems(missing).some((item) => item.kind === "repairable missing output")).toBe(true);
+    expect(reportOutputs(missing).some((item) =>
       item.kind === "repair" && item.path === ".grok/skills/write-notes"
     )).toBe(true);
     mkdirSync(join(project, ".grok", "skills", "write-notes"), { recursive: true });
@@ -393,7 +400,7 @@ describe("Grok project Skill packages", () => {
       "---\nname: review-pr\ndescription: Skill review-pr.\n---\n\n# drifted\n",
     );
     const drifted = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(drifted.items.some((item) => item.kind === "drifted output")).toBe(true);
+    expect(reportItems(drifted).some((item) => item.kind === "drifted output")).toBe(true);
     writeFileSync(
       join(project, ".grok", "skills", "review-pr", "SKILL.md"),
       "---\nname: review-pr\ndescription: Skill review-pr.\n---\n\n# review-pr\n",
@@ -408,7 +415,7 @@ describe("Grok project Skill packages", () => {
       stale.installations,
       await readInstallationState(home),
     );
-    expect(stalePreview.items.some((item) => item.kind === "stale source")).toBe(true);
+    expect(reportItems(stalePreview).some((item) => item.kind === "stale source")).toBe(true);
     await applyReconciliation(home, stale.installations);
     expect(readFileSync(join(project, ".grok", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "updated source",
@@ -423,7 +430,7 @@ describe("Grok project Skill packages", () => {
       deselected.installations,
       await readInstallationState(home),
     );
-    expect(deselectPreview.outputs.some((item) =>
+    expect(reportOutputs(deselectPreview).some((item) =>
       item.kind === "removal" &&
       (item.path === ".grok/skills/review-pr" || item.path.startsWith(".grok/skills/review-pr/"))
     )).toBe(true);
@@ -524,7 +531,7 @@ describe("Grok project Skill packages", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.blockers).toEqual([]);
+    expect(reportBlockers(preview)).toEqual([]);
     await applyReconciliation(home, desired.installations);
 
     expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
@@ -689,9 +696,9 @@ exit 2
     process.env.PATH = `${bin}:${previousPath}`;
     try {
       const report = await statusApplication(home);
-      expect(report.blockers).toEqual([]);
-      expect(report.warnings).toEqual([]);
-      expect(report.items.some((item) => item.kind === "current")).toBe(true);
+      expect(reportBlockers(report)).toEqual([]);
+      expect(reportWarnings(report)).toEqual([]);
+      expect(reportItems(report).some((item) => item.kind === "current")).toBe(true);
     } finally {
       process.env.PATH = previousPath;
     }
@@ -742,8 +749,8 @@ exit 2
     process.env.PATH = `${bin}:${previousPath}`;
     try {
       const report = await statusApplication(home);
-      expect(report.blockers).toEqual([]);
-      expect(report.items.some((item) => item.kind === "current")).toBe(true);
+      expect(reportBlockers(report)).toEqual([]);
+      expect(reportItems(report).some((item) => item.kind === "current")).toBe(true);
     } finally {
       process.env.PATH = previousPath;
     }

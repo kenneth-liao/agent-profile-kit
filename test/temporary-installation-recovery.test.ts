@@ -146,7 +146,7 @@ describe("Temporary Profile Installation recovery", () => {
     });
   });
 
-  test("temporary capability blockers preserve their legacy un-prefixed projection", async () => {
+  test("temporary capability blockers project their identity-free structured problem", async () => {
     const home = await prepareHome();
     const project = gitRepository("agent-profile-kit-temp-capability-blocker-");
     writeFileSync(join(home, "bin", "codex"), "#!/bin/sh\necho \"codex-cli 0.144.6\"\n");
@@ -161,7 +161,7 @@ describe("Temporary Profile Installation recovery", () => {
     ).rejects.toMatchObject({
       name: "TemporaryInstallationBlockedError",
       blockers: [
-        "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before previewing or applying the Profile",
+        "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
       ],
     });
   });
@@ -477,7 +477,7 @@ describe("Temporary Profile Installation recovery", () => {
     }
     expect(failure).toBeInstanceOf(TemporaryInstallationBlockedError);
     expect((failure as TemporaryInstallationBlockedError).blockers.join("\n")).toMatch(
-      /already has an active Temporary Profile Installation/i,
+      /active Temporary Profile Installation already owns generated files/i,
     );
   });
 

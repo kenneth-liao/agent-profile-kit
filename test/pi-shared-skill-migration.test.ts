@@ -32,6 +32,10 @@ import type {
   DesiredInstallation,
   DesiredProjectDirectoryOutput,
 } from "../installer/project-plan.js";
+import {
+  reportBlockers,
+  reportItems,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -142,7 +146,7 @@ describe("Pi shared Skill migration", () => {
     });
 
     const migrated = await applyReconciliation(home, desired.installations);
-    expect(migrated.resultingState.blockers).toEqual([]);
+    expect(reportBlockers(migrated.resultingState)).toEqual([]);
     expect(existsSync(join(project, ".pi", "skills", "review-pr"))).toBe(false);
     expect(readFileSync(join(project, ".pi", "skills", "unrelated", "README.md"), "utf8")).toBe("keep\n");
     expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
@@ -154,8 +158,8 @@ describe("Pi shared Skill migration", () => {
       home,
       (await buildDesiredState(home, { checkHostCapability: false })).installations,
     );
-    expect(current.resultingState.blockers).toEqual([]);
-    expect(current.resultingState.items.every((item) => item.kind === "current")).toBe(true);
+    expect(reportBlockers(current.resultingState)).toEqual([]);
+    expect(reportItems(current.resultingState).every((item) => item.kind === "current")).toBe(true);
 
     await uninstallApplication(home);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
@@ -196,7 +200,7 @@ describe("Pi shared Skill migration", () => {
       caught = error;
     }
     expect(caught).toBeInstanceOf(ApplyBlockedError);
-    expect(String((caught as ApplyBlockedError).report.blockers[0]?.message)).toContain(".agents/skills/review-pr");
+    expect(String(reportBlockers((caught as ApplyBlockedError).report)[0]?.message)).toContain(".agents/skills/review-pr");
     expect(readFileSync(sharedSkill, "utf8")).toContain("name: review-pr");
     expect(existsSync(join(project, oldPath))).toBe(true);
     expect(readFileSync(statePath, "utf8")).toBe(beforeState);
@@ -234,7 +238,7 @@ describe("Pi shared Skill migration", () => {
       caught = error;
     }
     expect(caught).toBeInstanceOf(ApplyBlockedError);
-    expect(String((caught as ApplyBlockedError).report.blockers[0]?.message)).toContain(oldPath);
+    expect(String(reportBlockers((caught as ApplyBlockedError).report)[0]?.message)).toContain(oldPath);
     expect(readFileSync(join(project, oldPath, "SKILL.md"), "utf8")).toBe("user edit\n");
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(readFileSync(statePath, "utf8")).toBe(beforeState);

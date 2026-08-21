@@ -5,7 +5,6 @@ import type { WriteStream } from "node:tty";
 
 import { agentGuide, focusedGuide, guideIndex, humanGuide, type GuideTopic } from "./guides.js";
 import {
-  defaultViewText,
   displayProjectPath,
   formatApplyJson,
   formatApplyReport,
@@ -241,10 +240,10 @@ function wrapErrorLine(text: string, width: number): string {
 function unknownCommandHelp(unknown: string, context: TerminalPresentationContext): string {
   const safeUnknown = sanitizeCommandToken(unknown);
   const suggestion = suggestedCommand(safeUnknown);
-  const unknownLine = `${defaultViewText(`${COMMAND_NAME}: unknown command `)}'${safeUnknown}'`;
+  const unknownLine = `${COMMAND_NAME}: unknown command '${safeUnknown}'`;
   const lines = [unknownLine];
-  if (suggestion !== undefined) lines.push(`${defaultViewText("Did you mean:")} ${COMMAND_NAME} ${suggestion}?`);
-  lines.push("", defaultViewText(`Run ${COMMAND_NAME} --help for available commands.`));
+  if (suggestion !== undefined) lines.push(`Did you mean: ${COMMAND_NAME} ${suggestion}?`);
+  lines.push("", `Run ${COMMAND_NAME} --help for available commands.`);
   return lines
     .map((line) => line === "" ? "" : wrapErrorLine(line, context.width))
     .join("\n") + "\n";
@@ -258,14 +257,13 @@ function perCommandHelp(
     ? ""
     : `Supported Hosts: ${command.supportedHosts.join(", ")}\n\n`;
   return responsiveHumanText(
-    `Purpose: ${command.summary}\n\n` + defaultViewText(
+    `Purpose: ${command.summary}\n\n` +
       `${usageLine(command)}\n\n` +
-        "Examples:\n" +
-        command.examples.map((example) => `  ${COMMAND_NAME} ${example}\n`).join("") +
-        `\n${supportedHosts}` +
-        `Writes: ${command.writes}\n\n` +
-        `Next: ${command.next}\n`,
-    ),
+      "Examples:\n" +
+      command.examples.map((example) => `  ${COMMAND_NAME} ${example}\n`).join("") +
+      `\n${supportedHosts}` +
+      `Writes: ${command.writes}\n\n` +
+      `Next: ${command.next}\n`,
     context,
     [
       usageLine(command),
@@ -293,22 +291,16 @@ function rootHelp(context: TerminalPresentationContext): string {
     }
   }
   const intro = wrapPresentationText(
-    defaultViewText(
-      "Agent Profile Kit composes reusable agent material into host-native Profile Installations.",
-    ),
+    "Agent Profile Kit composes reusable agent material into host-native projects.",
     context.width,
   ).join("\n");
   const guidance = wrapPresentationText(
-    defaultViewText(
-      `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide --full.`,
-    ),
+    `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide --full.`,
     context.width,
   ).join("\n");
-  const quickStartHeading = defaultViewText("Profile Installation quick start:");
+  const quickStartHeading = "Project quick start:";
   const discovery = wrapPresentationText(
-    defaultViewText(
-      `Choose a Profile with ${COMMAND_NAME} guide profile; see ${COMMAND_NAME} bind --help for supported Host values.`,
-    ),
+    `Choose a Profile with ${COMMAND_NAME} guide profile; see ${COMMAND_NAME} bind --help for supported Host values.`,
     Math.max(1, context.width - 2),
   ).map((line) => `  ${line}`).join("\n");
   const identity = wordmark.length === 0 ? "" : `${wordmark.join("\n")}\n\n`;
@@ -366,7 +358,7 @@ function parseBindArguments(arguments_: readonly string[]): {
   readonly hosts: readonly string[];
 } {
   if (arguments_.length === 0) {
-    throw new Error("bind requires a Profile Artifact ID");
+    throw new Error("bind requires a Profile name");
   }
   const profile = positionalArgument("bind", "a Profile", arguments_[0]!);
   let index = 1;
@@ -415,7 +407,7 @@ function parseInstallTempArguments(arguments_: readonly string[]): {
   readonly project: string;
 } {
   if (arguments_.length < 2) {
-    throw new Error("install-temp requires a Profile Artifact ID and a Project path");
+    throw new Error("install-temp requires a Profile name and a Project path");
   }
   const profile = positionalArgument("install-temp", "a Profile", arguments_[0]!);
   const project = positionalArgument("install-temp", "a Project path", arguments_[1]!);

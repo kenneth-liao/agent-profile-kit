@@ -76,7 +76,7 @@ function addUnique<T extends { readonly id: string }>(
   description: string,
 ): void {
   if (entries.has(entry.id)) {
-    throw new Error(`${description} Artifact ID '${entry.id}' is duplicated`);
+    throw new Error(`${description} name '${entry.id}' is duplicated`);
   }
   entries.set(entry.id, entry);
 }

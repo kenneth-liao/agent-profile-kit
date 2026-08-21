@@ -23,6 +23,9 @@ import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { desiredOutputConflicts, previewReconciliation } from "../installer/reconcile.js";
 import { TemporaryInstallationBlockedError } from "../installer/temporary-installation.js";
+import {
+  reportBlockers,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -118,6 +121,18 @@ describe("shared blocker contract", () => {
     } as never)).toThrow("Structured blocker scope must be 'global' or 'project'");
   });
 
+  test("project-scoped blocker problems cannot duplicate their Project identity", () => {
+    expect(() => normalizeBlocker({
+      affectedItems: [{ kind: "host", value: "codex" }],
+      kind: "host-capability",
+      problem: "/project-a: Codex CLI is unavailable",
+      project: "/project-a",
+      remedy: "Install a supported Codex CLI, then retry",
+      requirement: "The selected Profile requires Codex project delivery",
+      scope: "project",
+    })).toThrow("Structured blocker problem must not duplicate its project identity");
+  });
+
   test("unknown blocker and affected-item kinds are rejected at runtime", () => {
     expect(() => normalizeBlocker({
       affectedItems: [],
@@ -186,7 +201,7 @@ describe("shared blocker contract", () => {
     const removal = normalizeBlocker({
       affectedItems: [],
       kind: "temporary-installation-conflict",
-      problem: "/project-a already hosts an installation",
+      problem: "An installation already owns generated files",
       remedy: "Remove the existing installation, then retry",
       requirement: "A Project hosts at most one Profile Installation at a time",
       project: "/project-a",
@@ -198,11 +213,11 @@ describe("shared blocker contract", () => {
     const error = new TemporaryInstallationBlockedError([structured, removal], "/project-a");
     expect(error.blockers).toEqual([
       "Codex CLI is unavailable",
-      "/project-a already hosts an installation",
+      "An installation already owns generated files",
     ]);
     expect(error.structured).toEqual([structured, removal]);
     expect(error.message).toBe(
-      "Codex CLI is unavailable\n/project-a already hosts an installation",
+      "Codex CLI is unavailable\nAn installation already owns generated files",
     );
     expect(error.blockers.join("\n")).toBe(error.message);
   });
@@ -240,7 +255,7 @@ describe("shared blocker contract", () => {
       emptyState,
     );
 
-    expect(report.blockers[0]).toMatchObject({
+    expect(reportBlockers(report)[0]).toMatchObject({
       affectedItems: [{ kind: "host", value: "codex" }],
       kind: "host-capability",
       project: canonicalProject,
@@ -269,11 +284,11 @@ describe("shared blocker contract", () => {
       [{ ...installation, blockers: [HOST_CAPABILITY_INPUT] }],
       emptyState,
     );
-    expect(globalReport.blockers[0]).toMatchObject({
+    expect(reportBlockers(globalReport)[0]).toMatchObject({
       kind: "host-capability",
       scope: "global",
     });
-    expect(globalReport.blockers[0]?.project).toBeUndefined();
+    expect(reportBlockers(globalReport)[0]?.project).toBeUndefined();
     const globalMachine = JSON.parse(
       formatLifecycleJson("preview", globalReport),
     ) as { readonly globalBlockers: readonly Record<string, unknown>[] };
@@ -284,8 +299,8 @@ describe("shared blocker contract", () => {
       [{ ...installation, blockers: [projectBlocker, projectBlocker] }],
       emptyState,
     );
-    expect(deduplicatedReport.blockers).toHaveLength(1);
-    expect(isStructuredBlocker(deduplicatedReport.blockers[0])).toBe(true);
+    expect(reportBlockers(deduplicatedReport)).toHaveLength(1);
+    expect(isStructuredBlocker(reportBlockers(deduplicatedReport)[0])).toBe(true);
 
     // Malformed internal blockers fail fast instead of degrading to messages.
     await expect(previewReconciliation(
@@ -356,8 +371,8 @@ describe("tracked-output ownership conflicts", () => {
     } as const;
     const report = await previewReconciliation(desired.installations, emptyState);
 
-    expect(report.blockers).toHaveLength(1);
-    const blocker = report.blockers[0]!;
+    expect(reportBlockers(report)).toHaveLength(1);
+    const blocker = reportBlockers(report)[0]!;
     expect(isStructuredBlocker(blocker)).toBe(true);
     expect(blocker).toMatchObject({
       kind: OUTPUT_OWNERSHIP_CONFLICT,

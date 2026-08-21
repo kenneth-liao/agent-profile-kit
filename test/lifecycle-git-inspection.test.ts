@@ -22,6 +22,12 @@ import {
 } from "../installer/reconcile.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { INSTALLATION_STATE_SCHEMA_VERSION } from "../schemas/installation-manifest.js";
+import {
+  reportBlockers,
+  reportItems,
+  reportRepositoryExclusionRepairs,
+  reportWarnings,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -197,7 +203,7 @@ describe("lifecycle Git inspection batching", () => {
     const { desired, report } = await previewWithInspection(home, instrumentation);
 
     expect(desired.installations).toHaveLength(gitProjects.length + nonGitProjects.length);
-    expect(report.blockers).toEqual([]);
+    expect(reportBlockers(report)).toEqual([]);
     // Topology scales with Projects, not generated paths. Non-Git Projects still
     // perform one boundary probe that returns undefined.
     expect(instrumentation.counts.findGitProject).toBe(
@@ -219,7 +225,7 @@ describe("lifecycle Git inspection batching", () => {
     );
 
     expect(desired.installations).toHaveLength(2);
-    expect(report.blockers).toEqual([]);
+    expect(reportBlockers(report)).toEqual([]);
     expect(generatedPathCount).toBeGreaterThan(gitProjects.length * 8);
     // One batched tracked-path query per Git Project, not per generated path.
     expect(instrumentation.counts.classifyTrackedPaths).toBe(gitProjects.length);
@@ -267,8 +273,8 @@ describe("lifecycle Git inspection batching", () => {
     }, { gitInspection });
 
     expect(instrumentation.counts.classifyTrackedPaths).toBe(1);
-    expect(report.blockers).toHaveLength(1);
-    const blocker = report.blockers[0]!;
+    expect(reportBlockers(report)).toHaveLength(1);
+    const blocker = reportBlockers(report)[0]!;
     expect(blocker.kind).toBe("output-ownership-conflict");
     expect(blocker.scope).toBe("project");
     expect(blocker.project).toBe(project);
@@ -325,8 +331,8 @@ describe("lifecycle Git inspection batching", () => {
     });
     const report = await previewReconciliation(desired.installations, state, { gitInspection });
 
-    expect(report.blockers).toEqual([]);
-    expect(report.items.every((item) => item.kind === "current")).toBe(true);
+    expect(reportBlockers(report)).toEqual([]);
+    expect(reportItems(report).every((item) => item.kind === "current")).toBe(true);
     // One shared exclude target for both nested Projects: blockers and diagnostics
     // must reuse one snapshot rather than re-reading per consumer or Project.
     expect(instrumentation.counts.readExcludeSnapshot).toBe(1);
@@ -343,8 +349,8 @@ describe("lifecycle Git inspection batching", () => {
 
     expect(desired.installations.every((installation) => installation.gitProject === undefined)).toBe(true);
     expect(instrumentation.counts.classifyTrackedPaths).toBe(0);
-    expect(report.blockers).toEqual([]);
-    expect(report.items.every((item) => item.kind === "addition")).toBe(true);
+    expect(reportBlockers(report)).toEqual([]);
+    expect(reportItems(report).every((item) => item.kind === "addition")).toBe(true);
   });
 
   test("nested Projects that share one Git root classify through one index listing", async () => {
@@ -357,7 +363,7 @@ describe("lifecycle Git inspection batching", () => {
     const { desired, report } = await previewWithInspection(home, instrumentation);
 
     expect(desired.installations).toHaveLength(gitProjects.length + nestedProjects.length);
-    expect(report.blockers).toEqual([]);
+    expect(reportBlockers(report)).toEqual([]);
     // One Git worktree root → one index query, even with multiple bound Projects.
     expect(instrumentation.counts.classifyTrackedPaths).toBe(1);
   });
@@ -393,9 +399,9 @@ describe("lifecycle Git inspection batching", () => {
     expect(contexts[0]).not.toBe(contexts[contexts.length - 1]);
     expect(new Set(classifyByContext).size).toBeGreaterThanOrEqual(2);
     expect(new Set(excludeReadsByContext).size).toBeGreaterThanOrEqual(2);
-    expect(report.resultingState.blockers).toEqual([]);
-    expect(report.resultingState.repositoryExclusionRepairs).toEqual([]);
-    expect(report.resultingState.items.every((item) => item.kind === "current")).toBe(true);
+    expect(reportBlockers(report.resultingState)).toEqual([]);
+    expect(reportRepositoryExclusionRepairs(report.resultingState)).toEqual([]);
+    expect(reportItems(report.resultingState).every((item) => item.kind === "current")).toBe(true);
   });
 
   test("reusing one Git inspection context across apply preflight and verify leaves stale exclusion evidence", async () => {
@@ -412,8 +418,8 @@ describe("lifecycle Git inspection batching", () => {
       createGitInspection: () => shared,
     });
 
-    expect(report.resultingState.repositoryExclusionRepairs.length).toBeGreaterThan(0);
-    expect(report.resultingState.warnings.some((warning) =>
+    expect(reportRepositoryExclusionRepairs(report.resultingState).length).toBeGreaterThan(0);
+    expect(reportWarnings(report.resultingState).some((warning) =>
       warning.includes("missing its Agent Profile Kit exclusion section")
     )).toBe(true);
   });

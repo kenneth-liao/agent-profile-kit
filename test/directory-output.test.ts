@@ -42,6 +42,11 @@ import {
   parseInstallationManifest,
   type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
+import {
+  reportBlockers,
+  reportItems,
+  reportOutputs,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -223,8 +228,8 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await applyReconciliation(home, desired);
 
-    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
-    expect(report.receipt.outputs).toContainEqual({
+    expect(reportItems(report.receipt)).toContainEqual({ kind: "addition", project });
+    expect(reportOutputs(report.receipt)).toContainEqual({
       kind: "addition",
       path: directory.path,
       project,
@@ -266,9 +271,9 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(desired, await readInstallationState(home));
 
-    expect(report.blockers).toEqual([]);
-    expect(report.outputs).toContainEqual({ kind: "unchanged", path: directory.path, project });
-    expect(report.outputs).not.toContainEqual({ kind: "drifted output", path: directory.path, project });
+    expect(reportBlockers(report)).toEqual([]);
+    expect(reportOutputs(report)).toContainEqual({ kind: "unchanged", path: directory.path, project });
+    expect(reportOutputs(report)).not.toContainEqual({ kind: "drifted output", path: directory.path, project });
   });
 
   test("apply drops a wholly absent recorded directory that current Workspace state no longer desires", async () => {
@@ -280,12 +285,12 @@ describe("Installer-owned artifact-directory outputs", () => {
     rmSync(join(project, directory.path), { recursive: true });
 
     const preview = await previewReconciliation([base], await readInstallationState(home));
-    expect(preview.items).toContainEqual({
+    expect(reportItems(preview)).toContainEqual({
       kind: "update",
       project,
       reason: "desired output changed",
     });
-    expect(preview.outputs).toContainEqual({ kind: "removal", path: directory.path, project });
+    expect(reportOutputs(preview)).toContainEqual({ kind: "removal", path: directory.path, project });
 
     await applyReconciliation(home, [base]);
     expect(existsSync(join(project, directory.path))).toBe(false);
@@ -303,7 +308,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     await applyReconciliation(home, desired);
 
     const current = await previewReconciliation(desired, await readInstallationState(home));
-    expect(current.outputs).toContainEqual({
+    expect(reportOutputs(current)).toContainEqual({
       kind: "unchanged",
       path: directory.path,
       project,
@@ -315,13 +320,13 @@ describe("Installer-owned artifact-directory outputs", () => {
     rmSync(join(project, directory.path, "scripts", "run.sh"));
 
     const drifted = await previewReconciliation(desired, await readInstallationState(home));
-    expect(drifted.outputs.filter((item) => item.path === directory.path)).toEqual([{
+    expect(reportOutputs(drifted).filter((item) => item.path === directory.path)).toEqual([{
       kind: "drifted output",
       path: directory.path,
       project,
     }]);
-    expect(drifted.outputs.every((item) => !item.path.startsWith(`${directory.path}/`))).toBe(true);
-    expect(drifted.blockers.some((blocker) =>
+    expect(reportOutputs(drifted).every((item) => !item.path.startsWith(`${directory.path}/`))).toBe(true);
+    expect(reportBlockers(drifted).some((blocker) =>
       blocker.message.includes("owned output")
     )).toBe(true);
 
@@ -336,7 +341,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     rmSync(join(project, directory.path, "extra"), { recursive: true, force: true });
 
     const updatePreview = await previewReconciliation(updatedDesired, await readInstallationState(home));
-    expect(updatePreview.outputs).toContainEqual({
+    expect(reportOutputs(updatePreview)).toContainEqual({
       kind: "update",
       path: directory.path,
       project,
@@ -353,12 +358,12 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     async function expectRootDrift(): Promise<void> {
       const report = await previewReconciliation(desired, await readInstallationState(home));
-      expect(report.outputs.filter((output) => output.kind === "drifted output")).toEqual([{
+      expect(reportOutputs(report).filter((output) => output.kind === "drifted output")).toEqual([{
         kind: "drifted output",
         path: directory.path,
         project,
       }]);
-      expect(report.blockers).not.toEqual([]);
+      expect(reportBlockers(report)).not.toEqual([]);
     }
 
     const skillPath = join(project, directory.path, "SKILL.md");
@@ -398,7 +403,7 @@ describe("Installer-owned artifact-directory outputs", () => {
       [withDirectoryOutput(base, directory)],
       { intendedTeardowns: [], installations: [], repositoryExclusions: [], schemaVersion: 5, temporaryInstallations: [] },
     );
-    expect(report.blockers.some((blocker) =>
+    expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("occupied unowned artifact directory")
     )).toBe(true);
     expect(readFileSync(join(project, directory.path, "SKILL.md"), "utf8")).toBe("foreign\n");
@@ -431,8 +436,8 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation([changed], await readInstallationState(home));
 
-    expect(report.blockers).toHaveLength(1);
-    expect(report.blockers[0]?.message).toContain(
+    expect(reportBlockers(report)).toHaveLength(1);
+    expect(reportBlockers(report)[0]?.message).toContain(
       `${directory.path} is an occupied directory path`,
     );
   });
@@ -450,7 +455,7 @@ describe("Installer-owned artifact-directory outputs", () => {
       [withDirectoryOutput(base, directory)],
       { intendedTeardowns: [], installations: [], repositoryExclusions: [], schemaVersion: 5, temporaryInstallations: [] },
     );
-    expect(report.blockers.some((blocker) =>
+    expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("occupied") && blocker.message.includes("parent path")
     )).toBe(true);
     expect(existsSync(join(project, directory.path))).toBe(false);
@@ -468,12 +473,12 @@ describe("Installer-owned artifact-directory outputs", () => {
       [withDirectoryOutput(base, directory)],
       await readInstallationState(home),
     );
-    expect(report.outputs).toContainEqual({
+    expect(reportOutputs(report)).toContainEqual({
       kind: "drifted output",
       path: directory.path,
       project,
     });
-    expect(report.blockers.some((blocker) =>
+    expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes(directory.path) && blocker.message.includes("will not overwrite")
     )).toBe(true);
   });
@@ -493,7 +498,7 @@ describe("Installer-owned artifact-directory outputs", () => {
       await readInstallationState(home),
     );
 
-    expect(report.outputs.filter((output) =>
+    expect(reportOutputs(report).filter((output) =>
       output.kind === "drifted output" && output.path === directory.path
     )).toHaveLength(1);
   });
@@ -567,7 +572,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     const project = temporaryDirectory("agent-profile-kit-dir-context-project-");
     const installation = await contextInstallation(home, project);
     const report = await applyReconciliation(home, [installation]);
-    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
+    expect(reportItems(report.receipt)).toContainEqual({ kind: "addition", project });
     expect(readFileSync(join(project, ".agent-profile-kit", "codex", "context.md"), "utf8"))
       .toContain("Directory ownership context.");
     const state = await readInstallationState(home);
@@ -634,7 +639,7 @@ describe("Installer-owned artifact-directory outputs", () => {
       [withDirectoryOutput(base, directory)],
       { intendedTeardowns: [], installations: [], repositoryExclusions: [], schemaVersion: 5, temporaryInstallations: [] },
     );
-    expect(report.blockers.some((blocker) =>
+    expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("tracked project path")
     )).toBe(true);
     expect(existsSync(join(project, directory.path))).toBe(false);

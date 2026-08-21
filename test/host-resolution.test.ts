@@ -7,6 +7,11 @@ import { statusApplication } from "../installer/commands.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { applyReconciliation, previewReconciliation } from "../installer/reconcile.js";
+import {
+  reportBlockers,
+  reportItems,
+  reportWarnings,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -67,8 +72,8 @@ describe("Host Resolution", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.blockers).toEqual([]);
-    expect(preview.warnings).toEqual([]);
+    expect(reportBlockers(preview)).toEqual([]);
+    expect(reportWarnings(preview)).toEqual([]);
 
     await applyReconciliation(home, desired.installations);
     expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
@@ -88,9 +93,9 @@ describe("Host Resolution", () => {
     writeSkill(join(home, ".claude", "skills"), "review-pr");
 
     const status = await statusApplication(home);
-    expect(status.blockers).toEqual([]);
-    expect(status.warnings).toEqual([]);
-    expect(status.items.some((item) => item.project === project && item.kind === "current")).toBe(
+    expect(reportBlockers(status)).toEqual([]);
+    expect(reportWarnings(status)).toEqual([]);
+    expect(reportItems(status).some((item) => item.project === project && item.kind === "current")).toBe(
       true,
     );
   });

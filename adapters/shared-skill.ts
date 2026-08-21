@@ -153,7 +153,7 @@ function emitSharedSkillMarkdown(
   const name = document.get("name");
   if (name !== skillId) {
     throw new Error(
-      `Skill '${skillId}' SKILL.md name must remain the canonical Artifact ID '${skillId}'`,
+      `Skill '${skillId}' SKILL.md name must remain the canonical name '${skillId}'`,
     );
   }
   setGeneratedBooleanField(

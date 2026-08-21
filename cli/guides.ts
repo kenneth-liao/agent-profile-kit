@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { COMMAND_NAME } from "../installer/version.js";
-import { defaultViewText } from "./presentation.js";
 import { wrapPresentationText, type TerminalPresentationContext } from "./terminal-presentation.js";
 
 function guidePath(name: string): URL {
@@ -52,9 +51,7 @@ export function guideIndex(context: TerminalPresentationContext): string {
     "# Agent Profile Kit guide",
     "",
     ...wrapPresentationText(
-      defaultViewText(
-        "Choose a focused authoring topic, read the complete human guide, or open the agent workflow reference.",
-      ),
+      "Choose a focused authoring topic, read the complete human guide, or open the agent workflow reference.",
       context.width,
     ),
     "",
@@ -66,7 +63,7 @@ export function guideIndex(context: TerminalPresentationContext): string {
     lines.push(`  ${COMMAND_NAME} guide ${topic}`);
     lines.push(
       ...wrapPresentationText(
-        defaultViewText(`${guide.title}: ${guide.introduction}`),
+        `${guide.title}: ${guide.introduction}`,
         Math.max(1, context.width - 4),
       )
         .map((line) => `    ${line}`),
@@ -98,7 +95,7 @@ export function guideIndex(context: TerminalPresentationContext): string {
 function routeDescription(route: string, description: string, width: number): readonly string[] {
   return [
     `  ${route}`,
-    ...wrapPresentationText(defaultViewText(description), Math.max(1, width - 4)).map((line) =>
+    ...wrapPresentationText(description, Math.max(1, width - 4)).map((line) =>
       `    ${line}`),
   ];
 }
@@ -113,7 +110,7 @@ export function focusedGuide(topic: GuideTopic, context: TerminalPresentationCon
   const blocks: GuideBlock[] = [
     {
       kind: "prose",
-      text: defaultViewText(`# ${guide.title}\n\n${guide.introduction}\n\n`),
+      text: `# ${guide.title}\n\n${guide.introduction}\n\n`,
     },
     renderExample(example, guide.language),
   ];

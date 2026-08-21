@@ -35,6 +35,15 @@ import {
   INSTALLATION_STATE_SCHEMA_VERSION,
   type InstallationState,
 } from "../schemas/installation-manifest.js";
+import {
+  reportBlockers,
+  reportDesired,
+  reportItems,
+  reportOutputs,
+  reportRepositoryExclusionRepairs,
+  reportRepositoryExclusions,
+  reportWarnings,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -275,19 +284,19 @@ function desiredProjection(desired: DesiredState): unknown {
 
 function reportProjection(report: ReconciliationReport): unknown {
   return {
-    blockers: report.blockers,
-    desired: report.desired.map((installation) => ({
+    blockers: reportBlockers(report),
+    desired: reportDesired(report).map((installation) => ({
       canonicalProject: installation.canonicalProject,
       hosts: installation.hosts,
       outputs: installation.outputs,
       profile: installation.profile,
       setupSteps: installation.setupSteps,
     })),
-    items: report.items,
-    outputs: report.outputs,
-    repositoryExclusionRepairs: report.repositoryExclusionRepairs,
-    repositoryExclusions: report.repositoryExclusions,
-    warnings: report.warnings,
+    items: reportItems(report),
+    outputs: reportOutputs(report),
+    repositoryExclusionRepairs: reportRepositoryExclusionRepairs(report),
+    repositoryExclusions: reportRepositoryExclusions(report),
+    warnings: reportWarnings(report),
   };
 }
 
@@ -351,12 +360,12 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
     expect(gated.maxInFlight()).toBeLessThanOrEqual(DEFAULT_PROJECT_CONCURRENCY);
     for (let index = firstWave; index < gated.gates.length; index += 1) gated.gates[index]!();
     const report = await reportPromise;
-    expect(report.blockers).toEqual([]);
-    expect(report.items).toHaveLength(8);
-    expect(report.items.every((item) => item.kind === "addition")).toBe(true);
+    expect(reportBlockers(report)).toEqual([]);
+    expect(reportItems(report)).toHaveLength(8);
+    expect(reportItems(report).every((item) => item.kind === "addition")).toBe(true);
     // Canonical Project ordering is preserved despite concurrent completion.
-    expect(report.items.map((item) => item.project)).toEqual(
-      [...report.items.map((item) => item.project)].sort(),
+    expect(reportItems(report).map((item) => item.project)).toEqual(
+      [...reportItems(report).map((item) => item.project)].sort(),
     );
   });
 
@@ -375,13 +384,13 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
     });
 
     expect(desired.installations).toHaveLength(FLEET_HOSTS.length);
-    expect(report.blockers).toEqual([]);
-    expect(report.items).toHaveLength(FLEET_HOSTS.length);
+    expect(reportBlockers(report)).toEqual([]);
+    expect(reportItems(report)).toHaveLength(FLEET_HOSTS.length);
     // Planning (12) and reconciliation (retirement + per-Project loop) all ran
     // through the same scheduler instance with one fixed bound.
     expect(waiter.started()).toBeGreaterThanOrEqual(36);
-    expect(report.items.map((item) => item.project)).toEqual(
-      [...report.items.map((item) => item.project)].sort(),
+    expect(reportItems(report).map((item) => item.project)).toEqual(
+      [...reportItems(report).map((item) => item.project)].sort(),
     );
   });
 
@@ -524,8 +533,8 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
     // never overlap even though reads were concurrent.
     expect(reportProjection(applied.receipt)).toEqual(reportProjection(sequentialPreview));
     expect(maxWriteInFlight).toBe(1);
-    expect(applied.resultingState.blockers).toEqual([]);
-    expect(applied.resultingState.items.every((item) => item.kind === "current")).toBe(true);
+    expect(reportBlockers(applied.resultingState)).toEqual([]);
+    expect(reportItems(applied.resultingState).every((item) => item.kind === "current")).toBe(true);
     const state = await readInstallationState(home);
     expect(state.installations).toHaveLength(projects.length);
   });

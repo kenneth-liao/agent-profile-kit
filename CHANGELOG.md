@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Render lifecycle text directly from nested global and Project records, with structured blocker evidence, typed warning values, and task-authored wording replacing the temporary flat report and regex vocabulary translation ([#249](https://github.com/kenneth-liao/agent-profile-kit/issues/249)).
+
 ### Added
 
 - Add Antigravity Skill delivery through the qualified shared `.agents/skills/<Artifact ID>` projector, with distinct Skills-only/combined Capability Contracts, disabled-invocation preservation, ownership-safe lifecycle coverage, and consuming-Host evidence ([#231](https://github.com/kenneth-liao/agent-profile-kit/issues/231)).

@@ -1637,7 +1637,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout).toMatch(/Changes: .*addition/);
     expect(humanText(result.stdout)).toContain(humanText(`Project: ${projectPath}`));
-    expect(result.stdout).not.toContain("Desired State:");
+    expect(result.stdout).not.toContain("Selected setup:");
     expect(result.stdout).not.toContain("Context:");
   });
 
@@ -1657,7 +1657,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Changes:");
     expect(result.stdout).not.toContain("No Projects need attention.");
     expect(result.stdout).not.toContain("unchanged generated file");
-    expect(result.stdout).not.toContain("Desired State:");
+    expect(result.stdout).not.toContain("Selected setup:");
   });
 
   test("status with no Project Bindings states the condition once and gives discovery next steps", async () => {
@@ -1698,7 +1698,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toContain(humanText(`Project: ${repository}`));
     expect(result.stdout).not.toContain(`Project: ${realpathSync(worktree)}`);
     expect(result.stdout).toMatch(/Changes: .*update/);
-    expect(result.stdout).not.toContain("Desired State:");
+    expect(result.stdout).not.toContain("Selected setup:");
   });
 
   test("preview treats Codex SessionStart hook configuration as advisory", async () => {
@@ -1853,7 +1853,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout.match(/SessionStart hooks are not enabled/g)).toHaveLength(2);
-    expect(result.stdout).toContain(".codex/hooks.json is occupied by unowned or drifted output");
+    expect(humanText(result.stdout)).toContain(".codex/hooks.json is occupied by unowned or drifted output");
     expect(existsSync(join(first, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(second, ".agent-profile-kit"))).toBe(false);
   });
@@ -1953,7 +1953,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout.startsWith("Apply blocked\n")).toBe(true);
-    expect(result.stdout.split(blocker)).toHaveLength(2);
+    expect(humanText(result.stdout).split(blocker)).toHaveLength(2);
     expect(humanText(result.stdout)).toContain(
       humanText(`Next:\n- ${projectPath}: Resolve the reported blocker, then run apkit apply again.`),
     );
@@ -1988,7 +1988,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const command of ["preview", "apply", "status"] as const) {
       const verbose = await runCli(home, command, "--verbose");
       expectExitCode(verbose, 0);
-      expect(verbose.stdout).toContain("Desired State:");
+      expect(verbose.stdout).toContain("Selected setup:");
       expect(verbose.stdout).toContain("Resolved artifacts:");
       expect(verbose.stdout).toContain("Context:");
 
@@ -2150,7 +2150,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
           `of each bound Host (codex) from ${projectPath}.`,
       ),
     );
-    expect(result.stdout).not.toContain("Desired State:");
+    expect(result.stdout).not.toContain("Selected setup:");
     const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     const hookPath = join(projectPath, ".codex", "hooks.json");
     const markerPath = join(projectPath, ".agent-profile-kit", "installation.json");
@@ -3162,7 +3162,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(exclude, "utf8")).not.toContain("/nested/");
   });
 
-  test("missing Repository Exclusion Record blocks an existing Git installation before writes", async () => {
+  test("missing Git exclusion record blocks an existing Git installation before writes", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-missing-record-");
@@ -3179,12 +3179,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(preview, 2);
     expect(preview.stdout).toContain("missing its Git exclusion record");
-    expect(preview.stdout).not.toContain(repository);
-    expect(preview.stdout).not.toContain(realpathSync(repository));
+    expect(preview.stdout).toContain("Affected path:");
+    expect(preview.stdout).toContain(realpathSync(repository));
     expect(readFileSync(exclude).equals(before)).toBe(true);
   });
 
-  test("uninstall rejects a Repository Exclusion Record attached to the wrong Git target", async () => {
+  test("uninstall rejects a Git exclusion record attached to the wrong Git target", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-wrong-record-target-");
@@ -3421,7 +3421,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const verboseRepaired = await runCli(home, "apply", "--verbose");
     expectExitCode(verboseRepaired, 0);
     expect(verboseRepaired.stdout).not.toContain("apply will restore");
-    expect(verboseRepaired.stdout).toContain("restored 3 recorded Repository Exclusion entries");
+    expect(verboseRepaired.stdout).toContain("restored 3 recorded Git exclusion entries");
     expect(readFileSync(exclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
     const afterStatus = await runCli(home, "status");
     expect(afterStatus.stdout).not.toContain("is missing its Agent Profile Kit exclusion section");
@@ -3845,7 +3845,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status");
 
     expectExitCode(result, 2);
-    expect(result.stdout).toContain("installation record outputs must include the Installation Marker");
+    expect(result.stdout).toContain("Installation record outputs must include the Installation Marker");
     expect(result.stdout).toContain("Blockers: 1");
   });
 
@@ -4310,7 +4310,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCliAt(home, removed, "apply");
 
     expectExitCode(result, 2);
-    expect(result.stdout).toContain("Cannot remove stale Project");
+    expect(result.stdout).toContain("Cannot remove stale generated files");
     expect(result.stdout).not.toContain(removed);
     expect(result.stdout).not.toContain(realpathSync(removed));
     expect(result.stderr).toBe("");
@@ -4884,7 +4884,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const conflict = await runCli(conflictHome, "preview");
     expectExitCode(conflict, 2);
     expect(conflict.stdout).toContain("conflicting model-invocation authorities");
-    expect(conflict.stdout).toContain("canonical Workspace metadata.agent-profile-kit.model-invocation");
+    expect(humanText(conflict.stdout)).toContain("canonical Workspace metadata.agent-profile-kit.model-invocation");
     expect(conflict.stdout).toContain("agents/openai.yaml policy.allow_implicit_invocation");
     expect(existsSync(join(conflictProject, ".agents", "skills", "to-spec"))).toBe(false);
 
@@ -5431,7 +5431,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const malformedBin = installFakeAntigravity(home, "not-a-version");
     const malformed = await runCliWithPath(home, `${malformedBin}:${process.env.PATH ?? ""}`, "preview");
     expectExitCode(malformed, 2);
-    expect(`${malformed.stdout}${malformed.stderr}`).toMatch(/version is unreadable/i);
+    expect(humanText(`${malformed.stdout}${malformed.stderr}`)).toMatch(/version is unreadable/i);
 
     const oldBin = installFakeAntigravity(home, "1.1.12");
     const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "preview");
@@ -7246,7 +7246,7 @@ describe("shared presentation boundary", () => {
     expectExitCode(blockedTemp, 2);
     const blockedTempOutput = `${blockedTemp.stdout}${blockedTemp.stderr}`;
     expect(blockedTempOutput.replace(/\s+/g, " ")).toContain(
-      "already has an ordinary Profile Installation",
+      "Generated files are already managed through a Project Binding",
     );
     for (const line of blockedTempOutput.split("\n")) {
       // Occupied-output lines carry project-relative path tokens that are
@@ -7873,7 +7873,7 @@ describe("apkit root help", () => {
 
     const missingProfile = await runCli(home, "bind");
     expectExitCode(missingProfile, 1);
-    expect(missingProfile.stderr).toContain("bind requires a Profile Artifact ID");
+    expect(missingProfile.stderr).toContain("bind requires a Profile name");
     expect(missingProfile.stderr).toContain("Usage: apkit bind <profile>");
 
     const missingHost = await runCli(home, "bind", "coding");
@@ -9335,8 +9335,8 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain(
-      `${authored} already has an ordinary Profile Installation`,
+    expect(humanText(result.stderr)).toContain(
+      "Generated files are already managed through a Project Binding",
     );
     expect(result.stderr).not.toContain(projectPath);
   });

@@ -26,6 +26,9 @@ import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
 import { applyReconciliation } from "../installer/reconcile.js";
 import { buildDesiredState, hashBytes } from "../installer/project-plan.js";
+import {
+  reportItems,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -238,7 +241,7 @@ describe("Codex complete Context delivery", () => {
     expect(corrected.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
     expect(corrected.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
     const report = await applyReconciliation(home, corrected.installations);
-    expect(report.receipt.items).toContainEqual({
+    expect(reportItems(report.receipt)).toContainEqual({
       kind: "update",
       project,
       reason: "desired output changed",
@@ -316,7 +319,7 @@ describe("Codex complete Context delivery", () => {
     expect(corrected.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
     expect(corrected.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
     const report = await applyReconciliation(home, corrected.installations);
-    expect(report.receipt.items).toContainEqual({
+    expect(reportItems(report.receipt)).toContainEqual({
       kind: "update",
       project,
       reason: "desired output changed",

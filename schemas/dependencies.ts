@@ -12,7 +12,7 @@ const ARTIFACT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export function requireArtifactId(value: unknown, description: string): string {
   if (typeof value !== "string" || !ARTIFACT_ID.test(value)) {
     throw new Error(
-      `${description} must be a lowercase kebab-case Artifact ID without wildcards`,
+      `${description} must be a lowercase kebab-case name without wildcards`,
     );
   }
   return value;

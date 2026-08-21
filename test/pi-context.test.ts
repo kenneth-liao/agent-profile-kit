@@ -25,6 +25,11 @@ import { applyReconciliation, previewReconciliation } from "../installer/reconci
 import { buildDesiredState } from "../installer/project-plan.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { uninstallApplication } from "../installer/commands.js";
+import {
+  reportBlockers,
+  reportDiagnosticValues,
+  reportItems,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -312,7 +317,7 @@ describe("Pi Adapter", () => {
         source.replace("name: review-pr", "name: another-skill"),
         "disabled",
       ),
-    ).toThrow(/canonical Artifact ID/i);
+    ).toThrow(/canonical name/i);
     const inlineDelimiter = "---\nname: review-pr\ndescription: Review a pull request.\nlicense: abc---\nfoo: bar\n---\n# Review\n";
     expect(emitSharedSkillMarkdown("review-pr", inlineDelimiter, "disabled")).toContain(
       "foo: bar\n---\n# Review\n",
@@ -432,7 +437,7 @@ describe("Pi Adapter", () => {
     }]);
 
     const applied = await applyReconciliation(home, desired.installations);
-    expect(applied.resultingState.blockers).toEqual([]);
+    expect(reportBlockers(applied.resultingState)).toEqual([]);
     expect(existsSync(join(piProject, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
     expect(existsSync(join(combinedProject, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
     expect(existsSync(join(combinedProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
@@ -449,7 +454,7 @@ describe("Pi Adapter", () => {
       (await buildDesiredState(home, { checkHostCapability: false })).installations,
       state,
     );
-    expect(status.items.some((item) => item.project === piProject && item.kind === "drifted output")).toBe(true);
+    expect(reportItems(status).some((item) => item.project === piProject && item.kind === "drifted output")).toBe(true);
 
     writeFileSync(join(piProject, ".pi", "APPEND_SYSTEM.md"), String(piDesired?.outputs[0]?.type === "file" ? piDesired.outputs[0].bytes : ""));
     await uninstallApplication(home);
@@ -495,7 +500,7 @@ describe("Pi Adapter", () => {
       home,
       (await buildDesiredState(home, { checkHostCapability: false })).installations,
     );
-    expect(reapplied.resultingState.blockers).toEqual([]);
+    expect(reportBlockers(reapplied.resultingState)).toEqual([]);
     const topScript = join(project, ".agents", "skills", "top-skill", "scripts", "run.sh");
     expect(readFileSync(topScript, "utf8")).toContain("top-skill");
     expect(statSync(topScript).mode & 0o777).toBe(0o755);
@@ -525,7 +530,7 @@ describe("Pi Adapter", () => {
       (await buildDesiredState(home, { checkHostCapability: false })).installations,
       state,
     );
-    expect(drift.items.some((item) => item.project === project && item.kind === "drifted output")).toBe(true);
+    expect(reportItems(drift).some((item) => item.project === project && item.kind === "drifted output")).toBe(true);
     writeFileSync(
       join(project, ".agents", "skills", "top-skill", "SKILL.md"),
       "---\nname: top-skill\ndescription: top-skill Skill.\n---\n\n# top-skill\n",
@@ -562,7 +567,7 @@ describe("Pi Adapter", () => {
       ".pi/APPEND_SYSTEM.md",
     ]);
     const applied = await applyReconciliation(home, desired.installations);
-    expect(applied.resultingState.blockers).toEqual([]);
+    expect(reportBlockers(applied.resultingState)).toEqual([]);
     const state = await readInstallationState(home);
     expect(state.installations[0]?.hosts).toEqual(["claude", "pi"]);
     expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
@@ -680,7 +685,7 @@ describe("Pi Adapter", () => {
     });
 
     expect(
-      preview.blockers.some(
+      reportBlockers(preview).some(
         (blocker) =>
           blocker.message.includes(".agents/skills/review-pr") &&
           blocker.message.toLowerCase().includes("unowned"),
@@ -800,7 +805,7 @@ describe("Pi Adapter", () => {
       schemaVersion: 5,
       temporaryInstallations: [],
     });
-    expect(report.diagnosticValues).toContain(canonicalSettingsPath);
+    expect(reportDiagnosticValues(report)).toContain(canonicalSettingsPath);
   });
 
   test("valid symlinked Pi settings remain Host Resolution without false warnings", async () => {

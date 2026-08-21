@@ -4,32 +4,75 @@ import { isAbsolute, join, relative } from "node:path";
 
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
-  flatReconciliationReport,
   type ApplyReconciliationResult,
-  type BlockedReconciliationReport as CanonicalBlockedReconciliationReport,
-  type FlatReconciliationReport,
+  type BlockedReconciliationReport,
   type OutputReconciliationItem,
   type OutputReconciliationKind,
   type ReconciliationBlocker,
   type ReconciliationItem,
   type ReconciliationKind,
   type ReconciliationProjectRecord,
-  type ReconciliationReport as CanonicalReconciliationReport,
+  type ReconciliationReport,
   type ReconciliationWarning,
 } from "../installer/reconcile.js";
 
-/** Temporary flat type used only inside the legacy human renderer. */
-type ReconciliationReport = FlatReconciliationReport;
-type HumanReconciliationReport = CanonicalReconciliationReport | FlatReconciliationReport;
+type PresentedDesired = NonNullable<ReconciliationProjectRecord["desired"]> & {
+  readonly canonicalProject: string;
+  readonly project: string;
+  readonly setupSteps: ReconciliationProjectRecord["setupSteps"];
+};
 
-function isCanonicalReport(
-  report: HumanReconciliationReport,
-): report is CanonicalReconciliationReport {
-  return "projects" in report && "globalBlockers" in report;
+function reportBlockers(report: ReconciliationReport): readonly ReconciliationBlocker[] {
+  return [...report.globalBlockers, ...report.projects.flatMap((project) => project.blockers)];
 }
 
-function humanReport(report: HumanReconciliationReport): FlatReconciliationReport {
-  return isCanonicalReport(report) ? flatReconciliationReport(report) : report;
+function reportDesired(report: ReconciliationReport): readonly PresentedDesired[] {
+  return report.projects.flatMap((project) => project.desired === undefined ? [] : [{
+    ...project.desired,
+    canonicalProject: project.canonicalProject,
+    project: project.project,
+    setupSteps: project.setupSteps,
+  }]);
+}
+
+function reportItems(report: ReconciliationReport): readonly ReconciliationItem[] {
+  return report.projects.map((project) => ({ ...project.state, project: project.project }));
+}
+
+function reportOutputs(report: ReconciliationReport): readonly OutputReconciliationItem[] {
+  return report.projects.flatMap((project) => project.outputs.map((output) => ({
+    kind: output.kind,
+    path: output.path,
+    project: project.project,
+  })));
+}
+
+function deduplicateRecords<T>(records: readonly T[]): readonly T[] {
+  return [...new Map(records.map((record) => [JSON.stringify(record), record])).values()];
+}
+
+function reportRepositoryExclusions(
+  report: ReconciliationReport,
+): readonly ReconciliationProjectRecord["repositoryExclusions"][number][] {
+  return deduplicateRecords(report.projects.flatMap((project) => project.repositoryExclusions));
+}
+
+function reportRepositoryExclusionRepairs(
+  report: ReconciliationReport,
+): readonly ReconciliationProjectRecord["repositoryExclusionRepairs"][number][] {
+  return deduplicateRecords(report.projects.flatMap((project) => project.repositoryExclusionRepairs));
+}
+
+function reportWarningMessages(report: ReconciliationReport): readonly string[] {
+  return [...new Set(report.projects.flatMap((project) =>
+    project.warnings.map((warning) => warning.message)
+  ))].sort(compareCanonicalStrings);
+}
+
+function reportWarningValues(report: ReconciliationReport): readonly string[] {
+  return [...new Set(report.projects.flatMap((project) =>
+    project.warnings.flatMap((warning) => warning.copyableValues)
+  ))].sort(compareCanonicalStrings);
 }
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
 import {
@@ -143,67 +186,6 @@ export function formatMissingProfileError(error: MissingProfileError): string {
 
 function capitalize(text: string): string {
   return `${text[0]?.toUpperCase()}${text.slice(1)}`;
-}
-
-function preserveInitialCase(source: string, replacement: string): string {
-  return source[0] === source[0]?.toUpperCase()
-    ? capitalize(replacement)
-    : replacement;
-}
-
-export function defaultViewText(text: string): string {
-  const replacements: readonly (readonly [RegExp, string, boolean?])[] = [
-    [
-      /\bInstaller-owned generated outputs\b/gi,
-      `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}`,
-      false,
-    ],
-    [
-      /\bInstaller-owned generated output\b/gi,
-      `${DEFAULT_VIEW_LEXICON.generatedOutput.singular} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}`,
-      false,
-    ],
-    [
-      /\bInstaller-owned generated paths\b/gi,
-      `${DEFAULT_VIEW_LEXICON.generatedOutput.paths} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}`,
-      false,
-    ],
-    [/\bRepository Exclusion Records\b/gi, DEFAULT_VIEW_LEXICON.repositoryExclusionRecord.plural],
-    [/\bRepository Exclusion Record\b/gi, DEFAULT_VIEW_LEXICON.repositoryExclusionRecord.singular],
-    // Preserve "temporary Profile installation" (receipt-owned lifetime) as newcomer vocabulary.
-    [/(?<!temporary )\bProfile Installations\b/gi, DEFAULT_VIEW_LEXICON.profileInstallation.plural],
-    [/(?<!temporary )\bProfile Installation\b/gi, DEFAULT_VIEW_LEXICON.profileInstallation.singular],
-    [/\bgenerated[- ]outputs\b/gi, DEFAULT_VIEW_LEXICON.generatedOutput.plural],
-    [/\bgenerated[- ]output\b/gi, DEFAULT_VIEW_LEXICON.generatedOutput.singular],
-    [/\bRepository Exclusions\b/gi, DEFAULT_VIEW_LEXICON.repositoryExclusion.plural],
-    [/\bRepository Exclusion\b/gi, DEFAULT_VIEW_LEXICON.repositoryExclusion.singular],
-    [/\bInstaller-owned\b/gi, DEFAULT_VIEW_LEXICON.installerOwned.attributive],
-    [/\breconciling\b/gi, DEFAULT_VIEW_LEXICON.reconciliation.continuous],
-    [/\breconciles\b/gi, DEFAULT_VIEW_LEXICON.reconciliation.thirdPerson],
-    [/\breconciled\b/gi, DEFAULT_VIEW_LEXICON.reconciliation.past],
-    [/\breconciliation\b/gi, DEFAULT_VIEW_LEXICON.reconciliation.noun],
-    [/\breconcile\b/gi, DEFAULT_VIEW_LEXICON.reconciliation.base],
-    [/\bArtifact IDs\b/gi, DEFAULT_VIEW_LEXICON.artifactId.plural, false],
-    [/\bArtifact ID\b/gi, DEFAULT_VIEW_LEXICON.artifactId.singular, false],
-    [/\bInstallation Manifests\b/gi, DEFAULT_VIEW_LEXICON.installationManifest.plural, false],
-    [/\bInstallation Manifest\b/gi, DEFAULT_VIEW_LEXICON.installationManifest.singular, false],
-    [/\bdesired state\b/gi, DEFAULT_VIEW_LEXICON.desiredState],
-  ];
-  return replacements.reduce(
-    (rendered, [pattern, replacement, preserveSourceCase = true]) => rendered.replace(
-      pattern,
-      (match) => preserveSourceCase ? preserveInitialCase(match, replacement) : replacement,
-    ),
-    text,
-  );
-}
-
-function defaultDiagnosticText(text: string): string {
-  const protectedValue = /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[^\s'"]*\/[^\s'"]*)/g;
-  return text
-    .split(protectedValue)
-    .map((part, index) => index % 2 === 1 ? part : defaultViewText(part))
-    .join("");
 }
 
 /**
@@ -898,8 +880,10 @@ function outputPathLines(outputs: readonly OutputReconciliationItem[]): readonly
     : paths;
 }
 
-function changedRepositoryExclusions(report: ReconciliationReport): readonly ReconciliationReport["repositoryExclusions"][number][] {
-  return report.repositoryExclusions.filter((change) =>
+function changedRepositoryExclusions(
+  report: ReconciliationReport,
+): readonly ReconciliationProjectRecord["repositoryExclusions"][number][] {
+  return reportRepositoryExclusions(report).filter((change) =>
     change.current.length !== change.next.length ||
     change.current.some((entry, index) => entry !== change.next[index]),
   );
@@ -909,14 +893,14 @@ function repositoryExclusionRepairLines(
   report: ReconciliationReport,
   completed = false,
 ): readonly string[] {
-  return report.repositoryExclusionRepairs.map((repair) => {
+  return reportRepositoryExclusionRepairs(report).map((repair) => {
     const count = repair.entries.length;
     const action = completed ? "restored" : "will restore";
-    return `${repair.target}: ${action} ${count} recorded Repository Exclusion ${count === 1 ? "entry" : "entries"}`;
+    return `${repair.target}: ${action} ${count} recorded Git exclusion ${count === 1 ? "entry" : "entries"}`;
   });
 }
 
-function exclusionDelta(change: ReconciliationReport["repositoryExclusions"][number]): {
+function exclusionDelta(change: ReconciliationProjectRecord["repositoryExclusions"][number]): {
   readonly additions: readonly string[];
   readonly removals: readonly string[];
 } {
@@ -928,7 +912,7 @@ function exclusionDelta(change: ReconciliationReport["repositoryExclusions"][num
   };
 }
 
-function exclusionDeltaText(change: ReconciliationReport["repositoryExclusions"][number]): string {
+function exclusionDeltaText(change: ReconciliationProjectRecord["repositoryExclusions"][number]): string {
   const delta = exclusionDelta(change);
   const parts: string[] = [];
   if (delta.additions.length > 0) parts.push(`add ${delta.additions.join(", ")}`);
@@ -949,7 +933,7 @@ function repositoryExclusionClause(
       }),
       { additions: 0, removals: 0 },
     );
-  const repairs = report.repositoryExclusionRepairs.reduce(
+  const repairs = reportRepositoryExclusionRepairs(report).reduce(
     (count, repair) => count + repair.entries.length,
     0,
   );
@@ -969,7 +953,7 @@ function repositoryExclusionClause(
 }
 
 function itemText(item: ReconciliationItem): string {
-  return `${item.kind}${item.reason ? ` (${defaultDiagnosticText(item.reason)})` : ""}`;
+  return `${item.kind}${item.reason ? ` (${item.reason})` : ""}`;
 }
 
 function isNonCurrentKind(kind: ReconciliationKind): kind is NonCurrentKind {
@@ -995,38 +979,6 @@ function stateExplanationLines(items: readonly ReconciliationItem[]): readonly s
 
 function blockerProject(blocker: ReconciliationBlocker): string | undefined {
   return blocker.project || undefined;
-}
-
-function projectCandidates(blocker: ReconciliationBlocker, displayProject?: string): string[] {
-  return [...new Set([blockerProject(blocker), displayProject].filter((project): project is string => project !== undefined))];
-}
-
-function stripProjectPrefix(message: string, projects: readonly string[]): string {
-  for (const project of projects) {
-    const prefix = `${project}: `;
-    if (message.startsWith(prefix)) return message.slice(prefix.length);
-  }
-  return message;
-}
-
-function removeProjectPathPrefix(message: string, project: string): string {
-  const prefix = `${project}/`;
-  let cursor = 0;
-  let formatted = "";
-  while (cursor < message.length) {
-    const index = message.indexOf(prefix, cursor);
-    if (index < 0) return formatted + message.slice(cursor);
-    const previous = message[index - 1];
-    const boundary = index === 0 || previous === undefined || /[\s("'=:/]/.test(previous);
-    if (!boundary) {
-      formatted += message.slice(cursor, index + 1);
-      cursor = index + 1;
-      continue;
-    }
-    formatted += message.slice(cursor, index);
-    cursor = index + prefix.length;
-  }
-  return formatted;
 }
 
 function shortenProjectReferences(message: string, groups: readonly ProjectGroup[]): string {
@@ -1076,17 +1028,6 @@ function replaceProjectReference(
   return formatted;
 }
 
-function formatProjectPaths(message: string, projects: readonly string[]): string {
-  return projects.reduce(removeProjectPathPrefix, message);
-}
-
-function formatBlocker(blocker: ReconciliationBlocker, displayProject?: string): string {
-  const projects = projectCandidates(blocker, displayProject);
-  return defaultDiagnosticText(
-    formatProjectPaths(stripProjectPrefix(blocker.message, projects), projects),
-  );
-}
-
 function isOutputOwnershipConflict(
   blocker: ReconciliationBlocker,
 ): blocker is StructuredReconciliationBlocker & {
@@ -1104,6 +1045,19 @@ function isOutputOwnershipConflict(
  * Default-view evidence for one grouped ownership conflict: one explanation and
  * a deterministic capped path list with an overflow pointer to --verbose.
  */
+function blockerScopeText(
+  blocker: ReconciliationBlocker,
+  displayProject?: string,
+): string {
+  return blocker.scope === "global"
+    ? "Global"
+    : `Project ${displayProject ?? blocker.project}`;
+}
+
+function affectedItemLabel(item: BlockerAffectedItem): string {
+  return `Affected ${item.kind}: ${item.value}`;
+}
+
 function conciseOwnershipConflictLines(
   blocker: StructuredReconciliationBlocker & {
     readonly kind: typeof OUTPUT_OWNERSHIP_CONFLICT;
@@ -1113,10 +1067,12 @@ function conciseOwnershipConflictLines(
   indent: string,
 ): readonly string[] {
   const paths = blocker.affectedItems.filter((item) => item.kind === "path");
+  const displayProject = displayProjectPath(blocker.project);
   const lines = [
-    `${indent}Blocker: ${shortenProjectReferences(defaultDiagnosticText(blocker.problem), groups)}`,
-    `${indent}  Requirement: ${defaultDiagnosticText(blocker.requirement)}`,
-    `${indent}  Remedy: ${defaultDiagnosticText(blocker.remedy)}`,
+    `${indent}Blocker: ${shortenProjectReferences(blocker.problem, groups)}`,
+    `${indent}  Requirement: ${blocker.requirement}`,
+    `${indent}  Remedy: ${blocker.remedy}`,
+    `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`,
     `${indent}  Affected paths:`,
   ];
   for (const item of paths.slice(0, DEFAULT_OUTPUT_PATH_LIMIT)) {
@@ -1138,79 +1094,66 @@ function conciseBlockerLines(
   if (isOutputOwnershipConflict(blocker)) {
     return conciseOwnershipConflictLines(blocker, groups, indent);
   }
-  return [
-    `${indent}Blocker: ${shortenProjectReferences(formatBlocker(blocker, displayProject), groups)}`,
+  const lines = [
+    `${indent}Blocker: ${shortenProjectReferences(blocker.problem, groups)}`,
+    `${indent}  Requirement: ${blocker.requirement}`,
+    `${indent}  Remedy: ${blocker.remedy}`,
+    `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`,
   ];
+  for (const item of blocker.affectedItems) {
+    lines.push(`${indent}  ${affectedItemLabel(item)}`);
+  }
+  return lines;
 }
 
 function verboseBlockerLines(
   blocker: ReconciliationBlocker,
   shorten: (text: string) => string,
 ): readonly string[] {
-  if (!isOutputOwnershipConflict(blocker)) return [`- ${shorten(blocker.message)}`];
+  const project = blocker.scope === "project" ? displayProjectPath(blocker.project) : undefined;
   const lines = [
-    `- ${shorten(`${blocker.project}: ${blocker.problem}`)}`,
-    `  Requirement: ${defaultDiagnosticText(blocker.requirement)}`,
-    `  Remedy: ${defaultDiagnosticText(blocker.remedy)}`,
-    "  Affected paths:",
+    `- ${shorten(blocker.problem)}`,
+    `  Requirement: ${blocker.requirement}`,
+    `  Remedy: ${blocker.remedy}`,
+    `  Scope: ${blockerScopeText(blocker, project)}`,
   ];
   for (const item of blocker.affectedItems) {
-    if (item.kind !== "path") continue;
-    lines.push(`    - ${shorten(`${blocker.project}/${item.value}`)}`);
+    const value = blocker.scope === "project" && item.kind === "path"
+      ? shorten(`${blocker.project}/${item.value}`)
+      : item.value;
+    lines.push(`  ${affectedItemLabel({ ...item, value })}`);
   }
   return lines;
 }
 
 function groupProjects(report: ReconciliationReport): GroupedProjects {
-  const groupsByCanonical = new Map<string, ProjectGroup>();
-  const canonicalByProject = new Map<string, string>();
-  const unscopedItems: ReconciliationItem[] = [];
-  const ensureGroup = (canonicalProject: string, project: string): ProjectGroup => {
-    const existing = groupsByCanonical.get(canonicalProject);
-    if (existing) return existing;
-    const group: ProjectGroup = {
-      blockers: [],
-      canonicalProject,
-      items: [],
-      outputs: [],
-      project,
-    };
-    groupsByCanonical.set(canonicalProject, group);
-    return group;
-  };
-  for (const desired of report.desired) {
-    const canonicalProject = desired.canonicalProject;
-    canonicalByProject.set(desired.project, canonicalProject);
-    ensureGroup(canonicalProject, desired.project);
-  }
-  for (const output of report.outputs) {
-    const canonicalProject = canonicalByProject.get(output.project) ?? output.project;
-    canonicalByProject.set(output.project, canonicalProject);
-    ensureGroup(canonicalProject, output.project).outputs.push(output);
-  }
-  for (const item of report.items) {
-    const canonicalProject = canonicalByProject.get(item.project);
-    if (canonicalProject === undefined) {
-      unscopedItems.push(item);
-      continue;
-    }
-    ensureGroup(canonicalProject, item.project).items.push(item);
-  }
-  for (const blocker of report.blockers) {
-    const project = blockerProject(blocker);
-    if (project !== undefined) {
-      const canonicalProject = canonicalByProject.get(project) ?? project;
-      ensureGroup(canonicalProject, project).blockers.push(blocker);
-    }
-  }
-  const groups = [...groupsByCanonical.values()].sort((left, right) => left.project.localeCompare(right.project));
-  return { groups, unscopedItems };
+  const groups = report.projects.map((record): ProjectGroup => ({
+    blockers: [...record.blockers],
+    canonicalProject: record.canonicalProject,
+    items: [{ ...record.state, project: record.project }],
+    outputs: record.outputs.map((output) => ({
+      kind: output.kind,
+      path: output.path,
+      project: record.project,
+    })),
+    project: record.project,
+  })).sort((left, right) => compareCanonicalStrings(
+    left.canonicalProject,
+    right.canonicalProject,
+  ));
+  return { groups, unscopedItems: [] };
 }
 
-function desiredInstallation(report: ReconciliationReport, project: string) {
-  return report.desired.find((installation) =>
-    installation.canonicalProject === project || installation.project === project,
+function desiredInstallation(report: ReconciliationReport, project: string): PresentedDesired | undefined {
+  const record = report.projects.find((candidate) =>
+    candidate.canonicalProject === project || candidate.project === project
   );
+  return record?.desired === undefined ? undefined : {
+    ...record.desired,
+    canonicalProject: record.canonicalProject,
+    project: record.project,
+    setupSteps: record.setupSteps,
+  };
 }
 
 function groupNeedsAttention(group: ProjectGroup, command: LifecycleCommand): boolean {
@@ -1225,22 +1168,22 @@ function groupNeedsAttention(group: ProjectGroup, command: LifecycleCommand): bo
 
 function fullyCurrentProjectCount(report: ReconciliationReport): number | undefined {
   if (
-    report.items.length === 0 ||
-    report.blockers.length > 0 ||
-    report.items.some((item) => item.kind !== "current")
+    reportItems(report).length === 0 ||
+    reportBlockers(report).length > 0 ||
+    reportItems(report).some((item) => item.kind !== "current")
   ) {
     return undefined;
   }
-  return new Set(report.items.map((item) => item.project)).size;
+  return new Set(reportItems(report).map((item) => item.project)).size;
 }
 
 function reportHasReconciliationWork(report: ReconciliationReport): boolean {
   return (
-    report.blockers.length > 0 ||
-    changeCount(summarizeOutputs(report.outputs)) > 0 ||
-    report.items.some((item) => item.kind !== "current") ||
+    reportBlockers(report).length > 0 ||
+    changeCount(summarizeOutputs(reportOutputs(report))) > 0 ||
+    reportItems(report).some((item) => item.kind !== "current") ||
     changedRepositoryExclusions(report).length > 0 ||
-    report.repositoryExclusionRepairs.length > 0
+    reportRepositoryExclusionRepairs(report).length > 0
   );
 }
 
@@ -1261,7 +1204,7 @@ function outcomeLine(
   applyCompleted = false,
 ): string {
   if (command === "preview") {
-    if (report.blockers.length > 0) return "Cannot apply";
+    if (reportBlockers(report).length > 0) return "Cannot apply";
     if (fullyCurrentProjectCount(report) !== undefined) {
       const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
       return `Nothing to ${DEFAULT_VIEW_LEXICON.reconciliation.base}; all ${projects} are current.`;
@@ -1269,12 +1212,12 @@ function outcomeLine(
     return "Ready to apply";
   }
   if (command === "apply") {
-    if (report.blockers.length > 0) return applyCompleted ? "Apply completed with blockers" : "Apply blocked";
-    if (report.items.some((item) => item.kind !== "current")) return "Apply completed with attention";
+    if (reportBlockers(report).length > 0) return applyCompleted ? "Apply completed with blockers" : "Apply blocked";
+    if (reportItems(report).some((item) => item.kind !== "current")) return "Apply completed with attention";
     return "Apply complete";
   }
   const currentProjects = fullyCurrentProjectCount(report);
-  if (currentProjects === undefined && report.items.length > 0) {
+  if (currentProjects === undefined && reportItems(report).length > 0) {
     return "Attention required";
   }
   const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
@@ -1292,12 +1235,12 @@ function aggregateLine(
   const parts = [
     `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}: ${installations}`,
   ];
-  if (report.blockers.length > 0) {
+  if (reportBlockers(report).length > 0) {
     if (command === "apply") parts.push("Pending: blocked");
-    parts.push(`Blockers: ${report.blockers.length}`);
+    parts.push(`Blockers: ${reportBlockers(report).length}`);
     return parts.join(" · ");
   }
-  const changes = changeParts(summarizeOutputs(report.outputs));
+  const changes = changeParts(summarizeOutputs(reportOutputs(report)));
   if (changes.length > 0) {
     parts.push(`${command === "apply" ? "Pending" : "Changes"}: ${changes.join(", ")}`);
   }
@@ -1329,35 +1272,6 @@ interface PresentedSetupStep {
   readonly step: HostSetupStep;
 }
 
-/** Projects whose receipt carried reconciliation work (apply standing reminder). */
-function projectsWithReconciliationWork(report: ReconciliationReport): ReadonlySet<string> {
-  const projects = new Set<string>();
-  for (const item of report.items) {
-    if (item.kind !== "current") projects.add(item.project);
-  }
-  for (const output of report.outputs) {
-    if (output.kind !== "unchanged") projects.add(output.project);
-  }
-  return projects;
-}
-
-/**
- * Outputs whose addition, update, or repair makes transition-triggered setup
- * relevant, keyed by authored Project identity.
- */
-function transitionTriggeringOutputs(
-  report: ReconciliationReport,
-): ReadonlyMap<string, ReadonlySet<string>> {
-  const byProject = new Map<string, Set<string>>();
-  for (const output of report.outputs) {
-    if (!TRANSITION_TRIGGERING_OUTPUT_KINDS.has(output.kind)) continue;
-    const paths = byProject.get(output.project) ?? new Set<string>();
-    paths.add(output.path);
-    byProject.set(output.project, paths);
-  }
-  return byProject;
-}
-
 /**
  * Select the Host Setup Steps one lifecycle surface presents (DEC-036–DEC-038):
  * transition-triggered steps appear only when the plan or applied receipt makes
@@ -1371,29 +1285,36 @@ function presentedSetupSteps(
   changeEvidence: ReconciliationReport | undefined,
   verbose: boolean,
 ): readonly PresentedSetupStep[] {
-  if (command !== "status" && report.blockers.length > 0) return [];
+  if (command !== "status" && reportBlockers(report).length > 0) return [];
   const changeReport = changeEvidence ?? report;
-  const triggeringOutputs = transitionTriggeringOutputs(changeReport);
-  const workProjects = projectsWithReconciliationWork(changeReport);
   const steps: PresentedSetupStep[] = [];
-  for (const installation of report.desired) {
-    for (const step of installation.setupSteps) {
+  for (const project of report.projects) {
+    const changeProject = changeReport.projects.find((candidate) =>
+      candidate.canonicalProject === project.canonicalProject
+    );
+    for (const step of project.setupSteps) {
       const message = setupStepMessage(
         step,
-        displayProjectPath(installation.canonicalProject, installation.project),
+        displayProjectPath(project.canonicalProject, project.project),
       );
       if (step.provenance === "transition") {
         if (!verbose && command === "status") continue;
-        if (!verbose && !(triggeringOutputs.get(installation.project)?.has(step.output) ?? false)) {
-          continue;
-        }
+        if (!verbose && !(changeProject?.outputs.some((output) =>
+          output.path === step.output && TRANSITION_TRIGGERING_OUTPUT_KINDS.has(output.kind)
+        ) ?? false)) continue;
       } else if (!verbose && command === "preview") {
         continue;
-      } else if (!verbose && command === "apply" && !workProjects.has(installation.project)) {
+      } else if (
+        !verbose && command === "apply" &&
+        (changeProject === undefined || (
+          changeProject.state.kind === "current" &&
+          !changeProject.outputs.some((output) => output.kind !== "unchanged")
+        ))
+      ) {
         continue;
       }
       steps.push({
-        canonicalProject: installation.canonicalProject,
+        canonicalProject: project.canonicalProject,
         message,
         step,
       });
@@ -1523,9 +1444,9 @@ function activationLines(
   receipt: ReconciliationReport,
   presented: readonly PresentedSetupStep[],
 ): readonly string[] {
-  const changedProjects = new Set(
-    receipt.items.filter((item) => item.kind !== "current").map((item) => item.project),
-  );
+  const changedProjects = new Set(receipt.projects
+    .filter((project) => project.state.kind !== "current")
+    .map((project) => project.canonicalProject));
   const actionableByCanonical = new Map<string, number>();
   for (const { step, canonicalProject } of presented) {
     if (!ACTIONABLE_HOST_SETUP_STEP_KINDS.has(step.kind)) continue;
@@ -1540,13 +1461,14 @@ function activationLines(
     readonly requiresSetup: boolean;
     projects: Array<{ readonly authored: string; readonly canonical: string }>;
   }>();
-  for (const installation of report.desired) {
-    if (!changedProjects.has(installation.project)) continue;
-    const requiresSetup = (actionableByCanonical.get(installation.canonicalProject) ?? 0) > 0;
+  for (const record of report.projects) {
+    const installation = record.desired;
+    if (installation === undefined || !changedProjects.has(record.canonicalProject)) continue;
+    const requiresSetup = (actionableByCanonical.get(record.canonicalProject) ?? 0) > 0;
     const key = [installation.profile, installation.hosts.join(","), requiresSetup ? "setup" : "ready"].join("\u0000");
     const project = {
-      authored: installation.project,
-      canonical: installation.canonicalProject,
+      authored: record.project,
+      canonical: record.canonicalProject,
     };
     const existing = groups.get(key);
     if (existing) {
@@ -1610,9 +1532,9 @@ function nextActionLines(
     readonly unscopedItems: readonly ReconciliationItem[];
   },
 ): readonly string[] {
-  if (command === "apply" && report.blockers.length === 0) return [];
+  if (command === "apply" && reportBlockers(report).length === 0) return [];
 
-  const globalBlockers = report.blockers.filter((blocker) => blockerProject(blocker) === undefined);
+  const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
   const grouped = new Map<string, Array<{ readonly authored: string; readonly canonical: string }>>();
   const addAction = (
     action: string,
@@ -1633,7 +1555,7 @@ function nextActionLines(
       continue;
     }
     if (!groupNeedsAttention(group, command)) continue;
-    if (report.blockers.length > 0 && globalBlockers.length === 0) {
+    if (reportBlockers(report).length > 0 && globalBlockers.length === 0) {
       if (command === "status") {
         addAction(
           `After all blockers are resolved, run ${COMMAND_NAME} preview to review the ` +
@@ -1665,7 +1587,7 @@ function nextActionLines(
     addAction(`Resolve the reported global ${blockerWord}, then run ${COMMAND_NAME} ${command} again.`);
   }
   if (
-    report.blockers.length === 0 &&
+    reportBlockers(report).length === 0 &&
     surface.unscopedItems.some((item) => item.kind !== "current")
   ) {
     addAction(
@@ -1733,19 +1655,14 @@ function isPlannedOutputOperation(
 }
 
 function reportProjects(report: ReconciliationReport): readonly string[] {
-  const canonicalByProject = canonicalProjectMap(report);
-  return [...new Set([
-    ...report.desired.map((installation) => installation.canonicalProject),
-    ...report.items.map((item) => canonicalByProject.get(item.project)!),
-    ...report.outputs.map((output) => canonicalByProject.get(output.project)!),
-  ])].sort(compareCanonicalStrings);
+  return report.projects.map((project) => project.canonicalProject).sort(compareCanonicalStrings);
 }
 
 /** Fleet grouping is based only on observable work and Project scope. */
 function useOperationSummary(report: ReconciliationReport, blocked: boolean): boolean {
   return !blocked &&
     reportProjects(report).length > 1 &&
-    report.outputs.some((output) => isPlannedOutputOperation(output.kind));
+    reportOutputs(report).some((output) => isPlannedOutputOperation(output.kind));
 }
 
 interface OperationPresentationGroup {
@@ -1757,17 +1674,19 @@ interface OperationPresentationGroup {
 function groupOutputOperations(
   report: ReconciliationReport,
 ): readonly OperationPresentationGroup[] {
-  const canonicalByProject = canonicalProjectMap(report);
   return PLANNED_OUTPUT_OPERATION_ORDER.flatMap((operation) => {
-    const outputs = report.outputs.filter((output) => output.kind === operation);
-    return outputs.length === 0
-      ? []
-      : [{
-          operation,
-          projects: [...new Set(outputs.map((output) => canonicalByProject.get(output.project)!))]
-            .sort(compareCanonicalStrings),
-          fileCount: outputs.length,
-        }];
+    const projects = report.projects.filter((project) =>
+      project.outputs.some((output) => output.kind === operation)
+    );
+    const fileCount = projects.reduce(
+      (count, project) => count + project.outputs.filter((output) => output.kind === operation).length,
+      0,
+    );
+    return fileCount === 0 ? [] : [{
+      operation,
+      projects: projects.map((project) => project.canonicalProject).sort(compareCanonicalStrings),
+      fileCount,
+    }];
   });
 }
 
@@ -1802,44 +1721,28 @@ function operationGroupLine(
 }
 
 function operationAttentionLines(report: ReconciliationReport): readonly string[] {
-  const outputsByProject = new Map<string, OutputReconciliationItem[]>();
-  for (const output of report.outputs) {
-    if (OUTPUT_ATTENTION_KINDS.has(output.kind)) {
-      const outputs = outputsByProject.get(output.project) ?? [];
-      outputs.push(output);
-      outputsByProject.set(output.project, outputs);
-    }
-  }
-  const itemsByProject = new Map<string, ReconciliationItem[]>();
-  const canonicalByProject = canonicalProjectMap(report);
-  const operationProjects = new Set(
-    report.outputs
-      .filter((output) => isPlannedOutputOperation(output.kind))
-      .map((output) => canonicalByProject.get(output.project)!),
-  );
-  for (const item of report.items) {
-    if (
-      EXCEPTION_ITEM_KINDS.has(item.kind) ||
-      (item.kind === STALE_SOURCE_KIND && !operationProjects.has(canonicalByProject.get(item.project)!))
-    ) {
-      const items = itemsByProject.get(item.project) ?? [];
-      items.push(item);
-      itemsByProject.set(item.project, items);
-    }
-  }
-  const projects = [...new Set([
-    ...outputsByProject.keys(),
-    ...itemsByProject.keys(),
-  ])].sort(compareCanonicalStrings);
-  if (projects.length === 0) return [];
+  const exceptions = report.projects.filter((project) => {
+    const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
+    return project.outputs.some((output) => OUTPUT_ATTENTION_KINDS.has(output.kind)) ||
+      EXCEPTION_ITEM_KINDS.has(project.state.kind) ||
+      (project.state.kind === STALE_SOURCE_KIND && !hasPlannedOutput);
+  });
+  if (exceptions.length === 0) return [];
   const lines = ["", "Project exceptions:"];
-  for (const project of projects) {
-    const presented = displayProjectPath(project);
-    const items = itemsByProject.get(project) ?? [];
-    const outputs = outputsByProject.get(project) ?? [];
-    lines.push(`  ${presented}:`);
-    for (const item of items) lines.push(`    State: ${itemText(item)}`);
-    for (const output of outputs) lines.push(`    ! ${output.path} (${output.kind})`);
+  for (const project of exceptions) {
+    lines.push(`  ${displayProjectPath(project.canonicalProject, project.project)}:`);
+    const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
+    if (
+      EXCEPTION_ITEM_KINDS.has(project.state.kind) ||
+      (project.state.kind === STALE_SOURCE_KIND && !hasPlannedOutput)
+    ) {
+      lines.push(`    State: ${itemText({ ...project.state, project: project.project })}`);
+    }
+    for (const output of project.outputs) {
+      if (OUTPUT_ATTENTION_KINDS.has(output.kind)) {
+        lines.push(`    ! ${output.path} (${output.kind})`);
+      }
+    }
   }
   return lines;
 }
@@ -1911,12 +1814,12 @@ function conciseReport(
 ): string {
   const grouped = groupProjects(report);
   const groups = grouped.groups;
-  const blocked = report.blockers.length > 0;
+  const blocked = reportBlockers(report).length > 0;
   const emptyStatus =
     command === "status" &&
-    report.blockers.length === 0 &&
-    report.desired.length === 0 &&
-    report.items.length === 0;
+    reportBlockers(report).length === 0 &&
+    reportDesired(report).length === 0 &&
+    reportItems(report).length === 0;
   const fullyCurrentStatus = command === "status" && fullyCurrentProjectCount(report) !== undefined;
   const noOpPreview = command === "preview" && fullyCurrentProjectCount(report) !== undefined;
   const noOpApply = isNoOpApply(command, report, receipt);
@@ -1944,7 +1847,7 @@ function conciseReport(
     // Applied work is rendered from the receipt below; do not repeat the
     // freshly verified current Project matrix.
   } else if (activeGroups.length === 0) {
-    if (groups.length > 0 && report.blockers.length === 0 && !fullyCurrentStatus && !noOpPreview) {
+    if (groups.length > 0 && reportBlockers(report).length === 0 && !fullyCurrentStatus && !noOpPreview) {
       const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
       if (command !== "preview") {
         lines.push(
@@ -1966,7 +1869,12 @@ function conciseReport(
       }
       if (blocked) {
         for (const blocker of group.blockers) {
-          lines.push(...conciseBlockerLines(blocker, group.project, groups, "  "));
+          lines.push(...conciseBlockerLines(
+          blocker,
+          displayProjectPath(group.canonicalProject, group.project),
+          groups,
+          "  ",
+        ));
         }
         continue;
       }
@@ -1978,7 +1886,12 @@ function conciseReport(
       const outputLines = outputPathLines(group.outputs);
       if (outputLines.length > 0) lines.push("  Files:", ...outputLines.map((line) => `  ${line}`));
       for (const blocker of group.blockers) {
-        lines.push(...conciseBlockerLines(blocker, group.project, groups, "  "));
+        lines.push(...conciseBlockerLines(
+          blocker,
+          displayProjectPath(group.canonicalProject, group.project),
+          groups,
+          "  ",
+        ));
       }
     }
   }
@@ -1986,11 +1899,11 @@ function conciseReport(
   const exclusionClause = repositoryExclusionClause(report, false);
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
 
-  const globalBlockers = report.blockers.filter((blocker) => blockerProject(blocker) === undefined);
+  const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
   if (globalBlockers.length > 0) {
     lines.push("", "Global blockers:");
     for (const blocker of globalBlockers) {
-      lines.push(`- ${shortenProjectReferences(formatBlocker(blocker), groups)}`);
+      lines.push(...conciseBlockerLines(blocker, undefined, groups, "  "));
     }
   }
   if (blocked && summary !== undefined) lines.push("", summary);
@@ -1998,11 +1911,11 @@ function conciseReport(
     lines.push("", "Diagnostics:");
     for (const item of grouped.unscopedItems) lines.push(`- ${item.project}: ${itemText(item)}`);
   }
-  const warnings = warningsForPresentation(report.warnings);
+  const warnings = warningsForPresentation(reportWarningMessages(report));
   if (warnings.length > 0) {
     lines.push("", "Warnings:");
     for (const warning of warnings) {
-      lines.push(`- ${defaultDiagnosticText(shortenProjectReferences(warning, groups))}`);
+      lines.push(`- ${shortenProjectReferences(warning, groups)}`);
     }
   }
   const presented = presentedSetupSteps(
@@ -2019,7 +1932,7 @@ function conciseReport(
   });
   if (next.length > 0) lines.push("", ...next);
   if (receipt && !noOpApply) lines.push("", ...applyReceiptLines(receipt));
-  if (command === "apply" && report.blockers.length === 0) {
+  if (command === "apply" && reportBlockers(report).length === 0) {
     const activation = receipt ? activationLines(report, receipt, presented) : [];
     if (activation.length > 0) lines.push("", ...activation);
   }
@@ -2189,35 +2102,37 @@ function lifecycleCopyableValues(
 ): readonly string[] {
   const values = new Set<string>();
   for (const report of reports) {
-    for (const installation of report.desired) {
+    for (const installation of reportDesired(report)) {
       values.add(installation.canonicalProject);
       values.add(installation.project);
       values.add(displayProjectPath(installation.canonicalProject, installation.project));
       for (const output of installation.outputs) values.add(output);
       for (const artifact of installation.resolvedArtifacts) values.add(artifact.id);
     }
-    for (const item of report.items) values.add(item.project);
-    for (const output of report.outputs) {
+    for (const item of reportItems(report)) values.add(item.project);
+    for (const output of reportOutputs(report)) {
       values.add(output.project);
       values.add(output.path);
     }
-    for (const consumer of report.outputConsumers) {
-      values.add(consumer.project);
-      values.add(consumer.path);
+    for (const project of report.projects) {
+      for (const output of project.outputs) {
+        values.add(project.project);
+        values.add(output.path);
+      }
     }
-    for (const blocker of report.blockers) {
+    for (const blocker of reportBlockers(report)) {
       if (blocker.project !== undefined) values.add(blocker.project);
       for (const item of blocker.affectedItems ?? []) values.add(item.value);
     }
-    for (const exclusion of report.repositoryExclusions) {
+    for (const exclusion of reportRepositoryExclusions(report)) {
       values.add(exclusion.target);
       for (const entry of [...exclusion.current, ...exclusion.next]) values.add(entry);
     }
-    for (const repair of report.repositoryExclusionRepairs) {
+    for (const repair of reportRepositoryExclusionRepairs(report)) {
       values.add(repair.target);
       for (const entry of repair.entries) values.add(entry);
     }
-    for (const value of report.diagnosticValues) values.add(value);
+    for (const value of reportWarningValues(report)) values.add(value);
   }
   return [...values].filter((value) => value.length > 0);
 }
@@ -2302,18 +2217,18 @@ function verboseSections(
   const {
     completedRepositoryExclusions = false,
     includeStateExplanations = true,
-    stateExplanationItems = report.items,
+    stateExplanationItems = reportItems(report),
   } = options;
   const groups = groupProjects(report).groups;
   const shorten = (text: string): string => shortenProjectReferences(text, groups);
-  const items = report.items.length === 0
-    ? "(no Profile Installations)"
-    : report.items
+  const items = reportItems(report).length === 0
+    ? "(no projects)"
+    : reportItems(report)
         .map((item) => shorten(`${item.project}: ${item.kind}${item.reason ? ` (${item.reason})` : ""}`))
         .join("\n");
-  const desired = report.desired.length === 0
+  const desired = reportDesired(report).length === 0
     ? "(none)"
-    : report.desired
+    : reportDesired(report)
         .map((installation) => {
           const resolved = installation.resolvedArtifacts.length === 0
             ? "  Resolved artifacts: (none)"
@@ -2326,9 +2241,12 @@ function verboseSections(
                 }).join("; ");
                 return `    - ${artifact.type}:${artifact.id} (${reasons})`;
               }).join("\n")}`;
-          const consumers = report.outputConsumers
-            .filter((consumer) => consumer.project === installation.project)
-            .map((consumer) => `    - ${consumer.path}: ${consumer.consumingHosts.join(", ")}`)
+          const project = report.projects.find((candidate) =>
+            candidate.canonicalProject === installation.canonicalProject
+          );
+          const consumers = (project?.outputs ?? [])
+            .filter((output) => output.consumingHosts.length > 0)
+            .map((output) => `    - ${output.path}: ${output.consumingHosts.join(", ")}`)
             .join("\n");
           const consumerSection = consumers.length === 0
             ? ""
@@ -2350,12 +2268,12 @@ function verboseSections(
           );
         })
         .join("\n");
-  const blockers = report.blockers.length === 0
+  const blockers = reportBlockers(report).length === 0
     ? "(none)"
-    : report.blockers.flatMap((blocker) => verboseBlockerLines(blocker, shorten)).join("\n");
-  const outputs = report.outputs.length === 0
+    : reportBlockers(report).flatMap((blocker) => verboseBlockerLines(blocker, shorten)).join("\n");
+  const outputs = reportOutputs(report).length === 0
     ? "(none)"
-    : report.outputs
+    : reportOutputs(report)
         .map((output) => shorten(`${output.project}/${output.path}: ${output.kind}`))
         .join("\n");
   const repositoryExclusions = changedRepositoryExclusions(report).length === 0
@@ -2363,20 +2281,20 @@ function verboseSections(
     : changedRepositoryExclusions(report)
         .map((change) => `- ${shorten(`${change.target}: ${exclusionDeltaText(change)}`)}`)
         .join("\n");
-  const repositoryExclusionRepairs = report.repositoryExclusionRepairs.length === 0
+  const repositoryExclusionRepairs = reportRepositoryExclusionRepairs(report).length === 0
     ? "(none)"
     : repositoryExclusionRepairLines(report, completedRepositoryExclusions)
         .map((repair) => `- ${shorten(repair)}`)
         .join("\n");
-  const presentationWarnings = warningsForPresentation(report.warnings);
+  const presentationWarnings = warningsForPresentation(reportWarningMessages(report));
   const warnings = presentationWarnings.length === 0
     ? "(none)"
     : presentationWarnings.map((warning) => `- ${shorten(warning)}`).join("\n");
   const explanations = includeStateExplanations ? stateExplanationLines(stateExplanationItems) : [];
   const explanationSection = explanations.length > 0 ? `${explanations.join("\n")}\n` : "";
-  const detail = `Projects:\n${items}\n${explanationSection}Outputs:\n${outputs}\nRepository Exclusions:\n${repositoryExclusions}\nRepository Exclusion Repairs:\n${repositoryExclusionRepairs}\nDesired State:\n${desired}\nWarnings:\n${warnings}\n`;
+  const detail = `Projects:\n${items}\n${explanationSection}Outputs:\n${outputs}\nGit exclusions:\n${repositoryExclusions}\nGit exclusion repairs:\n${repositoryExclusionRepairs}\nSelected setup:\n${desired}\nWarnings:\n${warnings}\n`;
   const blockerSection = `Blockers:\n${blockers}\n`;
-  return report.blockers.length > 0
+  return reportBlockers(report).length > 0
     ? `${blockerSection}${detail}`
     : `${detail}${blockerSection}`;
 }
@@ -2398,7 +2316,7 @@ function verboseApplyReport(result: {
   const report = (
     `${outcomeLine("apply", result.resultingState, true)}\n` +
     `Pending:\n${verboseSections(result.resultingState, {
-      stateExplanationItems: [...result.resultingState.items, ...result.receipt.items],
+      stateExplanationItems: [...reportItems(result.resultingState), ...reportItems(result.receipt)],
     })}` +
     `Applied:\n${verboseSections(result.receipt, {
       completedRepositoryExclusions: true,
@@ -2406,7 +2324,7 @@ function verboseApplyReport(result: {
     })}` +
     verboseSetupSection("apply", result.resultingState)
   );
-  const activation = result.resultingState.blockers.length === 0
+  const activation = reportBlockers(result.resultingState).length === 0
     ? activationLines(
         result.resultingState,
         result.receipt,
@@ -2417,32 +2335,24 @@ function verboseApplyReport(result: {
 }
 
 export function formatApplyReport(
-  result: ApplyReconciliationResult | {
-    readonly receipt: FlatReconciliationReport;
-    readonly resultingState: FlatReconciliationReport;
-  },
+  result: ApplyReconciliationResult,
   options: LifecycleHumanOptions = {},
 ): string {
-  const flatResult = {
-    receipt: humanReport(result.receipt),
-    resultingState: humanReport(result.resultingState),
-  };
   const report = options.verbose
-    ? verboseApplyReport(flatResult)
-    : conciseReport("apply", flatResult.resultingState, flatResult.receipt);
+    ? verboseApplyReport(result)
+    : conciseReport("apply", result.resultingState, result.receipt);
   return responsiveLifecycleOutput(
     report,
     options.context,
-    lifecycleCopyableValues([flatResult.resultingState, flatResult.receipt]),
+    lifecycleCopyableValues([result.resultingState, result.receipt]),
   );
 }
 
 export function formatApplyVerificationFailure(
-  canonicalReceipt: HumanReconciliationReport,
+  receipt: ReconciliationReport,
   message: string,
   options: LifecycleHumanOptions = {},
 ): string {
-  const receipt = humanReport(canonicalReceipt);
   if (options.verbose) {
     return responsiveLifecycleOutput(
       `${message}\nApplied:\n${verboseSections(receipt, {
@@ -2454,7 +2364,7 @@ export function formatApplyVerificationFailure(
     );
   }
   const lines = [
-    defaultDiagnosticText(message),
+    message,
     ...applyReceiptLines(receipt),
   ];
   const setup = hostSetupSections("apply", receipt, receipt);
@@ -2467,20 +2377,18 @@ export function formatApplyVerificationFailure(
 }
 
 export function formatBlockedApplyReport(
-  canonicalReport: CanonicalBlockedReconciliationReport | FlatReconciliationReport,
+  report: BlockedReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
-  const report = humanReport(canonicalReport);
   const output = options.verbose ? verboseReport("apply", report) : conciseReport("apply", report);
   return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
 }
 
 export function formatLifecycleReport(
   command: Exclude<LifecycleCommand, "apply">,
-  canonicalReport: HumanReconciliationReport,
+  report: ReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
-  const report = humanReport(canonicalReport);
   const output = options.verbose ? verboseReport(command, report) : conciseReport(command, report);
   return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
 }
@@ -2491,14 +2399,8 @@ export function formatLifecycleReport(
  * - `2` — blockers present
  * Tool errors stay exit `1` and use {@link formatLifecycleToolErrorJson} under `--json`.
  */
-export function lifecycleExitCode(input: HumanReconciliationReport): 0 | 2 {
-  if (isCanonicalReport(input)) {
-    return input.globalBlockers.length > 0 ||
-        input.projects.some((project) => project.blockers.length > 0)
-      ? 2
-      : 0;
-  }
-  return input.blockers.length > 0 ? 2 : 0;
+export function lifecycleExitCode(report: ReconciliationReport): 0 | 2 {
+  return reportBlockers(report).length > 0 ? 2 : 0;
 }
 
 type MachineOutcome = "attention" | "blocked" | "clean" | "error";
@@ -2526,31 +2428,6 @@ interface MachineSetupStep {
 }
 
 const LIFECYCLE_MACHINE_SCHEMA_VERSION = 5 as const;
-
-/**
- * Map every authored or canonical project spelling onto one canonical identity
- * at this boundary, so downstream readers never need a dual-key fallback.
- */
-function canonicalProjectMap(
-  report: ReconciliationReport,
-): ReadonlyMap<string, string> {
-  const canonicalByProject = new Map<string, string>();
-  for (const installation of report.desired) {
-    canonicalByProject.set(installation.canonicalProject, installation.canonicalProject);
-    canonicalByProject.set(installation.project, installation.canonicalProject);
-  }
-  for (const item of report.items) {
-    if (!canonicalByProject.has(item.project)) {
-      canonicalByProject.set(item.project, item.project);
-    }
-  }
-  for (const output of report.outputs) {
-    if (!canonicalByProject.has(output.project)) {
-      canonicalByProject.set(output.project, output.project);
-    }
-  }
-  return canonicalByProject;
-}
 
 function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
   return {
@@ -2627,7 +2504,7 @@ function canonicalMachineProject(project: ReconciliationProjectRecord): unknown 
   };
 }
 
-function canonicalMachineSnapshot(report: CanonicalReconciliationReport): unknown {
+function canonicalMachineSnapshot(report: ReconciliationReport): unknown {
   return {
     globalBlockers: report.globalBlockers.map(machineBlocker),
     projects: report.projects.map(canonicalMachineProject),
@@ -2635,7 +2512,7 @@ function canonicalMachineSnapshot(report: CanonicalReconciliationReport): unknow
 }
 
 function canonicalMachineOutcome(
-  report: CanonicalReconciliationReport,
+  report: ReconciliationReport,
 ): Exclude<MachineOutcome, "error"> {
   if (
     report.globalBlockers.length > 0 ||
@@ -2652,8 +2529,8 @@ function canonicalMachineOutcome(
 
 function canonicalLifecycleMachinePayload(
   command: LifecycleCommand,
-  report: CanonicalReconciliationReport,
-  applied?: CanonicalReconciliationReport,
+  report: ReconciliationReport,
+  applied?: ReconciliationReport,
 ): unknown {
   return {
     schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
@@ -2666,7 +2543,7 @@ function canonicalLifecycleMachinePayload(
 
 export function formatLifecycleJson(
   command: Exclude<LifecycleCommand, "apply">,
-  report: CanonicalReconciliationReport,
+  report: ReconciliationReport,
 ): string {
   return serializeMachinePayload(canonicalLifecycleMachinePayload(command, report));
 }
@@ -2677,12 +2554,12 @@ export function formatApplyJson(result: ApplyReconciliationResult): string {
   );
 }
 
-export function formatBlockedApplyJson(report: CanonicalBlockedReconciliationReport): string {
+export function formatBlockedApplyJson(report: BlockedReconciliationReport): string {
   return serializeMachinePayload(canonicalLifecycleMachinePayload("apply", report));
 }
 
 export function formatApplyVerificationFailureJson(
-  receipt: CanonicalReconciliationReport,
+  receipt: ReconciliationReport,
   message: string,
 ): string {
   return serializeMachinePayload({

@@ -28,6 +28,12 @@ import { buildDesiredState } from "../installer/project-plan.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import type { Skill } from "../schemas/skill.js";
 import { workspacePath } from "../installer/workspace.js";
+import {
+  reportBlockers,
+  reportDesired,
+  reportItems,
+  reportOutputs,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -214,7 +220,7 @@ describe("Skills-only Profiles", () => {
     );
 
     const applied = await applyReconciliation(home, desired.installations);
-    expect(applied.receipt.blockers).toEqual([]);
+    expect(reportBlockers(applied.receipt)).toEqual([]);
     expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
@@ -231,8 +237,8 @@ describe("Skills-only Profiles", () => {
     expect(manifest.selectedContext).toEqual([]);
 
     const status = await previewReconciliation(desired.installations, state);
-    expect(status.items.some((item) => item.kind === "current")).toBe(true);
-    expect(status.blockers).toEqual([]);
+    expect(reportItems(status).some((item) => item.kind === "current")).toBe(true);
+    expect(reportBlockers(status)).toEqual([]);
   });
 
   test("Skills-only Claude binding applies Skill packages without Context rule output", async () => {
@@ -248,7 +254,7 @@ describe("Skills-only Profiles", () => {
     ]);
 
     const applied = await applyReconciliation(home, desired.installations);
-    expect(applied.receipt.blockers).toEqual([]);
+    expect(reportBlockers(applied.receipt)).toEqual([]);
     expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
   });
@@ -267,7 +273,7 @@ describe("Skills-only Profiles", () => {
     ]);
 
     const applied = await applyReconciliation(home, desired.installations);
-    expect(applied.receipt.blockers).toEqual([]);
+    expect(reportBlockers(applied.receipt)).toEqual([]);
     expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
@@ -345,7 +351,7 @@ describe("Skills-only Profiles", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(report.desired[0]?.setupSteps).toEqual(installation.setupSteps);
+    expect(reportDesired(report)[0]?.setupSteps).toEqual(installation.setupSteps);
 
     const context = installation.outputs.find(
       (output) => output.path === ".agent-profile-kit/codex/context.md",
@@ -365,7 +371,7 @@ describe("Skills-only Profiles", () => {
 
     let desired = await buildDesiredState(home, { checkHostCapability: false });
     let applied = await applyReconciliation(home, desired.installations);
-    expect(applied.receipt.blockers).toEqual([]);
+    expect(reportBlockers(applied.receipt)).toEqual([]);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(true);
     expect(existsSync(join(project, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
@@ -392,25 +398,25 @@ describe("Skills-only Profiles", () => {
       await readInstallationState(home),
     );
     expect(
-      preview.outputs.some(
+      reportOutputs(preview).some(
         (item) =>
           item.path === ".agent-profile-kit/codex/context.md" && item.kind === "removal",
       ),
     ).toBe(true);
     expect(
-      preview.outputs.some(
+      reportOutputs(preview).some(
         (item) => item.path === ".codex/hooks.json" && item.kind === "removal",
       ),
     ).toBe(true);
     expect(
-      preview.outputs.some(
+      reportOutputs(preview).some(
         (item) =>
           item.path === ".claude/rules/agent-profile-kit.md" && item.kind === "removal",
       ),
     ).toBe(true);
 
     applied = await applyReconciliation(home, desired.installations);
-    expect(applied.receipt.blockers).toEqual([]);
+    expect(reportBlockers(applied.receipt)).toEqual([]);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
     expect(existsSync(join(project, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
@@ -450,9 +456,9 @@ describe("Skills-only Profiles", () => {
     desired = await buildDesiredState(home, { checkHostCapability: false });
     const state = await readInstallationState(home);
     const preview = await previewReconciliation(desired.installations, state);
-    expect(preview.items.some((item) => item.kind === "stale source")).toBe(true);
+    expect(reportItems(preview).some((item) => item.kind === "stale source")).toBe(true);
     expect(
-      preview.outputs.some(
+      reportOutputs(preview).some(
         (item) => item.path === ".agents/skills/review-pr" && item.kind === "update",
       ),
     ).toBe(true);
@@ -469,7 +475,7 @@ describe("Skills-only Profiles", () => {
     );
     desired = await buildDesiredState(home, { checkHostCapability: false });
     const afterRemoval = await applyReconciliation(home, desired.installations);
-    expect(afterRemoval.receipt.blockers).toEqual([]);
+    expect(reportBlockers(afterRemoval.receipt)).toEqual([]);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
   });

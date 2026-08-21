@@ -49,6 +49,9 @@ import {
   INSTALLATION_STATE_MAX_BYTES,
   type InstallationState,
 } from "../schemas/installation-manifest.js";
+import {
+  reportBlockers,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -112,8 +115,8 @@ describe("structured Installer blocker evidence", () => {
 
     const report = await statusApplication(home);
 
-    expect(report.blockers).toHaveLength(1);
-    const blocker = report.blockers[0]!;
+    expect(reportBlockers(report)).toHaveLength(1);
+    const blocker = reportBlockers(report)[0]!;
     expect(isStructuredBlocker(blocker)).toBe(true);
     expect(blocker).toMatchObject({
       kind: INSTALLATION_STATE_UNREADABLE,
@@ -164,47 +167,47 @@ describe("structured Installer blocker evidence", () => {
 
     const recordBlocker = normalizeBlocker(repositoryExclusionRecordBlocker({
       affectedItems: [{ kind: "installation-id", value: "id-1" }],
-      message: "/repo is missing its Repository Exclusion Record for Installation ID id-1",
+      message: "/repo is missing its Git exclusion record for Installation ID id-1",
     }));
     expect(recordBlocker).toMatchObject({
       kind: REPOSITORY_EXCLUSION_RECORD,
-      message: "/repo is missing its Repository Exclusion Record for Installation ID id-1",
+      message: "/repo is missing its Git exclusion record for Installation ID id-1",
       scope: "global",
     });
     expect(recordBlocker.project).toBeUndefined();
 
     const occupied = normalizeBlocker(occupiedOutputBlocker({
-      message: "/p/.codex/hooks.json is occupied by unowned or drifted output",
+      message: ".codex/hooks.json is occupied by unowned or drifted output",
       path: ".codex/hooks.json",
       project: "/p",
     }));
     expect(occupied).toMatchObject({
       kind: OCCUPIED_OUTPUT,
-      message: "/p/.codex/hooks.json is occupied by unowned or drifted output",
+      message: ".codex/hooks.json is occupied by unowned or drifted output",
       project: "/p",
       scope: "project",
     });
     expect(occupied.affectedItems).toEqual([{ kind: "path", value: ".codex/hooks.json" }]);
 
     const ownership = normalizeBlocker(installationOwnershipBlocker({
-      message: "Cannot reconcile Profile Installation at /p: drifted",
+      message: "Cannot sync the generated file: drifted",
       project: "/p",
     }));
     expect(ownership).toMatchObject({
       kind: INSTALLATION_OWNERSHIP,
-      message: "Cannot reconcile Profile Installation at /p: drifted",
+      message: "Cannot sync the generated file: drifted",
       project: "/p",
       scope: "project",
     });
 
     const conflict = normalizeBlocker(temporaryInstallationConflictBlocker({
-      message: "/p already has an active Temporary Profile Installation (temp-1)",
+      message: "An active Temporary Profile Installation already owns generated files (temp-1)",
       project: "/p",
       temporaryInstallationId: "temp-1",
     }));
     expect(conflict).toMatchObject({
       kind: TEMPORARY_INSTALLATION_CONFLICT,
-      message: "/p already has an active Temporary Profile Installation (temp-1)",
+      message: "An active Temporary Profile Installation already owns generated files (temp-1)",
       project: "/p",
       scope: "project",
     });
@@ -229,12 +232,12 @@ describe("structured Installer blocker evidence", () => {
     expect(unproven.affectedItems).toEqual([{ kind: "path", value: "/p" }]);
 
     const removal = temporaryInstallationRemovalBlocker({
-      message: "Cannot remove Temporary Profile Installation at /p: Installation Marker is missing",
+      message: "Cannot remove Temporary Profile Installation: Installation Marker is missing",
       outputs: ["/p/.agents/skills/review-pr"],
       project: "/p",
     });
     expect(blockerMessage(removal)).toBe(
-      "Cannot remove Temporary Profile Installation at /p: Installation Marker is missing",
+      "Cannot remove Temporary Profile Installation: Installation Marker is missing",
     );
     expect(normalizeBlocker(removal)).toMatchObject({
       kind: TEMPORARY_INSTALLATION_REMOVAL,
@@ -243,7 +246,7 @@ describe("structured Installer blocker evidence", () => {
     });
   });
 
-  test("a missing Repository Exclusion Record emits structured global evidence", async () => {
+  test("a missing Git exclusion record emits structured global evidence", async () => {
     const repository = gitRepository("apkit-evidence-record-");
     const home = await prepareHome(repository);
     const desired = await buildDesiredState(home, { checkHostCapability: false });
@@ -259,7 +262,7 @@ describe("structured Installer blocker evidence", () => {
     const report = await previewReconciliation(desired.installations, state);
 
     const blocker = requireDefined(
-      report.blockers.find(
+      reportBlockers(report).find(
         (candidate) => isStructuredBlocker(candidate) && candidate.kind === REPOSITORY_EXCLUSION_RECORD,
       ),
       "a structured repository-exclusion-record blocker",
@@ -267,7 +270,7 @@ describe("structured Installer blocker evidence", () => {
     expect(blocker).toMatchObject({ scope: "global" });
     expect(blocker.project).toBeUndefined();
     expect(blocker.message).toBe(
-      `${canonicalProject} is missing its Repository Exclusion Record for Installation ID ${installationId}`,
+      `${canonicalProject} is missing its Git exclusion record for Installation ID ${installationId}`,
     );
     expect(blocker.affectedItems).toEqual([{ kind: "installation-id", value: installationId }]);
     expect(lifecycleExitCode(report)).toBe(2);
@@ -291,7 +294,7 @@ describe("structured Installer blocker evidence", () => {
     ).some((item) => item.kind === "installation-id" && item.value === installationId))).toBe(true);
   });
 
-  test("a Repository Exclusion Record on the wrong Git target emits structured global evidence", async () => {
+  test("a Git exclusion record on the wrong Git target emits structured global evidence", async () => {
     const repository = gitRepository("apkit-evidence-target-");
     const other = gitRepository("apkit-evidence-target-other-");
     const home = await prepareHome(repository);
@@ -315,14 +318,14 @@ describe("structured Installer blocker evidence", () => {
     const report = await previewReconciliation(desired.installations, state);
 
     const blocker = requireDefined(
-      report.blockers.find(
+      reportBlockers(report).find(
         (candidate) => isStructuredBlocker(candidate) && candidate.kind === REPOSITORY_EXCLUSION_RECORD,
       ),
       "a structured repository-exclusion-record blocker",
     );
     expect(blocker).toMatchObject({ scope: "global" });
     expect(blocker.message).toBe(
-      `${canonicalProject} Repository Exclusion Record for Installation ID ${installationId} ` +
+      `${canonicalProject} Git exclusion record for Installation ID ${installationId} ` +
         `targets ${wrongTarget}, expected ${expectedTarget}`,
     );
     expect(blocker.affectedItems).toEqual([
@@ -349,7 +352,7 @@ describe("structured Installer blocker evidence", () => {
     );
     expect(occupied).toMatchObject({ scope: "project", project: canonicalProject });
     expect(occupied.message).toBe(
-      `${join(canonicalProject, ".codex", "hooks.json")} is occupied by unowned or drifted output`,
+      ".codex/hooks.json is occupied by unowned or drifted output",
     );
     expect(occupied.affectedItems).toEqual([{ kind: "path", value: ".codex/hooks.json" }]);
   });
@@ -366,7 +369,7 @@ describe("structured Installer blocker evidence", () => {
     const report = await previewReconciliation(desired.installations, emptyState());
 
     const marker = requireDefined(
-      report.blockers.find(
+      reportBlockers(report).find(
         (blocker) => isStructuredBlocker(blocker) && blocker.kind === INSTALLATION_MARKER,
       ),
       "a structured installation-marker blocker",
@@ -412,7 +415,7 @@ describe("structured Installer blocker evidence", () => {
     const report = await previewReconciliation(desired.installations, state);
 
     const ownership = requireDefined(
-      report.blockers.find(
+      reportBlockers(report).find(
         (blocker) => isStructuredBlocker(blocker) && blocker.kind === INSTALLATION_OWNERSHIP,
       ),
       "a structured installation-ownership blocker",
@@ -428,7 +431,7 @@ describe("structured Installer blocker evidence", () => {
       expect(typeof ownership[field]).toBe("string");
       expect(ownership[field].length).toBeGreaterThan(0);
     }
-    expect(ownership.message).toMatch(/^Cannot reconcile Profile Installation at /);
+    expect(ownership.message).toMatch(/^Cannot sync the generated file:/);
     expect(ownership.message).toContain("will not overwrite your edit");
   });
 
@@ -449,14 +452,14 @@ describe("structured Installer blocker evidence", () => {
     expect(blockers).toHaveLength(1);
     expect(normalizeBlocker(blockers[0]!)).toMatchObject({
       kind: TEMPORARY_INSTALLATION_CONFLICT,
-      message: `${canonicalProject} already has an ordinary Profile Installation; ` +
-        "remove it before installing a temporary Profile",
+      message: "Generated files are already managed through a Project Binding; " +
+        "remove them before installing a temporary Profile",
       project: canonicalProject,
       scope: "project",
     });
     expect(blockerMessage(blockers[0]!)).toBe(
-      `${canonicalProject} already has an ordinary Profile Installation; ` +
-        "remove it before installing a temporary Profile",
+      "Generated files are already managed through a Project Binding; " +
+        "remove them before installing a temporary Profile",
     );
   });
 
@@ -501,8 +504,8 @@ describe("structured Installer blocker evidence", () => {
     // lowercase path; locale collation would reverse them.
     expect(recordBlockers).toHaveLength(2);
     expect(recordBlockers.map((blocker) => blocker.message)).toEqual([
-      `${upper} is missing its Repository Exclusion Record for Installation ID recorded-B`,
-      `${lower} is missing its Repository Exclusion Record for Installation ID recorded-a`,
+      `${upper} is missing its Git exclusion record for Installation ID recorded-B`,
+      `${lower} is missing its Git exclusion record for Installation ID recorded-a`,
     ]);
   });
 
@@ -567,7 +570,7 @@ describe("structured Installer blocker evidence", () => {
 
     const report = await previewReconciliation(desiredAfter.installations, state);
     const blocker = requireDefined(
-      report.blockers.find(
+      reportBlockers(report).find(
         (candidate) =>
           isStructuredBlocker(candidate) &&
           candidate.kind === REPOSITORY_EXCLUSION_SECTION_MISSING,
@@ -595,7 +598,7 @@ describe("structured Installer blocker evidence", () => {
 
     const report = await previewReconciliation(desired.installations, state);
     const blocker = requireDefined(
-      report.blockers.find(
+      reportBlockers(report).find(
         (candidate) =>
           isStructuredBlocker(candidate) && candidate.kind === REPOSITORY_EXCLUSION_INVALID,
       ),
@@ -617,7 +620,7 @@ describe("structured Installer blocker evidence", () => {
 
     const report = await previewApplication(home);
     const blocker = requireDefined(
-      report.blockers.find(
+      reportBlockers(report).find(
         (candidate) =>
           isStructuredBlocker(candidate) && candidate.kind === INSTALLATION_STATE_UNREADABLE,
       ),

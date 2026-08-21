@@ -300,12 +300,12 @@ function assertNoAncestorCollisions(outputs: readonly DesiredProjectOutput[]): v
     }
     if (INSTALLATION_MARKER_PATH.startsWith(`${output.path}/`)) {
       throw new Error(
-        `Adapter output structural collision: ${output.type} '${output.path}' is an ancestor of Installer-owned '${INSTALLATION_MARKER_PATH}'`,
+        `Adapter output structural collision: ${output.type} '${output.path}' is an ancestor of Agent Profile Kit-managed '${INSTALLATION_MARKER_PATH}'`,
       );
     }
     if (output.path.startsWith(`${INSTALLATION_MARKER_PATH}/`)) {
       throw new Error(
-        `Adapter output structural collision: Installer-owned file '${INSTALLATION_MARKER_PATH}' is an ancestor of '${output.path}'`,
+        `Adapter output structural collision: Agent Profile Kit-managed file '${INSTALLATION_MARKER_PATH}' is an ancestor of '${output.path}'`,
       );
     }
   }
@@ -438,7 +438,7 @@ function normalizeProposedOutput(
   const path = normalizedOutputPath(proposed.path);
   if (path === INSTALLATION_MARKER_PATH) {
     throw new Error(
-      `Adapter output path '${path}' is reserved for the Installer-owned Installation Marker`,
+      `Adapter output path '${path}' is reserved for the Agent Profile Kit-managed Installation Marker`,
     );
   }
   const requirements = [...new Set(proposed.requirements)].sort();
@@ -654,12 +654,7 @@ export async function buildDesiredState(
       );
       for (const error of result.capabilityFailures) {
         blockers.push(
-          hostCapabilityBlocker(
-            error,
-            host,
-            binding.canonicalProject,
-            binding.project,
-          ),
+          hostCapabilityBlocker(error, host, binding.canonicalProject),
         );
       }
       appendDiagnosticWarnings(warnings, result.diagnostics, binding.project);
