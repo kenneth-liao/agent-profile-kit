@@ -398,7 +398,7 @@ export async function planPiProject(
 
 export const piAdapter = {
   host: "pi",
-  async planOrdinaryProject(input, services) {
+  async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;
     const requireSkills = input.resolvedSkills.length > 0;
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(

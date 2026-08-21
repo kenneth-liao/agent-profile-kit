@@ -387,7 +387,7 @@ function contextRule(
  */
 export const claudeAdapter = {
   host: "claude",
-  async planOrdinaryProject(input, services) {
+  async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
       input.resolvedSkills,

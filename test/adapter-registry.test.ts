@@ -65,7 +65,7 @@ describe("canonical Host registry", () => {
     );
   });
 
-  test("exposes the complete ordinary-planning contract for every Host", async () => {
+  test("exposes one complete Project-planning contract for ordinary and temporary lifetimes", async () => {
     expect(HOST_REGISTRY.map((registration) => registration.adapter.host)).toEqual([
       "antigravity",
       "claude",
@@ -82,7 +82,7 @@ describe("canonical Host registry", () => {
     chmodSync(join(bin, "claude"), 0o755);
 
     const claude = hostRegistrationFor("claude");
-    const result = await claude.adapter.planOrdinaryProject(
+    const result = await claude.adapter.planProject(
       {
         authoredProject: project,
         checkHostCapability: true,
@@ -135,7 +135,7 @@ exit 2
     chmodSync(executable, 0o755);
 
     const grok = hostRegistrationFor("grok");
-    const result = await grok.adapter.planOrdinaryProject(
+    const result = await grok.adapter.planProject(
       {
         authoredProject: project,
         checkHostCapability: true,

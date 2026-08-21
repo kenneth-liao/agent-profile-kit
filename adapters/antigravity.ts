@@ -383,7 +383,7 @@ export async function planAntigravityProject(
 
 export const antigravityAdapter = {
   host: "antigravity",
-  async planOrdinaryProject(input, services) {
+  async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;
     const requireSkills = input.resolvedSkills.length > 0;
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(

@@ -2,23 +2,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import {
-  isTemporaryInstallationHost,
+  hostRegistrationFor,
   TEMPORARY_INSTALLATION_HOSTS,
   type TemporaryInstallationHost,
-} from "../adapters/host-catalog.js";
-import {
-  assertClaudeProjectCapability,
-  planClaudeProject,
-} from "../adapters/claude.js";
-import type { ContextModuleSource } from "../adapters/context-envelope.js";
-import {
-  assertCodexProjectCapability,
-  detectCodexProjectConfigurationWarnings,
-  planCodexProject,
-} from "../adapters/codex.js";
-import { isAdapterCapabilityError } from "../adapters/capability.js";
-import type { AdapterProjectPlan, HostSetupStep } from "../adapters/project-plan.js";
-import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
+} from "../adapters/registry.js";
+import type { HostSetupStep } from "../adapters/project-plan.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
 import {
   isSupportedHost,
@@ -29,13 +17,11 @@ import {
   INSTALLATION_STATE_SCHEMA_VERSION,
   type TemporaryProfileInstallation,
 } from "../schemas/installation-manifest.js";
-import type { Skill } from "../schemas/skill.js";
 import {
   replaceRepositoryExclusionContribution,
   stageGitExclusions,
 } from "./git-exclusions.js";
 import { findGitProject } from "./git.js";
-import { hashWorkspaceInputs } from "./hashes.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import {
   newInstallationId,
@@ -47,16 +33,17 @@ import {
   ingestApplication,
   normalizeProject,
 } from "./local-configuration.js";
+import { createLifecyclePlanningContext } from "./lifecycle-planning.js";
 import { requireProfile } from "./profile-selection.js";
 import {
   adapterVersionFor,
   appendDiagnosticWarnings,
   markerPath,
+  planRegisteredAdapter,
   normalizeAdapterPlans,
   assertResolvedOutputOrigins,
   type DesiredInstallation,
 } from "./project-plan.js";
-import { resolveProfileDependencies } from "./resolve-dependencies.js";
 import {
   desiredOutputConflicts,
   manifestFor,
@@ -78,7 +65,7 @@ export {
   isTemporaryInstallationHost,
   TEMPORARY_INSTALLATION_HOSTS,
   type TemporaryInstallationHost,
-} from "../adapters/host-catalog.js";
+} from "../adapters/registry.js";
 
 export class TemporaryInstallationBlockedError extends Error {
   readonly #canonical: readonly ReconciliationBlocker[];
@@ -238,37 +225,35 @@ async function planTemporaryDesiredInstallation(options: {
   const { configuration, workspace } = await ingestApplication(options.home);
   void configuration;
   const profile = requireProfile(workspace.profiles, options.profileId);
-  const resolvedProfile = resolveProfileDependencies(
-    profile,
-    workspace.contexts,
-    workspace.skills,
-  );
+  const planning = createLifecyclePlanningContext(workspace);
+  const resolvedProfile = planning.resolveProfile(profile);
   const gitProject = await findGitProject(options.project);
-  const { hash: sourceHash, fingerprints: artifactFingerprints } = await hashWorkspaceInputs(
-    profile,
-    resolvedProfile,
-  );
+  const { hash: sourceHash, fingerprints: artifactFingerprints } =
+    await planning.hashWorkspaceInputs(profile, resolvedProfile);
   const blockers: BlockerInput[] = [];
   const warnings: string[] = [];
   const diagnosticValues: string[] = [];
-  const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
-    resolvedProfile.skills,
+  const result = await planRegisteredAdapter(
+    options.host,
+    {
+      authoredProject: options.authoredProject,
+      checkHostCapability: true,
+      home: options.home,
+      profileId: profile.id,
+      previousInstallation: undefined,
+      project: options.project,
+      projectRelativeToGitRoot: gitProject?.relativeProject,
+      resolvedContexts: resolvedProfile.contexts,
+      resolvedSkills: resolvedProfile.skills,
+      selectedHosts: [options.host],
+    },
+    planning,
   );
-  const requireContext = resolvedProfile.contexts.length > 0;
-  const adapterPlan = await planTemporaryHostAdapter({
-    blockers,
-    gitProject,
-    home: options.home,
-    host: options.host,
-    profileId: profile.id,
-    project: options.project,
-    requireContext,
-    requireDisabledModelInvocation,
-    resolvedContexts: resolvedProfile.contexts,
-    resolvedSkills: resolvedProfile.skills,
-    diagnosticValues,
-    warnings,
-  });
+  for (const error of result.capabilityFailures) {
+    blockers.push(hostCapabilityBlocker(error, options.host, options.project));
+  }
+  appendDiagnosticWarnings(warnings, diagnosticValues, result.diagnostics);
+  const adapterPlan = result.plan;
   const hosts: readonly SupportedHost[] = [options.host];
   const outputs = normalizeAdapterPlans(
     adapterPlan === undefined ? [] : [adapterPlan],
@@ -302,89 +287,6 @@ async function planTemporaryDesiredInstallation(options: {
     diagnosticValues: [...new Set(diagnosticValues)].sort(),
     warnings,
   };
-}
-
-/**
- * Host-specific capability preflight, warnings, and Adapter planning for one
- * temporary installation Host. Keeps Codex and Claude paths behind one call site.
- */
-async function planTemporaryHostAdapter(options: {
-  readonly blockers: BlockerInput[];
-  readonly gitProject: Awaited<ReturnType<typeof findGitProject>>;
-  readonly home: string;
-  readonly host: TemporaryInstallationHost;
-  readonly profileId: string;
-  readonly project: string;
-  readonly requireContext: boolean;
-  readonly requireDisabledModelInvocation: boolean;
-  readonly resolvedContexts: readonly ContextModuleSource[];
-  readonly resolvedSkills: readonly Skill[];
-  readonly diagnosticValues: string[];
-  readonly warnings: string[];
-}): Promise<AdapterProjectPlan | undefined> {
-  switch (options.host) {
-    case "claude": {
-      try {
-        await assertClaudeProjectCapability(options.project, {
-          requireContext: options.requireContext,
-          requireDisabledModelInvocation: options.requireDisabledModelInvocation,
-        });
-      } catch (error) {
-        options.blockers.push(hostCapabilityBlocker(error, "claude", options.project));
-      }
-      return planClaudeProject(
-        options.profileId,
-        options.resolvedContexts,
-        options.resolvedSkills,
-      );
-    }
-    case "codex": {
-      try {
-        await assertCodexProjectCapability(options.home, options.project, {
-          requireContext: options.requireContext,
-          requireDisabledModelInvocation: options.requireDisabledModelInvocation,
-        });
-      } catch (error) {
-        options.blockers.push(hostCapabilityBlocker(error, "codex", options.project));
-      }
-      if (options.requireContext) {
-        appendDiagnosticWarnings(
-          options.warnings,
-          options.diagnosticValues,
-          await detectCodexProjectConfigurationWarnings(options.home, options.project),
-        );
-      }
-      const contextPath = [
-        options.gitProject?.relativeProject ?? "",
-        ".agent-profile-kit",
-        "codex",
-        "context.md",
-      ].filter((part) => part.length > 0).join("/");
-      try {
-        return await planCodexProject(
-          options.profileId,
-          options.resolvedContexts,
-          options.resolvedSkills,
-          {
-            contextPath,
-            ...(!options.gitProject && options.requireContext
-              ? { requiresBoundRootLaunch: true }
-              : {}),
-          },
-        );
-      } catch (error) {
-        if (!isAdapterCapabilityError(error)) throw error;
-        options.blockers.push(
-          hostCapabilityBlocker(error, "codex", options.project),
-        );
-        return undefined;
-      }
-    }
-    default: {
-      const exhaustive: never = options.host;
-      throw new Error(`unsupported temporary installation Host '${String(exhaustive)}'`);
-    }
-  }
 }
 
 /**
@@ -442,11 +344,13 @@ export async function installTemporaryProfile(options: {
       `unsupported Agent Host '${host}'; temporary installation supports: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
     );
   }
-  if (!isTemporaryInstallationHost(host)) {
+  const registration = hostRegistrationFor(host);
+  if (!registration.supportsTemporaryProfileInstallation) {
     throw new Error(
       `temporary installation does not yet support Agent Host '${host}'; supported Hosts: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
     );
   }
+  const temporaryHost: TemporaryInstallationHost = registration.host;
   const profileId = requireArtifactId(options.profile, "install-temp profile");
   const canonicalProject = await normalizeProject(
     options.project,
@@ -456,7 +360,7 @@ export async function installTemporaryProfile(options: {
   const desired = await planTemporaryDesiredInstallation({
     authoredProject: options.project,
     home: options.home,
-    host,
+    host: temporaryHost,
     profileId,
     project: canonicalProject,
   });
@@ -487,8 +391,8 @@ export async function installTemporaryProfile(options: {
         completionState: "installed",
         engineVersion: manifest.engineVersion,
         ...(manifest.gitProject === undefined ? {} : { gitProject: manifest.gitProject }),
-        host,
-        hostVersion: manifest.hostVersions[host]!,
+        host: temporaryHost,
+        hostVersion: manifest.hostVersions[temporaryHost]!,
         outputs: manifest.outputs,
         profileId: manifest.profileId,
         project: manifest.project,
