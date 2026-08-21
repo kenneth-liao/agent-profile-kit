@@ -26,6 +26,10 @@ import {
   readInstallationStateWithMigration,
 } from "../installer/installation-state.js";
 import { artifactReferenceKey } from "../schemas/dependencies.js";
+import {
+  reportBlockers,
+  reportItems,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -533,8 +537,8 @@ describe("Legacy receipt migration and backfill", () => {
     expect(loaded.state.installations[0]?.outputOrigins).toBeUndefined();
 
     const preview = await previewReconciliation([desired], loaded.state);
-    expect(preview.items).toContainEqual({ kind: "current", project: desired.binding.project });
-    expect(preview.blockers).toHaveLength(0);
+    expect(reportItems(preview)).toContainEqual({ kind: "current", project: desired.binding.project });
+    expect(reportBlockers(preview)).toHaveLength(0);
 
     await applyReconciliation(home, [desired]);
 

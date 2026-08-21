@@ -179,16 +179,13 @@ export interface ReconciliationProjectRecord {
 }
 
 /** Canonical reconciliation model: global evidence plus one complete record per Project. */
-interface CanonicalReconciliationReport {
+export interface ReconciliationReport {
   readonly globalBlockers: readonly ReconciliationBlocker[];
   readonly projects: readonly ReconciliationProjectRecord[];
 }
 
-/**
- * Temporary compatibility projection consumed only by the existing human renderer.
- * Ticket #249 removes this type when presentation reads Project records directly.
- */
-export interface FlatReconciliationReport {
+/** Internal reconciliation accumulator normalized into Project records at the boundary. */
+interface ReconciliationAccumulator {
   readonly blockers: readonly ReconciliationBlocker[];
   readonly desired: readonly {
     readonly canonicalProject: string;
@@ -210,91 +207,17 @@ export interface FlatReconciliationReport {
   readonly warnings: readonly string[];
 }
 
-/**
- * Nested fields are canonical. Flat fields are the temporary typed human
- * projection retained until #249 moves rendering directly onto Project records.
- */
-export type ReconciliationReport = CanonicalReconciliationReport & FlatReconciliationReport;
-
 export type BlockedReconciliationReport = ReconciliationReport;
 
-export function flatReconciliationReport(report: CanonicalReconciliationReport): FlatReconciliationReport {
-  const desired = report.projects.flatMap((record) => record.desired === undefined ? [] : [{
-    canonicalProject: record.canonicalProject,
-    ...record.desired,
-    project: record.project,
-    setupSteps: record.setupSteps,
-  }]);
-  return {
-    blockers: [
-      ...report.globalBlockers,
-      ...report.projects.flatMap((record) => record.blockers),
-    ],
-    desired,
-    items: report.projects.map((record) => ({ ...record.state, project: record.project })),
-    outputs: report.projects.flatMap((record) => record.outputs.map(({ consumingHosts: _, ...output }) => ({
-      ...output,
-      project: record.project,
-    }))),
-    outputConsumers: report.projects.flatMap((record) => record.outputs.flatMap((output) =>
-      output.consumingHosts.length === 0 ? [] : [{
-        consumingHosts: output.consumingHosts,
-        path: output.path,
-        project: record.project,
-      }]
-    )),
-    repositoryExclusionRepairs: deduplicateByJson(
-      report.projects.flatMap((record) => record.repositoryExclusionRepairs),
-    ),
-    repositoryExclusions: deduplicateByJson(
-      report.projects.flatMap((record) => record.repositoryExclusions),
-    ),
-    diagnosticValues: [...new Set(
-      report.projects.flatMap((record) => record.warnings.flatMap((warning) => warning.copyableValues)),
-    )].sort(),
-    warnings: [...new Set(
-      report.projects.flatMap((record) => record.warnings.map((warning) => warning.message)),
-    )].sort(),
-  };
-}
-
-function deduplicateByJson<T>(values: readonly T[]): readonly T[] {
-  return [...new Map(values.map((value) => [JSON.stringify(value), value])).values()];
-}
-
-function withFlatHumanProjection(
-  canonical: CanonicalReconciliationReport,
-): ReconciliationReport {
-  const report = canonical as ReconciliationReport;
-  for (const key of [
-    "blockers",
-    "desired",
-    "items",
-    "outputs",
-    "outputConsumers",
-    "repositoryExclusionRepairs",
-    "repositoryExclusions",
-    "diagnosticValues",
-    "warnings",
-  ] as const) {
-    Object.defineProperty(report, key, {
-      configurable: false,
-      enumerable: false,
-      get: () => flatReconciliationReport(report)[key],
-    });
-  }
-  return report;
-}
-
-/** Replace Project records without exposing or reconstructing flat report collections. */
+/** Replace Project records without exposing or reconstructing parallel report collections. */
 export function reconciliationReportWithProjects(
   report: ReconciliationReport,
   projects: readonly ReconciliationProjectRecord[],
 ): ReconciliationReport {
-  return withFlatHumanProjection({
+  return {
     globalBlockers: report.globalBlockers,
     projects,
-  });
+  };
 }
 
 /**
@@ -347,7 +270,7 @@ export async function unreadableInstallationStateReport(
     temporaryInstallations: [],
     schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
   });
-  return withFlatHumanProjection({
+  return {
     globalBlockers: [normalizeBlocker(installationStateUnreadableBlocker({
       message,
       statePath: stateManifestPath(home),
@@ -360,7 +283,7 @@ export async function unreadableInstallationStateReport(
       outputs: [],
       blockers: [],
     })),
-  });
+  };
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -600,9 +523,10 @@ async function parentConflicts(project: string, path: string): Promise<readonly 
   while (parent !== project && parent.startsWith(`${project}/`)) {
     const kind = await pathKind(parent);
     if (kind !== "missing" && kind !== "directory") {
+      const relativeParent = parent.slice(project.length + 1);
       blockers.push(occupiedOutputBlocker({
-        message: `${parent} is an occupied ${kind} parent path`,
-        path: parent.slice(project.length + 1),
+        message: `${relativeParent} is an occupied ${kind} parent path`,
+        path: relativeParent,
         project,
       }));
       break;
@@ -692,14 +616,14 @@ export async function desiredOutputConflicts(
     if (output.type === "file") {
       if (kind !== "file") {
         blockers.push(occupiedOutputBlocker({
-          message: `${absolute} is an occupied ${kind} path`,
+          message: `${output.path} is an occupied ${kind} path`,
           path: output.path,
           project,
         }));
         continue;
       }
       blockers.push(occupiedOutputBlocker({
-        message: `${absolute} is occupied by unowned or drifted output`,
+        message: `${output.path} is occupied by unowned or drifted output`,
         path: output.path,
         project,
       }));
@@ -707,14 +631,14 @@ export async function desiredOutputConflicts(
     }
     if (kind !== "directory") {
       blockers.push(occupiedOutputBlocker({
-        message: `${absolute} is an occupied ${kind} path`,
+        message: `${output.path} is an occupied ${kind} path`,
         path: output.path,
         project,
       }));
       continue;
     }
     blockers.push(occupiedOutputBlocker({
-      message: `${absolute} is an occupied unowned artifact directory`,
+      message: `${output.path} is an occupied unowned artifact directory`,
       path: output.path,
       project,
     }));
@@ -735,7 +659,7 @@ async function identityBlockers(
   inspection: LifecycleOwnershipInspection,
 ): Promise<readonly BlockerInput[]> {
   const project = desired.binding.canonicalProject;
-  const marker = markerPath(project);
+  const marker = markerRelativePath();
   const markerEvidence = await inspection.inspectMarker(project);
   if (markerEvidence.kind === "missing") return [];
   if (markerEvidence.kind === "other") {
@@ -856,11 +780,11 @@ function ownershipBlocker(project: string, proof: OwnershipProof): ProjectScoped
   if (proof.driftKind) {
     const generatedBoundary = proof.driftKind === "generated-root" ? "root" : "file";
     message =
-      `Cannot reconcile Profile Installation at ${project}: ${reason}. ` +
+      `Cannot sync the generated ${generatedBoundary}: ${reason}. ` +
       "Agent Profile Kit will not overwrite your edit. Move the change into the Workspace, " +
       `or delete the generated ${generatedBoundary}, then run ${COMMAND_NAME} apply to restore it`;
   } else {
-    message = `Cannot reconcile Profile Installation at ${project}: ${reason}`;
+    message = `Cannot verify generated-file ownership: ${reason}`;
   }
   return installationOwnershipBlocker({ message, project });
 }
@@ -885,7 +809,7 @@ function directoryRootRequiresAttention(
 }
 
 function nestedReconciliationReport(
-  flat: FlatReconciliationReport,
+  flat: ReconciliationAccumulator,
   desiredInstallations: readonly DesiredInstallation[],
   exclusionProjects: ReadonlyMap<string, ReadonlySet<string>>,
 ): ReconciliationReport {
@@ -968,7 +892,7 @@ function nestedReconciliationReport(
     ...exclusionsByCanonical.keys(),
     ...repairsByCanonical.keys(),
   ]);
-  return withFlatHumanProjection({
+  return {
     globalBlockers: [...globalBlockers],
     projects: [...projectKeys].sort().map((key) => {
       const desired = desiredByCanonical.get(key);
@@ -1000,7 +924,7 @@ function nestedReconciliationReport(
         repositoryExclusions: exclusionsByCanonical.get(key) ?? [],
       };
     }),
-  });
+  };
 }
 
 export interface PreviewReconciliationOptions {
@@ -1341,7 +1265,7 @@ export async function previewReconciliation(
       projectBlockers.push(normalizeBlocker(
         installationOwnershipBlocker({
           message:
-            `Cannot remove stale Profile Installation at ${installation.project}: ` +
+            "Cannot remove stale generated files: " +
             `${proof.reason ?? "ownership could not be proven"}${remediation}`,
           project: installation.project,
         }),
@@ -1399,7 +1323,7 @@ export async function previewReconciliation(
     });
     if (!deduplicated.has(key)) deduplicated.set(key, blocker);
   }
-  const flat: FlatReconciliationReport = {
+  const flat: ReconciliationAccumulator = {
     blockers: [...deduplicated.values()].sort((left, right) =>
       (left.project ?? "").localeCompare(right.project ?? "") || left.message.localeCompare(right.message)
     ),

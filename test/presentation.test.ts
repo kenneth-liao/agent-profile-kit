@@ -41,11 +41,23 @@ import {
   type ReconciliationBlocker,
 } from "../installer/blockers.js";
 import type {
-  FlatReconciliationReport as ReconciliationReport,
+  OutputConsumerEvidence,
+  OutputReconciliationItem,
+  ReconciliationItem,
   ReconciliationKind,
   ReconciliationProjectRecord,
-  ReconciliationReport as MachineReconciliationReport,
+  ReconciliationReport,
 } from "../installer/reconcile.js";
+import type {
+  RepositoryExclusionChange,
+  RepositoryExclusionRepair,
+} from "../installer/git-exclusions.js";
+import {
+  reportBlockers,
+  reportDesired,
+  reportItems,
+  reportOutputs,
+} from "./support/reconciliation-report.js";
 
 type BlockedReconciliationReport = ReconciliationReport;
 interface ApplyReconciliationResult {
@@ -54,9 +66,10 @@ interface ApplyReconciliationResult {
 }
 
 function asBlockedReport(report: ReconciliationReport): BlockedReconciliationReport {
-  const [blocker, ...remainingBlockers] = report.blockers;
-  if (!blocker) throw new Error("blocked report fixture requires a blocker");
-  return { ...report, blockers: [blocker, ...remainingBlockers] };
+  if (reportBlockers(report).length === 0) {
+    throw new Error("blocked report fixture requires a blocker");
+  }
+  return report;
 }
 
 /** One structured fixture blocker; global without a project, project-scoped with one. */
@@ -73,7 +86,10 @@ function fixtureBlocker(message: string, project?: string): ReconciliationBlocke
     : normalizeBlocker({
         affectedItems: [],
         kind: "occupied-output",
-        problem: message,
+        problem: message
+          .replaceAll(`${project}/`, "")
+          .replaceAll(`${project}: `, "")
+          .replaceAll(project, "this Project"),
         remedy: "Resolve the reported blocker, then retry",
         requirement: "Lifecycle commands cannot proceed while blocked",
         project,
@@ -81,18 +97,29 @@ function fixtureBlocker(message: string, project?: string): ReconciliationBlocke
       });
 }
 
-type DesiredFixture = Omit<ReconciliationReport["desired"][number], "hosts" | "setupSteps"> & {
-  readonly hosts?: ReconciliationReport["desired"][number]["hosts"];
-  readonly setupSteps?: ReconciliationReport["desired"][number]["setupSteps"];
+type DesiredFixture = Omit<NonNullable<ReconciliationProjectRecord["desired"]>, "hosts"> & {
+  readonly canonicalProject: string;
+  readonly hosts?: NonNullable<ReconciliationProjectRecord["desired"]>["hosts"];
+  readonly project: string;
+  readonly setupSteps?: ReconciliationProjectRecord["setupSteps"];
 };
 
-function emptyReport(
-  overrides: Omit<Partial<ReconciliationReport>, "desired"> & {
-    readonly desired?: readonly DesiredFixture[];
-  } = {},
-): ReconciliationReport {
-  return {
+interface FlatFixture {
+  readonly blockers: readonly ReconciliationBlocker[];
+  readonly desired: readonly DesiredFixture[];
+  readonly items: readonly ReconciliationItem[];
+  readonly outputConsumers: readonly OutputConsumerEvidence[];
+  readonly outputs: readonly OutputReconciliationItem[];
+  readonly repositoryExclusionRepairs: readonly RepositoryExclusionRepair[];
+  readonly repositoryExclusions: readonly RepositoryExclusionChange[];
+  readonly diagnosticValues: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport {
+  const fixture: FlatFixture = {
     blockers: [],
+    desired: [],
     items: [],
     outputConsumers: [],
     outputs: [],
@@ -101,11 +128,68 @@ function emptyReport(
     diagnosticValues: [],
     warnings: [],
     ...overrides,
-    desired: (overrides.desired ?? []).map((installation) => ({
-      hosts: ["codex"],
-      setupSteps: [],
-      ...installation,
-    })),
+  };
+  const desired = fixture.desired.map((installation) => ({
+    ...installation,
+    hosts: installation.hosts ?? ["codex"] as const,
+    setupSteps: installation.setupSteps ?? [],
+  }));
+  const canonicalByProject = new Map(desired.flatMap((installation) => [
+    [installation.canonicalProject, installation.canonicalProject] as const,
+    [installation.project, installation.canonicalProject] as const,
+  ]));
+  const canonicalProject = (project: string): string => canonicalByProject.get(project) ?? project;
+  const keys = new Set([
+    ...desired.map((installation) => installation.canonicalProject),
+    ...fixture.items.map((item) => canonicalProject(item.project)),
+    ...fixture.outputs.map((output) => canonicalProject(output.project)),
+    ...fixture.blockers.flatMap((blocker) => blocker.project === undefined
+      ? []
+      : [canonicalProject(blocker.project)]),
+  ]);
+  if (keys.size === 0 && (fixture.repositoryExclusions.length > 0 || fixture.warnings.length > 0)) {
+    keys.add("/project-a");
+  }
+  const firstProject = [...keys][0];
+  return {
+    globalBlockers: fixture.blockers.filter((blocker) => blocker.scope === "global"),
+    projects: [...keys].sort().map((key) => {
+      const installation = desired.find((candidate) => candidate.canonicalProject === key || candidate.project === key);
+      const item = fixture.items.find((candidate) => canonicalProject(candidate.project) === key) ?? { kind: "current" as const, project: key };
+      return machineProject(key, {
+        ...(installation === undefined ? {} : {
+          desired: {
+            ...(installation.capabilityContracts === undefined ? {} : {
+              capabilityContracts: installation.capabilityContracts,
+            }),
+            context: installation.context,
+            hosts: installation.hosts,
+            outputs: installation.outputs,
+            profile: installation.profile,
+            resolvedArtifacts: installation.resolvedArtifacts,
+          },
+          project: installation.project,
+          setupSteps: installation.setupSteps ?? [],
+        }),
+        state: { kind: item.kind, ...(item.reason === undefined ? {} : { reason: item.reason }) },
+        outputs: fixture.outputs.filter((output) => canonicalProject(output.project) === key).map((output) => ({
+          consumingHosts: fixture.outputConsumers.find((consumer) =>
+            canonicalProject(consumer.project) === key && consumer.path === output.path
+          )?.consumingHosts ?? [],
+          kind: output.kind,
+          path: output.path,
+        })),
+        blockers: fixture.blockers.filter((blocker) =>
+          blocker.scope === "project" && canonicalProject(blocker.project) === key
+        ),
+        warnings: key === firstProject ? fixture.warnings.map((message) => ({
+          copyableValues: fixture.diagnosticValues,
+          message,
+        })) : [],
+        repositoryExclusionRepairs: key === firstProject ? fixture.repositoryExclusionRepairs : [],
+        repositoryExclusions: key === firstProject ? fixture.repositoryExclusions : [],
+      });
+    }),
   };
 }
 
@@ -137,13 +221,13 @@ function machineProject(
 function machineReport(
   projects: readonly ReconciliationProjectRecord[] = [],
   globalBlockers: readonly ReconciliationBlocker[] = [],
-): MachineReconciliationReport {
-  return { globalBlockers, projects } as MachineReconciliationReport;
+): ReconciliationReport {
+  return { globalBlockers, projects } as ReconciliationReport;
 }
 
 function machineApplyResult(
-  receipt: MachineReconciliationReport,
-  resultingState: MachineReconciliationReport = receipt,
+  receipt: ReconciliationReport,
+  resultingState: ReconciliationReport = receipt,
 ): import("../installer/reconcile.js").ApplyReconciliationResult {
   return { receipt, resultingState };
 }
@@ -172,7 +256,7 @@ function temporaryReceipt(
 
 function identityReport(
   project: string,
-  hosts: ReconciliationReport["desired"][number]["hosts"] = ["codex"],
+  hosts: NonNullable<ReconciliationProjectRecord["desired"]>["hosts"] = ["codex"],
 ): ReconciliationReport {
   return emptyReport({
     desired: [{
@@ -360,7 +444,7 @@ describe("Host Setup Step provenance and presentation", () => {
       outputs: [{ kind: "addition", path: hookPath, project: "/project-a" }],
     });
     const resultingState = emptyReport({
-      desired: report.desired,
+      desired: reportDesired(report),
       items: [{ kind: "current", project: "/project-a" }],
     });
 
@@ -394,7 +478,7 @@ describe("Host Setup Step provenance and presentation", () => {
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
     const resultingState = emptyReport({
-      desired: receipt.desired,
+      desired: reportDesired(receipt),
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
@@ -424,7 +508,7 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "addition", project: "/project-a" }],
     });
     const resultingState = emptyReport({
-      desired: report.desired,
+      desired: reportDesired(report),
       items: [{ kind: "current", project: "/project-a" }],
     });
 
@@ -449,7 +533,7 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "addition", project: "/project-a" }],
     });
     const resultingState = emptyReport({
-      desired: report.desired,
+      desired: reportDesired(report),
       items: [{ kind: "current", project: "/project-a" }],
     });
 
@@ -496,7 +580,7 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "addition", project: "/project-a" }],
     });
     const resultingState = emptyReport({
-      desired: receipt.desired,
+      desired: reportDesired(receipt),
       items: [{ kind: "current", project: "/project-a" }],
     });
 
@@ -651,7 +735,7 @@ describe("responsive lifecycle presentation", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
     const applied = emptyReport({
-      desired: receipt.desired,
+      desired: reportDesired(receipt),
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
@@ -754,10 +838,10 @@ describe("responsive lifecycle presentation", () => {
   test("keeps structurally supplied diagnostic values intact without parsing warning prose", () => {
     const value = "generated diagnostic path with spaces";
     const warning = `Inspect ${value} before continuing with this diagnostic.`;
-    const report = {
-      ...emptyReport({ warnings: [warning] }),
+    const report = emptyReport({
       diagnosticValues: [value],
-    };
+      warnings: [warning],
+    });
     const output = formatLifecycleReport("preview", report, { context: context(40) });
 
     expect(output).toContain(value);
@@ -1153,7 +1237,7 @@ describe("formatLifecycleReport concise terminology", () => {
       "Blocker: Codex CLI is unavailable",
     );
     const machine = machineReport([
-      machineProject("/project-a", { blockers: structured.blockers }),
+      machineProject("/project-a", { blockers: reportBlockers(structured) }),
     ]);
     expect(JSON.parse(formatLifecycleJson("preview", machine))).toMatchObject({
       schemaVersion: 5,
@@ -1172,6 +1256,52 @@ describe("formatLifecycleReport concise terminology", () => {
         }],
       }],
     });
+  });
+
+  test("renders every structured blocker field directly from nested Project evidence", () => {
+    const report = machineReport([
+      machineProject("/project-a", {
+        blockers: [normalizeBlocker({
+          affectedItems: [{ kind: "host", value: "codex" }],
+          kind: "host-capability",
+          problem: "Codex CLI is unavailable",
+          remedy: "Install a supported Codex CLI, then retry",
+          requirement: "The selected Profile requires Codex project delivery",
+          project: "/project-a",
+          scope: "project",
+        })],
+        state: { kind: "blocked", reason: "Host capability unavailable" },
+      }),
+    ]);
+
+    const concise = formatLifecycleReport("status", report);
+
+    expect(concise).toContain("Blocker: Codex CLI is unavailable");
+    expect(concise).toContain("Requirement: The selected Profile requires Codex project delivery");
+    expect(concise).toContain("Remedy: Install a supported Codex CLI, then retry");
+    expect(concise).toContain("Scope: Project /project-a");
+    expect(concise).toContain("Affected host: codex");
+  });
+
+  test("preserves task-authored warning text and typed copyable values without translation", () => {
+    const value = "generated diagnostic value with spaces";
+    const message = `Use reconcile as authored; inspect ${value} before continuing.`;
+    const report = machineReport([
+      machineProject("/project-a", {
+        warnings: [{ copyableValues: [value], message }],
+      }),
+    ]);
+
+    const output = formatLifecycleReport("status", report, { context: {
+      color: false,
+      interactive: true,
+      width: 40,
+    } });
+
+    expect(output).toContain("Use reconcile as authored;");
+    expect(output).toContain(value);
+    expect(output).not.toContain("generated diagnostic value with\n");
+    expect(output).not.toContain("Use sync as authored");
   });
 
   test("groups tracked-output ownership conflicts into one explained blocker with capped paths", () => {
@@ -1285,7 +1415,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("Global blockers:");
-    expect(concise).toContain("- Installation State is unreadable");
+    expect(concise).toContain("Blocker: Installation State is unreadable");
     expect(concise.indexOf("Project: /project-a")).toBeGreaterThan(-1);
     expect(concise.indexOf("Project: /project-a")).toBeLessThan(
       concise.indexOf("Global blockers:"),
@@ -1357,7 +1487,7 @@ describe("formatLifecycleReport concise terminology", () => {
   test("labels remaining and committed apply work distinctly", () => {
     const receipt = identityReport("/project-a");
     const resultingState = emptyReport({
-      desired: receipt.desired,
+      desired: reportDesired(receipt),
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
@@ -1433,11 +1563,12 @@ describe("formatLifecycleReport concise terminology", () => {
     const authoredProject = "/var/tmp/aliased-project";
     const report = identityReport(canonicalProject);
     const aliasedReport = emptyReport({
-      ...report,
-      desired: report.desired.map((installation) => ({
+      desired: reportDesired(report).map((installation) => ({
         ...installation,
         project: authoredProject,
       })),
+      items: reportItems(report),
+      outputs: reportOutputs(report),
     });
 
     const concise = formatLifecycleReport("preview", aliasedReport);
@@ -1451,11 +1582,12 @@ describe("formatLifecycleReport concise terminology", () => {
     const authoredProject = "~/aliased-project";
     const report = identityReport(canonicalProject);
     const aliasedReport = emptyReport({
-      ...report,
-      desired: report.desired.map((installation) => ({
+      desired: reportDesired(report).map((installation) => ({
         ...installation,
         project: authoredProject,
       })),
+      items: reportItems(report),
+      outputs: reportOutputs(report),
     });
 
     const concise = formatLifecycleReport("preview", aliasedReport);
@@ -1478,7 +1610,7 @@ describe("formatLifecycleReport concise terminology", () => {
         items: [{
           kind,
           project: "/project-a",
-          reason: "Profile Installation desired state needs reconciliation",
+          reason: "Project setup needs a sync",
         }],
         outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
         repositoryExclusions: [{
@@ -1487,17 +1619,16 @@ describe("formatLifecycleReport concise terminology", () => {
           target: "/project-a/.git/info/exclude",
         }],
         warnings: [
-          "Installer-owned generated output differs from its Installation Manifest Artifact ID; " +
-          "reconcile reconciles reconciled reconciling reconciliation",
+          "A generated file differs from its installation record; restore the selected Project setup",
         ],
         blockers: kind === "blocked"
           ? [
               fixtureBlocker(
-                "/project-a: Cannot reconcile Profile Installation desired state",
+                "/project-a: Cannot sync the selected Project setup",
                 "/project-a",
               ),
               fixtureBlocker(
-                "Installer-owned generated output has a Repository Exclusion Artifact ID blocker",
+                "A generated file has a Git exclusion blocker",
               ),
             ]
           : [],
@@ -1558,29 +1689,22 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain(exclusionEntry);
   });
 
-  test("layers vocabulary in apply verification failures", () => {
+  test("renders task-authored apply verification failures without semantic translation", () => {
     const receipt = emptyReport({
       items: [{ kind: "addition", project: "/project-a" }],
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const view = formatApplyVerificationFailure(
-      receipt,
-      "Cannot reconcile Profile Installation desired state from its Installation Manifest Artifact ID",
-    );
+    const message = "Cannot verify the selected Project setup from its installation record";
+    const view = formatApplyVerificationFailure(receipt, message);
 
+    expect(view).toContain(message);
     expectUserFacingVocabulary(view);
 
-    const verbose = formatApplyVerificationFailure(
-      receipt,
-      "Cannot reconcile Profile Installation desired state from its Installation Manifest Artifact ID",
-      { verbose: true },
-    );
-    expect(verbose).toContain(
-      "Cannot reconcile Profile Installation desired state from its Installation Manifest Artifact ID",
-    );
-    expect(verbose).toContain("Repository Exclusions:");
-    expect(verbose).toContain("Desired State:");
+    const verbose = formatApplyVerificationFailure(receipt, message, { verbose: true });
+    expect(verbose).toContain(message);
+    expect(verbose).toContain("Git exclusions:");
+    expect(verbose).toContain("Selected setup:");
   });
 
   test("non-Git preview lists reconciliation-plan paths with action markers", () => {
@@ -1615,7 +1739,7 @@ describe("formatLifecycleReport concise terminology", () => {
       "  + b.md\n" +
       "  + d.md",
     );
-    expect(concise).not.toContain("Desired State:");
+    expect(concise).not.toContain("Selected setup:");
     expect(concise).not.toContain("Outputs:");
   });
 
@@ -1841,7 +1965,8 @@ describe("formatLifecycleReport concise terminology", () => {
       const verbose = command === "apply"
         ? formatBlockedApplyReport(asBlockedReport(report), { verbose: true })
         : formatLifecycleReport(command, report, { verbose: true });
-      expect(verbose.indexOf("Blockers:\n- /project-b: hooks disabled")).toBeGreaterThan(-1);
+      expect(verbose.indexOf("Blockers:\n- hooks disabled")).toBeGreaterThan(-1);
+      expect(verbose).toContain("Scope: Project /project-b");
       expect(verbose.indexOf("Blockers:\n- /project-b: hooks disabled")).toBeLessThan(
         verbose.indexOf("Projects:"),
       );
@@ -1981,9 +2106,9 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("Outputs:");
     expect(verbose).toContain("/project-a/.agent-profile-kit/codex/context.md: update");
     expect(verbose).toContain("/project-a/.codex/hooks.json: unchanged");
-    expect(verbose).toContain("Repository Exclusions:");
+    expect(verbose).toContain("Git exclusions:");
     expect(verbose).toContain("/project-a/.git/info/exclude: add /.agent-profile-kit/codex/context.md");
-    expect(verbose).toContain("Desired State:");
+    expect(verbose).toContain("Selected setup:");
     expect(verbose).toContain("Profile coding");
     expect(verbose).toContain("Hosts: claude, codex");
     expect(verbose).toContain("Resolved artifacts:");
@@ -1999,7 +2124,8 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("Warnings:");
     expect(verbose).toContain("example warning");
     expect(verbose).toContain("Blockers:");
-    expect(verbose).toContain("/project-a: example blocker");
+    expect(verbose).toContain("- example blocker");
+    expect(verbose).toContain("Scope: Project /project-a");
     expect(verbose).toContain("State explanations:");
     expect(verbose).not.toContain("generated-output");
     expect(verbose).not.toContain("Git-local exclusions that keep Installer-owned generated paths untracked");
@@ -2025,7 +2151,9 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
     const result = emptyReport({
-      ...receipt,
+      desired: reportDesired(receipt),
+      items: reportItems(receipt),
+      outputs: reportOutputs(receipt),
       repositoryExclusionRepairs: [],
       warnings: [],
     });
@@ -2038,10 +2166,10 @@ describe("formatLifecycleReport concise terminology", () => {
     for (const command of ["preview", "status"] as const) {
       const verbosePending = formatLifecycleReport(command, receipt, { verbose: true });
       expect(verbosePending).toContain(
-        "/repo/.git/info/exclude: will restore 1 recorded Repository Exclusion entry",
+        "/repo/.git/info/exclude: will restore 1 recorded Git exclusion entry",
       );
       expect(verbosePending).not.toContain(
-        "/repo/.git/info/exclude: restored 1 recorded Repository Exclusion entry",
+        "/repo/.git/info/exclude: restored 1 recorded Git exclusion entry",
       );
     }
 
@@ -2056,7 +2184,7 @@ describe("formatLifecycleReport concise terminology", () => {
 
     expect(verbose).not.toContain("apply will restore");
     expect(verbose).toContain("Applied:");
-    expect(verbose).toContain("restored 1 recorded Repository Exclusion entry");
+    expect(verbose).toContain("restored 1 recorded Git exclusion entry");
   });
 
   test("verbose apply explains non-current states once across pending and applied sections", () => {
@@ -2352,12 +2480,12 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(nextActionLines(formatApplyReport(applyResult(appliedWithChanges)))).toEqual([]);
 
     const metadataOnlyReceipt = emptyReport({
-      desired: current.desired,
+      desired: reportDesired(current),
       items: [{ kind: "update", project: "/project-a", reason: "desired output changed" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
     const metadataOnlyResult = emptyReport({
-      desired: current.desired,
+      desired: reportDesired(current),
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
@@ -2514,8 +2642,8 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(nextActionLines(preview)).toEqual([]);
   });
 
-  test("status with a desired installation but no reconciliation item still recommends preview", () => {
-    // groupNeedsAttention treats status + empty items as attention; next action must agree.
+  test("status renders a nested desired Project with current state as current", () => {
+    // The nested model always owns exactly one state record per Project.
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -2530,11 +2658,8 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
 
     const status = formatLifecycleReport("status", report);
-    expect(status).toContain("Project: /project-a");
-    const next = nextActionLines(status);
-    expect(next).toHaveLength(1);
-    expect(next[0]).toMatch(/preview/i);
-    expect(next[0]).not.toMatch(/bind/i);
+    expect(status).toBe("All Projects are current (1 Project)\n");
+    expect(nextActionLines(status)).toEqual([]);
   });
 
   test("multiple blocked projects each receive their own guidance", () => {
@@ -2977,7 +3102,7 @@ describe("operation-first multi-Project presentation", () => {
   const SKILL_PATH = ".agents/skills/review-pr";
   const CONTEXT_PATH = ".agent-profile-kit/codex/context.md";
 
-  function sharedSkillFleet(overrides: Partial<ReconciliationReport> = {}): ReconciliationReport {
+  function sharedSkillFleet(overrides: Partial<FlatFixture> = {}): ReconciliationReport {
     const projects = ["/project-a", "/project-b", "/project-c"];
     return emptyReport({
       desired: projects.map((project) => ({
@@ -3102,7 +3227,7 @@ describe("operation-first multi-Project presentation", () => {
   test("apply summarizes applied operations separately from freshly verified state", () => {
     const receipt = sharedSkillFleet();
     const resultingState = emptyReport({
-      desired: receipt.desired,
+      desired: reportDesired(receipt),
       items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
         kind: "current" as const,
         project,
@@ -3124,7 +3249,7 @@ describe("operation-first multi-Project presentation", () => {
   test("generated-root ownership attention remains visible as a Project exception", () => {
     const report = sharedSkillFleet({
       outputs: [
-        ...sharedSkillFleet().outputs,
+        ...reportOutputs(sharedSkillFleet()),
         {
           kind: "drifted output" as const,
           path: SKILL_PATH,
@@ -3169,7 +3294,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(preview).not.toContain("Changes: none");
 
     const applied = formatApplyReport(applyResult(report, emptyReport({
-      desired: report.desired,
+      desired: reportDesired(report),
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     })));
@@ -3304,7 +3429,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
     const resultingState = emptyReport({
-      desired: receipt.desired,
+      desired: reportDesired(receipt),
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
@@ -3335,7 +3460,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       }],
     });
     const resultingState = emptyReport({
-      desired: receipt.desired,
+      desired: reportDesired(receipt),
       items: [{ kind: "current", project: "/repo" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/repo" }],
     });
@@ -3361,7 +3486,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
     const resultingState = emptyReport({
-      desired: receipt.desired,
+      desired: reportDesired(receipt),
       items: [{ kind: "drifted output", project: "/project-a" }],
       outputs: [{ kind: "drifted output", path: "a.md", project: "/project-a" }],
     });
@@ -3449,7 +3574,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       })),
     });
     const resultingState = emptyReport({
-      desired: receipt.desired,
+      desired: reportDesired(receipt),
       items: ["/project-a", "/project-b"].map((project) => ({
         kind: "current" as const,
         project,
@@ -3489,7 +3614,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
     const resultingState = emptyReport({
-      desired: receipt.desired,
+      desired: reportDesired(receipt),
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
@@ -3521,7 +3646,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(verbose).toContain("/project-a: addition");
     expect(verbose).toContain("Outputs:");
     expect(verbose).toContain("/project-a/a.md: addition");
-    expect(verbose).toContain("Desired State:");
+    expect(verbose).toContain("Selected setup:");
     expect(verbose).toContain("Blockers:");
     expect(verbose).not.toContain("Next:");
 

@@ -415,10 +415,10 @@ function requireArtifactReference(value: unknown, description: string): Artifact
 
 function parseResolvedArtifacts(value: unknown): readonly ResolvedArtifactRecord[] {
   if (!Array.isArray(value)) {
-    throw new Error("Installation Manifest resolved_artifacts must be an array");
+    throw new Error("installation record resolved_artifacts must be an array");
   }
   const records = value.map((entry, index) => {
-    const description = `Installation Manifest resolved_artifacts[${index}]`;
+    const description = `installation record resolved_artifacts[${index}]`;
     const artifact = requireMapping(entry, description);
     requireExactFields(artifact, ["type", "id", "inclusion_reasons", "fingerprint"], description);
     if (!Array.isArray(artifact.inclusion_reasons) || artifact.inclusion_reasons.length === 0) {
@@ -451,7 +451,7 @@ function parseResolvedArtifacts(value: unknown): readonly ResolvedArtifactRecord
   });
   const keys = records.map((record) => artifactReferenceKey(record.reference));
   if (new Set(keys).size !== keys.length) {
-    throw new Error("Installation Manifest resolved_artifacts must not contain an Artifact more than once");
+    throw new Error("installation record resolved_artifacts must not contain an Artifact more than once");
   }
   return records;
 }
@@ -518,35 +518,35 @@ function parseOwnedOutput(entry: unknown, description: string): OwnedOutput {
 
 function parseOutputs(value: unknown): readonly OwnedOutput[] {
   if (!Array.isArray(value) || value.length === 0) {
-    throw new Error("Installation Manifest outputs must be a non-empty array");
+    throw new Error("Installation record outputs must be a non-empty array");
   }
   const outputs = value.map((entry, index) =>
-    parseOwnedOutput(entry, `Installation Manifest outputs[${index}]`),
+    parseOwnedOutput(entry, `installation record outputs[${index}]`),
   );
   const paths = outputs.map((output) => output.path);
   if (new Set(paths).size !== paths.length) {
-    throw new Error("Installation Manifest outputs must not contain a path more than once");
+    throw new Error("Installation record outputs must not contain a path more than once");
   }
   if (!paths.includes(INSTALLATION_MARKER_PATH)) {
-    throw new Error("Installation Manifest outputs must include the Installation Marker");
+    throw new Error("Installation record outputs must include the Installation Marker");
   }
   return outputs;
 }
 
 function parseHostVersions(value: unknown): Readonly<Record<string, string>> {
-  const mapping = requireMapping(value, "Installation Manifest host_versions");
+  const mapping = requireMapping(value, "installation record host_versions");
   const result: Record<string, string> = {};
   for (const [host, version] of Object.entries(mapping)) {
-    result[host] = requireString(version, `Installation Manifest host_versions.${host}`);
+    result[host] = requireString(version, `installation record host_versions.${host}`);
   }
   return result;
 }
 
 function parseHosts(value: unknown): readonly string[] {
-  const hosts = requireStringArray(value, "Installation Manifest hosts");
+  const hosts = requireStringArray(value, "installation record hosts");
   if (hosts.length === 0 || hosts.some((host) => !isSupportedHost(host))) {
     throw new Error(
-      `Installation Manifest hosts must contain only supported Hosts: ${SUPPORTED_HOSTS.join(", ")}`,
+      `installation record hosts must contain only supported Hosts: ${SUPPORTED_HOSTS.join(", ")}`,
     );
   }
   return SUPPORTED_HOSTS.filter((host) => hosts.includes(host));
@@ -557,14 +557,14 @@ function parseOutputOrigins(
   outputs: readonly OwnedOutput[],
   resolvedArtifacts: readonly ResolvedArtifactRecord[],
 ): Readonly<Record<string, readonly ArtifactReference[]>> {
-  const mapping = requireMapping(value, "Installation Manifest output_origins");
+  const mapping = requireMapping(value, "installation record output_origins");
   const knownArtifacts = new Set(
     resolvedArtifacts.map((artifact) => artifactReferenceKey(artifact.reference)),
   );
   const outputPaths = new Set(outputs.map((output) => output.path));
   const result: Record<string, readonly ArtifactReference[]> = {};
   for (const [path, originsValue] of Object.entries(mapping)) {
-    const description = `Installation Manifest output_origins.${path}`;
+    const description = `installation record output_origins.${path}`;
     if (!outputPaths.has(path)) {
       throw new Error(`${description} references unknown output path '${path}'`);
     }
@@ -589,21 +589,21 @@ function parseOutputOrigins(
   }
   for (const path of outputPaths) {
     if (!(path in result)) {
-      throw new Error(`Installation Manifest output_origins must cover output '${path}'`);
+      throw new Error(`installation record output_origins must cover output '${path}'`);
     }
   }
   return result;
 }
 
 function parseManifestMapping(value: unknown): ProjectInstallationManifest {
-  const manifest = requireMapping(value, "Installation Manifest");
+  const manifest = requireMapping(value, "installation record");
   const schemaVersion = manifest.schema_version;
   if (
     schemaVersion !== INSTALLATION_MANIFEST_SCHEMA_VERSION &&
     schemaVersion !== INSTALLATION_MANIFEST_LEGACY_SCHEMA_VERSION
   ) {
     throw new Error(
-      `Installation Manifest schema_version must be ${INSTALLATION_MANIFEST_LEGACY_SCHEMA_VERSION} or ${INSTALLATION_MANIFEST_SCHEMA_VERSION}`,
+      `installation record schema_version must be ${INSTALLATION_MANIFEST_LEGACY_SCHEMA_VERSION} or ${INSTALLATION_MANIFEST_SCHEMA_VERSION}`,
     );
   }
   const isCurrent = schemaVersion === INSTALLATION_MANIFEST_SCHEMA_VERSION;
@@ -641,23 +641,23 @@ function parseManifestMapping(value: unknown): ProjectInstallationManifest {
           "workspace_input_hash",
           "outputs",
         ],
-    "Installation Manifest",
+    "installation record",
   );
   const selectedContext = manifest.selected_context;
   if (!Array.isArray(selectedContext)) {
-    throw new Error("Installation Manifest selected_context must be an array");
+    throw new Error("installation record selected_context must be an array");
   }
   const contextIds = selectedContext.map((id, index) =>
-    requireArtifactId(id, `Installation Manifest selected_context[${index}]`),
+    requireArtifactId(id, `installation record selected_context[${index}]`),
   );
   if (new Set(contextIds).size !== contextIds.length) {
-    throw new Error("Installation Manifest selected_context must not contain an Artifact ID more than once");
+    throw new Error("installation record selected_context must not contain a name more than once");
   }
   const hosts = parseHosts(manifest.hosts);
   const hostVersions = parseHostVersions(manifest.host_versions);
   const hostVersionKeys = Object.keys(hostVersions).sort();
   if (hostVersionKeys.length !== hosts.length || hostVersionKeys.some((host, index) => host !== hosts.slice().sort()[index])) {
-    throw new Error("Installation Manifest host_versions must match hosts exactly");
+    throw new Error("installation record host_versions must match hosts exactly");
   }
   const resolvedArtifacts = parseResolvedArtifacts(manifest.resolved_artifacts);
   const outputs = parseOutputs(manifest.outputs);
@@ -670,35 +670,35 @@ function parseManifestMapping(value: unknown): ProjectInstallationManifest {
   );
   if (outputOrigins !== undefined && resolvedArtifacts.some((artifact) => artifact.fingerprint === undefined)) {
     throw new Error(
-      "Installation Manifest output_origins requires a fingerprint for every resolved artifact",
+      "installation record output_origins requires a fingerprint for every resolved artifact",
     );
   }
   if (outputOrigins === undefined && anyFingerprint) {
     throw new Error(
-      "Installation Manifest resolved_artifacts fingerprints require output_origins",
+      "installation record resolved_artifacts fingerprints require output_origins",
     );
   }
   return {
-    adapterVersion: requireString(manifest.adapter_version, "Installation Manifest adapter_version"),
-    engineVersion: requireString(manifest.engine_version, "Installation Manifest engine_version"),
+    adapterVersion: requireString(manifest.adapter_version, "installation record adapter_version"),
+    engineVersion: requireString(manifest.engine_version, "installation record engine_version"),
     ...(manifest.git_project === undefined
       ? {}
-      : { gitProject: requireBoolean(manifest.git_project, "Installation Manifest git_project") }),
+      : { gitProject: requireBoolean(manifest.git_project, "installation record git_project") }),
     hosts,
     hostVersions,
-    installationId: requireString(manifest.installation_id, "Installation Manifest installation_id"),
+    installationId: requireString(manifest.installation_id, "installation record installation_id"),
     ...(outputOrigins === undefined ? {} : { outputOrigins }),
     outputs,
-    profileId: requireArtifactId(manifest.profile_id, "Installation Manifest profile_id"),
+    profileId: requireArtifactId(manifest.profile_id, "installation record profile_id"),
     project: requireAbsoluteProject(manifest.project),
     resolvedArtifacts,
     schemaVersion: INSTALLATION_MANIFEST_SCHEMA_VERSION,
     selectedContext: contextIds,
-    workspaceInputHash: requireHash(manifest.workspace_input_hash, "Installation Manifest workspace_input_hash"),
+    workspaceInputHash: requireHash(manifest.workspace_input_hash, "installation record workspace_input_hash"),
   };
 }
 
-function requireAbsoluteProject(value: unknown, description = "Installation Manifest project"): string {
+function requireAbsoluteProject(value: unknown, description = "installation record project"): string {
   const project = requireString(value, description);
   if (!isAbsolute(project) || normalize(project) !== project) {
     throw new Error(`${description} must be a normalized absolute path`);
@@ -707,7 +707,7 @@ function requireAbsoluteProject(value: unknown, description = "Installation Mani
 }
 
 export function parseInstallationManifest(source: string): ProjectInstallationManifest {
-  return parseManifestMapping(parseYaml(source, "Installation Manifest"));
+  return parseManifestMapping(parseYaml(source, "installation record"));
 }
 
 function parseInstallations(value: unknown): readonly ProjectInstallationManifest[] {

@@ -55,6 +55,10 @@ import {
   expectExitCode,
   runProcess,
 } from "./support/process-executor.js";
+import {
+  reportBlockers,
+  reportItems,
+} from "./support/reconciliation-report.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
@@ -292,8 +296,8 @@ describe("fleet-wide synchronization qualification", () => {
         scheduler: createProjectReadScheduler(),
       },
     );
-    expect(report.blockers).toEqual([]);
-    expect(report.items.every((item) => item.kind === "current")).toBe(true);
+    expect(reportBlockers(report)).toEqual([]);
+    expect(reportItems(report).every((item) => item.kind === "current")).toBe(true);
     const expected = ownedOutputCounts(steadyDesired.installations);
     expect(expected.files).toBeGreaterThan(0);
     expect(expected.directories).toBeGreaterThan(0);
@@ -306,7 +310,7 @@ describe("fleet-wide synchronization qualification", () => {
     // Projects each resolve topology once.
     expect(steady.counts.classifyTrackedPaths).toBe(6);
     expect(steady.counts.findGitProject).toBe(12);
-    expect(report.items).toHaveLength(12);
+    expect(reportItems(report)).toHaveLength(12);
   });
 
   test("operation budgets flow through the command layer with Host probes once per unique requirement", async () => {
@@ -317,13 +321,13 @@ describe("fleet-wide synchronization qualification", () => {
     try {
       const instrumentation = createLifecycleInstrumentation();
       const report = await previewApplication(home, { instrumentation });
-      expect(report.blockers).toEqual([]);
+      expect(reportBlockers(report)).toEqual([]);
       // One machine-level probe per unique Host requirement set (codex,
       // claude, grok, pi) for the Context+Skill Profile.
       expect(instrumentation.counts.probeHostCapability).toBe(4);
       expect(instrumentation.counts.resolveProfile).toBe(1);
       expect(instrumentation.counts.findGitProject).toBe(12);
-      expect(report.items).toHaveLength(12);
+      expect(reportItems(report)).toHaveLength(12);
     } finally {
       process.env.PATH = originalPath;
     }
@@ -381,8 +385,8 @@ describe("fleet-wide synchronization qualification", () => {
     expect(instrumentation.counts.inspectMarker).toBe(24);
     expect(instrumentation.counts.inspectFile).toBe(2 * expected.files);
     expect(instrumentation.counts.inspectDirectory).toBe(2 * expected.directories);
-    expect(applied.resultingState.blockers).toEqual([]);
-    expect(applied.resultingState.items.every((item) => item.kind === "current")).toBe(true);
+    expect(reportBlockers(applied.resultingState)).toEqual([]);
+    expect(reportItems(applied.resultingState).every((item) => item.kind === "current")).toBe(true);
     const state = await readInstallationState(home);
     expect(state.installations).toHaveLength(12);
   });
@@ -553,8 +557,8 @@ describe("fleet-wide synchronization qualification", () => {
 
       const statusInstrumentation = createLifecycleInstrumentation();
       const report = await statusApplication(home, { instrumentation: statusInstrumentation });
-      expect(report.blockers).toEqual([]);
-      expect(report.items).toHaveLength(12);
+      expect(reportBlockers(report)).toEqual([]);
+      expect(reportItems(report)).toHaveLength(12);
       expect(statusInstrumentation.counts.resolveProfile).toBe(1);
     } finally {
       process.env.PATH = originalPath;

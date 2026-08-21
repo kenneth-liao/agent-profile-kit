@@ -194,7 +194,7 @@ export async function statusApplication(
           ...project,
           state: {
             ...project.state,
-            reason: "Profile Installation is not installed; apply will create it",
+            reason: "Project is not installed; apply will create it",
           },
         };
       }
@@ -227,7 +227,7 @@ async function uninstallApplicationLocked(home: string): Promise<UninstallResult
     .map(blockerMessage));
   if (failures.length > 0) {
     throw new Error(
-      `Uninstall blocked; generated output was not removed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`,
+      `Uninstall blocked; generated files were not removed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`,
     );
   }
   const transactions: Awaited<ReturnType<typeof stageProvenInstallationRemoval>>[] = [];

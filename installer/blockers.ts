@@ -74,23 +74,19 @@ export function hostCapabilityBlocker(
   error: unknown,
   host: SupportedHost,
   project: string,
-  displayProject?: string,
 ): StructuredBlockerInput {
   const failure = isAdapterCapabilityError(error) ? error : undefined;
   const message = failure?.message ?? (error instanceof Error ? error.message : String(error));
-  return {
+  return projectBlocker({
     affectedItems: failure === undefined
       ? [{ kind: "host", value: host }]
       : capabilityAffectedItems(failure.affectedItems),
     kind: failure === undefined ? HOST_CAPABILITY_UNCLASSIFIED : HOST_CAPABILITY,
-    problem: displayProject === undefined
-      ? message
-      : `${displayProject}: ${message}`,
+    problem: failure?.problem ?? message,
     project,
     remedy: failure?.remedy ?? "Inspect the underlying error before retrying",
     requirement: failure?.requirement ?? capabilityRequirement(host),
-    scope: "project",
-  };
+  });
 }
 
 /**
@@ -192,6 +188,21 @@ function globalBlocker(input: {
   };
 }
 
+/** Relocate the current Project identity into scope at the Installer boundary. */
+function identityFreeProjectProblem(problem: string, project: string): string {
+  if (problem === project) return "This Project";
+  return problem
+    .replaceAll(`${project}/`, "")
+    .replaceAll(`${project}: `, "");
+}
+
+function duplicatesProjectIdentity(problem: string, project: string): boolean {
+  return problem === project ||
+    (project !== "/" && (
+      problem.includes(`${project}/`) || problem.includes(`${project}:`)
+    ));
+}
+
 function projectBlocker(input: {
   readonly affectedItems: readonly BlockerAffectedItem[];
   readonly kind: BlockerKind;
@@ -203,7 +214,7 @@ function projectBlocker(input: {
   return {
     affectedItems: input.affectedItems,
     kind: input.kind,
-    problem: input.problem,
+    problem: identityFreeProjectProblem(input.problem, input.project),
     project: input.project,
     remedy: input.remedy,
     requirement: input.requirement,
@@ -235,12 +246,12 @@ export function repositoryExclusionRecordBlocker(options: {
     kind: REPOSITORY_EXCLUSION_RECORD,
     problem: options.message,
     remedy:
-      "Restore Installation State from a known-good backup so each Repository Exclusion " +
-      "Record matches its Installation Manifest, Installation ID, and live Git " +
-      "repository-local target, then retry",
+      "Restore Installation State from a known-good backup so each Git exclusion record " +
+      "matches its installation record, installation ID, and live repository-local " +
+      "target, then retry",
     requirement:
-      "Repository Exclusion Records must remain the canonical machine-local ownership " +
-      "source for Git exclusion contributions",
+      "Git exclusion records must remain the machine-local ownership source for Git " +
+      "exclusion contributions",
   });
 }
 
@@ -314,7 +325,7 @@ export function occupiedOutputBlocker(options: {
       "Binding or Host selection so Agent Profile Kit does not plan output at that path, " +
       "then retry",
     requirement:
-      "Generated output is installed only at new or Agent Profile Kit-owned destinations; " +
+      "Generated files are installed only at new or Agent Profile Kit-managed destinations; " +
       "occupied unowned material is never overwritten or adopted",
   });
 }
@@ -330,11 +341,10 @@ export function installationMarkerBlocker(options: {
     problem: options.message,
     project: options.project,
     remedy:
-      "Restore the Installation Marker linked to this Project's Installation Manifest, or " +
+      "Restore the Installation Marker linked to this Project's installation record, or " +
       "remove the unowned generated paths, then retry",
     requirement:
-      "The Installation Marker must prove one Manifest-linked installation identity at " +
-      "the Project root",
+      "The Installation Marker must prove one installation-record identity at the Project root",
   });
 }
 
@@ -352,8 +362,8 @@ export function installationOwnershipBlocker(options: {
       "Move the change into the Workspace, restore the Installation Marker, or delete the " +
       "conflicting generated files yourself, then retry",
     requirement:
-      "Agent Profile Kit reconciles or removes only output whose ownership is proven by " +
-      "the Installation Manifest, Marker, and recorded hashes",
+      "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
+      "installation record, Marker, and recorded hashes",
   });
 }
 
@@ -371,10 +381,10 @@ export function temporaryInstallationConflictBlocker(options: {
     problem: options.message,
     project: options.project,
     remedy:
-      "Remove the existing ordinary Profile Installation or the active Temporary Profile " +
+      "Remove the existing Project Binding-managed files or the active Temporary Profile " +
       "Installation, then retry install-temp",
     requirement:
-      "A Project hosts at most one Profile Installation at a time; temporary lifetime is " +
+      "A Project hosts at most one managed installation at a time; temporary lifetime is " +
       "receipt-owned under ADR-0015",
   });
 }
@@ -483,7 +493,14 @@ function validateStructuredInput(input: StructuredBlockerInput): void {
       `Structured blocker scope must be 'global' or 'project'${blockerContext(input)}`,
     );
   }
-  if (input.scope === "project") requireText(input.project, "project", input);
+  if (input.scope === "project") {
+    requireText(input.project, "project", input);
+    if (duplicatesProjectIdentity(input.problem, input.project)) {
+      throw new TypeError(
+        `Structured blocker problem must not duplicate its project identity${blockerContext(input)}`,
+      );
+    }
+  }
   if (input.scope === "global" && input.project !== undefined) {
     throw new TypeError(
       `Global structured blockers cannot carry a project${blockerContext(input)}`,

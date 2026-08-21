@@ -37,6 +37,11 @@ import {
 } from "../installer/reconcile.js";
 import { uninstallApplication } from "../installer/commands.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
+import {
+  reportBlockers,
+  reportDesired,
+  reportItems,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -293,18 +298,18 @@ describe("Claude-only Profile Installation lifecycle", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.blockers).toEqual([]);
-    expect(preview.desired[0]?.hosts).toEqual(["claude"]);
-    expect(preview.desired[0]?.outputs).toContain(CLAUDE_CONTEXT_RULE_PATH);
-    expect(preview.desired[0]?.context).toContain("# Agent Profile Kit Context");
-    expect(preview.desired[0]?.context).toContain("Profile: coding");
-    expect(preview.desired[0]?.context).toContain("<!-- Context Module: team-rules -->");
-    expect(preview.desired[0]?.context).toBe(composeContextEnvelope("coding", [
+    expect(reportBlockers(preview)).toEqual([]);
+    expect(reportDesired(preview)[0]?.hosts).toEqual(["claude"]);
+    expect(reportDesired(preview)[0]?.outputs).toContain(CLAUDE_CONTEXT_RULE_PATH);
+    expect(reportDesired(preview)[0]?.context).toContain("# Agent Profile Kit Context");
+    expect(reportDesired(preview)[0]?.context).toContain("Profile: coding");
+    expect(reportDesired(preview)[0]?.context).toContain("<!-- Context Module: team-rules -->");
+    expect(reportDesired(preview)[0]?.context).toBe(composeContextEnvelope("coding", [
       { id: "team-rules", content: "Always preserve the project boundary.\n" },
     ]));
 
     const report = await applyReconciliation(home, desired.installations);
-    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
+    expect(reportItems(report.receipt)).toContainEqual({ kind: "addition", project });
 
     const rulePath = join(project, CLAUDE_CONTEXT_RULE_PATH);
     const rule = readFileSync(rulePath, "utf8");
@@ -330,7 +335,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
 
     const current = await buildDesiredState(home, { checkHostCapability: false });
     const status = await previewReconciliation(current.installations, state);
-    expect(status.items).toContainEqual({ kind: "current", project });
+    expect(reportItems(status)).toContainEqual({ kind: "current", project });
 
     expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(rulePath)).toBe(false);
@@ -364,7 +369,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
         temporaryInstallations: [],
         schemaVersion: 5,
       });
-      expect(report.blockers.some((blocker) => blocker.message.includes("is a file, not a directory"))).toBe(true);
+      expect(reportBlockers(report).some((blocker) => blocker.message.includes("is a file, not a directory"))).toBe(true);
       expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
       expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
     } finally {
@@ -385,7 +390,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
       (await buildDesiredState(home, { checkHostCapability: false })).installations,
       state,
     );
-    expect(status.items.some((item) => item.kind === "drifted output")).toBe(true);
+    expect(reportItems(status).some((item) => item.kind === "drifted output")).toBe(true);
   });
 });
 
@@ -419,7 +424,7 @@ describe("Combined Codex and Claude Profile Installation", () => {
     ].sort());
 
     const report = await applyReconciliation(home, desired.installations);
-    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
+    expect(reportItems(report.receipt)).toContainEqual({ kind: "addition", project });
 
     const claudeRule = readFileSync(join(project, CLAUDE_CONTEXT_RULE_PATH), "utf8");
     const codexContext = readFileSync(

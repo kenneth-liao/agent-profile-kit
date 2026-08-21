@@ -89,7 +89,7 @@ describe("Host capability blockers", () => {
     expect(input).toMatchObject({
       affectedItems: [{ kind: "host", value: "codex" }],
       kind: "host-capability",
-      problem: `${project}: Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before previewing or applying the Profile`,
+      problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
       project: realpathSync(project),
       remedy: "upgrade Codex before previewing or applying the Profile",
       requirement: "The selected Profile requires Codex project delivery",
@@ -373,7 +373,7 @@ describe("Host capability blockers", () => {
       affectedItems: [{ kind: "host", value: "grok" }],
       kind: "host-capability",
       project: realpathSync(project),
-      problem: `${project}: Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available; restore \`grok inspect --json\` or re-apply before trusting status`,
+      problem: "Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available",
       remedy: "restore `grok inspect --json` or re-apply before trusting status",
       requirement: "The selected Profile requires Grok project delivery",
       scope: "project",

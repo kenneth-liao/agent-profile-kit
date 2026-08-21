@@ -25,6 +25,12 @@ import { buildDesiredState } from "../installer/project-plan.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { uninstallApplication } from "../installer/commands.js";
 import type { Skill } from "../schemas/skill.js";
+import {
+  reportBlockers,
+  reportDesired,
+  reportItems,
+  reportOutputs,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -224,16 +230,16 @@ describe("Claude project Skill packages", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.items.some((item) => item.kind === "addition")).toBe(true);
+    expect(reportItems(preview).some((item) => item.kind === "addition")).toBe(true);
     expect(
-      preview.outputs.some((item) =>
+      reportOutputs(preview).some((item) =>
         item.kind === "addition" && item.path === ".claude/skills/top-skill"
       ),
     ).toBe(true);
-    expect(preview.desired[0]?.resolvedArtifacts.some((artifact) => artifact.id === "top-skill")).toBe(
+    expect(reportDesired(preview)[0]?.resolvedArtifacts.some((artifact) => artifact.id === "top-skill")).toBe(
       true,
     );
-    const sharedReasons = preview.desired[0]?.resolvedArtifacts.find(
+    const sharedReasons = reportDesired(preview)[0]?.resolvedArtifacts.find(
       (artifact) => artifact.id === "shared-base",
     )?.inclusionReasons ?? [];
     expect(sharedReasons.length).toBeGreaterThanOrEqual(2);
@@ -297,7 +303,7 @@ describe("Claude project Skill packages", () => {
     expect(skillOutput?.type).toBe("directory");
     const preview = await previewReconciliation(second.installations, await readInstallationState(home));
     expect(
-      preview.outputs.find((item) => item.path === ".claude/skills/review-pr")?.kind,
+      reportOutputs(preview).find((item) => item.path === ".claude/skills/review-pr")?.kind,
     ).toBe("unchanged");
   });
 
@@ -321,7 +327,7 @@ describe("Claude project Skill packages", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.blockers.some((blocker) =>
+    expect(reportBlockers(preview).some((blocker) =>
       blocker.message.includes(".claude/skills/review-pr") &&
       blocker.message.toLowerCase().includes("unowned")
     )).toBe(true);
@@ -366,12 +372,12 @@ describe("Claude project Skill packages", () => {
     );
 
     const current = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(current.items.some((item) => item.kind === "current")).toBe(true);
+    expect(reportItems(current).some((item) => item.kind === "current")).toBe(true);
 
     rmSync(join(project, ".claude", "skills", "write-notes"), { recursive: true, force: true });
     const missing = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(missing.items.some((item) => item.kind === "repairable missing output")).toBe(true);
-    expect(missing.outputs.some((item) =>
+    expect(reportItems(missing).some((item) => item.kind === "repairable missing output")).toBe(true);
+    expect(reportOutputs(missing).some((item) =>
       item.kind === "repair" && item.path === ".claude/skills/write-notes"
     )).toBe(true);
     mkdirSync(join(project, ".claude", "skills", "write-notes"), { recursive: true });
@@ -385,7 +391,7 @@ describe("Claude project Skill packages", () => {
       "---\nname: review-pr\ndescription: Skill review-pr.\n---\n\n# drifted\n",
     );
     const drifted = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(drifted.items.some((item) => item.kind === "drifted output")).toBe(true);
+    expect(reportItems(drifted).some((item) => item.kind === "drifted output")).toBe(true);
     writeFileSync(
       join(project, ".claude", "skills", "review-pr", "SKILL.md"),
       "---\nname: review-pr\ndescription: Skill review-pr.\n---\n\n# review-pr\n",
@@ -400,7 +406,7 @@ describe("Claude project Skill packages", () => {
       stale.installations,
       await readInstallationState(home),
     );
-    expect(stalePreview.items.some((item) => item.kind === "stale source")).toBe(true);
+    expect(reportItems(stalePreview).some((item) => item.kind === "stale source")).toBe(true);
     await applyReconciliation(home, stale.installations);
     expect(readFileSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "updated source",
@@ -415,7 +421,7 @@ describe("Claude project Skill packages", () => {
       deselected.installations,
       await readInstallationState(home),
     );
-    expect(deselectPreview.outputs.some((item) =>
+    expect(reportOutputs(deselectPreview).some((item) =>
       item.kind === "removal" &&
       (item.path === ".claude/skills/review-pr" || item.path.startsWith(".claude/skills/review-pr/"))
     )).toBe(true);
@@ -479,7 +485,7 @@ describe("Claude project Skill packages", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.blockers).toEqual([]);
+    expect(reportBlockers(preview)).toEqual([]);
     await applyReconciliation(home, desired.installations);
 
     expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);

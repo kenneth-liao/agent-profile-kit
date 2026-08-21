@@ -42,6 +42,11 @@ import {
 } from "../installer/reconcile.js";
 import { statusApplication, uninstallApplication } from "../installer/commands.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
+import {
+  reportBlockers,
+  reportDesired,
+  reportItems,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -388,16 +393,16 @@ describe("Grok-only Profile Installation lifecycle", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.blockers).toEqual([]);
-    expect(preview.desired[0]?.outputs).toContain(GROK_CONTEXT_RULE_PATH);
-    expect(preview.desired[0]?.context).toBe(
+    expect(reportBlockers(preview)).toEqual([]);
+    expect(reportDesired(preview)[0]?.outputs).toContain(GROK_CONTEXT_RULE_PATH);
+    expect(reportDesired(preview)[0]?.context).toBe(
       composeContextEnvelope("coding", [
         { id: "team-rules", content: "Always preserve the project boundary.\n" },
       ]),
     );
 
     const report = await applyReconciliation(home, desired.installations);
-    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
+    expect(reportItems(report.receipt)).toContainEqual({ kind: "addition", project });
 
     const rulePath = join(project, GROK_CONTEXT_RULE_PATH);
     const rule = readFileSync(rulePath, "utf8");
@@ -425,7 +430,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
 
     const current = await buildDesiredState(home, { checkHostCapability: false });
     const status = await previewReconciliation(current.installations, state);
-    expect(status.items).toContainEqual({ kind: "current", project });
+    expect(reportItems(status)).toContainEqual({ kind: "current", project });
 
     expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(rulePath)).toBe(false);
@@ -462,7 +467,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
         schemaVersion: 5,
       });
       expect(
-        report.blockers.some((blocker) => blocker.message.includes("is a file, not a directory")),
+        reportBlockers(report).some((blocker) => blocker.message.includes("is a file, not a directory")),
       ).toBe(true);
       expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(false);
       expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
@@ -496,7 +501,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(report.blockers).toEqual([]);
+    expect(reportBlockers(report)).toEqual([]);
     await applyReconciliation(home, desired.installations);
     expect(existsSync(join(project, ".grok", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(true);
@@ -515,7 +520,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
       (await buildDesiredState(home, { checkHostCapability: false })).installations,
       state,
     );
-    expect(status.items.some((item) => item.kind === "drifted output")).toBe(true);
+    expect(reportItems(status).some((item) => item.kind === "drifted output")).toBe(true);
   });
 });
 
@@ -624,8 +629,8 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
       chmodSync(join(goodBin, "grok"), 0o755);
 
       const status = await statusApplication(home);
-      expect(status.blockers).toEqual([]);
-      expect(status.items).toContainEqual({ kind: "current", project });
+      expect(reportBlockers(status)).toEqual([]);
+      expect(reportItems(status)).toContainEqual({ kind: "current", project });
       // Topology is preserved from the applied Manifest, not guessed as coalesced.
       const after = await buildDesiredState(home, {
         checkHostCapability: false,
@@ -778,7 +783,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     expect(claudeRule?.consumingHosts).toEqual(["claude", "grok"]);
 
     const report = await applyReconciliation(home, desired.installations);
-    expect(report.receipt.items).toContainEqual({ kind: "addition", project });
+    expect(reportItems(report.receipt)).toContainEqual({ kind: "addition", project });
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(true);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(true);

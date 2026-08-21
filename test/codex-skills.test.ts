@@ -20,6 +20,12 @@ import {
 import { buildDesiredState } from "../installer/project-plan.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import type { Skill } from "../schemas/skill.js";
+import {
+  reportBlockers,
+  reportDesired,
+  reportItems,
+  reportOutputs,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -247,11 +253,11 @@ describe("Codex project Skill packages", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.desired[0]?.resolvedArtifacts.some((artifact) => artifact.id === "top-skill")).toBe(
+    expect(reportDesired(preview)[0]?.resolvedArtifacts.some((artifact) => artifact.id === "top-skill")).toBe(
       true,
     );
     expect(
-      preview.desired[0]?.resolvedArtifacts.find((artifact) => artifact.id === "shared-base")
+      reportDesired(preview)[0]?.resolvedArtifacts.find((artifact) => artifact.id === "shared-base")
         ?.inclusionReasons.length,
     ).toBeGreaterThanOrEqual(2);
 
@@ -307,7 +313,7 @@ describe("Codex project Skill packages", () => {
     expect(skillOutput?.type).toBe("directory");
     const preview = await previewReconciliation(second.installations, await readInstallationState(home));
     expect(
-      preview.outputs.find((item) => item.path === ".agents/skills/review-pr")?.kind,
+      reportOutputs(preview).find((item) => item.path === ".agents/skills/review-pr")?.kind,
     ).toBe("unchanged");
   });
 
@@ -328,7 +334,7 @@ describe("Codex project Skill packages", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.blockers.some((blocker) =>
+    expect(reportBlockers(preview).some((blocker) =>
       blocker.message.includes(".agents/skills/review-pr") &&
       blocker.message.toLowerCase().includes("unowned")
     )).toBe(true);
@@ -368,7 +374,7 @@ describe("Codex project Skill packages", () => {
     const second = await buildDesiredState(home, { checkHostCapability: false });
     expect(second.installations[0]?.sourceHash).not.toBe(first.installations[0]?.sourceHash);
     const preview = await previewReconciliation(second.installations, before);
-    expect(preview.items.some((item) => item.kind === "stale source")).toBe(true);
+    expect(reportItems(preview).some((item) => item.kind === "stale source")).toBe(true);
     await applyReconciliation(home, second.installations);
     const after = await readInstallationState(home);
     const afterShared = after.installations[0]?.resolvedArtifacts.find(
@@ -396,12 +402,12 @@ describe("Codex project Skill packages", () => {
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
 
     const current = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(current.items.some((item) => item.kind === "current")).toBe(true);
+    expect(reportItems(current).some((item) => item.kind === "current")).toBe(true);
 
     rmSync(join(project, ".agents", "skills", "write-notes"), { recursive: true, force: true });
     const missing = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(missing.items.some((item) => item.kind === "repairable missing output")).toBe(true);
-    expect(missing.outputs.some((item) =>
+    expect(reportItems(missing).some((item) => item.kind === "repairable missing output")).toBe(true);
+    expect(reportOutputs(missing).some((item) =>
       item.kind === "repair" && item.path === ".agents/skills/write-notes"
     )).toBe(true);
     // Restore owned package contents so later drift/stale cases exercise a complete installation.
@@ -416,7 +422,7 @@ describe("Codex project Skill packages", () => {
       "---\nname: review-pr\ndescription: Skill review-pr.\n---\n\n# drifted\n",
     );
     const drifted = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(drifted.items.some((item) => item.kind === "drifted output")).toBe(true);
+    expect(reportItems(drifted).some((item) => item.kind === "drifted output")).toBe(true);
     writeFileSync(
       join(project, ".agents", "skills", "review-pr", "SKILL.md"),
       "---\nname: review-pr\ndescription: Skill review-pr.\n---\n\n# review-pr\n",
@@ -431,7 +437,7 @@ describe("Codex project Skill packages", () => {
       stale.installations,
       await readInstallationState(home),
     );
-    expect(stalePreview.items.some((item) => item.kind === "stale source")).toBe(true);
+    expect(reportItems(stalePreview).some((item) => item.kind === "stale source")).toBe(true);
     await applyReconciliation(home, stale.installations);
     expect(readFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "updated source",

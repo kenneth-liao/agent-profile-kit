@@ -528,7 +528,7 @@ export async function stageProvenInstallationRemoval(
   const proof = await proveOwnedInstallation(installation, inspection);
   if (!proof.owned) {
     throw new Error(
-      `Cannot remove Profile Installation at ${installation.project}: ${proof.reason ?? "ownership could not be proven"}`,
+      `Cannot remove Project at ${installation.project}: ${proof.reason ?? "ownership could not be proven"}`,
     );
   }
   const stage = await mkdtemp(join(installation.project, ".agent-profile-kit-remove-"));
@@ -601,17 +601,17 @@ export async function removeDisposableOutputs(options: {
   if (extantRoots.length > 0) {
     if (!marker) {
       throw new Error(
-        `Cannot remove Temporary Profile Installation at ${project}: Installation Marker is missing while owned output still exists (${extantRoots.join(", ")})`,
+        `Cannot remove Temporary Profile Installation: Installation Marker is missing while owned output still exists (${extantRoots.join(", ")})`,
       );
     }
     if (marker.installationId !== options.installationId) {
       throw new Error(
-        `Cannot remove Temporary Profile Installation at ${project}: Installation Marker identity does not match the temporary installation`,
+        `Cannot remove Temporary Profile Installation: Installation Marker identity does not match the temporary installation`,
       );
     }
   } else if (marker && marker.installationId !== options.installationId) {
     throw new Error(
-      `Cannot remove Temporary Profile Installation at ${project}: Installation Marker identity does not match the temporary installation`,
+      `Cannot remove Temporary Profile Installation: Installation Marker identity does not match the temporary installation`,
     );
   }
 
@@ -626,7 +626,7 @@ export async function removeDisposableOutputs(options: {
     const unsafeParent = await unsafeOutputParent(project, output.path);
     if (unsafeParent) {
       throw new Error(
-        `Cannot remove Temporary Profile Installation at ${project}: owned output ${output.path} has unsafe parent: ${unsafeParent}`,
+        `Cannot remove Temporary Profile Installation: owned output ${output.path} has unsafe parent: ${unsafeParent}`,
       );
     }
     const path = join(project, output.path);
@@ -640,7 +640,7 @@ export async function removeDisposableOutputs(options: {
     // Refuse to follow a recorded root that is now a symlink pointing elsewhere.
     if (stats.isSymbolicLink()) {
       throw new Error(
-        `Cannot remove Temporary Profile Installation at ${project}: owned output ${output.path} is a symlink`,
+        `Cannot remove Temporary Profile Installation: owned output ${output.path} is a symlink`,
       );
     }
     await rm(path, { recursive: true, force: true });

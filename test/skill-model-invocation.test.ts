@@ -39,6 +39,9 @@ import {
 } from "../installer/reconcile.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { parseSkill, type Skill } from "../schemas/skill.js";
+import {
+  reportBlockers,
+} from "./support/reconciliation-report.js";
 
 const SKILL_PATH = "skills/to-spec/SKILL.md";
 const SOURCE_PATH = "/tmp/workspace/skills/to-spec";
@@ -346,7 +349,7 @@ describe("Skill model-invocation policy", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    expect(preview.blockers).toEqual([]);
+    expect(reportBlockers(preview)).toEqual([]);
     await applyReconciliation(home, desired.installations);
 
     const claudeSkill = readFileSync(join(project, ".claude", "skills", "to-spec", "SKILL.md"), "utf8");
@@ -511,7 +514,7 @@ describe("Skill model-invocation policy", () => {
         temporaryInstallations: [],
         schemaVersion: 5,
       });
-      expect(preview.blockers.length).toBeGreaterThan(0);
+      expect(reportBlockers(preview).length).toBeGreaterThan(0);
       expect(existsSync(join(project, ".agents", "skills", "to-spec"))).toBe(false);
       expect(existsSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml"))).toBe(
         false,

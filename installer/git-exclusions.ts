@@ -576,8 +576,8 @@ async function repositoryExclusionOwnershipBlockers(
       blockers.push(repositoryExclusionRecordBlocker({
         affectedItems: [{ kind: "installation-id", value: previous.installationId }],
         message:
-          `${installation.binding.canonicalProject} is missing its Repository Exclusion ` +
-          `Record for Installation ID ${previous.installationId}`,
+          `${installation.binding.canonicalProject} is missing its Git exclusion ` +
+          `record for Installation ID ${previous.installationId}`,
       }));
       continue;
     }
@@ -590,7 +590,7 @@ async function repositoryExclusionOwnershipBlockers(
           { kind: "path", value: git.excludeFile },
         ],
         message:
-          `${installation.binding.canonicalProject} Repository Exclusion Record for ` +
+          `${installation.binding.canonicalProject} Git exclusion record for ` +
           `Installation ID ${previous.installationId} targets ${contribution.record.target}, ` +
           `expected ${git.excludeFile}`,
       }));
@@ -601,8 +601,8 @@ async function repositoryExclusionOwnershipBlockers(
       blockers.push(repositoryExclusionRecordBlocker({
         affectedItems: [{ kind: "path", value: git.excludeFile }],
         message:
-          `${git.excludeFile} Repository Exclusion Record for Installation ID ` +
-          `${previous.installationId} does not match its recorded Installation Manifest contribution`,
+          `${git.excludeFile} Git exclusion record for Installation ID ` +
+          `${previous.installationId} does not match its recorded installation record contribution`,
       }));
     }
   }
@@ -637,7 +637,7 @@ async function retiringInstallationOwnershipBlockers(
         blockers.push(repositoryExclusionRecordBlocker({
           affectedItems: [{ kind: "installation-id", value: installation.installationId }],
           message:
-            `${installation.project} is missing its Repository Exclusion Record for ` +
+            `${installation.project} is missing its Git exclusion record for ` +
             `Installation ID ${installation.installationId}`,
         }));
       }
@@ -649,7 +649,7 @@ async function retiringInstallationOwnershipBlockers(
       blockers.push(repositoryExclusionRecordBlocker({
         affectedItems: [{ kind: "installation-id", value: installation.installationId }],
         message:
-          `${installation.project} has duplicate Repository Exclusion Records for ` +
+          `${installation.project} has duplicate Git exclusion records for ` +
           `Installation ID ${installation.installationId}`,
       }));
       continue;
@@ -659,8 +659,8 @@ async function retiringInstallationOwnershipBlockers(
       blockers.push(repositoryExclusionRecordBlocker({
         affectedItems: [{ kind: "path", value: record.target }],
         message:
-          `${record.target} Repository Exclusion Record for Installation ID ` +
-          `${installation.installationId} does not match its recorded Installation Manifest contribution`,
+          `${record.target} Git exclusion record for Installation ID ` +
+          `${installation.installationId} does not match its recorded installation record contribution`,
       }));
     }
   }
@@ -706,7 +706,7 @@ async function recordedInstallationOwnershipBlockers(
       if (contribution) {
         blockers.push(repositoryExclusionTargetUnprovenBlocker({
           message:
-            `${installation.project} has a Repository Exclusion Record but is no longer a Git project`,
+            `${installation.project} has a Git exclusion record but is no longer a Git project`,
           project: installation.project,
         }));
       }
@@ -716,7 +716,7 @@ async function recordedInstallationOwnershipBlockers(
       blockers.push(repositoryExclusionRecordBlocker({
         affectedItems: [{ kind: "installation-id", value: installation.installationId }],
         message:
-          `${installation.project} is missing its Repository Exclusion Record for ` +
+          `${installation.project} is missing its Git exclusion record for ` +
           `Installation ID ${installation.installationId}`,
       }));
       continue;
@@ -728,7 +728,7 @@ async function recordedInstallationOwnershipBlockers(
           { kind: "path", value: git.excludeFile },
         ],
         message:
-          `${installation.project} Repository Exclusion Record for Installation ID ` +
+          `${installation.project} Git exclusion record for Installation ID ` +
           `${installation.installationId} targets ${contribution.record.target}, ` +
           `expected ${git.excludeFile}`,
       }));
@@ -739,8 +739,8 @@ async function recordedInstallationOwnershipBlockers(
       blockers.push(repositoryExclusionRecordBlocker({
         affectedItems: [{ kind: "path", value: git.excludeFile }],
         message:
-          `${git.excludeFile} Repository Exclusion Record for Installation ID ` +
-          `${installation.installationId} does not match its recorded Installation Manifest contribution`,
+          `${git.excludeFile} Git exclusion record for Installation ID ` +
+          `${installation.installationId} does not match its recorded installation record contribution`,
       }));
     }
   }

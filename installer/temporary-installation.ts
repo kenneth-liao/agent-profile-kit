@@ -303,7 +303,7 @@ export function projectConflictBlockers(
   if (ordinary) {
     blockers.push(temporaryInstallationConflictBlocker({
       message:
-        `${canonicalProject} already has an ordinary Profile Installation; remove it ` +
+        "Generated files are already managed through a Project Binding; remove them " +
         "before installing a temporary Profile",
       project: canonicalProject,
     }));
@@ -316,7 +316,7 @@ export function projectConflictBlockers(
   if (activeTemporary) {
     blockers.push(temporaryInstallationConflictBlocker({
       message:
-        `${canonicalProject} already has an active Temporary Profile Installation ` +
+        "An active Temporary Profile Installation already owns generated files " +
         `(${activeTemporary.temporaryInstallationId})`,
       project: canonicalProject,
       temporaryInstallationId: activeTemporary.temporaryInstallationId,

@@ -35,6 +35,11 @@ import {
   INSTALLATION_MARKER_PATH,
   type OwnedOutput,
 } from "../schemas/installation-manifest.js";
+import {
+  reportBlockers,
+  reportItems,
+  reportOutputs,
+} from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -200,8 +205,8 @@ describe("one shared ownership inspection per generated output per pass", () => 
       { ownershipInspection },
     );
 
-    expect(report.blockers).toEqual([]);
-    expect(report.items.every((item) => item.kind === "current")).toBe(true);
+    expect(reportBlockers(report)).toEqual([]);
+    expect(reportItems(report).every((item) => item.kind === "current")).toBe(true);
     // Ownership proof and root diagnostics consume the same directory result.
     // Each output path also resolves its unsafe-parent evidence once even though
     // ownership proof and repairable detection both consult it.
@@ -232,7 +237,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
       { ownershipInspection },
     );
 
-    expect(report.items).toContainEqual({
+    expect(reportItems(report)).toContainEqual({
       kind: "update",
       project,
       reason: "Installation Marker is missing and repairable",
@@ -263,13 +268,13 @@ describe("one shared ownership inspection per generated output per pass", () => 
       { ownershipInspection },
     );
 
-    expect(report.outputs).toContainEqual({
+    expect(reportOutputs(report)).toContainEqual({
       kind: "drifted output",
       path: directory.path,
       project,
     });
-    expect(report.outputs.every((item) => !item.path.startsWith(`${directory.path}/`))).toBe(true);
-    expect(report.blockers.some((blocker) => blocker.message.includes("owned output"))).toBe(true);
+    expect(reportOutputs(report).every((item) => !item.path.startsWith(`${directory.path}/`))).toBe(true);
+    expect(reportBlockers(report).some((blocker) => blocker.message.includes("owned output"))).toBe(true);
     // Ownership proof and root diagnostics share one directory walk; the
     // ordinary file outputs are each read once by ownership proof.
     expect(instrumentation.counts.inspectDirectory).toBe(1);
@@ -324,7 +329,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
       { ownershipInspection },
     );
 
-    expect(report.blockers.some((blocker) =>
+    expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("Installation Marker is missing; if this project moved")
     )).toBe(true);
     // Conflict detection reads each copied owned output once at the moved root.
@@ -357,8 +362,8 @@ describe("one shared ownership inspection per generated output per pass", () => 
     // Preflight and post-commit verification each perform their own real reads.
     expect(new Set(fileReadsByContext).size).toBeGreaterThanOrEqual(2);
     expect(new Set(directoryWalksByContext).size).toBeGreaterThanOrEqual(2);
-    expect(report.resultingState.blockers).toEqual([]);
-    expect(report.resultingState.items.every((item) => item.kind === "current")).toBe(true);
+    expect(reportBlockers(report.resultingState)).toEqual([]);
+    expect(reportItems(report.resultingState).every((item) => item.kind === "current")).toBe(true);
   });
 
   test("one shared context re-inspects a path only when the expected output identity changes", async () => {
@@ -400,10 +405,10 @@ describe("one shared ownership inspection per generated output per pass", () => 
       );
       // An unreadable existing tree is never classified as repairable absence;
       // ownership fails closed instead, so apply cannot rename and replace it.
-      expect(report.items.some((item) => item.kind === "repairable missing output")).toBe(false);
-      expect(report.items.some((item) => item.kind === "drifted output")).toBe(true);
-      expect(report.blockers.some((blocker) =>
-        blocker.message.includes("Cannot reconcile Profile Installation")
+      expect(reportItems(report).some((item) => item.kind === "repairable missing output")).toBe(false);
+      expect(reportItems(report).some((item) => item.kind === "drifted output")).toBe(true);
+      expect(reportBlockers(report).some((blocker) =>
+        blocker.kind === "installation-ownership"
       )).toBe(true);
     } finally {
       chmodSync(join(project, directory.path), 0o755);
@@ -422,10 +427,10 @@ describe("one shared ownership inspection per generated output per pass", () => 
         await readInstallationState(home),
         { ownershipInspection: createLifecycleOwnershipInspectionContext() },
       );
-      expect(report.items.some((item) => item.kind === "repairable missing output")).toBe(false);
-      expect(report.items.some((item) => item.kind === "missing output")).toBe(true);
-      expect(report.blockers.some((blocker) =>
-        blocker.message.includes("Cannot reconcile Profile Installation")
+      expect(reportItems(report).some((item) => item.kind === "repairable missing output")).toBe(false);
+      expect(reportItems(report).some((item) => item.kind === "missing output")).toBe(true);
+      expect(reportBlockers(report).some((blocker) =>
+        blocker.kind === "installation-ownership"
       )).toBe(true);
     } finally {
       chmodSync(contextPath, 0o644);
@@ -450,10 +455,10 @@ describe("one shared ownership inspection per generated output per pass", () => 
       { ownershipInspection },
     );
 
-    expect(report.items.some((item) => item.kind === "repairable missing output")).toBe(false);
-    expect(report.items.some((item) => item.kind === "drifted output")).toBe(true);
-    expect(report.blockers.some((blocker) =>
-      blocker.message.includes("Cannot reconcile Profile Installation")
+    expect(reportItems(report).some((item) => item.kind === "repairable missing output")).toBe(false);
+    expect(reportItems(report).some((item) => item.kind === "drifted output")).toBe(true);
+    expect(reportBlockers(report).some((blocker) =>
+      blocker.kind === "installation-ownership"
     )).toBe(true);
   });
 
@@ -509,7 +514,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     expect(contexts.length).toBeGreaterThanOrEqual(3);
     expect(readsByContext[1] ?? 0).toBeGreaterThan(0);
     expect((await readInstallationState(home)).installations.map((item) => item.project)).toEqual([keep]);
-    expect(report.resultingState.items.every((item) => item.kind === "current")).toBe(true);
+    expect(reportItems(report.resultingState).every((item) => item.kind === "current")).toBe(true);
   });
 
   test("stale removal refuses output drifted after preflight by re-proving ownership fresh", async () => {

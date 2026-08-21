@@ -158,8 +158,6 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "remove-temp",
     group: "temporary",
     syntax: "remove-temp <temporary-installation-id> [--json]",
-    // "temporary Profile installation" is protected from ordinary Profile Installation
-    // default-view rewriting (see defaultViewText) so this temporary lifetime stays distinct.
     summary: "Remove one temporary Profile installation",
     examples: COMMAND_EXAMPLES["remove-temp"],
     writes: "Removes only the receipt-owned temporary project files and exclusion contribution.",

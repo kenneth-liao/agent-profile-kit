@@ -51,11 +51,11 @@ function requireStringArray(
   description: string,
 ): readonly string[] {
   if (!Array.isArray(value)) {
-    throw new Error(`${description} must be an array of Artifact IDs`);
+    throw new Error(`${description} must be an array of names`);
   }
   const ids = value.map((entry) => requireArtifactId(entry, description));
   if (new Set(ids).size !== ids.length) {
-    throw new Error(`${description} must not select an Artifact ID more than once`);
+    throw new Error(`${description} must not select a name more than once`);
   }
   return ids;
 }
