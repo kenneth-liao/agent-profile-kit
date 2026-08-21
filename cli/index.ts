@@ -51,6 +51,10 @@ import {
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import {
+  ProjectTargetError,
+  type ProjectBindingSelection,
+} from "../installer/local-configuration.js";
+import {
   applyApplication,
   previewApplication,
   statusApplication,
@@ -312,7 +316,7 @@ function rootHelp(context: TerminalPresentationContext): string {
     `  ${COMMAND_NAME} init\n` +
     `  ${COMMAND_NAME} bind <profile> --host <host>\n` +
     `  ${COMMAND_NAME} preview\n` +
-    `  ${COMMAND_NAME} apply\n\n` +
+    `  ${COMMAND_NAME} apply --all\n\n` +
     `${discovery}\n\n` +
     `${guidance}\n`;
 }
@@ -544,14 +548,64 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled inventory topic: ${String(value)}`);
 }
 
+interface ParsedLifecycleArguments {
+  readonly all: boolean;
+  readonly json: boolean;
+  readonly project?: string;
+  readonly verbose: boolean;
+}
+
 function parseLifecycleArguments(
   command: LifecycleCommand,
   arguments_: readonly string[],
-): { readonly json: boolean; readonly verbose: boolean } {
-  const flags = parseOptionalFlags(command, arguments_, ["--verbose", "--json"]);
+): ParsedLifecycleArguments {
+  let all = false;
+  let json = false;
+  let project: string | undefined;
+  let verbose = false;
+  for (const argument of arguments_) {
+    if (argument === "--json") {
+      json = true;
+      continue;
+    }
+    if (argument === "--verbose") {
+      verbose = true;
+      continue;
+    }
+    if (argument === "--all" && command !== "preview") {
+      all = true;
+      continue;
+    }
+    if (!argument.startsWith("-") && command !== "preview") {
+      if (project !== undefined) {
+        throw new Error(`${command} accepts at most one Project path`);
+      }
+      project = argument;
+      continue;
+    }
+    throw new Error(`${command} does not accept argument '${argument}'`);
+  }
+  if (all && project !== undefined) {
+    throw new Error(`${command} --all cannot be combined with a Project path`);
+  }
   return {
-    json: flags["--json"] === true,
-    verbose: flags["--verbose"] === true,
+    all,
+    json,
+    ...(project === undefined ? {} : { project }),
+    verbose,
+  };
+}
+
+function lifecycleSelection(
+  command: "apply" | "status",
+  parsed: ParsedLifecycleArguments,
+): ProjectBindingSelection {
+  if (parsed.all) return { kind: "all" };
+  return {
+    command,
+    kind: "project",
+    match: parsed.project === undefined ? "containing" : "exact",
+    target: parsed.project ?? process.cwd(),
   };
 }
 
@@ -924,7 +978,9 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     const context = stdoutPresentationContext;
     try {
-      const applied = await applyApplication(home);
+      const applied = await applyApplication(home, {
+        selection: lifecycleSelection("apply", parsed),
+      });
       if (parsed.json) {
         process.stdout.write(formatApplyJson(applied));
       } else {
@@ -971,7 +1027,12 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
       } else {
-        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
+        const guidance = error instanceof ProjectTargetError ? commandUsage("apply") : "";
+        writeHuman(
+          process.stderr,
+          humanError(`${COMMAND_NAME}: ${formatError(error)}\n`) + guidance,
+          stderrPresentationContext,
+        );
       }
       process.exitCode = 1;
     }
@@ -983,7 +1044,9 @@ async function main(): Promise<void> {
     const context = stdoutPresentationContext;
     const progress = interactiveProgress(context, parsed.json, STATUS_PROGRESS_LABEL);
     try {
-      const report = await statusApplication(home);
+      const report = await statusApplication(home, {
+        selection: lifecycleSelection("status", parsed),
+      });
       progress?.finish();
       if (parsed.json) {
         process.stdout.write(formatLifecycleJson("status", report));
@@ -1000,7 +1063,12 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("status", formatError(error)));
       } else {
-        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
+        const guidance = error instanceof ProjectTargetError ? commandUsage("status") : "";
+        writeHuman(
+          process.stderr,
+          humanError(`${COMMAND_NAME}: ${formatError(error)}\n`) + guidance,
+          stderrPresentationContext,
+        );
       }
       process.exitCode = 1;
     }

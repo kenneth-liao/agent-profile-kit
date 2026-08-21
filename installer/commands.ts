@@ -5,6 +5,7 @@ import {
   unreadableInstallationStateReport,
   type ApplyReconciliationResult,
   type ReconciliationReport,
+  type ReconciliationScope,
 } from "./reconcile.js";
 import { createLifecycleGitInspectionContext } from "./lifecycle-git-inspection.js";
 import { createLifecycleOwnershipInspectionContext } from "./lifecycle-ownership-inspection.js";
@@ -24,6 +25,7 @@ import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js"
 import type { LifecycleInstrumentation } from "./qualification-instrumentation.js";
 import { canonicalRepositoryExclusionRecord } from "../schemas/installation-manifest.js";
 import { blockerMessage } from "./blockers.js";
+import type { ProjectBindingSelection } from "./local-configuration.js";
 
 export interface ValidationResult {
   readonly bindings: number;
@@ -40,6 +42,13 @@ export interface ValidationResult {
  */
 export interface LifecycleCommandOptions {
   readonly instrumentation?: LifecycleInstrumentation;
+  readonly selection?: ProjectBindingSelection;
+}
+
+function reconciliationScope(
+  selection: ProjectBindingSelection | undefined,
+): ReconciliationScope {
+  return selection?.kind === "project" ? { kind: "project" } : { kind: "all" };
 }
 
 /** Conditional planning-instrumentation option (exactOptionalPropertyTypes). */
@@ -127,9 +136,11 @@ export async function applyApplication(
     gitInspection,
     ...planningInstrumentation(instrumentation),
     scheduler,
+    ...(options.selection === undefined ? {} : { selection: options.selection }),
   });
   return applyReconciliation(home, desired.installations, {
     scheduler,
+    scope: reconciliationScope(options.selection),
     createGitInspection: () => createLifecycleGitInspectionContext(instrumentation?.git),
     createOwnershipInspection: () =>
       createLifecycleOwnershipInspectionContext(instrumentation?.ownership),
@@ -154,6 +165,7 @@ export async function statusApplication(
       gitInspection,
       ...planningInstrumentation(instrumentation),
       scheduler,
+      ...(options.selection === undefined ? {} : { selection: options.selection }),
     });
     return unreadableInstallationStateReport(home, desired.installations, error);
   }
@@ -166,11 +178,13 @@ export async function statusApplication(
     previousInstallations: state.installations,
     resolveHostTopology: true,
     scheduler,
+    ...(options.selection === undefined ? {} : { selection: options.selection }),
   });
   const report = await previewReconciliation(desired.installations, state, {
     gitInspection,
     ownershipInspection: createLifecycleOwnershipInspectionContext(instrumentation?.ownership),
     scheduler,
+    scope: reconciliationScope(options.selection),
   });
   const blockedProjects = new Set(
     report.projects.flatMap((project) =>

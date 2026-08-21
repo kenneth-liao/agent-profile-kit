@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Make `status` and `apply` target the bound Project containing the current directory by default, accept one explicit absolute or home-relative bound root, and require `--all` for fleet scope. Scoped commands isolate planning, Host probes, Git and ownership inspection, reconciliation, reporting, writes, and shared Git exclusion contributions from unrelated Projects. This is a pre-1.0 breaking change ([#250](https://github.com/kenneth-liao/agent-profile-kit/issues/250)).
+
 - Render lifecycle text directly from nested global and Project records, with structured blocker evidence, typed warning values, and task-authored wording replacing the temporary flat report and regex vocabulary translation ([#249](https://github.com/kenneth-liao/agent-profile-kit/issues/249)).
 
 ### Added

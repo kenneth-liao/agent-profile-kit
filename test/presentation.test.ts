@@ -3351,9 +3351,9 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
 
     const preview = formatLifecycleReport("preview", report);
-    expect(preview).toContain("Next:\n- Run apkit apply.");
-    expect(preview).not.toContain("/project-a: Run apkit apply.");
-    expect(preview.match(/Run apkit apply\./g)).toHaveLength(1);
+    expect(preview).toContain("Next:\n- Run apkit apply --all.");
+    expect(preview).not.toContain("/project-a: Run apkit apply --all.");
+    expect(preview.match(/Run apkit apply --all\./g)).toHaveLength(1);
   });
 
   test("aliased Project next actions keep the authored identity", () => {
@@ -3371,8 +3371,8 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
 
     const preview = formatLifecycleReport("preview", report);
-    expect(preview).toContain("- /project-a: Run apkit apply.");
-    expect(preview).not.toContain("/private/project-a: Run apkit apply.");
+    expect(preview).toContain("- /project-a: Run apkit apply --all.");
+    expect(preview).not.toContain("/private/project-a: Run apkit apply --all.");
   });
 
   test("differing next actions stay scoped", () => {

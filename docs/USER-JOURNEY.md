@@ -60,9 +60,9 @@ budgets are enforced structurally (see ADR-0017).
 | 5 | Bind | `bind <profile> [project] --host <host>` | One project associated with one Profile and its Hosts |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed |
 | 7 | Preview | `preview [--verbose] [--json]` | Know exactly what `apply` will write, before it writes |
-| 8 | Apply | `apply [--verbose] [--json]` | Generated output on disk, and proof of what changed |
+| 8 | Apply | `apply [project \| --all] [--verbose] [--json]` | Generated output for the current Project, one explicit Project, or the explicitly selected fleet, and proof of what changed |
 | 9 | Use | *(launch Antigravity/Codex/Claude/Grok/Pi)* | Material loads through native Host discovery |
-| 10 | Re-sync | `status [--json]` → `preview` → `apply` | Notice Workspace drift and reconcile it |
+| 10 | Re-sync | `status [project \| --all] [--json]` → `preview` → `apply [project \| --all]` | Notice Workspace drift and reconcile the intended Project scope |
 | 11 | Recover | `status`, `apply`, `uninstall` | Get unstuck from drifted, missing, or malformed state |
 | 12 | Tear down | `uninstall`, `unbind` | Remove output and/or desired state, with the boundary made clear |
 | 13 | Temporary Profile Installations | `install-temp <profile> <project> --host <host> [--json]`, `list temporary [--json]`, `remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently |
@@ -208,7 +208,7 @@ Project changes:
   ~ 27 generated file updates in 12 projects
 
 Next:
-- Run apkit apply.
+- Run apkit apply --all.
 ```
 
 Project lists use progressive disclosure: a complete short list when small, a
@@ -254,6 +254,14 @@ Gaps: ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao
 
 ### 8. Apply
 
+`apply` defaults to the bound Project containing the current working directory,
+accepts one explicit existing absolute or home-relative bound Project root, and
+requires `--all` for the complete fleet. Scoped apply does not plan, probe,
+inspect, report, or write unrelated Projects; it may update a shared Git
+exclusion target only for the selected installation's contribution while
+preserving the complete union. `apply --all` retains the existing all-or-nothing
+fleet preflight in this slice.
+
 ```
 Apply complete
 Profile Installations: 3 · Changes: none · Blockers: 0
@@ -295,11 +303,10 @@ Setup guidance is reported conditionally by Host *and* by what was installed:
 
 **Codex Context floor (0.145.0+).** Context-bearing Codex installs probe
 `codex --version` on `preview`/`apply` and refuse writes below the floor (or when
-`codex` is missing from `PATH`). Skills-only Codex bindings do not probe. `apply`
-is still all-project: one blocked Codex binding blocks every other binding in the
-fleet. Recovery when other Hosts must proceed first: drop `codex` from the
-Project Binding, re-apply, upgrade Codex to `0.145.0+`, restore the binding, and
-apply again. `status`, `validate`, and `uninstall` do not re-probe the CLI, so a
+`codex` is missing from `PATH`). Skills-only Codex bindings do not probe. A Project-scoped `apply` isolates that
+capability check to its selected binding; `apply --all` remains an all-or-nothing
+fleet preflight, so one blocked Codex binding blocks fleet writes. `status`,
+`validate`, and `uninstall` do not re-probe the CLI, so a
 post-apply Codex downgrade is not reported there — upgrade back or re-apply after
 restoring a supported CLI if Context stops loading.
 
@@ -314,8 +321,12 @@ Gaps: ~~[UJ-21](#uj-21)~~ (shipped across
 
 ### 10. Re-sync after a Workspace edit
 
-The tool's best-working loop: `stale source` is detected accurately, the gloss is
-useful the first time, and the next action is correct. A fully-current fleet
+`status` uses the same Project selection as `apply`: current Project by default,
+one explicit absolute or home-relative bound root, or `--all` for the fleet.
+Ambiguous, unbound, missing, relative, wildcard, and non-directory targets fail
+with command guidance before Project inspection. The tool's best-working loop:
+`stale source` is detected accurately, the gloss is useful the first time, and
+the next action is correct. A fully-current fleet
 states that fact once (`All Projects are current (12 Projects)`) and keeps one
 compact Host-level standing reminder instead of a per-Project matrix.
 Interactive status inspections that outlast a short anti-flicker threshold show

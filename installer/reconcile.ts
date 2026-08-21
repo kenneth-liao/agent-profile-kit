@@ -61,6 +61,7 @@ import {
   gitExclusionDiagnostics,
   replaceRepositoryExclusionContribution,
   repositoryExclusionChanges,
+  repositoryExclusionTargetsForInstallations,
   REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX,
   stageGitExclusions,
   type RepositoryExclusionChange,
@@ -183,6 +184,9 @@ export interface ReconciliationReport {
   readonly globalBlockers: readonly ReconciliationBlocker[];
   readonly projects: readonly ReconciliationProjectRecord[];
 }
+
+/** Whether reconciliation may consider installations outside the desired Project set stale. */
+export type ReconciliationScope = { readonly kind: "all" } | { readonly kind: "project" };
 
 /** Internal reconciliation accumulator normalized into Project records at the boundary. */
 interface ReconciliationAccumulator {
@@ -716,6 +720,22 @@ async function previousFor(
   return (await pathKind(owner.project)) === "missing" ? owner : undefined;
 }
 
+async function installationIdsInScope(
+  desired: readonly DesiredInstallation[],
+  state: InstallationState,
+  inspection: LifecycleOwnershipInspection,
+  scope: ReconciliationScope,
+): Promise<ReadonlySet<string> | undefined> {
+  if (scope.kind === "all") return undefined;
+  const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
+  const previous = await Promise.all(
+    desired.map((installation) => previousFor(installation, state, byProject, inspection)),
+  );
+  return new Set(previous.flatMap((installation) =>
+    installation === undefined ? [] : [installation.installationId]
+  ));
+}
+
 interface InstallationRetirementSelection {
   readonly intentionallyDeletedInstallationIds: ReadonlySet<string>;
   readonly intentionallyDeletedProjects: ReadonlySet<string>;
@@ -734,6 +754,7 @@ async function installationRetirementSelection(
   state: InstallationState,
   inspection: LifecycleOwnershipInspection,
   scheduler: ProjectReadScheduler = createProjectReadScheduler(),
+  scope: ReconciliationScope = { kind: "all" },
 ): Promise<InstallationRetirementSelection> {
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
   const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
@@ -751,10 +772,12 @@ async function installationRetirementSelection(
   // exact-path `unbind` (or an equivalent supported hand edit) is represented by
   // the binding's absence; no second retirement tombstone is persisted.
   const intentionallyDeletedProjects = new Set<string>();
-  const retiredCandidates = state.installations.filter((installation) =>
-    !desiredProjects.has(installation.project) &&
-    !movedPreviousProjects.has(installation.project),
-  );
+  const retiredCandidates = scope.kind === "all"
+    ? state.installations.filter((installation) =>
+        !desiredProjects.has(installation.project) &&
+        !movedPreviousProjects.has(installation.project)
+      )
+    : [];
   const deletedProjects = await scheduler.run(retiredCandidates.map((installation) => async () => {
     return (await pathKind(installation.project)) === "missing"
       ? installation.project
@@ -928,6 +951,8 @@ function nestedReconciliationReport(
 }
 
 export interface PreviewReconciliationOptions {
+  /** Project-scoped commands must not classify unrelated installations as stale. */
+  readonly scope?: ReconciliationScope;
   /**
    * Invocation-scoped Git inspection reader. When omitted, one short-lived
    * context is created for this pass only.
@@ -956,6 +981,7 @@ export async function previewReconciliation(
   const gitInspection = options.gitInspection ?? createLifecycleGitInspectionContext();
   const inspection = options.ownershipInspection ?? createLifecycleOwnershipInspectionContext();
   const scheduler = options.scheduler ?? createProjectReadScheduler();
+  const scope = options.scope ?? { kind: "all" };
   const items: ReconciliationItem[] = [];
   const outputItems: OutputReconciliationItem[] = [];
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
@@ -964,7 +990,18 @@ export async function previewReconciliation(
     intentionallyDeletedInstallationIds,
     intentionallyDeletedProjects,
     movedPreviousProjects,
-  } = await installationRetirementSelection(desired, state, inspection, scheduler);
+  } = await installationRetirementSelection(desired, state, inspection, scheduler, scope);
+  const includedInstallationIds = await installationIdsInScope(
+    desired,
+    state,
+    inspection,
+    scope,
+  );
+  const includedExclusionTargets = repositoryExclusionTargetsForInstallations(
+    state,
+    desired,
+    includedInstallationIds,
+  );
   const blockers: ReconciliationBlocker[] = desired.flatMap((installation) =>
     installation.blockers.map((input) =>
       normalizeBlocker(input, installation.binding.canonicalProject)
@@ -973,8 +1010,12 @@ export async function previewReconciliation(
   blockers.push(...(await gitExclusionBlockers(state, desired, {
     gitInspection,
     retiringInstallationIds: intentionallyDeletedInstallationIds,
+    ...(includedInstallationIds === undefined ? {} : { includedInstallationIds }),
   })));
-  const exclusionDiagnostics = await gitExclusionDiagnostics(state, desired, { gitInspection });
+  const exclusionDiagnostics = await gitExclusionDiagnostics(state, desired, {
+    gitInspection,
+    ...(includedInstallationIds === undefined ? {} : { includedInstallationIds }),
+  });
   const desiredReport = desired.map((installation) => {
     return {
       canonicalProject: installation.binding.canonicalProject,
@@ -1249,7 +1290,8 @@ export async function previewReconciliation(
     outputItems.push(...result.outputItems);
     blockers.push(...result.blockers);
   }
-  const staleResults = await scheduler.run(state.installations.map((installation) => async () => {
+  const staleCandidates = scope.kind === "all" ? state.installations : [];
+  const staleResults = await scheduler.run(staleCandidates.map((installation) => async () => {
     if (desiredProjects.has(installation.project) || movedPreviousProjects.has(installation.project)) {
       return undefined;
     }
@@ -1334,7 +1376,11 @@ export async function previewReconciliation(
     ),
     outputConsumers,
     repositoryExclusionRepairs: exclusionDiagnostics.repairs,
-    repositoryExclusions: repositoryExclusionChanges(state, projectedState),
+    repositoryExclusions: repositoryExclusionChanges(
+      state,
+      projectedState,
+      includedExclusionTargets,
+    ),
     diagnosticValues: [...new Set(
       desired.flatMap((installation) =>
         installation.warnings.flatMap((warning) => warning.copyableValues)
@@ -1352,11 +1398,22 @@ export async function previewReconciliation(
     projectByInstallationId.set(result.id, desired[index]!.binding.project);
   });
   const exclusionProjects = new Map<string, Set<string>>();
+  const includedReportProjects = scope.kind === "all"
+    ? undefined
+    : new Set(desired.flatMap((installation) => [
+        installation.binding.project,
+        installation.binding.canonicalProject,
+      ]));
   for (const record of [...state.repositoryExclusions, ...projectedState.repositoryExclusions]) {
     const projects = exclusionProjects.get(record.target) ?? new Set<string>();
     for (const contribution of record.contributions) {
       const project = projectByInstallationId.get(contribution.installationId);
-      if (project !== undefined) projects.add(project);
+      if (
+        project !== undefined &&
+        (includedReportProjects === undefined || includedReportProjects.has(project))
+      ) {
+        projects.add(project);
+      }
     }
     exclusionProjects.set(record.target, projects);
   }
@@ -1530,6 +1587,7 @@ export async function applyReconciliation(
      * publication, and rollback stay sequential.
      */
     readonly scheduler?: ProjectReadScheduler;
+    readonly scope?: ReconciliationScope;
     readonly verifyReconciliation?: typeof previewReconciliation;
     readonly writeInstallationState?: typeof writeInstallationState;
   } = {},
@@ -1561,6 +1619,7 @@ async function applyReconciliationLocked(
      * publication, and rollback stay sequential.
      */
     readonly scheduler?: ProjectReadScheduler;
+    readonly scope?: ReconciliationScope;
     readonly verifyReconciliation?: typeof previewReconciliation;
     readonly writeInstallationState?: typeof writeInstallationState;
   } = {},
@@ -1571,6 +1630,7 @@ async function applyReconciliationLocked(
   const createOwnershipInspection =
     options.createOwnershipInspection ?? createLifecycleOwnershipInspectionContext;
   const scheduler = options.scheduler ?? createProjectReadScheduler();
+  const scope = options.scope ?? { kind: "all" };
   let before;
   let migratedState = false;
   try {
@@ -1586,10 +1646,22 @@ async function applyReconciliationLocked(
   // serves the preflight report and the ownership proof for stale removals so
   // each owned output is read or walked at most once before any write.
   const preflightOwnershipInspection = createOwnershipInspection();
+  const includedInstallationIds = await installationIdsInScope(
+    desired,
+    before,
+    preflightOwnershipInspection,
+    scope,
+  );
+  const includedExclusionTargets = repositoryExclusionTargetsForInstallations(
+    before,
+    desired,
+    includedInstallationIds,
+  );
   const report = await previewReconciliation(desired, before, {
     gitInspection: createGitInspection(),
     ownershipInspection: preflightOwnershipInspection,
     scheduler,
+    scope,
   });
   if (
     report.globalBlockers.length > 0 ||
@@ -1602,6 +1674,7 @@ async function applyReconciliationLocked(
     before,
     preflightOwnershipInspection,
     scheduler,
+    scope,
   );
   const currentProjects = new Set(
     report.projects
@@ -1652,6 +1725,9 @@ async function applyReconciliationLocked(
       exclusions = await stageGitExclusions(
         exclusionCurrentState,
         nextState,
+        includedExclusionTargets === undefined
+          ? {}
+          : { includedTargets: includedExclusionTargets },
       );
       stateWriteAttempted = true;
       await writeState(home, nextState);
@@ -1699,11 +1775,13 @@ async function applyReconciliationLocked(
     }
   }
 
-  const stale = before.installations.filter(
-    (installation) =>
-      !desired.some((item) => item.binding.canonicalProject === installation.project) &&
-      !movedPreviousProjects.has(installation.project),
-  );
+  const stale = scope.kind === "all"
+    ? before.installations.filter(
+        (installation) =>
+          !desired.some((item) => item.binding.canonicalProject === installation.project) &&
+          !movedPreviousProjects.has(installation.project)
+      )
+    : [];
   // Destructive staging is a distinct removal pass: each stale removal re-proves
   // ownership from filesystem evidence captured after all earlier project commits
   // and never from preflight snapshots, so changed output cannot be removed
@@ -1736,6 +1814,9 @@ async function applyReconciliationLocked(
       exclusions = await stageGitExclusions(
         workingState,
         nextState,
+        includedExclusionTargets === undefined
+          ? {}
+          : { includedTargets: includedExclusionTargets },
       );
       stateWriteAttempted = true;
       await writeState(home, nextState);
@@ -1782,7 +1863,13 @@ async function applyReconciliationLocked(
   if (migratedState) {
     await writeState(home, backfillLegacyProvenance(workingState, desired));
   }
-  const repairedExclusions = await stageGitExclusions(workingState, workingState);
+  const repairedExclusions = await stageGitExclusions(
+    workingState,
+    workingState,
+    includedExclusionTargets === undefined
+      ? {}
+      : { includedTargets: includedExclusionTargets },
+  );
   await repairedExclusions.commit();
   let resultingState: ReconciliationReport;
   try {
@@ -1793,6 +1880,7 @@ async function applyReconciliationLocked(
         gitInspection: createGitInspection(),
         ownershipInspection: createOwnershipInspection(),
         scheduler,
+        scope,
       })
     );
     resultingState = await verify(desired, workingState);

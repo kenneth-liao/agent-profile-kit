@@ -240,6 +240,77 @@ export interface IngestedApplicationSource {
   readonly workspaceModel: Workspace;
 }
 
+/** Focused user-input failure raised before scoped lifecycle planning or writes. */
+export class ProjectTargetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProjectTargetError";
+  }
+}
+
+/** One normalized lifecycle selection boundary for Project Bindings. */
+export type ProjectBindingSelection =
+  | { readonly kind: "all" }
+  | {
+      readonly command: "apply" | "status";
+      readonly kind: "project";
+      readonly match: "containing" | "exact";
+      readonly target: string;
+    };
+
+async function selectParsedProjectBindings(
+  home: string,
+  bindings: readonly ParsedProjectBinding[],
+  path: string,
+  selection: ProjectBindingSelection,
+): Promise<readonly ParsedProjectBinding[]> {
+  if (selection.kind === "all") return bindings;
+
+  const description = `${COMMAND_NAME} ${selection.command} Project target`;
+  let canonicalTarget: string;
+  try {
+    const expandedTarget = expandConfiguredPath(selection.target, home, description, "project");
+    canonicalTarget = await requireExistingDirectory(
+      expandedTarget,
+      selection.target,
+      description,
+      "project",
+    );
+  } catch (error) {
+    throw new ProjectTargetError(errorMessage(error));
+  }
+  const matches: ParsedProjectBinding[] = [];
+  for (const [index, binding] of bindings.entries()) {
+    try {
+      const expanded = expandConfiguredPath(
+        binding.project,
+        home,
+        `Local Configuration ${path} bindings[${index}]`,
+        "project",
+      );
+      const canonical = await realpath(expanded);
+      const matched = selection.match === "exact"
+        ? canonical === canonicalTarget
+        : isSameOrDescendant(canonicalTarget, canonical);
+      if (matched) matches.push(binding);
+    } catch {
+      // An unrelated missing or invalid Project must not prevent scoped work.
+    }
+  }
+
+  if (matches.length === 0) {
+    throw new ProjectTargetError(
+      `${description} '${selection.target}' is not a bound Project; run ${COMMAND_NAME} list projects or ${COMMAND_NAME} bind`,
+    );
+  }
+  if (matches.length > 1) {
+    throw new ProjectTargetError(
+      `${description} '${selection.target}' is ambiguous because it matches multiple Project Bindings; pass one exact Project root or run ${COMMAND_NAME} list projects`,
+    );
+  }
+  return matches;
+}
+
 async function isMissingPath(expanded: string): Promise<boolean> {
   try {
     await lstat(expanded);
@@ -374,22 +445,22 @@ export async function ingestApplicationModelFromSource(
     parseLocalConfiguration(source, path),
     path,
   );
-  const workspaceModel = await ingestWorkspaceFromConfiguration(
-    home,
-    parsed.workspace,
-    path,
-  );
-  const bindings = await normalizeProjectBindings(
-    home,
-    parsed.bindings,
-    path,
-    {
-      allowMissingProjects: options.allowMissingProjects ?? false,
-      kind: "application",
-      profiles: workspaceModel.profiles,
-    },
-  );
+  return ingestParsedApplicationModel(home, parsed, parsed.bindings, path, options);
+}
 
+async function ingestParsedApplicationModel(
+  home: string,
+  parsed: ParsedCurrentLocalConfiguration,
+  bindingsToNormalize: readonly ParsedProjectBinding[],
+  path: string,
+  options: { readonly allowMissingProjects?: boolean } = {},
+): Promise<IngestedApplicationSource> {
+  const workspaceModel = await ingestWorkspaceFromConfiguration(home, parsed.workspace, path);
+  const bindings = await normalizeProjectBindings(home, bindingsToNormalize, path, {
+    allowMissingProjects: options.allowMissingProjects ?? false,
+    kind: "application",
+    profiles: workspaceModel.profiles,
+  });
   return {
     bindings,
     schemaVersion: parsed.schemaVersion,
@@ -406,11 +477,22 @@ export async function ingestApplicationFromSource(
   home: string,
   source: string,
   path: string = localConfigurationPath(home),
+  selection: ProjectBindingSelection = { kind: "all" },
 ): Promise<{
   readonly configuration: LocalConfiguration;
   readonly workspace: Workspace;
 }> {
-  const model = await ingestApplicationModelFromSource(home, source, path);
+  const parsed = requireCurrentApplicationConfiguration(
+    parseLocalConfiguration(source, path),
+    path,
+  );
+  const selectedBindings = await selectParsedProjectBindings(
+    home,
+    parsed.bindings,
+    path,
+    selection,
+  );
+  const model = await ingestParsedApplicationModel(home, parsed, selectedBindings, path);
   return {
     configuration: {
       bindings: model.bindings.map((binding) => ({
@@ -490,10 +572,13 @@ export async function ingestSelectedWorkspace(home: string): Promise<Workspace> 
  * `init` reuses `resolveWorkspaceRoot` separately; `uninstall` does not call
  * this path.
  */
-export async function ingestApplication(home: string): Promise<{
+export async function ingestApplication(
+  home: string,
+  selection: ProjectBindingSelection = { kind: "all" },
+): Promise<{
   readonly configuration: LocalConfiguration;
   readonly workspace: Workspace;
 }> {
   const { path, source } = await readLocalConfigurationSource(home);
-  return ingestApplicationFromSource(home, source, path);
+  return ingestApplicationFromSource(home, source, path, selection);
 }

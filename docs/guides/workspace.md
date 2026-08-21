@@ -388,7 +388,7 @@ paths use the same canonical-root rules as bindings, including symlink aliases.
 When a project no longer exists, `unbind` can remove a binding only when the
 argument exactly matches its authored `project` spelling; it never guesses an
 alias. `unbind` edits Local Configuration only and leaves generated output for
-the next global `preview` and `apply`. Cooperating `bind` and `unbind` commands
+the next fleet `preview` and `apply --all`. Cooperating `bind` and `unbind` commands
 serialize and publish atomically; do not hand-edit the file concurrently.
 
 ```yaml
@@ -411,10 +411,9 @@ For Codex bindings that select Context, the Adapter requires Codex CLI 0.145.0 o
 newer so the generated SessionStart handler can deliver the complete Context
 envelope without Codex's default head-and-tail spill. Older, missing, or
 unreadable Codex versions fail capability preflight before any project or
-Installation State writes. Because `apply` is all-project, one blocked Codex
-binding also blocks every other Host in the fleet. To unblock other Hosts while
-upgrading: remove `codex` from the Project Binding, re-apply, upgrade Codex to
-0.145.0+, restore the binding, and apply again. Skills-only Codex bindings do
+Installation State writes. A Project-scoped `apply` probes only its selected
+binding. `apply --all` retains fleet preflight, where one blocked Codex binding
+blocks every fleet write. Skills-only Codex bindings do
 not require this floor. Review and trust the generated project SessionStart hook
 in Codex for each bound project. Lifecycle hooks are enabled by default. Agent Profile Kit checks the effective global and project configuration
 during preflight and warns when hooks are explicitly disabled, when relevant
@@ -437,14 +436,16 @@ installations). Pending Git exclusion work appears as one concise clause; exact
 targets and path changes are reserved for `--verbose`. When action is
 useful, concise results end with one next-action line derived from the same
 attention surface as the report body: actionable `status` points to read-only
-`preview` before `apply`; a ready `preview` recommends `apply`; a blocked result
-tells you to resolve the reported blocker and retry the same command you just
-ran; current status and completed or no-op `apply` results omit a next step.
-Multi-project outcomes emit one conservative instruction for the aggregate. Apply all configured Project Bindings with
-`apkit apply`; its result describes what reconciliation completed.
-Use `apkit status` to focus on installations needing attention.
-These commands operate on the full binding set; they do not filter by Profile,
-Host, or project.
+`preview` before applying; a ready fleet `preview` recommends `apply --all`; a
+blocked result tells you to resolve the reported blocker and retry the same
+command you just ran; current status and completed or no-op `apply` results omit
+a next step. `status` and `apply` default to the bound Project containing the
+current working directory and accept one explicit existing absolute or
+home-relative bound Project root. Use `--all` as the only fleet scope. Scoped
+planning, Host probes, Git and ownership inspection, reconciliation, reports,
+and writes exclude unrelated Projects; a shared Git exclusion file changes only
+through the selected installation's contribution-aware union. `preview` remains
+fleet-wide in this release.
 
 For complete per-output and desired-state diagnostics, including resolved
 artifact inclusion reasons and composed Context, append `--verbose` to
@@ -463,13 +464,13 @@ For every bound project root, the ordinary removal order is:
 
 ```sh
 apkit unbind /path/to/project
-apkit apply
+apkit apply --all
 # Now delete the project directory.
 ```
 
 If the project directory was deleted first, run `unbind` with its exact authored
 path. That explicit action confirms the deletion was intentional; the next
-`apply` retires its machine-local installation record without attempting
+`apply --all` retires its machine-local installation record without attempting
 project filesystem deletion and cleans any separately surviving local Git
 exclusions whose ownership was recorded. Restoring the project later requires a
 new `bind` and `apply`.
@@ -696,14 +697,15 @@ planned project destination remain blockers.
 
 ## Status, unbind, and uninstall
 
-Use `apkit status` to inspect every bound project. It reports current, not
-installed, stale source, repairable missing output, drifted output, missing
+Use `apkit status` for the bound Project containing the current directory, pass
+one explicit Project root, or use `apkit status --all` to inspect every binding.
+It reports current, not installed, stale source, repairable missing output, drifted output, missing
 output, blocked and malformed ownership, while keeping Host configuration
 warnings visible.
 
 Use `apkit unbind [project]` to remove desired Project Binding state.
 It does not delete generated output. When an installed Manifest remains, its
-output recommends the global `preview` and `apply` needed to review and
+output recommends the fleet `preview` and `apply --all` needed to review and
 reconcile the former installation; after `uninstall`, it omits that no-op step.
 
 To delete generated output directly, use `apkit uninstall`. It names each
