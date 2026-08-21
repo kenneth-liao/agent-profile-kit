@@ -1,16 +1,21 @@
-import { execFile } from "node:child_process";
-import { lstat, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, posix, resolve, sep } from "node:path";
-import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 
+import type { CompleteHostAdapter } from "./adapter-contract.js";
 import {
   CLAUDE_CONTEXT_REQUIREMENTS,
   CLAUDE_CONTEXT_RULE_PATH,
 } from "./claude.js";
 import { type ContextModuleSource } from "./context-envelope.js";
 import { capabilityFailure } from "./capability.js";
+import { invokeExecutable } from "./services/executable.js";
+import { classifyFileSystemEntry } from "./services/project-surface.js";
+import {
+  compareCoreSemanticVersions,
+  normalizeCoreSemanticVersion,
+} from "./services/semantic-version.js";
 import type {
   AdapterHostSetupStep,
   AdapterDiagnosticWarning,
@@ -31,8 +36,6 @@ import {
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 export { GROK_ADAPTER_VERSION } from "./host-catalog.js";
 import { parseTomlTable } from "./toml.js";
-
-const execFileAsync = promisify(execFile);
 
 /** Preserve Grok's topology diagnosis behind the Adapter boundary. */
 export function grokClaudeRulesTopologyCapabilityError() {
@@ -141,22 +144,6 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
-async function pathKind(
-  path: string,
-): Promise<"missing" | "file" | "directory" | "symlink" | "other"> {
-  try {
-    const stats = await lstat(path);
-    if (stats.isSymbolicLink()) return "symlink";
-    if (stats.isFile()) return "file";
-    if (stats.isDirectory()) return "directory";
-    return "other";
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return "missing";
-    if (hasErrorCode(error, "ENOTDIR")) return "other";
-    throw error;
-  }
-}
-
 function parseYaml(source: string, description: string): unknown {
   try {
     return parse(source);
@@ -186,17 +173,7 @@ export function parseGrokCliVersion(source: string): string {
       "install a supported Grok Build release",
     );
   }
-  return `${match[1]}.${match[2]}.${match[3]}`;
-}
-
-function compareSemver(left: string, right: string): number {
-  const leftParts = left.split(".").map(Number);
-  const rightParts = right.split(".").map(Number);
-  for (let index = 0; index < 3; index += 1) {
-    const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
-    if (delta !== 0) return delta < 0 ? -1 : 1;
-  }
-  return 0;
+  return normalizeCoreSemanticVersion(match[1]!, match[2]!, match[3]!);
 }
 
 /**
@@ -212,7 +189,7 @@ export function assertGrokCliVersionSupported(
     readonly requireSkills?: boolean;
   } = {},
 ): void {
-  if (compareSemver(version, GROK_MINIMUM_CLI_VERSION) < 0) {
+  if (compareCoreSemanticVersions(version, GROK_MINIMUM_CLI_VERSION) < 0) {
     if (options.requireDisabledModelInvocation) {
       throw capabilityFailure(
         "grok",
@@ -245,10 +222,9 @@ export function assertGrokCliVersionSupported(
 export async function resolveGrokCliVersion(options: GrokCapabilityOptions): Promise<string> {
   if (options.resolveVersion) return options.resolveVersion();
   try {
-    const { stdout, stderr } = await execFileAsync("grok", ["version"], {
+    const { stdout, stderr } = await invokeExecutable("grok", ["version"], {
       env: options.env ?? process.env,
-      encoding: "utf8",
-      timeout: 10_000,
+      timeoutMs: 10_000,
     });
     return parseGrokCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
@@ -539,11 +515,10 @@ export async function inspectGrokProject(
     ? await options.resolveVersion()
     : await resolveGrokCliVersion(options);
   try {
-    const { stdout } = await execFileAsync("grok", ["inspect", "--json"], {
+    const { stdout } = await invokeExecutable("grok", ["inspect", "--json"], {
       cwd: project,
       env,
-      encoding: "utf8",
-      timeout: 15_000,
+      timeoutMs: 15_000,
     });
     // Parse machine-readable stdout only; stderr diagnostics must not corrupt JSON.
     return parseGrokInspectDocument(stdout, { version });
@@ -668,7 +643,7 @@ export async function assertGrokProjectSurface(
     : { claudeRulesEnabled: true, version };
 
   const grokPath = join(project, ".grok");
-  const grokKind = await pathKind(grokPath);
+  const grokKind = await classifyFileSystemEntry(grokPath);
   if (grokKind !== "missing" && grokKind !== "directory") {
     const problem =
       `Grok project surface cannot host outputs: ${grokPath} is a ${grokKind}, not a directory`;
@@ -683,7 +658,7 @@ export async function assertGrokProjectSurface(
 
   if (requireSkills) {
     const skillsPath = join(project, ".grok", "skills");
-    const skillsKind = await pathKind(skillsPath);
+    const skillsKind = await classifyFileSystemEntry(skillsPath);
     if (skillsKind !== "missing" && skillsKind !== "directory") {
       const problem =
         `Grok project surface cannot host Skills: ${skillsPath} is a ${skillsKind}, not a directory`;
@@ -700,7 +675,7 @@ export async function assertGrokProjectSurface(
   // Skills-only Profiles do not write unscoped rules; skip the rules surface then.
   if (requireContext) {
     const rulesPath = join(project, ".grok", "rules");
-    const rulesKind = await pathKind(rulesPath);
+    const rulesKind = await classifyFileSystemEntry(rulesPath);
     if (rulesKind !== "missing" && rulesKind !== "directory") {
       const problem =
         `Grok project surface cannot host unscoped rules: ${rulesPath} is a ${rulesKind}, not a directory`;
@@ -907,3 +882,101 @@ export async function planGrokProject(
     setupSteps,
   };
 }
+
+export const grokAdapter = {
+  host: "grok",
+  async planOrdinaryProject(input, services) {
+    const requireContext = input.resolvedContexts.length > 0;
+    const requireSkills = input.resolvedSkills.length > 0;
+    const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
+      input.resolvedSkills,
+    );
+    const capabilityOptions = {
+      ...(input.env === undefined ? {} : { env: input.env }),
+      home: input.home,
+      requireContext,
+      requireDisabledModelInvocation,
+      requireSkills,
+    };
+    const capabilityFailures: unknown[] = [];
+    let inspection: GrokInspection | undefined;
+
+    if (input.checkHostCapability) {
+      try {
+        const version = await services.probeMachineCapability(
+          grokMachineRequirements({
+            requireContext,
+            requireDisabledModelInvocation,
+            requireSkills,
+          }),
+          () => probeGrokMachineCapability(capabilityOptions),
+        );
+        inspection = await assertGrokProjectSurface(input.project, version, capabilityOptions);
+      } catch (error) {
+        capabilityFailures.push(error);
+      }
+    } else if (
+      input.resolveHostTopology === true &&
+      requireContext &&
+      input.selectedHosts.includes("claude")
+    ) {
+      try {
+        const version = await services.probeMachineCapability(
+          { resolveVersion: true },
+          () => resolveGrokCliVersion(
+            input.env === undefined ? {} : { env: input.env },
+          ),
+        );
+        inspection = await inspectGrokProject(input.project, {
+          ...(input.env === undefined ? {} : { env: input.env }),
+          home: input.home,
+          resolveVersion: async () => version,
+        });
+      } catch {
+        inspection = undefined;
+      }
+    }
+
+    const diagnostics = requireSkills
+      ? await detectGrokProjectConfigurationWarnings(
+          input.resolvedSkills.map((skill) => skill.id),
+          { home: input.home, project: input.project },
+        )
+      : [];
+    const claudeCoSelected = input.selectedHosts.includes("claude");
+    let claudeRulesEnabled = inspection?.claudeRulesEnabled;
+    if (requireContext && claudeRulesEnabled === undefined && claudeCoSelected) {
+      const previous = input.previousInstallation;
+      claudeRulesEnabled = previous
+        ? inferGrokClaudeRulesEnabledFromOutputs(
+            previous.hosts,
+            previous.outputs.map((output) => output.path),
+          )
+        : undefined;
+      if (claudeRulesEnabled === undefined && input.resolveHostTopology === true) {
+        capabilityFailures.push(grokClaudeRulesTopologyCapabilityError());
+      }
+    }
+    const effectiveClaudeRulesEnabled = claudeRulesEnabled ?? true;
+    const plan = await services.planProjection(
+      {
+        host: "grok",
+        options: { claudeCoSelected, claudeRulesEnabled: effectiveClaudeRulesEnabled },
+        profileId: input.profileId,
+        resolvedContexts: input.resolvedContexts,
+        resolvedSkills: input.resolvedSkills,
+      },
+      () => planGrokProject(
+        input.profileId,
+        input.resolvedContexts,
+        input.resolvedSkills,
+        {
+          claudeCoSelected,
+          claudeRulesEnabled: effectiveClaudeRulesEnabled,
+          materials: services.materials,
+        },
+      ),
+    );
+    return { capabilityFailures, diagnostics, plan };
+  },
+} satisfies CompleteHostAdapter;

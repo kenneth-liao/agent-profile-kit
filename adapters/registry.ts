@@ -1,12 +1,12 @@
 import { antigravityAdapter } from "./antigravity.js";
 import { claudeAdapter } from "./claude.js";
 import { codexAdapter } from "./codex.js";
+import { grokAdapter } from "./grok.js";
 import { piAdapter } from "./pi.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 import {
   HOST_CATALOG,
   hostCatalogEntryFor,
-  type CompleteOrdinaryPlanningHost,
   type HostCatalogEntry,
   type SupportedHost,
 } from "./host-catalog.js";
@@ -26,24 +26,19 @@ const COMPLETE_ADAPTERS = {
   antigravity: antigravityAdapter,
   claude: claudeAdapter,
   codex: codexAdapter,
+  grok: grokAdapter,
   pi: piAdapter,
 } as const satisfies {
-  readonly [H in CompleteOrdinaryPlanningHost]: CompleteHostAdapter & {
+  readonly [H in SupportedHost]: CompleteHostAdapter & {
     readonly host: H;
   };
 };
 
-type CompleteHostRegistration = Extract<
-  HostCatalogEntry,
-  { readonly ordinaryPlanning: "complete" }
-> & { readonly adapter: CompleteHostAdapter };
-type LegacyHostRegistration = Extract<
-  HostCatalogEntry,
-  { readonly ordinaryPlanning: "legacy" }
-> & { readonly adapter?: never };
-export type HostRegistration = CompleteHostRegistration | LegacyHostRegistration;
+export type HostRegistration = HostCatalogEntry & {
+  readonly adapter: CompleteHostAdapter;
+};
 
-function completeAdapterFor<const H extends CompleteOrdinaryPlanningHost>(
+function completeAdapterFor<const H extends SupportedHost>(
   host: H,
 ): (typeof COMPLETE_ADAPTERS)[H] {
   return COMPLETE_ADAPTERS[host];
@@ -51,13 +46,12 @@ function completeAdapterFor<const H extends CompleteOrdinaryPlanningHost>(
 
 /**
  * Canonical ordered Host registry. Policy-free metadata stays in HOST_CATALOG;
- * this projection attaches complete Adapter implementations only where present.
+ * this projection attaches every complete Adapter implementation.
  */
-export const HOST_REGISTRY = HOST_CATALOG.map((entry): HostRegistration =>
-  entry.ordinaryPlanning === "complete"
-    ? { ...entry, adapter: completeAdapterFor(entry.host) }
-    : entry
-);
+export const HOST_REGISTRY = HOST_CATALOG.map((entry): HostRegistration => ({
+  ...entry,
+  adapter: completeAdapterFor(entry.host),
+}));
 
 const REGISTRATION_BY_HOST = new Map(
   HOST_REGISTRY.map((registration) => [registration.host, registration]),
