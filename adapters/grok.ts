@@ -29,6 +29,7 @@ import {
   type SkillPackageProjection,
 } from "./skill-package.js";
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
+export { GROK_ADAPTER_VERSION } from "./host-catalog.js";
 import { parseTomlTable } from "./toml.js";
 
 const execFileAsync = promisify(execFile);
@@ -40,8 +41,6 @@ export function grokClaudeRulesTopologyCapabilityError() {
   const remedy = "restore `grok inspect --json` or re-apply before trusting status";
   return capabilityFailure("grok", problem, remedy);
 }
-
-export const GROK_ADAPTER_VERSION = "grok-project-v1";
 
 /**
  * Capability-contract token recorded in Installation Manifest host_versions after

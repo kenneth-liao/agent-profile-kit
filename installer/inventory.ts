@@ -1,14 +1,11 @@
+import { HOST_CATALOG } from "../adapters/host-catalog.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
-import {
-  SUPPORTED_HOSTS,
-  type SupportedHost,
-} from "../schemas/local-configuration.js";
+import type { SupportedHost } from "../schemas/local-configuration.js";
 import {
   ingestProjectBindings,
   ingestSelectedWorkspace,
 } from "./local-configuration.js";
 import { readTemporaryInstallations } from "./installation-state.js";
-import { isTemporaryInstallationHost } from "./temporary-installation.js";
 
 /** One normalized Project Binding prepared for read-only inventory presentation. */
 export interface ProjectInventoryRecord {
@@ -51,9 +48,9 @@ export interface TemporaryInventoryRecord {
  * Host configuration, Project roots, or any other machine state.
  */
 export function listHosts(): readonly HostInventoryRecord[] {
-  return SUPPORTED_HOSTS.map((host) => ({
+  return HOST_CATALOG.map(({ host, supportsTemporaryProfileInstallation }) => ({
     host,
-    supportsTemporaryProfileInstallation: isTemporaryInstallationHost(host),
+    supportsTemporaryProfileInstallation,
   }));
 }
 

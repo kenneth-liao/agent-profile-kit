@@ -42,6 +42,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Introduce one canonical Host registry and complete ordinary-planning Adapter contract, migrate Claude and Codex capability probing, Project-surface inspection, warnings, output planning, Capability Contract selection, and setup steps behind that boundary, and retain explicit legacy dispatch only for Grok, Pi, and Antigravity ([#244](https://github.com/kenneth-liao/agent-profile-kit/issues/244)).
+
 - Coalesce compatible multi-Host Adapter output solely by normalized physical identity—path, entry type, mode, and exact file bytes or complete directory tree—while retaining all consuming Hosts and descriptive provenance; physical disagreements remain deterministic pre-write conflicts ([#243](https://github.com/kenneth-liao/agent-profile-kit/issues/243)).
 
 - Keep `uninstall` independent of Workspace and Project Binding input while removing all ownership-proven ordinary output and Git exclusion contributions, preserving bindings and Temporary Profile Installations, and reporting still-bound Projects as not installed and ready for `apply`. Intended-teardown records are no longer written or consulted; the inert persisted field remains until the final ownership-state contraction. This is a pre-1.0 breaking change ([#242](https://github.com/kenneth-liao/agent-profile-kit/issues/242)).

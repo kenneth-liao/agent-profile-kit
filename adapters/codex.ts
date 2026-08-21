@@ -1,15 +1,20 @@
-import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { promisify } from "node:util";
 import type { Skill } from "../schemas/skill.js";
-import { capabilityFailure } from "./capability.js";
+import type { CompleteHostAdapter } from "./adapter-contract.js";
+export { CODEX_ADAPTER_VERSION } from "./host-catalog.js";
+import { capabilityFailure, isAdapterCapabilityError } from "./capability.js";
 import type {
   AdapterHostSetupStep,
   AdapterDiagnosticWarning,
   AdapterProjectPlan,
   ProposedProjectOutput,
 } from "./project-plan.js";
+import { invokeExecutable } from "./services/executable.js";
+import {
+  compareCoreSemanticVersions,
+  normalizeCoreSemanticVersion,
+} from "./services/semantic-version.js";
 import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
   skillsRequireDisabledModelInvocation,
@@ -25,10 +30,6 @@ import {
   SHARED_SKILLS_DISCOVERY_ROOT,
 } from "./shared-skill.js";
 import { parseTomlTable } from "./toml.js";
-
-const execFileAsync = promisify(execFile);
-
-export const CODEX_ADAPTER_VERSION = "codex-project-v3";
 
 /**
  * Capability-contract token for Codex project Context via SessionStart hooks
@@ -142,7 +143,7 @@ export function parseCodexCliVersion(source: string): string {
       /^(?:(?:codex-cli|codex)\s+)?v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?(?:\s+.*)?$/i,
     );
     if (match) {
-      return `${match[1]}.${match[2]}.${match[3]}`;
+      return normalizeCoreSemanticVersion(match[1]!, match[2]!, match[3]!);
     }
   }
   throw capabilityFailure(
@@ -152,19 +153,14 @@ export function parseCodexCliVersion(source: string): string {
   );
 }
 
-function compareSemver(left: string, right: string): number {
-  const leftParts = left.split(".").map(Number);
-  const rightParts = right.split(".").map(Number);
-  for (let index = 0; index < 3; index += 1) {
-    const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
-    if (delta !== 0) return delta < 0 ? -1 : 1;
-  }
-  return 0;
-}
-
 /** Assert a normalized core semver against the disabled-invocation floor. */
 export function assertCodexCliVersionSupportsDisabledModelInvocation(version: string): void {
-  if (compareSemver(version, CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION) < 0) {
+  if (
+    compareCoreSemanticVersions(
+      version,
+      CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION,
+    ) < 0
+  ) {
     throw capabilityFailure(
       "codex",
       `Codex CLI ${version} cannot enforce disabled model invocation via agents/openai.yaml policy.allow_implicit_invocation (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION}+)`,
@@ -182,10 +178,9 @@ async function resolveCodexCliVersion(
 ): Promise<string> {
   if (options.resolveVersion) return parseCodexCliVersion(await options.resolveVersion());
   try {
-    const { stdout, stderr } = await execFileAsync("codex", ["--version"], {
+    const { stdout, stderr } = await invokeExecutable("codex", ["--version"], {
       env: options.env ?? process.env,
-      encoding: "utf8",
-      timeout: 10_000,
+      timeoutMs: 10_000,
     });
     return parseCodexCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
@@ -269,7 +264,12 @@ export async function probeCodexMachineCapability(
 
 /** Assert a normalized core semver against the complete-Context floor. */
 export function assertCodexCliVersionSupportsCompleteContext(version: string): void {
-  if (compareSemver(version, CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT) < 0) {
+  if (
+    compareCoreSemanticVersions(
+      version,
+      CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT,
+    ) < 0
+  ) {
     throw capabilityFailure(
       "codex",
       `Codex CLI ${version} cannot deliver complete Context through SessionStart hooks (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT}+)`,
@@ -411,6 +411,73 @@ function contextSetupSteps(requiresBoundRootLaunch = false): readonly AdapterHos
   }
   return steps;
 }
+
+export const codexAdapter = {
+  host: "codex",
+  async planOrdinaryProject(input, services) {
+    const requireContext = input.resolvedContexts.length > 0;
+    const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
+      input.resolvedSkills,
+    );
+    const capabilityFailures: unknown[] = [];
+    if (input.checkHostCapability && (requireContext || requireDisabledModelInvocation)) {
+      try {
+        const requirements = codexMachineRequirements({
+          requireContext,
+          requireDisabledModelInvocation,
+        });
+        await services.probeMachineCapability(
+          requirements,
+          () => probeCodexMachineCapability({
+            ...(input.env === undefined ? {} : { env: input.env }),
+            requireContext,
+            requireDisabledModelInvocation,
+          }),
+        );
+      } catch (error) {
+        capabilityFailures.push(error);
+      }
+    }
+
+    const diagnostics = requireContext
+      ? await detectCodexProjectConfigurationWarnings(input.home, input.project)
+      : [];
+    const contextPath = [
+      input.projectRelativeToGitRoot ?? "",
+      ".agent-profile-kit",
+      "codex",
+      "context.md",
+    ].filter((part) => part.length > 0).join("/");
+    const requiresBoundRootLaunch =
+      input.projectRelativeToGitRoot === undefined && requireContext;
+    let plan: AdapterProjectPlan | undefined;
+    try {
+      plan = await services.planProjection(
+        {
+          host: "codex",
+          options: { contextPath, requiresBoundRootLaunch },
+          profileId: input.profileId,
+          resolvedContexts: input.resolvedContexts,
+          resolvedSkills: input.resolvedSkills,
+        },
+        () => planCodexProject(
+          input.profileId,
+          input.resolvedContexts,
+          input.resolvedSkills,
+          {
+            contextPath,
+            materials: services.materials,
+            ...(requiresBoundRootLaunch ? { requiresBoundRootLaunch: true } : {}),
+          },
+        ),
+      );
+    } catch (error) {
+      if (!isAdapterCapabilityError(error)) throw error;
+      capabilityFailures.push(error);
+    }
+    return { capabilityFailures, diagnostics, plan };
+  },
+} satisfies CompleteHostAdapter;
 
 export async function planCodexProject(
   profileId: string,

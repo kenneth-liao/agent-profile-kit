@@ -4,6 +4,7 @@ import { join, posix } from "node:path";
 import { promisify } from "node:util";
 
 import type { Skill } from "../schemas/skill.js";
+export { ANTIGRAVITY_ADAPTER_VERSION } from "./host-catalog.js";
 import {
   composeContextModuleBoundary,
   type ContextModuleSource,
@@ -28,7 +29,6 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
-export const ANTIGRAVITY_ADAPTER_VERSION = "antigravity-project-v2";
 /** Capability Contract for complete always-on project Context rules. */
 export const ANTIGRAVITY_HOST_VERSION = "native-project-always-on-rules-v1";
 /** Capability Contract for shared Skills without Antigravity Context rules. */
