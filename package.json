@@ -1,6 +1,6 @@
 {
   "name": "agent-profile-kit",
-  "version": "0.86.0",
+  "version": "0.87.0",
   "private": true,
   "description": "Compose portable agent material into host-native profiles.",
   "type": "module",

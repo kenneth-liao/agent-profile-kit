@@ -496,7 +496,7 @@ export async function installTemporaryProfile(options: {
       };
 
       const nextState = {
-        intendedTeardowns: state.intendedTeardowns,
+        intendedTeardowns: [],
         installations: state.installations,
         repositoryExclusions: replaceRepositoryExclusionContribution(
           state.repositoryExclusions,
@@ -651,7 +651,7 @@ export async function removeTemporaryProfile(options: {
         workspaceInputHash: existing.workspaceInputHash,
       };
       const nextState = {
-        intendedTeardowns: state.intendedTeardowns,
+        intendedTeardowns: [],
         installations: state.installations,
         repositoryExclusions: replaceRepositoryExclusionContribution(
           state.repositoryExclusions,

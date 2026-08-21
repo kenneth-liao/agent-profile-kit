@@ -102,7 +102,6 @@ export type ReconciliationKind =
   | "blocked"
   | "current"
   | "drifted output"
-  | "intended teardown"
   | "malformed ownership state"
   | "missing output"
   | "repairable missing output"
@@ -445,9 +444,7 @@ function stateWithInstallationExclusion(
   gitProject: DesiredInstallation["gitProject"],
 ): InstallationState {
   return {
-    intendedTeardowns: state.intendedTeardowns.filter(
-      (teardown) => teardown.project !== installation.project,
-    ),
+    intendedTeardowns: [],
     installations: state.installations,
     repositoryExclusions: replaceRepositoryExclusionContribution(
       state.repositoryExclusions,
@@ -965,19 +962,9 @@ export async function previewReconciliation(
     }
     const projectItems: ReconciliationItem[] = [];
     if (!previous) {
-      const intendedTeardown = state.intendedTeardowns.some(
-        (teardown) =>
-          teardown.project === installation.binding.canonicalProject &&
-          teardown.profileId === installation.profile.id &&
-          teardown.hosts.length === installation.binding.hosts.length &&
-          teardown.hosts.every((host, index) => host === installation.binding.hosts[index]),
-      );
       projectItems.push({
-        kind: intendedTeardown ? "intended teardown" : "addition",
+        kind: "addition",
         project: installation.binding.project,
-        ...(intendedTeardown
-          ? { reason: "Output was removed by uninstall; Project Binding was preserved" }
-          : {}),
       });
     } else if (moved) {
       if (ownership && !ownership.owned) {
@@ -1151,7 +1138,7 @@ export async function previewReconciliation(
     blockers.push(...result.blockers);
   }
   const projectedState: InstallationState = {
-    intendedTeardowns: state.intendedTeardowns,
+    intendedTeardowns: [],
     installations: state.installations,
     repositoryExclusions: projectedExclusions,
     schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
@@ -1452,7 +1439,7 @@ async function applyReconciliationLocked(
       installationsByProject.set(manifest.project, manifest);
       const nextState = stateWithInstallationExclusion(
         {
-          intendedTeardowns: workingState.intendedTeardowns,
+          intendedTeardowns: [],
           installations: [...installationsByProject.values()],
           repositoryExclusions: workingState.repositoryExclusions,
           schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
@@ -1544,7 +1531,7 @@ async function applyReconciliationLocked(
       }
       installationsByProject.delete(previous.project);
       const nextState: InstallationState = {
-        intendedTeardowns: workingState.intendedTeardowns,
+        intendedTeardowns: [],
         installations: [...installationsByProject.values()],
         repositoryExclusions: replaceRepositoryExclusionContribution(
           workingState.repositoryExclusions,

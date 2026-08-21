@@ -3816,7 +3816,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(humanText(result.stdout)).toContain(
-      humanText(`${first}: missing output (Profile Installation is missing)`),
+      humanText(`${first}: addition`),
     );
     expect(humanText(result.stdout)).not.toContain(humanText(`${first}: blocked`));
     expect(humanText(result.stdout)).toContain(humanText(`${second}: blocked`));
@@ -3902,6 +3902,24 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(workspacePath(home), "profiles", "coding.yaml"))).toBe(true);
   });
 
+  test("uninstall reads only ownership state when Workspace and Project Binding input is invalid", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    writeFileSync(configPath(home), "invalid local configuration\n");
+    rmSync(workspacePath(home), { recursive: true });
+
+    const result = await runCli(home, "uninstall");
+
+    expectExitCode(result, 0);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+    expect(readFileSync(configPath(home), "utf8")).toBe("invalid local configuration\n");
+  });
+
   test("uninstall removes only proven output and preserves canonical and unrelated project state", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -3927,7 +3945,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
   });
 
-  test("status reports output deliberately removed by uninstall as intended teardown", async () => {
+  test("uninstall leaves a bound Project not installed and eligible for apply without teardown provenance", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -3936,15 +3954,75 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 0);
     expectExitCode(await runCli(home, "uninstall"), 0);
 
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      intended_teardowns: readonly unknown[];
+    };
     const result = await runCli(home, "status");
 
+    expect(state.intended_teardowns).toEqual([]);
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Intentionally uninstalled");
-    expect(humanText(result.stdout)).toContain(humanText("Project Binding was preserved"));
-    expect(result.stdout).not.toContain("Attention required");
-    expect(result.stdout).not.toContain("missing output");
+    expect(result.stdout).toContain("not installed; apply will create it");
+    expect(result.stdout).not.toContain("intended teardown");
     expect(result.stdout).not.toContain("not a safe automatic repair");
-    expect(result.stdout).not.toContain("Standing Host setup:");
+  });
+
+  test("uninstall preserves active and removed Temporary Profile Installations and their owned output", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-uninstall-lifetimes-");
+    const activeProject = join(repository, "active-temp");
+    const removedProject = join(repository, "removed-temp");
+    mkdirSync(activeProject);
+    mkdirSync(removedProject);
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const activeInstall = await runCli(
+      home,
+      "install-temp",
+      "coding",
+      activeProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    const removedInstall = await runCli(
+      home,
+      "install-temp",
+      "coding",
+      removedProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expectExitCode(activeInstall, 0);
+    expectExitCode(removedInstall, 0);
+    const activeId = (JSON.parse(activeInstall.stdout) as { temporaryInstallationId: string })
+      .temporaryInstallationId;
+    const removedId = (JSON.parse(removedInstall.stdout) as { temporaryInstallationId: string })
+      .temporaryInstallationId;
+    expectExitCode(await runCli(home, "remove-temp", removedId, "--json"), 0);
+    const before = parse(readFileSync(statePath(home), "utf8")) as {
+      temporary_installations: readonly unknown[];
+    };
+
+    expectExitCode(await runCli(home, "uninstall"), 0);
+
+    const after = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly unknown[];
+      repository_exclusions: readonly {
+        contributions: readonly { installation_id: string }[];
+      }[];
+      temporary_installations: readonly unknown[];
+    };
+    expect(after.installations).toEqual([]);
+    expect(after.temporary_installations).toEqual(before.temporary_installations);
+    expect(after.repository_exclusions.flatMap((record) =>
+      record.contributions.map((contribution) => contribution.installation_id)
+    )).toEqual([activeId]);
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(activeProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(removedProject, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("uninstall names removed project files, cleaned Git exclusions, and preserved bindings", async () => {
@@ -3984,17 +4062,40 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toMatch(/(?:Uninstalled|Removed .*Projects?)/i);
   });
 
-  test("apply reinstalls an intended teardown and clears its teardown provenance", async () => {
+  test("legacy intended-teardown records are inert and retire on the next state publication", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
     expectExitCode(await runCli(home, "apply"), 0);
+    const installedState = parse(readFileSync(statePath(home), "utf8")) as {
+      installations: readonly {
+        hosts: readonly string[];
+        installation_id: string;
+        profile_id: string;
+        project: string;
+      }[];
+    };
+    const installation = installedState.installations[0]!;
     expectExitCode(await runCli(home, "uninstall"), 0);
+    const legacyState = parse(readFileSync(statePath(home), "utf8")) as {
+      intended_teardowns: unknown[];
+    };
+    legacyState.intended_teardowns = [{
+      hosts: installation.hosts,
+      installation_id: installation.installation_id,
+      profile_id: installation.profile_id,
+      project: installation.project,
+    }];
+    writeFileSync(statePath(home), stringify(legacyState));
 
+    const status = await runCli(home, "status", "--verbose");
     const applied = await runCli(home, "apply");
 
+    expectExitCode(status, 0);
+    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: addition`));
+    expect(status.stdout).not.toContain("intended teardown");
     expectExitCode(applied, 0);
     const after = await runCli(home, "status");
     expect(after.stdout).toContain("All Projects are current");
@@ -4004,7 +4105,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.intended_teardowns).toEqual([]);
   });
 
-  test("a different binding at the same project does not inherit teardown provenance", async () => {
+  test("a rebound Project remains not installed after uninstall", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -4019,7 +4120,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status");
 
     expectExitCode(status, 0);
-    expect(status.stdout).not.toContain("Intentionally uninstalled");
+    expect(status.stdout).toContain("not installed; apply will create it");
     expect(status.stdout).not.toContain("intended teardown");
   });
 

@@ -176,6 +176,9 @@ function parseInstallationStateSource(source: string): ParsedInstallationState {
 function normalizedInstallationState(state: InstallationState): InstallationState {
   return {
     ...state,
+    // Retain the persisted legacy field until the final schema contraction, but
+    // retire its records at ingestion so lifecycle code cannot assign meaning to them.
+    intendedTeardowns: [],
     installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
     temporaryInstallations: [...state.temporaryInstallations].sort((left, right) =>
       left.temporaryInstallationId.localeCompare(right.temporaryInstallationId)
@@ -204,7 +207,7 @@ export async function readInstallationStateWithMigration(home: string): Promise<
         break;
       case 4:
         state = {
-          intendedTeardowns: parsed.state.intendedTeardowns,
+          intendedTeardowns: [],
           installations: parsed.state.installations,
           repositoryExclusions: parsed.state.repositoryExclusions,
           schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
@@ -268,11 +271,7 @@ export async function writeInstallationState(
   home: string,
   state: InstallationState,
 ): Promise<void> {
-  const source = formatInstallationState({
-    ...normalizedInstallationState(state),
-    intendedTeardowns: [...state.intendedTeardowns]
-      .sort((left, right) => left.project.localeCompare(right.project)),
-  });
+  const source = formatInstallationState(normalizedInstallationState(state));
   // Publication is allowed only when the production reader accepts the exact bytes.
   parseInstallationState(source);
 

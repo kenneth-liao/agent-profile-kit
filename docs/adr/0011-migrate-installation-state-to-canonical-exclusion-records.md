@@ -70,3 +70,15 @@ or project. A successful reinstall replaces the teardown record with the new
 Manifest. Schema v3 remains a read-only migration input alongside schema v2;
 the next successful `apply` or `uninstall` publishes schema v4. This supersedes
 the earlier consequence that schema v3 was the canonical write contract.
+
+### Amendment: retire intended teardown provenance
+
+Issue #242 supersedes the lifecycle meaning introduced by the preceding
+amendment. `uninstall` removes ownership-proven ordinary output and Repository
+Exclusion contributions from Installation State alone, preserves Project
+Bindings and Temporary Profile Installations, and writes no teardown record. A
+bound Project without an ordinary Installation Manifest is simply not installed
+and eligible for `apply`; lifecycle reconciliation does not consult legacy
+teardown records. The persisted `intended_teardowns` field remains temporarily
+for schema compatibility, is normalized to an empty collection at ingestion,
+and is removed only by the final ownership-state contraction.
