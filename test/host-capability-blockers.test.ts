@@ -89,14 +89,15 @@ describe("Host capability blockers", () => {
     expect(input).toMatchObject({
       affectedItems: [{ kind: "host", value: "codex" }],
       kind: "host-capability",
-      message: `${project}: Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before previewing or applying the Profile`,
-      problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
+      problem: `${project}: Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before previewing or applying the Profile`,
       project: realpathSync(project),
       remedy: "upgrade Codex before previewing or applying the Profile",
       requirement: "The selected Profile requires Codex project delivery",
       scope: "project",
     });
-    expect(isStructuredBlocker(normalizeBlocker(input as StructuredBlockerInput))).toBe(true);
+    const blocker = normalizeBlocker(input as StructuredBlockerInput);
+    expect(isStructuredBlocker(blocker)).toBe(true);
+    expect(blocker.message).toBe(blocker.problem);
   });
 
   test("registered Antigravity planning preserves project-surface blocker evidence", async () => {
@@ -322,16 +323,17 @@ describe("Host capability blockers", () => {
 
     const unexpected = new Error("injected capability probe failure");
 
-    expect(hostCapabilityBlocker(unexpected, "claude", project)).toMatchObject({
+    const input = hostCapabilityBlocker(unexpected, "claude", project);
+    expect(input).toMatchObject({
       affectedItems: [{ kind: "host", value: "claude" }],
       kind: "host-capability-unclassified",
-      message: unexpected.message,
-      problem: "Host capability preflight could not complete",
+      problem: unexpected.message,
       project,
       remedy: "Inspect the underlying error before retrying",
       requirement: "The selected Profile requires Claude project delivery",
       scope: "project",
     });
+    expect(normalizeBlocker(input).message).toBe(unexpected.message);
   });
 
   test("warning-adjacent Codex configuration remains non-blocking", async () => {
@@ -350,7 +352,7 @@ describe("Host capability blockers", () => {
     const installation = desired.installations[0];
     expect(installation?.blockers).toEqual([]);
     expect(installation?.warnings).toHaveLength(1);
-    expect(installation?.warnings[0]).toContain("SessionStart hooks are not enabled");
+    expect(installation?.warnings[0]?.message).toContain("SessionStart hooks are not enabled");
   });
 
   test("status topology failures use the same project-scoped structured blocker", async () => {
@@ -370,13 +372,13 @@ describe("Host capability blockers", () => {
     expect(blocker).toMatchObject({
       affectedItems: [{ kind: "host", value: "grok" }],
       kind: "host-capability",
-      message: `${project}: Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available; restore \`grok inspect --json\` or re-apply before trusting status`,
       project: realpathSync(project),
-      problem: "Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available",
+      problem: `${project}: Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available; restore \`grok inspect --json\` or re-apply before trusting status`,
       remedy: "restore `grok inspect --json` or re-apply before trusting status",
       requirement: "The selected Profile requires Grok project delivery",
       scope: "project",
     });
+    expect(normalizeBlocker(blocker!).message).toBe(blocker!.problem);
   });
 
   test("hostCapabilityBlocker rejects out-of-vocabulary Adapter evidence at the boundary", () => {

@@ -41,11 +41,17 @@ import {
   type ReconciliationBlocker,
 } from "../installer/blockers.js";
 import type {
-  ApplyReconciliationResult,
-  BlockedReconciliationReport,
+  FlatReconciliationReport as ReconciliationReport,
   ReconciliationKind,
-  ReconciliationReport,
+  ReconciliationProjectRecord,
+  ReconciliationReport as MachineReconciliationReport,
 } from "../installer/reconcile.js";
+
+type BlockedReconciliationReport = ReconciliationReport;
+interface ApplyReconciliationResult {
+  readonly receipt: ReconciliationReport;
+  readonly resultingState: ReconciliationReport;
+}
 
 function asBlockedReport(report: ReconciliationReport): BlockedReconciliationReport {
   const [blocker, ...remainingBlockers] = report.blockers;
@@ -59,7 +65,6 @@ function fixtureBlocker(message: string, project?: string): ReconciliationBlocke
     ? normalizeBlocker({
         affectedItems: [],
         kind: "installation-state-unreadable",
-        message,
         problem: message,
         remedy: "Resolve the reported blocker, then retry",
         requirement: "Lifecycle commands cannot proceed while blocked",
@@ -68,7 +73,6 @@ function fixtureBlocker(message: string, project?: string): ReconciliationBlocke
     : normalizeBlocker({
         affectedItems: [],
         kind: "occupied-output",
-        message,
         problem: message,
         remedy: "Resolve the reported blocker, then retry",
         requirement: "Lifecycle commands cannot proceed while blocked",
@@ -109,6 +113,38 @@ function applyResult(
   receipt: ReconciliationReport,
   resultingState: ReconciliationReport = receipt,
 ): ApplyReconciliationResult {
+  return { receipt, resultingState };
+}
+
+function machineProject(
+  project: string,
+  overrides: Partial<ReconciliationProjectRecord> = {},
+): ReconciliationProjectRecord {
+  return {
+    canonicalProject: project,
+    project,
+    state: { kind: "current" },
+    outputs: [],
+    blockers: [],
+    warnings: [],
+    setupSteps: [],
+    repositoryExclusionRepairs: [],
+    repositoryExclusions: [],
+    ...overrides,
+  };
+}
+
+function machineReport(
+  projects: readonly ReconciliationProjectRecord[] = [],
+  globalBlockers: readonly ReconciliationBlocker[] = [],
+): MachineReconciliationReport {
+  return { globalBlockers, projects } as MachineReconciliationReport;
+}
+
+function machineApplyResult(
+  receipt: MachineReconciliationReport,
+  resultingState: MachineReconciliationReport = receipt,
+): import("../installer/reconcile.js").ApplyReconciliationResult {
   return { receipt, resultingState };
 }
 
@@ -1103,7 +1139,6 @@ describe("formatLifecycleReport concise terminology", () => {
       blockers: [normalizeBlocker({
         affectedItems: [{ kind: "host", value: "codex" }],
         kind: "host-capability",
-        message: "Codex CLI is unavailable",
         problem: "Codex CLI is unavailable",
         remedy: "Install a supported Codex CLI, then retry",
         requirement: "The selected Profile requires Codex project delivery",
@@ -1117,17 +1152,24 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(formatLifecycleReport("preview", structured)).toContain(
       "Blocker: Codex CLI is unavailable",
     );
-    expect(JSON.parse(formatLifecycleJson("preview", structured))).toMatchObject({
-      schemaVersion: 4,
-      blockers: [{
-        affectedItems: [{ kind: "host", value: "codex" }],
-        kind: "host-capability",
-        message: "Codex CLI is unavailable",
-        problem: "Codex CLI is unavailable",
+    const machine = machineReport([
+      machineProject("/project-a", { blockers: structured.blockers }),
+    ]);
+    expect(JSON.parse(formatLifecycleJson("preview", machine))).toMatchObject({
+      schemaVersion: 5,
+      globalBlockers: [],
+      projects: [{
         project: "/project-a",
-        remedy: "Install a supported Codex CLI, then retry",
-        requirement: "The selected Profile requires Codex project delivery",
-        scope: "project",
+        blockers: [{
+          affectedItems: [{ kind: "host", value: "codex" }],
+          kind: "host-capability",
+          message: "Codex CLI is unavailable",
+          problem: "Codex CLI is unavailable",
+          project: "/project-a",
+          remedy: "Install a supported Codex CLI, then retry",
+          requirement: "The selected Profile requires Codex project delivery",
+          scope: "project",
+        }],
       }],
     });
   });
@@ -1232,7 +1274,6 @@ describe("formatLifecycleReport concise terminology", () => {
         normalizeBlocker({
           affectedItems: [],
           kind: "host-capability",
-          message: "Installation State is unreadable",
           problem: "Installation State is unreadable",
           remedy: "Restore or repair Installation State, then retry",
           requirement: "Lifecycle commands require readable Installation State",
@@ -2534,194 +2575,65 @@ describe("formatLifecycleReport next-action guidance", () => {
 });
 
 describe("Machine surface JSON and exit codes", () => {
-  test("lifecycle JSON covers outcome, installations, paths, blockers, warnings, and setup steps", () => {
-    const report = emptyReport({
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        hosts: ["codex", "claude"],
-        outputs: [".codex/skills/demo", "AGENTS.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-        setupSteps: [
-          {
-            host: "codex",
-            kind: "approval-required",
-            message: "Approve the hook.",
-            output: ".codex/hooks.json",
-            provenance: "transition",
-          },
-          {
-            host: "codex",
-            kind: "trust-required",
-            message: "Trust the project.",
-            provenance: "standing",
-          },
-          {
-            host: "codex",
-            kind: "launch-constraint",
-            message: "Launch from the exact bound project root:",
-            path: "bound-project",
-            provenance: "standing",
-          },
-        ],
-      }],
-      items: [{ kind: "addition", project: "/project-a" }],
-      outputs: [
-        { kind: "addition", path: ".codex/skills/demo", project: "/project-a" },
-        { kind: "addition", path: "AGENTS.md", project: "/project-a" },
-      ],
-      blockers: [fixtureBlocker("Claude CLI missing", "/project-a")],
-      warnings: ["workspace source is large"],
-    });
+  const project = "/project-a";
+  const desired = {
+    context: "composed",
+    hosts: ["codex"] as const,
+    outputs: ["a.md"],
+    profile: "coding",
+    resolvedArtifacts: [],
+  };
 
-    const payload = JSON.parse(formatLifecycleJson("preview", report)) as Record<string, unknown>;
+  test("lifecycle JSON publishes complete nested Project evidence under schema version 5", () => {
+    const blocker = fixtureBlocker("CLI missing", project);
+    const report = machineReport([
+      machineProject(project, {
+        desired,
+        state: { kind: "addition" },
+        outputs: [{ kind: "addition", path: "a.md", consumingHosts: ["codex"] }],
+        blockers: [blocker],
+        warnings: [{ message: "Review /copy/me", copyableValues: ["/copy/me"] }],
+        setupSteps: [{
+          host: "codex",
+          kind: "approval-required",
+          message: "Approve the hook.",
+          output: ".codex/hooks.json",
+          provenance: "transition",
+        }],
+        repositoryExclusions: [{
+          current: [],
+          next: ["/.agent-profile-kit/"],
+          target: "/project-a/.git/info/exclude",
+        }],
+        repositoryExclusionRepairs: [{
+          entries: ["/.agent-profile-kit/"],
+          target: "/project-a/.git/info/exclude",
+        }],
+      }),
+    ]);
 
-    expect(payload).toMatchObject({
-      schemaVersion: 4,
-      command: "preview",
-      outcome: "blocked",
+    const payload = JSON.parse(formatLifecycleJson("preview", report));
+    expect(payload.schemaVersion).toBe(5);
+    expect(payload.command).toBe("preview");
+    expect(payload.outcome).toBe("blocked");
+    expect(payload.globalBlockers).toEqual([]);
+    expect(payload.projects).toEqual([{
+      canonicalProject: project,
+      project,
+      desired: { profile: "coding", hosts: ["codex"] },
+      state: { kind: "addition" },
+      outputs: [{ kind: "addition", path: "a.md", consumingHosts: ["codex"] }],
       blockers: [{
         affectedItems: [],
         kind: "occupied-output",
-        message: "Claude CLI missing",
-        problem: "Claude CLI missing",
-        project: "/project-a",
+        message: "CLI missing",
+        problem: "CLI missing",
+        project,
         remedy: "Resolve the reported blocker, then retry",
         requirement: "Lifecycle commands cannot proceed while blocked",
         scope: "project",
       }],
-      warnings: ["workspace source is large"],
-    });
-    expect(payload.installations).toEqual([{
-      project: "/project-a",
-      canonicalProject: "/project-a",
-      profile: "coding",
-      hosts: ["codex", "claude"],
-      state: "addition",
-    }]);
-    expect(payload.outputs).toEqual([
-      { kind: "addition", path: ".codex/skills/demo", project: "/project-a" },
-      { kind: "addition", path: "AGENTS.md", project: "/project-a" },
-    ]);
-    expect(payload).not.toHaveProperty("impacts");
-    expect(payload.setupSteps).toEqual([
-      {
-        host: "codex",
-        kind: "approval-required",
-        message: "Approve the hook.",
-        output: ".codex/hooks.json",
-        provenance: "transition",
-      },
-      {
-        host: "codex",
-        kind: "trust-required",
-        message: "Trust the project.",
-        provenance: "standing",
-      },
-      {
-        host: "codex",
-        kind: "launch-constraint",
-        message: "Launch from the exact bound project root:",
-        path: "bound-project",
-        provenance: "standing",
-        project: "/project-a",
-      },
-    ]);
-    expect(lifecycleExitCode(report)).toBe(2);
-  });
-
-  test("lifecycle exit code is 0 when clean or only pending work exists", () => {
-    expect(lifecycleExitCode(emptyReport())).toBe(0);
-    expect(lifecycleExitCode(identityReport("/project-a"))).toBe(0);
-    expect(lifecycleExitCode(emptyReport({
-      items: [{ kind: "current", project: "/project-a" }],
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-      }],
-    }))).toBe(0);
-  });
-
-  test("status and preview share the same blocked outcome and exit code semantics", () => {
-    const report = emptyReport({
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-      }],
-      items: [{ kind: "blocked", project: "/project-a", reason: "tracked path" }],
-      blockers: [fixtureBlocker("tracked path", "/project-a")],
-    });
-
-    for (const command of ["status", "preview"] as const) {
-      const payload = JSON.parse(formatLifecycleJson(command, report)) as {
-        readonly outcome: string;
-        readonly command: string;
-      };
-      expect(payload.command).toBe(command);
-      expect(payload.outcome).toBe("blocked");
-      expect(lifecycleExitCode(report)).toBe(2);
-    }
-  });
-
-  test("apply JSON separates committed receipt paths from pending resulting state", () => {
-    const receipt = emptyReport({
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-        setupSteps: [
-          {
-            host: "codex",
-            kind: "approval-required",
-            message: "Approve the hook.",
-            output: ".codex/hooks.json",
-            provenance: "transition",
-          },
-        ],
-      }],
-      items: [{ kind: "addition", project: "/project-a" }],
-      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-    });
-    const resultingState = emptyReport({
-      desired: receipt.desired,
-      items: [{ kind: "current", project: "/project-a" }],
-      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
-    });
-
-    const payload = JSON.parse(formatApplyJson(applyResult(receipt, resultingState))) as Record<string, unknown>;
-
-    expect(payload).toMatchObject({
-      schemaVersion: 4,
-      command: "apply",
-      outcome: "clean",
-      installations: [{
-        project: "/project-a",
-        canonicalProject: "/project-a",
-        profile: "coding",
-        hosts: ["codex"],
-        state: "current",
-      }],
-      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
-      applied: {
-        installations: [{
-          project: "/project-a",
-          state: "addition",
-        }],
-        outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-      },
+      warnings: [{ message: "Review /copy/me", copyableValues: ["/copy/me"] }],
       setupSteps: [{
         host: "codex",
         kind: "approval-required",
@@ -2729,186 +2641,139 @@ describe("Machine surface JSON and exit codes", () => {
         output: ".codex/hooks.json",
         provenance: "transition",
       }],
-    });
-    expect(payload).not.toHaveProperty("impacts");
-    expect(payload.applied).not.toHaveProperty("impacts");
-    expect(lifecycleExitCode(resultingState)).toBe(0);
-  });
-
-  test("blocked apply JSON reports blocked outcome without an applied receipt", () => {
-    const report = asBlockedReport(emptyReport({
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-      }],
-      items: [{ kind: "blocked", project: "/project-a", reason: "CLI missing" }],
-      blockers: [fixtureBlocker("CLI missing", "/project-a")],
-    }));
-
-    const payload = JSON.parse(formatBlockedApplyJson(report)) as Record<string, unknown>;
-
-    expect(payload).toMatchObject({
-      schemaVersion: 4,
-      command: "apply",
-      outcome: "blocked",
-      blockers: [{
-        affectedItems: [],
-        kind: "occupied-output",
-        message: "CLI missing",
-        problem: "CLI missing",
-        project: "/project-a",
-        remedy: "Resolve the reported blocker, then retry",
-        requirement: "Lifecycle commands cannot proceed while blocked",
-        scope: "project",
-      }],
-    });
-    expect(payload.applied).toBeUndefined();
-    expect(lifecycleExitCode(report)).toBe(2);
-  });
-
-  test("apply verification-failure JSON uses outcome error with a typed error field", () => {
-    const receipt = emptyReport({
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-      }],
-      items: [{ kind: "addition", project: "/project-a" }],
-      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-      blockers: [fixtureBlocker("still blocked", "/project-a")],
-    });
-
-    const payload = JSON.parse(
-      formatApplyVerificationFailureJson(receipt, "post-apply verification failed: boom"),
-    ) as Record<string, unknown>;
-
-    expect(payload).toMatchObject({
-      schemaVersion: 4,
-      command: "apply",
-      outcome: "error",
-      error: "post-apply verification failed: boom",
-      blockers: [{
-        affectedItems: [],
-        kind: "occupied-output",
-        message: "still blocked",
-        problem: "still blocked",
-        project: "/project-a",
-        remedy: "Resolve the reported blocker, then retry",
-        requirement: "Lifecycle commands cannot proceed while blocked",
-        scope: "project",
-      }],
-      applied: {
-        outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-      },
-      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-    });
-  });
-
-  test("pending work without blockers is attention with exit code 0 for every lifecycle command", () => {
-    const report = identityReport("/project-a");
-    for (const command of ["preview", "status"] as const) {
-      const payload = JSON.parse(formatLifecycleJson(command, report)) as {
-        readonly outcome: string;
-      };
-      expect(payload.outcome).toBe("attention");
-    }
-    const applyPayload = JSON.parse(
-      formatApplyJson(applyResult(report, report)),
-    ) as { readonly outcome: string };
-    expect(applyPayload.outcome).toBe("attention");
-    expect(lifecycleExitCode(report)).toBe(0);
-  });
-
-  test("JSON includes repository exclusion evidence and omits empty profile hosts for removals", () => {
-    const report = emptyReport({
-      desired: [],
-      items: [{ kind: "removal", project: "/retired", reason: "unbound" }],
-      outputs: [{ kind: "removal", path: "a.md", project: "/retired" }],
       repositoryExclusions: [{
-        current: ["/.agent-profile-kit/"],
-        next: [],
-        target: "/retired/.git/info/exclude",
+        current: [],
+        next: ["/.agent-profile-kit/"],
+        target: "/project-a/.git/info/exclude",
       }],
       repositoryExclusionRepairs: [{
         entries: ["/.agent-profile-kit/"],
-        target: "/retired/.git/info/exclude",
+        target: "/project-a/.git/info/exclude",
       }],
-    });
-
-    const payload = JSON.parse(formatLifecycleJson("status", report)) as {
-      readonly installations: readonly Record<string, unknown>[];
-      readonly repositoryExclusions: readonly unknown[];
-      readonly repositoryExclusionRepairs: readonly unknown[];
-    };
-
-    expect(payload.installations).toEqual([{
-      canonicalProject: "/retired",
-      project: "/retired",
-      reason: "unbound",
-      state: "removal",
     }]);
-    expect(payload.installations[0]).not.toHaveProperty("profile");
-    expect(payload.installations[0]).not.toHaveProperty("hosts");
-    expect(payload.repositoryExclusions).toEqual([{
-      current: ["/.agent-profile-kit/"],
-      next: [],
-      target: "/retired/.git/info/exclude",
-    }]);
-    expect(payload.repositoryExclusionRepairs).toEqual([{
-      entries: ["/.agent-profile-kit/"],
-      target: "/retired/.git/info/exclude",
-    }]);
+    expect(payload).not.toHaveProperty("installations");
+    expect(payload).not.toHaveProperty("outputs");
+    expect(lifecycleExitCode(report)).toBe(2);
   });
 
-  test("tool-error JSON uses outcome error for every lifecycle command", () => {
+  test("machine JSON preserves warning and Git exclusion attribution across Projects", () => {
+    const report = machineReport([
+      machineProject("/project-a", {
+        warnings: [{ message: "Review A", copyableValues: ["/copy/a"] }],
+        repositoryExclusions: [{
+          current: [],
+          next: ["/a"],
+          target: "/repo-a/.git/info/exclude",
+        }],
+      }),
+      machineProject("/project-b", {
+        warnings: [{ message: "Review B", copyableValues: ["/copy/b"] }],
+        repositoryExclusions: [{
+          current: ["/old-b"],
+          next: ["/b"],
+          target: "/repo-b/.git/info/exclude",
+        }],
+      }),
+    ]);
+
+    const projects = JSON.parse(formatLifecycleJson("status", report)).projects;
+    expect(projects.map((entry: Record<string, unknown>) => ({
+      project: entry.project,
+      warnings: entry.warnings,
+      repositoryExclusions: entry.repositoryExclusions,
+    }))).toEqual([
+      {
+        project: "/project-a",
+        warnings: [{ message: "Review A", copyableValues: ["/copy/a"] }],
+        repositoryExclusions: [{
+          current: [], next: ["/a"], target: "/repo-a/.git/info/exclude",
+        }],
+      },
+      {
+        project: "/project-b",
+        warnings: [{ message: "Review B", copyableValues: ["/copy/b"] }],
+        repositoryExclusions: [{
+          current: ["/old-b"], next: ["/b"], target: "/repo-b/.git/info/exclude",
+        }],
+      },
+    ]);
+  });
+
+  test("apply JSON keeps applied work distinct from resulting state", () => {
+    const receipt = machineReport([
+      machineProject(project, {
+        desired,
+        state: { kind: "addition" },
+        outputs: [{ kind: "addition", path: "a.md", consumingHosts: ["codex"] }],
+      }),
+    ]);
+    const resultingState = machineReport([
+      machineProject(project, {
+        desired,
+        state: { kind: "current" },
+        outputs: [{ kind: "unchanged", path: "a.md", consumingHosts: ["codex"] }],
+      }),
+    ]);
+
+    const payload = JSON.parse(formatApplyJson(machineApplyResult(receipt, resultingState)));
+    expect(payload.schemaVersion).toBe(5);
+    expect(payload.projects[0].state).toEqual({ kind: "current" });
+    expect(payload.applied.projects[0].state).toEqual({ kind: "addition" });
+  });
+
+  test("blocked apply JSON has no applied snapshot", () => {
+    const report = machineReport([
+      machineProject(project, { blockers: [fixtureBlocker("CLI missing", project)] }),
+    ]);
+
+    const payload = JSON.parse(formatBlockedApplyJson(report));
+    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 5 });
+    expect(payload).not.toHaveProperty("applied");
+    expect(payload.projects[0].blockers).toHaveLength(1);
+  });
+
+  test("apply verification failure JSON retains applied evidence and the typed error", () => {
+    const receipt = machineReport([
+      machineProject(project, {
+        state: { kind: "addition" },
+        outputs: [{ kind: "addition", path: "a.md", consumingHosts: ["codex"] }],
+      }),
+    ]);
+
+    const payload = JSON.parse(
+      formatApplyVerificationFailureJson(receipt, "post-apply verification failed: boom"),
+    );
+    expect(payload).toMatchObject({
+      command: "apply",
+      outcome: "error",
+      error: "post-apply verification failed: boom",
+      schemaVersion: 5,
+    });
+    expect(payload.projects[0].outputs).toEqual([
+      { kind: "addition", path: "a.md", consumingHosts: ["codex"] },
+    ]);
+    expect(payload.applied.projects[0].outputs).toEqual(payload.projects[0].outputs);
+  });
+
+  test("tool-error JSON uses the empty nested model", () => {
     for (const command of ["preview", "apply", "status"] as const) {
-      const payload = JSON.parse(
-        formatLifecycleToolErrorJson(command, "Local Configuration is missing"),
-      ) as Record<string, unknown>;
-      expect(payload).toMatchObject({
-        schemaVersion: 4,
+      expect(JSON.parse(formatLifecycleToolErrorJson(command, "missing"))).toEqual({
+        schemaVersion: 5,
         command,
         outcome: "error",
-        error: "Local Configuration is missing",
-        blockers: [],
-        installations: [],
-        outputs: [],
+        error: "missing",
+        globalBlockers: [],
+        projects: [],
       });
-      expect(payload).not.toHaveProperty("impacts");
     }
   });
 
-  test("aliases authored project items onto the canonical identity without dual-key fallback", () => {
-    const report = emptyReport({
-      desired: [{
-        canonicalProject: "/private/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-      }],
-      items: [{ kind: "addition", project: "/project-a" }],
-      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-    });
-
-    const payload = JSON.parse(formatLifecycleJson("preview", report)) as {
-      readonly installations: readonly Record<string, unknown>[];
-    };
-    expect(payload.installations).toEqual([{
-      project: "/project-a",
-      canonicalProject: "/private/project-a",
-      profile: "coding",
-      hosts: ["codex"],
-      state: "addition",
-    }]);
+  test("pending work remains attention with exit code 0", () => {
+    const report = machineReport([
+      machineProject(project, { state: { kind: "addition" } }),
+    ]);
+    expect(JSON.parse(formatLifecycleJson("status", report)).outcome).toBe("attention");
+    expect(lifecycleExitCode(report)).toBe(0);
   });
 });
 
@@ -3660,7 +3525,20 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(verbose).toContain("Blockers:");
     expect(verbose).not.toContain("Next:");
 
-    const payload = JSON.parse(formatLifecycleJson("preview", report)) as {
+    const machine = machineReport([
+      machineProject("/project-a", {
+        desired: {
+          context: "composed",
+          hosts: ["codex"],
+          outputs: ["a.md"],
+          profile: "coding",
+          resolvedArtifacts: [],
+        },
+        state: { kind: "addition" },
+        outputs: [{ kind: "addition", path: "a.md", consumingHosts: [] }],
+      }),
+    ]);
+    const payload = JSON.parse(formatLifecycleJson("preview", machine)) as {
       readonly command: string;
       readonly outcome: string;
       readonly schemaVersion: number;
@@ -3668,7 +3546,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(payload).toMatchObject({
       command: "preview",
       outcome: "attention",
-      schemaVersion: 4,
+      schemaVersion: 5,
     });
     expect(lifecycleExitCode(report)).toBe(0);
     expect(lifecycleExitCode(emptyReport({

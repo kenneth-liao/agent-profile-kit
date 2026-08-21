@@ -1339,24 +1339,20 @@ describe("project-bound release candidate", () => {
     const preview = await runCli(home, ["preview", "--json"], { path: pathWithHosts });
     expectExitCode(preview, 0);
     const previewJson = JSON.parse(preview.stdout) as {
-      readonly blockers: readonly unknown[];
-      readonly installations: readonly {
+      readonly globalBlockers: readonly unknown[];
+      readonly projects: readonly {
         readonly canonicalProject: string;
-        readonly state: string;
+        readonly outputs: readonly unknown[];
+        readonly state: { readonly kind: string };
       }[];
-      readonly outputs: readonly unknown[];
     };
-    expect(previewJson.blockers).toEqual([]);
-    expect(previewJson.installations).toHaveLength(12);
+    expect(previewJson.globalBlockers).toEqual([]);
+    expect(previewJson.projects).toHaveLength(12);
     // Canonical Project ordering is preserved across concurrent completion.
     const canonicalOrder = bindings.map((binding) => realpathSync(binding.project)).sort();
-    expect(previewJson.installations.map((installation) => installation.canonicalProject)).toEqual(
-      canonicalOrder,
-    );
-    expect(previewJson.installations.every((installation) => installation.state === "addition")).toBe(
-      true,
-    );
-    expect(previewJson.outputs.length).toBeGreaterThan(0);
+    expect(previewJson.projects.map((project) => project.canonicalProject)).toEqual(canonicalOrder);
+    expect(previewJson.projects.every((project) => project.state.kind === "addition")).toBe(true);
+    expect(previewJson.projects.flatMap((project) => project.outputs).length).toBeGreaterThan(0);
 
     // The same fixture reconciled sequentially in-process must produce the
     // identical versioned machine payload: the packed bounded-concurrency result
@@ -1378,25 +1374,21 @@ describe("project-bound release candidate", () => {
     const apply = await runCli(home, ["apply", "--json"], { path: pathWithHosts });
     expectExitCode(apply, 0);
     const applyJson = JSON.parse(apply.stdout) as {
-      readonly applied: { readonly installations: readonly unknown[] };
-      readonly installations: readonly { readonly state: string }[];
+      readonly applied: { readonly projects: readonly unknown[] };
+      readonly projects: readonly { readonly state: { readonly kind: string } }[];
     };
-    expect(applyJson.applied.installations).toHaveLength(12);
-    expect(applyJson.installations).toHaveLength(12);
-    expect(applyJson.installations.every((installation) => installation.state === "current")).toBe(
-      true,
-    );
+    expect(applyJson.applied.projects).toHaveLength(12);
+    expect(applyJson.projects).toHaveLength(12);
+    expect(applyJson.projects.every((project) => project.state.kind === "current")).toBe(true);
 
     const status = await runCli(home, ["status", "--json"], { path: pathWithHosts });
     expectExitCode(status, 0);
     const statusJson = JSON.parse(status.stdout) as {
-      readonly installations: readonly { readonly state: string }[];
+      readonly projects: readonly { readonly state: { readonly kind: string } }[];
       readonly outcome: string;
     };
     expect(statusJson.outcome).toBe("clean");
-    expect(statusJson.installations).toHaveLength(12);
-    expect(statusJson.installations.every((installation) => installation.state === "current")).toBe(
-      true,
-    );
+    expect(statusJson.projects).toHaveLength(12);
+    expect(statusJson.projects.every((project) => project.state.kind === "current")).toBe(true);
   }, 60_000);
 });

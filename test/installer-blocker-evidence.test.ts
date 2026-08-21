@@ -133,15 +133,15 @@ describe("structured Installer blocker evidence", () => {
     expect(human).toContain("Global blockers:");
     expect(human).toContain(blocker.message);
     const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
-      readonly blockers: readonly Record<string, unknown>[];
+      readonly globalBlockers: readonly Record<string, unknown>[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(4);
-    expect(machine.blockers).toEqual([{
+    expect(machine.schemaVersion).toBe(5);
+    expect(machine.globalBlockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
       message: blocker.message,
-      problem: "Installation State could not be read",
+      problem: blocker.problem,
       requirement: "Lifecycle commands require readable Installation State",
       remedy: "Restore or repair the Installation State file, then retry",
       affectedItems: [{ kind: "path", value: statePath }],
@@ -277,12 +277,16 @@ describe("structured Installer blocker evidence", () => {
     expect(human).toContain("Global blockers:");
     expect(human).toContain("missing its Git exclusion record");
     const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
-      readonly blockers: readonly Record<string, unknown>[];
+      readonly globalBlockers: readonly Record<string, unknown>[];
     };
-    expect(machine.blockers.some((candidate) => candidate.message === blocker.message)).toBe(true);
-    expect(machine.blockers.some((candidate) => candidate.kind === REPOSITORY_EXCLUSION_RECORD)).toBe(true);
-    expect(machine.blockers.some((candidate) => candidate.scope === "global")).toBe(true);
-    expect(machine.blockers.some((candidate) => (
+    expect(machine.globalBlockers.some(
+      (candidate) => candidate.message === blocker.message
+    )).toBe(true);
+    expect(machine.globalBlockers.some(
+      (candidate) => candidate.kind === REPOSITORY_EXCLUSION_RECORD
+    )).toBe(true);
+    expect(machine.globalBlockers.some((candidate) => candidate.scope === "global")).toBe(true);
+    expect(machine.globalBlockers.some((candidate) => (
       candidate.affectedItems as readonly { kind: string; value: string }[]
     ).some((item) => item.kind === "installation-id" && item.value === installationId))).toBe(true);
   });

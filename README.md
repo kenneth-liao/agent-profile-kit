@@ -118,14 +118,16 @@ Machine-readable command contracts:
   Project paths, Profile IDs, and Hosts. Removed identities and ordinary
   installations are omitted. It reads Installation State only and never runs
   reconciliation or changes state.
-- Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 4`
-  object with `outcome`, per-installation state, ordered Capability Contracts,
-  planned or committed output operations, per-path consuming-Host evidence,
-  warnings, Host Setup Steps, repository-exclusion evidence, and blockers
-  serialized from their exhaustive structured records: `kind`, `scope`, Project
-  identity when scoped, `message`, `problem`, `requirement`, `remedy`, and
-  `affectedItems`. Blocked `install-temp`/`remove-temp` JSON uses the same
-  structured blocker records. Combined with `--verbose`, machine output wins.
+- Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 5`
+  object with global Blockers and one deterministic record per Project. Each
+  Project record keeps desired identity, state, output operations with consuming
+  Hosts, structured warnings with copyable values, Host Setup Steps, Project
+  Blockers, and repository-exclusion evidence together. Blockers serialize
+  `kind`, `scope`, Project identity when scoped, derived `message`, `problem`,
+  `requirement`, `remedy`, and `affectedItems`. Apply keeps an `applied` nested
+  snapshot distinct from the freshly verified resulting Project records.
+  Blocked `install-temp`/`remove-temp` JSON retains its own versioned structured
+  blocker contract. Combined with `--verbose`, machine output wins.
 - Exit codes: `0` no tool error and no blockers (JSON `outcome` may still be
   `attention` for pending work), `1` tool error (JSON `outcome: "error"` with
   an `error` string when `--json` was accepted), `2` blockers present.

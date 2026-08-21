@@ -209,7 +209,7 @@ describe("Skills-only Profiles", () => {
       ".agents/skills/review-pr",
     ]);
     expect(installation.setupSteps).toEqual([]);
-    expect(installation.warnings.some((warning) => /Context discovery/i.test(warning))).toBe(
+    expect(installation.warnings.some((warning) => /Context discovery/i.test(warning.message))).toBe(
       false,
     );
 
@@ -335,7 +335,7 @@ describe("Skills-only Profiles", () => {
         provenance: "standing",
       },
     ]);
-    expect(installation.warnings.some((warning) => warning.includes("not a Git worktree"))).toBe(
+    expect(installation.warnings.some((warning) => warning.message.includes("not a Git worktree"))).toBe(
       false,
     );
     const report = await previewReconciliation(desired.installations, {

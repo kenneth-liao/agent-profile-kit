@@ -42,6 +42,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Publish reconciliation as global Blockers plus one complete deterministic record per Project, with output consumers, structured warnings and copyable values, setup guidance, and Git exclusion work kept beside that Project; lifecycle JSON advances to schema version 5 with the same nested model and keeps applied work separate from freshly verified resulting state. Blocker messages are now derived projections of canonical structured evidence, while the existing human lifecycle presentation remains stable through a temporary typed projection ([#248](https://github.com/kenneth-liao/agent-profile-kit/issues/248)).
+
 - Route Temporary Profile Installation capability checks, Project-surface checks, warnings, Capability Contracts, setup steps, and outputs through each eligible Host's canonical registered Adapter while preserving the temporary install/remove contract ([#247](https://github.com/kenneth-liao/agent-profile-kit/issues/247)).
 
 - Route Grok capability probing, dynamic inspection, Project-surface validation, warnings, topology, setup, and output planning through its registered complete Adapter; ordinary Installer planning now iterates every selected Adapter without Host-specific fallback ([#246](https://github.com/kenneth-liao/agent-profile-kit/issues/246)).

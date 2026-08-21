@@ -120,12 +120,16 @@ JSON serializer in `cli/presentation.ts`: exit `0` means no tool error and no
 blockers (JSON `outcome` may still be `attention` for pending work), exit `1`
 is a tool error (`outcome: "error"` under `--json` when flags were accepted),
 and exit `2` means blockers are present. The lifecycle JSON contract is versioned
-(`schemaVersion: 4`), serializes every Blocker directly from its exhaustive
-structured record (`kind`, `scope`, Project identity when scoped, `message`,
-`problem`, `requirement`, `remedy`, and `affectedItems`) without parsing rendered
-prose, and publishes flat installations, observable output operations, blockers,
-setup steps, warning, and exclusion evidence. It carries no separate lifecycle-
-impact collection and is not stability-guaranteed before 1.0. Blocked temporary-installation
+(`schemaVersion: 5`) and publishes global Blockers plus one deterministic record
+per Project. Each Project record owns desired identity, state, observable output
+operations with consuming Hosts, Project Blockers, structured warnings with their
+copyable values, Host Setup Steps, and repository-exclusion work. Every Blocker
+serializes its exhaustive structured evidence (`kind`, `scope`, Project identity
+when scoped, derived `message`, `problem`, `requirement`, `remedy`, and
+`affectedItems`) without parsing rendered prose. Apply publishes the pre-apply
+work as a nested `applied` snapshot distinct from the freshly verified resulting
+Project records. The contract carries no separate lifecycle-impact collection
+and is not stability-guaranteed before 1.0. Blocked temporary-installation
 JSON advances to the same versioned structured blocker records. Temporary
 installation receipts use the same exit matrix (`0` / `1` / `2`) with their own
 versioned JSON schema and carry no blocker records.
@@ -337,7 +341,7 @@ One machine-local Installation Manifest records each project's selected Profile,
 
 The recorded `engine_version` is installation provenance, not desired state. A newer CLI leaves an otherwise-current Profile Installation untouched; the provenance advances only when another real reconciliation change publishes a new Manifest.
 
-Reconciliation publishes observable per-path output operations without deriving a second causal lifecycle model. Concise fleet presentation groups those operations and affected Projects directly; verbose and machine views retain the complete flat evidence. The apply receipt remains the pre-apply work record, while a fresh post-commit reconciliation remains authoritative for resulting state.
+Reconciliation returns global Blockers plus one complete record per Project, ordered by canonical Project identity. A Project record owns desired identity, state, observable output operations and their consuming Hosts, Project Blockers, structured warnings and copyable values, Host Setup Steps, and Git exclusion changes. No report consumer joins parallel Project or path collections. Blocker messages are immutable projections derived when structured problem, requirement, remedy, scope, and affected-item evidence is normalized; emitters cannot author a second message field. The existing human renderer temporarily consumes one typed nested-to-flat projection, which preserves its established output until direct typed rendering replaces it. The apply receipt remains the pre-apply work record, while a fresh post-commit reconciliation remains authoritative for resulting state.
 
 New Manifests also retain the installation-time `git_project` classification. It distinguishes a deleted Git installation whose Repository Exclusion Record is missing from a non-Git installation without rediscovering ancestors or Git worktree topology; Repository Exclusion Records remain the sole source for exclusion targets and entries.
 

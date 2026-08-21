@@ -28,7 +28,6 @@ interface StructuredBlockerCommon {
   readonly affectedItems: readonly BlockerAffectedItem[];
   /** Typed blocker class; the exhaustive vocabulary is {@link BLOCKER_KINDS}. */
   readonly kind: BlockerKind;
-  readonly message: string;
   readonly problem: string;
   readonly remedy: string;
   readonly requirement: string;
@@ -60,8 +59,11 @@ export type GlobalScopedBlockerInput = StructuredBlockerInput & {
 const STRUCTURED_BLOCKER: unique symbol = Symbol("structured blocker");
 
 /** A complete structured blocker returned by the normalization boundary. */
-export type StructuredReconciliationBlocker =
-  | (StructuredBlockerInput & { readonly [STRUCTURED_BLOCKER]: true });
+export type StructuredReconciliationBlocker = StructuredBlockerInput & {
+  /** Human wording derived from canonical structured evidence at normalization. */
+  readonly message: string;
+  readonly [STRUCTURED_BLOCKER]: true;
+};
 
 export type ReconciliationBlocker = StructuredReconciliationBlocker;
 
@@ -81,10 +83,9 @@ export function hostCapabilityBlocker(
       ? [{ kind: "host", value: host }]
       : capabilityAffectedItems(failure.affectedItems),
     kind: failure === undefined ? HOST_CAPABILITY_UNCLASSIFIED : HOST_CAPABILITY,
-    message: displayProject === undefined
+    problem: displayProject === undefined
       ? message
       : `${displayProject}: ${message}`,
-    problem: failure?.problem ?? "Host capability preflight could not complete",
     project,
     remedy: failure?.remedy ?? "Inspect the underlying error before retrying",
     requirement: failure?.requirement ?? capabilityRequirement(host),
@@ -177,7 +178,6 @@ export type BlockerKind = (typeof BLOCKER_KINDS)[number];
 function globalBlocker(input: {
   readonly affectedItems: readonly BlockerAffectedItem[];
   readonly kind: BlockerKind;
-  readonly message: string;
   readonly problem: string;
   readonly remedy: string;
   readonly requirement: string;
@@ -185,7 +185,6 @@ function globalBlocker(input: {
   return {
     affectedItems: input.affectedItems,
     kind: input.kind,
-    message: input.message,
     problem: input.problem,
     remedy: input.remedy,
     requirement: input.requirement,
@@ -196,7 +195,6 @@ function globalBlocker(input: {
 function projectBlocker(input: {
   readonly affectedItems: readonly BlockerAffectedItem[];
   readonly kind: BlockerKind;
-  readonly message: string;
   readonly problem: string;
   readonly project: string;
   readonly remedy: string;
@@ -205,7 +203,6 @@ function projectBlocker(input: {
   return {
     affectedItems: input.affectedItems,
     kind: input.kind,
-    message: input.message,
     problem: input.problem,
     project: input.project,
     remedy: input.remedy,
@@ -222,8 +219,7 @@ export function installationStateUnreadableBlocker(options: {
   return globalBlocker({
     affectedItems: [{ kind: "path", value: options.statePath }],
     kind: INSTALLATION_STATE_UNREADABLE,
-    message: options.message,
-    problem: "Installation State could not be read",
+    problem: options.message,
     remedy: "Restore or repair the Installation State file, then retry",
     requirement: "Lifecycle commands require readable Installation State",
   });
@@ -237,10 +233,7 @@ export function repositoryExclusionRecordBlocker(options: {
   return globalBlocker({
     affectedItems: options.affectedItems,
     kind: REPOSITORY_EXCLUSION_RECORD,
-    message: options.message,
-    problem:
-      "A Repository Exclusion Record does not match its recorded Installation Manifest, " +
-      "Installation ID, or the live Git repository-local target",
+    problem: options.message,
     remedy:
       "Restore Installation State from a known-good backup so each Repository Exclusion " +
       "Record matches its Installation Manifest, Installation ID, and live Git " +
@@ -259,10 +252,7 @@ export function repositoryExclusionTargetUnprovenBlocker(options: {
   return globalBlocker({
     affectedItems: [{ kind: "path", value: options.project }],
     kind: REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
-    message: options.message,
-    problem:
-      "The Git project or repository-local exclusion target recorded by an Installation " +
-      "Manifest could not be proven",
+    problem: options.message,
     remedy:
       "Restore the Project root or Git repository at the recorded path, or restore " +
       "Installation State from a known-good backup, then retry",
@@ -280,10 +270,7 @@ export function repositoryExclusionSectionMissingBlocker(options: {
   return globalBlocker({
     affectedItems: [{ kind: "path", value: options.target }],
     kind: REPOSITORY_EXCLUSION_SECTION_MISSING,
-    message: options.message,
-    problem:
-      "An intentionally deleted Git project's recorded exclusion section is missing " +
-      "from its repository-local exclude file",
+    problem: options.message,
     remedy:
       "Restore the recorded Agent Profile Kit exclusion section in the repository-local " +
       "exclude file, then retry",
@@ -301,8 +288,7 @@ export function repositoryExclusionInvalidBlocker(options: {
   return globalBlocker({
     affectedItems: [{ kind: "path", value: options.target }],
     kind: REPOSITORY_EXCLUSION_INVALID,
-    message: options.message,
-    problem: "A repository-local Git exclusion target could not be read or validated safely",
+    problem: options.message,
     remedy:
       "Repair the repository-local exclusion file to match the recorded Agent Profile Kit " +
       "ownership, or restore a backup, then retry",
@@ -321,10 +307,7 @@ export function occupiedOutputBlocker(options: {
   return projectBlocker({
     affectedItems: [{ kind: "path", value: options.path }],
     kind: OCCUPIED_OUTPUT,
-    message: options.message,
-    problem:
-      "A planned generated path or one of its parents is occupied by material Agent " +
-      "Profile Kit does not own",
+    problem: options.message,
     project: options.project,
     remedy:
       "Remove, move, or adopt the occupying material yourself, or change the Project " +
@@ -344,10 +327,7 @@ export function installationMarkerBlocker(options: {
   return projectBlocker({
     affectedItems: [{ kind: "path", value: INSTALLATION_MARKER_PATH }],
     kind: INSTALLATION_MARKER,
-    message: options.message,
-    problem:
-      "The Installation Marker that links this Project to its Installation Manifest is " +
-      "missing, malformed, or owned by another installation",
+    problem: options.message,
     project: options.project,
     remedy:
       "Restore the Installation Marker linked to this Project's Installation Manifest, or " +
@@ -366,10 +346,7 @@ export function installationOwnershipBlocker(options: {
   return projectBlocker({
     affectedItems: [],
     kind: INSTALLATION_OWNERSHIP,
-    message: options.message,
-    problem:
-      "The Profile Installation's owned output could not be proven or reconciled at its " +
-      "recorded Project root",
+    problem: options.message,
     project: options.project,
     remedy:
       "Move the change into the Workspace, restore the Installation Marker, or delete the " +
@@ -391,10 +368,7 @@ export function temporaryInstallationConflictBlocker(options: {
       ? []
       : [{ kind: "installation-id", value: options.temporaryInstallationId }],
     kind: TEMPORARY_INSTALLATION_CONFLICT,
-    message: options.message,
-    problem:
-      "The Project already hosts an installation whose lifetime conflicts with a " +
-      "receipt-owned temporary installation",
+    problem: options.message,
     project: options.project,
     remedy:
       "Remove the existing ordinary Profile Installation or the active Temporary Profile " +
@@ -414,10 +388,7 @@ export function temporaryInstallationRemovalBlocker(options: {
   return projectBlocker({
     affectedItems: options.outputs.map((output) => ({ kind: "path" as const, value: output })),
     kind: TEMPORARY_INSTALLATION_REMOVAL,
-    message: options.message,
-    problem:
-      "A Temporary Profile Installation could not be removed because its owned output or " +
-      "Installation Marker could not be proven safely",
+    problem: options.message,
     project: options.project,
     remedy:
       "Restore the Installation Marker matching the temporary installation identity, or " +
@@ -442,18 +413,9 @@ export function outputOwnershipConflictBlocker(options: {
     throw new TypeError("Output ownership conflict requires at least one conflicting path");
   }
   const paths = [...options.paths].sort(compareCanonicalStrings);
-  const first = join(options.project, paths[0]!);
   return {
     affectedItems: paths.map((path) => ({ kind: "path", value: path })),
     kind: OUTPUT_OWNERSHIP_CONFLICT,
-    // The message projection is the human presentation string; machine
-    // consumers read the structured evidence. When grouped it stays
-    // self-describing so a user fixing one conflict at a time still sees how
-    // many remain.
-    message: paths.length === 1
-      ? `${first} is a tracked project path`
-      : `${first} and ${paths.length - 1} more tracked project ` +
-        `${paths.length === 2 ? "path" : "paths"}`,
     problem:
       "These generated paths are tracked by Git, so Agent Profile Kit cannot write to them " +
       "without conflicting with repository ownership.",
@@ -484,7 +446,7 @@ function isStructuredInput(input: unknown): input is StructuredBlockerInput {
 function blockerContext(input: unknown): string {
   if (input === null || typeof input !== "object") return "";
   const record = input as Record<string, unknown>;
-  const details = ["kind", "project", "message", "scope"]
+  const details = ["kind", "project", "scope"]
     .flatMap((field) => {
       const value = record[field];
       return typeof value === "string" && value.length > 0
@@ -507,7 +469,6 @@ function requireText(
 }
 
 function validateStructuredInput(input: StructuredBlockerInput): void {
-  requireText(input.message, "message", input);
   requireText(input.kind, "kind", input);
   requireText(input.problem, "problem", input);
   requireText(input.requirement, "requirement", input);
@@ -544,6 +505,24 @@ function validateStructuredInput(input: StructuredBlockerInput): void {
   }
 }
 
+/** Derive the human projection from canonical structured evidence. */
+function derivedBlockerMessage(input: StructuredBlockerInput): string {
+  if (input.kind === OUTPUT_OWNERSHIP_CONFLICT && input.scope === "project") {
+    const paths = input.affectedItems
+      .filter((item) => item.kind === "path")
+      .map((item) => item.value)
+      .sort(compareCanonicalStrings);
+    if (paths.length > 0) {
+      const first = join(input.project, paths[0]!);
+      return paths.length === 1
+        ? `${first} is a tracked project path`
+        : `${first} and ${paths.length - 1} more tracked project ` +
+          `${paths.length === 2 ? "path" : "paths"}`;
+    }
+  }
+  return input.problem;
+}
+
 function canonicalStructuredBlocker(input: StructuredBlockerInput): StructuredReconciliationBlocker {
   const affectedItems = Object.freeze(
     input.affectedItems.map((item) => Object.freeze({ kind: item.kind, value: item.value })),
@@ -551,7 +530,7 @@ function canonicalStructuredBlocker(input: StructuredBlockerInput): StructuredRe
   const common = {
     affectedItems,
     kind: input.kind,
-    message: input.message,
+    message: derivedBlockerMessage(input),
     problem: input.problem,
     remedy: input.remedy,
     requirement: input.requirement,
