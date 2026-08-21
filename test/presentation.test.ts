@@ -1018,7 +1018,6 @@ test("terminal styling follows lifecycle labels emitted by the formatter", () =>
 /** Distinctive anchor phrases — not a second home for the full gloss table. */
 const STATE_ANCHORS: Readonly<Record<(typeof NON_CURRENT_STATE_ORDER)[number], string>> = {
   addition: "not installed yet",
-  "intended teardown": "deliberately removed by uninstall",
   "missing output": "not a safe automatic repair",
   update: "rewrite generated files managed by Agent Profile Kit",
   "stale source": "Workspace source changed",
@@ -1046,66 +1045,6 @@ function explanationLines(reportText: string): string[] {
 }
 
 describe("formatLifecycleReport concise terminology", () => {
-  test("renders intended teardown without unsafe framing or absent-Host setup", () => {
-    const report = emptyReport({
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-        setupSteps: [{ host: "codex", kind: "trust-required", message: "Trust the project.", provenance: "standing" }],
-      }],
-      items: [{
-        kind: "intended teardown",
-        project: "/project-a",
-        reason: "Output was removed by uninstall; Project Binding was preserved",
-      }],
-      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-    });
-
-    const concise = formatLifecycleReport("status", report);
-
-    expect(concise).toStartWith("Intentionally uninstalled\n");
-    expect(concise).toContain("Project Binding was preserved");
-    expect(concise).not.toContain("Attention required");
-    expect(concise).not.toContain("Codex setup:");
-  });
-
-  test("keeps mixed current and intended-teardown status non-alarming", () => {
-    const report = emptyReport({
-      desired: [
-        {
-          canonicalProject: "/project-a",
-          context: "composed",
-          outputs: ["a.md"],
-          profile: "coding",
-          project: "/project-a",
-          resolvedArtifacts: [],
-        },
-        {
-          canonicalProject: "/project-b",
-          context: "composed",
-          outputs: ["b.md"],
-          profile: "coding",
-          project: "/project-b",
-          resolvedArtifacts: [],
-        },
-      ],
-      items: [
-        { kind: "current", project: "/project-a" },
-        { kind: "intended teardown", project: "/project-b" },
-      ],
-      outputs: [{ kind: "addition", path: "b.md", project: "/project-b" }],
-    });
-
-    const concise = formatLifecycleReport("status", report);
-
-    expect(concise).toStartWith("Some Projects intentionally uninstalled\n");
-    expect(concise).not.toContain("Attention required");
-  });
-
   test("renders the uninstall receipt from removed ownership facts", () => {
     const receipt = formatUninstallResult({
       projects: [{

@@ -505,9 +505,11 @@ missing)`, and `this is not a safe automatic repair`. Deliberate teardown and
 unexplained loss render identically, though a Marker removed by the Installer
 itself is a distinguishable state.~~
 
-Shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124):
-`uninstall` now records intended teardown, and `status` renders it without the
-unsafe missing-output framing.
+Shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124), then simplified in [#242](https://github.com/kenneth-liao/agent-profile-kit/issues/242):
+`uninstall` now removes ordinary ownership state without writing separate teardown
+provenance. Because the preserved Project Binding remains desired state, `status`
+reports the Project as not installed and eligible for `apply`, without unsafe
+missing-output framing.
 
 ### ~~UJ-04~~
 ~~`apply` prints `Changes: none` (pending work against post-apply state) above

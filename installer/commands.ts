@@ -203,12 +203,13 @@ export async function statusApplication(
       if (blocked && (item.kind === "addition" || item.kind === "current")) {
         return { ...item, kind: "blocked" as const };
       }
-      if (item.kind !== "addition") return item;
-      return {
-        ...item,
-        kind: "missing output" as const,
-        reason: "Profile Installation is missing",
-      };
+      if (item.kind === "addition") {
+        return {
+          ...item,
+          reason: "Profile Installation is not installed; apply will create it",
+        };
+      }
+      return item;
     }),
   };
 }
@@ -277,15 +278,7 @@ async function uninstallApplicationLocked(home: string): Promise<UninstallResult
         : [canonicalRepositoryExclusionRecord(record.target, contributions)];
     });
     const afterOrdinaryUninstall = {
-      intendedTeardowns: [
-        ...state.intendedTeardowns,
-        ...state.installations.map((installation) => ({
-          hosts: installation.hosts,
-          installationId: installation.installationId,
-          profileId: installation.profileId,
-          project: installation.project,
-        })),
-      ],
+      intendedTeardowns: [],
       installations: [],
       repositoryExclusions: temporaryExclusions,
       schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,

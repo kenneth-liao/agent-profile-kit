@@ -196,7 +196,6 @@ function defaultDiagnosticText(text: string): string {
  */
 export const NON_CURRENT_STATE_ORDER = [
   "addition",
-  "intended teardown",
   "missing output",
   "update",
   "stale source",
@@ -223,9 +222,6 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
   addition:
     `The ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} is not installed yet; apply will create its ` +
     `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`,
-  "intended teardown":
-    `Generated files were deliberately removed by uninstall while the Project Binding was preserved; ` +
-    "apply will reinstall the current Profile.",
   update:
     `${capitalize(DEFAULT_VIEW_LEXICON.desiredState)} changed for this ` +
     `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}; apply will rewrite ` +
@@ -1260,16 +1256,6 @@ function outcomeLine(
     if (report.items.some((item) => item.kind !== "current")) return "Apply completed with attention";
     return "Apply complete";
   }
-  if (
-    report.blockers.length === 0 &&
-    report.items.length > 0 &&
-    report.items.some((item) => item.kind === "intended teardown") &&
-    report.items.every((item) => item.kind === "current" || item.kind === "intended teardown")
-  ) {
-    return report.items.some((item) => item.kind === "current")
-      ? "Some Projects intentionally uninstalled"
-      : "Intentionally uninstalled";
-  }
   const currentProjects = fullyCurrentProjectCount(report);
   if (currentProjects === undefined && report.items.length > 0) {
     return "Attention required";
@@ -1369,17 +1355,11 @@ function presentedSetupSteps(
   verbose: boolean,
 ): readonly PresentedSetupStep[] {
   if (command !== "status" && report.blockers.length > 0) return [];
-  const intentionallyUninstalledProjects = new Set(
-    report.items
-      .filter((item) => item.kind === "intended teardown")
-      .map((item) => item.project),
-  );
   const changeReport = changeEvidence ?? report;
   const triggeringOutputs = transitionTriggeringOutputs(changeReport);
   const workProjects = projectsWithReconciliationWork(changeReport);
   const steps: PresentedSetupStep[] = [];
   for (const installation of report.desired) {
-    if (intentionallyUninstalledProjects.has(installation.project)) continue;
     for (const step of installation.setupSteps) {
       const message = setupStepMessage(
         step,
