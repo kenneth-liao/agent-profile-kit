@@ -2,24 +2,9 @@ import { createHash } from "node:crypto";
 import { isAbsolute, join, posix } from "node:path";
 
 import {
-  assertClaudeProjectSurface,
-  claudeMachineRequirements,
-  CLAUDE_ADAPTER_VERSION,
-  planClaudeProject,
-  probeClaudeMachineCapability,
-} from "../adapters/claude.js";
-import {
-  codexMachineRequirements,
-  CODEX_ADAPTER_VERSION,
-  detectCodexProjectConfigurationWarnings,
-  planCodexProject,
-  probeCodexMachineCapability,
-} from "../adapters/codex.js";
-import {
   assertGrokProjectSurface,
   detectGrokProjectConfigurationWarnings,
   grokMachineRequirements,
-  GROK_ADAPTER_VERSION,
   grokClaudeRulesTopologyCapabilityError,
   inferGrokClaudeRulesEnabledFromOutputs,
   inspectGrokProject,
@@ -32,18 +17,17 @@ import {
   assertPiProjectSurface,
   detectPiSkillSettingsWarnings,
   piMachineRequirements,
-  PI_ADAPTER_VERSION,
   planPiProject,
   probePiMachineCapability,
 } from "../adapters/pi.js";
 import {
   assertAntigravityProjectSurface,
   antigravityMachineRequirements,
-  ANTIGRAVITY_ADAPTER_VERSION,
   planAntigravityProject,
   probeAntigravityMachineCapability,
 } from "../adapters/antigravity.js";
 import { isAdapterCapabilityError } from "../adapters/capability.js";
+import { adapterVersionFor, hostRegistrationFor } from "../adapters/registry.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
   AdapterDiagnosticWarning,
@@ -173,20 +157,6 @@ export function appendDiagnosticWarnings(
     );
     diagnosticValues.push(...diagnostic.copyableValues);
   }
-}
-
-/** Deterministic multi-Adapter version token recorded on the Installation Manifest. */
-export function adapterVersionFor(hosts: readonly SupportedHost[]): string {
-  const versions = hosts.map((host) => {
-    if (host === "claude") return CLAUDE_ADAPTER_VERSION;
-    if (host === "codex") return CODEX_ADAPTER_VERSION;
-    if (host === "grok") return GROK_ADAPTER_VERSION;
-    if (host === "pi") return PI_ADAPTER_VERSION;
-    if (host === "antigravity") return ANTIGRAVITY_ADAPTER_VERSION;
-    const exhaustive: never = host;
-    throw new Error(`Unsupported Agent Host '${String(exhaustive)}'`);
-  });
-  return [...new Set(versions)].sort().join("+");
 }
 
 export interface DesiredState {
@@ -682,45 +652,59 @@ export async function buildDesiredState(
     const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
     const capabilityEnvironment = options.env === undefined ? {} : { env: options.env };
     for (const host of binding.hosts) {
+      const registration = hostRegistrationFor(host);
+      if (registration.ordinaryPlanning === "complete") {
+        const result = await registration.adapter.planOrdinaryProject(
+          {
+            authoredProject: binding.project,
+            checkHostCapability: options.checkHostCapability !== false,
+            ...(options.env === undefined ? {} : { env: options.env }),
+            home,
+            profileId: profile.id,
+            project: binding.canonicalProject,
+            projectRelativeToGitRoot: gitProject?.relativeProject,
+            resolvedContexts: resolvedProfile.contexts,
+            resolvedSkills: resolvedProfile.skills,
+            ...(options.resolveHostTopology === undefined
+              ? {}
+              : { resolveHostTopology: options.resolveHostTopology }),
+            selectedHosts: binding.hosts,
+          },
+          {
+            materials: planning.materials,
+            planProjection: (key, plan) => planning.planHost(key, plan),
+            probeMachineCapability: (requirements, probe) =>
+              planning.probeHostCapability({ host, requirements }, probe),
+          },
+        );
+        for (const error of result.capabilityFailures) {
+          blockers.push(
+            hostCapabilityBlocker(
+              error,
+              host,
+              binding.canonicalProject,
+              binding.project,
+            ),
+          );
+        }
+        appendDiagnosticWarnings(
+          warnings,
+          diagnosticValues,
+          result.diagnostics,
+          binding.project,
+        );
+        if (result.plan !== undefined) {
+          plans.push(result.plan);
+          hostVersions[host] = result.plan.hostVersion;
+        }
+        continue;
+      }
+
+      const legacyHost = registration.host;
       let grokInspection: GrokInspection | undefined;
       if (options.checkHostCapability !== false) {
         try {
-          if (host === "codex") {
-            if (requireContext || requireDisabledModelInvocation) {
-              await planning.probeHostCapability(
-                {
-                  host,
-                  requirements: codexMachineRequirements({
-                    requireContext,
-                    requireDisabledModelInvocation,
-                  }),
-                },
-                () => probeCodexMachineCapability({
-                  ...capabilityEnvironment,
-                  requireContext,
-                  requireDisabledModelInvocation,
-                }),
-              );
-            }
-          } else if (host === "claude") {
-            await planning.probeHostCapability(
-              {
-                host,
-                requirements: claudeMachineRequirements({
-                  requireContext,
-                  requireDisabledModelInvocation,
-                }),
-              },
-              () => probeClaudeMachineCapability({
-                ...capabilityEnvironment,
-                requireContext,
-                requireDisabledModelInvocation,
-              }),
-            );
-            await assertClaudeProjectSurface(binding.canonicalProject, {
-              requireContext,
-            });
-          } else if (host === "grok") {
+          if (host === "grok") {
             const version = await planning.probeHostCapability(
               {
                 host,
@@ -844,84 +828,7 @@ export async function buildDesiredState(
           binding.project,
         );
       }
-      if (host === "codex") {
-        if (requireContext) {
-          appendDiagnosticWarnings(
-            warnings,
-            diagnosticValues,
-            await detectCodexProjectConfigurationWarnings(
-              home,
-              binding.canonicalProject,
-            ),
-            binding.project,
-          );
-        }
-        const contextPath = [
-          gitProject?.relativeProject ?? "",
-          ".agent-profile-kit",
-          "codex",
-          "context.md",
-        ].filter((part) => part.length > 0).join("/");
-        const requiresBoundRootLaunch = !gitProject && requireContext;
-        let adapterPlan: AdapterProjectPlan | undefined;
-        try {
-          adapterPlan = await planning.planHost(
-            {
-              host: "codex",
-              options: { contextPath, requiresBoundRootLaunch },
-              profileId: profile.id,
-              resolvedContexts: resolvedProfile.contexts,
-              resolvedSkills: resolvedProfile.skills,
-            },
-            () => planCodexProject(
-              profile.id,
-              resolvedProfile.contexts,
-              resolvedProfile.skills,
-              {
-                contextPath,
-                materials: planning.materials,
-                ...(requiresBoundRootLaunch ? { requiresBoundRootLaunch: true } : {}),
-              },
-            ),
-          );
-        } catch (error) {
-          if (!isAdapterCapabilityError(error)) throw error;
-          blockers.push(
-            hostCapabilityBlocker(
-              error,
-              "codex",
-              binding.canonicalProject,
-              binding.project,
-            ),
-          );
-        }
-        if (adapterPlan !== undefined) {
-          plans.push(adapterPlan);
-          hostVersions.codex = adapterPlan.hostVersion;
-        }
-        continue;
-      }
-      if (host === "claude") {
-        const adapterPlan = await planning.planHost(
-          {
-            host: "claude",
-            options: {},
-            profileId: profile.id,
-            resolvedContexts: resolvedProfile.contexts,
-            resolvedSkills: resolvedProfile.skills,
-          },
-          () => planClaudeProject(
-            profile.id,
-            resolvedProfile.contexts,
-            resolvedProfile.skills,
-            { materials: planning.materials },
-          ),
-        );
-        plans.push(adapterPlan);
-        hostVersions.claude = adapterPlan.hostVersion;
-        continue;
-      }
-      if (host === "grok") {
+      if (legacyHost === "grok") {
         const claudeCoSelected = binding.hosts.includes("claude");
         let claudeRulesEnabled = grokInspection?.claudeRulesEnabled;
         // Context delivery topology only matters when the Profile selects Context.
@@ -983,7 +890,7 @@ export async function buildDesiredState(
         hostVersions.grok = adapterPlan.hostVersion;
         continue;
       }
-      if (host === "pi") {
+      if (legacyHost === "pi") {
         const adapterPlan = await planning.planHost(
           {
             host: "pi",
@@ -1003,7 +910,7 @@ export async function buildDesiredState(
         hostVersions.pi = adapterPlan.hostVersion;
         continue;
       }
-      if (host === "antigravity") {
+      if (legacyHost === "antigravity") {
         let adapterPlan: AdapterProjectPlan | undefined;
         try {
           adapterPlan = await planning.planHost(
@@ -1038,8 +945,8 @@ export async function buildDesiredState(
         }
         continue;
       }
-      const exhaustive: never = host;
-      throw new Error(`Unsupported Agent Host '${String(exhaustive)}'`);
+      const exhaustive: never = legacyHost;
+      throw new Error(`Unsupported legacy Agent Host '${String(exhaustive)}'`);
     }
     const outputs = normalizeAdapterPlans(plans);
     assertResolvedOutputOrigins(outputs, resolvedProfile);
@@ -1071,7 +978,7 @@ export async function buildDesiredState(
   };
 }
 
-export { stateDirectory };
+export { adapterVersionFor, stateDirectory };
 
 export function stateManifestPath(home: string): string {
   return join(stateDirectory(home), "manifest.yaml");

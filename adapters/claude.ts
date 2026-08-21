@@ -1,10 +1,9 @@
-import { execFile } from "node:child_process";
-import { lstat } from "node:fs/promises";
 import { join, posix } from "node:path";
-import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 
 import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
+import type { CompleteHostAdapter } from "./adapter-contract.js";
+export { CLAUDE_ADAPTER_VERSION } from "./host-catalog.js";
 import { type ContextModuleSource } from "./context-envelope.js";
 import { capabilityFailure } from "./capability.js";
 import type {
@@ -14,6 +13,12 @@ import type {
   ProposedProjectFileOutput,
   ProposedProjectOutput,
 } from "./project-plan.js";
+import { invokeExecutable } from "./services/executable.js";
+import { classifyFileSystemEntry } from "./services/project-surface.js";
+import {
+  compareCoreSemanticVersions,
+  normalizeCoreSemanticVersion,
+} from "./services/semantic-version.js";
 import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
   DISABLED_MODEL_INVOCATION_REQUIREMENT,
@@ -22,10 +27,6 @@ import {
   type AdapterPlanningMaterials,
   type SkillPackageProjection,
 } from "./skill-package.js";
-
-const execFileAsync = promisify(execFile);
-
-export const CLAUDE_ADAPTER_VERSION = "claude-project-v1";
 
 /**
  * Capability-contract token recorded in Installation Manifest host_versions after
@@ -118,22 +119,6 @@ function memberBytesAsString(bytes: string | Uint8Array): string {
   return typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8");
 }
 
-async function pathKind(
-  path: string,
-): Promise<"missing" | "file" | "directory" | "symlink" | "other"> {
-  try {
-    const stats = await lstat(path);
-    if (stats.isSymbolicLink()) return "symlink";
-    if (stats.isFile()) return "file";
-    if (stats.isDirectory()) return "directory";
-    return "other";
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return "missing";
-    if (hasErrorCode(error, "ENOTDIR")) return "other";
-    throw error;
-  }
-}
-
 /** Parse the leading semver from `claude --version` output. */
 export function parseClaudeCliVersion(source: string): string {
   const match = source.match(/(\d+)\.(\d+)\.(\d+)/);
@@ -144,17 +129,7 @@ export function parseClaudeCliVersion(source: string): string {
       "install a supported Claude Code release",
     );
   }
-  return `${match[1]}.${match[2]}.${match[3]}`;
-}
-
-function compareSemver(left: string, right: string): number {
-  const leftParts = left.split(".").map(Number);
-  const rightParts = right.split(".").map(Number);
-  for (let index = 0; index < 3; index += 1) {
-    const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
-    if (delta !== 0) return delta < 0 ? -1 : 1;
-  }
-  return 0;
+  return normalizeCoreSemanticVersion(match[1]!, match[2]!, match[3]!);
 }
 
 /**
@@ -169,7 +144,7 @@ export function assertClaudeCliVersionSupported(
     readonly requireDisabledModelInvocation?: boolean;
   } = {},
 ): void {
-  if (compareSemver(version, CLAUDE_MINIMUM_CLI_VERSION) < 0) {
+  if (compareCoreSemanticVersions(version, CLAUDE_MINIMUM_CLI_VERSION) < 0) {
     if (options.requireDisabledModelInvocation) {
       throw capabilityFailure(
         "claude",
@@ -197,10 +172,9 @@ async function resolveClaudeCliVersion(
 ): Promise<string> {
   if (options.resolveVersion) return options.resolveVersion();
   try {
-    const { stdout, stderr } = await execFileAsync("claude", ["--version"], {
+    const { stdout, stderr } = await invokeExecutable("claude", ["--version"], {
       env: options.env ?? process.env,
-      encoding: "utf8",
-      timeout: 10_000,
+      timeoutMs: 10_000,
     });
     return parseClaudeCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
@@ -278,7 +252,7 @@ export async function assertClaudeProjectSurface(
 
   // Skills-only and Context-bearing plans both write under `.claude/`.
   const claudePath = join(project, ".claude");
-  const claudeKind = await pathKind(claudePath);
+  const claudeKind = await classifyFileSystemEntry(claudePath);
   if (claudeKind !== "missing" && claudeKind !== "directory") {
     const problem =
       `Claude project surface cannot host outputs: ${claudePath} is a ${claudeKind}, not a directory`;
@@ -297,7 +271,7 @@ export async function assertClaudeProjectSurface(
   }
 
   const rulesPath = join(project, ".claude", "rules");
-  const rulesKind = await pathKind(rulesPath);
+  const rulesKind = await classifyFileSystemEntry(rulesPath);
   if (rulesKind !== "missing" && rulesKind !== "directory") {
     const problem =
       `Claude project surface cannot host unscoped rules: ${rulesPath} is a ${rulesKind}, not a directory`;
@@ -411,6 +385,52 @@ function contextRule(
  * Pure Claude Adapter planner for Profile Context and portable Skills.
  * Does not write filesystem state or coordinate with other Adapters.
  */
+export const claudeAdapter = {
+  host: "claude",
+  async planOrdinaryProject(input, services) {
+    const requireContext = input.resolvedContexts.length > 0;
+    const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
+      input.resolvedSkills,
+    );
+    const capabilityFailures: unknown[] = [];
+    if (input.checkHostCapability) {
+      try {
+        const requirements = claudeMachineRequirements({
+          requireContext,
+          requireDisabledModelInvocation,
+        });
+        await services.probeMachineCapability(
+          requirements,
+          () => probeClaudeMachineCapability({
+            ...(input.env === undefined ? {} : { env: input.env }),
+            requireContext,
+            requireDisabledModelInvocation,
+          }),
+        );
+        await assertClaudeProjectSurface(input.project, { requireContext });
+      } catch (error) {
+        capabilityFailures.push(error);
+      }
+    }
+    const plan = await services.planProjection(
+      {
+        host: "claude",
+        options: {},
+        profileId: input.profileId,
+        resolvedContexts: input.resolvedContexts,
+        resolvedSkills: input.resolvedSkills,
+      },
+      () => planClaudeProject(
+        input.profileId,
+        input.resolvedContexts,
+        input.resolvedSkills,
+        { materials: services.materials },
+      ),
+    );
+    return { capabilityFailures, diagnostics: [], plan };
+  },
+} satisfies CompleteHostAdapter;
+
 export async function planClaudeProject(
   profileId: string,
   modules: readonly ContextModuleSource[],

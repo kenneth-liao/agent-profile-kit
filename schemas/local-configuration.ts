@@ -1,18 +1,17 @@
 import { parse, stringify } from "yaml";
 
+import {
+  isSupportedHost,
+  SUPPORTED_HOSTS,
+  type SupportedHost,
+} from "../adapters/host-catalog.js";
 import { requireArtifactId } from "./dependencies.js";
+
+export { isSupportedHost, SUPPORTED_HOSTS, type SupportedHost } from "../adapters/host-catalog.js";
 
 export const LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION = 1;
 export const LOCAL_CONFIGURATION_SCHEMA_VERSION = 2;
 export const LOCAL_CONFIGURATION_FILE = "config.yaml";
-
-/** Agent Hosts the engine can plan project output for. */
-export const SUPPORTED_HOSTS = ["antigravity", "claude", "codex", "grok", "pi"] as const;
-export type SupportedHost = (typeof SUPPORTED_HOSTS)[number];
-
-export function isSupportedHost(value: unknown): value is SupportedHost {
-  return typeof value === "string" && (SUPPORTED_HOSTS as readonly string[]).includes(value);
-}
 
 export interface ProjectBinding {
   /** The canonical absolute project root used for identity and output. */

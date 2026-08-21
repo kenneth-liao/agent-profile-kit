@@ -4,6 +4,7 @@ import { lstat, readFile } from "node:fs/promises";
 import { join, posix, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Skill } from "../schemas/skill.js";
+export { PI_ADAPTER_VERSION } from "./host-catalog.js";
 import { type ContextModuleSource } from "./context-envelope.js";
 import { capabilityFailure } from "./capability.js";
 import {
@@ -26,7 +27,6 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
-export const PI_ADAPTER_VERSION = "pi-project-v2";
 export const PI_HOST_VERSION = "native-project-append-system-v1";
 /** Capability Contracts for Pi's complete qualified shared Skill package. */
 export const PI_HOST_VERSION_WITH_SKILLS = "native-project-shared-skills-v1";

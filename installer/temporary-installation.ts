@@ -2,6 +2,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import {
+  isTemporaryInstallationHost,
+  TEMPORARY_INSTALLATION_HOSTS,
+  type TemporaryInstallationHost,
+} from "../adapters/host-catalog.js";
+import {
   assertClaudeProjectCapability,
   planClaudeProject,
 } from "../adapters/claude.js";
@@ -69,15 +74,11 @@ import {
 } from "./blockers.js";
 import { ENGINE_VERSION } from "./version.js";
 
-/** Hosts accepted by install-temp (Codex and Claude Code). */
-export const TEMPORARY_INSTALLATION_HOSTS = ["claude", "codex"] as const;
-export type TemporaryInstallationHost = (typeof TEMPORARY_INSTALLATION_HOSTS)[number];
-
-export function isTemporaryInstallationHost(
-  value: string,
-): value is TemporaryInstallationHost {
-  return (TEMPORARY_INSTALLATION_HOSTS as readonly string[]).includes(value);
-}
+export {
+  isTemporaryInstallationHost,
+  TEMPORARY_INSTALLATION_HOSTS,
+  type TemporaryInstallationHost,
+} from "../adapters/host-catalog.js";
 
 export class TemporaryInstallationBlockedError extends Error {
   readonly #canonical: readonly ReconciliationBlocker[];
