@@ -388,10 +388,15 @@ function recordsByTarget(
   return new Map(records.map((record) => [record.target, record]));
 }
 
-function targetsFor(current: InstallationState, next: InstallationState): readonly Target[] {
+function targetsFor(
+  current: InstallationState,
+  next: InstallationState,
+  includedTargets?: ReadonlySet<string>,
+): readonly Target[] {
   const currentByTarget = recordsByTarget(current.repositoryExclusions);
   const nextByTarget = recordsByTarget(next.repositoryExclusions);
   return [...new Set([...currentByTarget.keys(), ...nextByTarget.keys()])]
+    .filter((target) => includedTargets === undefined || includedTargets.has(target))
     .sort(compareCanonicalStrings)
     .map((target) => ({
       allowMissingTarget: currentByTarget.has(target) && !nextByTarget.has(target),
@@ -405,8 +410,9 @@ function targetsFor(current: InstallationState, next: InstallationState): readon
 export function repositoryExclusionChanges(
   current: InstallationState,
   next: InstallationState,
+  includedTargets?: ReadonlySet<string>,
 ): readonly RepositoryExclusionChange[] {
-  return targetsFor(current, next).map((target) => ({
+  return targetsFor(current, next, includedTargets).map((target) => ({
     current: target.current,
     next: target.next,
     target: target.git.excludeFile,
@@ -439,18 +445,43 @@ export async function relocateRepositoryExclusionsForDesired(
   return inspectionState;
 }
 
+export function repositoryExclusionTargetsForInstallations(
+  state: InstallationState,
+  desired: readonly DesiredInstallation[],
+  includedInstallationIds: ReadonlySet<string> | undefined,
+): ReadonlySet<string> | undefined {
+  if (includedInstallationIds === undefined) return undefined;
+  return new Set([
+    ...desired.flatMap((installation) =>
+      installation.gitProject === undefined ? [] : [installation.gitProject.excludeFile]
+    ),
+    ...state.repositoryExclusions
+      .filter((record) => record.contributions.some((contribution) =>
+        includedInstallationIds.has(contribution.installationId)
+      ))
+      .map((record) => record.target),
+  ]);
+}
+
 async function inspectionTargets(
   state: InstallationState,
   desired: readonly DesiredInstallation[],
   retiringInstallationIds: ReadonlySet<string> = new Set(),
+  includedInstallationIds?: ReadonlySet<string>,
 ): Promise<readonly Target[]> {
   const inspectionState = await relocateRepositoryExclusionsForDesired(state, desired);
   const currentByTarget = recordsByTarget(state.repositoryExclusions);
   const relocatedByTarget = recordsByTarget(inspectionState.repositoryExclusions);
+  const includedTargets = repositoryExclusionTargetsForInstallations(
+    state,
+    desired,
+    includedInstallationIds,
+  );
   const targets = [...new Set([
     ...currentByTarget.keys(),
     ...relocatedByTarget.keys(),
   ])]
+    .filter((target) => includedTargets === undefined || includedTargets.has(target))
     .sort(compareCanonicalStrings)
     .map((target) => {
       const record = currentByTarget.get(target);
@@ -754,6 +785,7 @@ export async function gitExclusionBlockers(
     readonly gitInspection?: LifecycleGitInspection;
     readonly retiringInstallationIds?: ReadonlySet<string>;
     readonly validateRecordedInstallations?: boolean;
+    readonly includedInstallationIds?: ReadonlySet<string>;
   } = {},
 ): Promise<readonly ReconciliationBlocker[]> {
   const validateRecordedInstallations = options.validateRecordedInstallations ?? desired.length === 0;
@@ -772,7 +804,12 @@ export async function gitExclusionBlockers(
       )
       : []),
   ];
-  for (const target of await inspectionTargets(state, desired, options.retiringInstallationIds)) {
+  for (const target of await inspectionTargets(
+    state,
+    desired,
+    options.retiringInstallationIds,
+    options.includedInstallationIds,
+  )) {
     try {
       const snapshot = await readSnapshot(
         target.git,
@@ -814,11 +851,17 @@ export async function gitExclusionDiagnostics(
   desired: readonly DesiredInstallation[] = [],
   options: {
     readonly gitInspection?: LifecycleGitInspection;
+    readonly includedInstallationIds?: ReadonlySet<string>;
   } = {},
 ): Promise<RepositoryExclusionDiagnostics> {
   const warnings: string[] = [];
   const repairs: RepositoryExclusionRepair[] = [];
-  for (const target of await inspectionTargets(state, desired)) {
+  for (const target of await inspectionTargets(
+    state,
+    desired,
+    new Set(),
+    options.includedInstallationIds,
+  )) {
     try {
       const snapshot = await readSnapshot(
         target.git,
@@ -879,6 +922,7 @@ export interface GitExclusionTransaction {
 export async function stageGitExclusions(
   current: InstallationState,
   next: InstallationState,
+  options: { readonly includedTargets?: ReadonlySet<string> } = {},
 ): Promise<GitExclusionTransaction> {
   const plans: Array<{
     readonly git: GitProject;
@@ -886,7 +930,7 @@ export async function stageGitExclusions(
     readonly snapshot: GitExcludeSnapshot;
     readonly updated: Buffer;
   }> = [];
-  for (const target of await targetsFor(current, next)) {
+  for (const target of await targetsFor(current, next, options.includedTargets)) {
     const snapshot = await readSnapshot(target.git, target.allowMissingTarget);
     const updated = reconcileGitExcludeBytes(
       snapshot.bytes,

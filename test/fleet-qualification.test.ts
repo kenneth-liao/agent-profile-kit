@@ -84,10 +84,17 @@ function createPackedFleet(home: string): FleetFixture {
   return createFleetFixture(home);
 }
 
+function withFleetScope(arguments_: readonly string[]): readonly string[] {
+  const [command, ...rest] = arguments_;
+  return (command === "apply" || command === "status") && !rest.includes("--all")
+    ? [...arguments_, "--all"]
+    : arguments_;
+}
+
 async function runCli(home: string, pathValue: string, ...arguments_: string[]) {
   return runProcess({
     executable: process.env.NODE_BINARY ?? "node",
-    arguments_: [cliPath, ...arguments_],
+    arguments_: [cliPath, ...withFleetScope(arguments_)],
     environment: { ...process.env, HOME: home, PATH: pathValue },
     deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
@@ -113,7 +120,11 @@ async function runCliInPtyRaw(
   const command = [
     `stty cols ${columns};`,
     "exec",
-    ...[process.env.NODE_BINARY ?? "node", cliPath, ...arguments_].map(shellQuote),
+    ...[
+      process.env.NODE_BINARY ?? "node",
+      cliPath,
+      ...withFleetScope(arguments_),
+    ].map(shellQuote),
   ].join(" ");
   const result = await runProcess({
     executable: "script",
@@ -199,7 +210,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(preview.stdout).not.toContain("Project Binding");
     // One collapsed next action; no repeated per-Project blocks or zero-value
     // blocker clauses.
-    expect(preview.stdout.match(/Run apkit apply\./g)).toHaveLength(1);
+    expect(preview.stdout.match(/Run apkit apply --all\./g)).toHaveLength(1);
     expect(preview.stdout).not.toContain("Blockers: 0");
     expect(preview.stdout).not.toContain("State: current");
 

@@ -32,7 +32,11 @@ import {
   type ArtifactType,
 } from "../schemas/dependencies.js";
 import { type ResolvedArtifactFingerprint } from "./hashes.js";
-import { ingestApplication, stateDirectory } from "./local-configuration.js";
+import {
+  ingestApplication,
+  stateDirectory,
+  type ProjectBindingSelection,
+} from "./local-configuration.js";
 import {
   createLifecyclePlanningContext,
   type LifecyclePlanningContext,
@@ -563,6 +567,8 @@ export function planRegisteredAdapter(
 }
 
 export interface BuildDesiredStateOptions {
+  /** Project Bindings selected before any per-Project planning or inspection. */
+  readonly selection?: ProjectBindingSelection;
   /**
    * When false, skip Host CLI/version/surface capability preflight (status and
    * validate). Defaults to true for preview/apply.
@@ -601,7 +607,10 @@ export async function buildDesiredState(
   home: string,
   options: BuildDesiredStateOptions = {},
 ): Promise<DesiredState> {
-  const { configuration, workspace } = await ingestApplication(home);
+  const { configuration, workspace } = await ingestApplication(
+    home,
+    options.selection ?? { kind: "all" },
+  );
   // One invocation-scoped planning context. Discarded when this call returns.
   const planning = createLifecyclePlanningContext(
     workspace,

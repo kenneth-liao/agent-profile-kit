@@ -156,8 +156,11 @@ apkit list temporary
 apkit list temporary --json
 apkit validate
 apkit preview
-apkit apply
+apkit apply                 # bound Project containing the current directory
+apkit apply ~/projects/x    # one explicit bound Project
+apkit apply --all           # complete fleet
 apkit status
+apkit status --all
 apkit preview --verbose   # complete reconciliation diagnostics
 apkit preview --json      # machine-readable report + uniform exit codes
 apkit uninstall
@@ -180,17 +183,21 @@ Profile, and one or more Hosts (`antigravity`, `codex`, `claude`, `grok`, or
 validated binding, or `unbind` to remove one binding, without reconciling
 output; hand-editing `config.yaml` remains supported. `unbind` defaults to the
 current working directory and only uses exact authored-path recovery when a
-requested project no longer exists. `preview` is read-only and leads with a
-ready-to-apply or cannot-apply outcome; `apply` reports the verified resulting
-state separately from an Apply Receipt describing the pre-apply work that was
-committed; and `status` emphasizes Profile Installations that need attention.
+requested project no longer exists. `preview` remains a fleet-wide read-only
+plan and leads with a ready-to-apply or cannot-apply outcome. `apply` and
+`status` default to the bound Project containing the current directory, accept
+one explicit existing absolute or home-relative bound root, and require `--all`
+for the complete fleet. A scoped command does not plan, probe, inspect, report,
+or write unrelated Projects. `apply` reports the verified resulting state
+separately from an Apply Receipt describing the pre-apply work that was
+committed; `status` emphasizes selected Profile Installations that need attention.
 These default views group details by Profile Installation, list changed file
 paths with `+`, `~`, `-`, or `!` markers (capped with an overflow pointer to
 `--verbose`), explain non-current Profile Installation states when they appear,
 summarize pending Git exclusion work in one clause, keep warnings and blockers
 visible, and when useful end with
 one next-action instruction (status → read-only preview before apply; ready
-preview → apply; blocked → resolve and retry the same command; current or
+fleet preview → `apply --all`; blocked → resolve and retry the same command; current or
 completed/no-op results omit a next step). Add `--verbose` to
 `preview`, `apply`, or `status` for complete per-output and desired-state
 diagnostics, including exact Git exclusion paths, resolved artifact inclusion
@@ -208,7 +215,7 @@ reports `Workspace: Legacy configuration; run apkit init` (and
 `configurationState: "legacy"` under `--json`) until that migration completes.
 
 Run `apkit` with no arguments or `apkit --help` for a concise summary of every
-command and the minimal `init` → `bind` → `preview` → `apply` flow. Focused help
+command and the minimal `init` → `bind` → `preview` → `apply --all` flow. Focused help
 is available as `apkit help <command>`, `apkit <command> -h`, or
 `apkit <command> --help`; use `apkit bind --help` to see supported Hosts. Use
 `apkit guide profile`, `apkit guide context`, or `apkit guide skill` for a short

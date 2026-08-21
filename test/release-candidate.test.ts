@@ -190,6 +190,13 @@ function statePath(home: string): string {
   return join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml");
 }
 
+function withFleetScope(arguments_: readonly string[]): readonly string[] {
+  const [command, ...rest] = arguments_;
+  return (command === "apply" || command === "status") && !rest.includes("--all")
+    ? [...arguments_, "--all"]
+    : arguments_;
+}
+
 async function runCli(
   home: string,
   arguments_: readonly string[],
@@ -197,7 +204,7 @@ async function runCli(
 ) {
   return runProcess({
     executable: nodeBinary,
-    arguments_: [cliPath, ...arguments_],
+    arguments_: [cliPath, ...withFleetScope(arguments_)],
     environment: {
       ...process.env,
       HOME: home,

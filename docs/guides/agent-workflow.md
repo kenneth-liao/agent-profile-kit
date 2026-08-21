@@ -73,8 +73,9 @@ Use this workflow when helping a person author their Workspace and bind projects
 6. Validate before applying. Context Modules use `id` frontmatter and flat
    Profiles contain `id`, `context`, and `skills` only. Dependencies use
    explicit `{ type, id }` references. Run `apkit validate`, review
-   the concise outcome from `apkit preview`, and ask before applying
-   all configured Project Bindings with `apkit apply`. Use
+   the concise fleet outcome from `apkit preview`, and ask before applying
+   all configured Project Bindings with `apkit apply --all`. Use Project-scoped
+   `apply [project]` only when the user intends one bound Project. Use
    `apkit preview --verbose`, `apkit apply --verbose`, or `apkit status --verbose` when complete
    per-output diagnostics, resolved artifact reasons, or composed Context are
    needed. For automation, add `--json` on those three commands: exit `0` means
@@ -91,20 +92,21 @@ Use this workflow when helping a person author their Workspace and bind projects
    packages, extensions, and other Skill sources coexist through Pi Host
    Resolution. For non-Git projects, remind the user that Codex must launch from
    the exact bound root.
-8. Use `apkit status` to focus on Profile Installations needing attention; its concise
-   result reports all-current state when nothing needs action, labels change
+8. Use `apkit status` for the bound Project containing cwd, pass one explicit
+   Project root, or use `apkit status --all` for the fleet. Its concise result
+   reports all-current state when nothing needs action, labels change
    paths with `+`, `~`, `-`, or `!` markers, caps long lists with a pointer to
    `--verbose`, explains non-current states when they appear, preserves warnings
    and blockers, and ends with one next-action line
    when useful (preview before apply; resolve blocker and retry the same command
    when blocked; omit when already current). Pending Git exclusion work appears
-   as one concise clause. A ready `preview` likewise recommends `apply`; blocked
+   as one concise clause. A ready fleet `preview` recommends `apply --all`; blocked
    `preview` or `apply` retries that same command after the blocker. Add
    `--verbose` to distinguish current, stale, drifted, missing, and blocked
    installations and inspect exact Git exclusion paths in the complete report.
    `apkit unbind` removes desired
-   Project Binding state but leaves generated output for global `preview` and
-   `apply`. `apkit uninstall` instead removes only output whose Installation Marker
+   Project Binding state but leaves generated output for fleet `preview` and
+   `apply --all`. `apkit uninstall` instead removes only output whose Installation Marker
    and hashes prove Agent Profile Kit ownership; it preserves the Workspace,
    Local Configuration, global Host configuration, and repository-owned files.
    Never use `uninstall` as a substitute for removing a binding, or `unbind` as

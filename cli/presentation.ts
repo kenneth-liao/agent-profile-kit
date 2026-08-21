@@ -1533,6 +1533,7 @@ function nextActionLines(
   },
 ): readonly string[] {
   if (command === "apply" && reportBlockers(report).length === 0) return [];
+  const applyCommand = command === "preview" ? "apply --all" : "apply";
 
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
   const grouped = new Map<string, Array<{ readonly authored: string; readonly canonical: string }>>();
@@ -1564,7 +1565,7 @@ function nextActionLines(
         );
       } else {
         addAction(
-          `After all blockers are resolved, run ${COMMAND_NAME} apply` +
+          `After all blockers are resolved, run ${COMMAND_NAME} ${applyCommand}` +
             `${command === "apply" ? " again" : ""}.`,
           project,
         );
@@ -1578,7 +1579,7 @@ function nextActionLines(
         project,
       );
     } else {
-      addAction(`Run ${COMMAND_NAME} apply.`, project);
+      addAction(`Run ${COMMAND_NAME} ${applyCommand}.`, project);
     }
   }
 
@@ -1593,7 +1594,7 @@ function nextActionLines(
     addAction(
       command === "status"
         ? `Run ${COMMAND_NAME} preview to review the planned changes (read-only), then apply when ready.`
-        : `Run ${COMMAND_NAME} apply.`,
+        : `Run ${COMMAND_NAME} ${applyCommand}.`,
     );
   }
   const actions = [...grouped.entries()].map(([action, projects]) => {

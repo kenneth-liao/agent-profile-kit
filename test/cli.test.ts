@@ -125,8 +125,24 @@ function defaultCliPath(home: string): string {
   return `${installFakeCodex(home)}:${process.env.PATH ?? ""}`;
 }
 
+function withHistoricalFleetScope(arguments_: readonly string[]): readonly string[] {
+  // Historical packed tests exercise fleet lifecycle behavior from the test
+  // runner's unrelated cwd. Keep that intent explicit after Project scope
+  // became the command default; tests for default/explicit scope use runCliAt.
+  const [command, ...rest] = arguments_;
+  const isHelp = rest.some((argument) =>
+    COMMAND_HELP_ALIASES.some((alias) => alias === argument)
+  );
+  const needsFleetScope =
+    (command === "apply" || command === "status") &&
+    !isHelp &&
+    !rest.includes("--all") &&
+    !rest.some((argument) => !argument.startsWith("-"));
+  return needsFleetScope ? [...arguments_, "--all"] : arguments_;
+}
+
 async function runCli(home: string, ...arguments_: string[]) {
-  return await runCliAt(home, undefined, ...arguments_);
+  return await runCliAt(home, undefined, ...withHistoricalFleetScope(arguments_));
 }
 
 async function runCliAt(home: string, cwd: string | undefined, ...arguments_: string[]) {
@@ -147,7 +163,7 @@ async function runCliWithEnvironment(
 ) {
   return runProcess({
     executable: process.env.NODE_BINARY ?? "node",
-    arguments_: [cliPath, ...arguments_],
+    arguments_: [cliPath, ...withHistoricalFleetScope(arguments_)],
     environment: {
       ...process.env,
       ...environment,
@@ -190,7 +206,11 @@ async function runCliInPtyCaptured(
   const command = [
     `stty cols ${columns};`,
     "exec",
-    ...[process.env.NODE_BINARY ?? "node", cliPath, ...arguments_].map(shellQuote),
+    ...[
+      process.env.NODE_BINARY ?? "node",
+      cliPath,
+      ...withHistoricalFleetScope(arguments_),
+    ].map(shellQuote),
   ].join(" ");
   const childEnvironment: NodeJS.ProcessEnv = {
     ...process.env,
@@ -248,7 +268,11 @@ async function runCliInPtyWithColumnsFallback(home: string, columns: number, ...
   const command = [
     "stty cols 0;",
     "exec",
-    ...[process.env.NODE_BINARY ?? "node", cliPath, ...arguments_].map(shellQuote),
+    ...[
+      process.env.NODE_BINARY ?? "node",
+      cliPath,
+      ...withHistoricalFleetScope(arguments_),
+    ].map(shellQuote),
   ].join(" ");
   const result = await runProcess({
     executable: "script",
@@ -425,7 +449,7 @@ async function runCliWithPath(
   // Use an absolute Node path so PATH can be restricted for Host capability probes.
   return runProcess({
     executable: process.env.NODE_BINARY ?? process.execPath,
-    arguments_: [cliPath, ...arguments_],
+    arguments_: [cliPath, ...withHistoricalFleetScope(arguments_)],
     environment: { ...process.env, HOME: home, PATH: pathValue },
     deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
@@ -1588,6 +1612,219 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stderr).toContain("duplicate canonical root");
   });
 
+  test("apply and status default to the bound Project containing the working directory", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const selected = project("agent-profile-kit-scoped-selected-");
+    const unrelated = project("agent-profile-kit-scoped-unrelated-");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${selected}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${unrelated}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const apply = await runCliAt(home, join(selected, "."), "apply");
+    expectExitCode(apply, 0);
+    expect(existsSync(join(selected, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(unrelated, ".agent-profile-kit"))).toBe(false);
+
+    const status = await runCliAt(home, selected, "status", "--json");
+    expectExitCode(status, 0);
+    const payload = JSON.parse(status.stdout) as {
+      readonly projects: readonly { readonly canonicalProject: string }[];
+    };
+    expect(payload.projects.map((entry) => entry.canonicalProject)).toEqual([
+      realpathSync(selected),
+    ]);
+  });
+
+  test("apply accepts one explicit absolute or home-relative bound Project root", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const absolute = homeGitRepository(home, "absolute-project");
+    const homeRelative = homeGitRepository(home, "home-relative-project");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${absolute}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ~/projects/home-relative-project\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    expectExitCode(await runCli(home, "apply", absolute), 0);
+    expect(existsSync(join(absolute, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(homeRelative, ".agent-profile-kit"))).toBe(false);
+
+    expectExitCode(
+      await runCli(home, "apply", "~/projects/home-relative-project"),
+      0,
+    );
+    expect(existsSync(join(homeRelative, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
+  test("--all explicitly selects the complete Project fleet", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const first = project("agent-profile-kit-all-first-");
+    const second = project("agent-profile-kit-all-second-");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${first}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    expectExitCode(await runCli(home, "apply", "--all"), 0);
+    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
+
+    const status = await runCli(home, "status", "--all", "--json");
+    expectExitCode(status, 0);
+    const payload = JSON.parse(status.stdout) as {
+      readonly projects: readonly { readonly canonicalProject: string }[];
+    };
+    expect(payload.projects.map((entry) => entry.canonicalProject)).toEqual([
+      realpathSync(first),
+      realpathSync(second),
+    ].sort());
+  });
+
+  test("--all is mutually exclusive with an explicit Project root", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    const marker = join(projectPath, "must-not-write");
+
+    for (const command of ["apply", "status"] as const) {
+      const result = await runCli(home, command, projectPath, "--all");
+      expectExitCode(result, 1);
+      expect(result.stderr).toContain(`${command} --all cannot be combined with a Project path`);
+      expect(result.stderr).toContain(`Usage: apkit ${command}`);
+    }
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("scoped lifecycle does not inspect or mutate unrelated Project output or Git state", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const selected = gitRepository("agent-profile-kit-scope-boundary-selected-");
+    const unrelated = gitRepository("agent-profile-kit-scope-boundary-unrelated-");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${selected}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${unrelated}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply", "--all"), 0);
+
+    const unrelatedOutput = join(unrelated, ".codex", "hooks.json");
+    const unrelatedExclude = join(unrelated, ".git", "info", "exclude");
+    writeFileSync(unrelatedOutput, "unrelated Project drift\n");
+    writeFileSync(unrelatedExclude, "unrelated malformed exclusion state\n");
+    // The default packed PATH has no Antigravity executable. A scoped run that
+    // probes the unrelated binding would fail before applying the selected Project.
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${selected}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${unrelated}\n    profile: coding\n    hosts: [antigravity]\n`,
+    );
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated selected Project Context.\n",
+    );
+
+    const apply = await runCli(home, "apply", selected);
+    expectExitCode(apply, 0);
+    expect(
+      readFileSync(join(selected, ".agent-profile-kit", "codex", "context.md"), "utf8"),
+    ).toContain("Updated selected Project Context.");
+    expect(readFileSync(unrelatedOutput, "utf8")).toBe("unrelated Project drift\n");
+    expect(readFileSync(unrelatedExclude, "utf8")).toBe(
+      "unrelated malformed exclusion state\n",
+    );
+
+    const status = await runCli(home, "status", selected, "--json");
+    expectExitCode(status, 0);
+    const payload = JSON.parse(status.stdout) as {
+      readonly projects: readonly { readonly canonicalProject: string }[];
+    };
+    expect(payload.projects.map((entry) => entry.canonicalProject)).toEqual([
+      realpathSync(selected),
+    ]);
+  });
+
+  test("scoped lifecycle ignores a missing unrelated Project root", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const selected = project("agent-profile-kit-scoped-existing-");
+    const missingUnrelated = join(home, "missing-unrelated-project");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${selected}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${missingUnrelated}\n    profile: coding\n    hosts: [antigravity]\n`,
+    );
+
+    const apply = await runCli(home, "apply", selected);
+    expectExitCode(apply, 0);
+    expect(existsSync(join(selected, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(missingUnrelated)).toBe(false);
+  });
+
+  test("scoped lifecycle rejects unbound, ambiguous, missing, relative, wildcard, and invalid targets before writes", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const bound = project("agent-profile-kit-target-bound-");
+    const nested = join(bound, "nested");
+    mkdirSync(nested);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${bound}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const unbound = project("agent-profile-kit-target-unbound-");
+    const missing = join(home, "missing-project");
+    const invalid = join(home, "not-a-project.txt");
+    writeFileSync(invalid, "not a directory\n");
+
+    const cases = [
+      { cwd: undefined, target: unbound, pattern: /not a bound Project/i },
+      { cwd: undefined, target: missing, pattern: /must be an existing directory/i },
+      { cwd: undefined, target: "relative/project", pattern: /absolute path or home-relative/i },
+      { cwd: undefined, target: "~/projects/*", pattern: /without wildcards/i },
+      { cwd: undefined, target: invalid, pattern: /must be an existing directory/i },
+      { cwd: nested, target: undefined, pattern: /ambiguous.*multiple Project Bindings/i },
+    ] as const;
+
+    for (const command of ["apply", "status"] as const) {
+      for (const example of cases) {
+        const result = example.cwd === undefined
+          ? await runCli(home, command, example.target!)
+          : await runCliAt(home, example.cwd, command);
+        expectExitCode(result, 1);
+        expect(result.stderr).toMatch(example.pattern);
+        expect(result.stderr).toContain(`Usage: apkit ${command}`);
+      }
+    }
+    expect(existsSync(join(bound, ".agent-profile-kit"))).toBe(false);
+    expect(existsSync(join(nested, ".agent-profile-kit"))).toBe(false);
+  });
+
   test("preview reports desired additions without writing project, state, or host configuration", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -1894,8 +2131,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(preview.stdout).not.toContain("Skill review-pr");
     expect(preview.stdout).not.toContain("Workspace changes:");
     expect(preview.stdout.match(/Project: /g)).toBeNull();
-    expect(preview.stdout).toContain("Next:\n- Run apkit apply.");
-    expect(preview.stdout.match(/Run apkit apply\./g)).toHaveLength(1);
+    expect(preview.stdout).toContain("Next:\n- Run apkit apply --all.");
+    expect(preview.stdout.match(/Run apkit apply --all\./g)).toHaveLength(1);
     expect(preview.stdout).not.toContain("Blockers: 0");
 
     const verbose = await runCli(home, "preview", "--verbose");
@@ -2708,6 +2945,53 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "uninstall"), 0);
     expect(readFileSync(exclude, "utf8")).toBe(`${unrelated}${laterUnrelated}`);
     expect(readFileSync(join(repository, ".gitignore"), "utf8")).toBe(sharedIgnore);
+  });
+
+  test("scoped apply changes only its contribution to a shared Git exclusion target", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-scoped-shared-exclusion-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply", "--all"), 0);
+
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [claude]\n`,
+    );
+    const pathWithClaude = `${installFakeClaude(home)}:${defaultCliPath(home)}`;
+    const apply = await runCliWithPath(home, pathWithClaude, "apply", nested, "--json");
+    expectExitCode(apply, 0);
+    const payload = JSON.parse(apply.stdout) as {
+      readonly applied: { readonly projects: readonly { readonly canonicalProject: string }[] };
+      readonly projects: readonly { readonly canonicalProject: string }[];
+    };
+    expect(payload.projects.map((entry) => entry.canonicalProject)).toEqual([
+      realpathSync(nested),
+    ]);
+    expect(payload.applied.projects.map((entry) => entry.canonicalProject)).toEqual([
+      realpathSync(nested),
+    ]);
+
+    const exclude = readFileSync(join(repository, ".git", "info", "exclude"), "utf8");
+    expect(exclude).toContain("/.codex/hooks.json");
+    expect(exclude).not.toContain("/nested/.codex/hooks.json");
+    expect(exclude).toContain("/nested/.claude/rules/agent-profile-kit.md");
+    expect(existsSync(join(repository, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(nested, ".codex", "hooks.json"))).toBe(false);
+    expect(existsSync(join(nested, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
   });
 
   test("shared Git exclusions use one canonical record and retain surviving contributions", async () => {
@@ -4307,7 +4591,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     bind(home, retained);
 
-    const result = await runCliAt(home, removed, "apply");
+    const result = await runCliAt(home, removed, "apply", "--all");
 
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Cannot remove stale generated files");
@@ -9428,7 +9712,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     const pathValue = `${installFakeClaude(home)}:${installFakeCodex(home)}:${process.env.PATH ?? ""}`;
     return runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [cliPath, ...arguments_],
+      arguments_: [cliPath, ...withHistoricalFleetScope(arguments_)],
       environment: { ...process.env, HOME: home, PATH: pathValue },
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
