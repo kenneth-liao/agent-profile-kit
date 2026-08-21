@@ -1,4 +1,4 @@
-import { HOST_CATALOG } from "../adapters/host-catalog.js";
+import { HOST_REGISTRY } from "../adapters/registry.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
 import {
@@ -48,7 +48,7 @@ export interface TemporaryInventoryRecord {
  * Host configuration, Project roots, or any other machine state.
  */
 export function listHosts(): readonly HostInventoryRecord[] {
-  return HOST_CATALOG.map(({ host, supportsTemporaryProfileInstallation }) => ({
+  return HOST_REGISTRY.map(({ host, supportsTemporaryProfileInstallation }) => ({
     host,
     supportsTemporaryProfileInstallation,
   }));

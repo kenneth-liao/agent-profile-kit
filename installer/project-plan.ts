@@ -1,20 +1,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, join, posix } from "node:path";
 
-import {
-  assertGrokProjectSurface,
-  detectGrokProjectConfigurationWarnings,
-  grokMachineRequirements,
-  grokClaudeRulesTopologyCapabilityError,
-  inferGrokClaudeRulesEnabledFromOutputs,
-  inspectGrokProject,
-  planGrokProject,
-  probeGrokMachineCapability,
-  resolveGrokCliVersion,
-  type GrokInspection,
-} from "../adapters/grok.js";
 import { adapterVersionFor, hostRegistrationFor } from "../adapters/registry.js";
-import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
   AdapterDiagnosticWarning,
   AdapterProjectPlan,
@@ -581,15 +568,11 @@ export interface BuildDesiredStateOptions {
    * planning only.
    */
   readonly scheduler?: ProjectReadScheduler;
-  /**
-   * Prior Installation Manifests used only to preserve applied Grok Context
-   * delivery topology when live inspection is unavailable (status).
-   */
+  /** Prior Installation Manifests available to Adapters for topology recovery. */
   readonly previousInstallations?: readonly ProjectInstallationManifest[];
   /**
-   * When true, resolve multi-Host Grok Context topology (Claude rules
-   * compatibility) without full capability preflight. validate stays probe-free;
-   * status sets this so topology is not guessed.
+   * When true, let Adapters resolve dynamic multi-Host topology without full
+   * capability preflight. Validate stays probe-free; status prevents guessing.
    */
   readonly resolveHostTopology?: boolean;
 }
@@ -629,203 +612,52 @@ export async function buildDesiredState(
     const hostVersions: Record<string, string> = {};
     const warnings: string[] = [];
     const diagnosticValues: string[] = [];
-    const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
-      resolvedProfile.skills,
-    );
-    // Capability and planning follow selected categories: Context machinery is optional.
-    const requireContext = resolvedProfile.contexts.length > 0;
-    const requireSkills = resolvedProfile.skills.length > 0;
-    const selectedSkillIds = resolvedProfile.skills.map((skill) => skill.id);
-    const capabilityEnvironment = options.env === undefined ? {} : { env: options.env };
     for (const host of binding.hosts) {
       const registration = hostRegistrationFor(host);
-      if (registration.ordinaryPlanning === "complete") {
-        const result = await registration.adapter.planOrdinaryProject(
-          {
-            authoredProject: binding.project,
-            checkHostCapability: options.checkHostCapability !== false,
-            ...(options.env === undefined ? {} : { env: options.env }),
-            home,
-            profileId: profile.id,
-            project: binding.canonicalProject,
-            projectRelativeToGitRoot: gitProject?.relativeProject,
-            resolvedContexts: resolvedProfile.contexts,
-            resolvedSkills: resolvedProfile.skills,
-            ...(options.resolveHostTopology === undefined
-              ? {}
-              : { resolveHostTopology: options.resolveHostTopology }),
-            selectedHosts: binding.hosts,
-          },
-          {
-            materials: planning.materials,
-            planProjection: (key, plan) => planning.planHost(key, plan),
-            probeMachineCapability: (requirements, probe) =>
-              planning.probeHostCapability({ host, requirements }, probe),
-          },
-        );
-        for (const error of result.capabilityFailures) {
-          blockers.push(
-            hostCapabilityBlocker(
-              error,
-              host,
-              binding.canonicalProject,
-              binding.project,
-            ),
-          );
-        }
-        appendDiagnosticWarnings(
-          warnings,
-          diagnosticValues,
-          result.diagnostics,
-          binding.project,
-        );
-        if (result.plan !== undefined) {
-          plans.push(result.plan);
-          hostVersions[host] = result.plan.hostVersion;
-        }
-        continue;
-      }
-
-      const legacyHost = registration.host;
-      let grokInspection: GrokInspection | undefined;
-      if (options.checkHostCapability !== false) {
-        try {
-          if (host === "grok") {
-            const version = await planning.probeHostCapability(
-              {
-                host,
-                requirements: grokMachineRequirements({
-                  requireContext,
-                  requireSkills,
-                  requireDisabledModelInvocation,
-                }),
-              },
-              () => probeGrokMachineCapability({
-                ...capabilityEnvironment,
-                requireContext,
-                requireSkills,
-                requireDisabledModelInvocation,
-              }),
-            );
-            grokInspection = await assertGrokProjectSurface(
-              binding.canonicalProject,
-              version,
-              {
-                ...capabilityEnvironment,
-                home,
-                requireContext,
-                requireSkills,
-                requireDisabledModelInvocation,
-              },
-            );
-          }
-        } catch (error) {
-          blockers.push(
-            hostCapabilityBlocker(
-              error,
-              host,
-              binding.canonicalProject,
-              binding.project,
-            ),
-          );
-        }
-      } else if (host === "grok" && options.resolveHostTopology === true) {
-        const needsContextTopology =
-          requireContext && binding.hosts.includes("claude");
-        if (needsContextTopology) {
-          try {
-            // Status is capability-free, but `grok version` is still a
-            // machine-level executable probe: resolve it once per invocation
-            // while `grok inspect --json` stays Project-specific.
-            const version = await planning.probeHostCapability(
-              { host, requirements: { resolveVersion: true } },
-              () => resolveGrokCliVersion(capabilityEnvironment),
-            );
-            grokInspection = await inspectGrokProject(binding.canonicalProject, {
-              ...capabilityEnvironment,
-              home,
-              resolveVersion: async () => version,
-            });
-          } catch (error) {
-            grokInspection = undefined;
-          }
-        }
-      }
-      if (host === "grok" && requireSkills) {
-        appendDiagnosticWarnings(
-          warnings,
-          diagnosticValues,
-          await detectGrokProjectConfigurationWarnings(selectedSkillIds, {
-            home,
-            project: binding.canonicalProject,
-          }),
-          binding.project,
-        );
-      }
-      if (legacyHost === "grok") {
-        const claudeCoSelected = binding.hosts.includes("claude");
-        let claudeRulesEnabled = grokInspection?.claudeRulesEnabled;
-        // Context delivery topology only matters when the Profile selects Context.
-        if (
-          requireContext &&
-          claudeRulesEnabled === undefined &&
-          claudeCoSelected
-        ) {
-          const previous = previousByProject.get(binding.canonicalProject);
-          claudeRulesEnabled = previous
-            ? inferGrokClaudeRulesEnabledFromOutputs(
-                previous.hosts,
-                previous.outputs.map((output) => output.path),
-              )
-            : undefined;
-          if (
-            claudeRulesEnabled === undefined &&
-            options.resolveHostTopology === true
-          ) {
-            // Do not invent topology for status when inspection and applied state
-            // cannot prove Claude rules compatibility.
-            blockers.push(
-              hostCapabilityBlocker(
-                grokClaudeRulesTopologyCapabilityError(),
-                "grok",
-                binding.canonicalProject,
-                binding.project,
-              ),
-            );
-          }
-        }
-        // Grok's documented default is enabled when topology is not required
-        // (validate / hermetic tests / Context-free Profiles) or when Claude
-        // is not co-selected.
-        const effectiveClaudeRulesEnabled = claudeRulesEnabled ?? true;
-        const adapterPlan = await planning.planHost(
-          {
-            host: "grok",
-            options: {
-              claudeCoSelected,
-              claudeRulesEnabled: effectiveClaudeRulesEnabled,
-            },
-            profileId: profile.id,
-            resolvedContexts: resolvedProfile.contexts,
-            resolvedSkills: resolvedProfile.skills,
-          },
-          () => planGrokProject(
-            profile.id,
-            resolvedProfile.contexts,
-            resolvedProfile.skills,
-            {
-              claudeCoSelected,
-              claudeRulesEnabled: effectiveClaudeRulesEnabled,
-              materials: planning.materials,
-            },
+      const result = await registration.adapter.planOrdinaryProject(
+        {
+          authoredProject: binding.project,
+          checkHostCapability: options.checkHostCapability !== false,
+          ...(options.env === undefined ? {} : { env: options.env }),
+          home,
+          profileId: profile.id,
+          previousInstallation: previousByProject.get(binding.canonicalProject),
+          project: binding.canonicalProject,
+          projectRelativeToGitRoot: gitProject?.relativeProject,
+          resolvedContexts: resolvedProfile.contexts,
+          resolvedSkills: resolvedProfile.skills,
+          ...(options.resolveHostTopology === undefined
+            ? {}
+            : { resolveHostTopology: options.resolveHostTopology }),
+          selectedHosts: binding.hosts,
+        },
+        {
+          materials: planning.materials,
+          planProjection: (key, plan) => planning.planHost(key, plan),
+          probeMachineCapability: (requirements, probe) =>
+            planning.probeHostCapability({ host, requirements }, probe),
+        },
+      );
+      for (const error of result.capabilityFailures) {
+        blockers.push(
+          hostCapabilityBlocker(
+            error,
+            host,
+            binding.canonicalProject,
+            binding.project,
           ),
         );
-        plans.push(adapterPlan);
-        hostVersions.grok = adapterPlan.hostVersion;
-        continue;
       }
-      const exhaustive: never = legacyHost;
-      throw new Error(`Unsupported legacy Agent Host '${String(exhaustive)}'`);
+      appendDiagnosticWarnings(
+        warnings,
+        diagnosticValues,
+        result.diagnostics,
+        binding.project,
+      );
+      if (result.plan !== undefined) {
+        plans.push(result.plan);
+        hostVersions[host] = result.plan.hostVersion;
+      }
     }
     const outputs = normalizeAdapterPlans(plans);
     assertResolvedOutputOrigins(outputs, resolvedProfile);

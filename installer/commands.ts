@@ -172,8 +172,8 @@ export async function statusApplication(
     });
     return unreadableInstallationStateReport(home, desired.installations, error);
   }
-  // Resolve Grok multi-Host Context topology from live inspect when possible,
-  // otherwise preserve the applied delivery paths recorded on the Manifest.
+  // Let each Adapter resolve dynamic topology from live evidence when possible,
+  // otherwise preserve its applied delivery topology from the prior Manifest.
   const desired = await buildDesiredState(home, {
     checkHostCapability: false,
     gitInspection,

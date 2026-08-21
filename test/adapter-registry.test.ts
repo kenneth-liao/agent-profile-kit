@@ -38,26 +38,16 @@ describe("canonical Host registry", () => {
       "pi",
     ]);
     expect(HOST_REGISTRY.map((registration) => registration.host)).toEqual([...SUPPORTED_HOSTS]);
-    expect(HOST_REGISTRY.map((registration) => registration.ordinaryPlanning)).toEqual([
-      "complete",
-      "complete",
-      "complete",
-      "legacy",
-      "complete",
-    ]);
-
     expect(isSupportedHost("claude")).toBe(true);
     expect(isSupportedHost("unknown")).toBe(false);
     expect(hostRegistrationFor("claude")).toMatchObject({
       adapterVersion: "claude-project-v1",
       host: "claude",
-      ordinaryPlanning: "complete",
       supportsTemporaryProfileInstallation: true,
     });
     expect(hostRegistrationFor("pi")).toMatchObject({
       adapterVersion: "pi-project-v2",
       host: "pi",
-      ordinaryPlanning: "complete",
       supportsTemporaryProfileInstallation: false,
     });
     expect(() => hostRegistrationFor("unknown" as "claude")).toThrow(
@@ -75,21 +65,14 @@ describe("canonical Host registry", () => {
     );
   });
 
-  test("exposes the complete ordinary-planning contract only for migrated Hosts", async () => {
-    const complete = HOST_REGISTRY.filter(
-      (registration) => registration.ordinaryPlanning === "complete",
-    );
-    expect(complete.map((registration) => registration.host)).toEqual([
+  test("exposes the complete ordinary-planning contract for every Host", async () => {
+    expect(HOST_REGISTRY.map((registration) => registration.adapter.host)).toEqual([
       "antigravity",
       "claude",
       "codex",
+      "grok",
       "pi",
     ]);
-    expect(complete.every((registration) => "adapter" in registration)).toBe(true);
-    expect(
-      HOST_REGISTRY.filter((registration) => registration.ordinaryPlanning === "legacy")
-        .every((registration) => !("adapter" in registration)),
-    ).toBe(true);
 
     const project = temporaryDirectory("apkit-registry-project-");
     const home = temporaryDirectory("apkit-registry-home-");
@@ -99,7 +82,6 @@ describe("canonical Host registry", () => {
     chmodSync(join(bin, "claude"), 0o755);
 
     const claude = hostRegistrationFor("claude");
-    if (claude.ordinaryPlanning !== "complete") throw new Error("Claude Adapter is not complete");
     const result = await claude.adapter.planOrdinaryProject(
       {
         authoredProject: project,
@@ -107,6 +89,7 @@ describe("canonical Host registry", () => {
         env: { ...process.env, PATH: bin },
         home,
         profileId: "coding",
+        previousInstallation: undefined,
         project,
         projectRelativeToGitRoot: undefined,
         resolvedContexts: [{ content: "Use tests.\n", id: "engineering" }],
@@ -126,6 +109,59 @@ describe("canonical Host registry", () => {
       host: "claude",
       hostVersion: "native-project-unscoped-rules-skills-v1",
       outputs: [{ path: ".claude/rules/agent-profile-kit.md" }],
+      setupSteps: [],
+    });
+  });
+
+  test("runs Grok dynamic inspection and topology through its registered Adapter", async () => {
+    const project = temporaryDirectory("apkit-registry-grok-project-");
+    const home = temporaryDirectory("apkit-registry-grok-home-");
+    const bin = temporaryDirectory("apkit-registry-grok-bin-");
+    const executable = join(bin, "grok");
+    writeFileSync(
+      executable,
+      `#!/bin/sh
+if [ "$1" = "version" ]; then
+  echo "grok 0.2.111"
+  exit 0
+fi
+if [ "$1" = "inspect" ] && [ "$2" = "--json" ]; then
+  echo '{"externalCompat":{"cells":[{"enabled":false,"surface":"rules","vendor":"claude"}]},"grokVersion":"0.2.111"}'
+  exit 0
+fi
+exit 2
+`,
+    );
+    chmodSync(executable, 0o755);
+
+    const grok = hostRegistrationFor("grok");
+    const result = await grok.adapter.planOrdinaryProject(
+      {
+        authoredProject: project,
+        checkHostCapability: true,
+        env: { ...process.env, PATH: bin },
+        home,
+        profileId: "coding",
+        previousInstallation: undefined,
+        project,
+        projectRelativeToGitRoot: undefined,
+        resolvedContexts: [{ content: "Use tests.\n", id: "engineering" }],
+        resolvedSkills: [],
+        selectedHosts: ["claude", "grok"],
+      },
+      {
+        materials: DEFAULT_ADAPTER_PLANNING_MATERIALS,
+        planProjection: (_key, plan) => plan(),
+        probeMachineCapability: (_requirements, probe) => probe(),
+      },
+    );
+
+    expect(result.capabilityFailures).toEqual([]);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.plan).toMatchObject({
+      host: "grok",
+      hostVersion: "native-project-unscoped-rules-v1",
+      outputs: [{ path: ".grok/rules/agent-profile-kit.md" }],
       setupSteps: [],
     });
   });

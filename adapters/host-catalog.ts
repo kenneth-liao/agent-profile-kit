@@ -7,45 +7,32 @@ export const HOST_CATALOG = [
   {
     adapterVersion: "antigravity-project-v2",
     host: "antigravity",
-    ordinaryPlanning: "complete",
     supportsTemporaryProfileInstallation: false,
   },
   {
     adapterVersion: "claude-project-v1",
     host: "claude",
-    ordinaryPlanning: "complete",
     supportsTemporaryProfileInstallation: true,
   },
   {
     adapterVersion: "codex-project-v3",
     host: "codex",
-    ordinaryPlanning: "complete",
     supportsTemporaryProfileInstallation: true,
   },
   {
     adapterVersion: "grok-project-v1",
     host: "grok",
-    ordinaryPlanning: "legacy",
     supportsTemporaryProfileInstallation: false,
   },
   {
     adapterVersion: "pi-project-v2",
     host: "pi",
-    ordinaryPlanning: "complete",
     supportsTemporaryProfileInstallation: false,
   },
 ] as const;
 
 export type HostCatalogEntry = (typeof HOST_CATALOG)[number];
 export type SupportedHost = HostCatalogEntry["host"];
-export type CompleteOrdinaryPlanningHost = Extract<
-  HostCatalogEntry,
-  { readonly ordinaryPlanning: "complete" }
->["host"];
-export type LegacyOrdinaryPlanningHost = Extract<
-  HostCatalogEntry,
-  { readonly ordinaryPlanning: "legacy" }
->["host"];
 export type TemporaryInstallationHost = Extract<
   HostCatalogEntry,
   { readonly supportsTemporaryProfileInstallation: true }

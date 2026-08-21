@@ -7,6 +7,12 @@ import type { AdapterPlanningMaterials } from "./skill-package.js";
 import type { SupportedHost } from "./host-catalog.js";
 import type { Skill } from "../schemas/skill.js";
 
+/** Minimal prior applied topology evidence available to an Adapter. */
+export interface AdapterPreviousInstallation {
+  readonly hosts: readonly string[];
+  readonly outputs: readonly { readonly path: string }[];
+}
+
 /** Complete ordinary-planning input available to one Host Adapter. */
 export interface AdapterOrdinaryProjectInput {
   readonly authoredProject: string;
@@ -14,6 +20,8 @@ export interface AdapterOrdinaryProjectInput {
   readonly env?: NodeJS.ProcessEnv;
   readonly home: string;
   readonly profileId: string;
+  /** Prior ownership evidence available for Adapter-owned topology recovery. */
+  readonly previousInstallation: AdapterPreviousInstallation | undefined;
   readonly project: string;
   /** Project path relative to its Git worktree root; absent for non-Git Projects. */
   readonly projectRelativeToGitRoot: string | undefined;
