@@ -118,6 +118,33 @@ describe("Adapter output-plan normalization", () => {
     ]);
   });
 
+  test("coalesces byte-identical files despite different descriptive metadata", () => {
+    const normalized = normalizeAdapterPlans([
+      plan("codex", fileOutput({
+        origins: [{ id: "codex-context", type: "context" }],
+        requirements: ["Codex loads project Context"],
+      })),
+      plan("claude", fileOutput({
+        origins: [{ id: "claude-context", type: "context" }],
+        requirements: ["Claude loads project Context"],
+      })),
+    ]);
+
+    expect(normalized).toHaveLength(1);
+    expect(normalized[0]).toMatchObject({
+      bytes: "shared\n",
+      consumingHosts: ["claude", "codex"],
+      mode: 0o644,
+      origins: [
+        { id: "claude-context", type: "context" },
+        { id: "codex-context", type: "context" },
+      ],
+      path: ".agents/shared.txt",
+      requirements: ["Claude loads project Context", "Codex loads project Context"],
+      type: "file",
+    });
+  });
+
   test("coalesces an identical complete artifact directory across consuming Hosts", () => {
     const members = directoryOutput().members;
     const expectedHash = hashDirectoryMembers(
@@ -128,8 +155,14 @@ describe("Adapter output-plan normalization", () => {
       ),
     );
     const normalized = normalizeAdapterPlans([
-      plan("codex", directoryOutput()),
-      plan("claude", directoryOutput()),
+      plan("codex", directoryOutput({
+        origins: [{ id: "codex-skill", type: "skill" }],
+        requirements: ["Codex discovers the package"],
+      })),
+      plan("claude", directoryOutput({
+        origins: [{ id: "claude-skill", type: "skill" }],
+        requirements: ["Claude discovers the package"],
+      })),
     ]);
     expect(normalized).toHaveLength(1);
     const output = normalized[0];
@@ -137,8 +170,12 @@ describe("Adapter output-plan normalization", () => {
       consumingHosts: ["claude", "codex"],
       hash: expectedHash,
       mode: 0o755,
+      origins: [
+        { id: "claude-skill", type: "skill" },
+        { id: "codex-skill", type: "skill" },
+      ],
       path: ".agents/skills/demo-skill",
-      requirements: ["Host discovers Skill package"],
+      requirements: ["Claude discovers the package", "Codex discovers the package"],
       type: "directory",
     });
     if (output?.type !== "directory") throw new Error("expected directory output");
@@ -174,7 +211,6 @@ describe("Adapter output-plan normalization", () => {
       ["entry type", directoryOutput({ path: ".agents/shared.txt" })],
       ["mode", fileOutput({ mode: 0o755 })],
       ["bytes", fileOutput({ bytes: "different\n" })],
-      ["semantic requirements", fileOutput({ requirements: ["different semantics"] })],
     ];
 
     for (const [difference, output] of disagreements) {
@@ -183,22 +219,37 @@ describe("Adapter output-plan normalization", () => {
     }
   });
 
-  test("rejects disagreeing directory members for the same path", () => {
-    expect(() => normalizeAdapterPlans([
-      plan("codex", directoryOutput()),
-      plan("claude", directoryOutput({
+  test("rejects every complete-directory tree disagreement deterministically", () => {
+    const base = directoryOutput({
+      members: [{ bytes: "# Skill\n", mode: 0o644, path: "SKILL.md", type: "file" }],
+    });
+    const disagreements: readonly ProposedProjectOutput[] = [
+      directoryOutput({
+        members: [{ bytes: "# Skill\n", mode: 0o644, path: "README.md", type: "file" }],
+      }),
+      directoryOutput({
+        members: [{ mode: 0o644, path: "SKILL.md", type: "directory" }],
+      }),
+      directoryOutput({
+        members: [{ bytes: "# Skill\n", mode: 0o755, path: "SKILL.md", type: "file" }],
+      }),
+      directoryOutput({
+        members: [{ bytes: "# Different\n", mode: 0o644, path: "SKILL.md", type: "file" }],
+      }),
+      directoryOutput({
         members: [
-          {
-            bytes: "# Different\n",
-            mode: 0o644,
-            path: "SKILL.md",
-            type: "file",
-          },
+          { bytes: "# Skill\n", mode: 0o644, path: "SKILL.md", type: "file" },
+          { bytes: "extra\n", mode: 0o644, path: "extra.txt", type: "file" },
         ],
-      })),
-    ])).toThrow(
-      "Adapter output collision at '.agents/skills/demo-skill': directory members disagrees between consuming Hosts claude, codex",
-    );
+      }),
+    ];
+
+    for (const output of disagreements) {
+      expect(() => normalizeAdapterPlans([plan("codex", base), plan("claude", output)]))
+        .toThrow(
+          "Adapter output collision at '.agents/skills/demo-skill': directory members disagrees between consuming Hosts claude, codex",
+        );
+    }
   });
 
   test("rejects absolute, root-escaping, and non-normalized output paths", () => {
