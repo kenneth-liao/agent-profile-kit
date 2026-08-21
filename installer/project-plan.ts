@@ -13,20 +13,6 @@ import {
   resolveGrokCliVersion,
   type GrokInspection,
 } from "../adapters/grok.js";
-import {
-  assertPiProjectSurface,
-  detectPiSkillSettingsWarnings,
-  piMachineRequirements,
-  planPiProject,
-  probePiMachineCapability,
-} from "../adapters/pi.js";
-import {
-  assertAntigravityProjectSurface,
-  antigravityMachineRequirements,
-  planAntigravityProject,
-  probeAntigravityMachineCapability,
-} from "../adapters/antigravity.js";
-import { isAdapterCapabilityError } from "../adapters/capability.js";
 import { adapterVersionFor, hostRegistrationFor } from "../adapters/registry.js";
 import { skillsRequireDisabledModelInvocation } from "../adapters/skill-package.js";
 import type {
@@ -732,47 +718,6 @@ export async function buildDesiredState(
                 requireDisabledModelInvocation,
               },
             );
-          } else if (host === "pi") {
-            await planning.probeHostCapability(
-              {
-                host,
-                requirements: piMachineRequirements({
-                  requireDisabledModelInvocation,
-                }),
-              },
-              () => probePiMachineCapability({
-                ...capabilityEnvironment,
-                home,
-                requireContext,
-                requireDisabledModelInvocation,
-                requireSkills,
-              }),
-            );
-            await assertPiProjectSurface(binding.canonicalProject, {
-              requireContext,
-              requireSkills,
-            });
-          } else if (host === "antigravity") {
-            await planning.probeHostCapability(
-              {
-                host,
-                requirements: antigravityMachineRequirements({
-                  requireContext,
-                  requireDisabledModelInvocation,
-                  requireSkills,
-                }),
-              },
-              () => probeAntigravityMachineCapability({
-                ...capabilityEnvironment,
-                requireContext,
-                requireDisabledModelInvocation,
-                requireSkills,
-              }),
-            );
-            await assertAntigravityProjectSurface(binding.canonicalProject, {
-              requireContext,
-              requireSkills,
-            });
           }
         } catch (error) {
           blockers.push(
@@ -805,17 +750,6 @@ export async function buildDesiredState(
             grokInspection = undefined;
           }
         }
-      }
-      if (host === "pi" && requireSkills) {
-        appendDiagnosticWarnings(
-          warnings,
-          diagnosticValues,
-          await detectPiSkillSettingsWarnings({
-            home,
-            project: binding.canonicalProject,
-          }),
-          binding.project,
-        );
       }
       if (host === "grok" && requireSkills) {
         appendDiagnosticWarnings(
@@ -888,61 +822,6 @@ export async function buildDesiredState(
         );
         plans.push(adapterPlan);
         hostVersions.grok = adapterPlan.hostVersion;
-        continue;
-      }
-      if (legacyHost === "pi") {
-        const adapterPlan = await planning.planHost(
-          {
-            host: "pi",
-            options: {},
-            profileId: profile.id,
-            resolvedContexts: resolvedProfile.contexts,
-            resolvedSkills: resolvedProfile.skills,
-          },
-          () => planPiProject(
-            profile.id,
-            resolvedProfile.contexts,
-            resolvedProfile.skills,
-            { materials: planning.materials },
-          ),
-        );
-        plans.push(adapterPlan);
-        hostVersions.pi = adapterPlan.hostVersion;
-        continue;
-      }
-      if (legacyHost === "antigravity") {
-        let adapterPlan: AdapterProjectPlan | undefined;
-        try {
-          adapterPlan = await planning.planHost(
-            {
-              host: "antigravity",
-              options: {},
-              profileId: profile.id,
-              resolvedContexts: resolvedProfile.contexts,
-              resolvedSkills: resolvedProfile.skills,
-            },
-            () => planAntigravityProject(
-              profile.id,
-              resolvedProfile.contexts,
-              resolvedProfile.skills,
-              { materials: planning.materials },
-            ),
-          );
-        } catch (error) {
-          if (!isAdapterCapabilityError(error)) throw error;
-          blockers.push(
-            hostCapabilityBlocker(
-              error,
-              "antigravity",
-              binding.canonicalProject,
-              binding.project,
-            ),
-          );
-        }
-        if (adapterPlan !== undefined) {
-          plans.push(adapterPlan);
-          hostVersions.antigravity = adapterPlan.hostVersion;
-        }
         continue;
       }
       const exhaustive: never = legacyHost;

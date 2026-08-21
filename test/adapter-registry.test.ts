@@ -39,11 +39,11 @@ describe("canonical Host registry", () => {
     ]);
     expect(HOST_REGISTRY.map((registration) => registration.host)).toEqual([...SUPPORTED_HOSTS]);
     expect(HOST_REGISTRY.map((registration) => registration.ordinaryPlanning)).toEqual([
-      "legacy",
       "complete",
       "complete",
+      "complete",
       "legacy",
-      "legacy",
+      "complete",
     ]);
 
     expect(isSupportedHost("claude")).toBe(true);
@@ -57,7 +57,7 @@ describe("canonical Host registry", () => {
     expect(hostRegistrationFor("pi")).toMatchObject({
       adapterVersion: "pi-project-v2",
       host: "pi",
-      ordinaryPlanning: "legacy",
+      ordinaryPlanning: "complete",
       supportsTemporaryProfileInstallation: false,
     });
     expect(() => hostRegistrationFor("unknown" as "claude")).toThrow(
@@ -79,7 +79,12 @@ describe("canonical Host registry", () => {
     const complete = HOST_REGISTRY.filter(
       (registration) => registration.ordinaryPlanning === "complete",
     );
-    expect(complete.map((registration) => registration.host)).toEqual(["claude", "codex"]);
+    expect(complete.map((registration) => registration.host)).toEqual([
+      "antigravity",
+      "claude",
+      "codex",
+      "pi",
+    ]);
     expect(complete.every((registration) => "adapter" in registration)).toBe(true);
     expect(
       HOST_REGISTRY.filter((registration) => registration.ordinaryPlanning === "legacy")
