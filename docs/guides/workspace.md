@@ -23,7 +23,7 @@ Source ownership and managed delivery are separate:
   Kit–managed project-bound delivery. A Project Binding selects a project root,
   one Profile, and Hosts; only selected (and Dependency-resolved) artifacts from
   that Profile enter Installation Manifests and the managed lifecycle
-  (`preview`, `apply`, `status`, and `uninstall`).
+  (`status`, `apply`, and `uninstall`).
 - Agent Profile Kit v1 does not install, project, synchronize, or remove material in
   personal/global Host roots. Global Host delivery is not APK-owned state: it is
   outside Project Bindings and Installation Manifests, and `apply` / `uninstall`
@@ -86,8 +86,8 @@ only `schema_version: 1`. Local Configuration schema version is 2 and its
 ### Legacy Local Configuration migration and version compatibility
 
 Version-1 Local Configuration without `workspace` is supported only as migration
-input. Run `apkit init` to upgrade it before using `validate`,
-`preview`, `apply`, `status`, `bind`, or `unbind`. Those commands never migrate
+input. Run `apkit init` to upgrade it before using `validate`, `status`, `apply`,
+`bind`, or `unbind`. Those commands never migrate
 the file implicitly: they fail closed with actionable `apkit init`
 guidance while leaving migration to the explicit `init` command.
 
@@ -150,11 +150,11 @@ you can discover where material belongs:
 - short bootstrap `README.md` and `AGENTS.md` pointers to the current guides
 - a starter `.gitignore`
 
-The example gives a new user one complete `bind` → `preview` → `apply` path.
+The example gives a new user one complete `bind` → `status` → `apply` path.
 Delete both `profiles/example.yaml` and `context/example-context.md` together,
 unused empty directories, or bootstrap docs if you prefer a minimal tree;
-later `init` runs do not restore removed optional scaffolding, and validation,
-preview, status, apply, and uninstall keep working. Do not treat generated Host
+later `init` runs do not restore removed optional scaffolding; validation,
+status, apply, and uninstall keep working. Do not treat generated Host
 output as source material.
 
 ### CLI compatibility for minimal Workspaces
@@ -223,7 +223,7 @@ This is the only portable spelling. Host-native top-level
 canonical source fields for Agent Profile Kit: migrate Host-shaped Skills to
 the namespaced metadata key above rather than relying on Host-specific
 frontmatter. The Installer never rewrites Workspace `SKILL.md` during
-validate, preview, or apply.
+validate, status, or apply.
 
 Adapters translate the trusted policy only in generated Host output:
 
@@ -261,7 +261,7 @@ Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each
 Skill's Agent Profile Kit sidecar. Each reference contains `type` (`context` or
 `skill`) and its stable `id`. Dependencies are resolved transitively and every
-resolved reason is retained in preview and the machine-local Installation
+resolved reason is retained in status and the machine-local Installation
 Manifest.
 
 A Profile is a YAML file under `profiles/` with exactly an `id`, a `context`
@@ -287,8 +287,8 @@ Skills-only Profiles remain under Workspace `schema_version: 1`, but the shape i
 accepted only by Agent Profile Kit **0.17.0 and later**. **0.16.x and earlier**
 still require every Profile to select at least one Context Module and reject
 Skills-only Profiles at Workspace ingestion. A binary rollback onto a Workspace
-that still contains Skills-only Profiles makes normal validate/preview/apply/
-status fail at ingestion and can leave previously installed Host-native Skills
+that still contains Skills-only Profiles makes normal validate/status/apply
+fail at ingestion and can leave previously installed Host-native Skills
 stranded until source is converted or the install is cleaned with a 0.17+ CLI.
 
 Before rolling a machine back to a CLI older than 0.17.0:
@@ -374,7 +374,7 @@ Omit the project argument to use the current working directory. At least one
 Profile or Host set for the same project fails instead of overwriting. Do not
 hand-edit `config.yaml` while `bind` is running: `bind` commands serialize with
 each other, but a text editor does not participate in that lock. After binding,
-run `validate`, then `preview` and `apply` separately.
+run `validate`, then `status` and `apply` separately.
 
 Remove desired state with the recording-only command:
 
@@ -388,7 +388,7 @@ paths use the same canonical-root rules as bindings, including symlink aliases.
 When a project no longer exists, `unbind` can remove a binding only when the
 argument exactly matches its authored `project` spelling; it never guesses an
 alias. `unbind` edits Local Configuration only and leaves generated output for
-the next fleet `preview` and `apply --all`. Cooperating `bind` and `unbind` commands
+the next fleet `status` and `apply --all`. Cooperating `bind` and `unbind` commands
 serialize and publish atomically; do not hand-edit the file concurrently.
 
 ```yaml
@@ -405,14 +405,15 @@ bindings:
       - claude
 ```
 
-## Validate, preview, and apply
+## Validate, status, and apply
 
 For Codex bindings that select Context, the Adapter requires Codex CLI 0.145.0 or
 newer so the generated SessionStart handler can deliver the complete Context
 envelope without Codex's default head-and-tail spill. Older, missing, or
 unreadable Codex versions fail capability preflight before any project or
-Installation State writes. A Project-scoped `apply` probes only its selected
-binding. `apply --all` leaves a capability-blocked Codex Project untouched
+Installation State writes. `status` performs the same predictable capability
+preflight without writing; a Project-scoped `status` or `apply` probes only its
+selected binding. `apply --all` leaves a capability-blocked Codex Project untouched
 while committing healthy Projects; global Blockers still stop every fleet write.
 Skills-only Codex bindings do
 not require this floor. Review and trust the generated project SessionStart hook
@@ -427,7 +428,7 @@ global configuration from `CODEX_HOME/config.toml`; otherwise it uses
 
 Run `apkit validate` to check the Workspace and every Project Binding.
 Review the concise read-only reconciliation outcome with
-`apkit preview`. It leads with whether reconciliation can proceed,
+`apkit status`. It leads with whether reconciliation can proceed,
 groups changes and blockers by Profile Installation, and summarizes
 changed file paths with `+`, `~`, `-`, or `!` markers without listing unchanged
 output. Long lists are capped with an overflow pointer to `--verbose`.
@@ -436,8 +437,8 @@ Non-current Profile Installation states such as `stale source`, `blocked`, or
 installations). Pending Git exclusion work appears as one concise clause; exact
 targets and path changes are reserved for `--verbose`. When action is
 useful, concise results end with one next-action line derived from the same
-attention surface as the report body: actionable `status` points to read-only
-`preview` before applying; a ready fleet `preview` recommends `apply --all`; a
+attention surface as the report body: actionable `status` points directly to the
+matching apply command; a ready fleet `status --all` recommends `apply --all`; a
 blocked result tells you to resolve the reported blocker and retry the same
 command you just ran; current status and completed or no-op `apply` results omit
 a next step. `status` and `apply` default to the bound Project containing the
@@ -445,12 +446,13 @@ current working directory and accept one explicit existing absolute or
 home-relative bound Project root. Use `--all` as the only fleet scope. Scoped
 planning, Host probes, Git and ownership inspection, reconciliation, reports,
 and writes exclude unrelated Projects; a shared Git exclusion file changes only
-through the selected installation's contribution-aware union. `preview` remains
-fleet-wide in this release.
+through the selected installation's contribution-aware union. Missing or
+downgraded Hosts block pending application but appear as Host attention when
+output is already current; this capability attention does not mark generated
+files as drifted.
 
 For complete per-output and desired-state diagnostics, including resolved
-artifact inclusion reasons and composed Context, append `--verbose` to
-`preview`, `apply`, or `status`. Warnings, blockers, drift reasons, and removal
+artifact inclusion reasons and composed Context, append `--verbose` to `status` or `apply`. Warnings, blockers, drift reasons, and removal
 intent remain visible in the concise view. Git-tracked-path blockers explain
 that repository-owned content is not replaced because generated Profile
 Installation output must be exclusively Installer-owned.
@@ -505,7 +507,7 @@ Antigravity receives Profile Context through deterministic always-on rules under
 `.agents/rules/`. The Adapter requires `agy` CLI 1.1.13 or newer and writes one
 rule for the Profile envelope followed by one complete rule per Context Module.
 Each generated rule contains `trigger: always_on` frontmatter and must stay at or
-below 12,000 characters. If one Context Module is too large, preview reports a
+below 12,000 characters. If one Context Module is too large, status reports a
 structured blocker instead of truncating it.
 
 Antigravity discovers the rules from the current bound project; you do not need
@@ -574,7 +576,7 @@ configuration and repository-owned files stay live and unchanged.
 
 Agent Profile Kit 0.24.x reads the previous schema-2 machine-local Installation
 State and synthesizes Repository Exclusion Records at the state boundary. The
-read is non-mutating: `preview` and `status` do not rewrite the file. The first
+read is non-mutating: `status` does not rewrite the file. The first
 successful `apply` or `uninstall` publishes schema 3, which older 0.23.x
 engines cannot read. Before upgrading, keep a copy of the state file if a
 downgrade may be needed:
@@ -706,7 +708,7 @@ warnings visible.
 
 Use `apkit unbind [project]` to remove desired Project Binding state.
 It does not delete generated output. When an installed Manifest remains, its
-output recommends the fleet `preview` and `apply --all` needed to review and
+output recommends the fleet `status --all` and `apply --all` needed to review and
 reconcile the former installation; after `uninstall`, it omits that no-op step.
 
 To delete generated output directly, use `apkit uninstall`. It names each

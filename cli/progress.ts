@@ -17,9 +17,6 @@ export const DELAYED_PROGRESS_TICK_MS = 500;
 /** Cap on animated ticks; the line stays static beyond this so it cannot grow unbounded. */
 export const DELAYED_PROGRESS_MAX_TICKS = 3;
 
-/** Operation label for a long-running `preview` inspection. */
-export const PREVIEW_PROGRESS_LABEL = "Planning changes";
-
 /** Operation label for a long-running `status` inspection. */
 export const STATUS_PROGRESS_LABEL = "Inspecting Projects";
 

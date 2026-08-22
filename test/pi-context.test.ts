@@ -603,7 +603,7 @@ describe("Pi Adapter", () => {
       temporaryInstallations: [],
       schemaVersion: 5,
     });
-    const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
+    const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       projects: readonly {
         project: string;
         outputs: readonly { consumingHosts: readonly string[]; path: string }[];
@@ -614,7 +614,7 @@ describe("Pi Adapter", () => {
       consumingHosts: ["codex", "pi"],
       path: ".agents/skills/review-pr",
     }));
-    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
     expect(verbose).toContain("Consuming Hosts:");
     expect(verbose).toContain(".agents/skills/review-pr: codex, pi");
 

@@ -14,14 +14,13 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse, stringify } from "yaml";
 
-import { PREVIEW_PROGRESS_LABEL } from "../cli/progress.js";
+import { STATUS_PROGRESS_LABEL } from "../cli/progress.js";
 import {
   benchmarkWarmRuns,
   formatBenchmarkMarkdown,
 } from "../installer/benchmark.js";
 import {
   applyApplication,
-  previewApplication,
   statusApplication,
   validateApplication,
 } from "../installer/commands.js";
@@ -194,7 +193,7 @@ describe("fleet-wide synchronization qualification", () => {
       })),
     );
 
-    const preview = await runCli(home, pathWithHosts, "preview");
+    const preview = await runCli(home, pathWithHosts, "status");
     expectExitCode(preview, 0);
     // The concise header totals the fleet change once.
     expect(preview.stdout).toContain(
@@ -215,17 +214,17 @@ describe("fleet-wide synchronization qualification", () => {
     expect(preview.stdout).not.toContain("State: current");
 
     // Verbose and JSON retain the complete per-Project evidence.
-    const verbose = await runCli(home, pathWithHosts, "preview", "--verbose");
+    const verbose = await runCli(home, pathWithHosts, "status", "--verbose");
     expectExitCode(verbose, 0);
     for (const project of projects) expect(verbose.stdout).toContain(project);
 
-    const json = await runCli(home, pathWithHosts, "preview", "--json");
+    const json = await runCli(home, pathWithHosts, "status", "--json");
     expectExitCode(json, 0);
     const payload = JSON.parse(json.stdout) as {
       readonly projects: readonly { readonly state: { readonly kind: string } }[];
       readonly schemaVersion: number;
     };
-    expect(payload.schemaVersion).toBe(6);
+    expect(payload.schemaVersion).toBe(7);
     expect(payload).not.toHaveProperty("impacts");
     expect(payload.projects).toHaveLength(12);
 
@@ -327,21 +326,18 @@ describe("fleet-wide synchronization qualification", () => {
   test("operation budgets flow through the command layer with Host probes once per unique requirement", async () => {
     const home = isolatedHome();
     const { pathWithHosts } = createPackedFleet(home);
-    const originalPath = process.env.PATH;
-    process.env.PATH = pathWithHosts;
-    try {
-      const instrumentation = createLifecycleInstrumentation();
-      const report = await previewApplication(home, { instrumentation });
-      expect(reportBlockers(report)).toEqual([]);
-      // One machine-level probe per unique Host requirement set (codex,
-      // claude, grok, pi) for the Context+Skill Profile.
-      expect(instrumentation.counts.probeHostCapability).toBe(4);
-      expect(instrumentation.counts.resolveProfile).toBe(1);
-      expect(instrumentation.counts.findGitProject).toBe(12);
-      expect(reportItems(report)).toHaveLength(12);
-    } finally {
-      process.env.PATH = originalPath;
-    }
+    const instrumentation = createLifecycleInstrumentation();
+    const report = await statusApplication(home, {
+      env: { ...process.env, PATH: pathWithHosts },
+      instrumentation,
+    });
+    expect(reportBlockers(report)).toEqual([]);
+    // One machine-level probe per unique Host requirement set (codex,
+    // claude, grok, pi) for the Context+Skill Profile.
+    expect(instrumentation.counts.probeHostCapability).toBe(4);
+    expect(instrumentation.counts.resolveProfile).toBe(1);
+    expect(instrumentation.counts.findGitProject).toBe(12);
+    expect(reportItems(report)).toHaveLength(12);
   });
 
   test("apply still performs fresh post-commit verification while writes, state, and receipts stay sequential", async () => {
@@ -460,25 +456,26 @@ describe("fleet-wide synchronization qualification", () => {
       80,
       pathWithHosts,
       { APKIT_TEST_CODEX_DELAY: "1.2", NO_COLOR: "1" },
-      "preview",
+      "status",
+      "--all",
     );
     expectExitCode(pty, 0);
-    expect(pty.stdout).toContain(PREVIEW_PROGRESS_LABEL);
+    expect(pty.stdout).toContain(STATUS_PROGRESS_LABEL);
     const reportIndex = pty.stdout.indexOf("Ready to apply");
     expect(reportIndex).toBeGreaterThan(-1);
     const beforeReport = pty.stdout.slice(0, reportIndex);
     const afterReport = pty.stdout.slice(reportIndex);
-    expect(afterReport).not.toContain(PREVIEW_PROGRESS_LABEL);
-    const lastLabel = beforeReport.lastIndexOf(PREVIEW_PROGRESS_LABEL);
+    expect(afterReport).not.toContain(STATUS_PROGRESS_LABEL);
+    const lastLabel = beforeReport.lastIndexOf(STATUS_PROGRESS_LABEL);
     expect(lastLabel).toBeGreaterThan(-1);
-    expect(beforeReport.slice(lastLabel + PREVIEW_PROGRESS_LABEL.length)).toMatch(/^\.*\r +\r$/);
+    expect(beforeReport.slice(lastLabel + STATUS_PROGRESS_LABEL.length)).toMatch(/^\.*\r +\r$/);
     // The concise fleet report follows the clear, not a repeated matrix.
     expect(afterReport).toContain("Ready to apply");
 
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [cliPath, "preview"],
+      arguments_: [cliPath, "status", "--all"],
       environment: {
         ...process.env,
         APKIT_TEST_CODEX_DELAY: "1.2",
@@ -489,13 +486,13 @@ describe("fleet-wide synchronization qualification", () => {
       commandLabel: "packed CLI",
     });
     expectExitCode(delayed, 0);
-    expect(delayed.stdout).not.toContain(PREVIEW_PROGRESS_LABEL);
+    expect(delayed.stdout).not.toContain(STATUS_PROGRESS_LABEL);
     expect(delayed.stdout).not.toMatch(/\r/);
     expect(delayed.stdout).not.toMatch(/\u001b\[/);
 
     const json = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [cliPath, "preview", "--json"],
+      arguments_: [cliPath, "status", "--all", "--json"],
       environment: {
         ...process.env,
         APKIT_TEST_CODEX_DELAY: "1.2",
@@ -506,73 +503,64 @@ describe("fleet-wide synchronization qualification", () => {
       commandLabel: "packed CLI",
     });
     expectExitCode(json, 0);
-    expect(json.stdout).not.toContain(PREVIEW_PROGRESS_LABEL);
+    expect(json.stdout).not.toContain(STATUS_PROGRESS_LABEL);
     expect(json.stdout).not.toMatch(/\r/);
     expect(() => JSON.parse(json.stdout)).not.toThrow();
   }, 120_000);
 
-  test("representative warm status, preview, and apply samples are benchmarked and recorded with the qualification evidence", async () => {
+  test("representative warm status and apply samples are benchmarked and recorded with the qualification evidence", async () => {
     const home = isolatedHome();
     const { pathWithHosts } = createPackedFleet(home);
     // Warm the fleet to current before measuring.
     const warmup = await runCli(home, pathWithHosts, "apply");
     expectExitCode(warmup, 0);
 
-    const originalPath = process.env.PATH;
-    process.env.PATH = pathWithHosts;
-    try {
-      const result = await benchmarkWarmRuns(home, {
-        mutateSkill: FLEET_SKILL,
-        runCount: 2,
-      });
-      const commands = result.samples.map((sample) => sample.command);
-      expect(commands).toEqual(["status", "status", "preview", "preview", "apply", "apply"]);
-      for (const sample of result.samples) {
-        expect(Number.isFinite(sample.elapsedMs)).toBe(true);
-        expect(sample.elapsedMs).toBeGreaterThan(0);
-      }
-      const markdown = formatBenchmarkMarkdown(result, {
-        fixtureDescription: "isolated 12-Project fleet",
-        baselineNote: "parent #193: status ≈ 6.00s, preview ≈ 10.65s pre-optimization",
-      });
-      expect(markdown).toContain("## Fleet synchronization warm-run benchmark");
-      expect(markdown).toContain("| status | 2 |");
-      expect(markdown).toContain("| preview | 2 |");
-      expect(markdown).toContain("| apply | 2 |");
-      expect(markdown).toContain("isolated 12-Project fleet");
-      expect(markdown).toContain("parent #193");
-      // Fail fast on nonsensical sample configurations rather than rendering
-      // empty or infinite rows.
-      await expect(benchmarkWarmRuns(home, { runCount: 0 })).rejects.toThrow(
-        /run count must be a positive integer/,
-      );
-      await expect(benchmarkWarmRuns(home, { commands: [] })).rejects.toThrow(
-        /at least one command/,
-      );
-    } finally {
-      process.env.PATH = originalPath;
+    const result = await benchmarkWarmRuns(home, {
+      mutateSkill: FLEET_SKILL,
+      path: pathWithHosts,
+      runCount: 2,
+    });
+    const commands = result.samples.map((sample) => sample.command);
+    expect(commands).toEqual(["status", "status", "apply", "apply"]);
+    for (const sample of result.samples) {
+      expect(Number.isFinite(sample.elapsedMs)).toBe(true);
+      expect(sample.elapsedMs).toBeGreaterThan(0);
     }
+    const markdown = formatBenchmarkMarkdown(result, {
+      fixtureDescription: "isolated 12-Project fleet",
+      baselineNote: "parent #193: status ≈ 6.00s, preview ≈ 10.65s pre-optimization",
+    });
+    expect(markdown).toContain("## Fleet synchronization warm-run benchmark");
+    expect(markdown).toContain("| status | 2 |");
+    expect(markdown).toContain("| apply | 2 |");
+    expect(markdown).toContain("isolated 12-Project fleet");
+    expect(markdown).toContain("parent #193");
+    // Fail fast on nonsensical sample configurations rather than rendering
+    // empty or infinite rows.
+    await expect(benchmarkWarmRuns(home, { runCount: 0 })).rejects.toThrow(
+      /run count must be a positive integer/,
+    );
+    await expect(benchmarkWarmRuns(home, { commands: [] })).rejects.toThrow(
+      /at least one command/,
+    );
   });
 
   test("validate is part of the same command-layer instrumentation surface", async () => {
     const home = isolatedHome();
     const { pathWithHosts } = createPackedFleet(home);
-    const originalPath = process.env.PATH;
-    process.env.PATH = pathWithHosts;
-    try {
-      const instrumentation = createLifecycleInstrumentation();
-      const result = await validateApplication(home, { instrumentation });
-      expect(result.bindings).toBe(12);
-      expect(instrumentation.counts.resolveProfile).toBe(1);
-      expect(instrumentation.counts.findGitProject).toBe(12);
+    const instrumentation = createLifecycleInstrumentation();
+    const result = await validateApplication(home, { instrumentation });
+    expect(result.bindings).toBe(12);
+    expect(instrumentation.counts.resolveProfile).toBe(1);
+    expect(instrumentation.counts.findGitProject).toBe(12);
 
-      const statusInstrumentation = createLifecycleInstrumentation();
-      const report = await statusApplication(home, { instrumentation: statusInstrumentation });
-      expect(reportBlockers(report)).toEqual([]);
-      expect(reportItems(report)).toHaveLength(12);
-      expect(statusInstrumentation.counts.resolveProfile).toBe(1);
-    } finally {
-      process.env.PATH = originalPath;
-    }
+    const statusInstrumentation = createLifecycleInstrumentation();
+    const report = await statusApplication(home, {
+      env: { ...process.env, PATH: pathWithHosts },
+      instrumentation: statusInstrumentation,
+    });
+    expect(reportBlockers(report)).toEqual([]);
+    expect(reportItems(report)).toHaveLength(12);
+    expect(statusInstrumentation.counts.resolveProfile).toBe(1);
   });
 });

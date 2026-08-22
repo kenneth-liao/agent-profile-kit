@@ -5,7 +5,6 @@ import {
   DELAYED_PROGRESS_MAX_TICKS,
   DELAYED_PROGRESS_THRESHOLD_MS,
   DELAYED_PROGRESS_TICK_MS,
-  PREVIEW_PROGRESS_LABEL,
   STATUS_PROGRESS_LABEL,
   type ProgressClock,
   type ProgressStream,
@@ -71,13 +70,13 @@ describe("delayed interactive progress", () => {
   test("progress appears only after the anti-flicker threshold and names the operation", () => {
     const stream = new RecordingStream();
     const clock = new FakeClock();
-    const progress = beginDelayedProgress({ clock, operation: PREVIEW_PROGRESS_LABEL, stream });
+    const progress = beginDelayedProgress({ clock, operation: STATUS_PROGRESS_LABEL, stream });
 
     clock.advance(DELAYED_PROGRESS_THRESHOLD_MS - 1);
     expect(stream.output).toBe("");
 
     clock.advance(1);
-    expect(stream.output).toBe(`\r${PREVIEW_PROGRESS_LABEL}`);
+    expect(stream.output).toBe(`\r${STATUS_PROGRESS_LABEL}`);
   });
 
   test("progress ticks are capped and the line is cleared before completion", () => {
@@ -101,13 +100,13 @@ describe("delayed interactive progress", () => {
   test("finishing clears a visible progress line and leaves no stale bytes after it", () => {
     const stream = new RecordingStream();
     const clock = new FakeClock();
-    const progress = beginDelayedProgress({ clock, operation: PREVIEW_PROGRESS_LABEL, stream });
+    const progress = beginDelayedProgress({ clock, operation: STATUS_PROGRESS_LABEL, stream });
 
     clock.advance(DELAYED_PROGRESS_THRESHOLD_MS);
     clock.advance(DELAYED_PROGRESS_TICK_MS);
     progress.finish();
 
-    expect(stream.chunks.at(-2)).toBe(`\r${PREVIEW_PROGRESS_LABEL}.`);
+    expect(stream.chunks.at(-2)).toBe(`\r${STATUS_PROGRESS_LABEL}.`);
     expect(stream.chunks.at(-1)).toMatch(/^\r +\r$/);
   });
 

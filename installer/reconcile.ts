@@ -149,6 +149,7 @@ export interface DesiredResolvedArtifactPreview {
 
 export interface ReconciliationWarning {
   readonly copyableValues: readonly string[];
+  readonly kind: "diagnostic" | "host-attention";
   readonly message: string;
 }
 
@@ -773,7 +774,7 @@ interface InstallationRetirementSelection {
 
 /**
  * Select stale installations that may be retired without project-tree ownership
- * proof after an exact-path unbind. Both preview and apply use this same reader
+ * proof after an exact-path unbind. Both status and apply use this same reader
  * so deletion intent cannot silently lose its exclusion-ownership safeguards.
  * Independent per-Project reads run through the shared bounded scheduler; the
  * deletion-intent selection folds in canonical order afterwards.
@@ -909,6 +910,7 @@ function nestedReconciliationReport(
     const key = installation.binding.canonicalProject;
     warningsByCanonical.set(key, installation.warnings.map((warning) => ({
       copyableValues: [...warning.copyableValues],
+      kind: "diagnostic" as const,
       message: warning.message,
     })));
   }
@@ -931,6 +933,7 @@ function nestedReconciliationReport(
       const warnings = warningsByCanonical.get(key) ?? [];
       warnings.push({
         copyableValues: [repair.target],
+        kind: "diagnostic",
         message: `${repair.target}${REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX}`,
       });
       warningsByCanonical.set(key, warnings);

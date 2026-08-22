@@ -4,7 +4,6 @@ import { join } from "node:path";
 
 import {
   applyApplication,
-  previewApplication,
   statusApplication,
   validateApplication,
 } from "./commands.js";
@@ -21,7 +20,7 @@ import {
  * command) rather than any hardware-dependent threshold.
  */
 
-export type LifecycleBenchmarkCommand = "validate" | "status" | "preview" | "apply";
+export type LifecycleBenchmarkCommand = "validate" | "status" | "apply";
 
 /** One measured warm sample of one lifecycle command. */
 export interface LifecycleBenchmarkSample {
@@ -36,12 +35,12 @@ export interface LifecycleBenchmarkResult {
 export interface LifecycleBenchmarkOptions {
   /**
    * Commands to sample, in record order. Defaults to the representative
-   * `status`, `preview`, and `apply` journey named by the qualification ticket.
+   * authoritative `status` and `apply` journey.
    */
   readonly commands?: readonly LifecycleBenchmarkCommand[];
   /**
-   * Directory prepended to `process.env.PATH` for the duration of the run so
-   * machine-level Host capability probes resolve against controlled stubs.
+   * PATH supplied to lifecycle command capability probes so they resolve
+   * against controlled stubs without mutating process-global environment.
    */
   readonly path?: string;
   /**
@@ -49,7 +48,7 @@ export interface LifecycleBenchmarkOptions {
    */
   readonly runCount?: number;
   /**
-   * Shared Skill Artifact ID to mutate before each `preview` and `apply`
+   * Shared Skill Artifact ID to mutate before each `status` and `apply`
    * sample, so those samples measure the motivating "one shared Skill changed"
    * re-sync workload instead of a steady-state no-op. `status` samples always
    * run against the current fleet.
@@ -59,7 +58,6 @@ export interface LifecycleBenchmarkOptions {
 
 const DEFAULT_COMMANDS: readonly LifecycleBenchmarkCommand[] = [
   "status",
-  "preview",
   "apply",
 ];
 
@@ -79,8 +77,9 @@ async function sampleCommand(
   command: LifecycleBenchmarkCommand,
   mutateSkill: string | undefined,
   mutation: number,
+  env: NodeJS.ProcessEnv | undefined,
 ): Promise<number> {
-  if (mutateSkill !== undefined && (command === "preview" || command === "apply")) {
+  if (mutateSkill !== undefined && (command === "status" || command === "apply")) {
     appendFileSync(
       skillMarkdownPath(home, mutateSkill),
       `\nBenchmark mutation ${mutation}.\n`,
@@ -88,9 +87,11 @@ async function sampleCommand(
   }
   const started = performance.now();
   if (command === "validate") await validateApplication(home);
-  else if (command === "status") await statusApplication(home);
-  else if (command === "preview") await previewApplication(home);
-  else await applyApplication(home);
+  else if (command === "status") {
+    await statusApplication(home, env === undefined ? {} : { env });
+  } else {
+    await applyApplication(home, env === undefined ? {} : { env });
+  }
   return performance.now() - started;
 }
 
@@ -114,23 +115,20 @@ export async function benchmarkWarmRuns(
   if (commands.length === 0) {
     throw new Error("Benchmark requires at least one command to sample");
   }
-  const originalPath = process.env.PATH;
-  if (options.path !== undefined) process.env.PATH = options.path;
+  const env = options.path === undefined
+    ? undefined
+    : { ...process.env, PATH: options.path };
   const samples: LifecycleBenchmarkSample[] = [];
-  try {
-    await statusApplication(home);
-    let mutation = 0;
-    for (const command of commands) {
-      for (let index = 0; index < runCount; index += 1) {
-        mutation += 1;
-        samples.push({
-          command,
-          elapsedMs: await sampleCommand(home, command, options.mutateSkill, mutation),
-        });
-      }
+  await statusApplication(home, env === undefined ? {} : { env });
+  let mutation = 0;
+  for (const command of commands) {
+    for (let index = 0; index < runCount; index += 1) {
+      mutation += 1;
+      samples.push({
+        command,
+        elapsedMs: await sampleCommand(home, command, options.mutateSkill, mutation, env),
+      });
     }
-  } finally {
-    process.env.PATH = originalPath;
   }
   return { samples };
 }

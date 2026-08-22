@@ -568,7 +568,7 @@ export async function ingestSelectedWorkspace(home: string): Promise<Workspace> 
 
 /**
  * Shared desired-state ingestion boundary: resolve Local Configuration first so
- * validate/preview/apply/status select the same explicitly configured Workspace.
+ * validate/status/apply select the same explicitly configured Workspace.
  * `init` reuses `resolveWorkspaceRoot` separately; `uninstall` does not call
  * this path.
  */

@@ -58,7 +58,6 @@ import {
 } from "../installer/local-configuration.js";
 import {
   applyApplication,
-  previewApplication,
   statusApplication,
   uninstallApplication,
   validateApplication,
@@ -106,7 +105,6 @@ import {
 } from "./terminal-presentation.js";
 import {
   beginDelayedProgress,
-  PREVIEW_PROGRESS_LABEL,
   STATUS_PROGRESS_LABEL,
 } from "./progress.js";
 
@@ -321,8 +319,8 @@ function rootHelp(context: TerminalPresentationContext): string {
     `${quickStartHeading}\n` +
     `  ${COMMAND_NAME} init\n` +
     `  ${COMMAND_NAME} bind <profile> --host <host>\n` +
-    `  ${COMMAND_NAME} preview\n` +
-    `  ${COMMAND_NAME} apply --all\n\n` +
+    `  ${COMMAND_NAME} status\n` +
+    `  ${COMMAND_NAME} apply\n\n` +
     `${discovery}\n\n` +
     `${guidance}\n`;
 }
@@ -578,11 +576,11 @@ function parseLifecycleArguments(
       verbose = true;
       continue;
     }
-    if (argument === "--all" && command !== "preview") {
+    if (argument === "--all") {
       all = true;
       continue;
     }
-    if (!argument.startsWith("-") && command !== "preview") {
+    if (!argument.startsWith("-")) {
       if (project !== undefined) {
         throw new Error(`${command} accepts at most one Project path`);
       }
@@ -646,6 +644,20 @@ async function main(): Promise<void> {
     writeHuman(process.stdout, rootHelp(context), context);
     return;
   }
+  if (
+    arguments_[0] === "preview" ||
+    (arguments_[0] === HELP_COMMAND && arguments_[1] === "preview")
+  ) {
+    writeHuman(
+      process.stderr,
+      humanError(
+        `${COMMAND_NAME}: ${COMMAND_NAME} preview was removed; use ${COMMAND_NAME} status [project | --all] [--verbose] [--json] for the complete read-only apply plan.\n`,
+      ),
+      stderrPresentationContext,
+    );
+    process.exitCode = 1;
+    return;
+  }
   const focusedHelp = focusedHelpRequest(arguments_);
   if (focusedHelp?.kind === "root") {
     const context = stdoutPresentationContext;
@@ -688,7 +700,7 @@ async function main(): Promise<void> {
         process.stdout,
         humanOutput(
           `Migrated Local Configuration and validated the Agent Profile Kit Workspace at ${result.path}\n` +
-            `Next: run ${COMMAND_NAME} validate, then preview and apply as needed\n`,
+            `Next: run ${COMMAND_NAME} validate, then status and apply as needed\n`,
           [
             `Migrated Local Configuration and validated the Agent Profile Kit Workspace at ${result.path}`,
           ],
@@ -739,7 +751,7 @@ async function main(): Promise<void> {
           `Project Binding unchanged for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
             `  Profile: ${result.profile}\n` +
             `  Hosts: ${result.hosts.join(", ")}\n` +
-            `Next: ${COMMAND_NAME} preview\n`,
+            `Next: ${COMMAND_NAME} status\n`,
           [
             `Project Binding unchanged for ${displayProjectPath(result.canonicalProject, result.project)}`,
             result.hosts.join(", "),
@@ -755,7 +767,7 @@ async function main(): Promise<void> {
         `Recorded Project Binding for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
           `  Profile: ${result.profile}\n` +
           `  Hosts: ${result.hosts.join(", ")}\n` +
-          `Next: ${COMMAND_NAME} preview\n`,
+          `Next: ${COMMAND_NAME} status\n`,
         [
           `Recorded Project Binding for ${displayProjectPath(result.canonicalProject, result.project)}`,
           result.hosts.join(", "),
@@ -797,7 +809,7 @@ async function main(): Promise<void> {
     const generatedOutputSurvives = await generatedOutputSurvivesUnbind(home, result);
     const survival = generatedOutputSurvives
       ? "Generated files remain until apply\n" +
-        `Next: ${COMMAND_NAME} preview\n`
+        `Next: ${COMMAND_NAME} status --all\n`
       : "";
     const presentedProject = result.recovery === "canonical"
       ? displayProjectPath(result.canonicalProject, result.project)
@@ -949,35 +961,6 @@ async function main(): Promise<void> {
       default:
         return assertNever(parsed.topic);
     }
-  }
-  if (arguments_.length >= 1 && arguments_[0] === "preview") {
-    const parsed = parseOrExit("preview", () => parseLifecycleArguments("preview", arguments_.slice(1)));
-    if (parsed === undefined) return;
-    const context = stdoutPresentationContext;
-    const progress = interactiveProgress(context, parsed.json, PREVIEW_PROGRESS_LABEL);
-    try {
-      const report = await previewApplication(home);
-      progress?.finish();
-      if (parsed.json) {
-        process.stdout.write(formatLifecycleJson("preview", report));
-      } else {
-        writeHuman(
-          process.stdout,
-          formatLifecycleReport("preview", report, { ...parsed, context }),
-          context,
-        );
-      }
-      process.exitCode = lifecycleExitCode(report);
-    } catch (error) {
-      progress?.finish();
-      if (parsed.json) {
-        process.stdout.write(formatLifecycleToolErrorJson("preview", formatError(error)));
-      } else {
-        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
-      }
-      process.exitCode = 1;
-    }
-    return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "apply") {
     const parsed = parseOrExit("apply", () => parseLifecycleArguments("apply", arguments_.slice(1)));

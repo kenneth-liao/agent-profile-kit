@@ -83,8 +83,8 @@ does not block installation. Project configuration takes precedence over global
 configuration; when `CODEX_HOME` is set, Codex's global configuration is
 `CODEX_HOME/config.toml`, otherwise it is the default `~/.codex/config.toml`.
 The deprecated `codex_hooks` alias remains supported.
-When Host configuration warnings are the only diagnostics, `preview`, `apply`,
-and `status` still exit successfully. Automation that needs loading guarantees
+When Host configuration warnings are the only diagnostics, `status` and `apply`
+still exit successfully. Automation that needs loading guarantees
 must inspect the `Warnings` section (or JSON `warnings`) rather than relying on
 the exit code alone.
 
@@ -118,10 +118,11 @@ Machine-readable command contracts:
   Project paths, Profile IDs, and Hosts. Removed identities and ordinary
   installations are omitted. It reads Installation State only and never runs
   reconciliation or changes state.
-- Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 6`
+- Lifecycle `--json` on `status` and `apply` prints a `schemaVersion: 7`
   object with global Blockers and one deterministic record per Project. Each
   Project record keeps desired identity, state, output operations with consuming
-  Hosts, structured warnings with copyable values, Host Setup Steps, Project
+  Hosts, structured warnings classified as `diagnostic` or `host-attention`
+  with copyable values, Host Setup Steps, Project
   Blockers, and repository-exclusion evidence together. Blockers serialize
   `kind`, `scope`, Project identity when scoped, derived `message`, `problem`,
   `requirement`, `remedy`, and `affectedItems`. Apply keeps an `applied` nested
@@ -156,14 +157,14 @@ apkit list hosts --json
 apkit list temporary
 apkit list temporary --json
 apkit validate
-apkit preview
+apkit status                # complete read-only plan for the current Project
+apkit status ~/projects/x   # complete read-only plan for one explicit Project
+apkit status --all          # complete read-only fleet plan
 apkit apply                 # bound Project containing the current directory
 apkit apply ~/projects/x    # one explicit bound Project
 apkit apply --all           # complete fleet
-apkit status
-apkit status --all
-apkit preview --verbose   # complete reconciliation diagnostics
-apkit preview --json      # machine-readable report + uniform exit codes
+apkit status --verbose     # complete reconciliation diagnostics
+apkit status --json        # machine-readable report + uniform exit codes
 apkit uninstall
 ```
 
@@ -184,23 +185,25 @@ Profile, and one or more Hosts (`antigravity`, `codex`, `claude`, `grok`, or
 validated binding, or `unbind` to remove one binding, without reconciling
 output; hand-editing `config.yaml` remains supported. `unbind` defaults to the
 current working directory and only uses exact authored-path recovery when a
-requested project no longer exists. `preview` remains a fleet-wide read-only
-plan and leads with a ready-to-apply or cannot-apply outcome. `apply` and
-`status` default to the bound Project containing the current directory, accept
+requested project no longer exists. `status` is the complete read-only plan and
+leads with a ready-to-apply or cannot-apply outcome. `apply` and `status` default
+to the bound Project containing the current directory, accept
 one explicit existing absolute or home-relative bound root, and require `--all`
 for the complete fleet. A scoped command does not plan, probe, inspect, report,
-or write unrelated Projects. `apply` reports the verified resulting state
-separately from an Apply Receipt describing the pre-apply work that was
-committed; `status` emphasizes selected Profile Installations that need attention.
+or write unrelated Projects. `status` uses the same normalized desired plan and
+predictable Host capability evidence as `apply`: capability problems that block
+pending work are Project Blockers, while missing or downgraded Hosts for current
+output are Host attention without output drift. `apply` reports the verified
+resulting state separately from an Apply Receipt describing the pre-apply work
+that was committed.
 These default views group details by Profile Installation, list changed file
 paths with `+`, `~`, `-`, or `!` markers (capped with an overflow pointer to
 `--verbose`), explain non-current Profile Installation states when they appear,
 summarize pending Git exclusion work in one clause, keep warnings and blockers
 visible, and when useful end with
-one next-action instruction (status → read-only preview before apply; ready
-fleet preview → `apply --all`; blocked → resolve and retry the same command; current or
-completed/no-op results omit a next step). Add `--verbose` to
-`preview`, `apply`, or `status` for complete per-output and desired-state
+one next-action instruction (ready status → the matching `apply`; blocked →
+resolve and retry the same command; current or completed/no-op results omit a
+next step). Add `--verbose` to `status` or `apply` for complete per-output and desired-state
 diagnostics, including exact Git exclusion paths, resolved artifact inclusion
 reasons, and composed Context.
 `uninstall` is different: it names and removes proven generated Profile
@@ -209,14 +212,14 @@ that deliberate teardown without treating it as unexplained missing output.
 
 Older version-1 configuration without `workspace` is migration input only. Run
 `apkit init` to record the effective Workspace and upgrade it;
-`validate`, `preview`, `apply`, `status`, `bind`, and `unbind` fail closed with
+`validate`, `status`, `apply`, `bind`, and `unbind` fail closed with
 that guidance until migration completes. `init` never moves or rewrites the
 Workspace source, and a custom authored Workspace path is preserved. `info`
 reports `Workspace: Legacy configuration; run apkit init` (and
 `configurationState: "legacy"` under `--json`) until that migration completes.
 
 Run `apkit` with no arguments or `apkit --help` for a concise summary of every
-command and the minimal `init` → `bind` → `preview` → `apply --all` flow. Focused help
+command and the minimal `init` → `bind` → `status` → `apply` flow. Focused help
 is available as `apkit help <command>`, `apkit <command> -h`, or
 `apkit <command> --help`; use `apkit bind --help` to see supported Hosts. Use
 `apkit guide profile`, `apkit guide context`, or `apkit guide skill` for a short

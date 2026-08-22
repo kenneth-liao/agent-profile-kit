@@ -70,7 +70,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     examples: COMMAND_EXAMPLES.bind,
     supportedHosts: SUPPORTED_HOSTS,
     writes: "Records one Project Binding in Local Configuration; does not install project files.",
-    next: `Run ${COMMAND_NAME} preview.`,
+    next: `Run ${COMMAND_NAME} status.`,
   },
   {
     name: "unbind",
@@ -79,7 +79,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Remove a Project Binding",
     examples: COMMAND_EXAMPLES.unbind,
     writes: "Removes one Project Binding from Local Configuration; does not remove installed project files.",
-    next: `Run ${COMMAND_NAME} preview, then ${COMMAND_NAME} apply --all to remove obsolete generated files.`,
+    next: `Run ${COMMAND_NAME} status --all, then ${COMMAND_NAME} apply --all to remove obsolete generated files.`,
   },
   {
     name: "validate",
@@ -88,7 +88,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Check Workspace and Local Configuration validity",
     examples: COMMAND_EXAMPLES.validate,
     writes: "Nothing; this command is read-only.",
-    next: `Run ${COMMAND_NAME} preview.`,
+    next: `Run ${COMMAND_NAME} status.`,
   },
   {
     name: "info",
@@ -109,15 +109,6 @@ export const COMMANDS: readonly CommandHelp[] = [
     next: `Run ${COMMAND_NAME} status for Project lifecycle diagnostics.`,
   },
   {
-    name: "preview",
-    group: "lifecycle",
-    syntax: "preview [--verbose] [--json]",
-    summary: "Show pending sync changes without writing (read-only)",
-    examples: COMMAND_EXAMPLES.preview,
-    writes: "Nothing; this command is read-only.",
-    next: `Run ${COMMAND_NAME} apply --all when the fleet preview is ready.`,
-  },
-  {
     name: "apply",
     group: "lifecycle",
     syntax: "apply [project | --all] [--verbose] [--json]",
@@ -130,10 +121,10 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "status",
     group: "lifecycle",
     syntax: "status [project | --all] [--verbose] [--json]",
-    summary: "Show Project lifecycle diagnostics for the current Project, one explicit Project, or the complete fleet",
+    summary: "Show the complete read-only apply plan for the current Project, one explicit Project, or the complete fleet",
     examples: COMMAND_EXAMPLES.status,
     writes: "Nothing; this command is read-only.",
-    next: `If changes need attention, run ${COMMAND_NAME} preview.`,
+    next: `Run ${COMMAND_NAME} apply for pending work after resolving any blockers.`,
   },
   {
     name: "uninstall",
