@@ -571,7 +571,7 @@ export interface BuildDesiredStateOptions {
   readonly selection?: ProjectBindingSelection;
   /**
    * When false, skip Host CLI/version/surface capability preflight (status and
-   * validate). Defaults to true for preview/apply.
+   * validate). Defaults to true for status/apply.
    */
   readonly checkHostCapability?: boolean;
   /** Injectable process environment for Host capability probes. */

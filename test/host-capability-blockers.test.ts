@@ -91,7 +91,7 @@ describe("Host capability blockers", () => {
       kind: "host-capability",
       problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
       project: realpathSync(project),
-      remedy: "upgrade Codex before previewing or applying the Profile",
+      remedy: "upgrade Codex before checking status or applying the Profile",
       requirement: "The selected Profile requires Codex project delivery",
       scope: "project",
     });
@@ -190,7 +190,7 @@ describe("Host capability blockers", () => {
     expect(isAdapterCapabilityError(malformedInspectError)).toBe(true);
     if (isAdapterCapabilityError(malformedInspectError)) {
       expect(malformedInspectError.message).toBe(
-        "Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the CLI before previewing or applying the Profile",
+        "Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the CLI before checking status or applying the Profile",
       );
     }
   });

@@ -41,6 +41,8 @@ export interface ValidationResult {
  * changes command behavior, ordering, or machine payloads.
  */
 export interface LifecycleCommandOptions {
+  /** Injectable process environment for Host capability probes. */
+  readonly env?: NodeJS.ProcessEnv;
   readonly instrumentation?: LifecycleInstrumentation;
   readonly selection?: ProjectBindingSelection;
 }
@@ -96,31 +98,6 @@ export async function validateApplication(
   };
 }
 
-export async function previewApplication(
-  home: string,
-  options: LifecycleCommandOptions = {},
-): Promise<ReconciliationReport> {
-  const instrumentation = options.instrumentation;
-  const gitInspection = createLifecycleGitInspectionContext(instrumentation?.git);
-  const scheduler = createProjectReadScheduler();
-  const desired = await buildDesiredState(home, {
-    gitInspection,
-    ...planningInstrumentation(instrumentation),
-    scheduler,
-  });
-  let state;
-  try {
-    state = await readInstallationState(home);
-  } catch (error) {
-    return unreadableInstallationStateReport(home, desired.installations, error);
-  }
-  return previewReconciliation(desired.installations, state, {
-    gitInspection,
-    ownershipInspection: createLifecycleOwnershipInspectionContext(instrumentation?.ownership),
-    scheduler,
-  });
-}
-
 export async function applyApplication(
   home: string,
   options: LifecycleCommandOptions = {},
@@ -133,6 +110,7 @@ export async function applyApplication(
   const gitInspection = createLifecycleGitInspectionContext(instrumentation?.git);
   const scheduler = createProjectReadScheduler();
   const desired = await buildDesiredState(home, {
+    ...(options.env === undefined ? {} : { env: options.env }),
     gitInspection,
     ...planningInstrumentation(instrumentation),
     scheduler,
@@ -162,6 +140,7 @@ export async function statusApplication(
     // resolution against prior Manifests is unavailable.
     const desired = await buildDesiredState(home, {
       checkHostCapability: false,
+      ...(options.env === undefined ? {} : { env: options.env }),
       gitInspection,
       ...planningInstrumentation(instrumentation),
       scheduler,
@@ -172,7 +151,7 @@ export async function statusApplication(
   // Let each Adapter resolve dynamic topology from live evidence when possible,
   // otherwise preserve its applied delivery topology from the prior Manifest.
   const desired = await buildDesiredState(home, {
-    checkHostCapability: false,
+    ...(options.env === undefined ? {} : { env: options.env }),
     gitInspection,
     ...planningInstrumentation(instrumentation),
     previousInstallations: state.installations,
@@ -186,33 +165,42 @@ export async function statusApplication(
     scheduler,
     scope: reconciliationScope(options.selection),
   });
-  const blockedProjects = new Set(
-    report.projects.flatMap((project) =>
-      project.blockers.length > 0 ? [project.canonicalProject] : []
-    ),
-  );
   return reconciliationReportWithProjects(
     report,
     report.projects.map((project) => {
-      const blocked = blockedProjects.has(project.canonicalProject);
+      const applicationPending =
+        project.state.kind !== "current" ||
+        project.outputs.some((output) => output.kind !== "unchanged") ||
+        project.repositoryExclusions.length > 0 ||
+        project.repositoryExclusionRepairs.length > 0;
+      const hostAttention = applicationPending
+        ? []
+        : project.blockers.filter((blocker) => blocker.kind === "host-capability");
+      const hostAttentionSet = new Set(hostAttention);
+      const blockers = project.blockers.filter((blocker) => !hostAttentionSet.has(blocker));
+      const warnings = [
+        ...project.warnings,
+        ...hostAttention.map((blocker) => ({
+          copyableValues: blocker.affectedItems.map((item) => item.value),
+          kind: "host-attention" as const,
+          message: `Host attention: ${blocker.problem}; ${blocker.remedy}.`,
+        })),
+      ];
+      const blocked = blockers.length > 0;
       // Only remap otherwise-healthy states. Drift, ownership, and malformed kinds
       // already diagnose the problem and must keep their precise status labels.
       if (
         blocked &&
         (project.state.kind === "addition" || project.state.kind === "current")
       ) {
-        return { ...project, state: { ...project.state, kind: "blocked" as const } };
-      }
-      if (project.state.kind === "addition") {
         return {
           ...project,
-          state: {
-            ...project.state,
-            reason: "Project is not installed; apply will create it",
-          },
+          blockers,
+          state: { ...project.state, kind: "blocked" as const },
+          warnings,
         };
       }
-      return project;
+      return { ...project, blockers, warnings };
     }),
   );
 }

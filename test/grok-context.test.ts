@@ -318,7 +318,7 @@ describe("Grok Adapter planner", () => {
         resolveVersion: async () => "0.2.111",
         inspect: async () => {
           throw new Error(
-            "Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the CLI before previewing or applying the Profile",
+            "Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the CLI before checking status or applying the Profile",
           );
         },
       }),

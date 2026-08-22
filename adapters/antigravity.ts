@@ -108,7 +108,7 @@ export function parseAntigravityCliVersion(source: string): string {
     throw capabilityFailure(
       "antigravity",
       `Antigravity CLI version is unreadable from '${source.trim()}'`,
-      `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ and ensure \`agy --version\` works before previewing or applying the Profile`,
+      `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ and ensure \`agy --version\` works before checking status or applying the Profile`,
     );
   }
   return `${match[1]}.${match[2]}.${match[3]}`;
@@ -128,7 +128,7 @@ export function assertAntigravityCliVersionSupported(
     throw capabilityFailure(
       "antigravity",
       `Antigravity CLI ${version} does not support ${capability} (requires ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+)`,
-      "upgrade Antigravity CLI before previewing or applying the Profile",
+      "upgrade Antigravity CLI before checking status or applying the Profile",
     );
   }
 }
@@ -149,7 +149,7 @@ async function resolveAntigravityCliVersion(
       throw capabilityFailure(
         "antigravity",
         "Antigravity CLI was not found on PATH",
-        `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ and ensure \`agy --version\` works before previewing or applying the Profile`,
+        `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ and ensure \`agy --version\` works before checking status or applying the Profile`,
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -166,7 +166,7 @@ async function resolveAntigravityCliVersion(
     throw capabilityFailure(
       "antigravity",
       `Antigravity CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
-      `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ before previewing or applying the Profile`,
+      `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ before checking status or applying the Profile`,
     );
   }
 }

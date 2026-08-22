@@ -261,14 +261,14 @@ describe("shared blocker contract", () => {
       project: canonicalProject,
       scope: "project",
     });
-    expect(formatLifecycleReport("preview", report)).toContain(
+    expect(formatLifecycleReport("status", report)).toContain(
       "Blocker: Codex CLI is unavailable",
     );
-    const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
+    const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       readonly projects: readonly { readonly blockers: readonly Record<string, unknown>[] }[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(6);
+    expect(machine.schemaVersion).toBe(7);
     expect(machine.projects[0]!.blockers).toEqual([{
       kind: "host-capability",
       scope: "project",
@@ -290,7 +290,7 @@ describe("shared blocker contract", () => {
     });
     expect(reportBlockers(globalReport)[0]?.project).toBeUndefined();
     const globalMachine = JSON.parse(
-      formatLifecycleJson("preview", globalReport),
+      formatLifecycleJson("status", globalReport),
     ) as { readonly globalBlockers: readonly Record<string, unknown>[] };
     expect(globalMachine.globalBlockers[0]).not.toHaveProperty("project");
 

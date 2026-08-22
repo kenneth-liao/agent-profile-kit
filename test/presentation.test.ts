@@ -185,6 +185,7 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
         ),
         warnings: key === firstProject ? fixture.warnings.map((message) => ({
           copyableValues: fixture.diagnosticValues,
+          kind: "diagnostic" as const,
           message,
         })) : [],
         repositoryExclusionRepairs: key === firstProject ? fixture.repositoryExclusionRepairs : [],
@@ -370,14 +371,14 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(status.match(/A different consequence remains visible\./g)).toHaveLength(1);
   });
 
-  test("preview shows transition-triggered approval only when its output changes", () => {
+  test("status shows transition-triggered approval only when its output changes", () => {
     const report = emptyReport({
       desired: [installation("/project-a", [hookApproval(), codexTrust()])],
       items: [{ kind: "addition", project: "/project-a" }],
       outputs: [{ kind: "addition", path: hookPath, project: "/project-a" }],
     });
-    const preview = formatLifecycleReport("preview", report);
-    expect(preview).toContain(
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain(
       "Review and approve the generated SessionStart hook when Codex asks.",
     );
 
@@ -387,28 +388,29 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "update", project: "/project-a" }],
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
-    const unrelatedPreview = formatLifecycleReport("preview", unrelated);
-    expect(unrelatedPreview).not.toContain(
+    const unrelatedStatus = formatLifecycleReport("status", unrelated);
+    expect(unrelatedStatus).not.toContain(
       "Review and approve the generated SessionStart hook",
     );
-    expect(unrelatedPreview).not.toContain("Host setup:");
+    expect(unrelatedStatus).not.toContain("\nHost setup:");
+    expect(unrelatedStatus).toContain("Standing Host setup:");
   });
 
-  test("preview never renders standing steps", () => {
+  test("status renders transition-triggered and standing setup guidance", () => {
     const report = emptyReport({
       desired: [installation("/project-a", [hookApproval(), codexTrust(), rootLaunch(), sharedPath()])],
       items: [{ kind: "addition", project: "/project-a" }],
       outputs: [{ kind: "addition", path: hookPath, project: "/project-a" }],
     });
-    const preview = formatLifecycleReport("preview", report);
-    expect(preview).toContain(
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain(
       "Review and approve the generated SessionStart hook",
     );
-    expect(preview).not.toContain("Trust the bound project in Codex.");
-    expect(preview).not.toContain("Launch Codex from the exact bound project root:");
-    expect(preview).not.toContain("Grok uses Claude's shared rule path.");
-    expect(preview).not.toContain("Standing Host setup:");
-    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    expect(status).toContain("Trust the bound project in Codex.");
+    expect(status).toContain("Launch Codex from the exact bound project root:");
+    expect(status).toContain("Grok uses Claude's shared rule path.");
+    expect(status).toContain("Standing Host setup:");
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
     expect(verbose).toContain("Trust the bound project in Codex.");
   });
 
@@ -640,18 +642,15 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(verbose.match(/- Trust the bound project in Codex\./g)).toHaveLength(1);
   });
 
-  test("blocked preview and apply suppress transition setup while status retains the standing reminder", () => {
+  test("blocked status suppresses transition setup while retaining the standing reminder", () => {
     const report = emptyReport({
       blockers: [fixtureBlocker("occupied output", "/project-a")],
       desired: [installation("/project-a", [hookApproval(), codexTrust()])],
       items: [{ kind: "blocked", project: "/project-a" }],
     });
 
-    expect(formatLifecycleReport("preview", report)).not.toContain(
+    expect(formatLifecycleReport("status", report)).not.toContain(
       "Review and approve the generated SessionStart hook",
-    );
-    expect(formatLifecycleReport("preview", report)).not.toContain(
-      "Trust the bound project in Codex.",
     );
     expect(formatBlockedApplyReport(asBlockedReport(report))).not.toContain(
       "Review and approve the generated SessionStart hook",
@@ -759,11 +758,11 @@ describe("responsive lifecycle presentation", () => {
   test("keeps copyable Project paths and command invocations intact while wrapping prose", () => {
     const project = "/tmp/agent profile kit/project with a long name";
     const report = identityReport(project);
-    const preview = formatLifecycleReport("preview", report, { context: context(40) });
+    const status = formatLifecycleReport("status", report, { context: context(40) });
     const emptyStatus = formatLifecycleReport("status", emptyReport(), { context: context(40) });
 
-    expect(preview).toContain(project);
-    expect(preview).toContain("apkit apply");
+    expect(status).toContain(project);
+    expect(status).toContain("apkit apply");
     expect(emptyStatus).toContain("apkit list projects");
     expect(emptyStatus).toContain("apkit bind <profile> --host <host>");
     expect(emptyStatus).toContain("\n  apkit list projects\n");
@@ -817,7 +816,7 @@ describe("responsive lifecycle presentation", () => {
       ],
     });
 
-    const output = formatLifecycleReport("preview", report, {
+    const output = formatLifecycleReport("status", report, {
       context: context(40),
       verbose: true,
     });
@@ -843,7 +842,7 @@ describe("responsive lifecycle presentation", () => {
       diagnosticValues: [value],
       warnings: [warning],
     });
-    const output = formatLifecycleReport("preview", report, { context: context(40) });
+    const output = formatLifecycleReport("status", report, { context: context(40) });
 
     expect(output).toContain(value);
     expect(output).not.toContain("generated diagnostic path with\n");
@@ -851,7 +850,7 @@ describe("responsive lifecycle presentation", () => {
 
   test("wraps prose after a suffixless path without widening the line", () => {
     const path = "/tmp/foo";
-    const output = formatLifecycleReport("preview", emptyReport({
+    const output = formatLifecycleReport("status", emptyReport({
       warnings: [`Inspect ${path} and then explain this warning with enough prose to wrap cleanly.`],
     }), { context: context(40) });
 
@@ -864,7 +863,7 @@ describe("responsive lifecycle presentation", () => {
   test("preserves a typed path without relying on warning prose", () => {
     const path = "~/untyped project with spaces";
     const warning = `Inspect ${path} before continuing with this diagnostic.`;
-    const output = formatLifecycleReport("preview", emptyReport({
+    const output = formatLifecycleReport("status", emptyReport({
       diagnosticValues: [path],
       warnings: [warning],
     }), {
@@ -1121,9 +1120,9 @@ describe("temporary-installation Project identity presentation", () => {
 
 test("terminal styling follows lifecycle labels emitted by the formatter", () => {
   const context = { color: true, interactive: true, width: 80 } as const;
-  const ready = formatLifecycleReport("preview", identityReport("/project-a"));
+  const ready = formatLifecycleReport("status", identityReport("/project-a"));
   const blocked = formatLifecycleReport(
-    "preview",
+    "status",
     emptyReport({
       blockers: [fixtureBlocker("occupied output", "/project-a")],
       items: [{ kind: "blocked", project: "/project-a" }],
@@ -1208,7 +1207,7 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    for (const command of ["preview", "apply", "status"] as const) {
+    for (const command of ["status", "apply"] as const) {
       const concise = command === "apply"
         ? formatBlockedApplyReport(asBlockedReport(report))
         : formatLifecycleReport(command, report);
@@ -1234,14 +1233,14 @@ describe("formatLifecycleReport concise terminology", () => {
 
     // Human views keep the message projection; machine JSON publishes the
     // complete structured evidence without parsing rendered prose.
-    expect(formatLifecycleReport("preview", structured)).toContain(
+    expect(formatLifecycleReport("status", structured)).toContain(
       "Blocker: Codex CLI is unavailable",
     );
     const machine = machineReport([
       machineProject("/project-a", { blockers: reportBlockers(structured) }),
     ]);
-    expect(JSON.parse(formatLifecycleJson("preview", machine))).toMatchObject({
-      schemaVersion: 6,
+    expect(JSON.parse(formatLifecycleJson("status", machine))).toMatchObject({
+      schemaVersion: 7,
       globalBlockers: [],
       projects: [{
         project: "/project-a",
@@ -1289,7 +1288,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const message = `Use reconcile as authored; inspect ${value} before continuing.`;
     const report = machineReport([
       machineProject("/project-a", {
-        warnings: [{ copyableValues: [value], message }],
+        warnings: [{ copyableValues: [value], kind: "diagnostic", message }],
       }),
     ]);
 
@@ -1337,7 +1336,7 @@ describe("formatLifecycleReport concise terminology", () => {
       blockers: [normalizeBlocker(outputOwnershipConflictBlocker({ paths, project }))],
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise.match(/Blocker:/g)).toHaveLength(1);
     expect(concise).toContain("Blocker: These generated paths are tracked by Git");
@@ -1351,7 +1350,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).not.toContain(".agents/skills/s11");
     expect(concise).toContain("… 5 more paths; use --verbose to see all paths");
 
-    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
 
     expect(verbose).toContain("/project-a/.agents/skills/s11");
     expect(verbose).toContain("/project-a/.agents/skills/s12");
@@ -1379,7 +1378,7 @@ describe("formatLifecycleReport concise terminology", () => {
       blockers: [normalizeBlocker(outputOwnershipConflictBlocker({ paths, project }))],
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("… 1 more path; use --verbose to see all paths");
     expect(concise).not.toContain("1 more paths");
@@ -1427,7 +1426,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const project = process.cwd();
     const report = identityReport(project);
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("Project: .\n");
     expect(concise).not.toContain(`Project: ${project}\n`);
@@ -1437,7 +1436,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const project = dirname(process.cwd());
     const report = identityReport(project);
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("Project: ..\n");
     expect(concise).not.toContain(`Project: ${project}\n`);
@@ -1447,7 +1446,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const project = join(homedir(), "another-project");
     const report = identityReport(project);
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("Project: ~/another-project\n");
     expect(concise).not.toContain(`Project: ${project}\n`);
@@ -1511,7 +1510,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const project = join(homedir(), "multi-host-project");
     const report = identityReport(project, ["claude", "codex"]);
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain(
       "Project: ~/multi-host-project\n  Profile: coding\n  Hosts: claude, codex\n",
@@ -1545,7 +1544,7 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain(
       "Project changes:\n  + 2 generated file additions in ~/team-a/project, ~/team-b/project",
@@ -1556,7 +1555,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const project = "/var/tmp/outside-home-project";
     const report = identityReport(project);
 
-    expect(formatLifecycleReport("preview", report)).toContain(`Project: ${project}\n`);
+    expect(formatLifecycleReport("status", report)).toContain(`Project: ${project}\n`);
   });
 
   test("preserves an authored path when its canonical spelling differs", () => {
@@ -1572,7 +1571,7 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: reportOutputs(report),
     });
 
-    const concise = formatLifecycleReport("preview", aliasedReport);
+    const concise = formatLifecycleReport("status", aliasedReport);
 
     expect(concise).toContain(`Project: ${authoredProject}\n`);
     expect(concise).not.toContain(`Project: ${canonicalProject}\n`);
@@ -1591,7 +1590,7 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: reportOutputs(report),
     });
 
-    const concise = formatLifecycleReport("preview", aliasedReport);
+    const concise = formatLifecycleReport("status", aliasedReport);
 
     expect(concise).toContain(`Project: ${authoredProject}\n`);
     expect(concise).not.toContain(`Project: ${canonicalProject}\n`);
@@ -1635,7 +1634,7 @@ describe("formatLifecycleReport concise terminology", () => {
           : [],
       });
       const defaultViews = [
-        formatLifecycleReport("preview", report),
+        formatLifecycleReport("status", report),
         formatApplyReport(applyResult(report)),
         formatLifecycleReport("status", report),
       ];
@@ -1674,7 +1673,7 @@ describe("formatLifecycleReport concise terminology", () => {
     });
 
     for (const view of [
-      formatLifecycleReport("preview", report),
+      formatLifecycleReport("status", report),
       formatApplyReport(applyResult(report)),
       formatLifecycleReport("status", report),
     ]) {
@@ -1685,7 +1684,7 @@ describe("formatLifecycleReport concise terminology", () => {
       expect(view).toContain("'reconcile'");
     }
 
-    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
     expect(verbose).toContain(exclusionTarget);
     expect(verbose).toContain(exclusionEntry);
   });
@@ -1708,7 +1707,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("Selected setup:");
   });
 
-  test("non-Git preview lists reconciliation-plan paths with action markers", () => {
+  test("non-Git status lists reconciliation-plan paths with action markers", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -1729,7 +1728,7 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain(
       "  Files:\n" +
@@ -1762,7 +1761,7 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise.indexOf("- z.md")).toBeLessThan(concise.indexOf("~ m.md"));
     expect(concise.indexOf("~ m.md")).toBeLessThan(concise.indexOf("+ a.md"));
@@ -1784,13 +1783,13 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: paths.map((path) => ({ kind: "addition" as const, path, project })),
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("+ file-10.md");
     expect(concise).not.toContain("+ file-11.md");
     expect(concise).toContain("… 2 more files; use --verbose to see all paths");
 
-    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
     expect(verbose).toContain("/project-a/file-11.md: addition");
     expect(verbose).toContain("/project-a/file-12.md: addition");
   });
@@ -1818,7 +1817,7 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("! z-attention.md (drifted output)");
     expect(concise).toContain("- z-removal.md");
@@ -1962,7 +1961,7 @@ describe("formatLifecycleReport concise terminology", () => {
       /Project: \/project-b\n  Profile: coding\n  Hosts: codex\n  Blocker: hooks disabled\n/,
     );
 
-    for (const command of ["preview", "apply", "status"] as const) {
+    for (const command of ["status", "apply"] as const) {
       const verbose = command === "apply"
         ? formatBlockedApplyReport(asBlockedReport(report), { verbose: true })
         : formatLifecycleReport(command, report, { verbose: true });
@@ -2030,13 +2029,13 @@ describe("formatLifecycleReport concise terminology", () => {
       }],
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("Git exclusions: 2 entries to add, 1 entry to remove.");
     expect(concise).not.toContain(target);
     expect(concise).not.toContain("/.old-path.md");
 
-    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
     expect(verbose).toContain(
       `- ${target}: add /.agent-profile-kit/codex/context.md, /.codex/hooks.json; remove /.old-path.md`,
     );
@@ -2063,7 +2062,7 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("Blocker: occupied output");
     expect(concise).toContain("Git exclusions: 1 recorded entry to restore.");
@@ -2099,7 +2098,7 @@ describe("formatLifecycleReport concise terminology", () => {
       blockers: [fixtureBlocker("/project-a: example blocker", "/project-a")],
     });
 
-    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
 
     expect(verbose.startsWith("Cannot apply\n")).toBe(true);
     expect(verbose).toContain("Projects:");
@@ -2159,12 +2158,12 @@ describe("formatLifecycleReport concise terminology", () => {
       warnings: [],
     });
 
-    const preview = formatLifecycleReport("preview", receipt);
-    expect(preview).toContain("Git exclusions: 1 recorded entry to restore.");
-    expect(preview).not.toContain("/repo/.git/info/exclude");
-    expect(preview).not.toContain("/.agent-profile-kit/codex/context.md");
+    const status = formatLifecycleReport("status", receipt);
+    expect(status).toContain("Git exclusions: 1 recorded entry to restore.");
+    expect(status).not.toContain("/repo/.git/info/exclude");
+    expect(status).not.toContain("/.agent-profile-kit/codex/context.md");
 
-    for (const command of ["preview", "status"] as const) {
+    for (const command of ["status"] as const) {
       const verbosePending = formatLifecycleReport(command, receipt, { verbose: true });
       expect(verbosePending).toContain(
         "/repo/.git/info/exclude: will restore 1 recorded Git exclusion entry",
@@ -2341,16 +2340,14 @@ describe("formatLifecycleReport next-action guidance", () => {
     const concise = formatLifecycleReport("status", report);
     const next = nextActionLines(concise);
     expect(next).toHaveLength(1);
-    expect(next[0]).toMatch(/preview/i);
     expect(next[0]).toMatch(/apply/i);
-    expect(next[0]).toMatch(/read-only/i);
-    expect(next[0]).not.toMatch(/bind/i);
-    expect(concise).toContain("Attention required");
+    expect(next[0]).not.toMatch(/status|bind/i);
+    expect(concise).toContain("Ready to apply");
     expect(concise).toContain("State: stale source");
     expect(concise).toContain("~ a.md");
   });
 
-  test("ready preview recommends apply", () => {
+  test("ready status recommends apply", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -2364,7 +2361,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
     const next = nextActionLines(concise);
     expect(next).toHaveLength(1);
     expect(next[0]).toMatch(/apkit apply/);
@@ -2385,36 +2382,14 @@ describe("formatLifecycleReport next-action guidance", () => {
       blockers: [fixtureBlocker("/project-a: hooks disabled", "/project-a")],
     });
 
-    const statusNext = nextActionLines(formatLifecycleReport("status", report));
+    const status = formatLifecycleReport("status", report);
+    const statusNext = nextActionLines(status);
     expect(statusNext).toHaveLength(1);
     expect(statusNext[0]).toMatch(/resolve/i);
     expect(statusNext[0]).toMatch(/blocker/i);
     expect(statusNext[0]).toMatch(/apkit status/);
     expect(statusNext[0]).not.toMatch(/apply/i);
-  });
-
-  test("blocked preview retries preview without recommending apply", () => {
-    const report = emptyReport({
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-      }],
-      items: [{ kind: "blocked", project: "/project-a", reason: "hooks disabled" }],
-      blockers: [fixtureBlocker("/project-a: hooks disabled", "/project-a")],
-    });
-
-    const preview = formatLifecycleReport("preview", report);
-    const previewNext = nextActionLines(preview);
-    expect(previewNext).toHaveLength(1);
-    expect(previewNext[0]).toMatch(/resolve/i);
-    expect(previewNext[0]).toMatch(/blocker/i);
-    expect(previewNext[0]).toMatch(/apkit preview/);
-    expect(previewNext[0]).not.toMatch(/apply/i);
-    expect(preview).toContain("Cannot apply");
+    expect(status).toContain("Cannot apply");
   });
 
   test("blocked apply directs resolve-and-retry of apply", () => {
@@ -2438,7 +2413,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(next[0]).toMatch(/apkit apply/);
   });
 
-  test("current status and current preview emit no next action", () => {
+  test("current status emits no next action", () => {
     const current = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -2453,7 +2428,6 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
 
     expect(nextActionLines(formatLifecycleReport("status", current))).toEqual([]);
-    expect(nextActionLines(formatLifecycleReport("preview", current))).toEqual([]);
   });
 
   test("fully current status states that fact once", () => {
@@ -2473,6 +2447,28 @@ describe("formatLifecycleReport next-action guidance", () => {
     const status = formatLifecycleReport("status", current);
 
     expect(status).toBe("All Projects are current (1 Project)\n");
+  });
+
+  test("a diagnostic warning on current output is not Host attention", () => {
+    const current = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+      warnings: ["Codex hooks are disabled in this Project."],
+    });
+
+    const status = formatLifecycleReport("status", current);
+
+    expect(status).toStartWith("All Projects are current (1 Project)\n");
+    expect(status).not.toContain("Host attention required");
+    expect(JSON.parse(formatLifecycleJson("status", current)).outcome).toBe("clean");
   });
 
   test("completed or no-op apply without blockers emits no next action", () => {
@@ -2502,7 +2498,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       items: [{ kind: "update", project: "/project-a" }],
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
-    // Apply already completed; do not recommend another apply or preview.
+    // Apply already completed; do not recommend another apply or status.
     expect(nextActionLines(formatApplyReport(applyResult(appliedWithChanges)))).toEqual([]);
 
     const metadataOnlyReceipt = emptyReport({
@@ -2555,8 +2551,7 @@ describe("formatLifecycleReport next-action guidance", () => {
 
     expect(status).toContain(
       "Next:\n" +
-        "- /project-a: After all blockers are resolved, run apkit preview to review the planned changes " +
-        "(read-only), then apply when ready.\n" +
+        "- /project-a: After all blockers are resolved, run apkit apply --all.\n" +
         "- /project-b: Resolve the reported blocker, then run apkit status again.",
     );
   });
@@ -2617,7 +2612,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     const mixedStatus = formatLifecycleReport("status", mixedActionable);
     expect(nextActionLines(mixedStatus)).toHaveLength(1);
     expect(nextActionLines(mixedStatus)[0]).toMatch(/^\/project-b:/);
-    expect(nextActionLines(mixedStatus)[0]).toMatch(/preview/i);
+    expect(nextActionLines(mixedStatus)[0]).toMatch(/apply/i);
     expect(nextActionLines(mixedStatus)[0]).not.toMatch(/bind/i);
   });
 
@@ -2636,10 +2631,10 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
 
     expect(nextActionLines(formatLifecycleReport("status", report, { verbose: true }))).toEqual([]);
-    expect(nextActionLines(formatLifecycleReport("preview", report, { verbose: true }))).toEqual([]);
+    expect(nextActionLines(formatLifecycleReport("status", report, { verbose: true }))).toEqual([]);
   });
 
-  test("exclusion-only deltas stay consistent with all-current outcome and emit no next action", () => {
+  test("exclusion-only deltas remain pending work with a direct apply action", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/repo",
@@ -2659,13 +2654,9 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
 
     const status = formatLifecycleReport("status", report);
-    expect(status).toContain("All Projects are current (1 Project)");
-    expect(status).not.toContain("No Projects need attention.");
-    expect(nextActionLines(status)).toEqual([]);
-
-    const preview = formatLifecycleReport("preview", report);
-    expect(preview).toContain("Nothing to sync; all Projects are current.");
-    expect(nextActionLines(preview)).toEqual([]);
+    expect(status).toContain("Ready to apply");
+    expect(status).toContain("Git exclusions: 1 entry to add.");
+    expect(nextActionLines(status)).toEqual(["Run apkit apply."]);
   });
 
   test("status renders a nested desired Project with current state as current", () => {
@@ -2735,7 +2726,7 @@ describe("Machine surface JSON and exit codes", () => {
     resolvedArtifacts: [],
   };
 
-  test("lifecycle JSON publishes complete nested Project evidence under schema version 6", () => {
+  test("lifecycle JSON publishes complete nested Project evidence under schema version 7", () => {
     const blocker = fixtureBlocker("CLI missing", project);
     const report = machineReport([
       machineProject(project, {
@@ -2743,7 +2734,7 @@ describe("Machine surface JSON and exit codes", () => {
         state: { kind: "addition" },
         outputs: [{ kind: "addition", path: "a.md", consumingHosts: ["codex"] }],
         blockers: [blocker],
-        warnings: [{ message: "Review /copy/me", copyableValues: ["/copy/me"] }],
+        warnings: [{ message: "Review /copy/me", copyableValues: ["/copy/me"], kind: "diagnostic" }],
         setupSteps: [{
           host: "codex",
           kind: "approval-required",
@@ -2763,9 +2754,9 @@ describe("Machine surface JSON and exit codes", () => {
       }),
     ]);
 
-    const payload = JSON.parse(formatLifecycleJson("preview", report));
-    expect(payload.schemaVersion).toBe(6);
-    expect(payload.command).toBe("preview");
+    const payload = JSON.parse(formatLifecycleJson("status", report));
+    expect(payload.schemaVersion).toBe(7);
+    expect(payload.command).toBe("status");
     expect(payload.outcome).toBe("blocked");
     expect(payload.globalBlockers).toEqual([]);
     expect(payload.projects).toEqual([{
@@ -2784,7 +2775,7 @@ describe("Machine surface JSON and exit codes", () => {
         requirement: "Lifecycle commands cannot proceed while blocked",
         scope: "project",
       }],
-      warnings: [{ message: "Review /copy/me", copyableValues: ["/copy/me"] }],
+      warnings: [{ message: "Review /copy/me", copyableValues: ["/copy/me"], kind: "diagnostic" }],
       setupSteps: [{
         host: "codex",
         kind: "approval-required",
@@ -2810,7 +2801,7 @@ describe("Machine surface JSON and exit codes", () => {
   test("machine JSON preserves warning and Git exclusion attribution across Projects", () => {
     const report = machineReport([
       machineProject("/project-a", {
-        warnings: [{ message: "Review A", copyableValues: ["/copy/a"] }],
+        warnings: [{ message: "Review A", copyableValues: ["/copy/a"], kind: "diagnostic" }],
         repositoryExclusions: [{
           current: [],
           next: ["/a"],
@@ -2818,7 +2809,7 @@ describe("Machine surface JSON and exit codes", () => {
         }],
       }),
       machineProject("/project-b", {
-        warnings: [{ message: "Review B", copyableValues: ["/copy/b"] }],
+        warnings: [{ message: "Review B", copyableValues: ["/copy/b"], kind: "diagnostic" }],
         repositoryExclusions: [{
           current: ["/old-b"],
           next: ["/b"],
@@ -2835,14 +2826,14 @@ describe("Machine surface JSON and exit codes", () => {
     }))).toEqual([
       {
         project: "/project-a",
-        warnings: [{ message: "Review A", copyableValues: ["/copy/a"] }],
+        warnings: [{ message: "Review A", copyableValues: ["/copy/a"], kind: "diagnostic" }],
         repositoryExclusions: [{
           current: [], next: ["/a"], target: "/repo-a/.git/info/exclude",
         }],
       },
       {
         project: "/project-b",
-        warnings: [{ message: "Review B", copyableValues: ["/copy/b"] }],
+        warnings: [{ message: "Review B", copyableValues: ["/copy/b"], kind: "diagnostic" }],
         repositoryExclusions: [{
           current: ["/old-b"], next: ["/b"], target: "/repo-b/.git/info/exclude",
         }],
@@ -2867,7 +2858,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatApplyJson(machineApplyResult(receipt, resultingState)));
-    expect(payload.schemaVersion).toBe(6);
+    expect(payload.schemaVersion).toBe(7);
     expect(payload.projects[0].state).toEqual({ kind: "current" });
     expect(payload.applied.projects[0].state).toEqual({ kind: "addition" });
   });
@@ -2878,7 +2869,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatBlockedApplyJson(report));
-    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 6 });
+    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 7 });
     expect(payload).not.toHaveProperty("applied");
     expect(payload.projects[0].blockers).toHaveLength(1);
   });
@@ -2898,7 +2889,7 @@ describe("Machine surface JSON and exit codes", () => {
       command: "apply",
       outcome: "error",
       error: "post-apply verification failed: boom",
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(payload.projects).toEqual([]);
     expect(payload.applied.projects[0].outputs).toEqual([
@@ -2907,9 +2898,9 @@ describe("Machine surface JSON and exit codes", () => {
   });
 
   test("tool-error JSON uses the empty nested model", () => {
-    for (const command of ["preview", "apply", "status"] as const) {
+    for (const command of ["status", "apply"] as const) {
       expect(JSON.parse(formatLifecycleToolErrorJson(command, "missing"))).toEqual({
-        schemaVersion: 6,
+        schemaVersion: 7,
         command,
         outcome: "error",
         error: "missing",
@@ -3148,8 +3139,8 @@ describe("operation-first multi-Project presentation", () => {
     });
   }
 
-  test("multi-Project preview groups observable operations without inferring artifact causality", () => {
-    const concise = formatLifecycleReport("preview", sharedSkillFleet());
+  test("multi-Project status groups observable operations without inferring artifact causality", () => {
+    const concise = formatLifecycleReport("status", sharedSkillFleet());
 
     expect(concise).toContain("Ready to apply\n");
     expect(concise).toContain("Project changes:\n  ~ 3 generated file updates in 3 projects");
@@ -3172,7 +3163,7 @@ describe("operation-first multi-Project presentation", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain(
       "Project changes:\n" +
@@ -3206,7 +3197,7 @@ describe("operation-first multi-Project presentation", () => {
       })),
     });
 
-    expect(formatLifecycleReport("preview", report)).toContain(
+    expect(formatLifecycleReport("status", report)).toContain(
       "~ 5 generated file updates in /project-a, /project-b, /project-c, /project-d, … 1 more Project; use --verbose to see all Projects",
     );
   });
@@ -3225,7 +3216,7 @@ describe("operation-first multi-Project presentation", () => {
       outputs: [{ kind: "update", path: SKILL_PATH, project: "/project-a" }],
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("Project: /project-a\n  Profile: coding\n  Hosts: codex");
     expect(concise).not.toContain("Project changes:");
@@ -3243,7 +3234,7 @@ describe("operation-first multi-Project presentation", () => {
       ),
     });
 
-    const concise = formatLifecycleReport("preview", report);
+    const concise = formatLifecycleReport("status", report);
 
     expect(concise.startsWith("Cannot apply\n")).toBe(true);
     expect(concise).toContain("Blocker:");
@@ -3284,13 +3275,13 @@ describe("operation-first multi-Project presentation", () => {
       ],
     });
 
-    expect(formatLifecycleReport("preview", report)).toContain(
+    expect(formatLifecycleReport("status", report)).toContain(
       "Project exceptions:\n  /project-a:\n    ! .agents/skills/review-pr (drifted output)",
     );
   });
 
   test("verbose retains complete per-Project operation evidence", () => {
-    const verbose = formatLifecycleReport("preview", sharedSkillFleet(), { verbose: true });
+    const verbose = formatLifecycleReport("status", sharedSkillFleet(), { verbose: true });
 
     expect(verbose).toContain("/project-a/.agents/skills/review-pr: update");
     expect(verbose).toContain("/project-b/.agents/skills/review-pr: update");
@@ -3313,11 +3304,11 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const preview = formatLifecycleReport("preview", report);
-    expect(preview).toContain("Ready to apply");
-    expect(preview).toContain("Projects: 1 · Changes: 1 generated file addition");
-    expect(preview).not.toContain("Blockers: 0");
-    expect(preview).not.toContain("Changes: none");
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain("Ready to apply");
+    expect(status).toContain("Projects: 1 · Changes: 1 generated file addition");
+    expect(status).not.toContain("Blockers: 0");
+    expect(status).not.toContain("Changes: none");
 
     const applied = formatApplyReport(applyResult(report, emptyReport({
       desired: reportDesired(report),
@@ -3344,10 +3335,10 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       blockers: [fixtureBlocker("/project-a: hooks disabled", "/project-a")],
     });
 
-    const preview = formatLifecycleReport("preview", report);
-    expect(preview).toContain("Cannot apply");
-    expect(preview).toContain("Blockers: 1");
-    expect(preview).not.toContain("Blockers: 0");
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain("Cannot apply");
+    expect(status).toContain("Blockers: 1");
+    expect(status).not.toContain("Blockers: 0");
 
     const apply = formatBlockedApplyReport(asBlockedReport(report));
     expect(apply).toContain("Apply blocked");
@@ -3376,10 +3367,10 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       })),
     });
 
-    const preview = formatLifecycleReport("preview", report);
-    expect(preview).toContain("Next:\n- Run apkit apply --all.");
-    expect(preview).not.toContain("/project-a: Run apkit apply --all.");
-    expect(preview.match(/Run apkit apply --all\./g)).toHaveLength(1);
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain("Next:\n- Run apkit apply --all.");
+    expect(status).not.toContain("/project-a: Run apkit apply --all.");
+    expect(status.match(/Run apkit apply --all\./g)).toHaveLength(1);
   });
 
   test("aliased Project next actions keep the authored identity", () => {
@@ -3396,9 +3387,9 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const preview = formatLifecycleReport("preview", report);
-    expect(preview).toContain("- /project-a: Run apkit apply --all.");
-    expect(preview).not.toContain("/private/project-a: Run apkit apply --all.");
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain("- /project-a: Run apkit apply.");
+    expect(status).not.toContain("/private/project-a: Run apkit apply.");
   });
 
   test("differing next actions stay scoped", () => {
@@ -3435,8 +3426,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const status = formatLifecycleReport("status", report);
     expect(status).toContain(
       "Next:\n" +
-        "- /project-a: After all blockers are resolved, run apkit preview to review the planned changes " +
-        "(read-only), then apply when ready.\n" +
+        "- /project-a: After all blockers are resolved, run apkit apply --all.\n" +
         "- /project-b: Resolve the reported blocker, then run apkit status again.",
     );
   });
@@ -3525,7 +3515,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(apply).toContain("Applied:\n- /project-a:\n  ~ a.md");
   });
 
-  test("no-op preview states current once", () => {
+  test("no-op status states current once", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -3539,12 +3529,12 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    const preview = formatLifecycleReport("preview", report);
-    expect(preview).toBe("Nothing to sync; all Projects are current.\n");
-    expect(preview).not.toContain("Ready to apply");
-    expect(preview).not.toContain("Blockers: 0");
-    expect(preview).not.toContain("Changes: none");
-    expect(preview).not.toContain("Projects: 1");
+    const status = formatLifecycleReport("status", report);
+    expect(status).toBe("All Projects are current (1 Project)\n");
+    expect(status).not.toContain("Ready to apply");
+    expect(status).not.toContain("Blockers: 0");
+    expect(status).not.toContain("Changes: none");
+    expect(status).not.toContain("Projects: 1");
   });
 
   test("no-op apply states current once without readiness", () => {
@@ -3667,7 +3657,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const verbose = formatLifecycleReport("preview", report, { verbose: true });
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
     expect(verbose).toContain("Projects:");
     expect(verbose).toContain("/project-a: addition");
     expect(verbose).toContain("Outputs:");
@@ -3689,15 +3679,15 @@ describe("lifecycle summaries, next actions, and readiness", () => {
         outputs: [{ kind: "addition", path: "a.md", consumingHosts: [] }],
       }),
     ]);
-    const payload = JSON.parse(formatLifecycleJson("preview", machine)) as {
+    const payload = JSON.parse(formatLifecycleJson("status", machine)) as {
       readonly command: string;
       readonly outcome: string;
       readonly schemaVersion: number;
     };
     expect(payload).toMatchObject({
-      command: "preview",
+      command: "status",
       outcome: "attention",
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(lifecycleExitCode(report)).toBe(0);
     expect(lifecycleExitCode(emptyReport({

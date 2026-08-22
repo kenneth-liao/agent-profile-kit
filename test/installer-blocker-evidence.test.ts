@@ -31,7 +31,7 @@ import {
   temporaryInstallationConflictBlocker,
   temporaryInstallationRemovalBlocker,
 } from "../installer/blockers.js";
-import { previewApplication, statusApplication } from "../installer/commands.js";
+import { statusApplication } from "../installer/commands.js";
 import { gitExclusionBlockers } from "../installer/git-exclusions.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState } from "../installer/installation-state.js";
@@ -132,14 +132,14 @@ describe("structured Installer blocker evidence", () => {
     expect(blocker.message).toContain("Installation State");
     expect(blocker.affectedItems).toEqual([{ kind: "path", value: statePath }]);
 
-    const human = formatLifecycleReport("preview", report);
+    const human = formatLifecycleReport("status", report);
     expect(human).toContain("Global blockers:");
     expect(human).toContain(blocker.message);
-    const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
+    const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       readonly globalBlockers: readonly Record<string, unknown>[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(6);
+    expect(machine.schemaVersion).toBe(7);
     expect(machine.globalBlockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
@@ -277,10 +277,10 @@ describe("structured Installer blocker evidence", () => {
     expect(lifecycleExitCode(report)).toBe(2);
 
     // Human output keeps the message projection, including the default-view lexicon.
-    const human = formatLifecycleReport("preview", report);
+    const human = formatLifecycleReport("status", report);
     expect(human).toContain("Global blockers:");
     expect(human).toContain("missing its Git exclusion record");
-    const machine = JSON.parse(formatLifecycleJson("preview", report)) as {
+    const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       readonly globalBlockers: readonly Record<string, unknown>[];
     };
     expect(machine.globalBlockers.some(
@@ -609,14 +609,14 @@ describe("structured Installer blocker evidence", () => {
     expect(lifecycleExitCode(report)).toBe(2);
   });
 
-  test("previewApplication emits the structured global blocker for unreadable Installation State", async () => {
+  test("statusApplication emits the structured global blocker for unreadable Installation State", async () => {
     const project = temporaryDirectory("apkit-evidence-preview-state-");
     const home = await prepareHome(project);
     const statePath = stateManifestPath(home);
     mkdirSync(dirname(statePath), { recursive: true });
     writeFileSync(statePath, "not: a valid installation state\n");
 
-    const report = await previewApplication(home);
+    const report = await statusApplication(home);
     const blocker = requireDefined(
       reportBlockers(report).find(
         (candidate) =>

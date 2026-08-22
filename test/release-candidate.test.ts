@@ -511,7 +511,7 @@ describe("project-bound release candidate", () => {
     const validate = await runCli(home, ["validate"], { path: pathWithClaude });
     expectExitCode(validate, 0);
 
-    const preview = await runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
+    const preview = await runCli(home, ["status", "--verbose"], { path: pathWithClaude });
     expectExitCode(preview, 0);
     expect(preview.stdout).toContain(nonGitCodex);
     expect(preview.stdout).toContain(claudeOnly);
@@ -546,7 +546,7 @@ describe("project-bound release candidate", () => {
       { project: existingWorktree, profile: "review", hosts: ["claude"] },
     ]);
 
-    const explicitPreview = await runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
+    const explicitPreview = await runCli(home, ["status", "--verbose"], { path: pathWithClaude });
     expectExitCode(explicitPreview, 0);
     expect(humanText(explicitPreview.stdout)).toContain(
       humanText(`${existingWorktree}: Profile review`),
@@ -641,7 +641,7 @@ describe("project-bound release candidate", () => {
     ]);
 
     const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
-    const preview = await runCli(home, ["preview"], { path: supportedPath });
+    const preview = await runCli(home, ["status"], { path: supportedPath });
     expectExitCode(preview, 0);
     const apply = await runCli(home, ["apply"], { path: supportedPath });
     expectExitCode(apply, 0);
@@ -688,7 +688,7 @@ describe("project-bound release candidate", () => {
     const unsupportedProject = project("agent-profile-kit-rc-pi-old-");
     writeBindings(unsupportedHome, [{ project: unsupportedProject, hosts: ["pi"] }]);
     const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
-    const oldPreview = await runCli(unsupportedHome, ["preview"], { path: oldPath });
+    const oldPreview = await runCli(unsupportedHome, ["status"], { path: oldPath });
     expectExitCode(oldPreview, 2);
     expect(humanText(`${oldPreview.stdout}${oldPreview.stderr}`)).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
@@ -700,7 +700,7 @@ describe("project-bound release candidate", () => {
     writeBindings(missingHome, [{ project: missingProject, hosts: ["pi"] }]);
     installControlledHosts(missingHome);
     const noPiPath = join(missingHome, "bin");
-    const missingPreview = await runCli(missingHome, ["preview"], { path: noPiPath });
+    const missingPreview = await runCli(missingHome, ["status"], { path: noPiPath });
     expectExitCode(missingPreview, 2);
     expect(`${missingPreview.stdout}${missingPreview.stderr}`).toMatch(/Pi CLI was not found/i);
     expect(existsSync(join(missingProject, ".pi"))).toBe(false);
@@ -723,7 +723,7 @@ describe("project-bound release candidate", () => {
     writeBindings(home, [{ project: projectPath, hosts: ["pi"] }]);
 
     const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
-    const preview = await runCli(home, ["preview", "--verbose"], { path: supportedPath });
+    const preview = await runCli(home, ["status", "--verbose"], { path: supportedPath });
     expectExitCode(preview, 0);
     expect(preview.stdout).toMatch(/\.agents\/skills\/review-pr|review-pr/i);
     const apply = await runCli(home, ["apply"], { path: supportedPath });
@@ -826,7 +826,7 @@ describe("project-bound release candidate", () => {
     );
 
     const supportedPath = installControlledHosts(home, { piVersion: "0.82.1" });
-    const preview = await runCli(home, ["preview"], { path: supportedPath });
+    const preview = await runCli(home, ["status"], { path: supportedPath });
     expectExitCode(preview, 0);
     const apply = await runCli(home, ["apply"], { path: supportedPath });
     expectExitCode(apply, 0);
@@ -878,7 +878,7 @@ describe("project-bound release candidate", () => {
     const unsupportedProject = project("agent-profile-kit-rc-pi-invocation-old-");
     writeBindings(unsupportedHome, [{ project: unsupportedProject, hosts: ["pi"] }]);
     const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
-    const oldPreview = await runCli(unsupportedHome, ["preview"], { path: oldPath });
+    const oldPreview = await runCli(unsupportedHome, ["status"], { path: oldPath });
     expectExitCode(oldPreview, 2);
     expect(humanText(`${oldPreview.stdout}${oldPreview.stderr}`)).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
@@ -895,7 +895,7 @@ describe("project-bound release candidate", () => {
     const malformedProject = project("agent-profile-kit-rc-pi-invocation-malformed-");
     writeBindings(malformedHome, [{ project: malformedProject, hosts: ["pi"] }]);
     const malformedPath = installControlledHosts(malformedHome, { piVersion: "0.82.1" });
-    const malformedPreview = await runCli(malformedHome, ["preview"], { path: malformedPath });
+    const malformedPreview = await runCli(malformedHome, ["status"], { path: malformedPath });
     expectExitCode(malformedPreview, 1);
     expect(`${malformedPreview.stdout}${malformedPreview.stderr}`).toMatch(/invalid YAML|frontmatter/i);
     expect(existsSync(join(malformedProject, ".pi"))).toBe(false);
@@ -1042,7 +1042,7 @@ describe("project-bound release candidate", () => {
     const validate = await runCli(home, ["validate"], { path: pathWithClaude });
     expectExitCode(validate, 0);
 
-    const preview = await runCli(home, ["preview", "--verbose"], { path: pathWithClaude });
+    const preview = await runCli(home, ["status", "--verbose"], { path: pathWithClaude });
     expectExitCode(preview, 0);
     expect(preview.stdout).toContain(".agents/skills/review-pr");
     expect(preview.stdout).toContain(".claude/skills/review-pr");
@@ -1121,7 +1121,7 @@ describe("project-bound release candidate", () => {
     const codexGlobalBody = readFileSync(join(codexGlobal, "SKILL.md"), "utf8");
     const claudeGlobalBody = readFileSync(join(claudeGlobal, "SKILL.md"), "utf8");
 
-    const preview = await runCli(home, ["preview"], { path: pathWithHosts });
+    const preview = await runCli(home, ["status"], { path: pathWithHosts });
     expectExitCode(preview, 0);
     const previewText = `${preview.stdout}${preview.stderr}`;
     expect(previewText).not.toMatch(/personal\/global Skill|remove or relocate/i);
@@ -1268,7 +1268,7 @@ describe("project-bound release candidate", () => {
 
     // Preview and apply with a controlled Codex CLI on PATH.
     const pathWithHosts = installControlledHosts(home);
-    const preview = await runCli(home, ["preview"], { path: pathWithHosts });
+    const preview = await runCli(home, ["status"], { path: pathWithHosts });
     expectExitCode(preview, 0);
     expect(preview.stdout).toContain("Ready to apply");
 
@@ -1343,7 +1343,7 @@ describe("project-bound release candidate", () => {
     const pathWithHosts = installControlledHosts(home, { piVersion: "0.82.1" });
 
     // Preview through the packed CLI (bounded concurrency 4).
-    const preview = await runCli(home, ["preview", "--json"], { path: pathWithHosts });
+    const preview = await runCli(home, ["status", "--json"], { path: pathWithHosts });
     expectExitCode(preview, 0);
     const previewJson = JSON.parse(preview.stdout) as {
       readonly globalBlockers: readonly unknown[];
@@ -1375,7 +1375,7 @@ describe("project-bound release candidate", () => {
       await readInstallationState(home),
       { gitInspection, scheduler: createProjectReadScheduler(1) },
     );
-    expect(JSON.parse(formatLifecycleJson("preview", sequentialReport))).toEqual(previewJson);
+    expect(JSON.parse(formatLifecycleJson("status", sequentialReport))).toEqual(previewJson);
 
     // Apply once; every Project commits and the resulting state is current.
     const apply = await runCli(home, ["apply", "--json"], { path: pathWithHosts });

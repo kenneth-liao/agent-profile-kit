@@ -149,20 +149,20 @@ export function assertClaudeCliVersionSupported(
       throw capabilityFailure(
         "claude",
         `Claude CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${CLAUDE_MINIMUM_CLI_VERSION}+)`,
-        "upgrade Claude Code before previewing or applying the Profile",
+        "upgrade Claude Code before checking status or applying the Profile",
       );
     }
     if (options.requireContext === false) {
       throw capabilityFailure(
         "claude",
         `Claude CLI ${version} does not support native project Skills (requires ${CLAUDE_MINIMUM_CLI_VERSION}+)`,
-        "upgrade Claude Code before previewing or applying the Profile",
+        "upgrade Claude Code before checking status or applying the Profile",
       );
     }
     throw capabilityFailure(
       "claude",
       `Claude CLI ${version} does not support unscoped project rules (requires ${CLAUDE_MINIMUM_CLI_VERSION}+)`,
-      "upgrade Claude Code before previewing or applying the Profile",
+      "upgrade Claude Code before checking status or applying the Profile",
     );
   }
 }
@@ -182,7 +182,7 @@ async function resolveClaudeCliVersion(
       throw capabilityFailure(
         "claude",
         "Claude Code CLI was not found on PATH",
-        "install Claude Code and ensure `claude --version` works before previewing or applying the Profile",
+        "install Claude Code and ensure `claude --version` works before checking status or applying the Profile",
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -199,7 +199,7 @@ async function resolveClaudeCliVersion(
     throw capabilityFailure(
       "claude",
       `Claude Code CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
-      "install a supported Claude Code release before previewing or applying the Profile",
+      "install a supported Claude Code release before checking status or applying the Profile",
     );
   }
 }

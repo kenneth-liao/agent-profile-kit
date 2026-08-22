@@ -17,7 +17,6 @@ export const COMMAND_EXAMPLES = {
   validate: ["validate"],
   info: ["info", "info --json"],
   list: inventoryCommandExamples(),
-  preview: ["preview", "preview --verbose", "preview --json"],
   apply: ["apply", `apply ${project}`, "apply --all", "apply --json"],
   status: ["status", `status ${project}`, "status --all", "status --json"],
   uninstall: ["uninstall"],

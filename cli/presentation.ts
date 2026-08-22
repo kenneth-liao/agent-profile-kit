@@ -74,6 +74,12 @@ function reportWarningValues(report: ReconciliationReport): readonly string[] {
     project.warnings.flatMap((warning) => warning.copyableValues)
   ))].sort(compareCanonicalStrings);
 }
+
+function reportHasHostAttention(report: ReconciliationReport): boolean {
+  return report.projects.some((project) =>
+    project.warnings.some((warning) => warning.kind === "host-attention")
+  );
+}
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
 import {
   isStructuredBlocker,
@@ -105,7 +111,7 @@ import { COMMANDS } from "./command-help.js";
 import { INVENTORY_TOPICS, type InventoryTopic } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
-export type LifecycleCommand = "preview" | "apply" | "status";
+export type LifecycleCommand = "apply" | "status";
 
 const HOST_SETUP_STEP_ORDER: readonly HostSetupStepKind[] = [
   "approval-required",
@@ -1169,8 +1175,7 @@ function groupNeedsAttention(group: ProjectGroup, command: LifecycleCommand): bo
 function fullyCurrentProjectCount(report: ReconciliationReport): number | undefined {
   if (
     reportItems(report).length === 0 ||
-    reportBlockers(report).length > 0 ||
-    reportItems(report).some((item) => item.kind !== "current")
+    reportHasReconciliationWork(report)
   ) {
     return undefined;
   }
@@ -1203,27 +1208,20 @@ function outcomeLine(
   report: ReconciliationReport,
   applyCompleted = false,
 ): string {
-  if (command === "preview") {
-    if (reportBlockers(report).length > 0) return "Cannot apply";
-    if (fullyCurrentProjectCount(report) !== undefined) {
-      const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-      return `Nothing to ${DEFAULT_VIEW_LEXICON.reconciliation.base}; all ${projects} are current.`;
-    }
-    return "Ready to apply";
-  }
   if (command === "apply") {
     if (reportBlockers(report).length > 0) return applyCompleted ? "Apply completed with blockers" : "Apply blocked";
     if (reportItems(report).some((item) => item.kind !== "current")) return "Apply completed with attention";
     return "Apply complete";
   }
   const currentProjects = fullyCurrentProjectCount(report);
-  if (currentProjects === undefined && reportItems(report).length > 0) {
-    return "Attention required";
+  if (reportBlockers(report).length > 0) return "Cannot apply";
+  if (currentProjects !== undefined) {
+    if (reportHasHostAttention(report)) return "Host attention required";
+    const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
+    return `All ${projects} are current (${plural(currentProjects, capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular))})`;
   }
-  const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-  return currentProjects === undefined
-    ? `No ${projects} are configured`
-    : `All ${projects} are current (${plural(currentProjects, capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular))})`;
+  if (reportItems(report).length > 0) return "Ready to apply";
+  return `No ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} are configured`;
 }
 
 function aggregateLine(
@@ -1276,7 +1274,7 @@ interface PresentedSetupStep {
  * Select the Host Setup Steps one lifecycle surface presents (DEC-036–DEC-038):
  * transition-triggered steps appear only when the plan or applied receipt makes
  * their output relevant, standing steps appear as a separate reminder after
- * applied work or in `status`, and `preview` presents transition steps only.
+ * applied work or in `status`.
  * Verbose surfaces retain every step as complete evidence (DEC-034).
  */
 function presentedSetupSteps(
@@ -1285,7 +1283,7 @@ function presentedSetupSteps(
   changeEvidence: ReconciliationReport | undefined,
   verbose: boolean,
 ): readonly PresentedSetupStep[] {
-  if (command !== "status" && reportBlockers(report).length > 0) return [];
+  if (command === "apply" && reportBlockers(report).length > 0) return [];
   const changeReport = changeEvidence ?? report;
   const steps: PresentedSetupStep[] = [];
   for (const project of report.projects) {
@@ -1298,12 +1296,9 @@ function presentedSetupSteps(
         displayProjectPath(project.canonicalProject, project.project),
       );
       if (step.provenance === "transition") {
-        if (!verbose && command === "status") continue;
         if (!verbose && !(changeProject?.outputs.some((output) =>
           output.path === step.output && TRANSITION_TRIGGERING_OUTPUT_KINDS.has(output.kind)
         ) ?? false)) continue;
-      } else if (!verbose && command === "preview") {
-        continue;
       } else if (
         !verbose && command === "apply" &&
         (changeProject === undefined || (
@@ -1531,9 +1526,16 @@ function nextActionLines(
     readonly groups: readonly ProjectGroup[];
     readonly unscopedItems: readonly ReconciliationItem[];
   },
+  options: LifecycleHumanOptions,
 ): readonly string[] {
   if (command === "apply" && reportBlockers(report).length === 0) return [];
-  const applyCommand = command === "preview" ? "apply --all" : "apply";
+  const applyCommand = options.all === true
+    ? "apply --all"
+    : options.project !== undefined
+    ? `apply ${options.project}`
+    : report.projects.length > 1
+    ? "apply --all"
+    : "apply";
 
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
   const grouped = new Map<string, Array<{ readonly authored: string; readonly canonical: string }>>();
@@ -1559,8 +1561,7 @@ function nextActionLines(
     if (reportBlockers(report).length > 0 && globalBlockers.length === 0) {
       if (command === "status") {
         addAction(
-          `After all blockers are resolved, run ${COMMAND_NAME} preview to review the ` +
-            "planned changes (read-only), then apply when ready.",
+          `After all blockers are resolved, run ${COMMAND_NAME} ${applyCommand}.`,
           project,
         );
       } else {
@@ -1574,10 +1575,7 @@ function nextActionLines(
     }
     if (globalBlockers.length > 0) continue;
     if (command === "status") {
-      addAction(
-        `Run ${COMMAND_NAME} preview to review the planned changes (read-only), then apply when ready.`,
-        project,
-      );
+      addAction(`Run ${COMMAND_NAME} ${applyCommand}.`, project);
     } else {
       addAction(`Run ${COMMAND_NAME} ${applyCommand}.`, project);
     }
@@ -1589,13 +1587,12 @@ function nextActionLines(
   }
   if (
     reportBlockers(report).length === 0 &&
-    surface.unscopedItems.some((item) => item.kind !== "current")
+    (
+      surface.unscopedItems.some((item) => item.kind !== "current") ||
+      (grouped.size === 0 && reportHasReconciliationWork(report))
+    )
   ) {
-    addAction(
-      command === "status"
-        ? `Run ${COMMAND_NAME} preview to review the planned changes (read-only), then apply when ready.`
-        : `Run ${COMMAND_NAME} ${applyCommand}.`,
-    );
+    addAction(`Run ${COMMAND_NAME} ${applyCommand}.`);
   }
   const actions = [...grouped.entries()].map(([action, projects]) => {
     const uniqueProjects = [...new Map(
@@ -1816,6 +1813,7 @@ function conciseReport(
   command: LifecycleCommand,
   report: ReconciliationReport,
   receipt?: ReconciliationReport,
+  options: LifecycleHumanOptions = {},
 ): string {
   const grouped = groupProjects(report);
   const groups = grouped.groups;
@@ -1826,7 +1824,6 @@ function conciseReport(
     reportDesired(report).length === 0 &&
     reportItems(report).length === 0;
   const fullyCurrentStatus = command === "status" && fullyCurrentProjectCount(report) !== undefined;
-  const noOpPreview = command === "preview" && fullyCurrentProjectCount(report) !== undefined;
   const noOpApply = isNoOpApply(command, report, receipt);
   const lines = emptyStatus
     ? [
@@ -1835,7 +1832,7 @@ function conciseReport(
           `${COMMAND_NAME} bind <profile> --host <host> to configure one.`,
       ]
     : [outcomeLine(command, report, receipt !== undefined)];
-  const summary = !emptyStatus && !fullyCurrentStatus && !noOpPreview && !noOpApply
+  const summary = !emptyStatus && !fullyCurrentStatus && !noOpApply
     ? aggregateLine(command, report, groups)
     : undefined;
   if (!blocked && summary !== undefined) lines.push(summary);
@@ -1852,15 +1849,18 @@ function conciseReport(
     // Applied work is rendered from the receipt below; do not repeat the
     // freshly verified current Project matrix.
   } else if (activeGroups.length === 0) {
-    if (groups.length > 0 && reportBlockers(report).length === 0 && !fullyCurrentStatus && !noOpPreview) {
+    if (
+      groups.length > 0 &&
+      reportBlockers(report).length === 0 &&
+      !fullyCurrentStatus &&
+      !reportHasReconciliationWork(report)
+    ) {
       const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-      if (command !== "preview") {
-        lines.push(
-          command === "apply"
-            ? `All ${projects} were already current.`
-            : `No ${projects} need attention.`,
-        );
-      }
+      lines.push(
+        command === "apply"
+          ? `All ${projects} were already current.`
+          : `No ${projects} need attention.`,
+      );
     }
   } else {
     for (const group of activeGroups) {
@@ -1953,7 +1953,7 @@ function conciseReport(
   const next = nextActionLines(command, report, {
     groups,
     unscopedItems: grouped.unscopedItems,
-  });
+  }, options);
   if (next.length > 0) lines.push("", ...next);
   if (receipt && !noOpApply) {
     lines.push("", ...applyReceiptLines(receipt, report.projects.length > 1, report));
@@ -2227,7 +2227,9 @@ export function responsiveHumanText(
 }
 
 interface LifecycleHumanOptions {
+  readonly all?: boolean;
   readonly context?: TerminalPresentationContext;
+  readonly project?: string;
   readonly verbose?: boolean;
 }
 
@@ -2379,7 +2381,7 @@ export function formatApplyReport(
 ): string {
   const report = options.verbose
     ? verboseApplyReport(result)
-    : conciseReport("apply", result.resultingState, result.receipt);
+    : conciseReport("apply", result.resultingState, result.receipt, options);
   return responsiveLifecycleOutput(
     report,
     options.context,
@@ -2460,7 +2462,9 @@ export function formatBlockedApplyReport(
   report: BlockedReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
-  const output = options.verbose ? verboseReport("apply", report) : conciseReport("apply", report);
+  const output = options.verbose
+    ? verboseReport("apply", report)
+    : conciseReport("apply", report, undefined, options);
   return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
 }
 
@@ -2469,12 +2473,14 @@ export function formatLifecycleReport(
   report: ReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
-  const output = options.verbose ? verboseReport(command, report) : conciseReport(command, report);
+  const output = options.verbose
+    ? verboseReport(command, report)
+    : conciseReport(command, report, undefined, options);
   return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
 }
 
 /**
- * Uniform machine-surface exit codes for preview, apply, and status:
+ * Uniform machine-surface exit codes for apply and status:
  * - `0` — no tool error and no blockers (may still be `outcome: "attention"`)
  * - `2` — blockers present
  * Tool errors stay exit `1` and use {@link formatLifecycleToolErrorJson} under `--json`.
@@ -2507,7 +2513,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 6 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 7 as const;
 
 function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
   return {
@@ -2546,6 +2552,7 @@ function canonicalMachineSetupSteps(
 function canonicalMachineWarning(warning: ReconciliationWarning): ReconciliationWarning {
   return {
     copyableValues: [...warning.copyableValues],
+    kind: warning.kind,
     message: warning.message,
   };
 }
@@ -2601,7 +2608,8 @@ function canonicalMachineOutcome(
   if (
     report.projects.some((project) =>
       project.state.kind !== "current" ||
-      project.outputs.some((output) => output.kind !== "unchanged")
+      project.outputs.some((output) => output.kind !== "unchanged") ||
+      project.warnings.some((warning) => warning.kind === "host-attention")
     )
   ) return "attention";
   return "clean";

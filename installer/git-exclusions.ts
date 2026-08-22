@@ -288,7 +288,7 @@ export interface RepositoryExclusionDiagnostics {
   readonly warnings: readonly string[];
 }
 
-/** Canonical suffix for a repair warning surfaced by preview and status. */
+/** Canonical suffix for a repair warning surfaced by status. */
 export const REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX =
   " is missing its Agent Profile Kit exclusion section; apply will restore recorded exact entries";
 
