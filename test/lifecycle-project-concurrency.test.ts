@@ -19,7 +19,6 @@ import {
 } from "../installer/project-plan.js";
 import {
   applyReconciliation,
-  ApplyBlockedError,
   nodeFileSystem,
   previewReconciliation,
   type ReconciliationReport,
@@ -468,7 +467,7 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
     }
   });
 
-  test("a blocker in one Project prevents every write while reads stay concurrent", async () => {
+  test("a Project blocker leaves that Project untouched while healthy writes stay sequential", async () => {
     const home = temporaryDirectory("apk-concurrency-blocker-");
     const projects = await fleetWorkspace({
       home,
@@ -482,15 +481,18 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
       scheduler: createProjectReadScheduler(DEFAULT_PROJECT_CONCURRENCY),
     });
 
-    await expect(applyReconciliation(home, desired.installations, {
+    const result = await applyReconciliation(home, desired.installations, {
       scheduler: createProjectReadScheduler(DEFAULT_PROJECT_CONCURRENCY),
-    })).rejects.toThrow(ApplyBlockedError);
+    });
 
-    // Global blockers prevent writes from starting anywhere.
-    expect(existsSync(stateManifestPath(home))).toBe(false);
-    for (const project of projects) {
-      expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
-      expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(stateManifestPath(home))).toBe(true);
+    expect(result.resultingState.projects.find((project) =>
+      project.canonicalProject === projects[1]
+    )?.blockers.length).toBeGreaterThan(0);
+    for (const [index, project] of projects.entries()) {
+      const expected = index !== 1;
+      expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(expected);
+      expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(expected);
     }
   });
 

@@ -104,11 +104,14 @@ Commands separate binding authoring from global reconciliation:
   - `list temporary` reads active Temporary Profile Installation records from Installation State, omits terminal removed identities and ordinary installations, and renders each temporary identity with its short Project path, Profile, and Host. It does not inspect Local Configuration, Workspace artifacts, Git, project output, or Host capabilities.
   - Each topic's `--json` view emits the same records with engine provenance; temporary JSON retains the canonical Project path and durable temporary installation identity. No inventory topic writes state.
 - `preview` lists planned generated-file additions, updates, repairs, removals, and attention states, plus blocking conflicts without writing; `--verbose` exposes complete per-output diagnostics and definitions for present non-current Profile Installation states; `--json` emits the versioned machine payload described below, including ordered Capability Contracts and complete consuming-Host evidence for each desired generated path. Multi-Project concise views group observable output operations with deterministic affected-Project scope without inferring artifact or binding causality; generated-directory attention identifies the aggregate root as a Project exception.
-- `apply` reconciles every binding and, after its commits, performs a fresh
-  reconciliation to report the verified resulting state. It separately emits
-  an `Applied` section containing the pre-apply generated-output and Repository
-  Exclusion work that was committed, distinct from the verified `Pending` work;
-  a verification failure still reports applied work and exits `1`. `--json`
+- `apply` reconciles its selected Project scope and, after its commits, performs
+  a fresh reconciliation to report the verified resulting state. `apply --all`
+  stops every write for a global Blocker, but skips Project-scoped blocked
+  Projects while committing healthy Projects sequentially. It separately emits
+  an `Applied` section containing only generated-output and Repository Exclusion
+  work that committed, distinct from blocked, failed, still-pending, and freshly
+  current Project results. Partial blockers exit `2`; a tool or post-commit
+  verification failure exits `1` and retains committed-work evidence. `--json`
   includes both the resulting-state snapshot and an `applied` receipt snapshot.
 - `status` reports current, not installed, stale source, repairable missing output, drifted output, missing output, malformed ownership, and blocked installations. A bound Project with no ordinary Installation Manifest is not installed and eligible for `apply`; no separate teardown intent is inferred or consulted. A fully current concise status states that fact once; non-current state definitions are available through `--verbose`. `--json` uses the same machine payload and exit-code matrix as `preview` and `apply`.
 - `uninstall` safely removes all owned Profile Installations without deleting the Workspace or bindings, and reports each affected project, removed path, and cleaned Git exclusion entry. (`uninstall` is outside the lifecycle machine surface and keeps its own exit semantics.) Temporary Profile Installations and their Repository Exclusion contributions are preserved.
@@ -120,7 +123,7 @@ JSON serializer in `cli/presentation.ts`: exit `0` means no tool error and no
 blockers (JSON `outcome` may still be `attention` for pending work), exit `1`
 is a tool error (`outcome: "error"` under `--json` when flags were accepted),
 and exit `2` means blockers are present. The lifecycle JSON contract is versioned
-(`schemaVersion: 5`) and publishes global Blockers plus one deterministic record
+(`schemaVersion: 6`) and publishes global Blockers plus one deterministic record
 per Project. Each Project record owns desired identity, state, observable output
 operations with consuming Hosts, Project Blockers, structured warnings with their
 copyable values, Host Setup Steps, and repository-exclusion work. Every Blocker
@@ -128,7 +131,8 @@ serializes its exhaustive structured evidence (`kind`, `scope`, Project identity
 when scoped, derived `message`, `problem`, `requirement`, `remedy`, and
 `affectedItems`) without parsing rendered prose. Apply publishes the pre-apply
 work as a nested `applied` snapshot distinct from the freshly verified resulting
-Project records. The contract carries no separate lifecycle-impact collection
+Project records. Execution-error payloads retain that applied snapshot and add
+`failedProject` plus `pendingProjects` when a Project transaction fails. The contract carries no separate lifecycle-impact collection
 and is not stability-guaranteed before 1.0. Blocked temporary-installation
 JSON advances to the same versioned structured blocker records. Temporary
 installation receipts use the same exit matrix (`0` / `1` / `2`) with their own
@@ -323,7 +327,7 @@ CLI cannot prove the newer Capability Contract.
 
 ## Reconciliation and Ownership
 
-`preview` builds and validates the entire desired output for every bound Project. `status` and `apply` instead normalize one Project selection before per-Project planning: the bound Project containing the current working directory, one explicit existing absolute or home-relative bound root, or the complete fleet through `--all`. Unbound, ambiguous, missing, wildcard, relative, and non-directory targets fail before reconciliation or writes. A Project-scoped command plans, probes, inspects, reconciles, reports, and writes only that Project; an affected shared Repository Exclusion target is updated as one contribution-aware union without inspecting or changing unrelated targets. Scoped apply preserves unrelated Installation Manifests and never classifies them as stale. `apply --all` retains the existing fleet preflight where a predictable conflict in any Project blocks all writes; partial fleet application belongs to the later lifecycle slice.
+`preview` builds and validates the entire desired output for every bound Project. `status` and `apply` instead normalize one Project selection before per-Project planning: the bound Project containing the current working directory, one explicit existing absolute or home-relative bound root, or the complete fleet through `--all`. Unbound, ambiguous, missing, wildcard, relative, and non-directory targets fail before reconciliation or writes. A Project-scoped command plans, probes, inspects, reconciles, reports, and writes only that Project; an affected shared Repository Exclusion target is updated as one contribution-aware union without inspecting or changing unrelated targets. Scoped apply preserves unrelated Installation Manifests and never classifies them as stale. `apply --all` classifies Blockers before mutation: global Blockers stop every write, while Project-scoped capability, ownership, destination, and Git Blockers leave only their affected Projects untouched. Healthy Project transactions commit sequentially, and one fresh post-commit pass verifies their filesystem output, Installation Markers, and Git exclusion evidence.
 
 Desired-state planning creates one invocation-scoped planning context after Workspace and Local Configuration ingestion and Project selection (`installer/lifecycle-planning.ts`). Within that command only, the context is the single reader for reusable planning facts: resolved Profiles, resolved artifact fingerprints and workspace input hashes, portable Skill package source, composed Context envelopes, Host projections whose complete normalized inputs match, and machine-level Host capability evidence. Each unique selected Host executable/version requirement set is probed at most once per invocation, and both supported and failed probe results are immutable evidence for that command only. Projection options that affect output—including Project-relative Codex Context paths and Grok/Claude topology—participate in the key so unsafe reuse is impossible, while Project-specific Host surface checks (CLI paths, Grok inspection topology, and destination hostability) run only for selected Projects. The context is discarded when the command exits; there is no persistent cache or cross-command memoization, and call sites do not add local fallback readers for the same facts.
 

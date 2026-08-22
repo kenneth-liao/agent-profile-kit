@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import type { HostSetupStep } from "../adapters/project-plan.js";
 import {
   formatBlockedApplyReport,
+  formatApplyExecutionFailure,
   formatApplyReport,
   formatApplyVerificationFailure,
   formatApplyJson,
@@ -1240,7 +1241,7 @@ describe("formatLifecycleReport concise terminology", () => {
       machineProject("/project-a", { blockers: reportBlockers(structured) }),
     ]);
     expect(JSON.parse(formatLifecycleJson("preview", machine))).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       globalBlockers: [],
       projects: [{
         project: "/project-a",
@@ -2268,6 +2269,31 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).toContain("- /project-a: Resolve the reported blocker");
   });
 
+  test("execution failures label only applied receipt Projects as freshly current", () => {
+    const receipt = emptyReport({
+      items: [{ kind: "addition", project: "/applied" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/applied" }],
+    });
+    const resultingState = emptyReport({
+      items: [
+        { kind: "current", project: "/already-current" },
+        { kind: "current", project: "/applied" },
+        { kind: "addition", project: "/failed" },
+      ],
+    });
+
+    const concise = formatApplyExecutionFailure({
+      failedProject: "/failed",
+      message: "Apply failed",
+      pendingProjects: [],
+      receipt,
+      resultingState,
+    });
+
+    expect(concise).toContain("Freshly current: /applied");
+    expect(concise).not.toContain("Freshly current: /already-current");
+  });
+
   test("verification failures print the completed receipt without claiming current state", () => {
     const receipt = emptyReport({
       items: [{ kind: "addition", project: "/project-a" }],
@@ -2709,7 +2735,7 @@ describe("Machine surface JSON and exit codes", () => {
     resolvedArtifacts: [],
   };
 
-  test("lifecycle JSON publishes complete nested Project evidence under schema version 5", () => {
+  test("lifecycle JSON publishes complete nested Project evidence under schema version 6", () => {
     const blocker = fixtureBlocker("CLI missing", project);
     const report = machineReport([
       machineProject(project, {
@@ -2738,7 +2764,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatLifecycleJson("preview", report));
-    expect(payload.schemaVersion).toBe(5);
+    expect(payload.schemaVersion).toBe(6);
     expect(payload.command).toBe("preview");
     expect(payload.outcome).toBe("blocked");
     expect(payload.globalBlockers).toEqual([]);
@@ -2841,7 +2867,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatApplyJson(machineApplyResult(receipt, resultingState)));
-    expect(payload.schemaVersion).toBe(5);
+    expect(payload.schemaVersion).toBe(6);
     expect(payload.projects[0].state).toEqual({ kind: "current" });
     expect(payload.applied.projects[0].state).toEqual({ kind: "addition" });
   });
@@ -2852,7 +2878,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatBlockedApplyJson(report));
-    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 5 });
+    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 6 });
     expect(payload).not.toHaveProperty("applied");
     expect(payload.projects[0].blockers).toHaveLength(1);
   });
@@ -2872,18 +2898,18 @@ describe("Machine surface JSON and exit codes", () => {
       command: "apply",
       outcome: "error",
       error: "post-apply verification failed: boom",
-      schemaVersion: 5,
+      schemaVersion: 6,
     });
-    expect(payload.projects[0].outputs).toEqual([
+    expect(payload.projects).toEqual([]);
+    expect(payload.applied.projects[0].outputs).toEqual([
       { kind: "addition", path: "a.md", consumingHosts: ["codex"] },
     ]);
-    expect(payload.applied.projects[0].outputs).toEqual(payload.projects[0].outputs);
   });
 
   test("tool-error JSON uses the empty nested model", () => {
     for (const command of ["preview", "apply", "status"] as const) {
       expect(JSON.parse(formatLifecycleToolErrorJson(command, "missing"))).toEqual({
-        schemaVersion: 5,
+        schemaVersion: 6,
         command,
         outcome: "error",
         error: "missing",
@@ -3671,7 +3697,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(payload).toMatchObject({
       command: "preview",
       outcome: "attention",
-      schemaVersion: 5,
+      schemaVersion: 6,
     });
     expect(lifecycleExitCode(report)).toBe(0);
     expect(lifecycleExitCode(emptyReport({

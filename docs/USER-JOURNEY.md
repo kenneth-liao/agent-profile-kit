@@ -259,8 +259,11 @@ accepts one explicit existing absolute or home-relative bound Project root, and
 requires `--all` for the complete fleet. Scoped apply does not plan, probe,
 inspect, report, or write unrelated Projects; it may update a shared Git
 exclusion target only for the selected installation's contribution while
-preserving the complete union. `apply --all` retains the existing all-or-nothing
-fleet preflight in this slice.
+preserving the complete union. `apply --all` stops every write for a global
+Blocker, but leaves Project-scoped blocked Projects untouched while committing
+and freshly verifying healthy Projects sequentially. A partial blocker result
+exits `2`; a tool or verification failure exits `1` and identifies committed,
+failed, and still-pending Project work.
 
 ```
 Apply complete
@@ -304,8 +307,9 @@ Setup guidance is reported conditionally by Host *and* by what was installed:
 **Codex Context floor (0.145.0+).** Context-bearing Codex installs probe
 `codex --version` on `preview`/`apply` and refuse writes below the floor (or when
 `codex` is missing from `PATH`). Skills-only Codex bindings do not probe. A Project-scoped `apply` isolates that
-capability check to its selected binding; `apply --all` remains an all-or-nothing
-fleet preflight, so one blocked Codex binding blocks fleet writes. `status`,
+capability check to its selected binding; `apply --all` leaves a
+capability-blocked Codex Project untouched while healthy Projects commit.
+`status`,
 `validate`, and `uninstall` do not re-probe the CLI, so a
 post-apply Codex downgrade is not reported there — upgrade back or re-apply after
 restoring a supported CLI if Context stops loading.

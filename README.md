@@ -118,14 +118,15 @@ Machine-readable command contracts:
   Project paths, Profile IDs, and Hosts. Removed identities and ordinary
   installations are omitted. It reads Installation State only and never runs
   reconciliation or changes state.
-- Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 5`
+- Lifecycle `--json` on `preview`, `apply`, and `status` prints a `schemaVersion: 6`
   object with global Blockers and one deterministic record per Project. Each
   Project record keeps desired identity, state, output operations with consuming
   Hosts, structured warnings with copyable values, Host Setup Steps, Project
   Blockers, and repository-exclusion evidence together. Blockers serialize
   `kind`, `scope`, Project identity when scoped, derived `message`, `problem`,
   `requirement`, `remedy`, and `affectedItems`. Apply keeps an `applied` nested
-  snapshot distinct from the freshly verified resulting Project records.
+  snapshot distinct from the freshly verified resulting Project records; failed
+  Project transactions also identify the failed and still-pending Projects.
   Blocked `install-temp`/`remove-temp` JSON retains its own versioned structured
   blocker contract. Combined with `--verbose`, machine output wins.
 - Exit codes: `0` no tool error and no blockers (JSON `outcome` may still be

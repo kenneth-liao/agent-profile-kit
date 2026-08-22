@@ -412,8 +412,9 @@ newer so the generated SessionStart handler can deliver the complete Context
 envelope without Codex's default head-and-tail spill. Older, missing, or
 unreadable Codex versions fail capability preflight before any project or
 Installation State writes. A Project-scoped `apply` probes only its selected
-binding. `apply --all` retains fleet preflight, where one blocked Codex binding
-blocks every fleet write. Skills-only Codex bindings do
+binding. `apply --all` leaves a capability-blocked Codex Project untouched
+while committing healthy Projects; global Blockers still stop every fleet write.
+Skills-only Codex bindings do
 not require this floor. Review and trust the generated project SessionStart hook
 in Codex for each bound project. Lifecycle hooks are enabled by default. Agent Profile Kit checks the effective global and project configuration
 during preflight and warns when hooks are explicitly disabled, when relevant

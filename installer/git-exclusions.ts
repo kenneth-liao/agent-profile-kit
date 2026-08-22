@@ -778,6 +778,33 @@ async function recordedInstallationOwnershipBlockers(
   return blockers;
 }
 
+function projectsForExclusionTarget(
+  state: InstallationState,
+  desired: readonly DesiredInstallation[],
+  target: string,
+): readonly string[] {
+  const projectByInstallationId = new Map(
+    state.installations.map((installation) => [
+      installation.installationId,
+      installation.project,
+    ] as const),
+  );
+  const projects = new Set(
+    state.repositoryExclusions
+      .find((record) => record.target === target)
+      ?.contributions.flatMap((contribution) => {
+        const project = projectByInstallationId.get(contribution.installationId);
+        return project === undefined ? [] : [project];
+      }) ?? [],
+  );
+  for (const installation of desired) {
+    if (installation.gitProject?.excludeFile === target) {
+      projects.add(installation.binding.canonicalProject);
+    }
+  }
+  return [...projects].sort(compareCanonicalStrings);
+}
+
 export async function gitExclusionBlockers(
   state: InstallationState,
   desired: readonly DesiredInstallation[] = [],
@@ -826,19 +853,39 @@ export async function gitExclusionBlockers(
         ((!snapshot.exists && !snapshot.targetMissing) ||
           (snapshot.exists && !parseOwnedSection(snapshot.bytes, target.git.excludeFile)))
       ) {
-        blockers.push(repositoryExclusionSectionMissingBlocker({
-          message:
-            `${target.git.excludeFile} is missing its Agent Profile Kit exclusion section; ` +
-            "intentional-deletion retirement requires the recorded section to be present",
-          target: target.git.excludeFile,
-        }));
+        const projects = projectsForExclusionTarget(state, desired, target.git.excludeFile);
+        for (const project of projects) {
+          blockers.push(repositoryExclusionSectionMissingBlocker({
+            message:
+              `${target.git.excludeFile} is missing its Agent Profile Kit exclusion section; ` +
+              "intentional-deletion retirement requires the recorded section to be present",
+            project,
+            target: target.git.excludeFile,
+          }));
+        }
+        if (projects.length === 0) {
+          blockers.push(repositoryExclusionRecordBlocker({
+            affectedItems: [{ kind: "path", value: target.git.excludeFile }],
+            message: `${target.git.excludeFile} has no Project identity for its recorded exclusion ownership`,
+          }));
+        }
       }
       reconcileGitExcludeBytes(snapshot.bytes, target.git.excludeFile, target.current, target.current);
     } catch (error) {
-      blockers.push(repositoryExclusionInvalidBlocker({
-        message: error instanceof Error ? error.message : String(error),
-        target: target.git.excludeFile,
-      }));
+      const projects = projectsForExclusionTarget(state, desired, target.git.excludeFile);
+      for (const project of projects) {
+        blockers.push(repositoryExclusionInvalidBlocker({
+          message: error instanceof Error ? error.message : String(error),
+          project,
+          target: target.git.excludeFile,
+        }));
+      }
+      if (projects.length === 0) {
+        blockers.push(repositoryExclusionRecordBlocker({
+          affectedItems: [{ kind: "path", value: target.git.excludeFile }],
+          message: error instanceof Error ? error.message : String(error),
+        }));
+      }
     }
   }
   return blockers

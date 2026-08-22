@@ -139,7 +139,7 @@ describe("structured Installer blocker evidence", () => {
       readonly globalBlockers: readonly Record<string, unknown>[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(5);
+    expect(machine.schemaVersion).toBe(6);
     expect(machine.globalBlockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
@@ -220,7 +220,8 @@ describe("structured Installer blocker evidence", () => {
     expect(unproven).toMatchObject({
       kind: REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
       message: "/p Git target cannot be proven: project root is missing",
-      scope: "global",
+      project: "/p",
+      scope: "project",
     });
     // Plain value checks: asymmetric matchers in toMatchObject replace the
     // matched properties on the shared blocker, corrupting later JSON reads.
@@ -228,7 +229,7 @@ describe("structured Installer blocker evidence", () => {
       expect(typeof unproven[field]).toBe("string");
       expect(unproven[field].length).toBeGreaterThan(0);
     }
-    expect(unproven.project).toBeUndefined();
+    expect(unproven.project).toBe("/p");
     expect(unproven.affectedItems).toEqual([{ kind: "path", value: "/p" }]);
 
     const removal = temporaryInstallationRemovalBlocker({
@@ -509,7 +510,7 @@ describe("structured Installer blocker evidence", () => {
     ]);
   });
 
-  test("an unprovable recorded Git target emits structured global evidence", async () => {
+  test("an unprovable recorded Git target emits structured Project evidence", async () => {
     const project = temporaryDirectory("apkit-evidence-target-unproven-");
     const home = await prepareHome(project);
     const desired = await buildDesiredState(home, { checkHostCapability: false });
@@ -530,15 +531,14 @@ describe("structured Installer blocker evidence", () => {
       ),
       "a structured repository-exclusion-target-unproven blocker",
     );
-    expect(blocker).toMatchObject({ scope: "global" });
-    expect(blocker.project).toBeUndefined();
+    expect(blocker).toMatchObject({ project: missingProject, scope: "project" });
     expect(blocker.message).toBe(
       `${missingProject} Git target cannot be proven: project root is missing`,
     );
     expect(blocker.affectedItems).toEqual([{ kind: "path", value: missingProject }]);
   });
 
-  test("a missing recorded exclusion section during retirement emits structured global evidence", async () => {
+  test("a missing recorded exclusion section during retirement emits structured Project evidence", async () => {
     const repository = gitRepository("apkit-evidence-retire-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -577,17 +577,16 @@ describe("structured Installer blocker evidence", () => {
       ),
       "a structured repository-exclusion-section-missing blocker",
     );
-    expect(blocker).toMatchObject({ scope: "global" });
-    expect(blocker.project).toBeUndefined();
+    expect(blocker).toMatchObject({ project: realpathSync(repository), scope: "project" });
     expect(blocker.message).toBe(
-      `${exclude} is missing its Agent Profile Kit exclusion section; ` +
+      ".git/info/exclude is missing its Agent Profile Kit exclusion section; " +
         "intentional-deletion retirement requires the recorded section to be present",
     );
     expect(blocker.affectedItems).toEqual([{ kind: "path", value: exclude }]);
     expect(lifecycleExitCode(report)).toBe(2);
   });
 
-  test("a malformed recorded exclusion section emits structured global evidence", async () => {
+  test("a malformed recorded exclusion section emits structured Project evidence", async () => {
     const repository = gitRepository("apkit-evidence-invalid-");
     const home = await prepareHome(repository);
     const desired = await buildDesiredState(home, { checkHostCapability: false });
@@ -604,8 +603,7 @@ describe("structured Installer blocker evidence", () => {
       ),
       "a structured repository-exclusion-invalid blocker",
     );
-    expect(blocker).toMatchObject({ scope: "global" });
-    expect(blocker.project).toBeUndefined();
+    expect(blocker).toMatchObject({ project: realpathSync(repository), scope: "project" });
     expect(blocker.message).toContain("Agent Profile Kit exclusion section");
     expect(blocker.affectedItems).toEqual([{ kind: "path", value: exclude }]);
     expect(lifecycleExitCode(report)).toBe(2);
