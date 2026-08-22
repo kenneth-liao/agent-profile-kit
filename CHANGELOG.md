@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Define the final minimal ownership-receipt model, strict deterministic bounded JSON codec, and pure supported-YAML-to-final normalization boundary without changing runtime state publication ([#253](https://github.com/kenneth-liao/agent-profile-kit/issues/253)).
+
 - Make `status` the complete apply-equivalent read-only plan with predictable Host capability blockers for pending work and Host attention for already-current output, and remove the separate `preview` command and lifecycle JSON variant with focused migration guidance. Lifecycle JSON advances to schema version 7. This is a pre-1.0 breaking change ([#252](https://github.com/kenneth-liao/agent-profile-kit/issues/252)).
 
 - Let `apply --all` commit and freshly verify healthy Projects sequentially while leaving Project-scoped capability, ownership, destination, and Git blockers untouched; global blockers still stop every write, partial blockers exit `2`, and tool or verification failures retain committed-work evidence. Lifecycle JSON advances to schema version 6 for partial and failed execution results. This is a pre-1.0 breaking change ([#251](https://github.com/kenneth-liao/agent-profile-kit/issues/251)).
