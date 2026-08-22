@@ -259,11 +259,12 @@ export function repositoryExclusionRecordBlocker(options: {
 export function repositoryExclusionTargetUnprovenBlocker(options: {
   readonly message: string;
   readonly project: string;
-}): GlobalScopedBlockerInput {
-  return globalBlocker({
+}): ProjectScopedBlockerInput {
+  return projectBlocker({
     affectedItems: [{ kind: "path", value: options.project }],
     kind: REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
     problem: options.message,
+    project: options.project,
     remedy:
       "Restore the Project root or Git repository at the recorded path, or restore " +
       "Installation State from a known-good backup, then retry",
@@ -276,12 +277,14 @@ export function repositoryExclusionTargetUnprovenBlocker(options: {
 /** Build one complete structured blocker for a missing recorded exclusion section during retirement. */
 export function repositoryExclusionSectionMissingBlocker(options: {
   readonly message: string;
+  readonly project: string;
   readonly target: string;
-}): GlobalScopedBlockerInput {
-  return globalBlocker({
+}): ProjectScopedBlockerInput {
+  return projectBlocker({
     affectedItems: [{ kind: "path", value: options.target }],
     kind: REPOSITORY_EXCLUSION_SECTION_MISSING,
     problem: options.message,
+    project: options.project,
     remedy:
       "Restore the recorded Agent Profile Kit exclusion section in the repository-local " +
       "exclude file, then retry",
@@ -294,12 +297,14 @@ export function repositoryExclusionSectionMissingBlocker(options: {
 /** Build one complete structured blocker for unreadable or unsafe repository-local exclusion state. */
 export function repositoryExclusionInvalidBlocker(options: {
   readonly message: string;
+  readonly project: string;
   readonly target: string;
-}): GlobalScopedBlockerInput {
-  return globalBlocker({
+}): ProjectScopedBlockerInput {
+  return projectBlocker({
     affectedItems: [{ kind: "path", value: options.target }],
     kind: REPOSITORY_EXCLUSION_INVALID,
     problem: options.message,
+    project: options.project,
     remedy:
       "Repair the repository-local exclusion file to match the recorded Agent Profile Kit " +
       "ownership, or restore a backup, then retry",

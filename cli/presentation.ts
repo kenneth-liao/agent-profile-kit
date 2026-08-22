@@ -1758,19 +1758,26 @@ function operationSummarySections(report: ReconciliationReport): readonly string
   ];
 }
 
-function operationReceiptLines(receipt: ReconciliationReport): readonly string[] {
+function operationReceiptLines(
+  receipt: ReconciliationReport,
+  fleetScope: ReconciliationReport = receipt,
+): readonly string[] {
   const lines = [
     "Applied:",
-    ...groupOutputOperations(receipt).map((group) => `  ${operationGroupLine(group, receipt)}`),
+    ...groupOutputOperations(receipt).map((group) => `  ${operationGroupLine(group, fleetScope)}`),
   ];
   const exclusionClause = repositoryExclusionClause(receipt, true);
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
   return lines;
 }
 
-function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
-  if (useOperationSummary(receipt, false)) {
-    return operationReceiptLines(receipt);
+function applyReceiptLines(
+  receipt: ReconciliationReport,
+  summarizeFleet = false,
+  fleetScope: ReconciliationReport = receipt,
+): readonly string[] {
+  if (summarizeFleet || useOperationSummary(receipt, false)) {
+    return operationReceiptLines(receipt, fleetScope);
   }
   const grouped = groupProjects(receipt);
   const entries = grouped.groups.flatMap((group) => {
@@ -1794,10 +1801,7 @@ function applyReceiptLines(receipt: ReconciliationReport): readonly string[] {
   });
   const exclusionClause = repositoryExclusionClause(receipt, true);
   if (entries.length === 0 && exclusionClause === undefined) {
-    return [
-      `Applied: none; all ` +
-      `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
-    ];
+    return ["Applied: none."];
   }
 
   const lines = [
@@ -1897,6 +1901,25 @@ function conciseReport(
     }
   }
 
+  if (command === "apply" && blocked) {
+    const stillPending = report.projects
+      .filter((project) =>
+        project.blockers.length === 0 &&
+        (
+          project.state.kind !== "current" ||
+          project.outputs.some((output) => output.kind !== "unchanged") ||
+          project.repositoryExclusions.some((change) =>
+            change.current.join("\n") !== change.next.join("\n")
+          ) ||
+          project.repositoryExclusionRepairs.length > 0
+        )
+      )
+      .map((project) => displayProjectPath(project.canonicalProject, project.project));
+    if (stillPending.length > 0) {
+      lines.push("", `Still pending: ${stillPending.join(", ")}`);
+    }
+  }
+
   const exclusionClause = repositoryExclusionClause(report, false);
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
 
@@ -1932,7 +1955,22 @@ function conciseReport(
     unscopedItems: grouped.unscopedItems,
   });
   if (next.length > 0) lines.push("", ...next);
-  if (receipt && !noOpApply) lines.push("", ...applyReceiptLines(receipt));
+  if (receipt && !noOpApply) {
+    lines.push("", ...applyReceiptLines(receipt, report.projects.length > 1, report));
+    if (blocked) {
+      const appliedProjects = new Set(
+        receipt.projects.map((project) => project.canonicalProject),
+      );
+      const freshlyCurrent = report.projects
+        .filter((project) =>
+          project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
+        )
+        .map((project) => displayProjectPath(project.canonicalProject, project.project));
+      if (freshlyCurrent.length > 0) {
+        lines.push(`Freshly current: ${freshlyCurrent.join(", ")}`);
+      }
+    }
+  }
   if (command === "apply" && reportBlockers(report).length === 0) {
     const activation = receipt ? activationLines(report, receipt, presented) : [];
     if (activation.length > 0) lines.push("", ...activation);
@@ -2349,6 +2387,47 @@ export function formatApplyReport(
   );
 }
 
+export function formatApplyExecutionFailure(
+  failure: {
+    readonly failedProject: string | undefined;
+    readonly message: string;
+    readonly pendingProjects: readonly string[];
+    readonly receipt: ReconciliationReport;
+    readonly resultingState: ReconciliationReport | undefined;
+  },
+  options: LifecycleHumanOptions = {},
+): string {
+  const lines = [
+    failure.message,
+    ...(failure.failedProject === undefined
+      ? []
+      : [`Failed Project: ${displayProjectPath(failure.failedProject)}`]),
+    `Still pending: ${failure.pendingProjects.length === 0
+      ? "none"
+      : failure.pendingProjects.map((project) => displayProjectPath(project)).join(", ")}`,
+    ...applyReceiptLines(failure.receipt),
+  ];
+  if (failure.resultingState !== undefined) {
+    const appliedProjects = new Set(
+      failure.receipt.projects.map((project) => project.canonicalProject),
+    );
+    const current = failure.resultingState.projects
+      .filter((project) =>
+        project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
+      )
+      .map((project) => displayProjectPath(project.canonicalProject, project.project));
+    if (current.length > 0) lines.push(`Freshly current: ${current.join(", ")}`);
+  }
+  return responsiveLifecycleOutput(
+    `${lines.join("\n")}\n`,
+    options.context,
+    lifecycleCopyableValues([
+      failure.receipt,
+      ...(failure.resultingState === undefined ? [] : [failure.resultingState]),
+    ]),
+  );
+}
+
 export function formatApplyVerificationFailure(
   receipt: ReconciliationReport,
   message: string,
@@ -2428,7 +2507,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 5 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 6 as const;
 
 function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
   return {
@@ -2559,14 +2638,39 @@ export function formatBlockedApplyJson(report: BlockedReconciliationReport): str
   return serializeMachinePayload(canonicalLifecycleMachinePayload("apply", report));
 }
 
+export function formatApplyExecutionFailureJson(failure: {
+  readonly failedProject: string | undefined;
+  readonly message: string;
+  readonly pendingProjects: readonly string[];
+  readonly receipt: ReconciliationReport;
+  readonly resultingState: ReconciliationReport | undefined;
+}): string {
+  return serializeMachinePayload({
+    schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
+    command: "apply",
+    outcome: "error",
+    error: failure.message,
+    ...(failure.resultingState === undefined
+      ? { globalBlockers: [], projects: [] }
+      : canonicalMachineSnapshot(failure.resultingState) as object),
+    applied: canonicalMachineSnapshot(failure.receipt),
+    ...(failure.failedProject === undefined ? {} : { failedProject: failure.failedProject }),
+    pendingProjects: [...failure.pendingProjects],
+  });
+}
+
 export function formatApplyVerificationFailureJson(
   receipt: ReconciliationReport,
   message: string,
 ): string {
   return serializeMachinePayload({
-    ...canonicalLifecycleMachinePayload("apply", receipt, receipt) as object,
+    schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
+    command: "apply",
     outcome: "error",
     error: message,
+    globalBlockers: [],
+    projects: [],
+    applied: canonicalMachineSnapshot(receipt),
   });
 }
 

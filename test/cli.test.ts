@@ -2149,7 +2149,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly schemaVersion: number;
       readonly projects: readonly { readonly outputs: readonly { readonly kind: string }[] }[];
     };
-    expect(payload.schemaVersion).toBe(5);
+    expect(payload.schemaVersion).toBe(6);
     expect(payload).not.toHaveProperty("impacts");
     expect(payload.projects.flatMap((project) => project.outputs)
       .filter((output) => output.kind === "update")).toHaveLength(12);
@@ -2240,12 +2240,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly command: string;
         readonly schemaVersion: number;
       };
-      expect(payload.schemaVersion).toBe(5);
+      expect(payload.schemaVersion).toBe(6);
       expect(payload.command).toBe(command);
 
       const both = await runCli(home, command, "--verbose", "--json");
       expectExitCode(both, 0);
-      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 5 });
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 6 });
 
       const unsupported = await runCli(home, command, "--yaml");
       expectExitCode(unsupported, 1);
@@ -2269,7 +2269,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
-        schemaVersion: 5,
+        schemaVersion: 6,
       });
     }
 
@@ -2314,7 +2314,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly schemaVersion: number;
       };
       expect(payload).toMatchObject({
-        schemaVersion: 5,
+        schemaVersion: 6,
         command,
         outcome: "error",
       });
@@ -2334,14 +2334,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
-        schemaVersion: 5,
+        schemaVersion: 6,
       });
     }
     const firstApply = await runCli(pendingHome, "apply", "--json");
     expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "apply",
-      schemaVersion: 5,
+      schemaVersion: 6,
     });
     expect(["clean", "attention"]).toContain(
       (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
@@ -2698,7 +2698,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(output.stdout).toContain("Profile: coding");
   });
 
-  test("predictable occupied project output blocks every binding before any write", async () => {
+  test("predictable occupied project output leaves only that Project untouched", async () => {
     const home = isolatedHome();
     await initialize(home);
     const first = project("agent-profile-kit-conflict-");
@@ -2714,10 +2714,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "apply");
 
     expectExitCode(result, 2);
-    expect(result.stdout).toContain("Apply blocked");
+    expect(result.stdout).toContain("Apply completed with blockers");
     expect(result.stderr).toBe("");
     expect(existsSync(join(first, ".agent-profile-kit"))).toBe(false);
-    expect(existsSync(join(second, ".agent-profile-kit"))).toBe(false);
+    expect(existsSync(join(second, ".agent-profile-kit"))).toBe(true);
     expect(readFileSync(join(first, ".codex", "hooks.json"), "utf8")).toBe("repository-owned hook\n");
   });
 
@@ -4571,7 +4571,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(obsolete)).toBe(false);
   });
 
-  test("drift in a stale installation blocks all desired updates and preserves every project", async () => {
+  test("drift in a stale installation leaves it untouched while a healthy Project updates", async () => {
     const home = isolatedHome();
     await initialize(home);
     const retained = project("agent-profile-kit-drift-retained-");
@@ -4598,7 +4598,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain(removed);
     expect(result.stdout).not.toContain(realpathSync(removed));
     expect(result.stderr).toBe("");
-    expect(readFileSync(retainedContext, "utf8")).toBe(before);
+    expect(readFileSync(retainedContext, "utf8")).not.toBe(before);
+    expect(readFileSync(retainedContext, "utf8")).toContain("Would update retained.");
     expect(readFileSync(join(removed, ".codex", "hooks.json"), "utf8")).toBe("user drift\n");
   });
 
@@ -4784,6 +4785,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(humanText(result.stdout)).toContain(humanText("copies Installation Marker identity"));
+    expect(result.stdout).toContain("Still pending:");
+    expect(humanText(result.stdout)).toContain(humanText(realpathSync(original)));
     expect(result.stderr).toBe("");
     expect(readFileSync(join(original, ".agent-profile-kit", "installation.json"), "utf8")).toContain(
       "installation_id",
@@ -4811,6 +4814,223 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 0);
   });
 
+  test("apply --all writes no Project when Installation State is globally unreadable", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projects = [project("agent-profile-kit-global-state-a-"), project("agent-profile-kit-global-state-b-")];
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        projects.map((projectPath) =>
+          `  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`
+        ).join(""),
+    );
+    mkdirSync(join(home, ".agents", "agent-profile-kit", "state"), { recursive: true });
+    writeFileSync(statePath(home), "not valid Installation State\n");
+
+    const result = await runCli(home, "apply", "--all");
+
+    expectExitCode(result, 2);
+    expect(result.stdout).toContain("Global blockers:");
+    for (const projectPath of projects) {
+      expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    }
+  });
+
+  test("a fresh blocked Project does not freeze an unrelated missing-path retirement", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const retired = project("agent-profile-kit-independent-retirement-");
+    const blocked = project("agent-profile-kit-independent-blocked-");
+    writeContextProfile(home);
+    bind(home, retired);
+    expectExitCode(await runCli(home, "apply", "--all"), 0);
+    rmSync(retired, { recursive: true, force: true });
+    mkdirSync(join(blocked, ".codex"));
+    writeFileSync(join(blocked, ".codex", "hooks.json"), "project-owned\n");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${blocked}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const result = await runCli(home, "apply", "--all");
+
+    expectExitCode(result, 2);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      readonly installations: readonly unknown[];
+    };
+    expect(state.installations).toEqual([]);
+    expect(existsSync(join(blocked, ".agent-profile-kit", "installation.json"))).toBe(false);
+  });
+
+  test("apply --all commits healthy Projects around a Project-scoped destination blocker", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const healthy = project("agent-profile-kit-partial-blocker-healthy-");
+    const blocked = project("agent-profile-kit-partial-blocker-blocked-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${healthy}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${blocked}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    mkdirSync(join(blocked, ".codex"));
+    writeFileSync(join(blocked, ".codex", "hooks.json"), "project-owned\n");
+
+    const result = await runCli(home, "apply", "--all");
+
+    expectExitCode(result, 2);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Apply completed with blockers");
+    expect(result.stdout).toContain("Applied:");
+    expect(result.stdout).toContain("Freshly current:");
+    expect(humanText(result.stdout)).toContain(humanText(realpathSync(healthy)));
+    expect(existsSync(join(healthy, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(blocked, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(readFileSync(join(blocked, ".codex", "hooks.json"), "utf8")).toBe("project-owned\n");
+  });
+
+  test("apply --all commits a healthy Project around another Project's modified Git exclusion", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const healthy = gitRepository("agent-profile-kit-partial-git-healthy-");
+    const blocked = gitRepository("agent-profile-kit-partial-git-blocked-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${healthy}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${blocked}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply", "--all"), 0);
+    const healthyContext = join(healthy, ".agent-profile-kit", "codex", "context.md");
+    const blockedContext = join(blocked, ".agent-profile-kit", "codex", "context.md");
+    const blockedBefore = readFileSync(blockedContext, "utf8");
+    const blockedExclude = join(blocked, ".git", "info", "exclude");
+    writeFileSync(
+      blockedExclude,
+      readFileSync(blockedExclude, "utf8").replace("/.codex/hooks.json", "/unexpected"),
+    );
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated healthy Project.\n",
+    );
+
+    const result = await runCli(home, "apply", "--all");
+
+    expectExitCode(result, 2);
+    expect(readFileSync(healthyContext, "utf8")).toContain("Updated healthy Project.");
+    expect(readFileSync(blockedContext, "utf8")).toBe(blockedBefore);
+  });
+
+  test("a Project blocker freezes every binding that shares its Git exclusion target", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-shared-blocker-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply", "--all"), 0);
+    const rootContext = join(repository, ".agent-profile-kit", "codex", "context.md");
+    const rootBefore = readFileSync(rootContext);
+    const exclude = join(repository, ".git", "info", "exclude");
+    const excludeBefore = readFileSync(exclude);
+    writeFileSync(join(nested, ".codex", "hooks.json"), "user drift\n");
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nPending shared update.\n",
+    );
+
+    const result = await runCli(home, "apply", "--all");
+
+    expectExitCode(result, 2);
+    expect(readFileSync(rootContext).equals(rootBefore)).toBe(true);
+    expect(readFileSync(exclude).equals(excludeBefore)).toBe(true);
+    expect(readFileSync(join(nested, ".codex", "hooks.json"), "utf8")).toBe("user drift\n");
+  });
+
+  test("apply --all commits a healthy Project around a Project-scoped Host capability blocker", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const healthy = project("agent-profile-kit-partial-capability-healthy-");
+    const blocked = project("agent-profile-kit-partial-capability-blocked-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${healthy}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${blocked}\n    profile: coding\n    hosts: [claude]\n`,
+    );
+    const bin = installFakeCodex(home);
+    installFakeClaude(home, "2.0.63");
+
+    const result = await runCliWithPath(home, bin, "apply", "--all");
+
+    expectExitCode(result, 2);
+    expect(existsSync(join(healthy, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(blocked, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(result.stdout).toContain("upgrade Claude Code");
+  });
+
+  test("apply --all JSON separates committed work from fresh blocked and current Project results", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const healthy = project("agent-profile-kit-partial-json-healthy-");
+    const blocked = project("agent-profile-kit-partial-json-blocked-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${healthy}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${blocked}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    mkdirSync(join(blocked, ".codex"));
+    writeFileSync(join(blocked, ".codex", "hooks.json"), "project-owned\n");
+
+    const result = await runCli(home, "apply", "--all", "--json");
+
+    expectExitCode(result, 2);
+    const payload = JSON.parse(result.stdout) as {
+      readonly outcome: string;
+      readonly applied: { readonly projects: readonly { readonly canonicalProject: string }[] };
+      readonly projects: readonly {
+        readonly blockers: readonly unknown[];
+        readonly canonicalProject: string;
+        readonly state: { readonly kind: string };
+      }[];
+    };
+    expect(payload.outcome).toBe("blocked");
+    expect(payload.applied.projects.map((project) => project.canonicalProject)).toEqual([
+      realpathSync(healthy),
+    ]);
+    expect(payload.projects).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        blockers: [],
+        canonicalProject: realpathSync(healthy),
+        state: { kind: "current" },
+      }),
+      expect.objectContaining({
+        canonicalProject: realpathSync(blocked),
+        state: { kind: "addition" },
+      }),
+    ]));
+    expect(payload.projects.find((project) =>
+      project.canonicalProject === realpathSync(blocked)
+    )?.blockers.length).toBeGreaterThan(0);
+  });
+
   test("a later project failure reports completed, failed, and pending projects and reruns safely", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -4827,9 +5047,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     chmodSync(second, 0o755);
     expectExitCode(failed, 1);
-    expect(failed.stderr.replace(/\s+/g, " ")).toContain(`completed projects: ${first}`);
-    expect(failed.stderr.replace(/\s+/g, " ")).toContain(`failed project: ${second}`);
+    expect(failed.stderr.replace(/\s+/g, " ")).toContain(
+      `completed projects: ${realpathSync(first)}`,
+    );
+    expect(failed.stderr.replace(/\s+/g, " ")).toContain(
+      `failed project: ${realpathSync(second)}`,
+    );
     expect(failed.stderr.replace(/\s+/g, " ")).toContain("pending projects: (none)");
+    expect(failed.stderr).toContain("Applied:");
+    expect(failed.stderr).toContain("Freshly current:");
     expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
 
@@ -4837,6 +5063,53 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(rerun, 0);
     const afterRerun = await runCli(home, "status");
     expect(afterRerun.stdout).toContain("All Projects are current");
+  });
+
+  test("apply --all JSON identifies committed, failed, and still-pending Projects after a tool failure", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projects = [
+      project("agent-profile-kit-tool-failure-a-"),
+      project("agent-profile-kit-tool-failure-b-"),
+      project("agent-profile-kit-tool-failure-c-"),
+    ].sort();
+    const [committed, failed, pending] = projects as [string, string, string];
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        projects.map((projectPath) =>
+          `  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`
+        ).join(""),
+    );
+    chmodSync(failed, 0o555);
+
+    const result = await runCli(home, "apply", "--all", "--json");
+
+    chmodSync(failed, 0o755);
+    expectExitCode(result, 1);
+    const payload = JSON.parse(result.stdout) as {
+      readonly applied: { readonly projects: readonly { readonly canonicalProject: string }[] };
+      readonly error: string;
+      readonly failedProject: string;
+      readonly outcome: string;
+      readonly pendingProjects: readonly string[];
+      readonly projects: readonly {
+        readonly canonicalProject: string;
+        readonly state: { readonly kind: string };
+      }[];
+    };
+    expect(payload.outcome).toBe("error");
+    expect(payload.applied.projects.map((project) => project.canonicalProject)).toEqual([
+      realpathSync(committed),
+    ]);
+    expect(payload.failedProject).toBe(realpathSync(failed));
+    expect(payload.error).toContain(`completed projects: ${realpathSync(committed)}`);
+    expect(payload.error).toContain(`failed project: ${realpathSync(failed)}`);
+    expect(payload.pendingProjects).toEqual([realpathSync(pending)]);
+    expect(payload.projects.find((project) =>
+      project.canonicalProject === realpathSync(committed)
+    )?.state.kind).toBe("current");
   });
 
   test("a moved project carries its marker identity to the new binding", async () => {

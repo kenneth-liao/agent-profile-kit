@@ -101,7 +101,7 @@ describe("nested Project reconciliation report", () => {
     });
     const json = JSON.parse(formatLifecycleJson("preview", report));
     expect(json).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       command: "preview",
       outcome: "blocked",
       globalBlockers: [],
@@ -225,6 +225,9 @@ describe("injected project filesystem failures", () => {
       "---\nid: team-rules\ndependencies: []\n---\nUpdated Context.\n",
     );
     const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const firstCanonical = desired.installations.find(
+      (installation) => installation.binding.project === first,
+    )!.binding.canonicalProject;
     const secondCanonical = desired.installations.find(
       (installation) => installation.binding.project === second,
     )!.binding.canonicalProject;
@@ -234,6 +237,9 @@ describe("injected project filesystem failures", () => {
       "codex",
       "context.md",
     );
+    const thirdCanonical = desired.installations.find(
+      (installation) => installation.binding.project === third,
+    )!.binding.canonicalProject;
     let injected = false;
 
     await expect(applyReconciliation(home, desired.installations, {
@@ -253,7 +259,7 @@ describe("injected project filesystem failures", () => {
         },
       },
     })).rejects.toThrow(
-      `completed projects: ${first}; failed project: ${second}; pending projects: ${third}`,
+      `completed projects: ${firstCanonical}; failed project: ${secondCanonical}; pending projects: ${thirdCanonical}`,
     );
     expect(readFileSync(join(first, ".agent-profile-kit", "codex", "context.md"), "utf8")).toContain("Updated Context.");
     expect(readFileSync(join(second, ".agent-profile-kit", "installation.json"), "utf8")).toBe(secondMarker);

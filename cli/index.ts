@@ -8,6 +8,8 @@ import {
   displayProjectPath,
   formatApplyJson,
   formatApplyReport,
+  formatApplyExecutionFailure,
+  formatApplyExecutionFailureJson,
   formatApplyVerificationFailure,
   formatApplyVerificationFailureJson,
   formatBlockedApplyJson,
@@ -61,7 +63,11 @@ import {
   uninstallApplication,
   validateApplication,
 } from "../installer/commands.js";
-import { ApplyBlockedError, ApplyVerificationError } from "../installer/reconcile.js";
+import {
+  ApplyBlockedError,
+  ApplyExecutionError,
+  ApplyVerificationError,
+} from "../installer/reconcile.js";
 import {
   installTemporaryProfile,
   removeTemporaryProfile,
@@ -1005,6 +1011,19 @@ async function main(): Promise<void> {
           );
         }
         process.exitCode = lifecycleExitCode(error.report);
+        return;
+      }
+      if (error instanceof ApplyExecutionError) {
+        if (parsed.json) {
+          process.stdout.write(formatApplyExecutionFailureJson(error));
+        } else {
+          writeHuman(
+            process.stderr,
+            formatApplyExecutionFailure(error, { ...parsed, context: stderrPresentationContext }),
+            stderrPresentationContext,
+          );
+        }
+        process.exitCode = 1;
         return;
       }
       if (error instanceof ApplyVerificationError) {
