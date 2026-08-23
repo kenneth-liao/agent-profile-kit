@@ -1314,7 +1314,14 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(temporaryProject, ".agent-profile-kit", "installation.json"))).toBe(true);
     const temporaryOnlyState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
-      readonly receipts: readonly { readonly installation_id: string; readonly lifetime: string }[];
+      readonly receipts: readonly {
+        readonly installation_id: string;
+        readonly lifetime: string;
+        readonly repository_exclusion?: {
+          readonly entries: readonly string[];
+          readonly target: string;
+        };
+      }[];
     };
     expect(temporaryOnlyState.receipts).toEqual([
       expect.objectContaining({
@@ -1322,6 +1329,16 @@ describe("project-bound release candidate", () => {
         lifetime: "temporary",
       }),
     ]);
+    const temporaryExclusion = temporaryOnlyState.receipts[0]!.repository_exclusion;
+    expect(temporaryExclusion).toBeDefined();
+    expect(temporaryExclusion!.target).toBe(
+      join(realpathSync(projectPath), ".git", "info", "exclude"),
+    );
+    const sharedExcludePath = temporaryExclusion!.target;
+    const sharedExcludeAfterUninstall = readFileSync(sharedExcludePath, "utf8");
+    for (const entry of temporaryExclusion!.entries) {
+      expect(sharedExcludeAfterUninstall).toContain(entry);
+    }
 
     const removeTemp = await runCli(
       home,
@@ -1341,6 +1358,11 @@ describe("project-bound release candidate", () => {
     expect(finalState.removed_temporary_installation_ids).toEqual([
       receipt.temporaryInstallationId,
     ]);
+    const sharedExcludeAfterRemoval = readFileSync(sharedExcludePath, "utf8");
+    for (const entry of temporaryExclusion!.entries) {
+      expect(sharedExcludeAfterRemoval).not.toContain(entry);
+    }
+    expect(sharedExcludeAfterRemoval).not.toContain("Agent Profile Kit");
   }, 30_000);
 
   test("packed 12-Project fleet lifecycle produces the canonical sequential reconciliation result", async () => {
