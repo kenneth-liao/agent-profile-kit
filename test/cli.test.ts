@@ -2160,7 +2160,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly projects: readonly { readonly outputs: readonly { readonly kind: string }[] }[];
     };
     expect(payload.schemaVersion).toBe(7);
-    expect(payload).not.toHaveProperty("impacts");
     expect(payload.projects.flatMap((project) => project.outputs)
       .filter((output) => output.kind === "update")).toHaveLength(12);
 

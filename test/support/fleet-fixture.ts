@@ -20,7 +20,7 @@ import { join } from "node:path";
 
 /** Mixed Host sets for the 12-Project fleet: single and multi-Host. */
 export const FLEET_HOSTS: readonly (readonly string[])[] = [
-  ["codex"], ["codex"], ["codex"],
+  ["antigravity", "codex"], ["codex"], ["codex"],
   ["codex", "claude"], ["codex", "claude"], ["codex", "claude"],
   ["codex", "pi"], ["codex", "pi"], ["codex", "pi"],
   ["codex", "claude", "grok", "pi"],
@@ -185,6 +185,7 @@ export function createFleetFixture(
 export function installControlledHosts(home: string): string {
   const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "agy"), `#!/bin/sh\necho "Antigravity 1.1.13"\n`);
   writeFileSync(join(bin, "claude"), `#!/bin/sh\necho "2.1.0 (Claude Code)"\n`);
   writeFileSync(
     join(bin, "codex"),
@@ -195,7 +196,7 @@ export function installControlledHosts(home: string): string {
     `#!/bin/sh\nif [ "$1" = "version" ]; then\n  echo "grok 0.2.111 (fake) [stable]"\n  exit 0\nfi\nif [ "$1" = "inspect" ] && [ "$2" = "--json" ]; then\n  cat <<'EOF'\n{"externalCompat":{"cells":[{"enabled":true,"source":"default","surface":"rules","vendor":"claude"}],"remoteSettingsLoaded":false},"groKVersion":"0.2.111","projectInstructions":[],"skills":[]}\nEOF\n  exit 0\nfi\necho "unexpected grok invocation: $*" >&2\nexit 2\n`,
   );
   writeFileSync(join(bin, "pi"), `#!/bin/sh\necho "pi 0.82.1"\n`);
-  for (const name of ["claude", "codex", "grok", "pi"]) {
+  for (const name of ["agy", "claude", "codex", "grok", "pi"]) {
     execFileSync("chmod", ["+x", join(bin, name)]);
   }
   return `${bin}:${process.env.PATH ?? ""}`;
