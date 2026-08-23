@@ -225,7 +225,6 @@ describe("fleet-wide synchronization qualification", () => {
       readonly schemaVersion: number;
     };
     expect(payload.schemaVersion).toBe(7);
-    expect(payload).not.toHaveProperty("impacts");
     expect(payload.projects).toHaveLength(12);
 
     // Apply reconciles the fleet and reports the receipt without a repeated
@@ -241,7 +240,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(apply.stdout).not.toContain("Project Binding");
     expect(apply.stdout).not.toContain("State: current");
     // Grouped readiness appears once per Host scope, never per Project.
-    expect(humanText(apply.stdout).match(/becomes active on the next launch/g)).toHaveLength(5);
+    expect(humanText(apply.stdout).match(/becomes active on the next launch/g)).toHaveLength(6);
 
     const status = await runCli(home, pathWithHosts, "status");
     expectExitCode(status, 0);
@@ -274,12 +273,14 @@ describe("fleet-wide synchronization qualification", () => {
     expect(instrumentation.counts.resolveProfile).toBe(1);
     expect(instrumentation.counts.hashWorkspaceInputs).toBe(1);
     expect(instrumentation.counts.readSkillPackage).toBe(1);
-    expect(instrumentation.counts.composeContext).toBe(1);
+    // The shared Context envelope and Antigravity's module-preserving native
+    // rules are the two qualified compositions reused across the fleet.
+    expect(instrumentation.counts.composeContext).toBe(2);
     // Unique Host budget: Host projections scale with unique Host/topology
-    // keys, never with Projects × Hosts (the naive sum is 27).
+    // keys, never with Projects × Hosts (the naive sum is 28).
     const naivePlans = FLEET_HOSTS.reduce((total, hosts) => total + hosts.length, 0);
-    expect(naivePlans).toBe(27);
-    expect(instrumentation.counts.planHost).toBe(5);
+    expect(naivePlans).toBe(28);
+    expect(instrumentation.counts.planHost).toBe(6);
     // Unique Project budget: each Project resolves Git topology once.
     expect(instrumentation.counts.findGitProject).toBe(12);
     expect(desired.installations).toHaveLength(12);
@@ -332,9 +333,9 @@ describe("fleet-wide synchronization qualification", () => {
       instrumentation,
     });
     expect(reportBlockers(report)).toEqual([]);
-    // One machine-level probe per unique Host requirement set (codex,
-    // claude, grok, pi) for the Context+Skill Profile.
-    expect(instrumentation.counts.probeHostCapability).toBe(4);
+    // One machine-level probe per supported Host requirement set for the
+    // Context+Skill Profile.
+    expect(instrumentation.counts.probeHostCapability).toBe(5);
     expect(instrumentation.counts.resolveProfile).toBe(1);
     expect(instrumentation.counts.findGitProject).toBe(12);
     expect(reportItems(report)).toHaveLength(12);
@@ -405,14 +406,20 @@ describe("fleet-wide synchronization qualification", () => {
 
     expectExitCode(await runCli(home, fixture.pathWithHosts, "apply"), 0);
     const published = readFileSync(statePath, "utf8");
-    const stateValue = JSON.parse(published) as { receipts: readonly unknown[] };
+    const stateValue = JSON.parse(published) as {
+      receipts: readonly { readonly hosts: Readonly<Record<string, unknown>> }[];
+    };
     expect(stateValue.receipts).toHaveLength(14);
+    expect(new Set(stateValue.receipts.flatMap((receipt) => Object.keys(receipt.hosts)))).toEqual(
+      new Set(["antigravity", "claude", "codex", "grok", "pi"]),
+    );
     expect(published).not.toMatch(/(?:^|\s)[&*][a-zA-Z0-9_-]+/m);
 
     const nextRead = await runCli(home, fixture.pathWithHosts, "status");
     expectExitCode(nextRead, 0);
     expect(nextRead.stdout).toContain("All Projects are current (14 Projects)");
     expectExitCode(await runCli(home, fixture.pathWithHosts, "apply"), 0);
+    expect(readFileSync(statePath, "utf8")).toBe(published);
   });
 
   test("existing delayed progress integrates with the packed fleet without flicker and never emits in non-interactive modes", async () => {

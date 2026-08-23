@@ -509,14 +509,18 @@ describe("structured Installer blocker evidence", () => {
   });
 
   test("an unprovable recorded Git target emits structured Project evidence", async () => {
-    const project = temporaryDirectory("apkit-evidence-target-unproven-");
+    const project = gitRepository("apkit-evidence-target-unproven-");
     const home = await prepareHome(project);
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const installation = desired.installations[0]!;
+    await applyReconciliation(home, desired.installations);
+    const installedState = await readInstallationState(home);
     const missingProject = join(home, "vanished-project");
     const state: OwnershipState = {
-      ...emptyState(),
-      receipts: [{ ...manifestFor(installation, "vanished-id"), project: missingProject }],
+      ...installedState,
+      receipts: installedState.receipts.map((receipt) => ({
+        ...receipt,
+        project: missingProject,
+      })),
     };
 
     const blockers = await gitExclusionBlockers(state, [], {

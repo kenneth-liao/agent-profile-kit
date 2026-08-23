@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
+import { installControlledHosts as installAllControlledHosts } from "./support/fleet-fixture.js";
 import { humanText } from "./support/human-text.js";
 import {
   TEST_CHILD_DEADLINE_MS,
@@ -1246,9 +1247,23 @@ describe("project-bound release candidate", () => {
     expectExitCode(profiles, 0);
     expect(profiles.stdout).toContain("Profile: coding");
 
-    // Bind, then inventory the Project Binding.
-    const projectPath = project();
-    const bind = await runCli(home, ["bind", "coding", projectPath, "--host", "codex"]);
+    // Bind every supported Host, then inventory the Project Binding.
+    const projectPath = gitRepository();
+    const bind = await runCli(home, [
+      "bind",
+      "coding",
+      projectPath,
+      "--host",
+      "antigravity",
+      "--host",
+      "claude",
+      "--host",
+      "codex",
+      "--host",
+      "grok",
+      "--host",
+      "pi",
+    ]);
     expectExitCode(bind, 0);
     expect(bind.stdout).toContain("Recorded Project Binding");
 
@@ -1257,11 +1272,11 @@ describe("project-bound release candidate", () => {
     expect(projects.stdout).toContain(projectPath);
     expect(projects.stdout).toContain("Profile: coding");
 
-    // Preview and apply with a controlled Codex CLI on PATH.
-    const pathWithHosts = installControlledHosts(home);
-    const preview = await runCli(home, ["status"], { path: pathWithHosts });
-    expectExitCode(preview, 0);
-    expect(preview.stdout).toContain("Ready to apply");
+    // Plan and apply with controlled Host CLIs on PATH.
+    const pathWithHosts = installAllControlledHosts(home);
+    const plannedStatus = await runCli(home, ["status"], { path: pathWithHosts });
+    expectExitCode(plannedStatus, 0);
+    expect(plannedStatus.stdout).toContain("Ready to apply");
 
     const apply = await runCli(home, ["apply"], { path: pathWithHosts });
     expectExitCode(apply, 0);
@@ -1270,9 +1285,16 @@ describe("project-bound release candidate", () => {
     const status = await runCli(home, ["status"], { path: pathWithHosts });
     expectExitCode(status, 0);
     expect(status.stdout).toMatch(/All Projects are current/);
+    const appliedState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      readonly receipts: readonly { readonly hosts: Readonly<Record<string, unknown>> }[];
+    };
+    expect(new Set(Object.keys(appliedState.receipts[0]!.hosts))).toEqual(
+      new Set(["antigravity", "claude", "codex", "grok", "pi"]),
+    );
 
-    // Temporary journey: install-temp → list temporary → remove-temp.
-    const temporaryProject = project("agent-profile-kit-rc-temporary-");
+    // A linked worktree carries an independent Temporary Profile Installation
+    // while uninstall removes only the ordinary lifetime and its exclusion contribution.
+    const temporaryProject = addWorktree(projectPath, "qualification-temporary");
     const installTemp = await runCli(
       home,
       ["install-temp", "coding", temporaryProject, "--host", "codex", "--json"],
@@ -1287,6 +1309,37 @@ describe("project-bound release candidate", () => {
     expectExitCode(listTemporary, 0);
     expect(listTemporary.stdout).toContain(receipt.temporaryInstallationId);
 
+    const uninstall = await runCli(home, ["uninstall"], { path: pathWithHosts });
+    expectExitCode(uninstall, 0);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(temporaryProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    const temporaryOnlyState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      readonly receipts: readonly {
+        readonly installation_id: string;
+        readonly lifetime: string;
+        readonly repository_exclusion?: {
+          readonly entries: readonly string[];
+          readonly target: string;
+        };
+      }[];
+    };
+    expect(temporaryOnlyState.receipts).toEqual([
+      expect.objectContaining({
+        installation_id: receipt.temporaryInstallationId,
+        lifetime: "temporary",
+      }),
+    ]);
+    const temporaryExclusion = temporaryOnlyState.receipts[0]!.repository_exclusion;
+    expect(temporaryExclusion).toBeDefined();
+    expect(temporaryExclusion!.target).toBe(
+      join(realpathSync(projectPath), ".git", "info", "exclude"),
+    );
+    const sharedExcludePath = temporaryExclusion!.target;
+    const sharedExcludeAfterUninstall = readFileSync(sharedExcludePath, "utf8");
+    for (const entry of temporaryExclusion!.entries) {
+      expect(sharedExcludeAfterUninstall).toContain(entry);
+    }
+
     const removeTemp = await runCli(
       home,
       ["remove-temp", receipt.temporaryInstallationId, "--json"],
@@ -1297,6 +1350,19 @@ describe("project-bound release candidate", () => {
     const emptyTemporary = await runCli(home, ["list", "temporary"], { path: pathWithHosts });
     expectExitCode(emptyTemporary, 0);
     expect(emptyTemporary.stdout).toContain("No Temporary Profile Installations are active.");
+    const finalState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      readonly receipts: readonly unknown[];
+      readonly removed_temporary_installation_ids: readonly string[];
+    };
+    expect(finalState.receipts).toEqual([]);
+    expect(finalState.removed_temporary_installation_ids).toEqual([
+      receipt.temporaryInstallationId,
+    ]);
+    const sharedExcludeAfterRemoval = readFileSync(sharedExcludePath, "utf8");
+    for (const entry of temporaryExclusion!.entries) {
+      expect(sharedExcludeAfterRemoval).not.toContain(entry);
+    }
+    expect(sharedExcludeAfterRemoval).not.toContain("Agent Profile Kit");
   }, 30_000);
 
   test("packed 12-Project fleet lifecycle produces the canonical sequential reconciliation result", async () => {
