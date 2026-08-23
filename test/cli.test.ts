@@ -299,6 +299,10 @@ function configPath(home: string): string {
 }
 
 function statePath(home: string): string {
+  return join(stateDirectory(home), "manifest.json");
+}
+
+function legacyStatePath(home: string): string {
   return join(stateDirectory(home), "manifest.yaml");
 }
 
@@ -2524,14 +2528,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(Object.keys(marker).sort()).toEqual(["installation_id", "schema_version"]);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       schema_version: number;
-      installations: Array<{ outputs: Array<{ mode: number; type: string }> }>;
+      receipts: Array<{ outputs: Array<{ mode: number; type: string }> }>;
     };
-    expect(state.schema_version).toBe(5);
-    expect(state).toHaveProperty("temporary_installations");
-    expect(state.installations).toHaveLength(1);
-    expect(state.installations[0]!.outputs.every((output) =>
+    expect(state.schema_version).toBe(6);
+    expect(state).toHaveProperty("removed_temporary_installation_ids");
+    expect(state.receipts).toHaveLength(1);
+    expect(state.receipts[0]!.outputs.every((output) =>
       output.type === "file" && output.mode === 0o644
     )).toBe(true);
+    expect(state.receipts[0]!.outputs).toHaveLength(2);
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
@@ -2623,7 +2628,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout.slice(applied))).toContain(humanText(`${projectPath}: stale source`));
   });
 
-  test("reads schema-v2 installation state for status and rewrites canonical records on apply", async () => {
+  test("status preserves schema-v2 YAML and apply publishes its recovered Git contribution", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-state-v2-");
@@ -2631,70 +2636,65 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, repository);
     expectExitCode(await runCli(home, "apply"), 0);
 
-    const current = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly unknown[];
+    const canonical = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly [{
+        desired_input_digest: string;
+        hosts: { codex: { adapter_version: string; capability_contract: string } };
+        installation_id: string;
+        outputs: readonly Record<string, unknown>[];
+        profile_id: string;
+        project: string;
+        repository_exclusion: { entries: readonly string[]; target: string };
+      }];
     };
-    writeFileSync(statePath(home), stringify({
+    const receipt = canonical.receipts[0];
+    const markerPath = join(repository, ".agent-profile-kit", "installation.json");
+    const markerBytes = readFileSync(markerPath);
+    const legacyOutputs = [
+      ...receipt.outputs,
+      {
+        hash: `sha256:${createHash("sha256").update(markerBytes).digest("hex")}`,
+        mode: statSync(markerPath).mode & 0o777,
+        path: ".agent-profile-kit/installation.json",
+        type: "file",
+      },
+    ].sort((left, right) => String(left.path).localeCompare(String(right.path)));
+    rmSync(statePath(home));
+    writeFileSync(legacyStatePath(home), stringify({
       schema_version: 2,
-      installations: current.installations,
-    }));
-
-    const status = await runCli(home, "status");
-    expectExitCode(status, 0);
-    expect((parse(readFileSync(statePath(home), "utf8")) as { schema_version: number }).schema_version)
-      .toBe(2);
-
-    const applied = await runCli(home, "apply");
-    expectExitCode(applied, 0);
-    const migrated = parse(readFileSync(statePath(home), "utf8")) as {
-      schema_version: number;
-      temporary_installations: readonly unknown[];
-      repository_exclusions: readonly {
-        target: string;
-        contributions: readonly { installation_id: string; entries: readonly string[] }[];
-        entries: readonly string[];
-      }[];
-    };
-    expect(migrated.schema_version).toBe(5);
-    expect(migrated.temporary_installations).toEqual([]);
-    expect(migrated.repository_exclusions).toEqual([{
-      target: join(realpathSync(repository), ".git", "info", "exclude"),
-      contributions: [{
-        installation_id: (current.installations[0] as { installation_id: string }).installation_id,
-        entries: ["/.agent-profile-kit/codex/context.md", "/.agent-profile-kit/installation.json", "/.codex/hooks.json"],
+      installations: [{
+        schema_version: 3,
+        installation_id: receipt.installation_id,
+        project: receipt.project,
+        profile_id: receipt.profile_id,
+        selected_context: [],
+        resolved_artifacts: [],
+        hosts: ["codex"],
+        host_versions: { codex: receipt.hosts.codex.capability_contract },
+        adapter_version: receipt.hosts.codex.adapter_version,
+        engine_version: ENGINE_VERSION,
+        git_project: true,
+        workspace_input_hash: receipt.desired_input_digest,
+        outputs: legacyOutputs,
       }],
-      entries: ["/.agent-profile-kit/codex/context.md", "/.agent-profile-kit/installation.json", "/.codex/hooks.json"],
-    }]);
-  });
-
-  test("reads schema-v3 installation state and rewrites intended teardown support on apply", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const projectPath = project();
-    writeContextProfile(home);
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "apply"), 0);
-    const previous = parse(readFileSync(statePath(home), "utf8")) as Record<string, unknown>;
-    previous.schema_version = 3;
-    delete previous.intended_teardowns;
-    delete previous.temporary_installations;
-    writeFileSync(statePath(home), stringify(previous));
+    }));
+    const legacyBytes = readFileSync(legacyStatePath(home), "utf8");
 
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
-    expect((parse(readFileSync(statePath(home), "utf8")) as { schema_version: number }).schema_version)
-      .toBe(3);
+    expect(existsSync(statePath(home))).toBe(false);
+    expect(readFileSync(legacyStatePath(home), "utf8")).toBe(legacyBytes);
 
     const applied = await runCli(home, "apply");
     expectExitCode(applied, 0);
-    const migrated = parse(readFileSync(statePath(home), "utf8")) as {
-      intended_teardowns: readonly unknown[];
+    expect(applied.stdout).toContain("All Projects were already current.");
+    expect(existsSync(legacyStatePath(home))).toBe(false);
+    const migrated = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       schema_version: number;
-      temporary_installations: readonly unknown[];
+      receipts: readonly [{ repository_exclusion: unknown }];
     };
-    expect(migrated.schema_version).toBe(5);
-    expect(migrated.intended_teardowns).toEqual([]);
-    expect(migrated.temporary_installations).toEqual([]);
+    expect(migrated.schema_version).toBe(6);
+    expect(migrated.receipts[0].repository_exclusion).toEqual(receipt.repository_exclusion);
   });
 
   test("apply leaves current installation outputs and state untouched", async () => {
@@ -2723,39 +2723,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("generated file update");
     expect(result.stdout).not.toContain("unchanged generated file");
     expect(paths.map((path) => statSync(path).mtimeMs)).toEqual(before);
-  });
-
-  test("an installation created before the command rename stays current without re-apply", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const projectPath = project();
-    writeContextProfile(home);
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "apply"), 0);
-
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: { engine_version: string }[];
-    };
-    state.installations[0]!.engine_version = "0.34.1";
-    writeFileSync(statePath(home), stringify(state));
-    const stateBefore = readFileSync(statePath(home), "utf8");
-    const outputPaths = [
-      join(projectPath, ".agent-profile-kit", "codex", "context.md"),
-      join(projectPath, ".agent-profile-kit", "installation.json"),
-      join(projectPath, ".codex", "hooks.json"),
-    ];
-    const outputTimesBefore = outputPaths.map((path) => statSync(path).mtimeMs);
-
-    const status = await runCli(home, "status", "--verbose");
-    expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: current`));
-
-    const applied = await runCli(home, "apply");
-    expectExitCode(applied, 0);
-    expect(applied.stdout).not.toContain("Applied: none");
-    expect(applied.stdout).toContain("All Projects were already current.");
-    expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
-    expect(outputPaths.map((path) => statSync(path).mtimeMs)).toEqual(outputTimesBefore);
   });
 
   test("status classifies output additions, updates, removals, and unchanged output without writing", async () => {
@@ -2884,8 +2851,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"))
         .toContain("One current Workspace form.");
     }
-    const state = parse(readFileSync(statePath(home), "utf8")) as { installations: readonly { profile_id: string }[] };
-    expect(state.installations.map((installation) => installation.profile_id)).toEqual(["coding", "coding"]);
+    const state = parse(readFileSync(statePath(home), "utf8")) as { receipts: readonly { profile_id: string }[] };
+    expect(state.receipts.map((installation) => installation.profile_id)).toEqual(["coding", "coding"]);
   });
 
   test("tracked destinations block even when the tracked file is currently absent", async () => {
@@ -3049,10 +3016,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(currentStatus.stdout)).toContain(humanText(`${repository}: current`));
     expect(currentStatus.stdout).not.toContain(worktree);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { project: string }[];
+      receipts: readonly { project: string }[];
     };
-    expect(state.installations).toHaveLength(1);
-    expect(state.installations[0]?.project).toBe(realpathSync(repository));
+    expect(state.receipts).toHaveLength(1);
+    expect(state.receipts[0]?.project).toBe(realpathSync(repository));
     const installedExclude = readFileSync(exclude, "utf8");
     expect(installedExclude.startsWith(unrelated)).toBe(true);
     expect(installedExclude).toContain("# BEGIN Agent Profile Kit generated paths");
@@ -3147,25 +3114,25 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(await runCli(home, "apply"), 0);
     const target = join(repository, ".git", "info", "exclude");
-    const installed = parse(readFileSync(statePath(home), "utf8")) as {
-      repository_exclusions: readonly {
-        contributions: readonly { entries: readonly string[]; installation_id: string }[];
-        entries: readonly string[];
-        target: string;
+    const installed = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly {
+        installation_id: string;
+        project: string;
+        repository_exclusion: { entries: readonly string[]; target: string };
       }[];
-      installations: readonly { installation_id: string; project: string }[];
     };
-    expect(installed.repository_exclusions).toHaveLength(1);
-    expect(installed.repository_exclusions[0]?.target).toBe(realpathSync(target));
-    expect(installed.repository_exclusions[0]?.contributions).toHaveLength(2);
-    expect(installed.repository_exclusions[0]?.entries).toEqual([
-      "/.agent-profile-kit/codex/context.md",
-      "/.agent-profile-kit/installation.json",
-      "/.codex/hooks.json",
-      "/nested/.agent-profile-kit/codex/context.md",
-      "/nested/.agent-profile-kit/installation.json",
-      "/nested/.codex/hooks.json",
-    ]);
+    expect(installed.receipts).toHaveLength(2);
+    expect(new Set(installed.receipts.map((receipt) => receipt.repository_exclusion.target)))
+      .toEqual(new Set([realpathSync(target)]));
+    expect(installed.receipts.flatMap((receipt) => receipt.repository_exclusion.entries).sort())
+      .toEqual([
+        "/.agent-profile-kit/codex/context.md",
+        "/.agent-profile-kit/installation.json",
+        "/.codex/hooks.json",
+        "/nested/.agent-profile-kit/codex/context.md",
+        "/nested/.agent-profile-kit/installation.json",
+        "/nested/.codex/hooks.json",
+      ]);
 
     writeFileSync(
       configPath(home),
@@ -3173,15 +3140,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n`,
     );
     expectExitCode(await runCli(home, "apply"), 0);
-    const afterRemoval = parse(readFileSync(statePath(home), "utf8")) as {
-      repository_exclusions: readonly {
-        contributions: readonly unknown[];
-        entries: readonly string[];
-      }[];
+    const afterRemoval = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { repository_exclusion: { entries: readonly string[] } }[];
     };
-    expect(afterRemoval.repository_exclusions).toHaveLength(1);
-    expect(afterRemoval.repository_exclusions[0]?.contributions).toHaveLength(1);
-    expect(afterRemoval.repository_exclusions[0]?.entries).toEqual([
+    expect(afterRemoval.receipts).toHaveLength(1);
+    expect(afterRemoval.receipts[0]?.repository_exclusion.entries).toEqual([
       "/.agent-profile-kit/codex/context.md",
       "/.agent-profile-kit/installation.json",
       "/.codex/hooks.json",
@@ -3230,13 +3193,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(exclude, "utf8")).toContain(unrelated);
     expect(readFileSync(exclude, "utf8")).not.toContain("/nested/");
     expect(statSync(exclude).mode & 0o7777).toBe(0o640);
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { project: string }[];
-      repository_exclusions: readonly { contributions: readonly unknown[] }[];
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { project: string; repository_exclusion?: unknown }[];
     };
-    expect(state.installations).toHaveLength(1);
-    expect(state.installations[0]?.project).toBe(realpathSync(repository));
-    expect(state.repository_exclusions[0]?.contributions).toHaveLength(1);
+    expect(state.receipts).toHaveLength(1);
+    expect(state.receipts[0]?.project).toBe(realpathSync(repository));
+    expect(state.receipts[0]?.repository_exclusion).toBeDefined();
   });
 
   test("retires one deleted independent project while preserving another installation", async () => {
@@ -3261,10 +3223,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 0);
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { project: string }[];
+      receipts: readonly { project: string }[];
     };
-    expect(state.installations).toHaveLength(1);
-    expect(state.installations[0]?.project).toBe(realpathSync(second));
+    expect(state.receipts).toHaveLength(1);
+    expect(state.receipts[0]?.project).toBe(realpathSync(second));
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
@@ -3282,12 +3244,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(status, 0);
     expect(status.stdout).toContain("project intentionally deleted");
     expectExitCode(await runCli(home, "apply"), 0);
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly unknown[];
-      repository_exclusions: readonly unknown[];
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly unknown[];
     };
-    expect(state.installations).toHaveLength(0);
-    expect(state.repository_exclusions).toHaveLength(0);
+    expect(state.receipts).toHaveLength(0);
   });
 
   test("retires a deleted linked checkout using its recorded common target", async () => {
@@ -3304,46 +3264,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
     expectExitCode(await runCli(home, "apply"), 0);
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly unknown[];
-      repository_exclusions: readonly unknown[];
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly unknown[];
     };
-    expect(state.installations).toHaveLength(0);
-    expect(state.repository_exclusions).toHaveLength(0);
-  });
-
-  test("blocks a deleted linked checkout when its exclusion record is missing", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const repository = gitRepository("agent-profile-kit-retire-linked-missing-record-");
-    const worktree = addWorktree(repository, "retire-linked-missing-record");
-    writeContextProfile(home);
-    bind(home, worktree);
-    expectExitCode(await runCli(home, "apply"), 0);
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { git_project: boolean; project: string }[];
-      repository_exclusions: readonly unknown[];
-    };
-    expect(state.installations[0]?.git_project).toBe(true);
-    writeFileSync(
-      statePath(home),
-      stringify({
-        schema_version: 3,
-        installations: state.installations,
-        repository_exclusions: [],
-      }),
-    );
-    const exclude = join(repository, ".git", "info", "exclude");
-    const beforeExclude = readFileSync(exclude);
-    rmSync(worktree, { recursive: true });
-    expectExitCode(await runCli(home, "unbind", worktree), 0);
-
-    const status = await runCli(home, "status");
-
-    expectExitCode(status, 2);
-    expect(status.stdout).toContain("missing its Git exclusion record");
-    expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
-    expectExitCode(await runCli(home, "apply"), 2);
+    expect(state.receipts).toHaveLength(0);
   });
 
   test("blocks intentional-deletion retirement when its exclusion contribution is missing", async () => {
@@ -3363,21 +3287,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
     );
     expectExitCode(await runCli(home, "apply"), 0);
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { installation_id: string; project: string }[];
-      repository_exclusions: { contributions: { installation_id: string }[]; entries: readonly string[] }[];
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: { project: string; repository_exclusion?: unknown }[];
     };
-    const nestedId = state.installations.find((installation) => installation.project === realpathSync(nested))!.installation_id;
-    const record = state.repository_exclusions[0]!;
-    record.contributions = record.contributions
-      .filter((contribution) => contribution.installation_id !== nestedId);
-    const remainingEntries = [
-      "/.agent-profile-kit/codex/context.md",
-      "/.agent-profile-kit/installation.json",
-      "/.codex/hooks.json",
-    ];
-    state.repository_exclusions[0]!.entries = remainingEntries;
-    writeFileSync(statePath(home), stringify(state));
+    const nestedReceipt = state.receipts.find(
+      (receipt) => receipt.project === realpathSync(nested),
+    )!;
+    delete nestedReceipt.repository_exclusion;
+    writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
     const exclude = join(repository, ".git", "info", "exclude");
     const beforeExclude = readFileSync(exclude);
     rmSync(nested, { recursive: true });
@@ -3408,22 +3325,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
     );
     expectExitCode(await runCli(home, "apply"), 0);
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { installation_id: string; project: string }[];
-      repository_exclusions: {
-        contributions: { entries: readonly string[]; installation_id: string }[];
-        entries: readonly string[];
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: {
+        project: string;
+        repository_exclusion?: { entries: string[]; target: string };
       }[];
     };
-    const nestedId = state.installations.find((installation) => installation.project === realpathSync(nested))!.installation_id;
-    const record = state.repository_exclusions[0]!;
-    record.contributions = record.contributions.map((contribution) =>
-      contribution.installation_id === nestedId
-        ? { ...contribution, entries: ["/nested/not-generated"] }
-        : contribution,
-    );
-    record.entries = [...new Set(record.contributions.flatMap((contribution) => contribution.entries))].sort();
-    writeFileSync(statePath(home), stringify(state));
+    const nestedReceipt = state.receipts.find(
+      (receipt) => receipt.project === realpathSync(nested),
+    )!;
+    nestedReceipt.repository_exclusion!.entries = ["/nested/not-generated"];
+    writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
     rmSync(nested, { recursive: true });
     expectExitCode(await runCli(home, "unbind", nested), 0);
 
@@ -3467,9 +3379,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(applied.stdout).toContain("missing its Agent Profile Kit exclusion section");
     expect(applied.stderr).toBe("");
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { project: string }[];
+      receipts: readonly { project: string }[];
     };
-    expect(state.installations).toHaveLength(2);
+    expect(state.receipts).toHaveLength(2);
   });
 
   test("blocks intentional-deletion retirement when its only exclusion file is missing", async () => {
@@ -3551,17 +3463,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(failed.stderr).toContain("Apply failed");
     expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
     const retained = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly unknown[];
+      receipts: readonly unknown[];
     };
-    expect(retained.installations).toHaveLength(2);
+    expect(retained.receipts).toHaveLength(2);
 
     const retry = await runCli(home, "apply");
 
     expectExitCode(retry, 0);
     const converged = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly unknown[];
+      receipts: readonly unknown[];
     };
-    expect(converged.installations).toHaveLength(1);
+    expect(converged.receipts).toHaveLength(1);
     expect(readFileSync(exclude, "utf8")).not.toContain("/nested/");
   });
 
@@ -3574,9 +3486,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 0);
     const exclude = join(repository, ".git", "info", "exclude");
     const before = readFileSync(exclude);
-    const state = parse(readFileSync(statePath(home), "utf8")) as Record<string, unknown>;
-    state.repository_exclusions = [];
-    writeFileSync(statePath(home), stringify(state));
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: { repository_exclusion?: unknown }[];
+    };
+    delete state.receipts[0]!.repository_exclusion;
+    writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
 
     const status = await runCliAt(home, repository, "status");
 
@@ -3595,11 +3509,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, repository);
     expectExitCode(await runCli(home, "apply"), 0);
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      repository_exclusions: { target: string }[];
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: { repository_exclusion: { target: string } }[];
     };
-    state.repository_exclusions[0]!.target = join(other, ".git", "info", "exclude");
-    writeFileSync(statePath(home), stringify(state));
+    state.receipts[0]!.repository_exclusion.target = join(other, ".git", "info", "exclude");
+    writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
 
     const result = await runCli(home, "uninstall");
 
@@ -3644,17 +3558,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(currentStatus.stdout)).toContain(humanText(`${repository}: current`));
     expect(humanText(currentStatus.stdout)).toContain(humanText(`${worktree}: current`));
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { hosts: readonly string[]; profile_id: string; project: string }[];
+      receipts: readonly { hosts: Record<string, unknown>; profile_id: string; project: string }[];
     };
-    expect(state.installations).toHaveLength(2);
-    expect(state.installations).toEqual(expect.arrayContaining([
+    expect(state.receipts).toHaveLength(2);
+    expect(state.receipts).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        hosts: ["codex"],
+        hosts: { codex: expect.any(Object) },
         profile_id: "coding",
         project: realpathSync(repository),
       }),
       expect.objectContaining({
-        hosts: ["claude"],
+        hosts: { claude: expect.any(Object) },
         profile_id: "review",
         project: realpathSync(worktree),
       }),
@@ -3960,10 +3874,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { project: string }[];
+      receipts: readonly { project: string }[];
     };
-    expect(state.installations).toHaveLength(2);
-    expect(state.installations.map((installation) => installation.project).sort()).toEqual([
+    expect(state.receipts).toHaveLength(2);
+    expect(state.receipts.map((installation) => installation.project).sort()).toEqual([
       realpathSync(repository),
       realpathSync(worktree),
     ].sort());
@@ -4121,24 +4035,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       schema_version: number;
-      installations: Array<{ schema_version: number }>;
+      receipts: Array<Record<string, unknown>>;
     };
     state.schema_version = 1;
-    for (const installation of state.installations) installation.schema_version = 1;
-    writeFileSync(statePath(home), stringify(state));
+    writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
 
     const status = await runCli(home, "status");
     const apply = await runCli(home, "apply");
     const uninstall = await runCli(home, "uninstall");
 
     expectExitCode(status, 2);
-    expect(status.stdout).toContain("schema_version must be 5");
+    expect(status.stdout).toContain("schema_version must be 6");
     expectExitCode(apply, 2);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
-    expect(apply.stdout).toContain("schema_version must be 5");
+    expect(apply.stdout).toContain("schema_version must be 6");
     expectExitCode(uninstall, 1);
-    expect(uninstall.stderr).toContain("schema_version must be 5");
+    expect(uninstall.stderr).toContain("schema_version must be 6");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
   });
@@ -4228,28 +4141,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     expect(humanText(result.stdout)).not.toContain(humanText(`${first}: blocked`));
     expect(humanText(result.stdout)).toContain(humanText(`${second}: blocked`));
-  });
-
-  test("status rejects a Manifest that omits its Installation Marker output", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const projectPath = project();
-    writeContextProfile(home);
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "apply"), 0);
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{ outputs: Array<{ path: string }> }>;
-    };
-    state.installations[0]!.outputs = state.installations[0]!.outputs.filter(
-      (output) => output.path !== ".agent-profile-kit/installation.json",
-    );
-    writeFileSync(statePath(home), stringify(state));
-
-    const result = await runCli(home, "status");
-
-    expectExitCode(result, 2);
-    expect(result.stdout).toContain("Installation record outputs must include the Installation Marker");
-    expect(result.stdout).toContain("Blockers: 1");
   });
 
   test("uninstall refuses to remove drifted output", async () => {
@@ -4362,12 +4253,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 0);
     expectExitCode(await runCli(home, "uninstall"), 0);
 
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      intended_teardowns: readonly unknown[];
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly unknown[];
+      removed_temporary_installation_ids: readonly string[];
     };
     const result = await runCli(home, "status");
 
-    expect(state.intended_teardowns).toEqual([]);
+    expect(state.receipts).toEqual([]);
+    expect(state.removed_temporary_installation_ids).toEqual([]);
     expectExitCode(result, 0);
     expect(result.stdout).toContain("State: addition");
     expect(result.stdout).toContain("Ready to apply");
@@ -4411,24 +4304,22 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const removedId = (JSON.parse(removedInstall.stdout) as { temporaryInstallationId: string })
       .temporaryInstallationId;
     expectExitCode(await runCli(home, "remove-temp", removedId, "--json"), 0);
-    const before = parse(readFileSync(statePath(home), "utf8")) as {
-      temporary_installations: readonly unknown[];
+    const before = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { installation_id: string; lifetime: string }[];
+      removed_temporary_installation_ids: readonly string[];
     };
 
     expectExitCode(await runCli(home, "uninstall"), 0);
 
-    const after = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly unknown[];
-      repository_exclusions: readonly {
-        contributions: readonly { installation_id: string }[];
-      }[];
-      temporary_installations: readonly unknown[];
+    const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { installation_id: string; lifetime: string }[];
+      removed_temporary_installation_ids: readonly string[];
     };
-    expect(after.installations).toEqual([]);
-    expect(after.temporary_installations).toEqual(before.temporary_installations);
-    expect(after.repository_exclusions.flatMap((record) =>
-      record.contributions.map((contribution) => contribution.installation_id)
-    )).toEqual([activeId]);
+    expect(after.receipts).toEqual(
+      before.receipts.filter((receipt) => receipt.lifetime === "temporary"),
+    );
+    expect(after.receipts.map((receipt) => receipt.installation_id)).toEqual([activeId]);
+    expect(after.removed_temporary_installation_ids).toEqual([removedId]);
     expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(activeProject, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(removedProject, ".agent-profile-kit", "installation.json"))).toBe(false);
@@ -4469,49 +4360,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "Project Bindings preserved.\n",
     );
     expect(result.stdout).not.toMatch(/(?:Uninstalled|Removed .*Projects?)/i);
-  });
-
-  test("legacy intended-teardown records are inert and retire on the next state publication", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const projectPath = project();
-    writeContextProfile(home);
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "apply"), 0);
-    const installedState = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly {
-        hosts: readonly string[];
-        installation_id: string;
-        profile_id: string;
-        project: string;
-      }[];
-    };
-    const installation = installedState.installations[0]!;
-    expectExitCode(await runCli(home, "uninstall"), 0);
-    const legacyState = parse(readFileSync(statePath(home), "utf8")) as {
-      intended_teardowns: unknown[];
-    };
-    legacyState.intended_teardowns = [{
-      hosts: installation.hosts,
-      installation_id: installation.installation_id,
-      profile_id: installation.profile_id,
-      project: installation.project,
-    }];
-    writeFileSync(statePath(home), stringify(legacyState));
-
-    const status = await runCli(home, "status", "--verbose");
-    const applied = await runCli(home, "apply");
-
-    expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: addition`));
-    expect(status.stdout).not.toContain("intended teardown");
-    expectExitCode(applied, 0);
-    const after = await runCli(home, "status");
-    expect(after.stdout).toContain("All Projects are current");
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      intended_teardowns: readonly unknown[];
-    };
-    expect(state.intended_teardowns).toEqual([]);
   });
 
   test("a rebound Project remains not installed after uninstall", async () => {
@@ -4573,8 +4421,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(removed, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(removed, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(retained, ".agent-profile-kit", "installation.json"))).toBe(true);
-    const state = parse(readFileSync(statePath(home), "utf8")) as { installations: readonly unknown[] };
-    expect(state.installations).toHaveLength(1);
+    const state = parse(readFileSync(statePath(home), "utf8")) as { receipts: readonly unknown[] };
+    expect(state.receipts).toHaveLength(1);
   });
 
   test("retires an intentionally deleted project after exact-path unbind without a Marker", async () => {
@@ -4601,9 +4449,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(applied, 0);
     expect(existsSync(projectPath)).toBe(false);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly unknown[];
+      receipts: readonly unknown[];
     };
-    expect(state.installations).toHaveLength(0);
+    expect(state.receipts).toHaveLength(0);
   });
 
   test("deleting a bound root without unbind leaves desired state and blocks reconciliation", async () => {
@@ -4633,9 +4481,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, projectPath);
     expectExitCode(await runCli(home, "apply"), 0);
     const initial = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { installation_id: string }[];
+      receipts: readonly { installation_id: string }[];
     };
-    const initialId = initial.installations[0]!.installation_id;
+    const initialId = initial.receipts[0]!.installation_id;
     rmSync(projectPath, { recursive: true });
     expectExitCode(await runCli(home, "unbind", projectPath), 0);
     expectExitCode(await runCli(home, "apply"), 0);
@@ -4647,11 +4495,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const applied = await runCli(home, "apply");
     expectExitCode(applied, 0);
     const restored = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { installation_id: string; project: string }[];
+      receipts: readonly { installation_id: string; project: string }[];
     };
-    expect(restored.installations).toHaveLength(1);
-    expect(restored.installations[0]?.project).toBe(realpathSync(projectPath));
-    expect(restored.installations[0]?.installation_id).not.toBe(initialId);
+    expect(restored.receipts).toHaveLength(1);
+    expect(restored.receipts[0]?.project).toBe(realpathSync(projectPath));
+    expect(restored.receipts[0]?.installation_id).not.toBe(initialId);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
@@ -4667,19 +4515,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const bytes = "obsolete owned output\n";
     writeFileSync(obsolete, bytes);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{
-        output_origins: Record<string, unknown>;
+      receipts: Array<{
         outputs: Array<{ hash: string; mode: number; path: string; type: "file" }>;
       }>;
     };
-    state.installations[0]!.outputs.push({
+    state.receipts[0]!.outputs.push({
       hash: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
       mode: 0o644,
       path: obsoleteRelative,
       type: "file",
     });
-    state.installations[0]!.output_origins[obsoleteRelative] = [];
-    writeFileSync(statePath(home), stringify(state));
+    writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
 
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
@@ -4790,9 +4636,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, projectPath);
     expectExitCode(await runCli(home, "apply"), 0);
     const installed = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { installation_id: string }[];
+      receipts: readonly { installation_id: string }[];
     };
-    const installationId = installed.installations[0]!.installation_id;
+    const installationId = installed.receipts[0]!.installation_id;
     const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     rmSync(contextPath);
     writeFileSync(
@@ -4817,9 +4663,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(applied, 0);
     expect(readFileSync(contextPath, "utf8")).toContain("Current Workspace repair bytes.");
     const repaired = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly { installation_id: string }[];
+      receipts: readonly { installation_id: string }[];
     };
-    expect(repaired.installations[0]!.installation_id).toBe(installationId);
+    expect(repaired.receipts[0]!.installation_id).toBe(installationId);
   });
 
   test("apply repairs a wholly absent owned Skill directory with current Workspace bytes and modes", async () => {
@@ -4979,9 +4825,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      readonly installations: readonly unknown[];
+      readonly receipts: readonly unknown[];
     };
-    expect(state.installations).toEqual([]);
+    expect(state.receipts).toEqual([]);
     expect(existsSync(join(blocked, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
@@ -5246,7 +5092,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "apply");
 
     expectExitCode(result, 0);
-    expect(parse(readFileSync(statePath(home), "utf8")).installations[0].project).toBe(realpathSync(moved));
+    expect(parse(readFileSync(statePath(home), "utf8")).receipts[0].project).toBe(realpathSync(moved));
     expect(existsSync(join(moved, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(original, ".agent-profile-kit"))).toBe(false);
   });
@@ -5287,7 +5133,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "apply");
 
     expectExitCode(result, 0);
-    expect(parse(readFileSync(statePath(home), "utf8")).installations[0].project).toBe(realpathSync(moved));
+    expect(parse(readFileSync(statePath(home), "utf8")).receipts[0].project).toBe(realpathSync(moved));
     expect(readFileSync(join(moved, ".git", "info", "exclude"), "utf8")).toContain("/.codex/hooks.json");
   });
 
@@ -5323,11 +5169,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const exclude = readFileSync(join(destinationRepository, ".git", "info", "exclude"), "utf8");
     expect(exclude).toContain("/moved/.codex/hooks.json");
     expect(exclude).toContain("/.codex/hooks.json");
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      repository_exclusions: readonly { contributions: readonly unknown[] }[];
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { repository_exclusion?: { target: string } }[];
     };
-    expect(state.repository_exclusions).toHaveLength(1);
-    expect(state.repository_exclusions[0]?.contributions).toHaveLength(2);
+    expect(state.receipts).toHaveLength(2);
+    expect(new Set(state.receipts.map((receipt) => receipt.repository_exclusion?.target)).size)
+      .toBe(1);
   });
 
   test("a nested Git project move transfers exact old exclusions to the Marker-proven new root", async () => {
@@ -5356,8 +5203,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readFileSync(join(newProject, ".agent-profile-kit", "installation.json"), "utf8"),
     ) as { installation_id: string };
     expect(newMarker.installation_id).toBe(oldMarker.installation_id);
-    const state = parse(readFileSync(statePath(home), "utf8")) as { installations: Array<{ project: string }> };
-    expect(state.installations[0]!.project).toBe(realpathSync(newProject));
+    const state = parse(readFileSync(statePath(home), "utf8")) as { receipts: Array<{ project: string }> };
+    expect(state.receipts[0]!.project).toBe(realpathSync(newProject));
     const exclude = readFileSync(join(repository, ".git", "info", "exclude"), "utf8");
     expect(exclude).toContain("/new/.codex/hooks.json");
     expect(exclude).toContain("/new/.agent-profile-kit/installation.json");
@@ -5441,21 +5288,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agents", "skills", "base-skill", "SKILL.md"))).toBe(true);
     expect(existsSync(join(projectPath, ".agents", "skills", "unselected-skill"))).toBe(false);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
-
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly {
-        resolved_artifacts: readonly { type: string; id: string; inclusion_reasons: readonly unknown[] }[];
-      }[];
-    };
-    const resolved = state.installations[0]?.resolved_artifacts ?? [];
-    expect(resolved.map((artifact) => `${artifact.type}:${artifact.id}`).sort()).toEqual([
-      "context:team-rules",
-      "skill:base-skill",
-      "skill:review-pr",
-    ]);
-    expect(
-      resolved.find((artifact) => artifact.id === "base-skill")?.inclusion_reasons.length,
-    ).toBeGreaterThanOrEqual(1);
 
     mkdirSync(join(projectPath, ".agents", "skills", "foreign-skill"), { recursive: true });
     writeFileSync(join(projectPath, ".agents", "skills", "foreign-skill", "SKILL.md"), "leave me\n");
@@ -5736,10 +5568,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(currentStatus.stdout).toContain("All Projects are current");
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{ hosts: string[]; host_versions: Record<string, string> }>;
+      receipts: Array<{ hosts: Record<string, { adapter_version: string; capability_contract: string }> }>;
     };
-    expect(state.installations[0]?.hosts).toEqual(["claude"]);
-    expect(state.installations[0]?.host_versions.claude).toBe(
+    expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["claude"]);
+    expect(state.receipts[0]?.hosts.claude?.capability_contract).toBe(
       "native-project-unscoped-rules-skills-v1",
     );
 
@@ -5843,13 +5675,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(combinedProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{ hosts: string[]; host_versions: Record<string, string> }>;
+      receipts: Array<{ hosts: Record<string, { adapter_version: string; capability_contract: string }> }>;
     };
-    const antigravityInstallation = state.installations.find((installation) => installation.hosts.join(",") === "antigravity");
-    expect(antigravityInstallation?.host_versions.antigravity).toBe("native-project-always-on-rules-v1");
-    const combinedInstallation = state.installations.find((installation) => installation.hosts.join(",") === "antigravity,codex");
-    expect(combinedInstallation?.host_versions.antigravity).toBe("native-project-always-on-rules-v1");
-    expect(combinedInstallation?.host_versions.codex).toBe("native-project-sessionstart-complete-context-v1");
+    const antigravityInstallation = state.receipts.find((installation) => Object.keys(installation.hosts).join(",") === "antigravity");
+    expect(antigravityInstallation?.hosts.antigravity?.capability_contract).toBe("native-project-always-on-rules-v1");
+    const combinedInstallation = state.receipts.find((installation) => Object.keys(installation.hosts).join(",") === "antigravity,codex");
+    expect(combinedInstallation?.hosts.antigravity?.capability_contract).toBe("native-project-always-on-rules-v1");
+    expect(combinedInstallation?.hosts.codex?.capability_contract).toBe("native-project-sessionstart-complete-context-v1");
     expect(readFileSync(join(antigravityProject, ".git", "info", "exclude"), "utf8")).toContain(
       ".agents/rules/agent-profile-kit-000-envelope.md",
     );
@@ -6021,22 +5853,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       .toContain("disable-model-invocation: true");
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      readonly installations: readonly {
-        readonly hosts: readonly string[];
-        readonly host_versions: Readonly<Record<string, string>>;
+      readonly receipts: readonly {
+        readonly hosts: Readonly<Record<string, { readonly adapter_version: string; readonly capability_contract: string }>>;
         readonly project: string;
-        readonly resolved_artifacts: readonly {
-          readonly id: string;
-          readonly inclusion_reasons: readonly unknown[];
-        }[];
       }[];
     };
-    const skillsInstallation = state.installations.find((installation) => installation.project === realpathSync(antigravityProject));
-    const combinedInstallation = state.installations.find((installation) => installation.project === realpathSync(combinedProject));
-    expect(skillsInstallation?.host_versions.antigravity).toBe("native-project-shared-skills-invocation-v1");
-    expect(combinedInstallation?.host_versions.antigravity).toBe("native-project-always-on-rules-shared-skills-invocation-v1");
-    expect(combinedInstallation?.resolved_artifacts.find((artifact) => artifact.id === "shared-base")?.inclusion_reasons.length)
-      .toBeGreaterThanOrEqual(1);
+    const skillsInstallation = state.receipts.find((installation) => installation.project === realpathSync(antigravityProject));
+    const combinedInstallation = state.receipts.find((installation) => installation.project === realpathSync(combinedProject));
+    expect(skillsInstallation?.hosts.antigravity?.capability_contract).toBe("native-project-shared-skills-invocation-v1");
+    expect(combinedInstallation?.hosts.antigravity?.capability_contract).toBe("native-project-always-on-rules-shared-skills-invocation-v1");
 
     const current = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(current, 0);
@@ -6065,10 +5890,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     expectExitCode(await runCliWithPath(home, pathWithHosts, "apply"), 0);
     const deselectedState = parse(readFileSync(statePath(home), "utf8")) as {
-      readonly installations: readonly { readonly hosts: readonly string[]; readonly project: string }[];
+      readonly receipts: readonly { readonly hosts: Readonly<Record<string, unknown>>; readonly project: string }[];
     };
-    expect(deselectedState.installations.find((installation) => installation.project === realpathSync(combinedProject))?.hosts)
-      .toEqual(["codex", "pi"]);
+    expect(Object.keys(deselectedState.receipts.find(
+      (installation) => installation.project === realpathSync(combinedProject),
+    )?.hosts ?? {})).toEqual(["codex", "pi"]);
     expect(existsSync(join(combinedProject, ".agents", "skills", "disabled-skill", "SKILL.md"))).toBe(true);
 
     expectExitCode(await runCliWithPath(home, pathWithHosts, "uninstall"), 0);
@@ -6188,10 +6014,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(currentStatus.stdout).toContain("All Projects are current");
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{ hosts: string[]; host_versions: Record<string, string> }>;
+      receipts: Array<{ hosts: Record<string, { adapter_version: string; capability_contract: string }> }>;
     };
-    expect(state.installations[0]?.hosts).toEqual(["grok"]);
-    expect(state.installations[0]?.host_versions.grok).toBe("native-project-unscoped-rules-v1");
+    expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["grok"]);
+    expect(state.receipts[0]?.hosts.grok?.capability_contract).toBe("native-project-unscoped-rules-v1");
 
     const uninstall = await runCliWithPath(home, pathWithGrok, "uninstall");
     expectExitCode(uninstall, 0);
@@ -6366,13 +6192,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{ hosts: string[]; host_versions: Record<string, string> }>;
+      receipts: Array<{ hosts: Record<string, { adapter_version: string; capability_contract: string }> }>;
     };
-    expect(state.installations[0]?.hosts).toEqual(["claude", "grok"]);
-    expect(state.installations[0]?.host_versions).toEqual({
-      claude: "native-project-unscoped-rules-skills-v1",
-      grok: "native-project-unscoped-rules-v1",
-    });
+    expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["claude", "grok"]);
+    expect(state.receipts[0]?.hosts.claude?.capability_contract)
+      .toBe("native-project-unscoped-rules-skills-v1");
+    expect(state.receipts[0]?.hosts.grok?.capability_contract)
+      .toBe("native-project-unscoped-rules-v1");
   });
 
   test("Profiles selecting Skills install portable packages into Claude project discovery", async () => {
@@ -6455,26 +6281,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(currentStatus, 0);
     expect(currentStatus.stdout).toContain("All Projects are current");
 
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: readonly {
-        hosts: string[];
-        host_versions: Record<string, string>;
-        resolved_artifacts: readonly { type: string; id: string; inclusion_reasons: readonly unknown[] }[];
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly {
+        hosts: Record<string, { capability_contract: string }>;
       }[];
     };
-    expect(state.installations[0]?.hosts).toEqual(["claude"]);
-    expect(state.installations[0]?.host_versions.claude).toBe(
+    expect(Object.keys(state.receipts[0]?.hosts ?? {})).toEqual(["claude"]);
+    expect(state.receipts[0]?.hosts.claude?.capability_contract).toBe(
       "native-project-unscoped-rules-skills-v1",
     );
-    const resolved = state.installations[0]?.resolved_artifacts ?? [];
-    expect(resolved.map((artifact) => `${artifact.type}:${artifact.id}`).sort()).toEqual([
-      "context:team-rules",
-      "skill:base-skill",
-      "skill:review-pr",
-    ]);
-    expect(
-      resolved.find((artifact) => artifact.id === "base-skill")?.inclusion_reasons.length,
-    ).toBeGreaterThanOrEqual(1);
 
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
@@ -6754,18 +6569,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       /does not install, project, synchronize, or remove material in\s+personal\/global/i,
     );
     expect(result.stdout).toMatch(
-      /(?:not APK-owned|outside Project Bindings).{0,80}Installation Manifest/is,
+      /(?:not APK-owned|outside Project Bindings).{0,80}Installation Receipt/is,
     );
     expect(result.stdout).toMatch(
       /never adopt, record as managed output, or mutate those paths/i,
     );
     expect(result.stdout).toMatch(/Host Resolution/i);
 
-    // Bindings select Profile/Hosts; artifacts enter Manifests / managed lifecycle.
+    // Bindings select Profile/Hosts; artifacts enter receipts and the managed lifecycle.
     expect(result.stdout).toMatch(
       /Project Binding selects|Bindings select|binding selects/i,
     );
-    expect(result.stdout).toMatch(/Installation Manifests and the managed lifecycle/i);
+    expect(result.stdout).toMatch(/Installation Receipts and the managed lifecycle/i);
 
     // User-managed global delivery is permitted without becoming APK-owned state.
     expect(result.stdout).toMatch(/manage native global delivery yourself/i);
@@ -8700,7 +8515,7 @@ describe("apkit list", () => {
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
-  test("temporary inventory does not migrate legacy ordinary installations", async () => {
+  test("temporary inventory does not inspect or rewrite ordinary receipts", async () => {
     const home = isolatedHome();
     await initialize(home);
     removeScaffoldedExample(home);
@@ -8710,15 +8525,12 @@ describe("apkit list", () => {
     expectExitCode(await runCli(home, "apply"), 0);
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<Record<string, unknown>>;
+      receipts: Array<Record<string, unknown>>;
     };
     const legacyProject = project("agent-profile-kit-temporary-legacy-broken-");
     writeFileSync(join(legacyProject, ".git"), "not a Git directory\n");
-    state.installations[0]!.project = realpathSync(legacyProject);
-    writeFileSync(
-      statePath(home),
-      stringify({ schema_version: 2, installations: state.installations }),
-    );
+    state.receipts[0]!.project = realpathSync(legacyProject);
+    writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
     const stateBefore = readFileSync(statePath(home), "utf8");
 
     const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "temporary");
@@ -9409,7 +9221,7 @@ describe("apkit info", () => {
     expect(result.stdout).toContain("Engine version:");
     expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
     expect(result.stdout).toContain("Local Configuration: ~/.agents/agent-profile-kit/config.yaml");
-    expect(result.stdout).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.yaml");
+    expect(result.stdout).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.json");
     expect(result.stdout).not.toContain("example");
     expect(result.stdout).not.toContain("codex");
     expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
@@ -9428,7 +9240,7 @@ describe("apkit info", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Workspace: Not configured");
     expect(result.stdout).toContain("Local Configuration: ~/.agents/agent-profile-kit/config.yaml");
-    expect(result.stdout).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.yaml");
+    expect(result.stdout).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.json");
     expectExitCode(machine, 0);
     expect(JSON.parse(machine.stdout)).toMatchObject({
       outcome: "success",
@@ -9649,7 +9461,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       }[];
       readonly warnings: readonly string[];
     };
-    expect(receipt.schemaVersion).toBe(1);
+    expect(receipt.schemaVersion).toBe(2);
     expect(receipt.command).toBe("install-temp");
     expect(receipt.outcome).toBe("success");
     expect(receipt.profileId).toBe("coding");
@@ -9661,7 +9473,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(receipt.engineVersion).toBeTruthy();
     expect(receipt.adapterVersion).toBeTruthy();
     expect(receipt.hostVersion).toBeTruthy();
-    expect(receipt.outputs).toContain(".agent-profile-kit/installation.json");
+    expect(receipt.outputs).not.toContain(".agent-profile-kit/installation.json");
     expect(receipt.outputs).toContain(".agent-profile-kit/codex/context.md");
     expect(receipt.outputs).toContain(".agents/skills/review-pr");
     expect(receipt.repositoryExclusion).not.toBeNull();
@@ -10084,9 +9896,9 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     // Machine contracts stay canonical/authored.
     const state = parse(readFileSync(statePath(home), "utf8")) as {
-      readonly installations: readonly { readonly project: string }[];
+      readonly receipts: readonly { readonly project: string }[];
     };
-    expect(state.installations[0]?.project).toBe(canonical);
+    expect(state.receipts[0]?.project).toBe(canonical);
     expect(readFileSync(configPath(home), "utf8")).toContain(authored);
 
     const uninstall = await runCli(home, "uninstall");
@@ -10177,7 +9989,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       readonly setupSteps: readonly unknown[];
       readonly warnings: readonly string[];
     };
-    expect(receipt.schemaVersion).toBe(1);
+    expect(receipt.schemaVersion).toBe(2);
     expect(receipt.command).toBe("install-temp");
     expect(receipt.outcome).toBe("success");
     expect(receipt.profileId).toBe("coding");
@@ -10189,16 +10001,16 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expect(receipt.engineVersion).toBeTruthy();
     expect(receipt.adapterVersion).toMatch(/claude/i);
     expect(receipt.hostVersion).toMatch(/native-project-unscoped-rules-skills/);
-    expect(receipt.outputs).toContain(".agent-profile-kit/installation.json");
+    expect(receipt.outputs).not.toContain(".agent-profile-kit/installation.json");
     expect(receipt.outputs).toContain(".claude/rules/agent-profile-kit.md");
     expect(receipt.outputs).toContain(".claude/skills/review-pr");
     expect(receipt.outputs).not.toContain(".agent-profile-kit/codex/context.md");
     expect(receipt.repositoryExclusion).not.toBeNull();
     expect(receipt.repositoryExclusion!.entries).toEqual(
       expect.arrayContaining([
+        "/.agent-profile-kit/installation.json",
         "/.claude/rules/agent-profile-kit.md",
         "/.claude/skills/review-pr",
-        "/.agent-profile-kit/installation.json",
       ]),
     );
     expect(Array.isArray(receipt.setupSteps)).toBe(true);

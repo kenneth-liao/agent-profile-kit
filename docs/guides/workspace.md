@@ -22,11 +22,11 @@ Source ownership and managed delivery are separate:
 - **Profiles** select the artifacts scoped to a kind of work for Agent Profile
   Kit–managed project-bound delivery. A Project Binding selects a project root,
   one Profile, and Hosts; only selected (and Dependency-resolved) artifacts from
-  that Profile enter Installation Manifests and the managed lifecycle
+  that Profile enter Installation Receipts and the managed lifecycle
   (`status`, `apply`, and `uninstall`).
 - Agent Profile Kit v1 does not install, project, synchronize, or remove material in
   personal/global Host roots. Global Host delivery is not APK-owned state: it is
-  outside Project Bindings and Installation Manifests, and `apply` / `uninstall`
+  outside Project Bindings and Installation Receipts, and `apply` / `uninstall`
   never adopt, record as managed output, or mutate those paths. `status` does not
   treat global roots as managed output.
 - You may still manage native global delivery yourself—for example by symlinking
@@ -260,9 +260,9 @@ policy.
 Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each
 Skill's Agent Profile Kit sidecar. Each reference contains `type` (`context` or
-`skill`) and its stable `id`. Dependencies are resolved transitively and every
-resolved reason is retained in status and the machine-local Installation
-Manifest.
+`skill`) and its stable `id`. Dependencies are resolved transitively and every resolved reason remains
+available in live planning and verbose status. Inclusion reasons are not
+persisted in Installation State.
 
 A Profile is a YAML file under `profiles/` with exactly an `id`, a `context`
 array, and a `skills` array. At least one of `context` or `skills` must be
@@ -574,94 +574,53 @@ configuration and repository-owned files stay live and unchanged.
 
 ### Installation State compatibility and recovery
 
-Agent Profile Kit 0.24.x reads the previous schema-2 machine-local Installation
-State and synthesizes Repository Exclusion Records at the state boundary. The
-read is non-mutating: `status` does not rewrite the file. The first
-successful `apply` or `uninstall` publishes schema 3, which older 0.23.x
-engines cannot read. Before upgrading, keep a copy of the state file if a
-downgrade may be needed:
+Installation State is durable machine-local ownership evidence at
+`~/.agents/agent-profile-kit/state/manifest.json`. It is not Workspace source,
+but lifecycle safety depends on it for movement, repair, uninstall, Temporary
+Profile Installation recovery, and repository-local exclusion cleanup. Do not
+edit it by hand or reconstruct it from generated project output.
+
+Agent Profile Kit 0.95.0 replaces the former YAML state with strict schema-6
+JSON. The writer validates the exact serialized bytes through the production
+reader before atomic rename. Active ordinary and temporary installations use one
+minimal receipt shape; removed temporary identities retain only the compact ID
+needed for idempotent retry. Directory receipts retain one aggregate root hash,
+not complete member trees.
+
+A bounded migration reader accepts supported schema-2 through schema-5 YAML at
+`state/manifest.yaml`, including legitimate state previously emitted with many
+YAML aliases. `status` reads and normalizes that source without publishing it.
+The next successful state-writing `apply`, `uninstall`, `install-temp`, or
+`remove-temp` publishes `manifest.json`, verifies the durable bytes, and only
+then removes `manifest.yaml`.
+
+Before the first 0.95.0 state-writing operation, keep a rollback backup if you
+may need to run an older binary:
 
 ```sh
 state_dir="$HOME/.agents/agent-profile-kit/state"
-cp -p "$state_dir/manifest.yaml" "$state_dir/manifest.yaml.before-schema-v3"
+cp -p "$state_dir/manifest.yaml" "$state_dir/manifest.yaml.before-0.95.0"
 ```
 
-Agent Profile Kit 0.46.0 added intended-teardown records in Installation State
-schema 4. Agent Profile Kit 0.87.0 retires their lifecycle meaning: supported
-legacy records are accepted but normalized away, and the next successful state
-publication writes the retained transitional field empty. Schema removal belongs
-to the final ownership-state contraction. Schemas 2 and 3 remain migration inputs.
-Binaries older than 0.46.0 cannot read schema 4 or later; retain and restore the
-appropriate pre-upgrade `manifest.yaml` backup before starting an older binary.
+Pre-0.95.0 binaries cannot read schema-6 JSON. To roll back, stop all Agent
+Profile Kit commands, remove or move `manifest.json`, restore the backup as
+`manifest.yaml`, and only then start the older binary. The backup restores
+ownership evidence; it does not undo Workspace or project-file changes made
+after the backup.
 
-Agent Profile Kit 0.68.0 advances the Installation Manifest inside any state
-version from schema v2 to v3: each resolved artifact records a normalized
-content fingerprint and every owned output records typed source origins, while
-provenance-absent legacy manifests stay readable and gain that evidence on the
-next successful ordinary `apply`. Manifest v3 receipts are written on the next
-0.68.0+ state publication; 0.67.x and earlier cannot read Installation State
-containing them. Before the first 0.68.0+ write, retain a copy of
-`manifest.yaml` if rollback may be needed; restore that backup before running an
-older binary.
+Back up current `manifest.json` with ordinary machine backup tooling. If the
+current state is missing or malformed, restore a known-good backup and retry.
+Agent Profile Kit never adopts surviving generated output or reconstructs
+ownership from it.
 
-Agent Profile Kit 0.24.2 also records the installation-time `git_project`
-classification in each Installation Manifest without changing the Manifest
-schema version. It reads older Manifests that omit this field, but older
-engines reject a Manifest written with it because they require exact fields.
-Before the first 0.24.2 `apply`, keep a second state backup for rollback:
-
-```sh
-cp -p "$state_dir/manifest.yaml" "$state_dir/manifest.yaml.before-0.24.2"
-```
-
-If rollback is needed after a 0.24.2 `apply`, stop using the newer CLI, restore
-`manifest.yaml.before-0.24.2` to `manifest.yaml`, and then use the older binary.
-The backup restores machine-local ownership state; it does not undo Workspace
-source or project-file changes made after the backup.
-
-Agent Profile Kit 0.32.0 records Pi Skill-capable `host_versions` in Installation
-State. Unbind Pi or run `apply`/`uninstall` with 0.32.0+ before rolling back
-below 0.32.0. Context-only Pi state remains readable with 0.31.0+, and any
-Installation State that records the `pi` Host requires 0.31.0+ before rolling
-back to 0.30.3 or older.
-Invocation-capable Pi `host_versions` are first recorded by Agent Profile Kit
-0.34.0. Unbind Pi or run `apply`/`uninstall` with 0.34.0+ before rolling back
-an invocation-capable installation below 0.34.0.
-
-Agent Profile Kit 0.81.0 migrates owned Pi Skill packages from
-`.pi/skills/<Artifact ID>/` to the qualified shared
-`.agents/skills/<Artifact ID>/` surface on the next successful `apply`. This is
-a pre-1.0 breaking change: do not run 0.80.x against a state file after that
-migration. Before the first 0.81.0 write, retain the current state:
-
-```sh
-cp -p "$state_dir/manifest.yaml" "$state_dir/manifest.yaml.before-pi-shared-skill-migration"
-```
-
-To roll back after migration, stop using 0.81.0. While the current
-Installation State and project Markers still prove ownership, run its
-`apkit uninstall`. This removes all currently owned generated output for each
-affected installation, not only the migrated `.agents/skills/` packages. Restore
-the backup, then run 0.80.x `apkit apply` to recreate the pre-migration generated
-trees, including the owned `.pi/skills/` packages. A blocked apply makes no
-migration writes and needs no cleanup. The backup restores machine-local
-ownership evidence; it does not undo unrelated Workspace or project changes.
-
-For installations created before 0.24.2, run one live `apkit apply`
-while each bound project root still exists. This records `git_project: false`
-for non-Git installations. Without that classification, deleting a non-Git
-root before `unbind` leaves no durable proof that its missing exclusion record
-was unnecessary, so intentional-deletion retirement fails closed.
-
-If the current state file is missing or malformed, do not delete or adopt
-surviving generated files. Restore the backup and retry. Without a backup,
-stop the CLI and manually remove only the verified Installer-owned project
-outputs and `.agent-profile-kit/installation.json` Markers, then remove only
-the marked block between `# BEGIN Agent Profile Kit generated paths` and
-`# END Agent Profile Kit generated paths` in each affected `.git/info/exclude`.
-Keep every unrelated exclusion byte. Recreate the desired Project Bindings and
-run `apkit apply` to establish fresh v3 ownership records. A wiped
-state cannot safely be reconstructed from output bytes alone.
+Without a backup, stop the CLI and manually remove only project output whose
+ownership you independently verify, including the
+`.agent-profile-kit/installation.json` Marker. In each affected
+`.git/info/exclude`, remove only the marked block between
+`# BEGIN Agent Profile Kit generated paths` and
+`# END Agent Profile Kit generated paths`; preserve every unrelated byte. Then
+recreate the desired Project Bindings and run `apkit apply` to establish fresh
+ownership receipts. This manual path is intentionally fail-closed.
 
 ### Host Resolution and project-bound Profiles
 
@@ -707,7 +666,7 @@ output, blocked and malformed ownership, while keeping Host configuration
 warnings visible.
 
 Use `apkit unbind [project]` to remove desired Project Binding state.
-It does not delete generated output. When an installed Manifest remains, its
+It does not delete generated output. When an installed receipt remains, its
 output recommends the fleet `status --all` and `apply --all` needed to review and
 reconcile the former installation; after `uninstall`, it omits that no-op step.
 

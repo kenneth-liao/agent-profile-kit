@@ -12,7 +12,6 @@ import { dirname, join, relative, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
-  formatInstallationState,
   canonicalRepositoryExclusionRecord,
   compareCanonicalStrings,
   INSTALLATION_MARKER_PATH,
@@ -20,15 +19,20 @@ import {
   parseLegacyInstallationState,
   parsePreviousInstallationState,
   parseV4InstallationState,
-  INSTALLATION_STATE_SCHEMA_VERSION,
   parseInstallationMarker,
   parseInstallationState,
   type InstallationMarker,
-  type InstallationState,
-  type OwnedDirectoryOutput,
-  type OwnedOutput,
-  type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
+import {
+  formatOwnershipState,
+  OWNERSHIP_STATE_LIMITS,
+  OWNERSHIP_STATE_SCHEMA_VERSION,
+  parseOwnershipState,
+  type OwnershipOutputReceipt,
+  type OwnershipReceipt,
+  type OwnershipState,
+} from "../schemas/ownership-state.js";
+import { normalizeLegacyOwnershipState } from "./ownership-state-normalization.js";
 import { findGitProject, gitExcludeEntry, type GitProject } from "./git.js";
 import {
   createLifecycleOwnershipInspectionContext,
@@ -39,6 +43,7 @@ import {
 import {
   hashBytes,
   markerPath,
+  legacyStateManifestPath,
   stateManifestPath,
   stateDirectory,
 } from "./project-plan.js";
@@ -50,21 +55,21 @@ function hasErrorCode(error: unknown, code: string): boolean {
 const STATE_READ_CHUNK_BYTES = 64 * 1024;
 
 /** Read Installation State without ever buffering more than the accepted size. */
-async function readInstallationStateSource(home: string): Promise<string> {
-  const handle = await open(stateManifestPath(home), "r");
+async function readInstallationStateSource(path: string): Promise<string> {
+  const handle = await open(path, "r");
   const chunks: Buffer[] = [];
   let total = 0;
   try {
     while (true) {
       const chunk = Buffer.allocUnsafe(
-        Math.min(STATE_READ_CHUNK_BYTES, INSTALLATION_STATE_MAX_BYTES + 1 - total),
+        Math.min(STATE_READ_CHUNK_BYTES, OWNERSHIP_STATE_LIMITS.maxBytes + 1 - total),
       );
       const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
       if (bytesRead === 0) break;
       total += bytesRead;
-      if (total > INSTALLATION_STATE_MAX_BYTES) {
+      if (total > OWNERSHIP_STATE_LIMITS.maxBytes) {
         throw new Error(
-          `Installation State exceeds the ${INSTALLATION_STATE_MAX_BYTES} byte limit`,
+          `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,
         );
       }
       chunks.push(chunk.subarray(0, bytesRead));
@@ -77,7 +82,7 @@ async function readInstallationStateSource(home: string): Promise<string> {
 
 export interface InstallationStateRead {
   readonly migrated: boolean;
-  readonly state: InstallationState;
+  readonly state: OwnershipState;
 }
 
 function slashPath(path: string): string {
@@ -117,7 +122,7 @@ async function gitProjectForLegacyInstallation(project: string): Promise<GitProj
 
 async function migrateLegacyInstallationState(
   legacy: ReturnType<typeof parseLegacyInstallationState>,
-): Promise<InstallationState> {
+): Promise<OwnershipState> {
   const contributionsByTarget = new Map<string, {
     readonly entries: readonly string[];
     readonly installationId: string;
@@ -135,22 +140,19 @@ async function migrateLegacyInstallationState(
   const repositoryExclusions = [...contributionsByTarget.entries()]
     .sort(([left], [right]) => compareCanonicalStrings(left, right))
     .map(([target, contributions]) => canonicalRepositoryExclusionRecord(target, contributions));
-  return {
-    intendedTeardowns: [],
+  return normalizeLegacyOwnershipState({
     installations: legacy.installations,
     repositoryExclusions,
-    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-    temporaryInstallations: [],
-  };
+  });
 }
 
-type ParsedInstallationState =
-  | { readonly schemaVersion: 5; readonly state: InstallationState }
+type ParsedLegacyInstallationState =
+  | { readonly schemaVersion: 5; readonly state: ReturnType<typeof parseInstallationState> }
   | { readonly schemaVersion: 4; readonly state: ReturnType<typeof parseV4InstallationState> }
   | { readonly schemaVersion: 3; readonly state: ReturnType<typeof parsePreviousInstallationState> }
   | { readonly schemaVersion: 2; readonly state: ReturnType<typeof parseLegacyInstallationState> };
 
-function parseInstallationStateSource(source: string): ParsedInstallationState {
+function parseLegacyInstallationStateSource(source: string): ParsedLegacyInstallationState {
   let currentStateError: unknown;
   try {
     return { schemaVersion: 5, state: parseInstallationState(source) };
@@ -173,78 +175,45 @@ function parseInstallationStateSource(source: string): ParsedInstallationState {
   }
 }
 
-function normalizedInstallationState(state: InstallationState): InstallationState {
+export function emptyInstallationState(): OwnershipState {
   return {
-    ...state,
-    // Retain the persisted legacy field until the final schema contraction, but
-    // retire its records at ingestion so lifecycle code cannot assign meaning to them.
-    intendedTeardowns: [],
-    installations: [...state.installations].sort((left, right) => left.project.localeCompare(right.project)),
-    temporaryInstallations: [...state.temporaryInstallations].sort((left, right) =>
-      left.temporaryInstallationId.localeCompare(right.temporaryInstallationId)
-    ),
-  };
-}
-
-export function emptyInstallationState(): InstallationState {
-  return {
-    intendedTeardowns: [],
-    installations: [],
-    repositoryExclusions: [],
-    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-    temporaryInstallations: [],
+    receipts: [],
+    removedTemporaryInstallationIds: [],
+    schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
   };
 }
 
 export async function readInstallationStateWithMigration(home: string): Promise<InstallationStateRead> {
   try {
-    const source = await readInstallationStateSource(home);
-    const parsed = parseInstallationStateSource(source);
-    let state: InstallationState;
-    switch (parsed.schemaVersion) {
-      case 5:
-        state = parsed.state;
-        break;
-      case 4:
-        state = {
-          intendedTeardowns: [],
-          installations: parsed.state.installations,
-          repositoryExclusions: parsed.state.repositoryExclusions,
-          schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-          temporaryInstallations: [],
-        };
-        break;
-      case 3:
-        state = {
-          intendedTeardowns: [],
-          installations: parsed.state.installations,
-          repositoryExclusions: parsed.state.repositoryExclusions,
-          schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-          temporaryInstallations: [],
-        };
-        break;
-      case 2:
-        state = await migrateLegacyInstallationState(parsed.state);
-        break;
-    }
-    return {
-      migrated: parsed.schemaVersion !== 5 || state.installations.some(
-        (installation) => installation.outputOrigins === undefined,
-      ),
-      state: normalizedInstallationState(state),
-    };
+    const source = await readInstallationStateSource(stateManifestPath(home));
+    return { migrated: false, state: parseOwnershipState(source) };
+  } catch (error) {
+    if (!hasErrorCode(error, "ENOENT")) throw error;
+  }
+
+  let source: string;
+  try {
+    source = await readInstallationStateSource(legacyStateManifestPath(home));
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      return {
-        migrated: false,
-        state: emptyInstallationState(),
-      };
+      return { migrated: false, state: emptyInstallationState() };
     }
     throw error;
   }
+  const parsed = parseLegacyInstallationStateSource(source);
+  const state = parsed.schemaVersion === 2
+    ? await migrateLegacyInstallationState(parsed.state)
+    : normalizeLegacyOwnershipState({
+        installations: parsed.state.installations,
+        repositoryExclusions: parsed.state.repositoryExclusions,
+        ...(parsed.schemaVersion === 5
+          ? { temporaryInstallations: parsed.state.temporaryInstallations }
+          : {}),
+      });
+  return { migrated: true, state };
 }
 
-export async function readInstallationState(home: string): Promise<InstallationState> {
+export async function readInstallationState(home: string): Promise<OwnershipState> {
   return (await readInstallationStateWithMigration(home)).state;
 }
 
@@ -255,25 +224,35 @@ export async function readInstallationState(home: string): Promise<InstallationS
  */
 export async function readTemporaryInstallations(
   home: string,
-): Promise<InstallationState["temporaryInstallations"]> {
+): Promise<readonly OwnershipReceipt[]> {
+  try {
+    return parseOwnershipState(
+      await readInstallationStateSource(stateManifestPath(home)),
+    ).receipts.filter((receipt) => receipt.lifetime === "temporary");
+  } catch (error) {
+    if (!hasErrorCode(error, "ENOENT")) throw error;
+  }
   let source: string;
   try {
-    source = await readInstallationStateSource(home);
+    source = await readInstallationStateSource(legacyStateManifestPath(home));
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) return [];
     throw error;
   }
-  const parsed = parseInstallationStateSource(source);
-  return parsed.schemaVersion === 5 ? parsed.state.temporaryInstallations : [];
+  const parsed = parseLegacyInstallationStateSource(source);
+  if (parsed.schemaVersion !== 5) return [];
+  return normalizeLegacyOwnershipState(parsed.state).receipts.filter(
+    (receipt) => receipt.lifetime === "temporary",
+  );
 }
 
 export async function writeInstallationState(
   home: string,
-  state: InstallationState,
+  state: OwnershipState,
 ): Promise<void> {
-  const source = formatInstallationState(normalizedInstallationState(state));
+  const source = formatOwnershipState(state);
   // Publication is allowed only when the production reader accepts the exact bytes.
-  parseInstallationState(source);
+  parseOwnershipState(source);
 
   const directory = stateDirectory(home);
   await mkdir(directory, { recursive: true });
@@ -282,6 +261,9 @@ export async function writeInstallationState(
   await writeFile(temporary, source, { flag: "wx" });
   try {
     await rename(temporary, destination);
+    // The bounded YAML input is retired only after canonical JSON is durable and readable.
+    parseOwnershipState(await readInstallationStateSource(destination));
+    await rm(legacyStateManifestPath(home), { force: true });
   } finally {
     await rm(temporary, { force: true }).catch(() => undefined);
   }
@@ -302,7 +284,7 @@ export function newInstallationId(): string {
 
 function proveFileOutput(
   inspection: OwnedOutputInspection,
-  output: Extract<OwnedOutput, { type: "file" }>,
+  output: OwnershipOutputReceipt,
 ): { readonly drifted: boolean; readonly missing: boolean; readonly modeDrifted: boolean } {
   if (inspection.kind === "file") {
     return {
@@ -325,7 +307,7 @@ export interface OwnershipProof {
 }
 
 async function proveOutputHashes(
-  installation: ProjectInstallationManifest,
+  installation: OwnershipReceipt,
   includeMarker: boolean,
   inspection: LifecycleOwnershipInspection,
 ): Promise<OwnershipProof> {
@@ -393,7 +375,7 @@ async function proveOutputHashes(
 
 /** Prove ownership from non-marker output hashes, for safe marker repair. */
 export async function proveRemainingOwnedOutputs(
-  installation: ProjectInstallationManifest,
+  installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<OwnershipProof> {
   return proveOutputHashes(installation, false, inspection);
@@ -409,7 +391,7 @@ export interface InstallationOwnershipInspection extends OwnershipProof {
  * through one shared ownership inspection result when a context is supplied.
  */
 export async function inspectInstallationOwnership(
-  installation: ProjectInstallationManifest,
+  installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<InstallationOwnershipInspection> {
   const marker = await inspection.inspectMarker(installation.project);
@@ -472,7 +454,7 @@ export async function inspectInstallationOwnership(
     }
   }
   const missingPaths = new Set(repairableMissingOutputs);
-  const surviving: ProjectInstallationManifest = {
+  const surviving: OwnershipReceipt = {
     ...installation,
     outputs: installation.outputs.filter(
       (output) => !missingPaths.has(output.path),
@@ -495,7 +477,7 @@ export async function inspectInstallationOwnership(
 }
 
 export async function proveOwnedInstallation(
-  installation: ProjectInstallationManifest,
+  installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<OwnershipProof> {
   const inspectionResult = await inspectInstallationOwnership(installation, inspection);
@@ -510,7 +492,7 @@ export async function proveOwnedInstallation(
 }
 
 export async function removeProvenInstallation(
-  installation: ProjectInstallationManifest,
+  installation: OwnershipReceipt,
 ): Promise<void> {
   const transaction = await stageProvenInstallationRemoval(installation);
   await transaction.commit();
@@ -522,7 +504,7 @@ export interface ProvenInstallationRemovalTransaction {
 }
 
 export async function stageProvenInstallationRemoval(
-  installation: ProjectInstallationManifest,
+  installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<ProvenInstallationRemovalTransaction> {
   const proof = await proveOwnedInstallation(installation, inspection);
@@ -547,9 +529,12 @@ export async function stageProvenInstallationRemoval(
     await cleanup();
   };
   try {
-    for (const output of installation.outputs) {
-      const path = join(installation.project, output.path);
-      const staged = join(stage, output.path);
+    for (const relativePath of [
+      ...installation.outputs.map((output) => output.path),
+      INSTALLATION_MARKER_PATH,
+    ]) {
+      const path = join(installation.project, relativePath);
+      const staged = join(stage, relativePath);
       await mkdir(dirname(staged), { recursive: true });
       await rename(path, staged);
       moved.push(path);
@@ -587,7 +572,7 @@ async function pathExistsAt(project: string, relativePath: string): Promise<bool
  */
 export async function removeDisposableOutputs(options: {
   readonly installationId: string;
-  readonly outputs: readonly OwnedOutput[];
+  readonly outputs: readonly OwnershipOutputReceipt[];
   readonly project: string;
 }): Promise<void> {
   const project = options.project;
@@ -645,4 +630,5 @@ export async function removeDisposableOutputs(options: {
     }
     await rm(path, { recursive: true, force: true });
   }
+  await rm(markerPath(project), { force: true });
 }

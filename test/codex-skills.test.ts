@@ -247,11 +247,9 @@ describe("Codex project Skill packages", () => {
     expect(sharedResolved?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
 
     const preview = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     expect(reportDesired(preview)[0]?.resolvedArtifacts.some((artifact) => artifact.id === "top-skill")).toBe(
       true,
@@ -272,18 +270,7 @@ describe("Codex project Skill packages", () => {
       .toBe(0o755);
 
     const state = await readInstallationState(home);
-    const manifest = state.installations[0];
-    expect(manifest?.resolvedArtifacts.map((artifact) => artifact.reference.id).sort()).toEqual([
-      "left-skill",
-      "right-skill",
-      "shared-base",
-      "team-rules",
-      "top-skill",
-    ]);
-    const shared = manifest?.resolvedArtifacts.find(
-      (artifact) => artifact.reference.id === "shared-base",
-    );
-    expect(shared?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
+    const manifest = state.receipts[0];
   });
 
   test("reorganizing a Skill Workspace path without changing Artifact ID keeps installed identity", async () => {
@@ -328,11 +315,9 @@ describe("Codex project Skill packages", () => {
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const preview = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     expect(reportBlockers(preview).some((blocker) =>
       blocker.message.includes(".agents/skills/review-pr") &&
@@ -360,10 +345,7 @@ describe("Codex project Skill packages", () => {
     const first = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, first.installations);
     const before = await readInstallationState(home);
-    const beforeShared = before.installations[0]?.resolvedArtifacts.find(
-      (artifact) => artifact.reference.id === "shared-base",
-    );
-    expect(beforeShared?.inclusionReasons).toHaveLength(1);
+    const beforeDigest = before.receipts[0]?.desiredInputDigest;
 
     // Redundant direct edge: package bytes and resolved Artifact IDs stay the same,
     // but shared-base gains a second inclusion reason path.
@@ -377,10 +359,8 @@ describe("Codex project Skill packages", () => {
     expect(reportItems(preview).some((item) => item.kind === "stale source")).toBe(true);
     await applyReconciliation(home, second.installations);
     const after = await readInstallationState(home);
-    const afterShared = after.installations[0]?.resolvedArtifacts.find(
-      (artifact) => artifact.reference.id === "shared-base",
-    );
-    expect(afterShared?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
+    expect(after.receipts[0]?.desiredInputDigest).not.toBe(beforeDigest);
+    expect(after.receipts[0]?.desiredInputDigest).toBe(second.installations[0]?.sourceHash);
   });
 
   test("Context and Skills share one installation lifecycle; deselection removes only proven packages", async () => {

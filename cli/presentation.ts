@@ -2700,14 +2700,14 @@ export function formatLifecycleToolErrorJson(
 export type TemporaryInstallCommand = "install-temp" | "remove-temp";
 
 export interface TemporaryInstallationReceiptView {
-  readonly adapterVersion: string;
+  readonly adapterVersion?: string;
   readonly completionState: "installed" | "removed";
-  readonly engineVersion: string;
-  readonly host: string;
-  readonly hostVersion: string;
+  readonly engineVersion?: string;
+  readonly host?: string;
+  readonly hostVersion?: string;
   readonly outputs: readonly string[];
-  readonly profileId: string;
-  readonly project: string;
+  readonly profileId?: string;
+  readonly project?: string;
   readonly repositoryExclusion:
     | {
         readonly entries: readonly string[];
@@ -2718,7 +2718,7 @@ export interface TemporaryInstallationReceiptView {
   readonly temporaryInstallationId: string;
   readonly diagnosticValues: readonly string[];
   readonly warnings: readonly string[];
-  readonly workspaceInputHash: string;
+  readonly workspaceInputHash?: string;
 }
 
 /**
@@ -2751,7 +2751,7 @@ export function formatTemporaryInstallationJson(
 ): string {
   return `${JSON.stringify(
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       command,
       outcome: "success",
       temporaryInstallationId: receipt.temporaryInstallationId,
@@ -2767,7 +2767,7 @@ export function formatTemporaryInstallationJson(
       completionState: receipt.completionState,
       warnings: [...receipt.warnings],
       setupSteps: receipt.setupSteps.map((step) =>
-        temporarySetupStepJson(step, receipt.project)
+        temporarySetupStepJson(step, receipt.project ?? "")
       ),
     },
     null,
@@ -2782,7 +2782,14 @@ export function formatTemporaryInstallationHuman(
   cwd = process.cwd(),
   home = homedir(),
 ): string {
-  const project = displayProjectPath(receipt.project, receipt.project, cwd, home);
+  if (command === "install-temp" && (
+    receipt.project === undefined || receipt.profileId === undefined || receipt.host === undefined
+  )) {
+    throw new Error("Installed temporary receipt is missing active installation detail");
+  }
+  const project = receipt.project === undefined
+    ? undefined
+    : displayProjectPath(receipt.project, receipt.project, cwd, home);
   if (command === "install-temp") {
     const warningLines = receipt.warnings.length === 0
       ? []
@@ -2793,7 +2800,7 @@ export function formatTemporaryInstallationHuman(
     const setupLines = receipt.setupSteps.length === 0
       ? []
       : [
-          `${capitalize(receipt.host)} setup:`,
+          `${capitalize(receipt.host!)} setup:`,
           ...[...receipt.setupSteps]
             .sort((left, right) =>
               HOST_SETUP_STEP_ORDER.indexOf(left.kind) -
@@ -2801,7 +2808,7 @@ export function formatTemporaryInstallationHuman(
               left.message.localeCompare(right.message)
             )
             .flatMap((step) => {
-              const message = setupStepMessage(step, project);
+              const message = setupStepMessage(step, project!);
               return [
                 `- ${message}`,
                 ...(step.consequence === undefined
@@ -2814,14 +2821,14 @@ export function formatTemporaryInstallationHuman(
       `Installed Profile temporarily\n` +
       `  Profile: ${receipt.profileId}\n` +
       `  Host: ${receipt.host}\n` +
-      `  Project: ${project}\n` +
+      `  Project: ${project!}\n` +
       `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
       (warningLines.length > 0 ? `${warningLines.join("\n")}\n` : "") +
       (setupLines.length > 0 ? `${setupLines.join("\n")}\n` : "")
     ), options.context, [
-      project,
+      project!,
       receipt.temporaryInstallationId,
-      receipt.profileId,
+      receipt.profileId!,
       ...receipt.diagnosticValues,
       ...receipt.outputs,
     ]);
@@ -2829,9 +2836,9 @@ export function formatTemporaryInstallationHuman(
   return responsiveLifecycleOutput((
     `Removed temporary Profile installation\n` +
     `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
-    `  Project: ${project}\n`
+    (project === undefined ? "" : `  Project: ${project}\n`)
   ), options.context, [
-    project,
+    ...(project === undefined ? [] : [project]),
     receipt.temporaryInstallationId,
   ]);
 }

@@ -224,11 +224,9 @@ describe("Claude project Skill packages", () => {
     expect(sharedResolved?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
 
     const preview = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     expect(reportItems(preview).some((item) => item.kind === "addition")).toBe(true);
     expect(
@@ -260,19 +258,8 @@ describe("Claude project Skill packages", () => {
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(true);
 
     const state = await readInstallationState(home);
-    const manifest = state.installations[0];
-    expect(manifest?.hostVersions.claude).toBe("native-project-unscoped-rules-skills-v1");
-    expect(manifest?.resolvedArtifacts.map((artifact) => artifact.reference.id).sort()).toEqual([
-      "left-skill",
-      "right-skill",
-      "shared-base",
-      "team-rules",
-      "top-skill",
-    ]);
-    const shared = manifest?.resolvedArtifacts.find(
-      (artifact) => artifact.reference.id === "shared-base",
-    );
-    expect(shared?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
+    const manifest = state.receipts[0];
+    expect(manifest?.hosts.claude?.capabilityContract).toBe("native-project-unscoped-rules-skills-v1");
   });
 
   test("reorganizing a Skill Workspace path without changing Artifact ID keeps installed identity", async () => {
@@ -321,11 +308,9 @@ describe("Claude project Skill packages", () => {
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const preview = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     expect(reportBlockers(preview).some((blocker) =>
       blocker.message.includes(".claude/skills/review-pr") &&
@@ -479,11 +464,9 @@ describe("Claude project Skill packages", () => {
     expect(installation.outputs.some((output) => output.path === ".codex/hooks.json")).toBe(true);
 
     const preview = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     expect(reportBlockers(preview)).toEqual([]);
     await applyReconciliation(home, desired.installations);
@@ -496,13 +479,8 @@ describe("Claude project Skill packages", () => {
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
 
     const state = await readInstallationState(home);
-    expect(state.installations).toHaveLength(1);
-    expect(state.installations[0]?.hosts).toEqual(["claude", "codex"]);
-    expect(state.installations[0]?.resolvedArtifacts.map((a) => a.reference.id).sort()).toEqual([
-      "base-skill",
-      "review-pr",
-      "team-rules",
-    ]);
+    expect(state.receipts).toHaveLength(1);
+    expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["claude", "codex"]);
 
     expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(join(project, ".claude", "skills", "review-pr"))).toBe(false);

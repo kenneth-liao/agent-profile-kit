@@ -286,17 +286,15 @@ describe("Claude-only Profile Installation lifecycle", () => {
     expect(desired.installations).toHaveLength(1);
     const installation = desired.installations[0]!;
     expect(installation.binding.hosts).toEqual(["claude"]);
-    expect(installation.hostVersions).toEqual({ claude: CLAUDE_HOST_VERSION });
+    expect(installation.hostVersions.claude).toBe(CLAUDE_HOST_VERSION);
     expect(installation.adapterVersion).toBe(CLAUDE_ADAPTER_VERSION);
     expect(installation.outputs.map((output) => output.path)).toEqual([CLAUDE_CONTEXT_RULE_PATH]);
     expect(installation.outputs.some((output) => output.path.includes("codex"))).toBe(false);
 
     const preview = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     expect(reportBlockers(preview)).toEqual([]);
     expect(reportDesired(preview)[0]?.hosts).toEqual(["claude"]);
@@ -324,14 +322,13 @@ describe("Claude-only Profile Installation lifecycle", () => {
     expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe('{"permissions":{}}\n');
 
     const state = await readInstallationState(home);
-    expect(state.installations).toHaveLength(1);
-    expect(state.installations[0]?.hosts).toEqual(["claude"]);
-    expect(state.installations[0]?.hostVersions).toEqual({ claude: CLAUDE_HOST_VERSION });
-    expect(state.installations[0]?.adapterVersion).toBe(CLAUDE_ADAPTER_VERSION);
-    expect(state.installations[0]?.outputs.map((output) => output.path).sort()).toEqual([
-      ".agent-profile-kit/installation.json",
+    expect(state.receipts).toHaveLength(1);
+    expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["claude"]);
+    expect(state.receipts[0]?.hosts.claude?.capabilityContract).toBe(CLAUDE_HOST_VERSION);
+    expect(state.receipts[0]?.hosts.claude?.adapterVersion).toBe(CLAUDE_ADAPTER_VERSION);
+    expect(state.receipts[0]?.outputs.map((output) => output.path)).toEqual([
       CLAUDE_CONTEXT_RULE_PATH,
-    ].sort());
+    ]);
 
     const current = await buildDesiredState(home, { checkHostCapability: false });
     const status = await previewReconciliation(current.installations, state);
@@ -363,11 +360,9 @@ describe("Claude-only Profile Installation lifecycle", () => {
       )).toBe(true);
 
       const report = await previewReconciliation(desired.installations, {
-        intendedTeardowns: [],
-        installations: [],
-        repositoryExclusions: [],
-        temporaryInstallations: [],
-        schemaVersion: 5,
+        receipts: [],
+        removedTemporaryInstallationIds: [],
+        schemaVersion: 6,
       });
       expect(reportBlockers(report).some((blocker) => blocker.message.includes("is a file, not a directory"))).toBe(true);
       expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
@@ -438,39 +433,30 @@ describe("Combined Codex and Claude Profile Installation", () => {
     expect(readFileSync(join(project, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
 
     const state = await readInstallationState(home);
-    const manifest = state.installations[0]!;
-    expect(manifest.hosts).toEqual(["claude", "codex"]);
-    expect(manifest.hostVersions).toEqual({
-      claude: CLAUDE_HOST_VERSION,
-      codex: CODEX_HOST_VERSION,
-    });
-    expect(manifest.adapterVersion).toBe(installation.adapterVersion);
+    const manifest = state.receipts[0]!;
+    expect(Object.keys(manifest.hosts)).toEqual(["claude", "codex"]);
+    expect(manifest.hosts.claude?.capabilityContract).toBe(CLAUDE_HOST_VERSION);
+    expect(manifest.hosts.codex?.capabilityContract).toBe(CODEX_HOST_VERSION);
+    expect(manifest.hosts.claude?.adapterVersion).toBe(CLAUDE_ADAPTER_VERSION);
     expect(manifest.outputs.map((output) => output.path)).toEqual(
       expect.arrayContaining([
         CLAUDE_CONTEXT_RULE_PATH,
         ".agent-profile-kit/codex/context.md",
         ".codex/hooks.json",
-        ".agent-profile-kit/installation.json",
       ]),
     );
 
-    // YAML round-trip of multi-host Manifest fields.
-    const raw = parse(readFileSync(
-      join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml"),
+    const raw = JSON.parse(readFileSync(
+      join(home, ".agents", "agent-profile-kit", "state", "manifest.json"),
       "utf8",
     )) as {
-      installations: Array<{
-        adapter_version: string;
-        hosts: string[];
-        host_versions: Record<string, string>;
+      receipts: Array<{
+        hosts: Record<string, { adapter_version: string; capability_contract: string }>;
       }>;
     };
-    expect(raw.installations[0]?.hosts).toEqual(["claude", "codex"]);
-    expect(raw.installations[0]?.host_versions).toEqual({
-      claude: CLAUDE_HOST_VERSION,
-      codex: CODEX_HOST_VERSION,
-    });
-    expect(raw.installations[0]?.adapter_version).toBe(installation.adapterVersion);
+    expect(Object.keys(raw.receipts[0]?.hosts ?? {})).toEqual(["claude", "codex"]);
+    expect(raw.receipts[0]?.hosts.claude?.capability_contract).toBe(CLAUDE_HOST_VERSION);
+    expect(raw.receipts[0]?.hosts.codex?.capability_contract).toBe(CODEX_HOST_VERSION);
 
     expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);

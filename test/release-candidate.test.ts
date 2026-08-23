@@ -187,7 +187,7 @@ function configPath(home: string): string {
 }
 
 function statePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml");
+  return join(home, ".agents", "agent-profile-kit", "state", "manifest.json");
 }
 
 function withFleetScope(arguments_: readonly string[]): readonly string[] {
@@ -371,7 +371,7 @@ describe("project-bound release candidate", () => {
     expect(Number(identity.node.split(".")[0])).toBeGreaterThanOrEqual(minimumNodeMajor);
   });
 
-  test("package manifest is the sole engine version and packed provenance matches it", async () => {
+  test("package manifest is the sole engine version and ownership receipts omit engine provenance", async () => {
     const rootManifest = JSON.parse(
       readFileSync(join(repositoryRoot, "package.json"), "utf8"),
     ) as { version: string; workspaces?: unknown };
@@ -392,12 +392,12 @@ describe("project-bound release candidate", () => {
     const pathWithHosts = installControlledHosts(home);
 
     expectExitCode(await runCli(home, ["apply"], { path: pathWithHosts }), 0);
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{ engine_version: string; adapter_version: string }>;
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<{ hosts: { codex: { adapter_version: string } } }>;
     };
-    expect(state.installations).toHaveLength(1);
-    expect(state.installations[0]?.engine_version).toBe(packageVersion);
-    expect(state.installations[0]?.adapter_version).toBe("codex-project-v3");
+    expect(state.receipts).toHaveLength(1);
+    expect(state.receipts[0]).not.toHaveProperty("engine_version");
+    expect(state.receipts[0]?.hosts.codex.adapter_version).toBe("codex-project-v3");
   });
 
   test("installing the package alone changes no Workspace, Local Configuration, project, Git, or Host state", async () => {
@@ -578,23 +578,19 @@ describe("project-bound release candidate", () => {
       readFileSync(join(claudeOnly, ".claude", "rules", "agent-profile-kit.md"), "utf8"),
     ).toContain("Updated release-candidate Context.");
 
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{
-        engine_version: string;
-        hosts: string[];
-        host_versions: Record<string, string>;
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<{
+        hosts: Record<string, { capability_contract: string }>;
         project: string;
       }>;
     };
-    expect(state.installations.every((installation) => installation.engine_version === packageVersion))
-      .toBe(true);
-    const combinedInstallation = state.installations.find((installation) =>
-      installation.hosts.includes("claude") && installation.hosts.includes("codex"),
+    const combinedInstallation = state.receipts.find((installation) =>
+      installation.hosts.claude !== undefined && installation.hosts.codex !== undefined,
     );
-    expect(combinedInstallation?.host_versions.claude).toBe(
+    expect(combinedInstallation?.hosts.claude?.capability_contract).toBe(
       "native-project-unscoped-rules-skills-v1",
     );
-    expect(combinedInstallation?.host_versions.codex).toBe(
+    expect(combinedInstallation?.hosts.codex?.capability_contract).toBe(
       "native-project-sessionstart-complete-context-v1",
     );
 
@@ -648,25 +644,22 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(projectPath, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
     expect(existsSync(join(combinedProject, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
     expect(existsSync(join(combinedProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{
-        hosts: string[];
-        host_versions: Record<string, string>;
-        adapter_version: string;
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<{
+        hosts: Record<string, { adapter_version: string; capability_contract: string }>;
       }>;
     };
-    expect(state.installations).toHaveLength(2);
-    const piOnlyInstallation = state.installations.find((installation) =>
-      installation.hosts.length === 1 && installation.hosts[0] === "pi",
+    expect(state.receipts).toHaveLength(2);
+    const piOnlyInstallation = state.receipts.find((installation) =>
+      Object.keys(installation.hosts).length === 1,
     );
-    expect(piOnlyInstallation?.adapter_version).toBe("pi-project-v2");
-    expect(piOnlyInstallation?.host_versions.pi).toBe("native-project-append-system-v1");
-    const combinedInstallation = state.installations.find((installation) =>
-      installation.hosts.join(",") === "claude,pi",
+    expect(piOnlyInstallation?.hosts.pi?.adapter_version).toBe("pi-project-v2");
+    expect(piOnlyInstallation?.hosts.pi?.capability_contract).toBe("native-project-append-system-v1");
+    const combinedInstallation = state.receipts.find((installation) =>
+      installation.hosts.claude !== undefined,
     );
-    expect(combinedInstallation?.adapter_version).toBe("claude-project-v1+pi-project-v2");
-    expect(combinedInstallation?.host_versions.pi).toBe("native-project-append-system-v1");
-    expect(combinedInstallation?.host_versions.claude).toBe("native-project-unscoped-rules-skills-v1");
+    expect(combinedInstallation?.hosts.pi?.capability_contract).toBe("native-project-append-system-v1");
+    expect(combinedInstallation?.hosts.claude?.capability_contract).toBe("native-project-unscoped-rules-skills-v1");
 
     const status = await runCli(home, ["status"], { path: supportedPath });
     expectExitCode(status, 0);
@@ -731,14 +724,11 @@ describe("project-bound release candidate", () => {
     expect(readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "name: review-pr",
     );
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{
-        host_versions: Record<string, string>;
-        resolved_artifacts: Array<{ id: string; type: string }>;
-      }>;
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<{ hosts: { pi: { capability_contract: string } } }>;
     };
-    expect(state.installations[0]?.host_versions.pi).toBe("native-project-append-system-shared-skills-v1");
-    expect(state.installations[0]?.resolved_artifacts.some((artifact) => artifact.id === "review-pr" && artifact.type === "skill")).toBe(true);
+    expect(state.receipts[0]?.hosts.pi.capability_contract)
+      .toBe("native-project-append-system-shared-skills-v1");
     expect(readFileSync(join(home, ".pi", "agent", "settings.json"), "utf8")).toBe(globalSettings);
     expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe(projectSettings);
 
@@ -766,8 +756,8 @@ describe("project-bound release candidate", () => {
 
     expectExitCode(await runCli(home, ["apply"], { path: supportedPath }), 0);
     const state = await readInstallationState(home);
-    const current = state.installations[0];
-    if (!current || current.outputOrigins === undefined) throw new Error("expected current Pi receipt");
+    const current = state.receipts[0];
+    if (!current) throw new Error("expected current Pi receipt");
     const sharedPath = ".agents/skills/review-pr";
     const oldPath = ".pi/skills/review-pr";
     mkdirSync(join(projectPath, ".pi", "skills"), { recursive: true });
@@ -775,15 +765,16 @@ describe("project-bound release candidate", () => {
       join(projectPath, ".agents", "skills", "review-pr"),
       join(projectPath, oldPath),
     );
-    const { [sharedPath]: sharedOrigins, ...remainingOrigins } = current.outputOrigins;
-    if (sharedOrigins === undefined) throw new Error("expected shared Skill provenance");
     await writeInstallationState(home, {
       ...state,
-      installations: [{
+      receipts: [{
         ...current,
-        adapterVersion: "pi-project-v1",
-        hostVersions: { ...current.hostVersions, pi: "native-project-skills-v1" },
-        outputOrigins: { ...remainingOrigins, [oldPath]: sharedOrigins },
+        hosts: {
+          pi: {
+            adapterVersion: "pi-project-v1",
+            capabilityContract: "native-project-skills-v1",
+          },
+        },
         outputs: current.outputs.map((output) =>
           output.path === sharedPath ? { ...output, path: oldPath } : output,
         ),
@@ -853,20 +844,20 @@ describe("project-bound release candidate", () => {
       canonicalSource,
     );
 
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      installations: Array<{
-        hosts: string[];
-        host_versions: Record<string, string>;
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<{
+        hosts: Record<string, { capability_contract: string }>;
       }>;
     };
-    const skillsOnlyInstallation = state.installations.find(
-      (installation) => installation.hosts.join(",") === "pi",
+    const skillsOnlyInstallation = state.receipts.find(
+      (installation) => Object.keys(installation.hosts).length === 1,
     );
-    expect(skillsOnlyInstallation?.host_versions.pi).toBe("native-project-shared-skills-invocation-v1");
-    const combinedInstallation = state.installations.find(
-      (installation) => installation.hosts.join(",") === "claude,pi",
+    expect(skillsOnlyInstallation?.hosts.pi?.capability_contract)
+      .toBe("native-project-shared-skills-invocation-v1");
+    const combinedInstallation = state.receipts.find(
+      (installation) => installation.hosts.claude !== undefined,
     );
-    expect(combinedInstallation?.host_versions.pi).toBe(
+    expect(combinedInstallation?.hosts.pi?.capability_contract).toBe(
       "native-project-append-system-shared-skills-invocation-v1",
     );
 
@@ -1139,7 +1130,7 @@ describe("project-bound release candidate", () => {
     expect(readFileSync(join(agentsGlobal, "SKILL.md"), "utf8")).toBe(agentsGlobalBody);
     expect(readFileSync(join(codexGlobal, "SKILL.md"), "utf8")).toBe(codexGlobalBody);
     expect(readFileSync(join(claudeGlobal, "SKILL.md"), "utf8")).toBe(claudeGlobalBody);
-    expect(existsSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml"))).toBe(true);
+    expect(existsSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.json"))).toBe(true);
   });
 
   test("minimal and partial Workspaces prove optional scaffolding without weakening Manifest or artifact validation", async () => {

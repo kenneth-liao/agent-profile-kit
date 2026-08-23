@@ -44,11 +44,10 @@ import {
 } from "../installer/reconcile.js";
 import { projectConflictBlockers } from "../installer/temporary-installation.js";
 import {
-  canonicalRepositoryExclusionRecord,
   formatInstallationMarker,
   INSTALLATION_STATE_MAX_BYTES,
-  type InstallationState,
 } from "../schemas/installation-manifest.js";
+import type { OwnershipState } from "../schemas/ownership-state.js";
 import {
   reportBlockers,
 } from "./support/reconciliation-report.js";
@@ -90,13 +89,11 @@ async function prepareHome(project: string): Promise<string> {
   return home;
 }
 
-function emptyState(): InstallationState {
+function emptyState(): OwnershipState {
   return {
-    intendedTeardowns: [],
-    installations: [],
-    repositoryExclusions: [],
-    schemaVersion: 5,
-    temporaryInstallations: [],
+    receipts: [],
+    removedTemporaryInstallationIds: [],
+    schemaVersion: 6,
   };
 }
 
@@ -255,9 +252,9 @@ describe("structured Installer blocker evidence", () => {
     const canonicalProject = installation.binding.canonicalProject;
     const installationId = "recorded-installation-id";
     const manifest = manifestFor(installation, installationId);
-    const state: InstallationState = {
+    const state: OwnershipState = {
       ...emptyState(),
-      installations: [manifest],
+      receipts: [manifest],
     };
 
     const report = await previewReconciliation(desired.installations, state);
@@ -306,14 +303,15 @@ describe("structured Installer blocker evidence", () => {
     const manifest = manifestFor(installation, installationId);
     const expectedTarget = join(repository, ".git", "info", "exclude");
     const wrongTarget = join(other, ".git", "info", "exclude");
-    const state: InstallationState = {
+    const state: OwnershipState = {
       ...emptyState(),
-      installations: [manifest],
-      repositoryExclusions: [
-        canonicalRepositoryExclusionRecord(wrongTarget, [
-          { entries: ["/nested/.agent-profile-kit/codex/context.md"], installationId },
-        ]),
-      ],
+      receipts: [{
+        ...manifest,
+        repositoryExclusion: {
+          entries: ["/nested/.agent-profile-kit/codex/context.md"],
+          target: wrongTarget,
+        },
+      }],
     };
 
     const report = await previewReconciliation(desired.installations, state);
@@ -408,9 +406,9 @@ describe("structured Installer blocker evidence", () => {
       mkdirSync(dirname(destination), { recursive: true });
       writeFileSync(destination, "drifted content\n");
     }
-    const state: InstallationState = {
+    const state: OwnershipState = {
       ...emptyState(),
-      installations: [manifest],
+      receipts: [manifest],
     };
 
     const report = await previewReconciliation(desired.installations, state);
@@ -443,9 +441,9 @@ describe("structured Installer blocker evidence", () => {
     const installation = desired.installations[0]!;
     const canonicalProject = installation.binding.canonicalProject;
     const manifest = manifestFor(installation, "ordinary-installation-id");
-    const state: InstallationState = {
+    const state: OwnershipState = {
       ...emptyState(),
-      installations: [manifest],
+      receipts: [manifest],
     };
 
     const blockers = projectConflictBlockers(state, canonicalProject);
@@ -489,9 +487,9 @@ describe("structured Installer blocker evidence", () => {
         `  - project: ${lower}\n    profile: example\n    hosts: [codex]\n`,
     );
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const state: InstallationState = {
+    const state: OwnershipState = {
       ...emptyState(),
-      installations: desired.installations.map((installation) =>
+      receipts: desired.installations.map((installation) =>
         manifestFor(installation, `recorded-${basename(installation.binding.canonicalProject)}`),
       ),
     };
@@ -516,9 +514,9 @@ describe("structured Installer blocker evidence", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0]!;
     const missingProject = join(home, "vanished-project");
-    const state: InstallationState = {
+    const state: OwnershipState = {
       ...emptyState(),
-      installations: [{ ...manifestFor(installation, "vanished-id"), project: missingProject }],
+      receipts: [{ ...manifestFor(installation, "vanished-id"), project: missingProject }],
     };
 
     const blockers = await gitExclusionBlockers(state, [], {

@@ -213,7 +213,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     expect(instrumentation.counts.inspectFile).toBe(expectedFiles);
     expect(instrumentation.counts.inspectDirectory).toBe(expectedDirectories);
     expect(instrumentation.counts.inspectMarker).toBe(1);
-    expect(instrumentation.counts.unsafeParent).toBe(installation.outputs.length + 1);
+    expect(instrumentation.counts.unsafeParent).toBe(installation.outputs.length);
   });
 
   test("missing-Marker repair reuses the same per-output inspection instead of re-walking outputs", async () => {
@@ -292,7 +292,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     const directory = normalizedDirectory();
     await applyReconciliation(home, [withDirectoryOutput(base, directory)]);
     const previousState = await readInstallationState(home);
-    const recorded = previousState.installations.find(
+    const recorded = previousState.receipts.find(
       (installation) => installation.project === firstProject,
     );
     if (!recorded) throw new Error("expected one recorded installation");
@@ -371,7 +371,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     const project = temporaryDirectory("apk-own-inspect-content-key-project-");
     await appliedDirectoryInstallation(home, project);
     const state = await readInstallationState(home);
-    const recorded = state.installations[0]?.outputs.find((output) => output.type === "directory");
+    const recorded = state.receipts[0]?.outputs.find((output) => output.type === "directory");
     if (!recorded || recorded.type !== "directory") throw new Error("expected directory output");
 
     const instrumentation = emptyInstrumentation();
@@ -380,12 +380,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     await ownershipInspection.inspectOutput(project, recorded);
     expect(instrumentation.counts.inspectDirectory).toBe(1);
 
-    // Legacy member records are not part of the canonical expected identity.
-    const changedMembers: OwnedOutput = { ...recorded, members: [] };
-    await ownershipInspection.inspectOutput(project, changedMembers);
-    expect(instrumentation.counts.inspectDirectory).toBe(1);
-
-    const changedHash: OwnedOutput = { ...recorded, hash: "changed-directory-hash" };
+    const changedHash = { ...recorded, hash: "changed-directory-hash" };
     await ownershipInspection.inspectOutput(project, changedHash);
     expect(instrumentation.counts.inspectDirectory).toBe(2);
   });
@@ -513,7 +508,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     // captured after preflight rather than reusing the preflight cache.
     expect(contexts.length).toBeGreaterThanOrEqual(3);
     expect(readsByContext[1] ?? 0).toBeGreaterThan(0);
-    expect((await readInstallationState(home)).installations.map((item) => item.project)).toEqual([keep]);
+    expect((await readInstallationState(home)).receipts.map((item) => item.project)).toEqual([keep]);
     expect(reportItems(report.resultingState).every((item) => item.kind === "current")).toBe(true);
   });
 
@@ -582,6 +577,6 @@ describe("one shared ownership inspection per generated output per pass", () => 
     // The drifted output survives; the installation is not removed and the
     // recorded state is untouched.
     expect(readFileSync(staleContextPath, "utf8")).toBe(drifted);
-    expect((await readInstallationState(home)).installations).toEqual(staleState.installations);
+    expect((await readInstallationState(home)).receipts).toEqual(staleState.receipts);
   });
 });

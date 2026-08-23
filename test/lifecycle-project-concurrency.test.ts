@@ -30,10 +30,7 @@ import {
   createProjectReadScheduler,
   DEFAULT_PROJECT_CONCURRENCY,
 } from "../installer/project-scheduler.js";
-import {
-  INSTALLATION_STATE_SCHEMA_VERSION,
-  type InstallationState,
-} from "../schemas/installation-manifest.js";
+import type { OwnershipState } from "../schemas/ownership-state.js";
 import {
   reportBlockers,
   reportDesired,
@@ -128,13 +125,11 @@ async function fleetWorkspace(options: {
   return projects;
 }
 
-function emptyState(): InstallationState {
+function emptyState(): OwnershipState {
   return {
-    intendedTeardowns: [],
-    installations: [],
-    repositoryExclusions: [],
-    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-    temporaryInstallations: [],
+    receipts: [],
+    removedTemporaryInstallationIds: [],
+    schemaVersion: 6,
   };
 }
 
@@ -538,6 +533,6 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
     expect(reportBlockers(applied.resultingState)).toEqual([]);
     expect(reportItems(applied.resultingState).every((item) => item.kind === "current")).toBe(true);
     const state = await readInstallationState(home);
-    expect(state.installations).toHaveLength(projects.length);
+    expect(state.receipts).toHaveLength(projects.length);
   });
 });

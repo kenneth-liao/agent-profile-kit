@@ -238,11 +238,9 @@ describe("shared blocker contract", () => {
     if (!installation) throw new Error("expected one desired installation");
     const canonicalProject = installation.binding.canonicalProject;
     const emptyState = {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     } as const;
     const projectBlocker = {
       ...HOST_CAPABILITY_INPUT,
@@ -363,11 +361,9 @@ describe("tracked-output ownership conflicts", () => {
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const emptyState = {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      schemaVersion: 5,
-      temporaryInstallations: [],
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     } as const;
     const report = await previewReconciliation(desired.installations, emptyState);
 

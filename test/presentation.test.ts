@@ -903,7 +903,7 @@ describe("responsive lifecycle presentation", () => {
       context: context(40),
     });
 
-    expect(output.split("\n").some((line) => line.includes(receipt.project))).toBe(true);
+    expect(output.split("\n").some((line) => line.includes(receipt.project!))).toBe(true);
     expect(output).toContain("- Trust the bound project in Codex.");
     expect(output.split("\n")).toContain(`    ${receipt.temporaryInstallationId}`);
     expect(output).toContain("  Consequence: Profile Context does");
@@ -913,7 +913,7 @@ describe("responsive lifecycle presentation", () => {
       "Consequence: Profile Context does not load until the project is trusted.",
     );
     for (const line of output.trimEnd().split("\n")) {
-      if (line.includes(receipt.project)) continue;
+      if (line.includes(receipt.project!)) continue;
       expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
     }
   });
@@ -2930,7 +2930,7 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     const info: ApplicationInfo = {
       configurationState: "current",
       engineVersion: "0.67.0",
-      installationState: "/home/.agents/agent-profile-kit/state/manifest.yaml",
+      installationState: "/home/.agents/agent-profile-kit/state/manifest.json",
       localConfiguration: "/home/.agents/agent-profile-kit/config.yaml",
       workspace: {
         authored: "/home/.agents/agent-profile-kit/workspace",
@@ -2944,13 +2944,13 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     }
     expect(output).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
     expect(output).toContain("Local Configuration: ~/.agents/agent-profile-kit/config.yaml");
-    expect(output).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.yaml");
+    expect(output).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.json");
     // Without a context the deterministic layout is preserved byte-for-byte.
     expect(formatInfoHuman(info, {}, "/home", "/work")).toBe(
       "Engine version: 0.67.0\n" +
         "Workspace: ~/.agents/agent-profile-kit/workspace\n" +
         "Local Configuration: ~/.agents/agent-profile-kit/config.yaml\n" +
-        "Installation State: ~/.agents/agent-profile-kit/state/manifest.yaml\n",
+        "Installation State: ~/.agents/agent-profile-kit/state/manifest.json\n",
     );
   });
 

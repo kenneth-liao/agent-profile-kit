@@ -22,8 +22,8 @@ import {
   INSTALLATION_MARKER_PATH,
   parseFileMode,
   type OwnedDirectoryMember,
-  type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
+import type { OwnershipReceipt } from "../schemas/ownership-state.js";
 import {
   ARTIFACT_TYPES,
   artifactReferenceKey,
@@ -595,7 +595,7 @@ export interface BuildDesiredStateOptions {
    */
   readonly scheduler?: ProjectReadScheduler;
   /** Prior Installation Manifests available to Adapters for topology recovery. */
-  readonly previousInstallations?: readonly ProjectInstallationManifest[];
+  readonly previousInstallations?: readonly OwnershipReceipt[];
   /**
    * When true, let Adapters resolve dynamic multi-Host topology without full
    * capability preflight. Validate stays probe-free; status prevents guessing.
@@ -621,7 +621,10 @@ export async function buildDesiredState(
   const previousByProject = new Map(
     (options.previousInstallations ?? []).map((installation) => [
       installation.project,
-      installation,
+      {
+        hosts: Object.keys(installation.hosts),
+        outputs: installation.outputs,
+      },
     ]),
   );
   const bindings = [...configuration.bindings].sort((left, right) =>
@@ -704,6 +707,11 @@ export async function buildDesiredState(
 export { adapterVersionFor, stateDirectory };
 
 export function stateManifestPath(home: string): string {
+  return join(stateDirectory(home), "manifest.json");
+}
+
+/** Transitional YAML source accepted only by the bounded ownership-state migration reader. */
+export function legacyStateManifestPath(home: string): string {
   return join(stateDirectory(home), "manifest.yaml");
 }
 

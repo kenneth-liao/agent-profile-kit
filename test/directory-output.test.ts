@@ -237,7 +237,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(readFileSync(join(project, directory.path, "SKILL.md"), "utf8")).toBe("# Demo Skill\n");
     expect(statSync(join(project, directory.path, "scripts", "run.sh")).mode & 0o777).toBe(0o755);
     const state = await readInstallationState(home);
-    const owned = state.installations[0]?.outputs.find((output) => output.path === directory.path);
+    const owned = state.receipts[0]?.outputs.find((output) => output.path === directory.path);
     expect(owned).toMatchObject({
       hash: directory.hash,
       mode: 0o755,
@@ -246,7 +246,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     if (owned?.type !== "directory" || directory.type !== "directory") {
       throw new Error("expected directory ownership");
     }
-    expect(owned.members).toHaveLength(directory.members.length);
+    expect(owned).not.toHaveProperty("members");
   });
 
   test("directory ownership proof uses the aggregate root hash instead of the legacy member tree", async () => {
@@ -258,10 +258,10 @@ describe("Installer-owned artifact-directory outputs", () => {
     await applyReconciliation(home, desired);
 
     const state = await readInstallationState(home);
-    const installation = state.installations[0]!;
+    const installation = state.receipts[0]!;
     await writeInstallationState(home, {
       ...state,
-      installations: [{
+      receipts: [{
         ...installation,
         outputs: installation.outputs.map((output) =>
           output.type === "directory" ? { ...output, members: [] } : output
@@ -294,7 +294,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     await applyReconciliation(home, [base]);
     expect(existsSync(join(project, directory.path))).toBe(false);
-    expect((await readInstallationState(home)).installations[0]?.outputs.some(
+    expect((await readInstallationState(home)).receipts[0]?.outputs.some(
       (output) => output.path === directory.path,
     )).toBe(false);
   });
@@ -401,7 +401,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { intendedTeardowns: [], installations: [], repositoryExclusions: [], schemaVersion: 5, temporaryInstallations: [] },
+      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 6 },
     );
     expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("occupied unowned artifact directory")
@@ -453,7 +453,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { intendedTeardowns: [], installations: [], repositoryExclusions: [], schemaVersion: 5, temporaryInstallations: [] },
+      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 6 },
     );
     expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("occupied") && blocker.message.includes("parent path")
@@ -549,7 +549,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     const directory = normalizedDirectory();
     await applyReconciliation(home, [withDirectoryOutput(base, directory)]);
     const state = await readInstallationState(home);
-    const installation = state.installations[0]!;
+    const installation = state.receipts[0]!;
 
     writeFileSync(join(project, directory.path, "SKILL.md"), "# Drifted for removal\n");
     const driftedProof = await proveOwnedInstallation(installation);
@@ -564,7 +564,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(existsSync(join(project, directory.path))).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
 
-    await writeInstallationState(home, { intendedTeardowns: [], installations: [], repositoryExclusions: [], schemaVersion: 5, temporaryInstallations: [] });
+    await writeInstallationState(home, { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 6 });
   });
 
   test("existing Context-only Codex lifecycle still applies without directory outputs", async () => {
@@ -576,7 +576,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(readFileSync(join(project, ".agent-profile-kit", "codex", "context.md"), "utf8"))
       .toContain("Directory ownership context.");
     const state = await readInstallationState(home);
-    expect(state.installations[0]!.outputs.every((output) => output.type === "file")).toBe(true);
+    expect(state.receipts[0]!.outputs.every((output) => output.type === "file")).toBe(true);
   });
 
   test("apply stages read-only directory roots and nested directories successfully", async () => {
@@ -637,7 +637,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { intendedTeardowns: [], installations: [], repositoryExclusions: [], schemaVersion: 5, temporaryInstallations: [] },
+      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 6 },
     );
     expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("tracked project path")
@@ -692,14 +692,14 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
-    expect((await readInstallationState(home)).installations).toEqual([]);
+    expect((await readInstallationState(home)).receipts).toEqual([]);
 
     // Rerun converges once machine-local state is writable again.
     await expect(applyReconciliation(home, [withDirectoryOutput(base, directory)]))
       .resolves.toBeDefined();
     const state = await readInstallationState(home);
-    expect(state.installations).toHaveLength(1);
-    expect(state.installations[0]!.outputs.some((output) =>
+    expect(state.receipts).toHaveLength(1);
+    expect(state.receipts[0]!.outputs.some((output) =>
       output.type === "directory" && output.path === directory.path && output.mode === 0o000
     )).toBe(true);
     // Mode 0000 roots are not searchable; restore owner access before content checks.

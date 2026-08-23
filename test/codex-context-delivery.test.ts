@@ -225,7 +225,7 @@ describe("Codex complete Context delivery", () => {
     const state = await readInstallationState(home);
     await writeInstallationState(home, {
       ...state,
-      installations: state.installations.map((installation) => ({
+      receipts: state.receipts.map((installation) => ({
         ...installation,
         adapterVersion: "codex-project-v1",
         hostVersions: { codex: "native-project-sessionstart-v1" },
@@ -256,8 +256,8 @@ describe("Codex complete Context delivery", () => {
     };
     expect(installedHook.hooks.SessionStart[0]?.hooks[0]?.additionalContextLimit).toBe(0);
     const migrated = await readInstallationState(home);
-    expect(migrated.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
-    expect(migrated.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
+    expect(migrated.receipts[0]?.hosts.codex?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
+    expect(migrated.receipts[0]?.hosts.codex?.capabilityContract).toBe(CODEX_HOST_VERSION);
   });
 
   test("reconciles a same-version install whose only drift is the resume matcher", async () => {
@@ -285,8 +285,8 @@ describe("Codex complete Context delivery", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, desired.installations);
     const state = await readInstallationState(home);
-    expect(state.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
-    expect(state.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
+    expect(state.receipts[0]?.hosts.codex?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
+    expect(state.receipts[0]?.hosts.codex?.capabilityContract).toBe(CODEX_HOST_VERSION);
 
     const hookPath = join(project, ".codex", "hooks.json");
     const currentHook = JSON.parse(readFileSync(hookPath, "utf8")) as {
@@ -304,7 +304,7 @@ describe("Codex complete Context delivery", () => {
     writeFileSync(hookPath, legacyResumeHook);
     await writeInstallationState(home, {
       ...state,
-      installations: state.installations.map((installation) => ({
+      receipts: state.receipts.map((installation) => ({
         ...installation,
         // Keep current version markers so only the hooks.json hash can trigger update.
         outputs: installation.outputs.map((output) =>

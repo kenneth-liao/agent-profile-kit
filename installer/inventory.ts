@@ -108,12 +108,11 @@ export async function listTemporaryInstallations(
 ): Promise<readonly TemporaryInventoryRecord[]> {
   const installations = await readTemporaryInstallations(home);
   return installations
-    .filter((installation) => installation.completionState === "installed")
     .map((installation) => ({
-      host: installation.host,
+      host: Object.keys(installation.hosts)[0]! as SupportedHost,
       profileId: installation.profileId,
       project: installation.project,
-      temporaryInstallationId: installation.temporaryInstallationId,
+      temporaryInstallationId: installation.installationId,
     }))
     .sort((left, right) =>
       compareCanonicalStrings(left.project, right.project) ||

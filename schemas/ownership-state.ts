@@ -248,12 +248,16 @@ function parseReceipt(value: unknown, index: number): OwnershipReceipt {
       }
     }
   }
+  const hosts = parseHosts(receipt.hosts, `${description} hosts`);
+  if (receipt.lifetime === "temporary" && Object.keys(hosts).length !== 1) {
+    throw new Error(`${description} temporary receipt must contain exactly one Host`);
+  }
   return {
     desiredInputDigest: requireHash(
       receipt.desired_input_digest,
       `${description} desired_input_digest`,
     ),
-    hosts: parseHosts(receipt.hosts, `${description} hosts`),
+    hosts,
     installationId: requireString(receipt.installation_id, `${description} installation_id`),
     lifetime: receipt.lifetime,
     outputs: [...outputs].sort((left, right) => compareCanonicalStrings(left.path, right.path)),

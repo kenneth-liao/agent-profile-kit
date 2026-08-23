@@ -12,7 +12,6 @@ import { createLifecycleOwnershipInspectionContext } from "./lifecycle-ownership
 import type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
 import { createProjectReadScheduler } from "./project-scheduler.js";
 import { buildDesiredState } from "./project-plan.js";
-import { INSTALLATION_STATE_SCHEMA_VERSION } from "../schemas/installation-manifest.js";
 import {
   proveOwnedInstallation,
   readInstallationState,
@@ -23,9 +22,14 @@ import {
 import { gitExclusionBlockers, stageGitExclusions } from "./git-exclusions.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import type { LifecycleInstrumentation } from "./qualification-instrumentation.js";
-import { canonicalRepositoryExclusionRecord } from "../schemas/installation-manifest.js";
+import {
+  ordinaryReceipts,
+  temporaryReceipts,
+  withReceipts,
+} from "./ownership-state.js";
 import { blockerMessage } from "./blockers.js";
 import type { ProjectBindingSelection } from "./local-configuration.js";
+import { INSTALLATION_MARKER_PATH } from "../schemas/installation-manifest.js";
 
 export interface ValidationResult {
   readonly bindings: number;
@@ -154,7 +158,7 @@ export async function statusApplication(
     ...(options.env === undefined ? {} : { env: options.env }),
     gitInspection,
     ...planningInstrumentation(instrumentation),
-    previousInstallations: state.installations,
+    previousInstallations: ordinaryReceipts(state),
     resolveHostTopology: true,
     scheduler,
     ...(options.selection === undefined ? {} : { selection: options.selection }),
@@ -212,12 +216,13 @@ export async function uninstallApplication(home: string): Promise<UninstallResul
 async function uninstallApplicationLocked(home: string): Promise<UninstallResult> {
   const loaded = await readInstallationStateWithMigration(home);
   const state = loaded.state;
-  if (state.installations.length === 0) {
+  const installations = ordinaryReceipts(state);
+  if (installations.length === 0) {
     if (loaded.migrated) await writeInstallationState(home, state);
     return { projects: [] };
   }
   const failures: string[] = [];
-  for (const installation of state.installations) {
+  for (const installation of installations) {
     const proof = await proveOwnedInstallation(installation);
     if (!proof.owned) {
       failures.push(
@@ -234,47 +239,25 @@ async function uninstallApplicationLocked(home: string): Promise<UninstallResult
   }
   const transactions: Awaited<ReturnType<typeof stageProvenInstallationRemoval>>[] = [];
   const result: UninstallResult = {
-    projects: state.installations.map((installation) => ({
-      outputs: installation.outputs.map((output) => output.path),
+    projects: installations.map((installation) => ({
+      outputs: [
+        ...installation.outputs.map((output) => output.path),
+        INSTALLATION_MARKER_PATH,
+      ].sort(),
       project: installation.project,
-      repositoryExclusions: state.repositoryExclusions.flatMap((record) => {
-        const contribution = record.contributions.find(
-          (candidate) => candidate.installationId === installation.installationId,
-        );
-        return contribution === undefined
-          ? []
-          : [{ entries: contribution.entries, target: record.target }];
-      }),
+      repositoryExclusions: installation.repositoryExclusion === undefined
+        ? []
+        : [installation.repositoryExclusion],
     })),
   };
   let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
   let stateWriteAttempted = false;
   try {
-    for (const installation of state.installations) {
+    for (const installation of installations) {
       transactions.push(await stageProvenInstallationRemoval(installation));
     }
-    // Ordinary uninstall must not erase Temporary Profile Installations or their
-    // Repository Exclusion contributions; those lifetimes are receipt-owned.
-    const activeTemporaryIds = new Set(
-      state.temporaryInstallations
-        .filter((installation) => installation.completionState === "installed")
-        .map((installation) => installation.temporaryInstallationId),
-    );
-    const temporaryExclusions = state.repositoryExclusions.flatMap((record) => {
-      const contributions = record.contributions.filter((contribution) =>
-        activeTemporaryIds.has(contribution.installationId),
-      );
-      return contributions.length === 0
-        ? []
-        : [canonicalRepositoryExclusionRecord(record.target, contributions)];
-    });
-    const afterOrdinaryUninstall = {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: temporaryExclusions,
-      schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-      temporaryInstallations: state.temporaryInstallations,
-    } as const;
+    // Ordinary uninstall preserves Temporary Profile Installation receipts and tombstones.
+    const afterOrdinaryUninstall = withReceipts(state, temporaryReceipts(state));
     exclusions = await stageGitExclusions(state, afterOrdinaryUninstall);
     stateWriteAttempted = true;
     await writeInstallationState(home, afterOrdinaryUninstall);

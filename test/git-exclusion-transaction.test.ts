@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { stageGitExclusions } from "../installer/git-exclusions.js";
-import type { InstallationState } from "../schemas/installation-manifest.js";
+import type { OwnershipState } from "../schemas/ownership-state.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -20,66 +20,45 @@ function gitRepository(): string {
   return realpathSync(repository);
 }
 
-function installationState(project: string): InstallationState {
+function installationState(project: string): OwnershipState {
   const hash = `sha256:${"0".repeat(64)}`;
+  const target = join(project, ".git", "info", "exclude");
   return {
-    intendedTeardowns: [],
-    installations: [{
-      adapterVersion: "test-adapter",
-      engineVersion: "test-engine",
-      hosts: ["codex"],
-      hostVersions: { codex: "test-host" },
+    receipts: [{
+      desiredInputDigest: hash,
+      hosts: {
+        codex: { adapterVersion: "test-adapter", capabilityContract: "test-host" },
+      },
       installationId: "test-installation",
-      outputs: [{
-        hash,
-        mode: 0o644,
-        path: ".agent-profile-kit/installation.json",
-        type: "file",
-      }],
+      lifetime: "ordinary",
+      outputs: [{ hash, mode: 0o644, path: ".codex/hooks.json", type: "file" }],
       profileId: "coding",
       project,
-      resolvedArtifacts: [],
-      schemaVersion: 3,
-      selectedContext: [],
-      workspaceInputHash: hash,
+      repositoryExclusion: { entries: ["/.codex/hooks.json"], target },
     }],
-    repositoryExclusions: [{
-      target: join(project, ".git", "info", "exclude"),
-      contributions: [{
-        installationId: "test-installation",
-        entries: ["/.agent-profile-kit/installation.json"],
-      }],
-      entries: ["/.agent-profile-kit/installation.json"],
-    }],
-    temporaryInstallations: [],
-    schemaVersion: 5,
+    removedTemporaryInstallationIds: [],
+    schemaVersion: 6,
   };
 }
 
 describe("Git exclusion transaction", () => {
-  test("staging is read-only and commit publishes the planned exclusion bytes", async () => {
+  test("staging is read-only and commit publishes the derived receipt union", async () => {
     const repository = gitRepository();
     const exclude = join(repository, ".git", "info", "exclude");
     const authored = Buffer.from("# authored exclusion\n");
     writeFileSync(exclude, authored);
-    const empty: InstallationState = {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      schemaVersion: 5,
-      temporaryInstallations: [],
+    const empty: OwnershipState = {
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     };
 
     const transaction = await stageGitExclusions(empty, installationState(repository));
 
     expect(readFileSync(exclude).equals(authored)).toBe(true);
-
     await transaction.commit();
-
-    expect(readFileSync(exclude, "utf8")).toContain("/.agent-profile-kit/installation.json");
-
+    expect(readFileSync(exclude, "utf8")).toContain("/.codex/hooks.json");
     await transaction.rollback();
-
     expect(readFileSync(exclude).equals(authored)).toBe(true);
   });
 });

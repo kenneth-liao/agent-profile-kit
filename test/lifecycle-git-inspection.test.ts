@@ -180,11 +180,9 @@ async function previewWithInspection(
     state = await readInstallationState(home);
   } catch {
     state = {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-      temporaryInstallations: [],
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     } as const;
   }
   const report = await previewReconciliation(desired.installations, state, { gitInspection });
@@ -265,11 +263,9 @@ describe("lifecycle Git inspection batching", () => {
     const instrumentation = emptyInstrumentation();
     const gitInspection = createLifecycleGitInspectionContext(instrumentation);
     const report = await previewReconciliation([installation], {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-      temporaryInstallations: [],
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     }, { gitInspection });
 
     expect(instrumentation.counts.classifyTrackedPaths).toBe(1);
@@ -321,7 +317,9 @@ describe("lifecycle Git inspection batching", () => {
     const first = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, first.installations);
     const state = await readInstallationState(home);
-    expect(state.repositoryExclusions).toHaveLength(1);
+    expect(new Set(state.receipts.flatMap((receipt) =>
+      receipt.repositoryExclusion === undefined ? [] : [receipt.repositoryExclusion.target]
+    )).size).toBe(1);
 
     const instrumentation = emptyInstrumentation();
     const gitInspection = createLifecycleGitInspectionContext(instrumentation);
