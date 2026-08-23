@@ -5,10 +5,8 @@ import {
   INSTALLATION_MARKER_PATH,
   parseInstallationMarker,
   type InstallationMarker,
-  type OwnedDirectoryOutput,
-  type OwnedFileOutput,
-  type OwnedOutput,
 } from "../schemas/installation-manifest.js";
+import type { OwnershipOutputReceipt } from "../schemas/ownership-state.js";
 import { hashBytes, hashDirectoryMembersFromFiles, markerPath } from "./project-plan.js";
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -70,7 +68,7 @@ export interface MarkerInspection {
  */
 export interface LifecycleOwnershipInspection {
   inspectMarker(project: string): Promise<MarkerInspection>;
-  inspectOutput(project: string, output: OwnedOutput): Promise<OwnedOutputInspection>;
+  inspectOutput(project: string, output: OwnershipOutputReceipt): Promise<OwnedOutputInspection>;
   unsafeParent(project: string, relativePath: string): Promise<string | undefined>;
 }
 
@@ -128,7 +126,7 @@ async function listRelativeEntries(
 
 async function inspectDirectoryOutput(
   project: string,
-  output: OwnedDirectoryOutput,
+  output: OwnershipOutputReceipt,
   walk: DirectoryWalker,
 ): Promise<OwnedOutputInspection> {
   const root = join(project, output.path);
@@ -164,7 +162,7 @@ async function inspectDirectoryOutput(
 
 async function inspectFileOutput(
   project: string,
-  output: OwnedFileOutput,
+  output: OwnershipOutputReceipt,
 ): Promise<OwnedOutputInspection> {
   const path = join(project, output.path);
   let stats;
@@ -289,7 +287,7 @@ export function createLifecycleOwnershipInspectionContext(
     });
   }
 
-  function inspectOutput(project: string, output: OwnedOutput): Promise<OwnedOutputInspection> {
+  function inspectOutput(project: string, output: OwnershipOutputReceipt): Promise<OwnedOutputInspection> {
     // The cache key includes the canonical expected root identity. Legacy
     // directory member records are not ownership evidence and cannot cause a
     // second inspection or an alternate comparison path.

@@ -61,11 +61,9 @@ describe("nested Project reconciliation report", () => {
     }));
 
     const report = await previewReconciliation(installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      schemaVersion: 5,
-      temporaryInstallations: [],
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
 
     expect(Object.keys(report).sort()).toEqual(["globalBlockers", "projects"]);
@@ -195,16 +193,12 @@ describe("injected project filesystem failures", () => {
     const previousState = await readInstallationState(home);
     await writeInstallationState(home, {
       ...previousState,
-      installations: previousState.installations.map((installation) =>
+      receipts: previousState.receipts.map((installation) =>
         installation.project === initial.installations.find(
           (entry) => entry.binding.project === second,
         )!.binding.canonicalProject
           ? {
               ...installation,
-              outputOrigins: {
-                ...installation.outputOrigins,
-                [obsoleteRelative]: [],
-              },
               outputs: [...installation.outputs, {
                 hash: hashBytes(obsoleteBytes),
                 mode: 0o644,
@@ -310,7 +304,7 @@ describe("injected project filesystem failures", () => {
     }));
     expect(statSync(join(project, ".agent-profile-kit", "codex", "context.md")).mode & 0o777).toBe(0o600);
     const state = await readInstallationState(home);
-    expect(state.installations[0]!.outputs.find((output) => output.path.endsWith("context.md"))?.mode).toBe(0o600);
+    expect(state.receipts[0]!.outputs.find((output) => output.path.endsWith("context.md"))?.mode).toBe(0o600);
   });
 
   test("a missing-output repair remains retryable across output and Installation State publication failures", async () => {

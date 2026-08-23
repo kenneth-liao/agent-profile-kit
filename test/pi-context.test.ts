@@ -443,10 +443,10 @@ describe("Pi Adapter", () => {
     expect(existsSync(join(combinedProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
 
     const state = await readInstallationState(home);
-    expect(state.installations).toHaveLength(2);
-    const piManifest = state.installations.find((installation) => installation.project === piDesired!.binding.canonicalProject);
-    expect(piManifest?.hosts).toEqual(["pi"]);
-    expect(piManifest?.hostVersions.pi).toBe(PI_HOST_VERSION);
+    expect(state.receipts).toHaveLength(2);
+    const piManifest = state.receipts.find((installation) => installation.project === piDesired!.binding.canonicalProject);
+    expect(Object.keys((piManifest?.hosts) ?? {})).toEqual(["pi"]);
+    expect(piManifest?.hosts.pi?.capabilityContract).toBe(PI_HOST_VERSION);
     expect(piManifest?.outputs.some((output) => output.path === PI_CONTEXT_PATH)).toBe(true);
 
     writeFileSync(join(piProject, ".pi", "APPEND_SYSTEM.md"), "drifted\n");
@@ -509,9 +509,8 @@ describe("Pi Adapter", () => {
     expect(readFileSync(join(project, ".agents", "skills", "unrelated", "README.md"), "utf8")).toBe("keep\n");
 
     const state = await readInstallationState(home);
-    const manifest = state.installations[0];
-    expect(manifest?.hostVersions.pi).toBe("native-project-append-system-shared-skills-v1");
-    expect(manifest?.resolvedArtifacts.find((artifact) => artifact.reference.id === "shared-base")?.inclusionReasons).toHaveLength(2);
+    const manifest = state.receipts[0];
+    expect(manifest?.hosts.pi?.capabilityContract).toBe("native-project-append-system-shared-skills-v1");
 
     const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
     mkdirSync(join(workspace, "skills", "relocated"), { recursive: true });
@@ -569,7 +568,7 @@ describe("Pi Adapter", () => {
     const applied = await applyReconciliation(home, desired.installations);
     expect(reportBlockers(applied.resultingState)).toEqual([]);
     const state = await readInstallationState(home);
-    expect(state.installations[0]?.hosts).toEqual(["claude", "pi"]);
+    expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["claude", "pi"]);
     expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     await uninstallApplication(home);
@@ -597,11 +596,9 @@ describe("Pi Adapter", () => {
     expect(installation.setupSteps.some((step) => step.kind === "shared-path")).toBe(false);
 
     const report = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       projects: readonly {
@@ -677,11 +674,9 @@ describe("Pi Adapter", () => {
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const preview = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
 
     expect(
@@ -799,11 +794,9 @@ describe("Pi Adapter", () => {
     const canonicalSettingsPath = join(realpathSync(project), ".pi", "settings.json");
     expect(installation?.warnings[0]?.copyableValues).toContain(canonicalSettingsPath);
     const report = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      schemaVersion: 5,
-      temporaryInstallations: [],
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     expect(reportDiagnosticValues(report)).toContain(canonicalSettingsPath);
   });

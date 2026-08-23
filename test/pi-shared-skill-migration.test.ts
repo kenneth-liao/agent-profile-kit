@@ -24,10 +24,7 @@ import {
   writeInstallationState,
 } from "../installer/installation-state.js";
 import { uninstallApplication } from "../installer/commands.js";
-import {
-  formatInstallationMarker,
-  type OwnedOutput,
-} from "../schemas/installation-manifest.js";
+import { formatInstallationMarker } from "../schemas/installation-manifest.js";
 import type {
   DesiredInstallation,
   DesiredProjectDirectoryOutput,
@@ -103,17 +100,17 @@ function oldPiManifest(
   if (!desiredOutput) throw new Error("expected shared Skill output");
   const sharedOwned = manifest.outputs.find((output) => output.path === sharedPath);
   if (!sharedOwned) throw new Error("expected shared owned output");
-  const origins = manifest.outputOrigins ?? {};
-  const { [sharedPath]: sharedOrigins, ...remainingOrigins } = origins;
-  if (sharedOrigins === undefined) throw new Error("expected shared output origins");
   return {
     desiredOutput,
     manifest: {
       ...manifest,
-      adapterVersion: "pi-project-v1",
-      hostVersions: { ...manifest.hostVersions, pi: "native-project-skills-v1" },
-      outputOrigins: { ...remainingOrigins, [oldPath]: sharedOrigins },
-      outputs: manifest.outputs.map((output): OwnedOutput =>
+      hosts: {
+        pi: {
+          adapterVersion: "pi-project-v1",
+          capabilityContract: "native-project-skills-v1",
+        },
+      },
+      outputs: manifest.outputs.map((output) =>
         output.path === sharedPath ? { ...output, path: oldPath } : output,
       ),
     },
@@ -142,7 +139,7 @@ describe("Pi shared Skill migration", () => {
     );
     await writeInstallationState(home, {
       ...emptyInstallationState(),
-      installations: [old.manifest],
+      receipts: [old.manifest],
     });
 
     const migrated = await applyReconciliation(home, desired.installations);
@@ -151,8 +148,8 @@ describe("Pi shared Skill migration", () => {
     expect(readFileSync(join(project, ".pi", "skills", "unrelated", "README.md"), "utf8")).toBe("keep\n");
     expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     const state = await readInstallationState(home);
-    expect(state.installations[0]?.outputs.some((output) => output.path === oldPath)).toBe(false);
-    expect(state.installations[0]?.outputs.some((output) => output.path === ".agents/skills/review-pr")).toBe(true);
+    expect(state.receipts[0]?.outputs.some((output) => output.path === oldPath)).toBe(false);
+    expect(state.receipts[0]?.outputs.some((output) => output.path === ".agents/skills/review-pr")).toBe(true);
 
     const current = await applyReconciliation(
       home,
@@ -187,9 +184,9 @@ describe("Pi shared Skill migration", () => {
     );
     await writeInstallationState(home, {
       ...emptyInstallationState(),
-      installations: [old.manifest],
+      receipts: [old.manifest],
     });
-    const statePath = join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml");
+    const statePath = join(home, ".agents", "agent-profile-kit", "state", "manifest.json");
     const beforeState = readFileSync(statePath, "utf8");
     const sharedSkill = join(project, ".agents", "skills", "review-pr", "SKILL.md");
 
@@ -225,9 +222,9 @@ describe("Pi shared Skill migration", () => {
     );
     await writeInstallationState(home, {
       ...emptyInstallationState(),
-      installations: [old.manifest],
+      receipts: [old.manifest],
     });
-    const statePath = join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml");
+    const statePath = join(home, ".agents", "agent-profile-kit", "state", "manifest.json");
     const beforeState = readFileSync(statePath, "utf8");
     writeFileSync(join(project, oldPath, "SKILL.md"), "user edit\n");
 

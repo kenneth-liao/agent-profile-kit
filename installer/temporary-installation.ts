@@ -14,14 +14,11 @@ import {
 } from "../schemas/local-configuration.js";
 import {
   formatInstallationMarker,
-  INSTALLATION_STATE_SCHEMA_VERSION,
-  type TemporaryProfileInstallation,
+  INSTALLATION_MARKER_PATH,
 } from "../schemas/installation-manifest.js";
-import {
-  replaceRepositoryExclusionContribution,
-  stageGitExclusions,
-} from "./git-exclusions.js";
-import { findGitProject } from "./git.js";
+import type { OwnershipReceipt } from "../schemas/ownership-state.js";
+import { stageGitExclusions } from "./git-exclusions.js";
+import { findGitProject, gitExcludeEntry } from "./git.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import {
   newInstallationId,
@@ -60,6 +57,11 @@ import {
   type ReconciliationBlocker,
 } from "./blockers.js";
 import { ENGINE_VERSION } from "./version.js";
+import {
+  ordinaryReceipts,
+  temporaryReceipts,
+  withReceipts,
+} from "./ownership-state.js";
 
 export {
   isTemporaryInstallationHost,
@@ -117,14 +119,14 @@ export class TemporaryInstallationRecoverableError extends Error {
 }
 
 export interface TemporaryInstallationReceipt {
-  readonly adapterVersion: string;
+  readonly adapterVersion?: string;
   readonly completionState: "installed" | "removed";
-  readonly engineVersion: string;
-  readonly host: string;
-  readonly hostVersion: string;
+  readonly engineVersion?: string;
+  readonly host?: string;
+  readonly hostVersion?: string;
   readonly outputs: readonly string[];
-  readonly profileId: string;
-  readonly project: string;
+  readonly profileId?: string;
+  readonly project?: string;
   readonly repositoryExclusion:
     | {
         readonly entries: readonly string[];
@@ -138,7 +140,7 @@ export interface TemporaryInstallationReceipt {
   readonly diagnosticValues: readonly string[];
   /** Configuration warnings that do not block install but can prevent Host loading. */
   readonly warnings: readonly string[];
-  readonly workspaceInputHash: string;
+  readonly workspaceInputHash?: string;
 }
 
 /** Test-only hooks for failure injection at Installer transaction boundaries. */
@@ -172,31 +174,31 @@ async function writeTemporaryOwnershipToken(
 }
 
 function receiptFromRecord(
-  record: TemporaryProfileInstallation,
-  repositoryExclusion:
-    | TemporaryInstallationReceipt["repositoryExclusion"]
-    | undefined,
+  record: OwnershipReceipt,
+  completionState: "installed" | "removed",
   options: {
     readonly diagnosticValues?: readonly string[];
     readonly setupSteps?: readonly HostSetupStep[];
     readonly warnings?: readonly string[];
   } = {},
 ): TemporaryInstallationReceipt {
+  const host = Object.keys(record.hosts)[0]! as SupportedHost;
+  const hostReceipt = record.hosts[host]!;
   return {
-    adapterVersion: record.adapterVersion,
-    completionState: record.completionState,
-    engineVersion: record.engineVersion,
-    host: record.host,
-    hostVersion: record.hostVersion,
-    outputs: record.outputs.map((output) => output.path),
+    adapterVersion: hostReceipt.adapterVersion,
+    completionState,
+    engineVersion: ENGINE_VERSION,
+    host,
+    hostVersion: hostReceipt.capabilityContract,
+    outputs: completionState === "installed" ? record.outputs.map((output) => output.path) : [],
     profileId: record.profileId,
     project: record.project,
-    repositoryExclusion,
+    repositoryExclusion: completionState === "installed" ? record.repositoryExclusion : undefined,
     setupSteps: options.setupSteps ?? [],
-    temporaryInstallationId: record.temporaryInstallationId,
+    temporaryInstallationId: record.installationId,
     diagnosticValues: options.diagnosticValues ?? [],
     warnings: options.warnings ?? [],
-    workspaceInputHash: record.workspaceInputHash,
+    workspaceInputHash: record.desiredInputDigest,
   };
 }
 
@@ -204,15 +206,9 @@ function exclusionContributionFor(
   state: Awaited<ReturnType<typeof readInstallationStateWithMigration>>["state"],
   installationId: string,
 ): TemporaryInstallationReceipt["repositoryExclusion"] {
-  for (const record of state.repositoryExclusions) {
-    const contribution = record.contributions.find(
-      (entry) => entry.installationId === installationId,
-    );
-    if (contribution) {
-      return { entries: contribution.entries, target: record.target };
-    }
-  }
-  return undefined;
+  return state.receipts.find(
+    (receipt) => receipt.installationId === installationId,
+  )?.repositoryExclusion;
 }
 
 async function planTemporaryDesiredInstallation(options: {
@@ -297,7 +293,7 @@ export function projectConflictBlockers(
   canonicalProject: string,
 ): readonly BlockerInput[] {
   const blockers: BlockerInput[] = [];
-  const ordinary = state.installations.find(
+  const ordinary = ordinaryReceipts(state).find(
     (installation) => installation.project === canonicalProject,
   );
   if (ordinary) {
@@ -308,18 +304,16 @@ export function projectConflictBlockers(
       project: canonicalProject,
     }));
   }
-  const activeTemporary = state.temporaryInstallations.find(
-    (installation) =>
-      installation.completionState === "installed" &&
-      installation.project === canonicalProject,
+  const activeTemporary = temporaryReceipts(state).find(
+    (installation) => installation.project === canonicalProject,
   );
   if (activeTemporary) {
     blockers.push(temporaryInstallationConflictBlocker({
       message:
         "An active Temporary Profile Installation already owns generated files " +
-        `(${activeTemporary.temporaryInstallationId})`,
+        `(${activeTemporary.installationId})`,
       project: canonicalProject,
-      temporaryInstallationId: activeTemporary.temporaryInstallationId,
+      temporaryInstallationId: activeTemporary.installationId,
     }));
   }
   return blockers;
@@ -383,39 +377,30 @@ export async function installTemporaryProfile(options: {
         throw new TemporaryInstallationBlockedError(structuredBlockers, canonicalProject);
       }
 
-      const manifest = manifestFor(desired, temporaryInstallationId);
-      const temporaryRecord: TemporaryProfileInstallation = {
-        adapterVersion: manifest.adapterVersion,
-        completionState: "installed",
-        engineVersion: manifest.engineVersion,
-        ...(manifest.gitProject === undefined ? {} : { gitProject: manifest.gitProject }),
-        host: temporaryHost,
-        hostVersion: manifest.hostVersions[temporaryHost]!,
-        outputs: manifest.outputs,
-        profileId: manifest.profileId,
-        project: manifest.project,
-        temporaryInstallationId,
-        workspaceInputHash: manifest.workspaceInputHash,
+      const ordinaryShape = manifestFor(desired, temporaryInstallationId);
+      const temporaryRecord: OwnershipReceipt = {
+        ...ordinaryShape,
+        lifetime: "temporary",
+        ...(desired.gitProject === undefined
+          ? {}
+          : {
+              repositoryExclusion: {
+                entries: [
+                  ...ordinaryShape.outputs.map((output) =>
+                    gitExcludeEntry(desired.gitProject!, output.path)
+                  ),
+                  gitExcludeEntry(desired.gitProject, INSTALLATION_MARKER_PATH),
+                ],
+                target: desired.gitProject.excludeFile,
+              },
+            }),
       };
-
-      const nextState = {
-        intendedTeardowns: [],
-        installations: state.installations,
-        repositoryExclusions: replaceRepositoryExclusionContribution(
-          state.repositoryExclusions,
-          temporaryInstallationId,
-          desired.gitProject,
-          manifest.outputs,
+      const nextState = withReceipts(state, [
+        ...state.receipts.filter(
+          (receipt) => receipt.installationId !== temporaryInstallationId,
         ),
-        schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION as 5,
-        temporaryInstallations: [
-          ...state.temporaryInstallations.filter(
-            (installation) =>
-              installation.temporaryInstallationId !== temporaryInstallationId,
-          ),
-          temporaryRecord,
-        ],
-      };
+        temporaryRecord,
+      ]);
 
       let durableRecorded = false;
       let ownershipTokenPublished = false;
@@ -442,7 +427,7 @@ export async function installTemporaryProfile(options: {
         };
         transaction = await stageProjectOutputs(
           desired,
-          manifest,
+          temporaryRecord,
           undefined,
           fileSystem,
         );
@@ -491,7 +476,7 @@ export async function installTemporaryProfile(options: {
 
       return receiptFromRecord(
         temporaryRecord,
-        exclusionContributionFor(nextState, temporaryInstallationId),
+        "installed",
         {
           diagnosticValues: [...new Set(
             desired.warnings.flatMap((warning) => warning.copyableValues),
@@ -530,46 +515,36 @@ export async function removeTemporaryProfile(options: {
     async () => {
       const loaded = await readInstallationStateWithMigration(options.home);
       const state = loaded.state;
-      const existing = state.temporaryInstallations.find(
-        (installation) => installation.temporaryInstallationId === temporaryInstallationId,
+      const existing = temporaryReceipts(state).find(
+        (installation) => installation.installationId === temporaryInstallationId,
       );
       if (!existing) {
+        if (state.removedTemporaryInstallationIds.includes(temporaryInstallationId)) {
+          return {
+            completionState: "removed",
+            outputs: [],
+            repositoryExclusion: undefined,
+            setupSteps: [],
+            temporaryInstallationId,
+            diagnosticValues: [],
+            warnings: [],
+          };
+        }
         throw new Error(
           `unknown temporary installation identity '${temporaryInstallationId}'`,
         );
       }
-      if (existing.completionState === "removed") {
-        return receiptFromRecord(existing, undefined);
-      }
-
-      const removedRecord: TemporaryProfileInstallation = {
-        adapterVersion: existing.adapterVersion,
-        completionState: "removed",
-        engineVersion: existing.engineVersion,
-        ...(existing.gitProject === undefined ? {} : { gitProject: existing.gitProject }),
-        host: existing.host,
-        hostVersion: existing.hostVersion,
-        outputs: [],
-        profileId: existing.profileId,
-        project: existing.project,
-        temporaryInstallationId: existing.temporaryInstallationId,
-        workspaceInputHash: existing.workspaceInputHash,
-      };
       const nextState = {
-        intendedTeardowns: [],
-        installations: state.installations,
-        repositoryExclusions: replaceRepositoryExclusionContribution(
-          state.repositoryExclusions,
+        ...withReceipts(
+          state,
+          state.receipts.filter(
+            (receipt) => receipt.installationId !== temporaryInstallationId,
+          ),
+        ),
+        removedTemporaryInstallationIds: [
+          ...state.removedTemporaryInstallationIds,
           temporaryInstallationId,
-          undefined,
-          [],
-        ),
-        schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION as 5,
-        temporaryInstallations: state.temporaryInstallations.map((installation) =>
-          installation.temporaryInstallationId === temporaryInstallationId
-            ? removedRecord
-            : installation
-        ),
+        ],
       };
 
       let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
@@ -577,7 +552,7 @@ export async function removeTemporaryProfile(options: {
       try {
         // Direct idempotent deletes — no process-private stage that can be orphaned.
         await removeDisposableOutputs({
-          installationId: existing.temporaryInstallationId,
+          installationId: existing.installationId,
           outputs: existing.outputs,
           project: existing.project,
         });
@@ -609,7 +584,7 @@ export async function removeTemporaryProfile(options: {
         throw error;
       }
 
-      return receiptFromRecord(removedRecord, undefined);
+      return receiptFromRecord(existing, "removed");
     },
     options.hooks?.lockTimeoutMs === undefined
       ? {}

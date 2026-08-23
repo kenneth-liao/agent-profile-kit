@@ -226,7 +226,7 @@ describe("Skills-only Profiles", () => {
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
 
     const state = await readInstallationState(home);
-    const manifest = state.installations[0];
+    const manifest = state.receipts[0];
     if (!manifest) throw new Error("expected installation manifest");
     expect(
       manifest.outputs
@@ -234,7 +234,6 @@ describe("Skills-only Profiles", () => {
         .filter((path) => path !== ".agent-profile-kit/installation.json")
         .sort(),
     ).toEqual([".agents/skills/review-pr"]);
-    expect(manifest.selectedContext).toEqual([]);
 
     const status = await previewReconciliation(desired.installations, state);
     expect(reportItems(status).some((item) => item.kind === "current")).toBe(true);
@@ -345,11 +344,9 @@ describe("Skills-only Profiles", () => {
       false,
     );
     const report = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     expect(reportDesired(report)[0]?.setupSteps).toEqual(installation.setupSteps);
 
@@ -423,9 +420,8 @@ describe("Skills-only Profiles", () => {
     expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
 
-    const manifest = (await readInstallationState(home)).installations[0];
+    const manifest = (await readInstallationState(home)).receipts[0];
     if (!manifest) throw new Error("expected installation manifest");
-    expect(manifest.selectedContext).toEqual([]);
     expect(
       manifest.outputs
         .map((entry) => entry.path)

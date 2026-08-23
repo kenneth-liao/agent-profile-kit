@@ -234,11 +234,11 @@ describe("Temporary Profile Installation recovery", () => {
     expect(recoverable.message).toMatch(/requires removal/i);
 
     const state = await readInstallationState(home);
-    const record = state.temporaryInstallations.find(
+    const record = state.receipts.find(
       (installation) =>
-        installation.temporaryInstallationId === recoverable.temporaryInstallationId,
+        installation.installationId === recoverable.temporaryInstallationId,
     );
-    expect(record?.completionState).toBe("installed");
+    expect(record?.lifetime).toBe("temporary");
 
     const removed = await removeTemporaryProfile({
       home,
@@ -336,11 +336,11 @@ describe("Temporary Profile Installation recovery", () => {
     expect(projectEntries.some((name) => name.startsWith(".agent-profile-kit-remove-"))).toBe(false);
     const mid = await readInstallationState(home);
     expect(
-      mid.temporaryInstallations.find(
+      mid.receipts.find(
         (installation) =>
-          installation.temporaryInstallationId === receipt.temporaryInstallationId,
-      )?.completionState,
-    ).toBe("installed");
+          installation.installationId === receipt.temporaryInstallationId,
+      )?.lifetime,
+    ).toBe("temporary");
 
     const removed = await removeTemporaryProfile({
       home,
@@ -627,12 +627,12 @@ describe("Temporary Profile Installation Claude Host parity", () => {
     expect(receipt.hostVersion).toMatch(/native-project-unscoped-rules-skills/);
     expect(receipt.outputs).toContain(".claude/rules/agent-profile-kit.md");
     expect(receipt.outputs).toContain(".claude/skills/review-pr");
-    expect(receipt.outputs).toContain(".agent-profile-kit/installation.json");
+    expect(receipt.outputs).not.toContain(".agent-profile-kit/installation.json");
     expect(receipt.repositoryExclusion?.entries).toEqual(
       expect.arrayContaining([
+        "/.agent-profile-kit/installation.json",
         "/.claude/rules/agent-profile-kit.md",
         "/.claude/skills/review-pr",
-        "/.agent-profile-kit/installation.json",
       ]),
     );
     expect(existsSync(join(project, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);

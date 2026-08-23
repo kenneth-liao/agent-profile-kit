@@ -197,7 +197,9 @@ export async function generatedOutputSurvivesUnbind(
           expandConfiguredPath(result.project, home, "Project Binding", "project"),
         );
     const state = await readInstallationState(home);
-    return state.installations.some((installation) => installation.project === project);
+    return state.receipts.some(
+      (receipt) => receipt.lifetime === "ordinary" && receipt.project === project,
+    );
   } catch {
     // Binding removal remains independent from readable installation state.
     // Status will surface malformed state; uncertain output cannot justify a next step here.

@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Publish all ordinary and Temporary Profile Installation ownership as strict schema-6 JSON receipts, with exact-byte self-validation, atomic replacement, bounded legacy YAML migration, aggregate directory roots, compact temporary tombstones, and per-receipt Git exclusion contributions. This is a pre-1.0 breaking change ([#254](https://github.com/kenneth-liao/agent-profile-kit/issues/254)).
+
 - Define the final minimal ownership-receipt model, strict deterministic bounded JSON codec, and pure supported-YAML-to-final normalization boundary without changing runtime state publication ([#253](https://github.com/kenneth-liao/agent-profile-kit/issues/253)).
 
 - Make `status` the complete apply-equivalent read-only plan with predictable Host capability blockers for pending work and Host attention for already-current output, and remove the separate `preview` command and lifecycle JSON variant with focused migration guidance. Lifecycle JSON advances to schema version 7. This is a pre-1.0 breaking change ([#252](https://github.com/kenneth-liao/agent-profile-kit/issues/252)).

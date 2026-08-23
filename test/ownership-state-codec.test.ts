@@ -162,6 +162,19 @@ describe("final JSON ownership-state codec", () => {
     expect(() => parseOwnershipState(JSON.stringify(value))).toThrow(/SHA-256|safe relative Project path/);
   });
 
+  test("rejects a temporary receipt with more than one Host", () => {
+    const value = JSON.parse(formatOwnershipState(ordinaryState()));
+    value.receipts[0].lifetime = "temporary";
+    value.receipts[0].hosts.claude = {
+      adapter_version: "claude-project-v1",
+      capability_contract: "claude-contract",
+    };
+
+    expect(() => parseOwnershipState(JSON.stringify(value))).toThrow(
+      /temporary receipt must contain exactly one Host/,
+    );
+  });
+
   test("normalizes every supported legacy YAML schema to one minimal receipt", () => {
     const legacy: InstallationState = {
       intendedTeardowns: [],

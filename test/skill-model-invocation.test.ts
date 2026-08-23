@@ -343,11 +343,9 @@ describe("Skill model-invocation policy", () => {
       codex: CODEX_HOST_VERSION_WITH_INVOCATION,
     });
     const preview = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     expect(reportBlockers(preview)).toEqual([]);
     await applyReconciliation(home, desired.installations);
@@ -508,15 +506,13 @@ describe("Skill model-invocation policy", () => {
         blockerMessage(blocker).includes("cannot deliver complete Context"),
       )).toBe(true);
       const preview = await previewReconciliation(desired.installations, {
-        intendedTeardowns: [],
-        installations: [],
-        repositoryExclusions: [],
-        temporaryInstallations: [],
-        schemaVersion: 5,
+        receipts: [],
+        removedTemporaryInstallationIds: [],
+        schemaVersion: 6,
       });
       expect(reportBlockers(preview).length).toBeGreaterThan(0);
       expect(existsSync(join(project, ".agents", "skills", "to-spec"))).toBe(false);
-      expect(existsSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml"))).toBe(
+      expect(existsSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.json"))).toBe(
         false,
       );
     } finally {

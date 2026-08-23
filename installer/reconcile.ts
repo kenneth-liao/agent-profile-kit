@@ -10,20 +10,20 @@ import {
 import { dirname, join } from "node:path";
 
 import {
-  INSTALLATION_MANIFEST_SCHEMA_VERSION,
   INSTALLATION_MARKER_PATH,
-  INSTALLATION_STATE_SCHEMA_VERSION,
-  type InstallationState,
-  type OwnedOutput,
-  type ProjectInstallationManifest,
 } from "../schemas/installation-manifest.js";
-import { artifactReferenceKey, type ArtifactReference } from "../schemas/dependencies.js";
+import {
+  OWNERSHIP_STATE_SCHEMA_VERSION,
+  type OwnershipState,
+  type OwnershipOutputReceipt,
+  type OwnershipReceipt,
+} from "../schemas/ownership-state.js";
+import { hostCatalogEntryFor } from "../adapters/host-catalog.js";
 import { formatInstallationMarker as markerText } from "../schemas/installation-manifest.js";
 import {
   hashBytes,
   markerPath,
   outputPath,
-  ownedMembersFromDesired,
   stateManifestPath,
   type DesiredInstallation,
   type DesiredProjectDirectoryOutput,
@@ -39,7 +39,13 @@ import {
   writeInstallationState,
   type OwnershipProof,
 } from "./installation-state.js";
-import type { GitProject } from "./git.js";
+import { gitExcludeEntry, type GitProject } from "./git.js";
+import {
+  ordinaryReceipts,
+  repositoryExclusionRecords,
+  withReceipts,
+  withRepositoryExclusion,
+} from "./ownership-state.js";
 import {
   createLifecycleGitInspectionContext,
   type LifecycleGitInspection,
@@ -298,11 +304,9 @@ export async function unreadableInstallationStateReport(
 ): Promise<BlockedReconciliationReport> {
   const message = error instanceof Error ? error.message : String(error);
   const desiredReport = await previewReconciliation(desired, {
-    intendedTeardowns: [],
-    installations: [],
-    repositoryExclusions: [],
-    temporaryInstallations: [],
-    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
+    receipts: [],
+    removedTemporaryInstallationIds: [],
+    schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
   });
   return {
     globalBlockers: [normalizeBlocker(installationStateUnreadableBlocker({
@@ -324,15 +328,17 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
-function hostVersionsEqual(
-  left: Readonly<Record<string, string>>,
-  right: Readonly<Record<string, string>>,
+function hostReceiptsEqual(
+  receipt: OwnershipReceipt,
+  desired: DesiredInstallation,
 ): boolean {
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
-  return leftKeys.length === rightKeys.length && leftKeys.every(
-    (key, index) => key === rightKeys[index] && left[key] === right[key],
-  );
+  const desiredHosts = desired.binding.hosts;
+  const recordedHosts = Object.keys(receipt.hosts);
+  return desiredHosts.length === recordedHosts.length && desiredHosts.every((host) => {
+    const recorded = receipt.hosts[host];
+    return recorded?.adapterVersion === hostCatalogEntryFor(host).adapterVersion &&
+      recorded.capabilityContract === desired.hostVersions[host];
+  });
 }
 
 function outputRelativePath(output: DesiredProjectOutput): string {
@@ -378,7 +384,7 @@ function hashMarker(bytes: string | Uint8Array): string {
   return hashBytes(bytes);
 }
 
-function ownedOutputFromDesired(output: DesiredProjectOutput): OwnedOutput {
+function ownedOutputFromDesired(output: DesiredProjectOutput): OwnershipOutputReceipt {
   if (output.type === "file") {
     return {
       hash: output.hash,
@@ -389,152 +395,50 @@ function ownedOutputFromDesired(output: DesiredProjectOutput): OwnedOutput {
   }
   return {
     hash: output.hash,
-    members: ownedMembersFromDesired(output.members),
     mode: output.mode,
     path: outputRelativePath(output),
     type: "directory",
   };
 }
 
-/**
- * Complete the provenance evidence of a legacy manifest from current trusted
- * desired state without rewriting any recorded ownership evidence. Short-circuits
- * when the manifest already carries complete provenance.
- */
-export function provenanceFromDesired(
-  manifest: ProjectInstallationManifest,
-  desired: DesiredInstallation,
-): ProjectInstallationManifest {
-  if (manifest.outputOrigins !== undefined) return manifest;
-  const fingerprintByReference = new Map(
-    desired.artifactFingerprints.map((fingerprint) => [
-      artifactReferenceKey(fingerprint.reference),
-      fingerprint.fingerprint,
-    ]),
-  );
-  const outputOrigins: Record<string, readonly ArtifactReference[]> = {};
-  for (const output of desired.outputs) {
-    outputOrigins[output.path] = output.origins;
-  }
-  outputOrigins[markerRelativePath()] = [];
-  for (const output of manifest.outputs) {
-    if (!(output.path in outputOrigins)) {
-      throw new Error(
-        `Cannot backfill provenance for legacy output '${output.path}': no matching desired output`,
-      );
-    }
-  }
-  return {
-    ...manifest,
-    outputOrigins,
-    resolvedArtifacts: manifest.resolvedArtifacts.map((artifact) => {
-      const fingerprint = fingerprintByReference.get(
-        artifactReferenceKey(artifact.reference),
-      );
-      if (fingerprint === undefined) {
-        throw new Error(
-          `Cannot backfill provenance for resolved artifact '${artifactReferenceKey(artifact.reference)}': no normalized fingerprint`,
-        );
-      }
-      return { ...artifact, fingerprint };
-    }),
-  };
-}
-
-function backfillLegacyProvenance(
-  state: InstallationState,
-  desired: readonly DesiredInstallation[],
-): InstallationState {
-  const byProject = new Map(
-    desired.map((installation) => [
-      installation.binding.canonicalProject,
-      installation,
-    ]),
-  );
-  return {
-    ...state,
-    installations: state.installations.map((installation) => {
-      const matching = byProject.get(installation.project);
-      return matching === undefined
-        ? installation
-        : provenanceFromDesired(installation, matching);
-    }),
-  };
-}
-
 export function manifestFor(
   desired: DesiredInstallation,
   installationId: string,
-): ProjectInstallationManifest {
-  const marker = markerText({ installationId, schemaVersion: 1 });
-  const outputs: OwnedOutput[] = [
-    ...desired.outputs.map(ownedOutputFromDesired),
-    { hash: hashMarker(marker), mode: 0o644, path: markerRelativePath(), type: "file" as const },
-  ].sort((left, right) => left.path.localeCompare(right.path));
-  const fingerprintByReference = new Map(
-    desired.artifactFingerprints.map((fingerprint) => [
-      artifactReferenceKey(fingerprint.reference),
-      fingerprint.fingerprint,
-    ]),
-  );
-  const outputOrigins: Record<string, readonly ArtifactReference[]> = {};
-  // Origins were validated against the resolved Profile at the planning boundary.
-  for (const output of desired.outputs) {
-    outputOrigins[output.path] = output.origins;
-  }
-  outputOrigins[markerRelativePath()] = [];
+): OwnershipReceipt {
   return {
-    adapterVersion: desired.adapterVersion,
-    engineVersion: desired.engineVersion,
-    gitProject: desired.gitProject !== undefined,
-    hosts: desired.binding.hosts,
-    hostVersions: desired.hostVersions,
+    desiredInputDigest: desired.sourceHash,
+    hosts: Object.fromEntries(desired.binding.hosts.map((host) => [host, {
+      adapterVersion: hostCatalogEntryFor(host).adapterVersion,
+      capabilityContract: desired.hostVersions[host]!,
+    }])),
     installationId,
-    outputOrigins,
-    outputs,
+    lifetime: "ordinary",
+    outputs: desired.outputs.map(ownedOutputFromDesired),
     profileId: desired.profile.id,
     project: desired.binding.canonicalProject,
-    resolvedArtifacts: desired.resolvedProfile.artifacts.map((artifact) => {
-      const fingerprint = fingerprintByReference.get(
-        artifactReferenceKey(artifact.reference),
-      );
-      if (fingerprint === undefined) {
-        throw new Error(
-          `Missing normalized fingerprint for resolved artifact '${artifactReferenceKey(artifact.reference)}'`,
-        );
-      }
-      return {
-        fingerprint,
-        inclusionReasons: artifact.inclusionReasons.map((reason) => ({
-          path: reason.path,
-          profile: reason.profileId,
-        })),
-        reference: artifact.reference,
-      };
-    }),
-    schemaVersion: INSTALLATION_MANIFEST_SCHEMA_VERSION,
-    selectedContext: desired.profile.context,
-    workspaceInputHash: desired.sourceHash,
   };
 }
 
 function stateWithInstallationExclusion(
-  state: InstallationState,
-  installation: ProjectInstallationManifest,
+  state: OwnershipState,
+  installation: OwnershipReceipt,
   gitProject: DesiredInstallation["gitProject"],
-): InstallationState {
-  return {
-    intendedTeardowns: [],
-    installations: state.installations,
-    repositoryExclusions: replaceRepositoryExclusionContribution(
-      state.repositoryExclusions,
+): OwnershipState {
+  const repositoryExclusion = gitProject === undefined
+    ? undefined
+    : {
+        entries: [...installation.outputs.map((output) => gitExcludeEntry(gitProject, output.path)),
+          gitExcludeEntry(gitProject, INSTALLATION_MARKER_PATH)],
+        target: gitProject.excludeFile,
+      };
+  return withReceipts(
+    state,
+    withRepositoryExclusion(
+      state.receipts,
       installation.installationId,
-      gitProject,
-      installation.outputs,
+      repositoryExclusion,
     ),
-    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-    temporaryInstallations: state.temporaryInstallations,
-  };
+  );
 }
 
 async function pathKind(path: string): Promise<"missing" | "file" | "directory" | "symlink" | "other"> {
@@ -572,7 +476,7 @@ async function parentConflicts(project: string, path: string): Promise<readonly 
 
 function fileOutputMatches(
   inspection: OwnedOutputInspection,
-  output: Extract<OwnedOutput, { type: "file" }>,
+  output: OwnershipOutputReceipt,
 ): boolean {
   return (
     inspection.kind === "file" &&
@@ -583,7 +487,7 @@ function fileOutputMatches(
 
 function directoryOutputMatches(
   inspection: OwnedOutputInspection,
-  output: Extract<OwnedOutput, { type: "directory" }>,
+  output: OwnershipOutputReceipt,
 ): boolean {
   return (
     inspection.kind === "directory" &&
@@ -594,7 +498,7 @@ function directoryOutputMatches(
 
 async function ownedOutputMatches(
   project: string,
-  output: OwnedOutput,
+  output: OwnershipOutputReceipt,
   inspection: LifecycleOwnershipInspection,
 ): Promise<boolean> {
   const result = await inspection.inspectOutput(project, output);
@@ -604,14 +508,22 @@ async function ownedOutputMatches(
 
 export async function desiredOutputConflicts(
   desired: DesiredInstallation,
-  previous: ProjectInstallationManifest | undefined,
+  previous: OwnershipReceipt | undefined,
   installationId: string,
   gitInspection: LifecycleGitInspection = createLifecycleGitInspectionContext(),
 ): Promise<readonly BlockerInput[]> {
   const blockers: BlockerInput[] = [];
   const project = desired.binding.canonicalProject;
-  const previousOutputs = new Map(previous?.outputs.map((output) => [output.path, output]) ?? []);
-  const outputs: OwnedOutput[] = [
+  const previousOutputs = new Map(previous === undefined ? [] : [
+    ...previous.outputs.map((output) => [output.path, output] as const),
+    [markerRelativePath(), {
+      hash: hashMarker(markerText({ installationId: previous.installationId, schemaVersion: 1 })),
+      mode: 0o644,
+      path: markerRelativePath(),
+      type: "file" as const,
+    }] as const,
+  ]);
+  const outputs: OwnershipOutputReceipt[] = [
     ...desired.outputs.map(ownedOutputFromDesired),
     {
       hash: hashMarker(markerText({ installationId, schemaVersion: 1 })),
@@ -688,7 +600,7 @@ export async function desiredOutputConflicts(
 
 async function identityBlockers(
   desired: DesiredInstallation,
-  state: InstallationState,
+  state: OwnershipState,
   installationId: string,
   inspection: LifecycleOwnershipInspection,
 ): Promise<readonly BlockerInput[]> {
@@ -712,7 +624,7 @@ async function identityBlockers(
   if (!markerValue) {
     return [installationMarkerBlocker({ message: `${marker} is missing`, project })];
   }
-  const owner = state.installations.find((installation) => installation.installationId === markerValue.installationId);
+  const owner = ordinaryReceipts(state).find((installation) => installation.installationId === markerValue.installationId);
   if (owner && owner.project !== project) {
     if ((await pathKind(owner.project)) === "missing") return [];
     return [installationMarkerBlocker({
@@ -733,17 +645,17 @@ async function identityBlockers(
 
 async function previousFor(
   desired: DesiredInstallation,
-  state: InstallationState,
-  byProject: ReadonlyMap<string, ProjectInstallationManifest>,
+  state: OwnershipState,
+  byProject: ReadonlyMap<string, OwnershipReceipt>,
   inspection: LifecycleOwnershipInspection,
-): Promise<ProjectInstallationManifest | undefined> {
+): Promise<OwnershipReceipt | undefined> {
   const canonicalProject = desired.binding.canonicalProject;
   const direct = byProject.get(canonicalProject);
   if (direct) return direct;
   const markerEvidence = await inspection.inspectMarker(canonicalProject);
   const marker = markerEvidence.malformed === undefined ? markerEvidence.value : undefined;
   if (!marker) return undefined;
-  const owner = state.installations.find(
+  const owner = ordinaryReceipts(state).find(
     (installation) => installation.installationId === marker.installationId,
   );
   if (!owner || owner.project === canonicalProject) return undefined;
@@ -752,12 +664,12 @@ async function previousFor(
 
 async function installationIdsInScope(
   desired: readonly DesiredInstallation[],
-  state: InstallationState,
+  state: OwnershipState,
   inspection: LifecycleOwnershipInspection,
   scope: ReconciliationScope,
 ): Promise<ReadonlySet<string> | undefined> {
   if (scope.kind === "all") return undefined;
-  const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
+  const byProject = new Map(ordinaryReceipts(state).map((installation) => [installation.project, installation]));
   const previous = await Promise.all(
     desired.map((installation) => previousFor(installation, state, byProject, inspection)),
   );
@@ -781,13 +693,13 @@ interface InstallationRetirementSelection {
  */
 async function installationRetirementSelection(
   desired: readonly DesiredInstallation[],
-  state: InstallationState,
+  state: OwnershipState,
   inspection: LifecycleOwnershipInspection,
   scheduler: ProjectReadScheduler = createProjectReadScheduler(),
   scope: ReconciliationScope = { kind: "all" },
 ): Promise<InstallationRetirementSelection> {
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
-  const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
+  const byProject = new Map(ordinaryReceipts(state).map((installation) => [installation.project, installation]));
   const movedPreviousProjects = new Set<string>();
   const previousProjects = await scheduler.run(desired.map((installation) => async () => {
     const previous = await previousFor(installation, state, byProject, inspection);
@@ -803,7 +715,7 @@ async function installationRetirementSelection(
   // the binding's absence; no second retirement tombstone is persisted.
   const intentionallyDeletedProjects = new Set<string>();
   const retiredCandidates = scope.kind === "all"
-    ? state.installations.filter((installation) =>
+    ? ordinaryReceipts(state).filter((installation) =>
         !desiredProjects.has(installation.project) &&
         !movedPreviousProjects.has(installation.project)
       )
@@ -818,7 +730,7 @@ async function installationRetirementSelection(
   }
   return {
     intentionallyDeletedInstallationIds: new Set(
-      state.installations
+      ordinaryReceipts(state)
         .filter((installation) => intentionallyDeletedProjects.has(installation.project))
         .map((installation) => installation.installationId),
     ),
@@ -855,7 +767,7 @@ function composedContextFromOutputs(outputs: readonly DesiredProjectOutput[]): s
 }
 
 function directoryRootRequiresAttention(
-  output: Extract<OwnedOutput, { type: "directory" }>,
+  output: OwnershipOutputReceipt,
   inspection: OwnedOutputInspection,
 ): boolean {
   return inspection.kind !== "missing" && !directoryOutputMatches(inspection, output);
@@ -1007,7 +919,7 @@ export interface PreviewReconciliationOptions {
 
 export async function previewReconciliation(
   desired: readonly DesiredInstallation[],
-  state: InstallationState,
+  state: OwnershipState,
   options: PreviewReconciliationOptions = {},
 ): Promise<ReconciliationReport> {
   const gitInspection = options.gitInspection ?? createLifecycleGitInspectionContext();
@@ -1017,7 +929,7 @@ export async function previewReconciliation(
   const items: ReconciliationItem[] = [];
   const outputItems: OutputReconciliationItem[] = [];
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
-  const byProject = new Map(state.installations.map((installation) => [installation.project, installation]));
+  const byProject = new Map(ordinaryReceipts(state).map((installation) => [installation.project, installation]));
   const {
     intentionallyDeletedInstallationIds,
     intentionallyDeletedProjects,
@@ -1089,7 +1001,7 @@ export async function previewReconciliation(
     const moved = previous && previous.project !== installation.binding.canonicalProject;
     const id = previous?.installationId ?? newInstallationId();
     const projectedManifest = manifestFor(installation, id);
-    const proposedOutputs: OwnedOutput[] = [
+    const proposedOutputs: OwnershipOutputReceipt[] = [
       ...installation.outputs.map(ownedOutputFromDesired),
       {
         hash: hashMarker(markerText({ installationId: id, schemaVersion: 1 })),
@@ -1098,7 +1010,15 @@ export async function previewReconciliation(
         type: "file" as const,
       },
     ];
-    const previousOutputs = new Map(previous?.outputs.map((output) => [output.path, output]) ?? []);
+    const previousOutputs = new Map(previous === undefined ? [] : [
+      ...previous.outputs.map((output) => [output.path, output] as const),
+      [markerRelativePath(), {
+        hash: hashMarker(markerText({ installationId: previous.installationId, schemaVersion: 1 })),
+        mode: 0o644,
+        path: markerRelativePath(),
+        type: "file" as const,
+      }] as const,
+    ]);
     const ownershipTarget = previous && moved
       ? { ...previous, project: installation.binding.canonicalProject }
       : previous;
@@ -1171,7 +1091,7 @@ export async function previewReconciliation(
     );
     if (!previous && outputConflicts.length > 0) {
       let copiedInstallation = false;
-      for (const candidate of state.installations) {
+      for (const candidate of ordinaryReceipts(state)) {
         if (!intentionallyDeletedProjects.has(candidate.project)) continue;
         const copiedOutputs = candidate.outputs.filter((output) => output.path !== markerRelativePath());
         if (
@@ -1261,19 +1181,17 @@ export async function previewReconciliation(
           project: installation.binding.project,
           reason: [...repairableMissingOutputs].join(", "),
         });
-      } else if (previous.workspaceInputHash !== installation.sourceHash) {
+      } else if (previous.desiredInputDigest !== installation.sourceHash) {
         projectItems.push({
           kind: "stale source",
           project: installation.binding.project,
         });
       } else if (
-        previous.adapterVersion !== installation.adapterVersion ||
-        !hostVersionsEqual(previous.hostVersions, installation.hostVersions) ||
-        previous.hosts.join("\n") !== installation.binding.hosts.join("\n") ||
+        !hostReceiptsEqual(previous, installation) ||
         previous.profileId !== installation.profile.id ||
-        previous.gitProject !== (installation.gitProject !== undefined) ||
-        previous.outputs.length !== proposedOutputs.length ||
-        proposedOutputs.some((output) => {
+        (previous.repositoryExclusion !== undefined) !== (installation.gitProject !== undefined) ||
+        previous.outputs.length !== projectedManifest.outputs.length ||
+        projectedManifest.outputs.some((output) => {
           const previousOutput = previous.outputs.find((entry) => entry.path === output.path);
           return previousOutput?.hash !== output.hash ||
             previousOutput.mode !== output.mode ||
@@ -1305,24 +1223,33 @@ export async function previewReconciliation(
       items: projectItems,
       outputItems: projectOutputItems,
       outputs: projectedManifest.outputs,
+      receipt: projectedManifest,
     };
   }));
-  // Exclusion contributions fold in canonical Project order: contribution
-  // ownership stays keyed by Installation ID exactly as before, so scheduling
-  // order never reaches the deterministic union or the report.
-  let projectedExclusions = state.repositoryExclusions;
+  // Active receipts are the sole contribution authority. Deterministic target
+  // unions are derived only when planning or publishing the exclusion file.
+  let projectedReceipts = state.receipts;
   for (const result of desiredResults) {
-    projectedExclusions = replaceRepositoryExclusionContribution(
-      projectedExclusions,
+    projectedReceipts = [
+      ...projectedReceipts.filter((receipt) => receipt.installationId !== result.id),
+      result.receipt,
+    ];
+    projectedReceipts = withRepositoryExclusion(
+      projectedReceipts,
       result.id,
-      result.gitProject,
-      result.outputs,
+      result.gitProject === undefined
+        ? undefined
+        : {
+            entries: [...result.outputs.map((output) => gitExcludeEntry(result.gitProject!, output.path)),
+              gitExcludeEntry(result.gitProject!, INSTALLATION_MARKER_PATH)],
+            target: result.gitProject.excludeFile,
+          },
     );
     items.push(...result.items);
     outputItems.push(...result.outputItems);
     blockers.push(...result.blockers);
   }
-  const staleCandidates = scope.kind === "all" ? state.installations : [];
+  const staleCandidates = scope.kind === "all" ? ordinaryReceipts(state) : [];
   const staleResults = await scheduler.run(staleCandidates.map((installation) => async () => {
     if (desiredProjects.has(installation.project) || movedPreviousProjects.has(installation.project)) {
       return undefined;
@@ -1367,23 +1294,14 @@ export async function previewReconciliation(
   }));
   for (const result of staleResults) {
     if (result === undefined) continue;
-    projectedExclusions = replaceRepositoryExclusionContribution(
-      projectedExclusions,
-      result.installationId,
-      undefined,
-      [],
+    projectedReceipts = projectedReceipts.filter(
+      (receipt) => receipt.installationId !== result.installationId,
     );
     items.push(...result.items);
     outputItems.push(...result.outputItems);
     blockers.push(...result.blockers);
   }
-  const projectedState: InstallationState = {
-    intendedTeardowns: [],
-    installations: state.installations,
-    repositoryExclusions: projectedExclusions,
-    schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-    temporaryInstallations: state.temporaryInstallations,
-  };
+  const projectedState = withReceipts(state, projectedReceipts);
   const deduplicated = new Map<string, ReconciliationBlocker>();
   for (const blocker of blockers) {
     const key = JSON.stringify({
@@ -1424,7 +1342,7 @@ export async function previewReconciliation(
     ])].sort(),
   };
   const projectByInstallationId = new Map(
-    state.installations.map((installation) => [installation.installationId, installation.project]),
+    ordinaryReceipts(state).map((installation) => [installation.installationId, installation.project]),
   );
   desiredResults.forEach((result, index) => {
     projectByInstallationId.set(result.id, desired[index]!.binding.project);
@@ -1436,7 +1354,7 @@ export async function previewReconciliation(
         installation.binding.project,
         installation.binding.canonicalProject,
       ]));
-  for (const record of [...state.repositoryExclusions, ...projectedState.repositoryExclusions]) {
+  for (const record of [...repositoryExclusionRecords(state), ...repositoryExclusionRecords(projectedState)]) {
     const projects = exclusionProjects.get(record.target) ?? new Set<string>();
     for (const contribution of record.contributions) {
       const project = projectByInstallationId.get(contribution.installationId);
@@ -1454,8 +1372,8 @@ export async function previewReconciliation(
 
 export async function stageProjectOutputs(
   desired: DesiredInstallation,
-  manifest: ProjectInstallationManifest,
-  previous: ProjectInstallationManifest | undefined,
+  manifest: OwnershipReceipt,
+  previous: OwnershipReceipt | undefined,
   fileSystem: ReconciliationFileSystem = nodeFileSystem,
 ): Promise<{ readonly commit: () => Promise<void>; readonly rollback: () => Promise<void> }> {
   const project = desired.binding.canonicalProject;
@@ -1597,7 +1515,7 @@ export async function stageProjectOutputs(
 async function blockedProjectMutationSet(
   report: ReconciliationReport,
   desired: readonly DesiredInstallation[],
-  state: InstallationState,
+  state: OwnershipState,
   inspection: LifecycleOwnershipInspection,
   retirement: InstallationRetirementSelection,
   scheduler: ProjectReadScheduler,
@@ -1617,13 +1535,13 @@ async function blockedProjectMutationSet(
     );
     const owner = markerEvidence.value === undefined
       ? undefined
-      : state.installations.find((candidate) =>
+      : ordinaryReceipts(state).find((candidate) =>
           candidate.installationId === markerEvidence.value?.installationId
         );
     if (owner !== undefined) {
       blockedProjects.add(owner.project);
     } else if (markerEvidence.kind === "missing") {
-      const candidates = state.installations.filter((candidate) =>
+      const candidates = ordinaryReceipts(state).filter((candidate) =>
         retirement.intentionallyDeletedProjects.has(candidate.project)
       );
       const possibleMoves = await scheduler.run(candidates.map((candidate) => async () => {
@@ -1648,10 +1566,10 @@ async function blockedProjectMutationSet(
     }
   }
   const installationProjectById = new Map(
-    state.installations.map((installation) => [installation.installationId, installation.project]),
+    ordinaryReceipts(state).map((installation) => [installation.installationId, installation.project]),
   );
   const blockedExclusionTargets = new Set(
-    state.repositoryExclusions
+    repositoryExclusionRecords(state)
       .filter((record) => record.contributions.some((contribution) => {
         const project = installationProjectById.get(contribution.installationId);
         return project !== undefined && blockedProjects.has(project);
@@ -1666,7 +1584,7 @@ async function blockedProjectMutationSet(
       blockedExclusionTargets.add(installation.gitProject.excludeFile);
     }
   }
-  for (const record of state.repositoryExclusions) {
+  for (const record of repositoryExclusionRecords(state)) {
     if (!blockedExclusionTargets.has(record.target)) continue;
     for (const contribution of record.contributions) {
       const project = installationProjectById.get(contribution.installationId);
@@ -1811,14 +1729,14 @@ async function applyReconciliationLocked(
       .filter((project) => project.state.kind === "current")
       .map((project) => project.project),
   );
-  const byProject = new Map(before.installations.map((installation) => [installation.project, installation]));
+  const byProject = new Map(ordinaryReceipts(before).map((installation) => [installation.project, installation]));
   const installationsByProject = new Map(
-    before.installations.map((installation) => [installation.project, installation]),
+    ordinaryReceipts(before).map((installation) => [installation.project, installation]),
   );
   let workingState = before;
   const movedPreviousProjects = new Set(retirement.movedPreviousProjects);
   const stale = scope.kind === "all"
-    ? before.installations.filter(
+    ? ordinaryReceipts(before).filter(
         (installation) =>
           !desired.some((item) => item.binding.canonicalProject === installation.project) &&
           !movedPreviousProjects.has(installation.project)
@@ -1834,12 +1752,12 @@ async function applyReconciliationLocked(
         .filter((project) => appliedProjects.has(project.canonicalProject))
         .map((project) => {
           const installationIds = new Set(
-            [...before.installations, ...workingState.installations]
+            [...ordinaryReceipts(before), ...ordinaryReceipts(workingState)]
               .filter((installation) => installation.project === project.canonicalProject)
               .map((installation) => installation.installationId),
           );
           const targets = new Set(
-            [...before.repositoryExclusions, ...workingState.repositoryExclusions]
+            [...repositoryExclusionRecords(before), ...repositoryExclusionRecords(workingState)]
               .filter((record) => record.contributions.some((contribution) =>
                 installationIds.has(contribution.installationId)
               ))
@@ -1854,7 +1772,7 @@ async function applyReconciliationLocked(
         }),
     );
   };
-  const verifyResultingState = async (state: InstallationState): Promise<ReconciliationReport> => {
+  const verifyResultingState = async (state: OwnershipState): Promise<ReconciliationReport> => {
     const verify = options.verifyReconciliation ?? (
       (nextDesired, nextState) => previewReconciliation(nextDesired, nextState, {
         gitInspection: createGitInspection(),
@@ -1898,33 +1816,26 @@ async function applyReconciliationLocked(
       if (moved) installationsByProject.delete(previous.project);
       installationsByProject.set(manifest.project, manifest);
       const nextState = stateWithInstallationExclusion(
-        {
-          intendedTeardowns: [],
-          installations: [...installationsByProject.values()],
-          repositoryExclusions: workingState.repositoryExclusions,
-          schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-          temporaryInstallations: workingState.temporaryInstallations,
-        },
+        withReceipts(workingState, [
+          ...workingState.receipts.filter((receipt) => receipt.lifetime === "temporary"),
+          ...installationsByProject.values(),
+        ]),
         manifest,
         item.gitProject,
       );
-      const exclusionCurrentState = moved && item.gitProject
-        ? {
-            ...workingState,
-            repositoryExclusions: prepareRepositoryExclusionMovePreflight(
-              workingState.repositoryExclusions,
-              previous!.installationId,
-              item.gitProject.excludeFile,
-            ),
-          }
-        : workingState;
+      installationsByProject.set(
+        manifest.project,
+        ordinaryReceipts(nextState).find(
+          (receipt) => receipt.installationId === manifest.installationId,
+        )!,
+      );
       const projectExclusionTargets = repositoryExclusionTargetsForInstallations(
         workingState,
         [item],
         new Set(previous === undefined ? [] : [previous.installationId]),
       );
       exclusions = await stageGitExclusions(
-        exclusionCurrentState,
+        workingState,
         nextState,
         { includedTargets: projectExclusionTargets ?? new Set() },
       );
@@ -1935,7 +1846,7 @@ async function applyReconciliationLocked(
       await exclusions.commit();
       await transaction.commit();
       byProject.clear();
-      for (const installation of nextState.installations) {
+      for (const installation of ordinaryReceipts(nextState)) {
         byProject.set(installation.project, installation);
       }
       workingState = nextState;
@@ -2009,18 +1920,12 @@ async function applyReconciliationLocked(
         transaction = await stageProvenInstallationRemoval(previous, staleRemovalOwnershipInspection);
       }
       installationsByProject.delete(previous.project);
-      const nextState: InstallationState = {
-        intendedTeardowns: [],
-        installations: [...installationsByProject.values()],
-        repositoryExclusions: replaceRepositoryExclusionContribution(
-          workingState.repositoryExclusions,
-          previous.installationId,
-          undefined,
-          [],
+      const nextState = withReceipts(
+        workingState,
+        workingState.receipts.filter(
+          (receipt) => receipt.installationId !== previous.installationId,
         ),
-        schemaVersion: INSTALLATION_STATE_SCHEMA_VERSION,
-        temporaryInstallations: workingState.temporaryInstallations,
-      };
+      );
       const projectExclusionTargets = repositoryExclusionTargetsForInstallations(
         workingState,
         [],
@@ -2084,7 +1989,7 @@ async function applyReconciliationLocked(
   }
   try {
     if (migratedState) {
-      await writeState(home, backfillLegacyProvenance(workingState, desired));
+      await writeState(home, workingState);
     }
     const repairTargets = new Set(
       report.projects

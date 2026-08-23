@@ -380,18 +380,16 @@ describe("Grok-only Profile Installation lifecycle", () => {
     expect(desired.installations).toHaveLength(1);
     const installation = desired.installations[0]!;
     expect(installation.binding.hosts).toEqual(["grok"]);
-    expect(installation.hostVersions).toEqual({ grok: GROK_HOST_VERSION });
+    expect(installation.hostVersions.grok).toBe(GROK_HOST_VERSION);
     expect(installation.adapterVersion).toBe(GROK_ADAPTER_VERSION);
     expect(installation.outputs.map((output) => output.path)).toEqual([GROK_CONTEXT_RULE_PATH]);
     expect(installation.outputs.some((output) => output.path.includes("claude"))).toBe(false);
     expect(installation.outputs.some((output) => output.path.includes("codex"))).toBe(false);
 
     const preview = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     expect(reportBlockers(preview)).toEqual([]);
     expect(reportDesired(preview)[0]?.outputs).toContain(GROK_CONTEXT_RULE_PATH);
@@ -420,12 +418,12 @@ describe("Grok-only Profile Installation lifecycle", () => {
     expect(readFileSync(join(project, ".grok", "config.toml"), "utf8")).toBe('theme = "dark"\n');
 
     const state = await readInstallationState(home);
-    expect(state.installations).toHaveLength(1);
-    expect(state.installations[0]?.hosts).toEqual(["grok"]);
-    expect(state.installations[0]?.hostVersions).toEqual({ grok: GROK_HOST_VERSION });
-    expect(state.installations[0]?.adapterVersion).toBe(GROK_ADAPTER_VERSION);
-    expect(state.installations[0]?.outputs.map((output) => output.path).sort()).toEqual(
-      [".agent-profile-kit/installation.json", GROK_CONTEXT_RULE_PATH].sort(),
+    expect(state.receipts).toHaveLength(1);
+    expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["grok"]);
+    expect(state.receipts[0]?.hosts.grok?.capabilityContract).toBe(GROK_HOST_VERSION);
+    expect(state.receipts[0]?.hosts.grok?.adapterVersion).toBe(GROK_ADAPTER_VERSION);
+    expect(state.receipts[0]?.outputs.map((output) => output.path).sort()).toEqual(
+      [GROK_CONTEXT_RULE_PATH],
     );
 
     const current = await buildDesiredState(home, { checkHostCapability: false });
@@ -460,11 +458,9 @@ describe("Grok-only Profile Installation lifecycle", () => {
       ).toBe(true);
 
       const report = await previewReconciliation(desired.installations, {
-        intendedTeardowns: [],
-        installations: [],
-        repositoryExclusions: [],
-        temporaryInstallations: [],
-        schemaVersion: 5,
+        receipts: [],
+        removedTemporaryInstallationIds: [],
+        schemaVersion: 6,
       });
       expect(
         reportBlockers(report).some((blocker) => blocker.message.includes("is a file, not a directory")),
@@ -495,11 +491,9 @@ describe("Grok-only Profile Installation lifecycle", () => {
     );
 
     const report = await previewReconciliation(desired.installations, {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      temporaryInstallations: [],
-      schemaVersion: 5,
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 6,
     });
     expect(reportBlockers(report)).toEqual([]);
     await applyReconciliation(home, desired.installations);
@@ -561,11 +555,9 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     expect(readFileSync(join(project, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
 
     const state = await readInstallationState(home);
-    expect(state.installations[0]?.hosts).toEqual(["claude", "grok"]);
-    expect(state.installations[0]?.hostVersions).toEqual({
-      claude: CLAUDE_HOST_VERSION,
-      grok: GROK_HOST_VERSION,
-    });
+    expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["claude", "grok"]);
+    expect(state.receipts[0]?.hosts.claude?.capabilityContract).toBe(CLAUDE_HOST_VERSION);
+    expect(state.receipts[0]?.hosts.grok?.capabilityContract).toBe(GROK_HOST_VERSION);
 
     expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
@@ -634,7 +626,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
       // Topology is preserved from the applied Manifest, not guessed as coalesced.
       const after = await buildDesiredState(home, {
         checkHostCapability: false,
-        previousInstallations: (await readInstallationState(home)).installations,
+        previousInstallations: (await readInstallationState(home)).receipts,
         resolveHostTopology: true,
       });
       const paths = after.installations[0]?.outputs.map((output) => output.path).sort() ?? [];
@@ -695,35 +687,27 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
         // Applied Skills-only installation: no Context rule paths to infer.
         previousInstallations: [
           {
-            adapterVersion: "claude-project-v1+grok-project-v1",
-            engineVersion: "0.27.0",
-            hosts: ["claude", "grok"],
-            hostVersions: {
-              claude: "native-project-unscoped-rules-skills-v1",
-              grok: GROK_HOST_VERSION,
+            desiredInputDigest: `sha256:${"0".repeat(64)}`,
+            hosts: {
+              claude: {
+                adapterVersion: "claude-project-v1",
+                capabilityContract: "native-project-unscoped-rules-skills-v1",
+              },
+              grok: {
+                adapterVersion: "grok-project-v1",
+                capabilityContract: GROK_HOST_VERSION,
+              },
             },
             installationId: "test-installation",
-            outputs: [
-              {
-                hash: "sha256:deadbeef",
-                mode: 0o755,
-                path: ".claude/skills/review-pr",
-                type: "directory",
-                members: [],
-              },
-              {
-                hash: "sha256:cafebabe",
-                mode: 0o644,
-                path: ".agent-profile-kit/installation.json",
-                type: "file",
-              },
-            ],
+            lifetime: "ordinary",
+            outputs: [{
+              hash: `sha256:${"1".repeat(64)}`,
+              mode: 0o755,
+              path: ".claude/skills/review-pr",
+              type: "directory",
+            }],
             profileId: "coding",
             project,
-            resolvedArtifacts: [],
-            schemaVersion: 3,
-            selectedContext: [],
-            workspaceInputHash: "sha256:test",
           },
         ],
       });
@@ -792,25 +776,17 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     expect(readFileSync(join(project, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
 
     const state = await readInstallationState(home);
-    const manifest = state.installations[0]!;
-    expect(manifest.hosts).toEqual(["claude", "codex", "grok"]);
-    expect(manifest.hostVersions).toEqual({
-      claude: CLAUDE_HOST_VERSION,
-      codex: CODEX_HOST_VERSION,
-      grok: GROK_HOST_VERSION,
-    });
+    const manifest = state.receipts[0]!;
+    expect(Object.keys(manifest.hosts)).toEqual(["claude", "codex", "grok"]);
+    expect(manifest.hosts.claude?.capabilityContract).toBe(CLAUDE_HOST_VERSION);
+    expect(manifest.hosts.codex?.capabilityContract).toBe(CODEX_HOST_VERSION);
+    expect(manifest.hosts.grok?.capabilityContract).toBe(GROK_HOST_VERSION);
 
-    const raw = parse(
-      readFileSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml"), "utf8"),
-    ) as {
-      installations: Array<{
-        adapter_version: string;
-        hosts: string[];
-        host_versions: Record<string, string>;
-      }>;
-    };
-    expect(raw.installations[0]?.hosts).toEqual(["claude", "codex", "grok"]);
-    expect(raw.installations[0]?.host_versions.grok).toBe(GROK_HOST_VERSION);
+    const raw = JSON.parse(
+      readFileSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.json"), "utf8"),
+    ) as { receipts: Array<{ hosts: Record<string, { capability_contract: string }> }> };
+    expect(Object.keys(raw.receipts[0]?.hosts ?? {})).toEqual(["claude", "codex", "grok"]);
+    expect(raw.receipts[0]?.hosts.grok?.capability_contract).toBe(GROK_HOST_VERSION);
 
     expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
