@@ -302,6 +302,10 @@ function statePath(home: string): string {
   return join(stateDirectory(home), "manifest.json");
 }
 
+function legacyStatePath(home: string): string {
+  return join(stateDirectory(home), "manifest.yaml");
+}
+
 function stateDirectory(home: string): string {
   return join(home, ".agents", "agent-profile-kit", "state");
 }
@@ -2622,6 +2626,75 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout.slice(pending, applied))).toContain(humanText(`${projectPath}: current`));
     expect(humanText(result.stdout.slice(pending, applied))).not.toContain(humanText(`${projectPath}: stale source`));
     expect(humanText(result.stdout.slice(applied))).toContain(humanText(`${projectPath}: stale source`));
+  });
+
+  test("status preserves schema-v2 YAML and apply publishes its recovered Git contribution", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-state-v2-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+
+    const canonical = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly [{
+        desired_input_digest: string;
+        hosts: { codex: { adapter_version: string; capability_contract: string } };
+        installation_id: string;
+        outputs: readonly Record<string, unknown>[];
+        profile_id: string;
+        project: string;
+        repository_exclusion: { entries: readonly string[]; target: string };
+      }];
+    };
+    const receipt = canonical.receipts[0];
+    const markerPath = join(repository, ".agent-profile-kit", "installation.json");
+    const markerBytes = readFileSync(markerPath);
+    const legacyOutputs = [
+      ...receipt.outputs,
+      {
+        hash: `sha256:${createHash("sha256").update(markerBytes).digest("hex")}`,
+        mode: statSync(markerPath).mode & 0o777,
+        path: ".agent-profile-kit/installation.json",
+        type: "file",
+      },
+    ].sort((left, right) => String(left.path).localeCompare(String(right.path)));
+    rmSync(statePath(home));
+    writeFileSync(legacyStatePath(home), stringify({
+      schema_version: 2,
+      installations: [{
+        schema_version: 3,
+        installation_id: receipt.installation_id,
+        project: receipt.project,
+        profile_id: receipt.profile_id,
+        selected_context: [],
+        resolved_artifacts: [],
+        hosts: ["codex"],
+        host_versions: { codex: receipt.hosts.codex.capability_contract },
+        adapter_version: receipt.hosts.codex.adapter_version,
+        engine_version: ENGINE_VERSION,
+        git_project: true,
+        workspace_input_hash: receipt.desired_input_digest,
+        outputs: legacyOutputs,
+      }],
+    }));
+    const legacyBytes = readFileSync(legacyStatePath(home), "utf8");
+
+    const status = await runCli(home, "status");
+    expectExitCode(status, 0);
+    expect(existsSync(statePath(home))).toBe(false);
+    expect(readFileSync(legacyStatePath(home), "utf8")).toBe(legacyBytes);
+
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 0);
+    expect(applied.stdout).toContain("All Projects were already current.");
+    expect(existsSync(legacyStatePath(home))).toBe(false);
+    const migrated = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      schema_version: number;
+      receipts: readonly [{ repository_exclusion: unknown }];
+    };
+    expect(migrated.schema_version).toBe(6);
+    expect(migrated.receipts[0].repository_exclusion).toEqual(receipt.repository_exclusion);
   });
 
   test("apply leaves current installation outputs and state untouched", async () => {
