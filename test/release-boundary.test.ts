@@ -104,6 +104,45 @@ test("package identity has one lower-layer manifest reader", () => {
   ).toEqual([]);
 });
 
+test("legacy Installation State readers and retired receipt projections stay absent", () => {
+  const ownershipBoundaryPaths = [
+    "installer/installation-state.ts",
+    "installer/ownership-state.ts",
+    "schemas/installation-manifest.ts",
+    "schemas/ownership-state.ts",
+  ];
+  const productionSource = ownershipBoundaryPaths
+    .map((path) => readFileSync(join(repositoryRoot, path), "utf8"))
+    .join("\n");
+
+  expect(existsSync(join(repositoryRoot, "installer/ownership-state-normalization.ts"))).toBe(false);
+  expect(productionSource).not.toMatch(/from ["']yaml["']/);
+  for (const retiredSymbol of [
+    "normalizeLegacyOwnershipState",
+    "parseLegacyInstallationState",
+    "parsePreviousInstallationState",
+    "parseV4InstallationState",
+    "parseInstallationState",
+    "formatInstallationState",
+    "ProjectInstallationManifest",
+    "TemporaryProfileInstallation",
+    "IntendedTeardown",
+    "ResolvedArtifactRecord",
+  ]) {
+    expect(productionSource).not.toMatch(new RegExp(`\\b${retiredSymbol}\\b`));
+  }
+  for (const retiredField of [
+    "intended_teardowns",
+    "repository_exclusions",
+    "temporary_installations",
+    "selected_context",
+    "resolved_artifacts",
+    "output_origins",
+  ]) {
+    expect(productionSource).not.toContain(retiredField);
+  }
+});
+
 test("legacy artifact roots stay absent from the engine source tree", () => {
   for (const directory of ["commands", "context", "skills", "tools"]) {
     expect(existsSync(join(repositoryRoot, directory))).toBe(false);

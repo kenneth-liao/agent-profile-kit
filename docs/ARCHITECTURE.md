@@ -387,12 +387,12 @@ is never persisted as a second ownership fact. Publication still proves the
 marked repository-local section, preserves every unrelated byte, and retains
 entries while any linked-worktree contributor requires them.
 
-A bounded migration boundary accepts supported schema-2 through schema-5 YAML
-from `state/manifest.yaml`, including legitimate previously emitted alias counts.
-It extracts only final ownership facts. The next successful state-writing
-operation publishes production-readable JSON and retires the YAML source only
-after the JSON replacement is durable. Legacy readers are migration tools and
-are not used after canonical JSON is present.
+The pre-1.0 YAML migration window is closed. Runtime Installation State reading
+accepts only strict schema-6 `state/manifest.json`; no YAML parser, compatibility
+normalizer, or transitional receipt projection remains in production. A leftover
+`state/manifest.yaml` fails with focused guidance to use the shipped 0.95.0
+migration boundary. Missing state still starts empty, while unreadable state is
+never reconstructed from generated Profile Installation output.
 
 Reconciliation returns global Blockers plus one complete record per Project, ordered by canonical Project identity. A Project record owns desired identity, state, observable output operations and their consuming Hosts, Project Blockers, typed structured warnings and copyable values, Host Setup Steps, and Git exclusion changes. No report consumer joins parallel Project or path collections. Blocker messages are immutable projections derived when structured problem, requirement, remedy, scope, and affected-item evidence is normalized; emitters cannot author a second message field. Human lifecycle rendering consumes these nested typed records directly, authors task language without semantic regex translation, and renders each Blocker's complete structured evidence. The apply receipt remains the pre-apply work record, while a fresh post-commit reconciliation remains authoritative for resulting state.
 

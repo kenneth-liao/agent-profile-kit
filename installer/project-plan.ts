@@ -21,7 +21,6 @@ import {
 import {
   INSTALLATION_MARKER_PATH,
   parseFileMode,
-  type OwnedDirectoryMember,
 } from "../schemas/installation-manifest.js";
 import type { OwnershipReceipt } from "../schemas/ownership-state.js";
 import {
@@ -60,6 +59,19 @@ import { hostCapabilityBlocker, type BlockerInput } from "./blockers.js";
 
 export type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
 export type { LifecycleGitInspection } from "./lifecycle-git-inspection.js";
+
+export type OwnedDirectoryMember =
+  | {
+      readonly hash: string;
+      readonly mode: number;
+      readonly path: string;
+      readonly type: "file";
+    }
+  | {
+      readonly mode: number;
+      readonly path: string;
+      readonly type: "directory";
+    };
 
 export interface DesiredDirectoryFileMember {
   readonly bytes: string | Uint8Array;
@@ -710,10 +722,6 @@ export function stateManifestPath(home: string): string {
   return join(stateDirectory(home), "manifest.json");
 }
 
-/** Transitional YAML source accepted only by the bounded ownership-state migration reader. */
-export function legacyStateManifestPath(home: string): string {
-  return join(stateDirectory(home), "manifest.yaml");
-}
 
 export function markerPath(project: string): string {
   return join(project, ".agent-profile-kit", "installation.json");

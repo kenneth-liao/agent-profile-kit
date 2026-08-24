@@ -1,21 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-
 import {
   OWNERSHIP_STATE_LIMITS,
   formatOwnershipState,
   parseOwnershipState,
   type OwnershipState,
 } from "../schemas/ownership-state.js";
-import { normalizeLegacyOwnershipState } from "../installer/ownership-state-normalization.js";
-import {
-  formatInstallationState,
-  parseInstallationState,
-  parseLegacyInstallationState,
-  parsePreviousInstallationState,
-  parseV4InstallationState,
-  type InstallationState,
-} from "../schemas/installation-manifest.js";
 
 const hash = `sha256:${"0".repeat(64)}`;
 
@@ -175,119 +164,6 @@ describe("final JSON ownership-state codec", () => {
     );
   });
 
-  test("normalizes every supported legacy YAML schema to one minimal receipt", () => {
-    const legacy: InstallationState = {
-      intendedTeardowns: [],
-      installations: [{
-        adapterVersion: "claude-project-v1+codex-project-v3",
-        engineVersion: "0.94.0",
-        hosts: ["claude", "codex"],
-        hostVersions: {
-          claude: "native-project-unscoped-rules-v1",
-          codex: "native-project-sessionstart-complete-context-v1",
-        },
-        installationId: "installation-a",
-        outputOrigins: {
-          ".agent-profile-kit/installation.json": [],
-          ".agents/skills/review": [{ id: "review", type: "skill" }],
-        },
-        outputs: [{
-          hash,
-          members: [{ hash, mode: 0o644, path: "SKILL.md", type: "file" }],
-          mode: 0o755,
-          path: ".agents/skills/review",
-          type: "directory",
-        }, {
-          hash,
-          mode: 0o644,
-          path: ".agent-profile-kit/installation.json",
-          type: "file",
-        }],
-        profileId: "engineering",
-        project: "/projects/a",
-        resolvedArtifacts: [{
-          fingerprint: hash,
-          inclusionReasons: [{ profile: "engineering", path: [] }],
-          reference: { id: "review", type: "skill" },
-        }],
-        schemaVersion: 3,
-        selectedContext: [],
-        workspaceInputHash: hash,
-      }],
-      repositoryExclusions: [{
-        contributions: [{ entries: ["/.agents/skills/review"], installationId: "installation-a" }],
-        entries: ["/.agents/skills/review"],
-        target: "/projects/a/.git/info/exclude",
-      }],
-      schemaVersion: 5,
-      temporaryInstallations: [],
-    };
-
-    const expected: OwnershipState = {
-      receipts: [{
-        desiredInputDigest: hash,
-        hosts: {
-          claude: {
-            adapterVersion: "claude-project-v1",
-            capabilityContract: "native-project-unscoped-rules-v1",
-          },
-          codex: {
-            adapterVersion: "codex-project-v3",
-            capabilityContract: "native-project-sessionstart-complete-context-v1",
-          },
-        },
-        installationId: "installation-a",
-        lifetime: "ordinary",
-        outputs: [{
-          hash,
-          mode: 0o755,
-          path: ".agents/skills/review",
-          type: "directory",
-        }],
-        profileId: "engineering",
-        project: "/projects/a",
-        repositoryExclusion: {
-          entries: ["/.agents/skills/review"],
-          target: "/projects/a/.git/info/exclude",
-        },
-      }],
-      removedTemporaryInstallationIds: [],
-      schemaVersion: 6 as const,
-    };
-    expect(normalizeLegacyOwnershipState(legacy)).toEqual(expected);
-
-    const v5Value = parseYaml(formatInstallationState(legacy)) as Record<string, unknown>;
-    const v4Value: Record<string, unknown> = { ...v5Value, schema_version: 4 };
-    delete v4Value.temporary_installations;
-    const v3Value: Record<string, unknown> = { ...v4Value, schema_version: 3 };
-    delete v3Value.intended_teardowns;
-    const v2Value: Record<string, unknown> = { ...v3Value, schema_version: 2 };
-    delete v2Value.repository_exclusions;
-
-    expect(normalizeLegacyOwnershipState(parseInstallationState(stringifyYaml(v5Value)))).toEqual(expected);
-    expect(normalizeLegacyOwnershipState(parseV4InstallationState(stringifyYaml(v4Value)))).toEqual(expected);
-    expect(normalizeLegacyOwnershipState(parsePreviousInstallationState(stringifyYaml(v3Value)))).toEqual(expected);
-    expect(normalizeLegacyOwnershipState(parseLegacyInstallationState(stringifyYaml(v2Value)))).toEqual({
-      ...expected,
-      receipts: expected.receipts.map(({ repositoryExclusion: _omitted, ...receipt }) => receipt),
-    });
-  });
-
-  test("rejects legacy exclusion contributions without one active receipt owner", () => {
-    const legacy: InstallationState = {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [{
-        contributions: [{ entries: ["/.agents/skills/review"], installationId: "orphan" }],
-        entries: ["/.agents/skills/review"],
-        target: "/projects/a/.git/info/exclude",
-      }],
-      schemaVersion: 5,
-      temporaryInstallations: [],
-    };
-    expect(() => normalizeLegacyOwnershipState(legacy)).toThrow(/unknown active Installation ID orphan/);
-  });
-
   test("rejects JSON before parsing when the file or nesting bound is exceeded", () => {
     expect(() => parseOwnershipState(" ".repeat(OWNERSHIP_STATE_LIMITS.maxBytes + 1))).toThrow(
       /exceeds the .* byte limit/,
@@ -323,48 +199,4 @@ describe("final JSON ownership-state codec", () => {
     expect(() => parseOwnershipState(JSON.stringify(pathHeavy))).toThrow(/paths exceed/);
   });
 
-  test("coalesces active temporary lifetime with ordinary receipts and compacts removed identities", () => {
-    const legacy: InstallationState = {
-      intendedTeardowns: [],
-      installations: [],
-      repositoryExclusions: [],
-      schemaVersion: 5,
-      temporaryInstallations: [{
-        adapterVersion: "claude-project-v1",
-        completionState: "installed",
-        engineVersion: "0.94.0",
-        host: "claude",
-        hostVersion: "native-project-unscoped-rules-v1",
-        outputs: [{ hash, mode: 0o644, path: ".claude/rules/profile.md", type: "file" }, {
-          hash,
-          mode: 0o644,
-          path: ".agent-profile-kit/installation.json",
-          type: "file",
-        }],
-        profileId: "engineering",
-        project: "/projects/temp",
-        temporaryInstallationId: "temporary-active",
-        workspaceInputHash: hash,
-      }, {
-        adapterVersion: "codex-project-v3",
-        completionState: "removed",
-        engineVersion: "0.94.0",
-        host: "codex",
-        hostVersion: "native-project-skills-v1",
-        outputs: [],
-        profileId: "engineering",
-        project: "/projects/removed",
-        temporaryInstallationId: "temporary-removed",
-        workspaceInputHash: hash,
-      }],
-    };
-
-    const normalized = normalizeLegacyOwnershipState(legacy);
-    expect(normalized.receipts).toEqual([expect.objectContaining({
-      installationId: "temporary-active",
-      lifetime: "temporary",
-      outputs: [{ hash, mode: 0o644, path: ".claude/rules/profile.md", type: "file" }],
-    })]);
-    expect(normalized.removedTemporaryInstallationIds).toEqual(["temporary-removed"]);
-  });
 });

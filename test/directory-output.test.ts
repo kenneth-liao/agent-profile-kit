@@ -22,7 +22,6 @@ import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
   buildDesiredState,
   hashBytes,
-  hashDirectoryMembers,
   normalizeAdapterPlans,
   type DesiredInstallation,
   type DesiredProjectOutput,
@@ -37,11 +36,6 @@ import {
   stageProvenInstallationRemoval,
   writeInstallationState,
 } from "../installer/installation-state.js";
-import {
-  formatInstallationManifest,
-  parseInstallationManifest,
-  type ProjectInstallationManifest,
-} from "../schemas/installation-manifest.js";
 import {
   reportBlockers,
   reportItems,
@@ -159,66 +153,6 @@ function normalizedDirectory(): DesiredProjectOutput {
 }
 
 describe("Installer-owned artifact-directory outputs", () => {
-  test("Installation Manifest records complete directory ownership and round-trips", () => {
-    const directory = normalizedDirectory();
-    if (directory.type !== "directory") throw new Error("expected directory");
-    const manifest: ProjectInstallationManifest = {
-      adapterVersion: "codex-project-v2",
-      engineVersion: "0.0.0-test",
-      hosts: ["codex"],
-      hostVersions: { codex: "native-project-sessionstart-complete-context-v1" },
-      installationId: "11111111-1111-1111-1111-111111111111",
-      outputs: [
-        {
-          hash: directory.hash,
-          members: directory.members.map((member) =>
-            member.type === "file"
-              ? {
-                  hash: member.hash,
-                  mode: member.mode,
-                  path: member.path,
-                  type: "file" as const,
-                }
-              : {
-                  mode: member.mode,
-                  path: member.path,
-                  type: "directory" as const,
-                },
-          ),
-          mode: directory.mode,
-          path: directory.path,
-          type: "directory",
-        },
-        {
-          hash: hashBytes('{"schema_version":1,"installation_id":"11111111-1111-1111-1111-111111111111"}\n'),
-          mode: 0o644,
-          path: ".agent-profile-kit/installation.json",
-          type: "file",
-        },
-      ],
-      profileId: "coding",
-      project: "/tmp/project",
-      resolvedArtifacts: [],
-      schemaVersion: 3,
-      selectedContext: ["team-rules"],
-      workspaceInputHash: hashBytes("source"),
-    };
-
-    const parsed = parseInstallationManifest(formatInstallationManifest(manifest));
-    expect(parsed.outputs.find((output) => output.type === "directory")).toEqual({
-      hash: directory.hash,
-      members: expect.arrayContaining([
-        expect.objectContaining({ path: "SKILL.md", type: "file" }),
-        expect.objectContaining({ path: "scripts", type: "directory" }),
-        expect.objectContaining({ path: "scripts/run.sh", type: "file" }),
-      ]),
-      mode: 0o755,
-      path: ".agents/skills/demo-skill",
-      type: "directory",
-    });
-    expect(hashDirectoryMembers(directory.members)).toBe(directory.hash);
-  });
-
   test("apply creates an artifact directory transactionally and records ownership hashes", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-project-");

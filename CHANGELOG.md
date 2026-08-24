@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Close the pre-1.0 Installation State migration window: runtime ownership reads now accept only strict schema-6 JSON, reject leftover YAML with focused 0.95.0 migration guidance, and remove legacy readers and retired receipt projections ([#257](https://github.com/kenneth-liao/agent-profile-kit/issues/257)).
+
 ## [0.95.0] - 2026-08-24
 
 ### Changed

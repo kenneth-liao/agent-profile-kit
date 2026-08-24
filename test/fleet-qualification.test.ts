@@ -38,7 +38,6 @@ import {
   previewReconciliation,
 } from "../installer/reconcile.js";
 import { readInstallationState } from "../installer/installation-state.js";
-import { INSTALLATION_STATE_SCHEMA_VERSION } from "../schemas/installation-manifest.js";
 import { humanText } from "./support/human-text.js";
 import {
   createFleetFixture,

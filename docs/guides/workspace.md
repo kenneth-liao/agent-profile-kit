@@ -580,33 +580,20 @@ but lifecycle safety depends on it for movement, repair, uninstall, Temporary
 Profile Installation recovery, and repository-local exclusion cleanup. Do not
 edit it by hand or reconstruct it from generated project output.
 
-Agent Profile Kit 0.95.0 replaces the former YAML state with strict schema-6
-JSON. The writer validates the exact serialized bytes through the production
-reader before atomic rename. Active ordinary and temporary installations use one
-minimal receipt shape; removed temporary identities retain only the compact ID
-needed for idempotent retry. Directory receipts retain one aggregate root hash,
-not complete member trees.
+Agent Profile Kit 0.96.0 accepts only strict schema-6 JSON. The writer validates
+the exact serialized bytes through the production reader before atomic rename.
+Active ordinary and temporary installations use one minimal receipt shape;
+removed temporary identities retain only the compact ID needed for idempotent
+retry. Directory receipts retain one aggregate root hash, not complete member
+trees.
 
-A bounded migration reader accepts supported schema-2 through schema-5 YAML at
-`state/manifest.yaml`, including legitimate state previously emitted with many
-YAML aliases. `status` reads and normalizes that source without publishing it.
-The next successful state-writing `apply`, `uninstall`, `install-temp`, or
-`remove-temp` publishes `manifest.json`, verifies the durable bytes, and only
-then removes `manifest.yaml`.
-
-Before the first 0.95.0 state-writing operation, keep a rollback backup if you
-may need to run an older binary:
-
-```sh
-state_dir="$HOME/.agents/agent-profile-kit/state"
-cp -p "$state_dir/manifest.yaml" "$state_dir/manifest.yaml.before-0.95.0"
-```
-
-Pre-0.95.0 binaries cannot read schema-6 JSON. To roll back, stop all Agent
-Profile Kit commands, remove or move `manifest.json`, restore the backup as
-`manifest.yaml`, and only then start the older binary. The backup restores
-ownership evidence; it does not undo Workspace or project-file changes made
-after the backup.
+The pre-1.0 YAML migration window is closed. If
+`state/manifest.yaml` remains, install the shipped Agent Profile Kit 0.95.0
+release, run a successful state-writing lifecycle command to publish
+`manifest.json`, and then retry with the current release. Current commands reject
+the YAML file without parsing, changing, or removing it. They never reconstruct
+ownership from generated output. Post-1.0 compatibility with the retired YAML
+schemas is not guaranteed.
 
 Back up current `manifest.json` with ordinary machine backup tooling. If the
 current state is missing or malformed, restore a known-good backup and retry.

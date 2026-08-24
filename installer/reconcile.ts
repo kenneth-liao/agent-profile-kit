@@ -34,7 +34,7 @@ import {
   newInstallationId,
   proveOwnedInstallation,
   proveRemainingOwnedOutputs,
-  readInstallationStateWithMigration,
+  readInstallationState,
   stageProvenInstallationRemoval,
   writeInstallationState,
   type OwnershipProof,
@@ -1672,11 +1672,8 @@ async function applyReconciliationLocked(
   const scheduler = options.scheduler ?? createProjectReadScheduler();
   const scope = options.scope ?? { kind: "all" };
   let before;
-  let migratedState = false;
   try {
-    const loaded = await readInstallationStateWithMigration(home);
-    before = loaded.state;
-    migratedState = loaded.migrated;
+    before = await readInstallationState(home);
   } catch (error) {
     throw new ApplyBlockedError(
       await unreadableInstallationStateReport(home, desired, error),
@@ -1988,9 +1985,6 @@ async function applyReconciliationLocked(
     }
   }
   try {
-    if (migratedState) {
-      await writeState(home, workingState);
-    }
     const repairTargets = new Set(
       report.projects
         .filter((project) => !blockedProjects.has(project.canonicalProject))

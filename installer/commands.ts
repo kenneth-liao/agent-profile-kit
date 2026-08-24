@@ -15,7 +15,6 @@ import { buildDesiredState } from "./project-plan.js";
 import {
   proveOwnedInstallation,
   readInstallationState,
-  readInstallationStateWithMigration,
   stageProvenInstallationRemoval,
   writeInstallationState,
 } from "./installation-state.js";
@@ -214,13 +213,9 @@ export async function uninstallApplication(home: string): Promise<UninstallResul
 }
 
 async function uninstallApplicationLocked(home: string): Promise<UninstallResult> {
-  const loaded = await readInstallationStateWithMigration(home);
-  const state = loaded.state;
+  const state = await readInstallationState(home);
   const installations = ordinaryReceipts(state);
-  if (installations.length === 0) {
-    if (loaded.migrated) await writeInstallationState(home, state);
-    return { projects: [] };
-  }
+  if (installations.length === 0) return { projects: [] };
   const failures: string[] = [];
   for (const installation of installations) {
     const proof = await proveOwnedInstallation(installation);
