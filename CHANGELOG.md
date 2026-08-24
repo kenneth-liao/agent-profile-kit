@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+## [0.95.0] - 2026-08-24
+
 ### Changed
 
 - Publish all ordinary and Temporary Profile Installation ownership as strict schema-6 JSON receipts, with exact-byte self-validation, atomic replacement, bounded legacy YAML migration, aggregate directory roots, compact temporary tombstones, and per-receipt Git exclusion contributions. This is a pre-1.0 breaking change ([#254](https://github.com/kenneth-liao/agent-profile-kit/issues/254)).
