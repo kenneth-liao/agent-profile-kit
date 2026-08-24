@@ -6,7 +6,7 @@ import { parse } from "yaml";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-test("proposes one weekly npm group and one weekly GitHub Actions group through normal CI", () => {
+test("proposes one weekly Bun group and one weekly GitHub Actions group through normal CI", () => {
   const dependabot = parse(
     readFileSync(resolve(repositoryRoot, ".github/dependabot.yml"), "utf8"),
   ) as {
@@ -25,11 +25,11 @@ test("proposes one weekly npm group and one weekly GitHub Actions group through 
   expect(dependabot.version).toBe(2);
   expect(dependabot.updates).toEqual([
     {
-      "package-ecosystem": "npm",
+      "package-ecosystem": "bun",
       directory: "/",
       schedule: { interval: "weekly" },
       groups: {
-        "npm-dependencies": { patterns: ["*"] },
+        "bun-dependencies": { patterns: ["*"] },
       },
     },
     {
