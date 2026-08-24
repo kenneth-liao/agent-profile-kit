@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Add weekly grouped Dependabot updates for the npm/Bun dependency graph and SHA-pinned GitHub Actions, with both update streams passing through normal pull-request CI ([#283](https://github.com/kenneth-liao/agent-profile-kit/issues/283)).
+
 - Retain complete supervised suite diagnostics in one explicit CI directory and upload them for 7 days only when the test step fails or is cancelled, while successful CI runs upload nothing and local runs keep private temporary diagnostics ([#281](https://github.com/kenneth-liao/agent-profile-kit/issues/281)).
 
 ### Fixed
