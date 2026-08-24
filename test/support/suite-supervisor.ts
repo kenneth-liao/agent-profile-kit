@@ -25,6 +25,8 @@ export const DEFAULT_PER_RUN_DEADLINE_MS = 300_000;
 export const DEFAULT_AGGREGATE_DEADLINE_MS = 1_500_000;
 /** A stress run completes after this many sequential green runs. */
 export const DEFAULT_MAX_RUNS = 10;
+/** Optional canonical CLI input for an explicit diagnostics directory. */
+export const DIAGNOSTICS_DIR_ENV = "APKIT_TEST_DIAGNOSTICS_DIR";
 
 export interface SupervisedRun {
   readonly runNumber: number;
@@ -104,6 +106,12 @@ function validate(options: SuiteSupervisorOptions): void {
       throw new Error(`suite supervisor maxRuns must be a positive integer, got ${maxRuns}`);
     }
   }
+}
+
+function suiteProcessEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const childEnvironment = { ...environment };
+  delete childEnvironment[DIAGNOSTICS_DIR_ENV];
+  return childEnvironment;
 }
 
 function isGreen(result: ProcessResult): boolean {
@@ -202,6 +210,7 @@ export async function runSupervisedSuite(
           ...(options.bunArguments ?? []),
         ],
         deadlineMs: runDeadline,
+        environment: suiteProcessEnvironment(process.env),
         ...(options.cleanupGraceMs === undefined ? {} : { cleanupGraceMs: options.cleanupGraceMs }),
         commandLabel: `suite ${mode} run ${runNumber}/${maxRuns}`,
       },
@@ -290,6 +299,17 @@ export function formatSuiteSummary(
   return `suite ${result.mode}: 1 run, ${outcome} in ${duration} — log: ${run.logPath}`;
 }
 
+function diagnosticsDirFromEnvironment(environment: NodeJS.ProcessEnv): string | undefined {
+  const authored = environment[DIAGNOSTICS_DIR_ENV];
+  if (authored === undefined) {
+    return undefined;
+  }
+  if (authored.trim().length === 0) {
+    throw new Error(`suite supervisor ${DIAGNOSTICS_DIR_ENV} must name a directory`);
+  }
+  return resolve(authored);
+}
+
 function printSummary(result: SuiteSupervisorResult, interruptedBy: string | null): void {
   console.log(formatSuiteSummary(result, interruptedBy));
 }
@@ -312,10 +332,11 @@ async function main(args: readonly string[]): Promise<number> {
     return 2;
   }
 
+  let explicitDiagnosticsDir: string | undefined;
   try {
-    // Validate before announcing a run so an empty focused invocation fails
-    // without looking as though a full suite started.
+    // Normalize and validate every CLI input before announcing a run.
     validate({ mode: modeArg, bunArguments });
+    explicitDiagnosticsDir = diagnosticsDirFromEnvironment(process.env);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 2;
@@ -345,6 +366,7 @@ async function main(args: readonly string[]): Promise<number> {
     {
       mode,
       bunArguments,
+      ...(explicitDiagnosticsDir === undefined ? {} : { logDir: explicitDiagnosticsDir }),
       onRunComplete: (run) => {
         if (mode === "stress") {
           console.log(

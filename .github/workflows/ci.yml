@@ -58,7 +58,19 @@ jobs:
           echo "APKIT_TEST_PACKAGE_ARCHIVE=$RUNNER_TEMP/package/$package_file" >> "$GITHUB_ENV"
 
       - name: Run test suite
+        id: test_suite
+        env:
+          APKIT_TEST_DIAGNOSTICS_DIR: ${{ runner.temp }}/suite-diagnostics
         run: bun run test
+
+      - name: Upload failed suite diagnostics
+        if: (failure() || cancelled()) && steps.test_suite.outcome != 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: supervised-suite-diagnostics
+          path: ${{ runner.temp }}/suite-diagnostics/*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Verify clean generated output
         run: |

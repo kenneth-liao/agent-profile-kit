@@ -27,6 +27,9 @@ const workflow = parse(workflowSource) as {
         name?: string;
         uses?: string;
         run?: string;
+        id?: string;
+        if?: string;
+        env?: Record<string, string>;
         with?: Record<string, unknown>;
       }>;
     }
@@ -73,6 +76,34 @@ test("does not persist checkout credentials for contributor-controlled code", ()
 
   expect(checkouts.length).toBeGreaterThan(0);
   expect(checkouts.every((checkout) => checkout.with?.["persist-credentials"] === false)).toBe(true);
+});
+
+test("uploads explicit supervised diagnostics only after unsuccessful test execution", () => {
+  const steps = Object.values(workflow.jobs ?? {}).flatMap((job) => job.steps ?? []);
+  const suite = steps.find((step) => step.name === "Run test suite");
+  expect(suite).toEqual({
+    name: "Run test suite",
+    id: "test_suite",
+    env: {
+      APKIT_TEST_DIAGNOSTICS_DIR: "${{ runner.temp }}/suite-diagnostics",
+    },
+    run: "bun run test",
+  });
+
+  const upload = steps.find((step) => step.name === "Upload failed suite diagnostics");
+  expect(upload?.if).toBe(
+    "(failure() || cancelled()) && steps.test_suite.outcome != 'success'",
+  );
+  expect(upload?.uses).toMatch(/^actions\/upload-artifact@[0-9a-f]{40}$/);
+  expect(workflowSource).toMatch(
+    /uses: actions\/upload-artifact@[0-9a-f]{40} # v\d+(?:\.\d+){1,2}/,
+  );
+  expect(upload?.with).toEqual({
+    name: "supervised-suite-diagnostics",
+    path: "${{ runner.temp }}/suite-diagnostics/*.log",
+    "if-no-files-found": "ignore",
+    "retention-days": 7,
+  });
 });
 
 test("package scripts keep local typecheck, build, and supervised tests independently usable", () => {
