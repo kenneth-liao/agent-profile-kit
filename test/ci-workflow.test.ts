@@ -92,14 +92,14 @@ test("uploads explicit supervised diagnostics only after unsuccessful test execu
 
   const upload = steps.find((step) => step.name === "Upload failed suite diagnostics");
   expect(upload?.if).toBe(
-    "(failure() || cancelled()) && steps.test_suite.outcome != 'success'",
+    "(failure() && steps.test_suite.outcome == 'failure') || (cancelled() && steps.test_suite.outcome == 'cancelled')",
   );
   expect(upload?.uses).toMatch(/^actions\/upload-artifact@[0-9a-f]{40}$/);
   expect(workflowSource).toMatch(
     /uses: actions\/upload-artifact@[0-9a-f]{40} # v\d+(?:\.\d+){1,2}/,
   );
   expect(upload?.with).toEqual({
-    name: "supervised-suite-diagnostics",
+    name: "supervised-suite-diagnostics-attempt-${{ github.run_attempt }}",
     path: "${{ runner.temp }}/suite-diagnostics/*.log",
     "if-no-files-found": "ignore",
     "retention-days": 7,
