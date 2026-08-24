@@ -10,6 +10,33 @@ export interface PackageArchive {
   readonly cleanup: () => void;
 }
 
+export interface PackageArchiveCommands {
+  readonly build: (repositoryRoot: string) => void;
+  readonly createScriptDisabledArchive: (repositoryRoot: string, destination: string) => string;
+}
+
+export interface PackageArchiveOptions {
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly commands?: PackageArchiveCommands;
+}
+
+const systemPackageArchiveCommands: PackageArchiveCommands = {
+  build: (repositoryRoot) => {
+    execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
+  },
+  createScriptDisabledArchive: (repositoryRoot, destination) => {
+    const output = execFileSync(
+      "npm",
+      ["pack", "--silent", "--ignore-scripts", "--json", "--pack-destination", destination],
+      { cwd: repositoryRoot, encoding: "utf8" },
+    );
+    const metadata = JSON.parse(output.slice(output.indexOf("["))) as readonly [
+      { readonly filename: string },
+    ];
+    return metadata[0]!.filename;
+  },
+};
+
 export function preparedPackageArchive(
   environment: NodeJS.ProcessEnv = process.env,
 ): string | null {
@@ -26,32 +53,32 @@ export function preparedPackageArchive(
   return canonicalPath;
 }
 
-function buildProductionBundle(repositoryRoot: string): void {
-  execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
+export function ensureProductionBundle(
+  repositoryRoot: string,
+  options: PackageArchiveOptions = {},
+): void {
+  const environment = options.environment ?? process.env;
+  const commands = options.commands ?? systemPackageArchiveCommands;
+  if (preparedPackageArchive(environment) === null) commands.build(repositoryRoot);
 }
 
-export function ensureProductionBundle(repositoryRoot: string): void {
-  if (preparedPackageArchive() === null) buildProductionBundle(repositoryRoot);
-}
-
-export function obtainPackageArchive(repositoryRoot: string, prefix: string): PackageArchive {
-  const prepared = preparedPackageArchive();
+export function obtainPackageArchive(
+  repositoryRoot: string,
+  prefix: string,
+  options: PackageArchiveOptions = {},
+): PackageArchive {
+  const environment = options.environment ?? process.env;
+  const commands = options.commands ?? systemPackageArchiveCommands;
+  const prepared = preparedPackageArchive(environment);
   if (prepared !== null) {
     return { path: prepared, cleanup: () => undefined };
   }
 
   const packageDirectory = mkdtempSync(join(tmpdir(), prefix));
   try {
-    buildProductionBundle(repositoryRoot);
-    const output = execFileSync(
-      "npm",
-      ["pack", "--silent", "--ignore-scripts", "--json", "--pack-destination", packageDirectory],
-      { cwd: repositoryRoot, encoding: "utf8" },
-    );
-    const metadata = JSON.parse(output.slice(output.indexOf("["))) as readonly [
-      { readonly filename: string },
-    ];
-    const path = realpathSync(join(packageDirectory, metadata[0]!.filename));
+    commands.build(repositoryRoot);
+    const filename = commands.createScriptDisabledArchive(repositoryRoot, packageDirectory);
+    const path = realpathSync(join(packageDirectory, filename));
     return {
       path,
       cleanup: () => rmSync(packageDirectory, { recursive: true, force: true }),
