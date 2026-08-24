@@ -19,6 +19,7 @@ import { parse } from "yaml";
 import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
 import { installControlledHosts as installAllControlledHosts } from "./support/fleet-fixture.js";
 import { humanText } from "./support/human-text.js";
+import { obtainPackageArchive } from "./support/package-archive.js";
 import {
   TEST_CHILD_DEADLINE_MS,
   expectExitCode,
@@ -33,6 +34,7 @@ import { previewReconciliation } from "../installer/reconcile.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
+let packageArchiveCleanup = (): void => undefined;
 
 /**
  * Parse the minimum Node major from package.json engines.node.
@@ -114,20 +116,12 @@ beforeAll(() => {
   enginesNodeRange = requirement.range;
   nodeBinary = resolveNodeBinary(minimumNodeMajor, enginesNodeRange);
 
-  execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
-  const packageDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-rc-pack-"));
+  const archive = obtainPackageArchive(repositoryRoot, "agent-profile-kit-rc-pack-");
+  packageArchive = archive.path;
+  packageArchiveCleanup = archive.cleanup;
   const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-rc-packed-"));
-  temporaryDirectories.push(packageDirectory, extracted);
+  temporaryDirectories.push(extracted);
 
-  const packOutput = execFileSync(
-    "npm",
-    ["pack", "--silent", "--ignore-scripts", "--json", "--pack-destination", packageDirectory],
-    { cwd: repositoryRoot, encoding: "utf8" },
-  );
-  const metadata = JSON.parse(packOutput.slice(packOutput.lastIndexOf("\n[") + 1)) as readonly [
-    { readonly filename: string; readonly name?: string; readonly version?: string },
-  ];
-  packageArchive = join(packageDirectory, metadata[0]!.filename);
   execFileSync("tar", ["-xzf", packageArchive, "-C", extracted]);
   packageRoot = join(extracted, "package");
   const packedManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
@@ -147,6 +141,7 @@ beforeAll(() => {
 
 afterAll(() => {
   for (const directory of temporaryDirectories) rmSync(directory, { recursive: true, force: true });
+  packageArchiveCleanup();
 });
 
 function isolatedHome(): string {
@@ -426,13 +421,6 @@ describe("project-bound release candidate", () => {
     expect(packedManifest.os).toEqual(["darwin"]);
     expect(packedManifest.files).toEqual(["dist/cli.js", "docs/guides", "README.md"]);
     expect(packedManifest.bin).toEqual({ apkit: "./dist/cli.js" });
-
-    // Dry-run inspection of a clean pack does not write under an isolated HOME.
-    execFileSync("npm", ["pack", "--dry-run", "--ignore-scripts", "--json"], {
-      cwd: repositoryRoot,
-      encoding: "utf8",
-      env: { ...process.env, HOME: home },
-    });
 
     // Install the packed tarball into a disposable prefix only — not the user HOME.
     const installPrefix = mkdtempSync(join(tmpdir(), "agent-profile-kit-rc-prefix-"));

@@ -39,6 +39,7 @@ import {
 } from "../installer/reconcile.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { humanText } from "./support/human-text.js";
+import { ensureProductionBundle } from "./support/package-archive.js";
 import {
   createFleetFixture,
   cleanupFleetFixtures,
@@ -63,7 +64,7 @@ const temporaryDirectories: string[] = [];
 let cliPath = join(repositoryRoot, "dist", "cli.js");
 
 beforeAll(() => {
-  execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
+  ensureProductionBundle(repositoryRoot);
 });
 
 afterAll(() => {

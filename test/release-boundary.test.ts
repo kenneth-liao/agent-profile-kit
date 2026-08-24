@@ -6,6 +6,7 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
+import { obtainPackageArchive } from "./support/package-archive.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -29,31 +30,23 @@ function packedFiles(): {
   readonly files: readonly string[];
   readonly cleanup: () => void;
 } {
-  const packageDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-boundary-pack-"));
+  const archive = obtainPackageArchive(repositoryRoot, "agent-profile-kit-boundary-pack-");
   const extractedDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-boundary-extracted-"));
 
   try {
-    execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
-    const output = execFileSync(
-      "npm",
-      ["pack", "--silent", "--ignore-scripts", "--json", "--pack-destination", packageDirectory],
-      { cwd: repositoryRoot, encoding: "utf8" },
-    );
-    const metadata = JSON.parse(output.slice(output.indexOf("["))) as readonly [{ readonly filename: string }];
-    const archive = join(packageDirectory, metadata[0]!.filename);
-    execFileSync("tar", ["-xzf", archive, "-C", extractedDirectory]);
+    execFileSync("tar", ["-xzf", archive.path, "-C", extractedDirectory]);
     const root = join(extractedDirectory, "package");
     return {
       root,
       files: filesUnder(root),
       cleanup: () => {
-        rmSync(packageDirectory, { recursive: true, force: true });
         rmSync(extractedDirectory, { recursive: true, force: true });
+        archive.cleanup();
       },
     };
   } catch (error) {
-    rmSync(packageDirectory, { recursive: true, force: true });
     rmSync(extractedDirectory, { recursive: true, force: true });
+    archive.cleanup();
     throw error;
   }
 }

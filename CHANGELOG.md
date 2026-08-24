@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Run CI typechecking, production bundling, and script-disabled package creation once each, then reuse the actual archive across the supervised package and CLI boundary tests while keeping local scripts independently usable ([#280](https://github.com/kenneth-liao/agent-profile-kit/issues/280)).
+
 - Skip the complete macOS CI gate for draft pull requests, run it immediately when a draft becomes ready, and prevent contributor-controlled checkout from retaining repository credentials while preserving the read-only `main` and ready-pull-request qualification contract ([#279](https://github.com/kenneth-liao/agent-profile-kit/issues/279)).
 
 - Close the pre-1.0 Installation State migration window: runtime ownership reads now accept only strict schema-6 JSON, reject leftover YAML with focused 0.95.0 migration guidance, and remove legacy readers and retired receipt projections ([#257](https://github.com/kenneth-liao/agent-profile-kit/issues/257)).

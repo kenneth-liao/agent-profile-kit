@@ -38,6 +38,7 @@ import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installatio
 import { ENGINE_VERSION } from "../installer/version.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import { humanText } from "./support/human-text.js";
+import { obtainPackageArchive } from "./support/package-archive.js";
 import {
   TEST_CHILD_DEADLINE_MS,
   expectExitCode,
@@ -48,6 +49,7 @@ import {
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const FOCUSED_GUIDE_MAX_LINES = 30;
 const temporaryDirectories: string[] = [];
+let packageArchiveCleanup = (): void => undefined;
 let cliPath = join(repositoryRoot, "dist", "cli.js");
 const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
   NO_COLOR: undefined,
@@ -55,22 +57,17 @@ const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
 };
 
 beforeAll(() => {
-  execFileSync("bun", ["run", "build"], { cwd: repositoryRoot, stdio: "inherit" });
-  const packageDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-suite-pack-"));
+  const archive = obtainPackageArchive(repositoryRoot, "agent-profile-kit-suite-pack-");
+  packageArchiveCleanup = archive.cleanup;
   const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-suite-packed-"));
-  temporaryDirectories.push(packageDirectory, extracted);
-  const packOutput = execFileSync(
-    "npm",
-    ["pack", "--silent", "--json", "--pack-destination", packageDirectory],
-    { cwd: repositoryRoot, encoding: "utf8" },
-  );
-  const metadata = JSON.parse(packOutput.slice(packOutput.lastIndexOf("\n[") + 1)) as readonly [{ readonly filename: string }];
-  execFileSync("tar", ["-xzf", join(packageDirectory, metadata[0]!.filename), "-C", extracted]);
+  temporaryDirectories.push(extracted);
+  execFileSync("tar", ["-xzf", archive.path, "-C", extracted]);
   cliPath = join(extracted, "package", "dist", "cli.js");
 });
 
 afterAll(() => {
   for (const directory of temporaryDirectories) rmSync(directory, { recursive: true, force: true });
+  packageArchiveCleanup();
 });
 
 function isolatedHome(): string {
@@ -6274,21 +6271,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   });
 
   test("the packed CLI runs the project-bound init contract", async () => {
-    const packageDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-pack-"));
-    temporaryDirectories.push(packageDirectory);
-    const packOutput = execFileSync(
-      "npm",
-      ["pack", "--silent", "--json", "--pack-destination", packageDirectory],
-      { cwd: repositoryRoot, encoding: "utf8" },
-    );
-    const metadata = JSON.parse(packOutput.slice(packOutput.lastIndexOf("\n[") + 1)) as readonly [{ readonly filename: string }];
-    const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-packed-"));
-    temporaryDirectories.push(extracted);
-    execFileSync("tar", ["-xzf", join(packageDirectory, metadata[0]!.filename), "-C", extracted]);
     const home = isolatedHome();
     const result = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [join(extracted, "package", "dist", "cli.js"), "init"],
+      arguments_: [cliPath, "init"],
       environment: { ...process.env, HOME: home },
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI init",
