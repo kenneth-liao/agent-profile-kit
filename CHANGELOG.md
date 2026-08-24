@@ -6,6 +6,14 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- Retain complete supervised suite diagnostics in one explicit CI directory and upload them for 7 days only when the test step fails or is cancelled, while successful CI runs upload nothing and local runs keep private temporary diagnostics ([#281](https://github.com/kenneth-liao/agent-profile-kit/issues/281)).
+
+### Fixed
+
+- Restrict CI diagnostic uploads to exact failed or cancelled test-step outcomes and use attempt-unique artifact names so reruns cannot collide with retained diagnostics ([#281](https://github.com/kenneth-liao/agent-profile-kit/issues/281)).
+
 ### Changed
 
 - Run CI typechecking, production bundling, and script-disabled package creation once each, then reuse the actual archive across the supervised package and CLI boundary tests while keeping local scripts independently usable ([#280](https://github.com/kenneth-liao/agent-profile-kit/issues/280)).

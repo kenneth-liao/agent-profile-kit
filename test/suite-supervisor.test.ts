@@ -311,6 +311,13 @@ describe("suite supervisor: bounded interruption", () => {
       expect(result.ok).toBe(false);
       expect(result.runs[0]!.result.kind).toBe("cancelled");
       expect(result.runs[0]!.result.cleanupFailed).toBe(false);
+      const log = readFileSync(result.runs[0]!.logPath, "utf8");
+      expect(log).toContain("kind: cancelled");
+      expect(log).toContain("cancelled: true");
+      expect(log).toContain("cleanupFailed: false");
+      expect(log).toContain("--- stdout ---");
+      expect(log).toContain("child=");
+      expect(log).toContain("--- stderr ---");
       const match = /child=(\d+)/.exec(result.runs[0]!.result.stdout);
       expect(match?.[1]).toBeTruthy();
       expectProcessGone(Number(match![1]), "aborted descendant");
@@ -446,6 +453,29 @@ describe("supervised CLI", () => {
     expect(result.stderr).toMatch(/focused.*path.*filter/i);
   });
 
+  test("rejects an empty explicit diagnostics directory before starting", async () => {
+    const result = await runProcess({
+      executable: process.execPath,
+      arguments_: [
+        "run",
+        "test/support/suite-supervisor.ts",
+        "focused",
+        "--",
+        "./test/process-executor.test.ts",
+      ],
+      environment: { ...process.env, APKIT_TEST_DIAGNOSTICS_DIR: "" },
+      deadlineMs: 5000,
+      commandLabel: "empty diagnostics directory CLI",
+    });
+
+    expect(result.kind).toBe("exit");
+    if (result.kind === "exit") {
+      expect(result.exitCode).toBe(2);
+    }
+    expect(result.stdout).not.toContain("starting");
+    expect(result.stderr).toContain("APKIT_TEST_DIAGNOSTICS_DIR must name a directory");
+  });
+
   test("runs a focused real Bun suite and prints a concise summary with the retained log", async () => {
     const result = await runProcess({
       executable: process.execPath,
@@ -472,6 +502,45 @@ describe("supervised CLI", () => {
     const log = readFileSync(logMatch![1]!, "utf8");
     expect(log).toContain("normal exit reports");
     expect(log).toContain("kind: exit");
+  });
+
+  test("writes complete diagnostics to the explicit canonical directory", async () => {
+    const diagnosticsDir = tempDir("apkit-explicit-suite-diagnostics-");
+    try {
+      const result = await runProcess({
+        executable: process.execPath,
+        arguments_: [
+          "run",
+          "test/support/suite-supervisor.ts",
+          "focused",
+          "--",
+          "./test/process-executor.test.ts",
+          "-t",
+          "normal exit",
+        ],
+        environment: {
+          ...process.env,
+          APKIT_TEST_DIAGNOSTICS_DIR: diagnosticsDir,
+          PATH: "/usr/bin:/bin",
+        },
+        deadlineMs: 60_000,
+        commandLabel: "explicit diagnostics CLI",
+      });
+
+      expect(result.kind).toBe("exit");
+      if (result.kind === "exit") {
+        expect(result.exitCode).toBe(0);
+      }
+      expect(result.stdout).toContain(`log: ${join(diagnosticsDir, "run-1.log")}`);
+      const log = readFileSync(join(diagnosticsDir, "run-1.log"), "utf8");
+      expect(log).toContain("kind: exit");
+      expect(log).toContain("cleanupFailed: false");
+      expect(log).toContain("--- stdout ---");
+      expect(log).toContain("normal exit reports");
+      expect(log).toContain("--- stderr ---");
+    } finally {
+      rmSync(diagnosticsDir, { recursive: true, force: true });
+    }
   });
 
   test("SIGINT during a supervised run cleans up the active Bun process and exits nonzero", async () => {
