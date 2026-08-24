@@ -1,6 +1,6 @@
 {
   "name": "agent-profile-kit",
-  "version": "0.97.0",
+  "version": "0.98.0",
   "private": true,
   "description": "Compose portable agent material into host-native profiles.",
   "type": "module",
@@ -13,7 +13,8 @@
     "README.md"
   ],
   "scripts": {
-    "build": "bun run typecheck && bun build cli/index.ts --target=node --packages=bundle --outfile=dist/cli.js --silent",
+    "build": "bun run typecheck && bun run build:bundle",
+    "build:bundle": "bun build cli/index.ts --target=node --packages=bundle --outfile=dist/cli.js --silent",
     "test": "bun run test/support/suite-supervisor.ts full",
     "test:focused": "bun run test/support/suite-supervisor.ts focused",
     "test:stress": "bun run test/support/suite-supervisor.ts stress",

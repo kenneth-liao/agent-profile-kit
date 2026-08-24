@@ -49,13 +49,16 @@ jobs:
         run: bun run typecheck
 
       - name: Build production CLI
-        run: bun run build
+        run: bun run build:bundle
+
+      - name: Create package archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/package"
+          package_file="$(npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP/package")"
+          echo "APKIT_TEST_PACKAGE_ARCHIVE=$RUNNER_TEMP/package/$package_file" >> "$GITHUB_ENV"
 
       - name: Run test suite
         run: bun run test
-
-      - name: Inspect packed package
-        run: npm pack --dry-run
 
       - name: Verify clean generated output
         run: |
