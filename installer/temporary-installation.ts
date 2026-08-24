@@ -22,7 +22,7 @@ import { findGitProject, gitExcludeEntry } from "./git.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import {
   newInstallationId,
-  readInstallationStateWithMigration,
+  readInstallationState,
   removeDisposableOutputs,
   writeInstallationState,
 } from "./installation-state.js";
@@ -203,7 +203,7 @@ function receiptFromRecord(
 }
 
 function exclusionContributionFor(
-  state: Awaited<ReturnType<typeof readInstallationStateWithMigration>>["state"],
+  state: Awaited<ReturnType<typeof readInstallationState>>,
   installationId: string,
 ): TemporaryInstallationReceipt["repositoryExclusion"] {
   return state.receipts.find(
@@ -289,7 +289,7 @@ async function planTemporaryDesiredInstallation(options: {
  * receipt-owned temporary lifetime (ADR-0015).
  */
 export function projectConflictBlockers(
-  state: Awaited<ReturnType<typeof readInstallationStateWithMigration>>["state"],
+  state: Awaited<ReturnType<typeof readInstallationState>>,
   canonicalProject: string,
 ): readonly BlockerInput[] {
   const blockers: BlockerInput[] = [];
@@ -362,8 +362,7 @@ export async function installTemporaryProfile(options: {
     options.home,
     "install-temp",
     async () => {
-      const loaded = await readInstallationStateWithMigration(options.home);
-      const state = loaded.state;
+      const state = await readInstallationState(options.home);
       const structuredBlockers: BlockerInput[] = [
         ...desired.blockers,
         ...projectConflictBlockers(state, canonicalProject),
@@ -513,8 +512,7 @@ export async function removeTemporaryProfile(options: {
     options.home,
     "remove-temp",
     async () => {
-      const loaded = await readInstallationStateWithMigration(options.home);
-      const state = loaded.state;
+      const state = await readInstallationState(options.home);
       const existing = temporaryReceipts(state).find(
         (installation) => installation.installationId === temporaryInstallationId,
       );

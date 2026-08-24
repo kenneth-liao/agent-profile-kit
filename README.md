@@ -249,8 +249,7 @@ Canonical user content lives in one selected Workspace. The fixed default is
 `~/.agents/agent-profile-kit/workspace/`; zero-argument `init` records that path
 explicitly, while `init <workspace>` may provision or adopt another absolute or
 home-relative Workspace path. Machine-local Project Bindings and that explicit
-path live in `config.yaml`; disposable Installation
-Manifests live under `state/`. Generated Context, hooks, rules, and Skills live
+path live in `config.yaml`; durable schema-6 JSON Installation State lives under `state/`. Generated Context, hooks, rules, and Skills live
 only in bound project-owned paths.
 
 `apkit init` creates a default Workspace with a schema marker, artifact

@@ -45,9 +45,11 @@ import {
 import { projectConflictBlockers } from "../installer/temporary-installation.js";
 import {
   formatInstallationMarker,
-  INSTALLATION_STATE_MAX_BYTES,
 } from "../schemas/installation-manifest.js";
-import type { OwnershipState } from "../schemas/ownership-state.js";
+import {
+  OWNERSHIP_STATE_LIMITS,
+  type OwnershipState,
+} from "../schemas/ownership-state.js";
 import {
   reportBlockers,
 } from "./support/reconciliation-report.js";
@@ -108,7 +110,7 @@ describe("structured Installer blocker evidence", () => {
     const home = await prepareHome(project);
     const statePath = stateManifestPath(home);
     mkdirSync(dirname(statePath), { recursive: true });
-    writeFileSync(statePath, `#${"x".repeat(INSTALLATION_STATE_MAX_BYTES)}\n`);
+    writeFileSync(statePath, `#${"x".repeat(OWNERSHIP_STATE_LIMITS.maxBytes)}\n`);
 
     const report = await statusApplication(home);
 

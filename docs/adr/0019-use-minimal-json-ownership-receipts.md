@@ -32,3 +32,7 @@ A state writer cannot publish bytes its supported reader rejects, and aliases or
 Pre-0.95.0 binaries cannot read schema-6 JSON. Before migration, users who require rollback must back up `manifest.yaml`; after migration they must restore that backup before running an older binary. Missing or unreadable ownership state is never reconstructed from surviving generated output.
 
 The legacy YAML parser and schema projections remain only for the explicit migration window. Their removal requires the separate human migration gate and pre-1.0 compatibility cleanup tracked by #256 and #257.
+
+### Amendment: close the pre-1.0 YAML migration window
+
+Issue #256 confirmed that the shipped 0.95.0 boundary migrated every known supported Installation State, and issue #257 closed the migration window. Runtime ownership reading now accepts only strict schema-6 `manifest.json`; any leftover `manifest.yaml` fails closed with guidance to use 0.95.0. The legacy YAML readers, compatibility normalizer, transitional serializer, and retired receipt projections no longer exist in production, and ownership is never reconstructed from generated Profile Installation output.

@@ -11,13 +11,10 @@ import {
 import {
   emptyInstallationState,
   readInstallationState,
+  readTemporaryInstallations,
   writeInstallationState,
 } from "../installer/installation-state.js";
-import { legacyStateManifestPath, stateManifestPath } from "../installer/project-plan.js";
-import {
-  formatInstallationState,
-  type InstallationState,
-} from "../schemas/installation-manifest.js";
+import { stateManifestPath } from "../installer/project-plan.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -77,50 +74,44 @@ describe("Installation State publication", () => {
     expect(existsSync(join(path, "..", "manifest.yaml"))).toBe(false);
   });
 
-  test("retires supported YAML only after publishing production-readable JSON", async () => {
+  test("returns empty state when neither current nor retired state exists", async () => {
+    expect(await readInstallationState(isolatedHome())).toEqual(emptyInstallationState());
+  });
+
+  test("rejects legacy YAML after the migration window closes", async () => {
     const home = isolatedHome();
-    const legacy: InstallationState = {
-      intendedTeardowns: [],
-      installations: [{
-        adapterVersion: "codex-project-v3",
-        engineVersion: "0.94.1",
-        hosts: ["codex"],
-        hostVersions: { codex: "test-host" },
-        installationId: "install-a",
-        outputs: [{
-          hash,
-          mode: 0o644,
-          path: ".agent-profile-kit/installation.json",
-          type: "file",
-        }, {
-          hash,
-          mode: 0o644,
-          path: ".codex/hooks.json",
-          type: "file",
-        }],
-        profileId: "coding",
-        project: "/repo/a",
-        resolvedArtifacts: [],
-        schemaVersion: 3,
-        selectedContext: [],
-        workspaceInputHash: hash,
-      }],
-      repositoryExclusions: [],
-      schemaVersion: 5,
-      temporaryInstallations: [],
-    };
-    const legacyPath = legacyStateManifestPath(home);
+    const legacyPath = join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml");
     mkdirSync(join(legacyPath, ".."), { recursive: true });
-    writeFileSync(legacyPath, formatInstallationState(legacy));
+    writeFileSync(legacyPath, "schema_version: 5\n");
 
-    const loaded = await readInstallationState(home);
-    expect(loaded.receipts[0]?.outputs.map((output) => output.path)).toEqual([
-      ".codex/hooks.json",
-    ]);
-    await writeInstallationState(home, loaded);
+    await expect(readInstallationState(home)).rejects.toThrow(
+      /legacy YAML Installation State.*migration window is closed.*0\.95\.0.*never reconstructs ownership from generated output/i,
+    );
+    expect(existsSync(legacyPath)).toBe(true);
+    expect(existsSync(stateManifestPath(home))).toBe(false);
+  });
 
-    expect(parseOwnershipState(readFileSync(stateManifestPath(home), "utf8"))).toEqual(loaded);
-    expect(existsSync(legacyPath)).toBe(false);
+  test("rejects a leftover YAML source even when strict JSON also exists", async () => {
+    const home = isolatedHome();
+    await writeInstallationState(home, stateWithAdapterVersion("current"));
+    const legacyPath = join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml");
+    writeFileSync(legacyPath, "schema_version: 5\n");
+
+    await expect(readInstallationState(home)).rejects.toThrow(/migration window is closed/i);
+    expect(parseOwnershipState(readFileSync(stateManifestPath(home), "utf8"))).toEqual(
+      stateWithAdapterVersion("current"),
+    );
+  });
+
+  test("rejects legacy YAML from read-only temporary inventory", async () => {
+    const home = isolatedHome();
+    const legacyPath = join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml");
+    mkdirSync(join(legacyPath, ".."), { recursive: true });
+    writeFileSync(legacyPath, "schema_version: 5\n");
+
+    await expect(readTemporaryInstallations(home)).rejects.toThrow(
+      /legacy YAML Installation State.*migration window is closed.*0\.95\.0.*never reconstructs ownership from generated output/i,
+    );
   });
 
   test("keeps prior state when exact serialized bytes exceed production reader bounds", async () => {

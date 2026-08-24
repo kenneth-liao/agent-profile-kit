@@ -1,6 +1,6 @@
 import {
-  mkdir,
   lstat,
+  mkdir,
   mkdtemp,
   open,
   readFile,
@@ -8,19 +8,12 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
-  canonicalRepositoryExclusionRecord,
-  compareCanonicalStrings,
   INSTALLATION_MARKER_PATH,
-  INSTALLATION_STATE_MAX_BYTES,
-  parseLegacyInstallationState,
-  parsePreviousInstallationState,
-  parseV4InstallationState,
   parseInstallationMarker,
-  parseInstallationState,
   type InstallationMarker,
 } from "../schemas/installation-manifest.js";
 import {
@@ -32,8 +25,6 @@ import {
   type OwnershipReceipt,
   type OwnershipState,
 } from "../schemas/ownership-state.js";
-import { normalizeLegacyOwnershipState } from "./ownership-state-normalization.js";
-import { findGitProject, gitExcludeEntry, type GitProject } from "./git.js";
 import {
   createLifecycleOwnershipInspectionContext,
   unsafeOutputParent,
@@ -43,7 +34,6 @@ import {
 import {
   hashBytes,
   markerPath,
-  legacyStateManifestPath,
   stateManifestPath,
   stateDirectory,
 } from "./project-plan.js";
@@ -80,99 +70,14 @@ async function readInstallationStateSource(path: string): Promise<string> {
   }
 }
 
-export interface InstallationStateRead {
-  readonly migrated: boolean;
-  readonly state: OwnershipState;
+function retiredInstallationStatePath(home: string): string {
+  return join(stateDirectory(home), "manifest.yaml");
 }
 
-function slashPath(path: string): string {
-  return path.split(sep).join("/");
-}
-
-/**
- * Resolve a legacy recorded project without making this lookup part of the
- * schema-v3 read path. It exists only to preserve v2 ownership during the
- * one-time state-boundary migration.
- */
-async function gitProjectForLegacyInstallation(project: string): Promise<GitProject | undefined> {
-  try {
-    await lstat(project);
-    return await findGitProject(project);
-  } catch (error) {
-    if (!hasErrorCode(error, "ENOENT")) throw error;
-  }
-  let ancestor = dirname(project);
-  while (true) {
-    try {
-      await lstat(ancestor);
-      break;
-    } catch (error) {
-      if (!hasErrorCode(error, "ENOENT")) throw error;
-    }
-    const parent = dirname(ancestor);
-    if (parent === ancestor) return undefined;
-    ancestor = parent;
-  }
-  const priorGit = await findGitProject(ancestor);
-  if (!priorGit) return undefined;
-  const relativeProject = slashPath(relative(priorGit.root, project));
-  if (relativeProject === ".." || relativeProject.startsWith("../")) return undefined;
-  return { ...priorGit, relativeProject };
-}
-
-async function migrateLegacyInstallationState(
-  legacy: ReturnType<typeof parseLegacyInstallationState>,
-): Promise<OwnershipState> {
-  const contributionsByTarget = new Map<string, {
-    readonly entries: readonly string[];
-    readonly installationId: string;
-  }[]>();
-  for (const installation of legacy.installations) {
-    const git = await gitProjectForLegacyInstallation(installation.project);
-    if (!git) continue;
-    const targetContributions = contributionsByTarget.get(git.excludeFile) ?? [];
-    targetContributions.push({
-      entries: installation.outputs.map((output) => gitExcludeEntry(git, output.path)),
-      installationId: installation.installationId,
-    });
-    contributionsByTarget.set(git.excludeFile, targetContributions);
-  }
-  const repositoryExclusions = [...contributionsByTarget.entries()]
-    .sort(([left], [right]) => compareCanonicalStrings(left, right))
-    .map(([target, contributions]) => canonicalRepositoryExclusionRecord(target, contributions));
-  return normalizeLegacyOwnershipState({
-    installations: legacy.installations,
-    repositoryExclusions,
-  });
-}
-
-type ParsedLegacyInstallationState =
-  | { readonly schemaVersion: 5; readonly state: ReturnType<typeof parseInstallationState> }
-  | { readonly schemaVersion: 4; readonly state: ReturnType<typeof parseV4InstallationState> }
-  | { readonly schemaVersion: 3; readonly state: ReturnType<typeof parsePreviousInstallationState> }
-  | { readonly schemaVersion: 2; readonly state: ReturnType<typeof parseLegacyInstallationState> };
-
-function parseLegacyInstallationStateSource(source: string): ParsedLegacyInstallationState {
-  let currentStateError: unknown;
-  try {
-    return { schemaVersion: 5, state: parseInstallationState(source) };
-  } catch (error) {
-    currentStateError = error;
-  }
-
-  try {
-    return { schemaVersion: 4, state: parseV4InstallationState(source) };
-  } catch {
-    try {
-      return { schemaVersion: 3, state: parsePreviousInstallationState(source) };
-    } catch {
-      try {
-        return { schemaVersion: 2, state: parseLegacyInstallationState(source) };
-      } catch {
-        throw currentStateError;
-      }
-    }
-  }
+function legacyStateClosedError(home: string): Error {
+  return new Error(
+    `Legacy YAML Installation State at ${retiredInstallationStatePath(home)} is unsupported because the migration window is closed. Use Agent Profile Kit 0.95.0 to migrate it to manifest.json, then retry this command. Agent Profile Kit never reconstructs ownership from generated output.`,
+  );
 }
 
 export function emptyInstallationState(): OwnershipState {
@@ -183,65 +88,33 @@ export function emptyInstallationState(): OwnershipState {
   };
 }
 
-export async function readInstallationStateWithMigration(home: string): Promise<InstallationStateRead> {
+async function rejectRetiredInstallationState(home: string): Promise<void> {
   try {
-    const source = await readInstallationStateSource(stateManifestPath(home));
-    return { migrated: false, state: parseOwnershipState(source) };
+    await lstat(retiredInstallationStatePath(home));
   } catch (error) {
-    if (!hasErrorCode(error, "ENOENT")) throw error;
-  }
-
-  let source: string;
-  try {
-    source = await readInstallationStateSource(legacyStateManifestPath(home));
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return { migrated: false, state: emptyInstallationState() };
-    }
+    if (hasErrorCode(error, "ENOENT")) return;
     throw error;
   }
-  const parsed = parseLegacyInstallationStateSource(source);
-  const state = parsed.schemaVersion === 2
-    ? await migrateLegacyInstallationState(parsed.state)
-    : normalizeLegacyOwnershipState({
-        installations: parsed.state.installations,
-        repositoryExclusions: parsed.state.repositoryExclusions,
-        ...(parsed.schemaVersion === 5
-          ? { temporaryInstallations: parsed.state.temporaryInstallations }
-          : {}),
-      });
-  return { migrated: true, state };
+  throw legacyStateClosedError(home);
 }
 
+/** Read only the final strict JSON Installation State schema. */
 export async function readInstallationState(home: string): Promise<OwnershipState> {
-  return (await readInstallationStateWithMigration(home)).state;
-}
-
-/**
- * Read only the temporary records needed by read-only inventory. Legacy state
- * cannot contain temporary records, so it is parsed without migrating ordinary
- * installations or inspecting their Project and Git state.
- */
-export async function readTemporaryInstallations(
-  home: string,
-): Promise<readonly OwnershipReceipt[]> {
+  await rejectRetiredInstallationState(home);
   try {
     return parseOwnershipState(
       await readInstallationStateSource(stateManifestPath(home)),
-    ).receipts.filter((receipt) => receipt.lifetime === "temporary");
+    );
   } catch (error) {
-    if (!hasErrorCode(error, "ENOENT")) throw error;
-  }
-  let source: string;
-  try {
-    source = await readInstallationStateSource(legacyStateManifestPath(home));
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return [];
+    if (hasErrorCode(error, "ENOENT")) return emptyInstallationState();
     throw error;
   }
-  const parsed = parseLegacyInstallationStateSource(source);
-  if (parsed.schemaVersion !== 5) return [];
-  return normalizeLegacyOwnershipState(parsed.state).receipts.filter(
+}
+
+export async function readTemporaryInstallations(
+  home: string,
+): Promise<readonly OwnershipReceipt[]> {
+  return (await readInstallationState(home)).receipts.filter(
     (receipt) => receipt.lifetime === "temporary",
   );
 }
@@ -261,9 +134,7 @@ export async function writeInstallationState(
   await writeFile(temporary, source, { flag: "wx" });
   try {
     await rename(temporary, destination);
-    // The bounded YAML input is retired only after canonical JSON is durable and readable.
     parseOwnershipState(await readInstallationStateSource(destination));
-    await rm(legacyStateManifestPath(home), { force: true });
   } finally {
     await rm(temporary, { force: true }).catch(() => undefined);
   }

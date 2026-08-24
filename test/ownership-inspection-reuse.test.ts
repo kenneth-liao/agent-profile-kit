@@ -31,10 +31,7 @@ import {
   type LifecycleOwnershipInspection,
   type LifecycleOwnershipInspectionInstrumentation,
 } from "../installer/lifecycle-ownership-inspection.js";
-import {
-  INSTALLATION_MARKER_PATH,
-  type OwnedOutput,
-} from "../schemas/installation-manifest.js";
+import { INSTALLATION_MARKER_PATH } from "../schemas/installation-manifest.js";
 import {
   reportBlockers,
   reportItems,
