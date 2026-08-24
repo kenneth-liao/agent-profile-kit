@@ -78,6 +78,17 @@ test("does not persist checkout credentials for contributor-controlled code", ()
   expect(checkouts.every((checkout) => checkout.with?.["persist-credentials"] === false)).toBe(true);
 });
 
+test("installs the frozen dependency graph without lifecycle scripts or a dependency cache", () => {
+  const steps = Object.values(workflow.jobs ?? {}).flatMap((job) => job.steps ?? []);
+  const install = steps.find((step) => step.name === "Install dependencies");
+  const setupNode = steps.find((step) => step.uses?.startsWith("actions/setup-node@"));
+
+  expect(install?.run).toBe("bun install --frozen-lockfile --ignore-scripts");
+  expect(setupNode?.with?.["package-manager-cache"]).toBe(false);
+  expect(steps.some((step) => step.uses?.startsWith("actions/cache@"))).toBe(false);
+  expect(workflowSource).not.toMatch(/^\s*cache:/m);
+});
+
 test("uploads explicit supervised diagnostics only after unsuccessful test execution", () => {
   const steps = Object.values(workflow.jobs ?? {}).flatMap((job) => job.steps ?? []);
   const suite = steps.find((step) => step.name === "Run test suite");
