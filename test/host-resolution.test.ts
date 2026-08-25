@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,6 +25,15 @@ function temporaryDirectory(prefix: string): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   temporaryDirectories.push(directory);
   return directory;
+}
+
+function hostCapabilityEnv(): NodeJS.ProcessEnv {
+  const bin = temporaryDirectory("apk-host-resolution-bin-");
+  writeFileSync(join(bin, "codex"), "#!/bin/sh\necho 'codex-cli 0.145.0'\n");
+  writeFileSync(join(bin, "claude"), "#!/bin/sh\necho '2.1.0 (Claude Code)'\n");
+  chmodSync(join(bin, "codex"), 0o755);
+  chmodSync(join(bin, "claude"), 0o755);
+  return { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` };
 }
 
 function writeSkill(root: string, skillId: string): string {
@@ -90,7 +99,7 @@ describe("Host Resolution", () => {
     writeSkill(join(home, ".codex", "skills"), "review-pr");
     writeSkill(join(home, ".claude", "skills"), "review-pr");
 
-    const status = await statusApplication(home);
+    const status = await statusApplication(home, { env: hostCapabilityEnv() });
     expect(reportBlockers(status)).toEqual([]);
     expect(reportWarnings(status)).toEqual([]);
     expect(reportItems(status).some((item) => item.project === project && item.kind === "current")).toBe(

@@ -4314,7 +4314,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 0);
     expectExitCode(await runCli(home, "uninstall"), 0);
     expectExitCode(await runCli(home, "unbind", projectPath), 0);
-    const rebound = await runCli(home, "bind", "coding", projectPath, "--host", "claude");
+    const rebound = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
     expectExitCode(rebound, 0);
 
     const status = await runCli(home, "status");
