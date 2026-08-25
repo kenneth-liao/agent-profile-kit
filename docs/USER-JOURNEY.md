@@ -222,15 +222,20 @@ Next: apkit apply --all
 Details: apkit status --all --verbose
 ```
 
-Verbose retains the full per-Project, per-path, and Git evidence, and versioned
-JSON remains unchanged. Host Setup Step filtering, apply receipts, first-use
-guidance, and readiness wording are separate slices.
+Verbose retains the full per-Project, per-path, Git, and Host Setup Step
+evidence, and versioned JSON remains unchanged. Concise pending `status` does
+not pre-announce post-apply setup. Apply receipts, first-use guidance, and
+readiness wording are separate slices.
 
 Interactive previews that outlast a short anti-flicker threshold show delayed
 operation-level progress on the terminal line; the line is cleared before the
 report, and redirected output and JSON never carry progress bytes.
 
-Gaps: [UJ-32](#uj-32), [UJ-33](#uj-33); ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-11](#uj-11)~~ (shipped in
+Gaps: ~~[UJ-32](#uj-32)~~ (status compact decision shipped in
+[#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); remaining
+apply work is stage 8); ~~[UJ-33](#uj-33)~~ (status portion shipped in
+[#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302); apply
+first-use remains [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304)); ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
 ~~[UJ-12](#uj-12)~~ (shipped in
 [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123)),
@@ -277,7 +282,9 @@ standing reminder, and grouped next-launch readiness (once per Host scope,
 never per Project). Conditional Host guidance carries this journey into Codex,
 Claude Code, Grok, Pi, and Antigravity.
 
-Gaps: [UJ-32](#uj-32), [UJ-33](#uj-33), [UJ-35](#uj-35); ~~[UJ-04](#uj-04)~~ (shipped in
+Gaps: [UJ-32](#uj-32), [UJ-33](#uj-33) (apply first-use only; status setup
+suppression shipped in
+[#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302)), [UJ-35](#uj-35); ~~[UJ-04](#uj-04)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)), ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-20](#uj-20)~~,
 ~~[UJ-21](#uj-21)~~.
 
@@ -319,14 +326,19 @@ one explicit absolute or home-relative bound root, or `--all` for the fleet.
 Ambiguous, unbound, missing, relative, wildcard, and non-directory targets fail
 with command guidance before Project inspection. The tool's best-working loop:
 `stale source` is detected accurately, the gloss is useful the first time, and
-the next action is correct. A fully-current fleet
-states that fact once (`All Projects are current (12 Projects)`) and keeps one
-compact Host-level standing reminder instead of a per-Project matrix.
-Interactive status inspections that outlast a short anti-flicker threshold show
-delayed operation-level progress on the terminal line; the line is cleared
-before the report, and redirected output and JSON never carry progress bytes.
+the next action is correct. A fully-current fleet states that fact once
+(`All Projects are current (12 Projects)`) with no Host setup reminder, Project
+list, or next action. Verbose status and JSON retain every Adapter-authored Host
+Setup Step and its typed provenance. Interactive status inspections that outlast
+a short anti-flicker threshold show delayed operation-level progress on the
+terminal line; the line is cleared before the report, and redirected output and
+JSON never carry progress bytes.
 
-Gaps: [UJ-32](#uj-32), [UJ-33](#uj-33); ~~[UJ-14](#uj-14)~~, ~~[UJ-15](#uj-15)~~ (shipped in
+Gaps: ~~[UJ-32](#uj-32)~~ (status compact decision shipped in
+[#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); remaining
+apply work is stage 8); ~~[UJ-33](#uj-33)~~ (status portion shipped in
+[#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302); apply
+first-use remains [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304)); ~~[UJ-14](#uj-14)~~, ~~[UJ-15](#uj-15)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
 
 ### 11. Recover
@@ -454,9 +466,9 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 
 | ID | Severity | Stage | Gap |
 |----|----------|-------|-----|
-| [UJ-33](#uj-33) | High | 7, 8, 10 | Persistent Host constraints render as observed unfinished setup even though Agent Profile Kit cannot inspect trust or approval completion — tracked by [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302) and [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304) |
+| [UJ-33](#uj-33) | High | 8 | Concise `apply` still labels persistent Host constraints as standing unfinished setup; status suppression shipped in [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302), apply first-use remains [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304) |
 | [UJ-35](#uj-35) | High | 8 | A successful changed `apply` can say the Project was already current while its Apply Receipt proves work was completed — tracked by [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303) |
-| [UJ-32](#uj-32) | Med-High | 7, 8, 10 | Routine lifecycle output repeats impact, setup, and readiness facts instead of presenting one task-first decision — tracked by [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301), [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303), [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305) |
+| [UJ-32](#uj-32) | Med-High | 8 | Routine apply output still repeats setup and readiness facts instead of one task-first decision — status compact decision shipped in [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); remaining apply work tracked by [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303), [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305) |
 | ~~[UJ-34](#uj-34)~~ | ~~Medium~~ | ~~13~~ | ~~Next-action surfaces fork the primary path~~ — shipped in [#297](https://github.com/kenneth-liao/agent-profile-kit/issues/297), [#298](https://github.com/kenneth-liao/agent-profile-kit/issues/298), [#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299), and [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300) |
 | ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
 | ~~[UJ-02](#uj-02)~~ | ~~High~~ | ~~11~~ | ~~Drifted output has no stated remedy anywhere~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
@@ -504,13 +516,14 @@ apply hierarchy, setup, and readiness repetition is tracked by
 
 ### UJ-33
 
-`status` and `apply` label persistent Adapter-authored trust and launch
-constraints as standing setup. Agent Profile Kit does not inspect whether those
-Host-owned actions are complete, so a clean Project can appear to have an
-outstanding checklist and returning users see the same reminder on every run.
-The CLI must preserve the requirements as verbose and JSON evidence without
-presenting unknown Host state as observed unfinished work. Delivery is tracked
-by [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302) and
+The concise `status` portion shipped in
+[#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302): pending,
+clean, and blocked concise status render no transition-triggered or standing
+Host Setup Steps, while verbose status and JSON retain every Adapter-authored
+step and its typed provenance. Concise `apply` still labels persistent
+Adapter-authored trust and launch constraints as standing setup even though
+Agent Profile Kit cannot inspect Host-owned completion. Remaining first-use
+apply presentation is tracked by
 [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304).
 
 ### ~~UJ-34~~

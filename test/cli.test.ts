@@ -1915,13 +1915,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(validate, 0);
     expect(validate.stdout).not.toContain("Launch Codex from the exact bound project root:");
 
-    for (const command of ["status", "apply"]) {
-      const output = await runCli(home, command);
-      expectExitCode(output, 0);
-      expect(humanText(output.stdout)).toContain(
-        humanText(`Launch Codex from the exact bound project root: ${projectPath}`),
-      );
-    }
+    const status = await runCli(home, "status");
+    expectExitCode(status, 0);
+    expect(status.stdout).toStartWith("Updates ready for 1 project");
+    expect(status.stdout).not.toContain("Launch Codex from the exact bound project root:");
+    expect(status.stdout).not.toContain("Host setup:");
+    expect(status.stdout).not.toContain("Standing Host setup:");
+
+    const apply = await runCli(home, "apply");
+    expectExitCode(apply, 0);
+    expect(humanText(apply.stdout)).toContain(
+      humanText(`Launch Codex from the exact bound project root: ${projectPath}`),
+    );
   });
 
   test("status leads with a concise ready-to-apply outcome and grouped change counts", async () => {
@@ -2542,11 +2547,20 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, projectPath);
     const plan = await runCli(home, "status");
     expectExitCode(plan, 0);
-    expect(plan.stdout).toContain(
+    expect(plan.stdout).toStartWith("Updates ready for 1 project");
+    expect(plan.stdout).not.toContain("Host setup:");
+    expect(plan.stdout).not.toContain("Standing Host setup:");
+    expect(plan.stdout).not.toContain(
       "Review and approve the generated SessionStart hook when Codex asks.",
     );
-    expect(plan.stdout).toContain("Standing Host setup:");
-    expect(plan.stdout).toContain("Trust the bound project in Codex.");
+    expect(plan.stdout).not.toContain("Trust the bound project in Codex.");
+    const verbosePlan = await runCli(home, "status", "--verbose");
+    expectExitCode(verbosePlan, 0);
+    expect(verbosePlan.stdout).toContain(
+      "Review and approve the generated SessionStart hook when Codex asks.",
+    );
+    expect(verbosePlan.stdout).toContain("Standing Host setup:");
+    expect(verbosePlan.stdout).toContain("Trust the bound project in Codex.");
     const result = await runCli(home, "apply");
 
     expectExitCode(result, 0);
@@ -2599,10 +2613,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
-    expect(status.stdout.match(/Standing Host setup:/g)).toHaveLength(1);
+    expect(status.stdout).toStartWith("All Projects are current (1 Project)\n");
+    expect(status.stdout).not.toContain("Host setup:");
+    expect(status.stdout).not.toContain("Standing Host setup:");
+    expect(status.stdout).not.toContain("Trust the bound project in Codex.");
     expect(status.stdout).not.toContain(
       "Review and approve the generated SessionStart hook",
     );
+    expect(status.stdout).not.toContain("Next:");
   });
 
   test("successful apply reports verified current state and a separate apply receipt", async () => {
@@ -7592,10 +7610,20 @@ describe("responsive lifecycle reports", () => {
     expectExitCode(jsonWide, 0);
     expect(narrow.stdout).not.toBe(redirectedNarrow.stdout);
     expect(redirectedNarrow.stdout).toBe(redirectedWide.stdout);
-    expect(narrow.stdout).toContain("\n  Consequence:");
+    expect(narrow.stdout).toContain("Updates ready for 1 project");
+    expect(narrow.stdout).toContain("Next: apkit apply");
+    expect(narrow.stdout).not.toContain("Host setup:");
+    expect(narrow.stdout).not.toContain("Standing Host setup:");
+    expect(narrow.stdout).not.toContain("Consequence:");
     expect(narrow.stdout).not.toMatch(/\u001b\[/);
     expect(() => JSON.parse(json.stdout)).not.toThrow();
     expect(jsonNarrow.stdout).toBe(jsonWide.stdout);
+    const machine = JSON.parse(json.stdout) as {
+      readonly projects: readonly {
+        readonly setupSteps: readonly unknown[];
+      }[];
+    };
+    expect(machine.projects.some((project) => project.setupSteps.length > 0)).toBe(true);
 
     for (const line of narrow.stdout.split("\n")) {
       const pathLine = line.includes(projectPath);
@@ -7607,7 +7635,10 @@ describe("responsive lifecycle reports", () => {
     expectExitCode(applied, 0);
     expectExitCode(clean, 0);
     expect(applied.stdout).toContain("Apply complete");
+    expect(applied.stdout).toContain("\n  Consequence:");
     expect(clean.stdout).toContain("All Projects are current");
+    expect(clean.stdout).not.toContain("Host setup:");
+    expect(clean.stdout).not.toContain("Standing Host setup:");
 
     const blockedHome = isolatedHome();
     const blockedProject = project();
