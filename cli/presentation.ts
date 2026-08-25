@@ -2794,6 +2794,7 @@ export function formatTemporaryInstallationHuman(
     ? undefined
     : displayProjectPath(receipt.project, receipt.project, cwd, home);
   if (command === "install-temp") {
+    const removalCommand = `${COMMAND_NAME} remove-temp ${receipt.temporaryInstallationId}`;
     const warningLines = receipt.warnings.length === 0
       ? []
       : [
@@ -2827,9 +2828,11 @@ export function formatTemporaryInstallationHuman(
       `  Project: ${project!}\n` +
       `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
       (warningLines.length > 0 ? `${warningLines.join("\n")}\n` : "") +
-      (setupLines.length > 0 ? `${setupLines.join("\n")}\n` : "")
+      (setupLines.length > 0 ? `${setupLines.join("\n")}\n` : "") +
+      `Next: ${removalCommand}\n`
     ), options.context, [
       project!,
+      removalCommand,
       receipt.temporaryInstallationId,
       receipt.profileId!,
       ...receipt.diagnosticValues,
