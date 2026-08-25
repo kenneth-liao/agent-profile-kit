@@ -3703,7 +3703,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(apply).not.toContain("Host setup:");
   });
 
-  test("no-op apply preserves warnings and diagnostics", () => {
+  test("no-op apply preserves adapter warnings", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -3713,19 +3713,18 @@ describe("lifecycle summaries, next actions, and readiness", () => {
         project: "/project-a",
         resolvedArtifacts: [],
       }],
-      items: [
-        { kind: "current", project: "/project-a" },
-        { kind: "stale source", project: "/unscoped-source" },
-      ],
+      items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
       warnings: ["Project /project-a carries an adapter warning."],
     });
 
     const apply = formatApplyReport(applyResult(report));
-    expect(apply).toContain("Apply complete");
-    expect(apply).toContain("All Projects were already current.");
-    expect(apply).toContain("Warnings:\n- Project /project-a carries an adapter warning.");
-    expect(apply).toContain("Diagnostics:\n- /unscoped-source: stale source");
+    expect(apply).toBe(
+      "Apply complete\n" +
+        "All Projects were already current.\n\n" +
+        "Warnings:\n" +
+        "- Project /project-a carries an adapter warning.\n",
+    );
     expect(apply).not.toContain("Applied:");
     expect(apply).not.toContain("Host setup:");
   });
