@@ -20,9 +20,11 @@ against sandbox `HOME`s, not derived from source. Coverage: cold start; authorin
 bind; validate; preview; apply; stale source; hand-edited drift; deleted output;
 uninstall; unbind; missing and outdated Host CLIs; and a three-project,
 four-Host installation (Claude, Codex, Grok, Pi) including a Skills-only Profile,
-a non-Git project, and a disabled-model-invocation Skill. These captured excerpts
-predate the `apkit` rename and deliberately preserve the executable spelling that
-produced them. The presentation-gap evidence pass behind spec #154 measured root
+a non-Git project, and a disabled-model-invocation Skill. First-run excerpts in stages 1, 2, and 5–8, plus the temporary install and
+remove receipts in stage 13, were recaptured from the packed newcomer journey
+([#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307)).
+Older recovery and teardown excerpts remain historical and preserve the
+executable spelling that produced them. The presentation-gap evidence pass behind spec #154 measured root
 help at 129 columns, focused help at 167, focused guides at 154, and blocked
 lifecycle output at 201; a real 12-Project `status` took about 4.9 seconds,
 `preview` about 9.2 seconds, and a blocked run carried 42 blockers (41 per-path
@@ -47,6 +49,14 @@ respectively. Min/max ranges were 0.105–0.109s, 0.629–0.644s, and
 after. These are release evidence, not CI timing gates; repeatable in-process
 samples remain available through `installer/benchmark.ts`, while operation
 budgets are enforced structurally (see ADR-0017).
+
+Newcomer journey qualification (spec #292, ticket #307): the complete quiet,
+task-first newcomer flow — bare help → init → validate → bind → ready status →
+changed apply → current status, followed by temporary install → exact printed
+remove command → removal — is qualified end-to-end through the packed CLI
+boundary (`test/release-candidate.test.ts`) against isolated settings, Workspace,
+Git and non-Git Projects, controlled Host executables, and ownership receipts.
+The first-run excerpts below were captured from that packed run.
 
 ---
 
@@ -88,8 +98,36 @@ output drift. The former separate plan command was removed before 1.0.
 
 A bare invocation, `--help`, `-h`, and `help` print root help: description, a
 four-step first run, common commands, then secondary inventory, teardown,
-machine-detail, and temporary-installation commands under `More commands`. Each
-catalog command retains its syntax and wrapped description. The first run points
+machine-detail, and temporary-installation commands under `More commands`:
+
+```
+$ apkit --help
+Agent Profile Kit composes reusable agent material into host-native projects.
+
+Usage: apkit <command> [arguments]
+
+First run:
+  apkit init
+  apkit bind <profile> --host <host>
+  apkit status
+  apkit apply
+
+  Choose a Profile with apkit guide profile; see apkit bind --help for supported
+  Host values.
+
+Common commands:
+  init [workspace]
+    Initialize or adopt the canonical Workspace and settings
+…
+More commands:
+  Inventory:
+  list [projects|profiles|hosts|temporary [--json]]
+    List read-only inventory for Projects, Profiles, Hosts, or temporary
+    Profiles
+…
+```
+
+Each catalog command retains its syntax and wrapped description. The first run points
 to `guide profile` for a valid Profile example and `bind --help` for supported
 Host values. Interactive output selects the tty width (falling back to `COLUMNS`)
 and clamps readable prose to 40–100 columns; redirected output uses a
@@ -172,16 +210,16 @@ empty, that a Context Module's identity is frontmatter `id`, and that a Skill's
 ### 5. Bind
 
 ```
-$ agent-profile-kit bind engineering ~/projects/api --host claude --host codex --host grok --host pi
+$ apkit bind example <project> --host codex
 Recorded configured Project for <project>
-  Profile: engineering
-  Hosts: claude, codex, grok, pi
-Next: agent-profile-kit preview
+  Profile: example
+  Hosts: codex
+Next: apkit status
 ```
 
-Correct and well scoped; `unchanged` is distinguished from `Recorded`, the
-project defaults to the working directory, and `--host` is explicit with no
-default. Lifecycle project blocks now echo the selected Hosts, so that identity
+Correct and well scoped; additional `--host` values are recorded the same way,
+`unchanged` is distinguished from `Recorded`, the project defaults to the
+working directory, and `--host` is explicit with no default. Lifecycle project blocks now echo the selected Hosts, so that identity
 remains visible after `bind`.
 
 Gaps: ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-16](#uj-16)~~,
@@ -192,7 +230,7 @@ Gaps: ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao
 ```
 $ apkit validate
 Workspace and settings valid (1 Profile, 0 configured Projects)
-Profiles found: engineering
+Profiles found: example
 Hosts bound: none
 Next: apkit bind <profile> --host <host>
 ```
@@ -204,7 +242,7 @@ remain visible without changing that branch, and validation remains read-only.
 Gaps: ~~[UJ-17](#uj-17)~~ (shipped in
 [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119)).
 
-### 7. Preview
+### 7. Plan
 
 Unblocked pending `status` now presents one compact decision at both single-
 Project and fleet scope. When every non-zero file operation affects the same
@@ -216,6 +254,16 @@ attention keep the identity needed to act. The selected invocation determines
 one apply command and, when detail is suppressed, one matching verbose route:
 
 ```
+$ apkit status <project>
+Updates ready for 1 project (3 file additions).
+Next: apkit apply <project>
+
+Details: apkit status <project> --verbose
+```
+
+The same compact decision scales to a fleet:
+
+```
 Updates ready for 14 projects (96 file updates).
 Next: apkit apply --all
 
@@ -224,8 +272,7 @@ Details: apkit status --all --verbose
 
 Verbose retains the full per-Project, per-path, Git, and Host Setup Step
 evidence, and versioned JSON remains unchanged. Concise pending `status` does
-not pre-announce post-apply setup. Apply receipts, first-use guidance, and
-readiness wording are separate slices.
+not pre-announce post-apply setup.
 
 Interactive previews that outlast a short anti-flicker threshold show delayed
 operation-level progress on the terminal line; the line is cleared before the
@@ -273,16 +320,19 @@ Host configuration files, manages ignore rules, creates markers, and prints
 the summary:
 
 ```
+$ apkit apply <project>
 Apply complete
 
 Applied:
   + 3 generated file additions in 1 project
 
 First use:
-- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.
+- Review and approve the generated SessionStart hook when Codex asks so the
+  Profile can load.
 - Trust the bound project in Codex so the Profile can load.
 
-Profile coding will load the next time you launch a configured Host from a bound Project root.
+Profile example will load the next time you launch a configured Host from a
+  bound Project root.
 ```
 
 A multi-Project apply shows:
@@ -391,9 +441,10 @@ one explicit absolute or home-relative bound root, or `--all` for the fleet.
 Ambiguous, unbound, missing, relative, wildcard, and non-directory targets fail
 with command guidance before Project inspection. The tool's best-working loop:
 `stale source` is detected accurately, the gloss is useful the first time, and
-the next action is correct. A fully-current fleet states that fact once
-(`All Projects are current (12 Projects)`) with no Host setup reminder, Project
-list, or next action. Verbose status and JSON retain every Adapter-authored Host
+the next action is correct. A fully-current single Project states that fact once
+(`All Projects are current (1 Project)`); a fully-current fleet uses the same
+shape (`All Projects are current (12 Projects)`). Neither emits a Host setup
+reminder, Project list, or next action. Verbose status and JSON retain every Adapter-authored Host
 Setup Step and its typed provenance. Interactive status inspections that outlast
 a short anti-flicker threshold show delayed operation-level progress on the
 terminal line; the line is cleared before the report, and redirected output and
@@ -492,26 +543,34 @@ A side journey for automation or one-off inspection, owned by a temporary
 installation receipt rather than a Project Binding (ADR-0015):
 
 ```
-$ apkit install-temp coding ~/scratch --host codex
+$ apkit install-temp example <project> --host codex
 Installed temporary Profile
-  Profile: coding
+  Profile: example
   Host: codex
-  Project: ~/scratch
-  Temporary installation: temporary-installation-…
-Next: apkit remove-temp temporary-installation-…
+  Project: <project>
+  Temporary installation: <temporary-installation-id>
+Codex setup:
+- Review and approve the generated SessionStart hook when Codex asks.
+  Consequence: Declining the hook prevents Profile Context from loading.
+- Trust the bound project in Codex.
+  Consequence: Profile Context does not load until the project is trusted.
+- Launch Codex from the exact bound project root: <project>
+  Consequence: Launching from a descendant prevents Profile Context from
+    loading.
+Next: apkit remove-temp <temporary-installation-id>
 
 $ apkit list temporary
 Temporary Profiles (1):
 
-Temporary installation: temporary-installation-…
-  Project: ~/scratch
-  Profile: coding
+Temporary installation: <temporary-installation-id>
+  Project: <project>
+  Profile: example
   Host: codex
 
-$ apkit remove-temp temporary-installation-…
+$ apkit remove-temp <temporary-installation-id>
 Removed temporary Profile
-  Temporary installation: temporary-installation-…
-  Project: ~/scratch
+  Temporary installation: <temporary-installation-id>
+  Project: <project>
 ```
 
 The temporary identity survives on the receipt and in `list temporary`, so
@@ -534,10 +593,10 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 
 | ID | Severity | Stage | Gap |
 |----|----------|-------|-----|
-| ~~[UJ-33](#uj-33)~~ | ~~High~~ | ~~8~~ | ~~Concise `apply` still labels persistent Host constraints as standing unfinished setup~~ — status suppression shipped in [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302), apply first-use shipped in [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304) |
-| ~~[UJ-35](#uj-35)~~ | ~~High~~ | ~~8~~ | ~~A successful changed `apply` can say the Project was already current while its Apply Receipt proves work was completed~~ — shipped in [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303) |
-| ~~[UJ-32](#uj-32)~~ | ~~Med-High~~ | ~~8~~ | ~~Routine apply output still repeats setup and readiness facts instead of one task-first decision~~ — status compact decision shipped in [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); apply receipt lead shipped in [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303); first-use apply note shipped in [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304); invocation-wide readiness shipped in [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305) |
-| ~~[UJ-34](#uj-34)~~ | ~~Medium~~ | ~~13~~ | ~~Next-action surfaces fork the primary path~~ — shipped in [#297](https://github.com/kenneth-liao/agent-profile-kit/issues/297), [#298](https://github.com/kenneth-liao/agent-profile-kit/issues/298), [#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299), and [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300) |
+| ~~[UJ-33](#uj-33)~~ | ~~High~~ | ~~8~~ | ~~Concise `apply` still labels persistent Host constraints as standing unfinished setup~~ — status suppression shipped in [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302), apply first-use shipped in [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304); qualified in [#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307) |
+| ~~[UJ-35](#uj-35)~~ | ~~High~~ | ~~8~~ | ~~A successful changed `apply` can say the Project was already current while its Apply Receipt proves work was completed~~ — shipped in [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303); qualified in [#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307) |
+| ~~[UJ-32](#uj-32)~~ | ~~Med-High~~ | ~~8~~ | ~~Routine apply output still repeats setup and readiness facts instead of one task-first decision~~ — status compact decision shipped in [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); apply receipt lead shipped in [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303); first-use apply note shipped in [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304); invocation-wide readiness shipped in [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305); qualified in [#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307) |
+| ~~[UJ-34](#uj-34)~~ | ~~Medium~~ | ~~13~~ | ~~Next-action surfaces fork the primary path~~ — shipped in [#297](https://github.com/kenneth-liao/agent-profile-kit/issues/297), [#298](https://github.com/kenneth-liao/agent-profile-kit/issues/298), [#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299), and [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300); qualified in [#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307) |
 | ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
 | ~~[UJ-02](#uj-02)~~ | ~~High~~ | ~~11~~ | ~~Drifted output has no stated remedy anywhere~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-03](#uj-03)~~ | ~~High~~ | ~~12~~ | ~~Post-`uninstall` `status` warns about an intended state~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
@@ -582,7 +641,9 @@ first-use guidance shipped in [#304](https://github.com/kenneth-liao/agent-profi
 and invocation-wide readiness shipped in [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305):
 successful changed apply leads from the Apply Receipt, provides one action-grouped
 first-use note when relevant, and ends with exactly one invocation-wide Profile loading
-readiness statement.
+readiness statement. Qualified in
+[#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307) by the packed
+newcomer journey.
 
 ### ~~UJ-33~~
 
@@ -595,7 +656,9 @@ step and its typed provenance. The concise `apply` portion shipped in
 guidance renders as one action-grouped note with plain reasons, standing trust
 and root-launch reminders are omitted on routine updates, shared-path layout
 notes stay behind `--verbose`, and deduplicated fleet actions omit Project-path
-matrices while verbose and JSON retain every Adapter-authored step.
+matrices while verbose and JSON retain every Adapter-authored step. Qualified in
+[#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307) by the packed
+newcomer journey.
 
 ### ~~UJ-34~~
 
@@ -621,7 +684,9 @@ configured Projects points to `apkit bind`, while one or more points to
 ([#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299)). Temporary
 install success now prints the exact `apkit remove-temp <actual-id>` command
 using the durable identity created by that operation
-([#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300)).
+([#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300)). Qualified
+in [#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307) by the
+packed newcomer journey.
 
 ### ~~UJ-35~~
 ~~A successful first apply can lead from the freshly current verification and say
@@ -634,7 +699,9 @@ Shipped in [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303):
 `apply` now leads from its committed Apply Receipt impact before setup guidance,
 summarizes affected Project and generated-file counts once in concise output,
 omits routine Git exclusion bookkeeping from concise success, and reserves
-"already current" exclusively for a true no-op apply.
+"already current" exclusively for a true no-op apply. Qualified in
+[#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307) by the packed
+newcomer journey.
 
 ### ~~UJ-01~~
 ~~`init` closes with an unusable next step because a fresh Workspace holds zero
