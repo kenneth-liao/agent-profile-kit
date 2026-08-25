@@ -1856,15 +1856,13 @@ function operationReceiptLines(
   includeExclusions = true,
 ): readonly string[] {
   const groups = groupOutputOperations(receipt);
-  if (groups.length === 0) return [];
+  const exclusionClause = includeExclusions ? repositoryExclusionClause(receipt, true) : undefined;
+  if (groups.length === 0 && exclusionClause === undefined) return [];
   const lines = [
     "Applied:",
     ...groups.map((group) => `  ${operationGroupLine(group, fleetScope)}`),
   ];
-  if (includeExclusions) {
-    const exclusionClause = repositoryExclusionClause(receipt, true);
-    if (exclusionClause !== undefined) lines.push("", exclusionClause);
-  }
+  if (exclusionClause !== undefined) lines.push("", exclusionClause);
   return lines;
 }
 

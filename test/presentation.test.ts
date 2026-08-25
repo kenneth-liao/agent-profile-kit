@@ -3754,6 +3754,59 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(apply).toContain("Git exclusions: 1 entry to add.");
   });
 
+  test("blocked multi-project apply retains exclusion-only apply receipt", () => {
+    const receipt = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: [],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [],
+      repositoryExclusions: [{
+        current: [],
+        next: ["/.agent-profile-kit/codex/context.md"],
+        target: "/project-a/.git/info/exclude",
+      }],
+    });
+    const resultingState = emptyReport({
+      blockers: [fixtureBlocker("Project B is blocked", "/project-b")],
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: [],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          outputs: ["b.md"],
+          profile: "coding",
+          project: "/project-b",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [
+        { kind: "current", project: "/project-a" },
+        { kind: "addition", project: "/project-b" },
+      ],
+      outputs: [{ kind: "addition", path: "b.md", project: "/project-b" }],
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).toContain("Apply completed with blockers");
+    expect(apply).toContain("Applied:\n\nGit exclusions: 1 entry added.");
+    expect(apply).toContain("Freshly current: /project-a");
+  });
+
   test("readiness groups Projects that share Profile, Hosts, and setup condition", () => {
     const hookApproval: HostSetupStep = {
       host: "codex",
