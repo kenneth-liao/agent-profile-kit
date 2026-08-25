@@ -8433,21 +8433,19 @@ describe("apkit list", () => {
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
-  test("hosts renders every supported Host in canonical order with temporary support", async () => {
+  test("hosts leads with ordinary supported Hosts without temporary eligibility", async () => {
     const home = isolatedHome();
 
     const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "hosts");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain(`Hosts (${SUPPORTED_HOSTS.length}):`);
-    for (const host of SUPPORTED_HOSTS) expect(result.stdout).toContain(`Host: ${host}`);
-    expect(result.stdout).toContain("Temporary Profile Installation: supported");
-    expect(result.stdout).toContain("Temporary Profile Installation: not supported");
-    expect(result.stdout.indexOf("Host: antigravity")).toBeLessThan(result.stdout.indexOf("Host: claude"));
-    expect(result.stdout.indexOf("Host: claude")).toBeLessThan(result.stdout.indexOf("Host: codex"));
-    expect(result.stdout.indexOf("Host: codex")).toBeLessThan(result.stdout.indexOf("Host: grok"));
-    expect(result.stdout.indexOf("Host: grok")).toBeLessThan(result.stdout.indexOf("Host: pi"));
+    expect(result.stdout).toBe(
+      "Supported Hosts:\n" +
+        SUPPORTED_HOSTS.map((host) => `  ${host}\n`).join("") +
+        "\nUse <host> with apkit bind.\n",
+    );
+    expect(result.stdout).not.toContain("Temporary Profile Installation");
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 

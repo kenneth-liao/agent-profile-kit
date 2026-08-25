@@ -111,8 +111,9 @@ set in `cli/examples.ts`.
 available inventory topic once with one human description, while focused `list`
 help retains JSON syntax and examples. `list projects` reads Project Bindings from
 normalized Local Configuration, `list profiles` reads Profile selections from
-the selected Workspace, and `list hosts` reads the canonical supported-Host and
-Temporary Profile Installation capability sets without probing the machine.
+the selected Workspace, and `list hosts` leads with the canonical Hosts supported
+for configured Projects without probing the machine. Temporary-install eligibility
+remains available in focused `install-temp` help and Host inventory JSON.
 `list temporary` reads active Temporary Profile Installations from Installation
 State, preserving each durable identity alongside its Project, Profile, and Host
 so `remove-temp` can target the correct receipt; it does not enter ordinary
@@ -475,7 +476,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | [UJ-33](#uj-33) | High | 7, 8, 10 | Persistent Host constraints render as observed unfinished setup even though Agent Profile Kit cannot inspect trust or approval completion — tracked by [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302) and [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304) |
 | [UJ-35](#uj-35) | High | 8 | A successful changed `apply` can say the Project was already current while its Apply Receipt proves work was completed — tracked by [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303) |
 | [UJ-32](#uj-32) | Med-High | 7, 8, 10 | Routine lifecycle output repeats impact, setup, and readiness facts instead of presenting one task-first decision — tracked by [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301), [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303), [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305) |
-| [UJ-34](#uj-34) | Medium | 1, 2, 6, 13 | Host inventory and next-action surfaces bury or fork the primary path — tracked by [#296](https://github.com/kenneth-liao/agent-profile-kit/issues/296) through [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300) |
+| [UJ-34](#uj-34) | Medium | 1, 2, 6, 13 | Next-action surfaces still fork the primary path — remaining delivery is tracked by [#297](https://github.com/kenneth-liao/agent-profile-kit/issues/297) through [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300) |
 | ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
 | ~~[UJ-02](#uj-02)~~ | ~~High~~ | ~~11~~ | ~~Drifted output has no stated remedy anywhere~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-03](#uj-03)~~ | ~~High~~ | ~~12~~ | ~~Post-`uninstall` `status` warns about an intended state~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
@@ -539,13 +540,15 @@ from secondary inventory, teardown, machine-detail, and temporary-installation
 commands ([#294](https://github.com/kenneth-liao/agent-profile-kit/issues/294)).
 The no-topic inventory menu now names each topic once with one human description,
 with JSON examples retained in focused `list` help
-([#295](https://github.com/kenneth-liao/agent-profile-kit/issues/295)). The
-remaining first-run hierarchy forks across Host inventory and next-action
-surfaces: ordinary Host support is secondary to temporary eligibility; `init`
-help and success output disagree; validation with no configured Projects does
-not point to `bind`; and a temporary-install success prints an identity without
-the removal command that consumes it. Remaining delivery is tracked across
-[#296](https://github.com/kenneth-liao/agent-profile-kit/issues/296) through
+([#295](https://github.com/kenneth-liao/agent-profile-kit/issues/295)). Host
+inventory now leads with the canonical Hosts supported for configured Projects,
+while focused temporary help and JSON retain temporary-install eligibility
+([#296](https://github.com/kenneth-liao/agent-profile-kit/issues/296)). The
+remaining first-run hierarchy forks across next-action surfaces: `init` help and
+success output disagree; validation with no configured Projects does not point
+to `bind`; and a temporary-install success prints an identity without the
+removal command that consumes it. Remaining delivery is tracked across
+[#297](https://github.com/kenneth-liao/agent-profile-kit/issues/297) through
 [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300).
 
 ### UJ-35

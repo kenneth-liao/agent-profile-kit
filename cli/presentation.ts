@@ -628,18 +628,13 @@ export function formatHostInventoryHuman(
   hosts: readonly HostInventoryRecord[],
   options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
-  const capability = (host: HostInventoryRecord): string =>
-    `Temporary Profile Installation: ${host.supportsTemporaryProfileInstallation ? "supported" : "not supported"}`;
-  const lines = [`Hosts (${hosts.length}):`];
-  for (const host of hosts) {
-    lines.push(
-      "",
-      `Host: ${host.host}`,
-      `  ${capability(host)}`,
-    );
-  }
-  lines.push("", `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.`);
-  return responsiveHumanText(`${lines.join("\n")}\n`, options.context, hosts.map(capability));
+  const lines = [
+    "Supported Hosts:",
+    ...hosts.map(({ host }) => `  ${host}`),
+    "",
+    `Use <host> with ${COMMAND_NAME} bind.`,
+  ];
+  return responsiveHumanText(`${lines.join("\n")}\n`, options.context);
 }
 
 type HostInventoryMachineBase = ListInventoryMachineBase<"hosts">;
