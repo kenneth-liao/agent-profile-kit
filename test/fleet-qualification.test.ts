@@ -244,10 +244,12 @@ describe("fleet-wide synchronization qualification", () => {
 
     const status = await runCli(home, pathWithHosts, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toContain("All Projects are current (12 Projects)");
-    // One compact Host-level standing reminder; no per-Project lifecycle blocks.
-    expect(status.stdout).toContain("Standing Host setup:");
+    expect(status.stdout).toBe("All Projects are current (12 Projects)\n");
+    // Clean concise status stays quiet: no standing reminder or Project matrix.
+    expect(status.stdout).not.toContain("Standing Host setup:");
+    expect(status.stdout).not.toContain("Host setup:");
     expect(status.stdout).not.toContain("Project: ");
+    expect(status.stdout).not.toContain("Next:");
     // Pi now generates output in the added Project.
     expect(existsSync(join(withPi, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
   }, 120_000);

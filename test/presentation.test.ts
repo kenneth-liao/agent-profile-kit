@@ -320,10 +320,80 @@ describe("Host Setup Step provenance and presentation", () => {
     setupSteps,
   });
 
-  test("renders each setup action separately from its consequence", () => {
+  test("concise pending status renders no transition or standing Host setup", () => {
     const report = emptyReport({
-      desired: [installation("/project-a", [codexTrust()])],
+      desired: [installation("/project-a", [
+        hookApproval(),
+        codexTrust(),
+        rootLaunch(),
+        sharedPath(),
+      ])],
       items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: hookPath, project: "/project-a" }],
+    });
+
+    const status = formatLifecycleReport("status", report);
+
+    expect(status).toStartWith("Updates ready for 1 project (1 file addition).\n");
+    expect(status).toContain("Next: apkit apply");
+    expect(status).toContain("Details: apkit status --verbose");
+    expect(status).not.toContain("Host setup:");
+    expect(status).not.toContain("Standing Host setup:");
+    expect(status).not.toContain("Review and approve the generated SessionStart hook");
+    expect(status).not.toContain("Trust the bound project in Codex.");
+    expect(status).not.toContain("Launch Codex from the exact bound project root:");
+    expect(status).not.toContain("Grok uses Claude's shared rule path.");
+    expect(status).not.toContain("Consequence:");
+  });
+
+  test("concise clean status states current once without setup, Project list, or next action", () => {
+    const report = emptyReport({
+      desired: ["/project-a", "/project-b"].map((project) =>
+        installation(project, [hookApproval(), codexTrust(), rootLaunch()]),
+      ),
+      items: [
+        { kind: "current", project: "/project-a" },
+        { kind: "current", project: "/project-b" },
+      ],
+    });
+
+    const status = formatLifecycleReport("status", report);
+
+    expect(status).toBe("All Projects are current (2 Projects)\n");
+    expect(status).not.toContain("Host setup:");
+    expect(status).not.toContain("Standing Host setup:");
+    expect(status).not.toContain("Trust the bound project in Codex.");
+    expect(status).not.toContain("Next:");
+    expect(status).not.toContain("Project:");
+  });
+
+  test("concise blocked status stays blocker-first and omits Host setup", () => {
+    const report = emptyReport({
+      blockers: [fixtureBlocker("occupied output", "/project-a")],
+      desired: [installation("/project-a", [hookApproval(), codexTrust()])],
+      items: [{ kind: "blocked", project: "/project-a" }],
+    });
+
+    const status = formatLifecycleReport("status", report);
+
+    expect(status).toStartWith("Cannot apply\n");
+    expect(status).toContain("occupied output");
+    expect(status).not.toContain("Host setup:");
+    expect(status).not.toContain("Standing Host setup:");
+    expect(status).not.toContain("Review and approve the generated SessionStart hook");
+    expect(status).not.toContain("Trust the bound project in Codex.");
+  });
+
+  test("verbose status and JSON retain every Adapter-authored Host Setup Step with provenance", () => {
+    const report = emptyReport({
+      desired: [installation("/project-a", [
+        hookApproval(),
+        codexTrust(),
+        rootLaunch(),
+        sharedPath(),
+      ])],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: hookPath, project: "/project-a" }],
     });
 
     const context: TerminalPresentationContext = {
@@ -331,16 +401,69 @@ describe("Host Setup Step provenance and presentation", () => {
       interactive: false,
       width: 80,
     };
-    const status = formatLifecycleReport("status", report, { context });
-
-    expect(status).toContain("Standing Host setup:");
-    expect(status).toContain(
+    const verbose = formatLifecycleReport("status", report, { context, verbose: true });
+    expect(verbose).toContain("Host setup:");
+    expect(verbose).toContain("Standing Host setup:");
+    expect(verbose).toContain(
+      "- Review and approve the generated SessionStart hook when Codex asks.\n" +
+        "  Consequence: Declining the hook prevents Profile Context from loading.",
+    );
+    expect(verbose).toContain(
       "- Trust the bound project in Codex.\n" +
         "  Consequence: Profile Context does not load until the project is trusted.",
     );
+    expect(verbose).toContain("Launch Codex from the exact bound project root: /project-a");
+    expect(verbose).toContain("Grok uses Claude's shared rule path.");
+
+    const machine = JSON.parse(formatLifecycleJson("status", report)) as {
+      readonly projects: readonly {
+        readonly setupSteps: readonly {
+          readonly consequence?: string;
+          readonly host: string;
+          readonly kind: string;
+          readonly message: string;
+          readonly output?: string;
+          readonly path?: "bound-project";
+          readonly project?: string;
+          readonly provenance: string;
+        }[];
+      }[];
+    };
+    expect(machine.projects[0]?.setupSteps).toEqual([
+      {
+        consequence: "Declining the hook prevents Profile Context from loading.",
+        host: "codex",
+        kind: "approval-required",
+        message: "Review and approve the generated SessionStart hook when Codex asks.",
+        output: hookPath,
+        provenance: "transition",
+      },
+      {
+        consequence: "Profile Context does not load until the project is trusted.",
+        host: "codex",
+        kind: "trust-required",
+        message: "Trust the bound project in Codex.",
+        provenance: "standing",
+      },
+      {
+        consequence: "Launching from a descendant prevents Profile Context from loading.",
+        host: "codex",
+        kind: "launch-constraint",
+        message: "Launch Codex from the exact bound project root:",
+        path: "bound-project",
+        project: "/project-a",
+        provenance: "standing",
+      },
+      {
+        host: "grok",
+        kind: "shared-path",
+        message: "Grok uses Claude's shared rule path.",
+        provenance: "standing",
+      },
+    ]);
   });
 
-  test("deduplicates identical setup steps without collapsing distinct consequences", () => {
+  test("verbose status deduplicates identical setup steps without collapsing distinct consequences", () => {
     const report = emptyReport({
       desired: ["/project-a", "/project-b"].map((project) => ({
         ...installation(project, [codexTrust()]),
@@ -360,60 +483,17 @@ describe("Host Setup Step provenance and presentation", () => {
       ],
     });
 
-    const status = formatLifecycleReport("status", report);
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
 
     // The identical step renders once with compact Project scope; the distinct
     // consequence keeps its own bullet (US-048, US-049).
-    expect(status.match(/- Trust the bound project in Codex\./g)).toHaveLength(2);
-    expect(status).toContain("- Trust the bound project in Codex. (/project-a, /project-b)");
-    expect(status.match(/Profile Context does not load until the project is trusted\./g)).toHaveLength(1);
-    expect(status.match(/A different consequence remains visible\./g)).toHaveLength(1);
+    expect(verbose.match(/- Trust the bound project in Codex\./g)).toHaveLength(2);
+    expect(verbose).toContain("- Trust the bound project in Codex. (/project-a, /project-b)");
+    expect(verbose.match(/Profile Context does not load until the project is trusted\./g)).toHaveLength(1);
+    expect(verbose.match(/A different consequence remains visible\./g)).toHaveLength(1);
   });
 
-  test("status shows transition-triggered approval only when its output changes", () => {
-    const report = emptyReport({
-      desired: [installation("/project-a", [hookApproval(), codexTrust()])],
-      items: [{ kind: "addition", project: "/project-a" }],
-      outputs: [{ kind: "addition", path: hookPath, project: "/project-a" }],
-    });
-    const status = formatLifecycleReport("status", report);
-    expect(status).toContain(
-      "Review and approve the generated SessionStart hook when Codex asks.",
-    );
-
-    // An unrelated change must not replay transition-triggered setup (US-046).
-    const unrelated = emptyReport({
-      desired: [installation("/project-a", [hookApproval(), codexTrust()])],
-      items: [{ kind: "update", project: "/project-a" }],
-      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
-    });
-    const unrelatedStatus = formatLifecycleReport("status", unrelated);
-    expect(unrelatedStatus).not.toContain(
-      "Review and approve the generated SessionStart hook",
-    );
-    expect(unrelatedStatus).not.toContain("\nHost setup:");
-    expect(unrelatedStatus).toContain("Standing Host setup:");
-  });
-
-  test("status renders transition-triggered and standing setup guidance", () => {
-    const report = emptyReport({
-      desired: [installation("/project-a", [hookApproval(), codexTrust(), rootLaunch(), sharedPath()])],
-      items: [{ kind: "addition", project: "/project-a" }],
-      outputs: [{ kind: "addition", path: hookPath, project: "/project-a" }],
-    });
-    const status = formatLifecycleReport("status", report);
-    expect(status).toContain(
-      "Review and approve the generated SessionStart hook",
-    );
-    expect(status).toContain("Trust the bound project in Codex.");
-    expect(status).toContain("Launch Codex from the exact bound project root:");
-    expect(status).toContain("Grok uses Claude's shared rule path.");
-    expect(status).toContain("Standing Host setup:");
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain("Trust the bound project in Codex.");
-  });
-
-  test("renders typed bound-project paths through the canonical path presenter", () => {
+  test("verbose status renders typed bound-project paths through the canonical path presenter", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/private/project-a",
@@ -427,9 +507,9 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "current", project: "/project-a" }],
     });
 
-    const status = formatLifecycleReport("status", report);
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
 
-    expect(status.split("\n").find((line) => line.startsWith("- Launch Codex from"))).toBe(
+    expect(verbose.split("\n").find((line) => line.startsWith("- Launch Codex from"))).toBe(
       "- Launch Codex from the exact bound project root: /project-a",
     );
   });
@@ -592,30 +672,7 @@ describe("Host Setup Step provenance and presentation", () => {
     );
   });
 
-  test("status shows one standing reminder and never replays transition setup", () => {
-    const repeatedSteps: readonly HostSetupStep[] = [hookApproval(), codexTrust(), rootLaunch()];
-    const report = emptyReport({
-      desired: ["/project-a", "/project-b"].map((project) => ({
-        ...installation(project, repeatedSteps),
-      })),
-      items: [
-        { kind: "current", project: "/project-a" },
-        { kind: "current", project: "/project-b" },
-      ],
-    });
-
-    const status = formatLifecycleReport("status", report);
-
-    expect(status.match(/Standing Host setup:/g)).toHaveLength(1);
-    expect(status.match(/Trust the bound project in Codex\./g)).toHaveLength(1);
-    expect(status).toContain("- Launch Codex from the exact bound project root: /project-a");
-    expect(status).toContain("- Launch Codex from the exact bound project root: /project-b");
-    expect(status).not.toContain(
-      "Review and approve the generated SessionStart hook",
-    );
-  });
-
-  test("capped standing reminder scope defers to --verbose beyond the short list", () => {
+  test("verbose standing reminder scope lists every Project without a concise escape hatch", () => {
     const projects = ["/p-1", "/p-2", "/p-3", "/p-4", "/p-5", "/p-6"].map((project) =>
       installation(project, [codexTrust()]),
     );
@@ -624,15 +681,10 @@ describe("Host Setup Step provenance and presentation", () => {
       items: projects.map((desired) => ({ kind: "current", project: desired.project })),
     });
 
-    const status = formatLifecycleReport("status", report);
-
-    expect(status).toContain(
-      "- Trust the bound project in Codex. (/p-1, /p-2, /p-3, /p-4, … 2 more Projects; use --verbose to see all Projects)",
+    // Concise clean status stays quiet; verbose retains the full Project scope.
+    expect(formatLifecycleReport("status", report)).toBe(
+      "All Projects are current (6 Projects)\n",
     );
-    expect(status.match(/- Trust the bound project in Codex\./g)).toHaveLength(1);
-
-    // The verbose surface honors the concise pointer: every Project appears and
-    // the escape-hatch text is gone (DEC-034, US-041).
     const verbose = formatLifecycleReport("status", report, { verbose: true });
     expect(verbose).toContain(
       "- Trust the bound project in Codex. (/p-1, /p-2, /p-3, /p-4, /p-5, /p-6)",
@@ -641,23 +693,20 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(verbose.match(/- Trust the bound project in Codex\./g)).toHaveLength(1);
   });
 
-  test("blocked status suppresses transition setup while retaining the standing reminder", () => {
+  test("blocked apply suppresses Host setup for work that did not happen", () => {
     const report = emptyReport({
       blockers: [fixtureBlocker("occupied output", "/project-a")],
       desired: [installation("/project-a", [hookApproval(), codexTrust()])],
       items: [{ kind: "blocked", project: "/project-a" }],
     });
 
-    expect(formatLifecycleReport("status", report)).not.toContain(
+    const blockedApply = formatBlockedApplyReport(asBlockedReport(report));
+    expect(blockedApply).not.toContain(
       "Review and approve the generated SessionStart hook",
     );
-    expect(formatBlockedApplyReport(asBlockedReport(report))).not.toContain(
-      "Review and approve the generated SessionStart hook",
-    );
-    expect(formatLifecycleReport("status", report)).toContain("Standing Host setup:");
-    expect(formatLifecycleReport("status", report)).toContain(
-      "Trust the bound project in Codex.",
-    );
+    expect(blockedApply).not.toContain("Host setup:");
+    expect(blockedApply).not.toContain("Standing Host setup:");
+    expect(blockedApply).not.toContain("Trust the bound project in Codex.");
   });
 
   test("post-commit verification failure retains apply setup without claiming activation", () => {

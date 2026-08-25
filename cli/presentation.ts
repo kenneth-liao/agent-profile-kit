@@ -1284,9 +1284,9 @@ interface PresentedSetupStep {
 /**
  * Select the Host Setup Steps one lifecycle surface presents (DEC-036–DEC-038):
  * transition-triggered steps appear only when the plan or applied receipt makes
- * their output relevant, standing steps appear as a separate reminder after
- * applied work or in `status`.
- * Verbose surfaces retain every step as complete evidence (DEC-034).
+ * their output relevant, and standing steps appear as a separate reminder after
+ * applied work. Concise `status` renders none (DEC-008, DEC-015); verbose and
+ * JSON retain every step as complete evidence (DEC-034).
  */
 function presentedSetupSteps(
   command: LifecycleCommand,
@@ -1294,6 +1294,7 @@ function presentedSetupSteps(
   changeEvidence: ReconciliationReport | undefined,
   verbose: boolean,
 ): readonly PresentedSetupStep[] {
+  if (command === "status" && !verbose) return [];
   if (command === "apply" && reportBlockers(report).length > 0) return [];
   const changeReport = changeEvidence ?? report;
   const steps: PresentedSetupStep[] = [];
