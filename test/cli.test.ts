@@ -7833,7 +7833,7 @@ describe("apkit root help", () => {
     const result = await runCli(home, "--help");
     expectExitCode(result, 0);
 
-    const commandsSection = result.stdout.match(/Commands:\n([\s\S]*?)\n\nProject quick start:/)?.[1];
+    const commandsSection = result.stdout.match(/Common commands:\n([\s\S]*?)\n\nFor deeper/)?.[1];
     expect(commandsSection).toBeDefined();
     const menuLines = commandsSection!.split("\n");
     const commandLines = menuLines.filter((line) =>
@@ -7859,7 +7859,8 @@ describe("apkit root help", () => {
     expect(result.stderr).toBe("");
     let previousIndex = -1;
     for (const [group, label] of COMMAND_GROUPS) {
-      const groupIndex = result.stdout.indexOf(`  ${label}`);
+      const heading = group === "common" ? `${label}:` : `  ${label}:`;
+      const groupIndex = result.stdout.indexOf(heading);
       expect(groupIndex).toBeGreaterThan(previousIndex);
       previousIndex = groupIndex;
       for (const command of COMMANDS.filter((candidate) => candidate.group === group)) {
@@ -7885,23 +7886,54 @@ describe("apkit root help", () => {
     expect(narrowEnvironment.stdout).toBe(wideEnvironment.stdout);
   });
 
-  test("root help shows the minimal Project flow and points to guide for deeper authoring", async () => {
+  test("root help leads with the four-step first run", async () => {
     const home = isolatedHome();
     const result = await runCli(home, "--help");
     expectExitCode(result, 0);
 
-    const initIndex = result.stdout.indexOf("apkit init");
+    const firstRunIndex = result.stdout.indexOf("First run:");
+    const commonCommandsIndex = result.stdout.indexOf("Common commands:");
+    const initIndex = result.stdout.indexOf("apkit init", firstRunIndex);
     const bindIndex = result.stdout.indexOf("apkit bind", initIndex + 1);
     const statusIndex = result.stdout.indexOf("apkit status", bindIndex + 1);
     const applyIndex = result.stdout.indexOf("apkit apply", statusIndex + 1);
-    expect(initIndex).toBeGreaterThanOrEqual(0);
+    expect(firstRunIndex).toBeGreaterThanOrEqual(0);
+    expect(initIndex).toBeGreaterThan(firstRunIndex);
     expect(bindIndex).toBeGreaterThan(initIndex);
     expect(statusIndex).toBeGreaterThan(bindIndex);
     expect(applyIndex).toBeGreaterThan(statusIndex);
+    expect(commonCommandsIndex).toBeGreaterThan(applyIndex);
 
     expect(result.stdout).toMatch(/apkit guide/);
     expect(result.stdout).toContain("apkit guide --full");
     expect(result.stdout.toLowerCase()).toMatch(/workspace authoring/);
+  });
+
+  test("root help separates common commands from secondary discovery and maintenance commands", async () => {
+    const home = isolatedHome();
+    const result = await runCli(home, "--help");
+    expectExitCode(result, 0);
+
+    const commonIndex = result.stdout.indexOf("Common commands:");
+    const moreIndex = result.stdout.indexOf("More commands:");
+    expect(commonIndex).toBeGreaterThanOrEqual(0);
+    expect(moreIndex).toBeGreaterThan(commonIndex);
+
+    const common = result.stdout.slice(commonIndex, moreIndex);
+    for (const command of ["init", "guide", "bind", "validate", "status", "apply"]) {
+      expect(common).toMatch(new RegExp(`^  ${command}\\b`, "m"));
+    }
+    for (const command of ["list", "unbind", "uninstall", "info", "install-temp", "remove-temp"]) {
+      expect(common).not.toMatch(new RegExp(`^  ${command}\\b`, "m"));
+    }
+
+    const secondary = result.stdout.slice(moreIndex);
+    for (const heading of ["Inventory", "Teardown", "Machine details", "Temporary installations"]) {
+      expect(secondary).toContain(`  ${heading}:`);
+    }
+    for (const command of ["list", "unbind", "uninstall", "info", "install-temp", "remove-temp"]) {
+      expect(secondary).toMatch(new RegExp(`^  ${command}\\b`, "m"));
+    }
   });
 
   test("every command explains its purpose, syntax, examples, writes, and next action", async () => {
@@ -8062,6 +8094,9 @@ describe("apkit root help", () => {
     expect(bare.stdout).toContain(" /__\\ reusable agent material");
     expect(interactive.stdout).toContain("Agent Profile Kit");
     expect(interactive.stdout).toContain(" /__\\ reusable agent material");
+    for (const heading of ["First run:", "Common commands:", "More commands:"]) {
+      expect(interactive.stdout).toContain(`\u001b[1;34m${heading}\u001b[0m`);
+    }
     expect(interactive.stdout).toMatch(/\u001b\[/);
     expect(piped.stdout).not.toContain(" /__\\ reusable agent material");
     expect(piped.stdout).not.toMatch(/\u001b\[/);

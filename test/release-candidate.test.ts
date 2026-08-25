@@ -1220,7 +1220,9 @@ describe("project-bound release candidate", () => {
     // Discovery: root help introduces the command surface.
     const help = await runCli(home, ["--help"]);
     expectExitCode(help, 0);
-    expect(help.stdout).toContain("Commands:");
+    expect(help.stdout).toContain("First run:");
+    expect(help.stdout).toContain("Common commands:");
+    expect(help.stdout).toContain("More commands:");
 
     expectExitCode(await runCli(home, ["init"]), 0);
     enableCodexHooks(home);

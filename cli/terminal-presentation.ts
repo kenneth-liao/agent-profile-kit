@@ -45,6 +45,13 @@ const ANSI_COLORS: Readonly<Record<SemanticCategory, string>> = {
 const HEADING_PREFIXES = [
   "Commands:",
   "Project quick start:",
+  "First run:",
+  "Common commands:",
+  "More commands:",
+  "Inventory:",
+  "Teardown:",
+  "Machine details:",
+  "Temporary installations:",
   "Discovery:",
   "Usage:",
   "Purpose:",

@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Lead bare and root help with the four-step first run, then separate common commands from secondary inventory, teardown, machine-detail, and temporary-installation commands while keeping every command discoverable ([#294](https://github.com/kenneth-liao/agent-profile-kit/issues/294)).
+
 - Install CI's frozen dependency graph with lifecycle scripts disabled after proving install, typecheck, build, supervised test, and package paths remain compatible, without adding dependency caching ([#282](https://github.com/kenneth-liao/agent-profile-kit/issues/282)).
 
 - Run CI typechecking, production bundling, and script-disabled package creation once each, then reuse the actual archive across the supervised package and CLI boundary tests while keeping local scripts independently usable ([#280](https://github.com/kenneth-liao/agent-profile-kit/issues/280)).

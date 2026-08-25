@@ -287,17 +287,19 @@ function perCommandHelp(
 function rootHelp(context: TerminalPresentationContext): string {
   const wordmark = context.interactive ? agentProfileKitWordmark(context.width) : [];
   const proseWidth = Math.max(1, context.width - 4);
-  const commandLines: string[] = [];
-  for (const [group, label] of COMMAND_GROUPS) {
-    commandLines.push(`  ${label}`);
-    for (const command of COMMANDS.filter((candidate) => candidate.group === group)) {
-      commandLines.push(`  ${command.syntax}`);
-      commandLines.push(
+  const commandLines = (group: CommandHelp["group"]): string[] =>
+    COMMANDS.filter((candidate) => candidate.group === group)
+      .flatMap((command) => [
+        `  ${command.syntax}`,
         ...wrapPresentationText(command.summary, proseWidth)
           .map((line) => `    ${line}`),
-      );
-    }
-  }
+      ]);
+  const commonGroupLabel = COMMAND_GROUPS.find(([group]) => group === "common")?.[1];
+  if (commonGroupLabel === undefined) throw new Error("Common command group is not configured");
+  const commonCommandLines = commandLines("common");
+  const secondaryCommandLines = COMMAND_GROUPS
+    .filter(([group]) => group !== "common")
+    .flatMap(([group, label]) => [`  ${label}:`, ...commandLines(group)]);
   const intro = wrapPresentationText(
     "Agent Profile Kit composes reusable agent material into host-native projects.",
     context.width,
@@ -306,7 +308,7 @@ function rootHelp(context: TerminalPresentationContext): string {
     `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide --full.`,
     context.width,
   ).join("\n");
-  const quickStartHeading = "Project quick start:";
+  const quickStartHeading = "First run:";
   const discovery = wrapPresentationText(
     `Choose a Profile with ${COMMAND_NAME} guide profile; see ${COMMAND_NAME} bind --help for supported Host values.`,
     Math.max(1, context.width - 2),
@@ -314,14 +316,16 @@ function rootHelp(context: TerminalPresentationContext): string {
   const identity = wordmark.length === 0 ? "" : `${wordmark.join("\n")}\n\n`;
   return identity + `${intro}\n\n` +
     `Usage: ${COMMAND_NAME} <command> [arguments]\n\n` +
-    "Commands:\n" +
-    `${commandLines.join("\n")}\n\n` +
     `${quickStartHeading}\n` +
     `  ${COMMAND_NAME} init\n` +
     `  ${COMMAND_NAME} bind <profile> --host <host>\n` +
     `  ${COMMAND_NAME} status\n` +
     `  ${COMMAND_NAME} apply\n\n` +
     `${discovery}\n\n` +
+    `${commonGroupLabel}:\n` +
+    `${commonCommandLines.join("\n")}\n\n` +
+    "More commands:\n" +
+    `${secondaryCommandLines.join("\n")}\n\n` +
     `${guidance}\n`;
 }
 
