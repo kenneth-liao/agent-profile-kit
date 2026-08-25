@@ -1924,8 +1924,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const apply = await runCli(home, "apply");
     expectExitCode(apply, 0);
+    expect(apply.stdout).toContain("First use:");
     expect(humanText(apply.stdout)).toContain(
-      humanText(`Launch Codex from the exact bound project root: ${projectPath}`),
+      humanText("Launch Codex from the bound project root so the Profile can load."),
     );
   });
 
@@ -2569,14 +2570,20 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("State: addition");
     expect(result.stdout).toContain("Applied:");
     expect(result.stdout).toContain("+ 3 generated file additions in 1 project");
-    expect(result.stdout).toContain(
-      "Review and approve the generated SessionStart hook when Codex asks.",
-    );
-    expect(result.stdout).toContain("Declining the hook prevents Profile Context from loading.");
-    expect(result.stdout).toContain("Standing Host setup:");
-    expect(result.stdout).toContain("Trust the bound project in Codex.");
+    expect(result.stdout).toContain("First use:");
+    expect(result.stdout).not.toContain("Host setup:");
+    expect(result.stdout).not.toContain("Standing Host setup:");
     expect(humanText(result.stdout)).toContain(
-      humanText(`Launch Codex from the exact bound project root: ${projectPath}`),
+      humanText(
+        "Review and approve the generated SessionStart hook when Codex asks so the Profile can load.",
+      ),
+    );
+    expect(result.stdout).not.toContain("Declining the hook prevents Profile Context from loading.");
+    expect(humanText(result.stdout)).toContain(
+      humanText("Trust the bound project in Codex so the Profile can load."),
+    );
+    expect(humanText(result.stdout)).toContain(
+      humanText(`Launch Codex from the bound project root so the Profile can load.`),
     );
     expect(humanText(result.stdout)).toEndWith(
       humanText(
@@ -2644,12 +2651,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("State: current");
     expect(result.stdout).not.toContain("State: stale source");
     // The hook was not part of this change: transition-triggered approval is
-    // not replayed, while the standing reminder remains (US-046, US-047).
+    // not replayed, and routine update does not replay standing trust (DEC-016).
+    expect(result.stdout).not.toContain("First use:");
     expect(result.stdout).not.toContain(
       "Review and approve the generated SessionStart hook when Codex asks.",
     );
-    expect(result.stdout).toContain("Standing Host setup:");
-    expect(result.stdout).toContain("Trust the bound project in Codex.");
+    expect(result.stdout).not.toContain("Standing Host setup:");
+    expect(result.stdout).not.toContain("Trust the bound project in Codex.");
   });
 
   test("apply receipt work expands only the changed project in a multi-project binding", async () => {
@@ -5693,7 +5701,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const apply = await runCliWithPath(home, pathWithHosts, "apply");
     expectExitCode(apply, 0);
-    expect(apply.stdout).toContain("Trust the bound project in Antigravity.");
+    expect(apply.stdout).toContain("First use:");
+    expect(humanText(apply.stdout)).toContain(
+      humanText("Trust the bound project in Antigravity so the Profile can load."),
+    );
     const envelope = join(antigravityProject, ".agents", "rules", "agent-profile-kit-000-envelope.md");
     const moduleRule = join(antigravityProject, ".agents", "rules", "agent-profile-kit-010-team-rules.md");
     expect(readFileSync(envelope, "utf8")).toContain("trigger: always_on");
@@ -7633,7 +7644,8 @@ describe("responsive lifecycle reports", () => {
     expectExitCode(applied, 0);
     expectExitCode(clean, 0);
     expect(applied.stdout).toContain("Apply complete");
-    expect(applied.stdout).toContain("\n  Consequence:");
+    expect(applied.stdout).toContain("First use:");
+    expect(applied.stdout).not.toContain("Consequence:");
     expect(clean.stdout).toContain("All Projects are current");
     expect(clean.stdout).not.toContain("Host setup:");
     expect(clean.stdout).not.toContain("Standing Host setup:");

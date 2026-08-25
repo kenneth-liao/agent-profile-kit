@@ -154,7 +154,10 @@ selected scope is current once and emits no Host setup reminder or next action;
 a pending concise `status` does not pre-announce post-apply setup.
 
 A changed `apply` leads from its Apply Receipt and cannot describe the selected
-Projects as already current when that receipt records work. The fresh
+Projects as already current when that receipt records work. It renders first-use
+Host setup as one action-grouped note with plain reasons when generated outputs
+are added or transitioned, omitting standing trust and root-launch reminders on
+routine updates and keeping shared-path notes behind `--verbose`. The fresh
 post-commit reconciliation remains authoritative for resulting state, while
 "already current" is reserved for a true no-op receipt. Equivalent next-launch
 outcomes render once for the invocation rather than once per exact Host or

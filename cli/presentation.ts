@@ -1282,11 +1282,13 @@ interface PresentedSetupStep {
 }
 
 /**
- * Select the Host Setup Steps one lifecycle surface presents (DEC-036–DEC-038):
- * transition-triggered steps appear only when the plan or applied receipt makes
- * their output relevant, and standing steps appear as a separate reminder after
- * applied work. Concise `status` renders none (DEC-008, DEC-015); verbose and
- * JSON retain every step as complete evidence (DEC-034).
+ * Select the Host Setup Steps one lifecycle surface presents (DEC-014–DEC-020):
+ * transition-triggered steps appear when their associated output is added,
+ * updated, or repaired, while standing trust and root-launch guidance appear
+ * only when the Apply Receipt adds a relevant output consumed by that
+ * Project/Host pairing (DEC-016). Concise `status` renders none (DEC-015);
+ * shared-path steps remain verbose (DEC-020); verbose and JSON retain every
+ * step as complete evidence.
  */
 function presentedSetupSteps(
   command: LifecycleCommand,
@@ -1303,23 +1305,26 @@ function presentedSetupSteps(
       candidate.canonicalProject === project.canonicalProject
     );
     for (const step of project.setupSteps) {
+      if (!verbose) {
+        if (step.kind === "shared-path") continue;
+        if (changeProject === undefined) continue;
+        if (step.provenance === "transition") {
+          if (!changeProject.outputs.some((output) =>
+            output.path === step.output && TRANSITION_TRIGGERING_OUTPUT_KINDS.has(output.kind)
+          )) continue;
+        } else if (step.provenance === "standing") {
+          if (!changeProject.outputs.some((output) =>
+            output.kind === "addition" &&
+            (output.consumingHosts.length === 0
+              ? (project.desired === undefined || project.desired.hosts.length === 0 || project.desired.hosts.includes(step.host))
+              : output.consumingHosts.includes(step.host))
+          )) continue;
+        }
+      }
       const message = setupStepMessage(
         step,
         displayProjectPath(project.canonicalProject, project.project),
       );
-      if (step.provenance === "transition") {
-        if (!verbose && !(changeProject?.outputs.some((output) =>
-          output.path === step.output && TRANSITION_TRIGGERING_OUTPUT_KINDS.has(output.kind)
-        ) ?? false)) continue;
-      } else if (
-        !verbose && command === "apply" &&
-        (changeProject === undefined || (
-          changeProject.state.kind === "current" &&
-          !changeProject.outputs.some((output) => output.kind !== "unchanged")
-        ))
-      ) {
-        continue;
-      }
       steps.push({
         canonicalProject: project.canonicalProject,
         message,
@@ -1403,15 +1408,91 @@ function setupStepLines(group: SetupStepGroup, verbose: boolean): readonly strin
   return lines;
 }
 
+function conciseFirstUseAction(
+  step: HostSetupStep,
+  projects: readonly string[],
+  isSubset: boolean,
+): string {
+  if (step.kind === "launch-constraint") {
+    const host = capitalize(step.host);
+    const subsetClause = isSubset
+      ? ` for ${plural(projects.length, "project")} (use --verbose to see all Projects)`
+      : "";
+    return `Launch ${host} from the bound project root${subsetClause} so the Profile can load.`;
+  }
+  const base = step.message.replace(/[.:]+$/, "");
+  return `${base} so the Profile can load.`;
+}
+
+function conciseFirstUseLines(
+  presented: readonly PresentedSetupStep[],
+  changeEvidence: ReconciliationReport | undefined,
+): readonly string[] {
+  if (presented.length === 0) return [];
+  const byKey = new Map<string, {
+    host: HostSetupStep["host"];
+    kind: HostSetupStepKind;
+    message: string;
+    projects: string[];
+    step: HostSetupStep;
+  }>();
+  for (const { step, canonicalProject } of presented) {
+    const key = `${step.host}\0${step.kind}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.projects.push(canonicalProject);
+    } else {
+      byKey.set(key, {
+        host: step.host,
+        kind: step.kind,
+        message: step.message,
+        projects: [canonicalProject],
+        step,
+      });
+    }
+  }
+  const groups = [...byKey.values()]
+    .map((group) => ({
+      ...group,
+      projects: [...new Set(group.projects)].sort(compareCanonicalStrings),
+    }))
+    .sort((left, right) =>
+      left.host.localeCompare(right.host) ||
+      HOST_SETUP_STEP_ORDER.indexOf(left.kind) -
+        HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
+      left.message.localeCompare(right.message),
+    );
+
+  const lines = ["First use:"];
+  for (const group of groups) {
+    let isSubset = false;
+    if (group.kind === "launch-constraint" && changeEvidence !== undefined) {
+      const hostAdditionProjects = changeEvidence.projects.filter((p) =>
+        p.outputs.some((o) =>
+          o.kind === "addition" &&
+          (o.consumingHosts.length === 0 || o.consumingHosts.includes(group.host))
+        )
+      ).length;
+      isSubset = group.projects.length < hostAdditionProjects;
+    }
+    lines.push(`- ${conciseFirstUseAction(group.step, group.projects, isSubset)}`);
+  }
+  return lines;
+}
+
 /**
- * Host Setup presentation sections from already-selected steps: change-caused
- * transition steps first, then a separate compact standing reminder (DEC-037,
- * DEC-038).
+ * Host Setup presentation sections: verbose retains separate transition and
+ * standing headings, consequences, and project paths (DEC-014, DEC-015); concise
+ * apply groups first-use actions under one note with plain reasons (DEC-016–DEC-020).
  */
 function setupSectionsFromPresented(
   presented: readonly PresentedSetupStep[],
   verbose: boolean,
+  changeEvidence?: ReconciliationReport,
 ): readonly string[] {
+  if (!verbose) {
+    return conciseFirstUseLines(presented, changeEvidence);
+  }
   const transition = groupSetupSteps(
     presented.filter((item) => item.step.provenance === "transition"),
   );
@@ -1443,6 +1524,7 @@ function hostSetupSections(
   return setupSectionsFromPresented(
     presentedSetupSteps(command, report, changeEvidence, verbose),
     verbose,
+    changeEvidence ?? report,
   );
 }
 
@@ -2062,7 +2144,11 @@ function conciseReport(
     command === "apply" ? receipt : undefined,
     false,
   );
-  const setup = setupSectionsFromPresented(presented, false);
+  const setup = setupSectionsFromPresented(
+    presented,
+    false,
+    command === "apply" ? receipt : undefined,
+  );
   if (setup.length > 0) lines.push("", ...setup);
   const next = readyStatus
     ? readyStatusGuidance(report, options)
