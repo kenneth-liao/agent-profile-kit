@@ -3010,7 +3010,7 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
         "  Hosts: claude, codex\n" +
         "  Problem: Configured project root does not exist on this machine and cannot be reconciled.\n" +
         "\n" +
-        "Next: Run apkit status for Project lifecycle diagnostics.\n",
+        "Use apkit status to inspect Project lifecycle diagnostics.\n",
     );
   });
 
@@ -3024,6 +3024,10 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
       expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
     }
     expect(profiles).toContain("Profile: engineering");
+    expect(profiles.replace(/\s+/g, " ")).toContain(
+      "Use <profile> with apkit bind to select it for a configured Project.",
+    );
+    expect(profiles).not.toContain("Next:");
 
     const temporary = formatTemporaryInventoryHuman(
       [{
@@ -3041,9 +3045,13 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
       expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
     }
     expect(temporary).toContain("Project: ~/projects/temporary-project");
+    expect(temporary.replace(/\s+/g, " ")).toContain(
+      "Use apkit remove-temp <temporary-installation-id> to remove one when finished.",
+    );
+    expect(temporary).not.toContain("Next:");
     expect(formatTemporaryInventoryHuman([], {}, "/home", "/work")).toBe(
       "No Temporary Profile Installations are active.\n" +
-        "Next: Run apkit install-temp <profile> <project> --host <host>.\n",
+        "Use apkit install-temp <profile> <project> --host <host> to create one.\n",
     );
   });
 

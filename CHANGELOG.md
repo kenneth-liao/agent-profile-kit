@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Replace optional or redundant inventory `Next:` actions with instructional usage guidance, including how to select a listed Host for a configured Project, while keeping inventory read-only and JSON unchanged ([#297](https://github.com/kenneth-liao/agent-profile-kit/issues/297)).
+
 - Make Host inventory lead with the canonical Hosts supported for configured Projects, while keeping temporary-install eligibility in focused temporary help and unchanged JSON ([#296](https://github.com/kenneth-liao/agent-profile-kit/issues/296)).
 
 - Simplify the no-topic inventory menu to show each topic and its description once, while keeping JSON guidance in focused `list` help ([#295](https://github.com/kenneth-liao/agent-profile-kit/issues/295)).
