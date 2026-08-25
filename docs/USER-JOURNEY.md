@@ -231,7 +231,9 @@ Interactive previews that outlast a short anti-flicker threshold show delayed
 operation-level progress on the terminal line; the line is cleared before the
 report, and redirected output and JSON never carry progress bytes.
 
-Gaps: [UJ-32](#uj-32); ~~[UJ-33](#uj-33)~~ (status portion shipped in
+Gaps: ~~[UJ-32](#uj-32)~~ (status compact decision shipped in
+[#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); remaining
+apply work is stage 8); ~~[UJ-33](#uj-33)~~ (status portion shipped in
 [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302); apply
 first-use remains [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304)); ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
@@ -332,7 +334,9 @@ a short anti-flicker threshold show delayed operation-level progress on the
 terminal line; the line is cleared before the report, and redirected output and
 JSON never carry progress bytes.
 
-Gaps: [UJ-32](#uj-32); ~~[UJ-33](#uj-33)~~ (status portion shipped in
+Gaps: ~~[UJ-32](#uj-32)~~ (status compact decision shipped in
+[#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); remaining
+apply work is stage 8); ~~[UJ-33](#uj-33)~~ (status portion shipped in
 [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302); apply
 first-use remains [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304)); ~~[UJ-14](#uj-14)~~, ~~[UJ-15](#uj-15)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
