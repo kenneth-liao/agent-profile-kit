@@ -1545,20 +1545,11 @@ function readinessLines(
   report: ReconciliationReport,
   receipt: ReconciliationReport,
 ): readonly string[] {
-  const changedProjects = new Set(
-    receipt.projects
-      .filter((project) =>
-        project.state.kind !== "current" ||
-        project.outputs.some((output) => output.kind !== "unchanged") ||
-        project.repositoryExclusions.some((change) => change.current.join("\n") !== change.next.join("\n")) ||
-        project.repositoryExclusionRepairs.length > 0
-      )
-      .map((project) => project.canonicalProject),
-  );
+  const changedProjects = new Set(statusAffectedProjects(receipt));
   const profiles = [...new Set(
     report.projects
       .filter((record) => changedProjects.has(record.canonicalProject))
-      .map((record) => record.desired?.profile ?? receipt.projects.find((p) => p.canonicalProject === record.canonicalProject)?.desired?.profile)
+      .map((record) => record.desired?.profile)
       .filter((profile): profile is string => profile !== undefined),
   )].sort(compareCanonicalStrings);
 
