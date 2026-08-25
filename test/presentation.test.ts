@@ -12,7 +12,6 @@ import {
   formatApplyJson,
   formatApplyVerificationFailureJson,
   formatBlockedApplyJson,
-  formatHostInventoryHuman,
   formatInfoHuman,
   formatInventoryIndex,
   formatLifecycleJson,
@@ -2967,7 +2966,7 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
         "  apkit list profiles\n" +
         "    Profile inventory from the selected Workspace.\n" +
         "  apkit list hosts\n" +
-        "    Supported Agent Host inventory with Temporary Profile Installation eligibility.\n" +
+        "    Supported Agent Hosts for configured Projects.\n" +
         "  apkit list temporary\n" +
         "    Active Temporary Profile Installation inventory from Installation State.\n",
     );
@@ -3015,21 +3014,7 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     );
   });
 
-  test("host, profile, and temporary inventory wrap prose at the selected width", () => {
-    const hosts = formatHostInventoryHuman(
-      [
-        { host: "claude", supportsTemporaryProfileInstallation: true },
-        { host: "grok", supportsTemporaryProfileInstallation: false },
-      ],
-      { context: context(40) },
-    );
-    for (const line of hosts.split("\n")) {
-      if (line.includes("apkit ") || line.includes("Temporary Profile Installation:")) continue;
-      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
-    }
-    expect(hosts).toContain("Host: claude");
-    expect(hosts).toContain("Temporary Profile Installation: supported");
-
+  test("profile and temporary inventory wrap prose at the selected width", () => {
     const profiles = formatProfileInventoryHuman(
       [{ contextModules: 2, id: "engineering", skills: 3 }],
       { context: context(40) },

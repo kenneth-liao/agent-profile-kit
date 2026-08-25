@@ -100,9 +100,9 @@ Commands separate binding authoring from global reconciliation:
 - `list` prints the available read-only inventory topics and examples from one canonical topic table.
   - `list projects` reads the normalized Local Configuration model and renders every Project Binding's short Project identity, Profile, and normalized Host set; a per-binding path problem is retained instead of aborting the inventory. It does not inspect Workspace artifacts.
   - `list profiles` reads the normalized selected Workspace model and renders every valid Profile ID with selected Context Module and Skill counts in deterministic order. It does not inspect Project roots and fails through Workspace ingestion when its selected source is missing or invalid.
-  - `list hosts` renders the canonical supported-Host set and Temporary Profile Installation eligibility from capability constants without inspecting PATH, Host versions, configuration, or Project surfaces.
+  - `list hosts` reads normalized Host inventory records from capability constants and renders the canonical Hosts supported for configured Projects in its concise human view without inspecting PATH, Host versions, configuration, or Project surfaces.
   - `list temporary` reads active Temporary Profile Installation records from Installation State, omits terminal removed identities and ordinary installations, and renders each temporary identity with its short Project path, Profile, and Host. It does not inspect Local Configuration, Workspace artifacts, Git, project output, or Host capabilities.
-  - Each topic's `--json` view emits the same records with engine provenance; temporary JSON retains the canonical Project path and durable temporary installation identity. No inventory topic writes state.
+  - Each topic's `--json` view emits its normalized inventory records with engine provenance; Host JSON retains Temporary Profile Installation eligibility, while temporary JSON retains the canonical Project path and durable temporary installation identity. No inventory topic writes state.
 - `apply` reconciles its selected Project scope and, after its commits, performs
   a fresh reconciliation to report the verified resulting state. `apply --all`
   stops every write for a global Blocker, but skips Project-scoped blocked

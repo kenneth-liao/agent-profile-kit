@@ -8,7 +8,7 @@ export const INVENTORY_TOPICS = [
     name: "profiles",
   },
   {
-    description: "Supported Agent Host inventory with Temporary Profile Installation eligibility.",
+    description: "Supported Agent Hosts for configured Projects.",
     name: "hosts",
   },
   {

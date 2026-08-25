@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Make Host inventory lead with the canonical Hosts supported for configured Projects, while keeping temporary-install eligibility in focused temporary help and unchanged JSON ([#296](https://github.com/kenneth-liao/agent-profile-kit/issues/296)).
+
 - Simplify the no-topic inventory menu to show each topic and its description once, while keeping JSON guidance in focused `list` help ([#295](https://github.com/kenneth-liao/agent-profile-kit/issues/295)).
 
 - Lead bare and root help with the four-step first run, then separate common commands from secondary inventory, teardown, machine-detail, and temporary-installation commands while keeping every command discoverable ([#294](https://github.com/kenneth-liao/agent-profile-kit/issues/294)).
