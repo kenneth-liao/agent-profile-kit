@@ -64,7 +64,7 @@ const HEADING_PREFIXES = [
   "Projects (",
   "Profiles (",
   "Hosts (",
-  "Temporary Profile Installations (",
+  "Temporary Profiles (",
   "Projects:",
   "Diagnostics:",
   "Files:",
