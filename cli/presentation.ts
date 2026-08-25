@@ -1850,6 +1850,18 @@ function readyStatusGuidance(
   ];
 }
 
+function conciseApplyReceiptLines(
+  receipt: ReconciliationReport,
+  fleetScope: ReconciliationReport = receipt,
+): readonly string[] {
+  const groups = groupOutputOperations(receipt);
+  if (groups.length === 0) return [];
+  return [
+    "Applied:",
+    ...groups.map((group) => `  ${operationGroupLine(group, fleetScope)}`),
+  ];
+}
+
 function operationReceiptLines(
   receipt: ReconciliationReport,
   fleetScope: ReconciliationReport = receipt,
@@ -1921,48 +1933,47 @@ function conciseReport(
   const fullyCurrentStatus = command === "status" && fullyCurrentProjectCount(report) !== undefined;
   const readyStatus = command === "status" && !blocked && !emptyStatus && !fullyCurrentStatus;
   const noOpApply = isNoOpApply(command, report, receipt);
-  const lines = emptyStatus
-    ? [
-        "No Projects are configured.",
-        `Next: Run ${COMMAND_NAME} list projects to inspect Project Bindings, or ` +
-          `${COMMAND_NAME} bind <profile> --host <host> to configure one.`,
-      ]
-    : readyStatus
+
+  if (emptyStatus) {
+    return [
+      "No Projects are configured.",
+      `Next: Run ${COMMAND_NAME} list projects to inspect Project Bindings, or ` +
+        `${COMMAND_NAME} bind <profile> --host <host> to configure one.`,
+      "",
+    ].join("\n");
+  }
+
+  if (noOpApply) {
+    const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
+    return `${outcomeLine(command, report, true)}\nAll ${projects} were already current.\n`;
+  }
+
+  const lines = readyStatus
     ? [...readyStatusImpactLines(report)]
     : [outcomeLine(command, report, receipt !== undefined)];
-  const summary = !emptyStatus && !fullyCurrentStatus && !noOpApply && !readyStatus
+
+  const summary = !blocked && !fullyCurrentStatus && !readyStatus && command !== "apply"
     ? aggregateLine(command, report, groups)
     : undefined;
-  if (!blocked && summary !== undefined) lines.push(summary);
+  if (summary !== undefined) lines.push(summary);
+
+  if (command === "apply" && !blocked && receipt !== undefined) {
+    const appliedLines = conciseApplyReceiptLines(receipt, report);
+    if (appliedLines.length > 0) {
+      lines.push("", ...appliedLines);
+    }
+  }
+
   const activeGroups = blocked
     ? groups.filter((group) => group.blockers.length > 0)
     : groups.filter((group) => groupNeedsAttention(group, command));
-  const reportOperationSummary = useOperationSummary(report, blocked);
-  const receiptOperationSummary = command === "apply" && receipt !== undefined &&
-    useOperationSummary(receipt, false);
+  const reportOperationSummary = command !== "apply" && useOperationSummary(report, blocked);
 
   if (readyStatus) {
     lines.push(...operationAttentionLines(report, true));
   } else if (reportOperationSummary) {
     lines.push(...operationSummarySections(report));
-  } else if (receiptOperationSummary) {
-    // Applied work is rendered from the receipt below; do not repeat the
-    // freshly verified current Project matrix.
-  } else if (activeGroups.length === 0) {
-    if (
-      groups.length > 0 &&
-      reportBlockers(report).length === 0 &&
-      !fullyCurrentStatus &&
-      !reportHasReconciliationWork(report)
-    ) {
-      const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-      lines.push(
-        command === "apply"
-          ? `All ${projects} were already current.`
-          : `No ${projects} need attention.`,
-      );
-    }
-  } else {
+  } else if (activeGroups.length > 0) {
     for (const group of activeGroups) {
       lines.push(
         "",
@@ -1975,11 +1986,11 @@ function conciseReport(
       if (blocked) {
         for (const blocker of group.blockers) {
           lines.push(...conciseBlockerLines(
-          blocker,
-          displayProjectPath(group.canonicalProject, group.project),
-          groups,
-          "  ",
-        ));
+            blocker,
+            displayProjectPath(group.canonicalProject, group.project),
+            groups,
+            "  ",
+          ));
         }
         continue;
       }
@@ -1999,6 +2010,15 @@ function conciseReport(
         ));
       }
     }
+  } else if (
+    command === "status" &&
+    groups.length > 0 &&
+    reportBlockers(report).length === 0 &&
+    !fullyCurrentStatus &&
+    !reportHasReconciliationWork(report)
+  ) {
+    const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
+    lines.push(`No ${projects} need attention.`);
   }
 
   if (command === "apply" && blocked) {
@@ -2020,7 +2040,7 @@ function conciseReport(
     }
   }
 
-  const exclusionClause = repositoryExclusionClause(report, false, readyStatus);
+  const exclusionClause = repositoryExclusionClause(report, false, readyStatus || command === "apply");
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
 
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
@@ -2030,7 +2050,8 @@ function conciseReport(
       lines.push(...conciseBlockerLines(blocker, undefined, groups, "  "));
     }
   }
-  if (blocked && summary !== undefined) lines.push("", summary);
+  const blockedSummary = blocked ? aggregateLine(command, report, groups) : undefined;
+  if (blockedSummary !== undefined) lines.push("", blockedSummary);
   if (!blocked && grouped.unscopedItems.length > 0) {
     lines.push("", "Diagnostics:");
     for (const item of grouped.unscopedItems) lines.push(`- ${item.project}: ${itemText(item)}`);
@@ -2057,20 +2078,18 @@ function conciseReport(
         unscopedItems: grouped.unscopedItems,
       }, options);
   if (next.length > 0) lines.push(...(readyStatus ? next : ["", ...next]));
-  if (receipt && !noOpApply) {
+  if (command === "apply" && blocked && receipt) {
     lines.push("", ...applyReceiptLines(receipt, report.projects.length > 1, report));
-    if (blocked) {
-      const appliedProjects = new Set(
-        receipt.projects.map((project) => project.canonicalProject),
-      );
-      const freshlyCurrent = report.projects
-        .filter((project) =>
-          project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
-        )
-        .map((project) => displayProjectPath(project.canonicalProject, project.project));
-      if (freshlyCurrent.length > 0) {
-        lines.push(`Freshly current: ${freshlyCurrent.join(", ")}`);
-      }
+    const appliedProjects = new Set(
+      receipt.projects.map((project) => project.canonicalProject),
+    );
+    const freshlyCurrent = report.projects
+      .filter((project) =>
+        project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
+      )
+      .map((project) => displayProjectPath(project.canonicalProject, project.project));
+    if (freshlyCurrent.length > 0) {
+      lines.push(`Freshly current: ${freshlyCurrent.join(", ")}`);
     }
   }
   if (command === "apply" && reportBlockers(report).length === 0) {

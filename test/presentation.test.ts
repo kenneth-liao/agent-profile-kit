@@ -1534,8 +1534,12 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatApplyReport(applyResult(receipt, emptyReport()));
 
-    expect(concise).toContain("- ~/receipt-project:\n  + a.md\n");
+    expect(concise).toContain("Applied:\n  + 1 generated file addition in ~/receipt-project");
     expect(concise).not.toContain(`- ${project}:`);
+
+    const verbose = formatApplyReport(applyResult(receipt, emptyReport()), { verbose: true });
+    expect(verbose).toContain("Applied:\nProjects:\n~/receipt-project: addition");
+    expect(verbose).toContain("~/receipt-project/a.md: addition");
   });
 
   test("labels remaining and committed apply work distinctly", () => {
@@ -1549,7 +1553,8 @@ describe("formatLifecycleReport concise terminology", () => {
     const concise = formatApplyReport(applyResult(receipt, resultingState));
 
     expect(concise).not.toContain("Pending: none");
-    expect(concise).toContain("Applied:\n- /project-a:\n  + a.md");
+    expect(concise).not.toContain("All Projects were already current.");
+    expect(concise).toContain("Applied:\n  + 1 generated file addition in 1 project");
     expect(concise).not.toContain("Changes:");
     expect(concise).not.toContain("Apply receipt:");
 
@@ -2241,7 +2246,8 @@ describe("formatLifecycleReport concise terminology", () => {
     }
 
     const concise = formatApplyReport(applyResult(receipt, result));
-    expect(concise).toContain("Git exclusions: 1 recorded entry restored.");
+    expect(concise).not.toContain("Git exclusions: 1 recorded entry restored.");
+    expect(concise).not.toContain("All Projects were already current.");
     expect(concise).not.toContain("Project: /repo");
     expect(concise).not.toContain("State: current");
     expect(concise).not.toContain("/repo/.git/info/exclude");
@@ -2583,7 +2589,10 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
     const metadataOnly = formatApplyReport(applyResult(metadataOnlyReceipt, metadataOnlyResult));
     expect(metadataOnly).not.toContain("no changes were applied");
-    expect(metadataOnly).toContain("Project update");
+    expect(metadataOnly).not.toContain("All Projects were already current.");
+    expect(
+      formatApplyReport(applyResult(metadataOnlyReceipt, metadataOnlyResult), { verbose: true }),
+    ).toContain("update");
   });
 
   test("mixed multi-project guidance names ready work alongside blocked work", () => {
@@ -3532,7 +3541,8 @@ describe("lifecycle summaries, next actions, and readiness", () => {
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
     expect(apply).toContain("Apply complete");
-    expect(apply).toContain("Applied:\n- /project-a:\n  + a.md");
+    expect(apply).toContain("Applied:\n  + 1 generated file addition in 1 project");
+    expect(apply).not.toContain("All Projects were already current.");
     expect(apply).not.toContain("Project: /project-a");
     expect(apply).not.toContain("State: current");
     expect(apply).not.toContain("State: addition");
@@ -3562,10 +3572,13 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
-    expect(apply).toContain("Apply complete");
-    expect(apply).toContain("Git exclusions: 1 recorded entry restored.");
+    expect(apply).toBe("Apply complete\n");
+    expect(apply).not.toContain("All Projects were already current.");
     expect(apply).not.toContain("Project: /repo");
     expect(apply).not.toContain("State: current");
+
+    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+    expect(verbose).toContain("restored 1 recorded Git exclusion entry");
   });
 
   test("remaining attention after apply still appears", () => {
@@ -3592,7 +3605,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(apply).toContain("Project: /project-a");
     expect(apply).toContain("State: drifted output");
     expect(apply).toContain("! a.md");
-    expect(apply).toContain("Applied:\n- /project-a:\n  ~ a.md");
+    expect(apply).toContain("Applied:\n  ~ 1 generated file update in 1 project");
   });
 
   test("no-op status states current once", () => {
