@@ -2658,6 +2658,41 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Trust the bound project in Codex.");
   });
 
+  test("later Skill addition on an established Codex pairing does not replay standing first-use", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    const first = await runCli(home, "apply");
+    expectExitCode(first, 0);
+    expect(first.stdout).toContain("First use:");
+    expect(humanText(first.stdout)).toContain(
+      humanText("Trust the bound project in Codex so the Profile can load."),
+    );
+
+    mkdirSync(join(workspacePath(home), "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
+    );
+
+    const later = await runCli(home, "apply");
+    expectExitCode(later, 0);
+    expect(later.stdout).toContain("Applied:");
+    expect(later.stdout).not.toContain("First use:");
+    expect(later.stdout).not.toContain("Trust the bound project in Codex");
+    expect(later.stdout).not.toContain("Launch Codex from the exact bound project root");
+    const verbose = await runCli(home, "status", "--verbose");
+    expectExitCode(verbose, 0);
+    expect(verbose.stdout).toContain("Standing Host setup:");
+    expect(verbose.stdout).toContain("Trust the bound project in Codex.");
+  });
+
   test("apply receipt work expands only the changed project in a multi-project binding", async () => {
     const home = isolatedHome();
     await initialize(home);

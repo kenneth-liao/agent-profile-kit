@@ -1289,16 +1289,32 @@ const TRANSITION_TRIGGERING_OUTPUT_KINDS: ReadonlySet<OutputReconciliationKind> 
 ]);
 
 /**
- * Whether a Project record in the Apply Receipt added at least one generated
- * output consumed by the given Host (ADR-0012, DEC-036).
+ * Whether the Apply Receipt creates the first Host-consumed generated output
+ * for this Project/Host pairing (#292 DEC-016). Later additions, and replacements
+ * that remove a prior Host-consumed output in the same receipt, are not first use.
  */
-function projectHasHostAddition(
-  project: ReconciliationProjectRecord,
+function isFirstRelevantHostOutput(
+  changeProject: ReconciliationProjectRecord,
+  resultingProject: ReconciliationProjectRecord,
   host: string,
 ): boolean {
-  return project.outputs.some((output) =>
-    output.kind === "addition" && output.consumingHosts.includes(host)
+  const addedPaths = new Set(
+    changeProject.outputs
+      .filter((output) =>
+        output.kind === "addition" && output.consumingHosts.includes(host)
+      )
+      .map((output) => output.path),
   );
+  if (addedPaths.size === 0) return false;
+  const hadPriorResultingOutput = resultingProject.outputs.some((output) =>
+    output.consumingHosts.includes(host) &&
+    output.kind !== "removal" &&
+    !addedPaths.has(output.path)
+  );
+  const hadRemovedHostOutput = changeProject.outputs.some((output) =>
+    output.kind === "removal" && output.consumingHosts.includes(host)
+  );
+  return !hadPriorResultingOutput && !hadRemovedHostOutput;
 }
 
 /** A Host Setup Step selected for one surface, with its Project identities. */
@@ -1340,7 +1356,7 @@ function presentedSetupSteps(
             output.path === step.output && TRANSITION_TRIGGERING_OUTPUT_KINDS.has(output.kind)
           )) continue;
         } else if (step.provenance === "standing") {
-          if (!projectHasHostAddition(changeProject, step.host)) continue;
+          if (!isFirstRelevantHostOutput(changeProject, project, step.host)) continue;
         }
       }
       const message = setupStepMessage(
@@ -1498,8 +1514,8 @@ function conciseFirstUseLines(
   for (const group of groups) {
     let isSubset = false;
     if (group.kind === "launch-constraint" && changeEvidence !== undefined) {
-      const hostAdditionProjects = changeEvidence.projects.filter((p) =>
-        projectHasHostAddition(p, group.host)
+      const hostAdditionProjects = changeEvidence.projects.filter((changeProject) =>
+        isFirstRelevantHostOutput(changeProject, changeProject, group.host)
       ).length;
       isSubset = group.projects.length < hostAdditionProjects;
     }

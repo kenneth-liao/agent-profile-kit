@@ -14,6 +14,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Do not replay standing first-use trust or root-launch guidance when an established Project/Host pairing later gains additional Host-consumed output ([#324](https://github.com/kenneth-liao/agent-profile-kit/issues/324)).
+
 - Restrict CI diagnostic uploads to exact failed or cancelled test-step outcomes and use attempt-unique artifact names so reruns cannot collide with retained diagnostics ([#281](https://github.com/kenneth-liao/agent-profile-kit/issues/281)).
 
 ### Changed
