@@ -1926,7 +1926,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(apply, 0);
     expect(apply.stdout).toContain("First use:");
     expect(humanText(apply.stdout)).toContain(
-      humanText("Launch Codex from the bound project root so the Profile can load."),
+      humanText("Launch Codex from the exact bound project root so the Profile can load."),
     );
   });
 
@@ -2583,7 +2583,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       humanText("Trust the bound project in Codex so the Profile can load."),
     );
     expect(humanText(result.stdout)).toContain(
-      humanText(`Launch Codex from the bound project root so the Profile can load.`),
+      humanText(`Launch Codex from the exact bound project root so the Profile can load.`),
     );
     expect(humanText(result.stdout)).toEndWith(
       humanText(

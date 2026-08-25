@@ -540,7 +540,7 @@ describe("Host Setup Step provenance and presentation", () => {
     );
     expect(apply).toContain("- Trust the bound project in Codex so the Profile can load.");
     expect(apply).toContain(
-      "- Launch Codex from the bound project root so the Profile can load.",
+      "- Launch Codex from the exact bound project root so the Profile can load.",
     );
     expect(apply).not.toContain("Declining the hook prevents Profile Context from loading.");
     expect(apply).not.toContain("Grok uses Claude's shared rule path.");
@@ -729,7 +729,7 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
     expect(apply).toContain(
-      "- Launch Codex from the bound project root for 2 projects (use --verbose to see all Projects) so the Profile can load.",
+      "- Launch Codex from the exact bound project root for 2 projects (use --verbose to see all Projects) so the Profile can load.",
     );
 
     const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });

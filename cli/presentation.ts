@@ -1416,17 +1416,13 @@ function setupStepLines(group: SetupStepGroup, verbose: boolean): readonly strin
   return lines;
 }
 
-function isStandardLoadConsequence(consequence: string | undefined): boolean {
-  if (consequence === undefined) return true;
-  const lower = consequence.toLowerCase();
-  return (
-    lower.includes("prevents profile") ||
-    lower.includes("does not load until") ||
-    lower.includes("cannot load") ||
-    lower.includes("profile context does not load") ||
-    lower.includes("the profile does not load")
-  );
-}
+/** Canonical load-prevention consequences that map to the standard concise reason. */
+const STANDARD_LOAD_CONSEQUENCES: ReadonlySet<string> = new Set([
+  "Declining the hook prevents Profile Context from loading.",
+  "Profile Context does not load until the project is trusted.",
+  "The Profile does not load until the project is trusted.",
+  "Launching from a descendant prevents Profile Context from loading.",
+]);
 
 function conciseFirstUseAction(
   step: HostSetupStep,
@@ -1435,14 +1431,13 @@ function conciseFirstUseAction(
 ): string {
   const base = step.message
     .replace(/:\s*$/, "")
-    .replace(/\bexact bound project root\b/, "bound project root")
     .replace(/[.:]+$/, "");
   const subsetClause = isSubset
     ? ` for ${plural(projects.length, "project")} (use --verbose to see all Projects)`
     : "";
-  const reason = isStandardLoadConsequence(step.consequence)
+  const reason = step.consequence === undefined || STANDARD_LOAD_CONSEQUENCES.has(step.consequence)
     ? "so the Profile can load."
-    : (step.consequence ? `(${step.consequence.replace(/[.:]+$/, "")}).` : "so the Profile can load.");
+    : `(${step.consequence.replace(/[.:]+$/, "")}).`;
   return `${base}${subsetClause} ${reason}`;
 }
 
