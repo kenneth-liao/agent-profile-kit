@@ -138,23 +138,26 @@ JSON advances to the same versioned structured blocker records. Temporary
 installation receipts use the same exit matrix (`0` / `1` / `2`) with their own
 versioned JSON schema and carry no blocker records.
 
-Human lifecycle presentation in `cli/presentation.ts` is scale-aware: a
-single-Project run keeps the recognizable Project-first detail, while an
-unblocked multi-Project run groups additions, updates, repairs, and removals
-directly from output operation records under `Project changes`. Group lines
-carry generated-file totals and a progressive affected-Project scope: a
-complete short list when small, a count when every Project is affected, or a
-capped representative list with an explicit `--verbose` pointer to every
-Project. The summary does not infer Workspace Artifact, Project Binding, or
-Adapter causality. Per-Project ownership attention remains visible under
-`Project exceptions`, and the multi-Project apply receipt groups the same
-observable operations with status-consistent symbols and counts. Concise summaries omit zero-value blocker and pending
-clauses; identical next actions collapse once, while differing remedies stay
-scoped. Successful apply reports the receipt, remaining attention, Host
-guidance, and one grouped next-launch statement without reprinting verified-current
-Project blocks. No-op status and apply state that everything is current once.
-Blockers stay prominent ahead of operation detail, and `--verbose` plus the
-versioned JSON retain the complete per-Project and per-path evidence.
+Human lifecycle presentation in `cli/presentation.ts` has three explicit
+boundaries over the same ReconciliationReport. Concise output presents the
+outcome, affected scope or impact, one next action when one exists, and optional
+first-use guidance, in that order. It renders each semantic fact once and omits
+routine generated paths, Project matrices, Git exclusion bookkeeping, setup
+provenance, and separate consequences. Blockers, warnings, ownership attention,
+drift, destructive-removal attention, and Git repair or failure retain the
+identity required for their remedies. A concise clean `status` states that the
+selected scope is current once and emits no Host setup reminder or next action;
+a pending concise `status` does not pre-announce post-apply setup.
+
+A changed `apply` leads from its Apply Receipt and cannot describe the selected
+Projects as already current when that receipt records work. The fresh
+post-commit reconciliation remains authoritative for resulting state, while
+"already current" is reserved for a true no-op receipt. Equivalent next-launch
+outcomes render once for the invocation rather than once per exact Host or
+Project set. `--verbose` retains complete per-Project, generated-path, Git,
+warning, Blocker, desired-setup, and Host Setup Step evidence. Versioned JSON
+retains the complete structured machine evidence, schemas, and exit semantics;
+human filtering does not alter it.
 
 `unbind` changes desired Project Binding state and, when an Installation
 Manifest shows that generated output still requires reconciliation, states that
@@ -198,7 +201,9 @@ Each supported Agent Host has one Adapter that owns its native paths, formats, d
 
 One canonical Host registry owns supported Host order and lookup, Adapter versions, Temporary Profile Installation eligibility, and discovery metadata. Its policy-free Host catalog can be consumed by schemas and command validation without loading Adapter implementations; the registry attaches every complete Adapter at the planning boundary and supplies Host inventory. Antigravity, Claude, Codex, Grok, and Pi ordinary planning enter through the complete Adapter contract, which owns capability probing, Project-surface inspection, configuration warnings, topology inputs, output planning, Capability Contract selection, and Host Setup Steps. The Installer only iterates selected registrations, translates Adapter evidence, and normalizes physical outputs; it contains no Host-specific planning fallback. Ordinary and Temporary Profile Installations route capability checks, Project-surface checks, warnings, Capability Contracts, Host Setup Steps, and outputs through the same registered Adapter planning boundary; temporary Host eligibility is registry metadata. Generic executable invocation, core semantic-version handling, filesystem entry classification, and invocation-scoped reuse remain policy-free shared services.
 
-Host Setup Steps use the shared kinds `approval-required`, `trust-required`, `launch-constraint`, and `shared-path`. Every step carries typed provenance classified once at the Adapter boundary (DEC-036): `transition` steps are caused by the current lifecycle transition and name the exact generated output whose addition, update, or repair makes them newly relevant (the Codex hook approval names `.codex/hooks.json`); `standing` steps are persistent constraints (project trust, exact-root launch, shared-path explanation). Host identity has one Adapter-plan-level home; the Installer attaches that identity when it carries each Adapter-authored step into the ReconciliationReport. A step may identify its path semantically as the bound project, leaving the one canonical path presenter to choose its user-facing spelling. Presentation orders, filters, and renders the report steps without deriving Host knowledge: `status` presents transition steps only when the plan changes their output plus the standing reminder, and `apply` presents change-relevant transition steps from the applied receipt plus a separate compact standing reminder. Identical steps collapse across Projects with a deterministic affected-Project scope while distinct consequences and typed bound-project roots stay visible (US-046–US-048). Blocked `status` suppresses transition-triggered steps for work that cannot happen, and blocked `apply` suppresses post-apply steps for work that did not happen; a no-op `apply` shows no setup and does not claim next-launch activation, and no output claims that Host-owned trust or approval is complete.
+Host Setup Steps use the shared kinds `approval-required`, `trust-required`, `launch-constraint`, and `shared-path`. Every step carries typed provenance classified once at the Adapter boundary (DEC-036): `transition` steps are caused by the current lifecycle transition and name the exact generated output whose addition, update, or repair makes them newly relevant (the Codex hook approval names `.codex/hooks.json`); `standing` steps are persistent constraints (project trust, exact-root launch, shared-path explanation). Host identity has one Adapter-plan-level home; the Installer attaches that identity when it carries each Adapter-authored step into the ReconciliationReport. A step may identify its path semantically as the bound project, leaving the one canonical path presenter to choose its user-facing spelling.
+
+Presentation may order, filter, group, and simplify these records but cannot derive Host knowledge or setup completion. Concise `status` renders no Host Setup Steps. Concise `apply` renders standing trust or root-launch guidance only when its Apply Receipt creates the first relevant output for that Project/Host pairing, and renders transition-triggered approval only when the associated output is added, updated, or repaired. It groups guidance by user action and Host without exposing provenance headings or separate consequence lines. Shared-path explanations and complete provenance, consequences, and Project scopes remain verbose and JSON evidence. Blocked `apply` suppresses guidance for work that did not happen; a no-op `apply` shows no setup and does not claim next-launch Activation. Agent Profile Kit does not claim that Host-owned trust or approval is complete.
 
 The Installer normalizes all Adapter plans for one project into a single output set:
 

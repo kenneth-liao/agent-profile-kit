@@ -2,7 +2,8 @@
 
 The living map of what a person does with the CLI, what each stage owes them,
 and where the current surface falls short. See ADR-0013 for why this map exists
-here, and ADR-0014 for the presentation decisions accepted against it.
+here, ADR-0014 for the original presentation decisions accepted against it,
+and ADR-0020 for the current quiet, task-first default-view boundary.
 
 **Scope.** This document owns user-facing CLI surface behavior: stages, the
 outcome each stage owes, and the gap register. It does not own authoring formats
@@ -119,7 +120,7 @@ without reading bindings, artifacts, credentials, or Installation State
 contents. It is distinct from `status`, which remains the ordinary Project
 lifecycle diagnostic.
 
-Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
+Gaps: [UJ-34](#uj-34); ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
 
 ### 2. Initialize
 
@@ -135,7 +136,7 @@ Profile and its Context Module, `README.md`, `AGENTS.md`, `.gitignore`, and a
 `schema_version: 2` `config.yaml`. Re-running is safe, and does not restore a
 removed example or overwrite any valid existing Workspace.
 
-Gaps: ~~[UJ-01](#uj-01)~~ (shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121)), ~~[UJ-10](#uj-10)~~ (shipped in
+Gaps: [UJ-34](#uj-34); ~~[UJ-01](#uj-01)~~ (shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121)), ~~[UJ-10](#uj-10)~~ (shipped in
 [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119)).
 
 ### 3. Learn the format
@@ -189,7 +190,7 @@ Profiles found: engineering
 Hosts bound: none
 ```
 
-Gaps: ~~[UJ-17](#uj-17)~~ (shipped in
+Gaps: [UJ-34](#uj-34); ~~[UJ-17](#uj-17)~~ (shipped in
 [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119)).
 
 ### 7. Preview
@@ -247,7 +248,7 @@ Interactive previews that outlast a short anti-flicker threshold show delayed
 operation-level progress on the terminal line; the line is cleared before the
 report, and redirected output and JSON never carry progress bytes.
 
-Gaps: ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-11](#uj-11)~~ (shipped in
+Gaps: [UJ-32](#uj-32), [UJ-33](#uj-33); ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
 ~~[UJ-12](#uj-12)~~ (shipped in
 [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123)),
@@ -294,7 +295,7 @@ standing reminder, and grouped next-launch readiness (once per Host scope,
 never per Project). Conditional Host guidance carries this journey into Codex,
 Claude Code, Grok, Pi, and Antigravity.
 
-Gaps: ~~[UJ-04](#uj-04)~~ (shipped in
+Gaps: [UJ-32](#uj-32), [UJ-33](#uj-33), [UJ-35](#uj-35); ~~[UJ-04](#uj-04)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)), ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-20](#uj-20)~~,
 ~~[UJ-21](#uj-21)~~.
 
@@ -343,7 +344,7 @@ Interactive status inspections that outlast a short anti-flicker threshold show
 delayed operation-level progress on the terminal line; the line is cleared
 before the report, and redirected output and JSON never carry progress bytes.
 
-Gaps: ~~[UJ-14](#uj-14)~~, ~~[UJ-15](#uj-15)~~ (shipped in
+Gaps: [UJ-32](#uj-32), [UJ-33](#uj-33); ~~[UJ-14](#uj-14)~~, ~~[UJ-15](#uj-15)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
 
 ### 11. Recover
@@ -456,7 +457,7 @@ state or Local Configuration. Width, styling, and wrapping behave exactly like
 the ordinary lifecycle surfaces through the shared presentation boundary
 (ADR-0016).
 
-Gaps: ~~[UJ-24](#uj-24)~~, ~~[UJ-27](#uj-27)~~
+Gaps: [UJ-34](#uj-34); ~~[UJ-24](#uj-24)~~, ~~[UJ-27](#uj-27)~~
 (shipped in [#162](https://github.com/kenneth-liao/agent-profile-kit/issues/162),
 [#166](https://github.com/kenneth-liao/agent-profile-kit/issues/166), and
 [#171](https://github.com/kenneth-liao/agent-profile-kit/issues/171)).
@@ -469,6 +470,10 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 
 | ID | Severity | Stage | Gap |
 |----|----------|-------|-----|
+| [UJ-33](#uj-33) | High | 7, 8, 10 | Persistent Host constraints render as observed unfinished setup even though Agent Profile Kit cannot inspect trust or approval completion — tracked by [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302) and [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304) |
+| [UJ-35](#uj-35) | High | 8 | A successful changed `apply` can say the Project was already current while its Apply Receipt proves work was completed — tracked by [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303) |
+| [UJ-32](#uj-32) | Med-High | 7, 8, 10 | Routine lifecycle output repeats impact, setup, and readiness facts instead of presenting one task-first decision — tracked by [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301), [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303), [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305) |
+| [UJ-34](#uj-34) | Medium | 1, 2, 6, 13 | First-run menus and next actions bury or fork the primary path — tracked by [#294](https://github.com/kenneth-liao/agent-profile-kit/issues/294) through [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300) |
 | ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
 | ~~[UJ-02](#uj-02)~~ | ~~High~~ | ~~11~~ | ~~Drifted output has no stated remedy anywhere~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-03](#uj-03)~~ | ~~High~~ | ~~12~~ | ~~Post-`uninstall` `status` warns about an intended state~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
@@ -500,6 +505,50 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ~~[UJ-16](#uj-16)~~ | ~~Low~~ | ~~1, 5~~ | ~~No `--version`, `-h`, `help`, or per-command `--help`~~ — root discovery shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115); focused aliases, Host guidance, and concise typo recovery shipped in [#158](https://github.com/kenneth-liao/agent-profile-kit/issues/158) |
 | ~~[UJ-17](#uj-17)~~ | ~~Low~~ | ~~6~~ | ~~`validate` prints "1 Profiles" and names nothing~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
 | ~~[UJ-18](#uj-18)~~ | ~~Low~~ | ~~7~~ | ~~`--verbose` inlines composed Context without a separator~~ — shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123) |
+
+### UJ-32
+
+A real 14-Project `status --all` renders the same pending generated-file totals
+in both its aggregate and `Project changes` sections, then repeats standing
+setup actions and consequences. `apply --all` repeats that guidance before its
+primary result and splits one equivalent next-launch outcome by exact Host set.
+The facts are valid evidence, but the default hierarchy makes a routine decision
+look like several separate outcomes. Delivery is tracked across
+[#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301),
+[#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303),
+[#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and
+[#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305).
+
+### UJ-33
+
+`status` and `apply` label persistent Adapter-authored trust and launch
+constraints as standing setup. Agent Profile Kit does not inspect whether those
+Host-owned actions are complete, so a clean Project can appear to have an
+outstanding checklist and returning users see the same reminder on every run.
+The CLI must preserve the requirements as verbose and JSON evidence without
+presenting unknown Host state as observed unfinished work. Delivery is tracked
+by [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302) and
+[#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304).
+
+### UJ-34
+
+The first-run hierarchy forks across discovery and next-action surfaces. Root
+help puts the full catalog before the quick start; the inventory menu repeats
+JSON examples; ordinary Host support is secondary to temporary eligibility;
+`init` help and success output disagree; validation with no configured Projects
+does not point to `bind`; and a temporary-install success prints an identity
+without the removal command that consumes it. Delivery is tracked across
+[#294](https://github.com/kenneth-liao/agent-profile-kit/issues/294) through
+[#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300).
+
+### UJ-35
+
+A successful first apply can lead from the freshly current verification and say
+that the selected Project was already current, then show non-empty work in the
+Apply Receipt. Both records have distinct authority, but this ordering makes the
+resulting-state sentence contradict the command's completed work. Only a true
+no-op receipt can support "already current." Delivery is tracked by
+[#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303).
 
 ### ~~UJ-01~~
 ~~`init` closes with an unusable next step because a fresh Workspace holds zero
@@ -893,8 +942,8 @@ reintroduce it.
 
 ## Accepted presentation principles
 
-Accepted in ADR-0014. Individual fixes are argued from these rather than from
-scratch.
+Accepted in ADR-0014 and refined by ADR-0020. Individual fixes are argued from
+these rather than from scratch.
 
 1. **One fact, one rendering per screen** ([UJ-06](#uj-06), [UJ-14](#uj-14)), and
    one command run produces one report ([UJ-05](#uj-05)).
@@ -907,10 +956,13 @@ scratch.
    ([UJ-09](#uj-09), [UJ-23](#uj-23)).
 6. **Distinct concepts get distinct words.** Presentation must not overload one
    term for two of them ([UJ-04](#uj-04)).
-7. **Show the object, not a count of it** — file paths with `+`/`~`/`-` markers,
-   capped with overflow to `--verbose` ([UJ-11](#uj-11), [UJ-22](#uj-22)).
+7. **Summarize routine impact; disclose actionable identity.** Exact generated
+   paths and Git bookkeeping are verbose by default, while blockers, warnings,
+   drift, ownership attention, and repair or failure retain the identity needed
+   to act ([UJ-11](#uj-11), [UJ-22](#uj-22), [UJ-32](#uj-32)).
 8. **Show identity at the shortest unambiguous length**, including the Hosts the
    user chose ([UJ-07](#uj-07), [UJ-20](#uj-20)).
 9. **Teach once, at the point of need** — not on every run ([UJ-15](#uj-15)),
-   and carry the journey into the Host ([UJ-21](#uj-21)).
+   and carry the journey into the Host without presenting unobserved Host state
+   as unfinished setup ([UJ-21](#uj-21), [UJ-33](#uj-33)).
 10. **Exit codes agree across commands** for the same state ([UJ-13](#uj-13)).
