@@ -10042,7 +10042,10 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const applied = await runCli(home, "apply");
     expectExitCode(applied, 0);
-    expect(applied.stdout).toContain(authored);
+    expect(humanText(applied.stdout)).toContain(
+      humanText(`bound Host (codex) from ${authored}.`),
+    );
+    expect(applied.stdout).not.toContain(canonical);
 
     // Machine contracts stay canonical/authored.
     const state = parse(readFileSync(statePath(home), "utf8")) as {

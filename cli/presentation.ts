@@ -1850,28 +1850,21 @@ function readyStatusGuidance(
   ];
 }
 
-function conciseApplyReceiptLines(
-  receipt: ReconciliationReport,
-  fleetScope: ReconciliationReport = receipt,
-): readonly string[] {
-  const groups = groupOutputOperations(receipt);
-  if (groups.length === 0) return [];
-  return [
-    "Applied:",
-    ...groups.map((group) => `  ${operationGroupLine(group, fleetScope)}`),
-  ];
-}
-
 function operationReceiptLines(
   receipt: ReconciliationReport,
   fleetScope: ReconciliationReport = receipt,
+  includeExclusions = true,
 ): readonly string[] {
+  const groups = groupOutputOperations(receipt);
+  if (groups.length === 0) return [];
   const lines = [
     "Applied:",
-    ...groupOutputOperations(receipt).map((group) => `  ${operationGroupLine(group, fleetScope)}`),
+    ...groups.map((group) => `  ${operationGroupLine(group, fleetScope)}`),
   ];
-  const exclusionClause = repositoryExclusionClause(receipt, true);
-  if (exclusionClause !== undefined) lines.push("", exclusionClause);
+  if (includeExclusions) {
+    const exclusionClause = repositoryExclusionClause(receipt, true);
+    if (exclusionClause !== undefined) lines.push("", exclusionClause);
+  }
   return lines;
 }
 
@@ -1943,22 +1936,22 @@ function conciseReport(
     ].join("\n");
   }
 
-  if (noOpApply) {
-    const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-    return `${outcomeLine(command, report, true)}\nAll ${projects} were already current.\n`;
-  }
-
-  const lines = readyStatus
+  const lines = noOpApply
+    ? [
+        outcomeLine(command, report, true),
+        `All ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
+      ]
+    : readyStatus
     ? [...readyStatusImpactLines(report)]
     : [outcomeLine(command, report, receipt !== undefined)];
 
-  const summary = !blocked && !fullyCurrentStatus && !readyStatus && command !== "apply"
+  const summary = !blocked && !fullyCurrentStatus && !readyStatus && !noOpApply && command !== "apply"
     ? aggregateLine(command, report, groups)
     : undefined;
   if (summary !== undefined) lines.push(summary);
 
-  if (command === "apply" && !blocked && receipt !== undefined) {
-    const appliedLines = conciseApplyReceiptLines(receipt, report);
+  if (command === "apply" && !blocked && !noOpApply && receipt !== undefined) {
+    const appliedLines = operationReceiptLines(receipt, report, false);
     if (appliedLines.length > 0) {
       lines.push("", ...appliedLines);
     }
@@ -1969,21 +1962,39 @@ function conciseReport(
     : groups.filter((group) => groupNeedsAttention(group, command));
   const reportOperationSummary = command !== "apply" && useOperationSummary(report, blocked);
 
-  if (readyStatus) {
-    lines.push(...operationAttentionLines(report, true));
-  } else if (reportOperationSummary) {
-    lines.push(...operationSummarySections(report));
-  } else if (activeGroups.length > 0) {
-    for (const group of activeGroups) {
-      lines.push(
-        "",
-        `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project)}`,
-      );
-      const desired = desiredInstallation(report, group.canonicalProject);
-      if (desired) {
-        lines.push(`  Profile: ${desired.profile}`, `  Hosts: ${desired.hosts.join(", ")}`);
-      }
-      if (blocked) {
+  if (!noOpApply) {
+    if (readyStatus) {
+      lines.push(...operationAttentionLines(report, true));
+    } else if (reportOperationSummary) {
+      lines.push(...operationSummarySections(report));
+    } else if (activeGroups.length > 0) {
+      for (const group of activeGroups) {
+        lines.push(
+          "",
+          `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project)}`,
+        );
+        const desired = desiredInstallation(report, group.canonicalProject);
+        if (desired) {
+          lines.push(`  Profile: ${desired.profile}`, `  Hosts: ${desired.hosts.join(", ")}`);
+        }
+        if (blocked) {
+          for (const blocker of group.blockers) {
+            lines.push(...conciseBlockerLines(
+              blocker,
+              displayProjectPath(group.canonicalProject, group.project),
+              groups,
+              "  ",
+            ));
+          }
+          continue;
+        }
+        for (const item of group.items) {
+          if (item.kind !== "current") {
+            lines.push(`  State: ${itemText(item)}`);
+          }
+        }
+        const outputLines = outputPathLines(group.outputs);
+        if (outputLines.length > 0) lines.push("  Files:", ...outputLines.map((line) => `  ${line}`));
         for (const blocker of group.blockers) {
           lines.push(...conciseBlockerLines(
             blocker,
@@ -1992,33 +2003,17 @@ function conciseReport(
             "  ",
           ));
         }
-        continue;
       }
-      for (const item of group.items) {
-        if (item.kind !== "current") {
-          lines.push(`  State: ${itemText(item)}`);
-        }
-      }
-      const outputLines = outputPathLines(group.outputs);
-      if (outputLines.length > 0) lines.push("  Files:", ...outputLines.map((line) => `  ${line}`));
-      for (const blocker of group.blockers) {
-        lines.push(...conciseBlockerLines(
-          blocker,
-          displayProjectPath(group.canonicalProject, group.project),
-          groups,
-          "  ",
-        ));
-      }
+    } else if (
+      command === "status" &&
+      groups.length > 0 &&
+      reportBlockers(report).length === 0 &&
+      !fullyCurrentStatus &&
+      !reportHasReconciliationWork(report)
+    ) {
+      const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
+      lines.push(`No ${projects} need attention.`);
     }
-  } else if (
-    command === "status" &&
-    groups.length > 0 &&
-    reportBlockers(report).length === 0 &&
-    !fullyCurrentStatus &&
-    !reportHasReconciliationWork(report)
-  ) {
-    const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-    lines.push(`No ${projects} need attention.`);
   }
 
   if (command === "apply" && blocked) {
@@ -2040,7 +2035,7 @@ function conciseReport(
     }
   }
 
-  const exclusionClause = repositoryExclusionClause(report, false, readyStatus || command === "apply");
+  const exclusionClause = repositoryExclusionClause(report, false, readyStatus);
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
 
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
@@ -2092,7 +2087,7 @@ function conciseReport(
       lines.push(`Freshly current: ${freshlyCurrent.join(", ")}`);
     }
   }
-  if (command === "apply" && reportBlockers(report).length === 0) {
+  if (command === "apply" && reportBlockers(report).length === 0 && !noOpApply) {
     const activation = receipt ? activationLines(report, receipt, presented) : [];
     if (activation.length > 0) lines.push("", ...activation);
   }

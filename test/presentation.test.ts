@@ -3608,6 +3608,56 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(apply).toContain("Applied:\n  ~ 1 generated file update in 1 project");
   });
 
+  test("multi-project apply preserves remaining attention across projects", () => {
+    const receipt = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          outputs: ["b.md"],
+          profile: "coding",
+          project: "/project-b",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [
+        { kind: "update", project: "/project-a" },
+        { kind: "update", project: "/project-b" },
+      ],
+      outputs: [
+        { kind: "update", path: "a.md", project: "/project-a" },
+        { kind: "update", path: "b.md", project: "/project-b" },
+      ],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [
+        { kind: "current", project: "/project-a" },
+        { kind: "drifted output", project: "/project-b" },
+      ],
+      outputs: [
+        { kind: "unchanged", path: "a.md", project: "/project-a" },
+        { kind: "drifted output", path: "b.md", project: "/project-b" },
+      ],
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).toContain("Apply completed with attention");
+    expect(apply).toContain("Applied:\n  ~ 2 generated file updates in 2 projects");
+    expect(apply).toContain("Project: /project-b");
+    expect(apply).toContain("State: drifted output");
+    expect(apply).toContain("! b.md");
+    expect(apply).not.toContain("Project: /project-a");
+  });
+
   test("no-op status states current once", () => {
     const report = emptyReport({
       desired: [{
@@ -3651,6 +3701,58 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(apply).not.toContain("Blockers: 0");
     expect(apply).not.toContain("becomes active");
     expect(apply).not.toContain("Host setup:");
+  });
+
+  test("no-op apply preserves warnings and diagnostics", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [
+        { kind: "current", project: "/project-a" },
+        { kind: "stale source", project: "/unscoped-source" },
+      ],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+      warnings: ["Project /project-a carries an adapter warning."],
+    });
+
+    const apply = formatApplyReport(applyResult(report));
+    expect(apply).toContain("Apply complete");
+    expect(apply).toContain("All Projects were already current.");
+    expect(apply).toContain("Warnings:\n- Project /project-a carries an adapter warning.");
+    expect(apply).toContain("Diagnostics:\n- /unscoped-source: stale source");
+    expect(apply).not.toContain("Applied:");
+    expect(apply).not.toContain("Host setup:");
+  });
+
+  test("blocked apply retains pending Git exclusions", () => {
+    const report = emptyReport({
+      blockers: [fixtureBlocker("Project is blocked", "/project-a")],
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      repositoryExclusions: [{
+        current: [],
+        next: ["/.agent-profile-kit/codex/context.md"],
+        target: "/project-a/.git/info/exclude",
+      }],
+    });
+
+    const apply = formatBlockedApplyReport(asBlockedReport(report));
+    expect(apply).toContain("Apply blocked");
+    expect(apply).toContain("Git exclusions: 1 entry to add.");
   });
 
   test("readiness groups Projects that share Profile, Hosts, and setup condition", () => {
