@@ -165,7 +165,7 @@ function semanticCategory(
   if (text.startsWith("/\\") || text.startsWith("/__\\")) return "heading";
   if (
     commandNames.some((name) => text === name || text.startsWith(`${name} `)) ||
-    /^(?:apkit(?:\s|$)|(?:Run|Next:\s+Run)\s+apkit\b)/i.test(text)
+    /^(?:apkit(?:\s|$)|Run\s+apkit\b|(?:Next|Details):\s+(?:Run\s+)?apkit\b)/i.test(text)
   ) {
     return "command";
   }
@@ -183,7 +183,7 @@ function semanticCategory(
   }
   if (/^(?:Apply completed with attention|Attention required)/i.test(text)) return "attention";
   if (
-    /^(?:Initialized|Recorded|Migrated|Removed|Installed|Uninstalled|Applied|Ready to apply|Apply complete$|Some Projects intentionally uninstalled|Intentionally uninstalled|All\b|No\b|Workspace and .* valid)/i
+    /^(?:Initialized|Recorded|Migrated|Removed|Installed|Uninstalled|Applied|Ready to apply|Updates ready|Apply complete$|Some Projects intentionally uninstalled|Intentionally uninstalled|All\b|No\b|Workspace and .* valid)/i
       .test(text)
   ) {
     return "success";

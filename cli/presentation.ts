@@ -849,7 +849,9 @@ function overflowPointer(overflow: number, singular: string): string {
   return `… ${overflow} more ${noun}; use --verbose to see all paths`;
 }
 
-function outputPathLine(output: OutputReconciliationItem): string | undefined {
+function outputPathLine(
+  output: Pick<OutputReconciliationItem, "kind" | "path">,
+): string | undefined {
   switch (output.kind) {
     case "addition":
     case "repair":
@@ -867,7 +869,9 @@ function outputPathLine(output: OutputReconciliationItem): string | undefined {
   }
 }
 
-function outputPathLines(outputs: readonly OutputReconciliationItem[]): readonly string[] {
+function outputPathLines(
+  outputs: readonly Pick<OutputReconciliationItem, "kind" | "path">[],
+): readonly string[] {
   const paths = [...outputs]
     // Protect attention and destructive changes from the concise-view cap, then
     // use canonical byte ordering so the visible path set is locale-independent.
@@ -932,16 +936,20 @@ function exclusionDeltaText(change: ReconciliationProjectRecord["repositoryExclu
 function repositoryExclusionClause(
   report: ReconciliationReport,
   completed: boolean,
+  /** Ready status suppresses successful bookkeeping and keeps only repair attention. */
+  repairsOnly = false,
 ): string | undefined {
-  const delta = changedRepositoryExclusions(report)
-    .map(exclusionDelta)
-    .reduce(
-      (total, change) => ({
-        additions: total.additions + change.additions.length,
-        removals: total.removals + change.removals.length,
-      }),
-      { additions: 0, removals: 0 },
-    );
+  const delta = repairsOnly
+    ? { additions: 0, removals: 0 }
+    : changedRepositoryExclusions(report)
+      .map(exclusionDelta)
+      .reduce(
+        (total, change) => ({
+          additions: total.additions + change.additions.length,
+          removals: total.removals + change.removals.length,
+        }),
+        { additions: 0, removals: 0 },
+      );
   const repairs = reportRepositoryExclusionRepairs(report).reduce(
     (count, repair) => count + repair.entries.length,
     0,
@@ -1721,10 +1729,15 @@ function operationGroupLine(
     operationScopeClause(group, report);
 }
 
-function operationAttentionLines(report: ReconciliationReport): readonly string[] {
+function operationAttentionLines(
+  report: ReconciliationReport,
+  includeRemovals = false,
+): readonly string[] {
   const exceptions = report.projects.filter((project) => {
     const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
-    return project.outputs.some((output) => OUTPUT_ATTENTION_KINDS.has(output.kind)) ||
+    return project.outputs.some((output) =>
+      OUTPUT_ATTENTION_KINDS.has(output.kind) || (includeRemovals && output.kind === "removal")
+    ) ||
       EXCEPTION_ITEM_KINDS.has(project.state.kind) ||
       (project.state.kind === STALE_SOURCE_KIND && !hasPlannedOutput);
   });
@@ -1739,11 +1752,10 @@ function operationAttentionLines(report: ReconciliationReport): readonly string[
     ) {
       lines.push(`    State: ${itemText({ ...project.state, project: project.project })}`);
     }
-    for (const output of project.outputs) {
-      if (OUTPUT_ATTENTION_KINDS.has(output.kind)) {
-        lines.push(`    ! ${output.path} (${output.kind})`);
-      }
-    }
+    const attentionOutputs = project.outputs.filter((output) =>
+      OUTPUT_ATTENTION_KINDS.has(output.kind) || (includeRemovals && output.kind === "removal")
+    );
+    lines.push(...outputPathLines(attentionOutputs).map((line) => `    ${line}`));
   }
   return lines;
 }
@@ -1755,6 +1767,85 @@ function operationSummarySections(report: ReconciliationReport): readonly string
     "Project changes:",
     ...groups.map((group) => `  ${operationGroupLine(group, report)}`),
     ...operationAttentionLines(report),
+  ];
+}
+
+function sameProjectScope(groups: readonly OperationPresentationGroup[]): boolean {
+  if (groups.length < 2) return true;
+  const first = groups[0]!.projects;
+  return groups.slice(1).every((group) =>
+    group.projects.length === first.length &&
+    group.projects.every((project, index) => project === first[index])
+  );
+}
+
+function conciseFileChangeParts(groups: readonly OperationPresentationGroup[]): readonly string[] {
+  return groups.map((group) => {
+    const operation = group.fileCount === 1 ? group.operation : `${group.operation}s`;
+    return `${group.fileCount} file ${operation}`;
+  });
+}
+
+function conciseStatusOperationLine(
+  group: OperationPresentationGroup,
+  report: ReconciliationReport,
+): string {
+  const operation = group.fileCount === 1 ? group.operation : `${group.operation}s`;
+  return `${PLANNED_OUTPUT_OPERATION_MARKER[group.operation]} ${group.fileCount} file ${operation} ` +
+    operationScopeClause(group, report);
+}
+
+function statusAffectedProjects(report: ReconciliationReport): readonly string[] {
+  return report.projects
+    .filter((project) =>
+      project.state.kind !== "current" ||
+      project.outputs.some((output) => isPlannedOutputOperation(output.kind)) ||
+      project.repositoryExclusions.some((change) =>
+        change.current.length !== change.next.length ||
+        change.current.some((entry, index) => entry !== change.next[index])
+      ) ||
+      project.repositoryExclusionRepairs.length > 0
+    )
+    .map((project) => project.canonicalProject)
+    .sort(compareCanonicalStrings);
+}
+
+function readyStatusImpactLines(report: ReconciliationReport): readonly string[] {
+  const operationGroups = groupOutputOperations(report);
+  const affectedProjects = statusAffectedProjects(report);
+  const scope = plural(affectedProjects.length, "project");
+  if (sameProjectScope(operationGroups)) {
+    const changes = conciseFileChangeParts(operationGroups);
+    return [
+      `Updates ready for ${scope}${changes.length > 0 ? ` (${changes.join(", ")})` : ""}.`,
+    ];
+  }
+  return [
+    `Updates ready for ${scope}.`,
+    ...operationGroups.map((group) => conciseStatusOperationLine(group, report)),
+  ];
+}
+
+function lifecycleInvocation(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): string {
+  if (options.all === true || (options.project === undefined && report.projects.length > 1)) {
+    return `${COMMAND_NAME} ${command} --all`;
+  }
+  if (options.project !== undefined) return `${COMMAND_NAME} ${command} ${options.project}`;
+  return `${COMMAND_NAME} ${command}`;
+}
+
+function readyStatusGuidance(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): readonly string[] {
+  return [
+    `Next: ${lifecycleInvocation("apply", report, options)}`,
+    "",
+    `Details: ${lifecycleInvocation("status", report, options)} --verbose`,
   ];
 }
 
@@ -1827,6 +1918,7 @@ function conciseReport(
     reportDesired(report).length === 0 &&
     reportItems(report).length === 0;
   const fullyCurrentStatus = command === "status" && fullyCurrentProjectCount(report) !== undefined;
+  const readyStatus = command === "status" && !blocked && !emptyStatus && !fullyCurrentStatus;
   const noOpApply = isNoOpApply(command, report, receipt);
   const lines = emptyStatus
     ? [
@@ -1834,8 +1926,10 @@ function conciseReport(
         `Next: Run ${COMMAND_NAME} list projects to inspect Project Bindings, or ` +
           `${COMMAND_NAME} bind <profile> --host <host> to configure one.`,
       ]
+    : readyStatus
+    ? [...readyStatusImpactLines(report)]
     : [outcomeLine(command, report, receipt !== undefined)];
-  const summary = !emptyStatus && !fullyCurrentStatus && !noOpApply
+  const summary = !emptyStatus && !fullyCurrentStatus && !noOpApply && !readyStatus
     ? aggregateLine(command, report, groups)
     : undefined;
   if (!blocked && summary !== undefined) lines.push(summary);
@@ -1846,7 +1940,9 @@ function conciseReport(
   const receiptOperationSummary = command === "apply" && receipt !== undefined &&
     useOperationSummary(receipt, false);
 
-  if (reportOperationSummary) {
+  if (readyStatus) {
+    lines.push(...operationAttentionLines(report, true));
+  } else if (reportOperationSummary) {
     lines.push(...operationSummarySections(report));
   } else if (receiptOperationSummary) {
     // Applied work is rendered from the receipt below; do not repeat the
@@ -1923,7 +2019,7 @@ function conciseReport(
     }
   }
 
-  const exclusionClause = repositoryExclusionClause(report, false);
+  const exclusionClause = repositoryExclusionClause(report, false, readyStatus);
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
 
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
@@ -1953,11 +2049,13 @@ function conciseReport(
   );
   const setup = setupSectionsFromPresented(presented, false);
   if (setup.length > 0) lines.push("", ...setup);
-  const next = nextActionLines(command, report, {
-    groups,
-    unscopedItems: grouped.unscopedItems,
-  }, options);
-  if (next.length > 0) lines.push("", ...next);
+  const next = readyStatus
+    ? readyStatusGuidance(report, options)
+    : nextActionLines(command, report, {
+        groups,
+        unscopedItems: grouped.unscopedItems,
+      }, options);
+  if (next.length > 0) lines.push(...(readyStatus ? next : ["", ...next]));
   if (receipt && !noOpApply) {
     lines.push("", ...applyReceiptLines(receipt, report.projects.length > 1, report));
     if (blocked) {
