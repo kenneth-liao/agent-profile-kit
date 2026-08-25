@@ -8429,7 +8429,11 @@ describe("apkit list", () => {
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("No Temporary Profile Installations are active.");
+    expect(result.stdout).toBe(
+      "No Temporary Profile Installations are active.\n" +
+        "Use apkit install-temp <profile> <project> --host <host> to create one.\n",
+    );
+    expect(result.stdout).not.toContain("Next:");
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
@@ -8443,8 +8447,9 @@ describe("apkit list", () => {
     expect(result.stdout).toBe(
       "Supported Hosts:\n" +
         SUPPORTED_HOSTS.map((host) => `  ${host}\n`).join("") +
-        "\nUse <host> with apkit bind.\n",
+        "\nUse <host> with apkit bind to select it for a configured Project.\n",
     );
+    expect(result.stdout).not.toContain("Next:");
     expect(result.stdout).not.toContain("Temporary Profile Installation");
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
@@ -8535,6 +8540,10 @@ describe("apkit list", () => {
     expect(result.stdout).toContain("Project: ~/projects/temporary-project");
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Host: codex");
+    expect(result.stdout).toContain(
+      "Use apkit remove-temp <temporary-installation-id> to remove one when finished.",
+    );
+    expect(result.stdout).not.toContain("Next:");
   });
 
   test("temporary JSON preserves canonical identity evidence without inventory writes", async () => {
@@ -8714,6 +8723,10 @@ describe("apkit list", () => {
     expect(result.stdout).toContain("Skills: 1");
     expect(result.stdout).toContain("Profile: beta");
     expect(result.stdout).toContain("Profile: zeta");
+    expect(result.stdout).toContain(
+      "Use <profile> with apkit bind to select it for a configured Project.",
+    );
+    expect(result.stdout).not.toContain("Next:");
     expect(result.stdout.indexOf("Profile: alpha")).toBeLessThan(
       result.stdout.indexOf("Profile: beta"),
     );
@@ -8734,8 +8747,9 @@ describe("apkit list", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("No Profiles are available.");
     expect(result.stdout).toContain(
-      "Next: Add a Profile to the selected Workspace, then run apkit list profiles.",
+      "Add a Profile to the selected Workspace, then use <profile> with apkit bind.",
     );
+    expect(result.stdout).not.toContain("Next:");
     expect(existsSync(statePath(home))).toBe(false);
   });
 
@@ -8902,6 +8916,24 @@ describe("apkit list", () => {
     expect(existsSync(statePath(missingWorkspaceHome))).toBe(false);
   });
 
+  test("projects explains how to configure an empty inventory without claiming a next action", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const configuration = readFileSync(configPath(home), "utf8");
+
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(
+      "No Projects are configured.\n" +
+        "Use apkit bind <profile> --host <host> to configure a Project.\n",
+    );
+    expect(result.stdout).not.toContain("Next:");
+    expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
   test("projects uses the existing Local Configuration error boundary", async () => {
     const home = isolatedHome();
 
@@ -8968,6 +9000,8 @@ describe("apkit list", () => {
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: claude, codex");
     expect(result.stdout).toContain("Hosts: codex, pi");
+    expect(result.stdout).toContain("Use apkit status to inspect Project lifecycle diagnostics.");
+    expect(result.stdout).not.toContain("Next:");
     expect(result.stdout.indexOf("Project: ~/projects/alpha")).toBeLessThan(
       result.stdout.indexOf("Project: ~/projects/beta"),
     );

@@ -463,7 +463,7 @@ export function formatProjectInventoryHuman(
   if (projects.length === 0) {
     return responsiveHumanText(
       "No Projects are configured.\n" +
-        `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.\n`,
+        `Use ${COMMAND_NAME} bind <profile> --host <host> to configure a Project.\n`,
       options.context,
     );
   }
@@ -492,7 +492,7 @@ export function formatProjectInventoryHuman(
       project.hosts.join(", "),
     );
   }
-  lines.push("", `Next: Run ${COMMAND_NAME} status for Project lifecycle diagnostics.`);
+  lines.push("", `Use ${COMMAND_NAME} status to inspect Project lifecycle diagnostics.`);
   return responsiveHumanText(`${lines.join("\n")}\n`, options.context, copyable);
 }
 
@@ -571,7 +571,7 @@ export function formatProfileInventoryHuman(
   if (profiles.length === 0) {
     return responsiveHumanText(
       "No Profiles are available.\n" +
-        `Next: Add a Profile to the selected Workspace, then run ${COMMAND_NAME} list profiles.\n`,
+        `Add a Profile to the selected Workspace, then use <profile> with ${COMMAND_NAME} bind.\n`,
       options.context,
     );
   }
@@ -585,7 +585,10 @@ export function formatProfileInventoryHuman(
       `  Skills: ${profile.skills}`,
     );
   }
-  lines.push("", `Next: Run ${COMMAND_NAME} bind <profile> --host <host>.`);
+  lines.push(
+    "",
+    `Use <profile> with ${COMMAND_NAME} bind to select it for a configured Project.`,
+  );
   return responsiveHumanText(`${lines.join("\n")}\n`, options.context);
 }
 
@@ -632,7 +635,7 @@ export function formatHostInventoryHuman(
     "Supported Hosts:",
     ...hosts.map(({ host }) => `  ${host}`),
     "",
-    `Use <host> with ${COMMAND_NAME} bind.`,
+    `Use <host> with ${COMMAND_NAME} bind to select it for a configured Project.`,
   ];
   return responsiveHumanText(`${lines.join("\n")}\n`, options.context);
 }
@@ -663,7 +666,7 @@ export function formatTemporaryInventoryHuman(
   if (installations.length === 0) {
     return responsiveHumanText(
       "No Temporary Profile Installations are active.\n" +
-        `Next: Run ${COMMAND_NAME} install-temp <profile> <project> --host <host>.\n`,
+        `Use ${COMMAND_NAME} install-temp <profile> <project> --host <host> to create one.\n`,
       options.context,
     );
   }
@@ -686,7 +689,10 @@ export function formatTemporaryInventoryHuman(
       installation.project,
     );
   }
-  lines.push("", `Next: Run ${COMMAND_NAME} remove-temp <temporary-installation-id> when finished.`);
+  lines.push(
+    "",
+    `Use ${COMMAND_NAME} remove-temp <temporary-installation-id> to remove one when finished.`,
+  );
   return responsiveHumanText(`${lines.join("\n")}\n`, options.context, copyable);
 }
 
