@@ -119,11 +119,6 @@ const HOST_SETUP_STEP_ORDER: readonly HostSetupStepKind[] = [
   "launch-constraint",
   "shared-path",
 ];
-const ACTIONABLE_HOST_SETUP_STEP_KINDS: ReadonlySet<HostSetupStepKind> = new Set([
-  "approval-required",
-  "trust-required",
-  "launch-constraint",
-]);
 
 type NonCurrentKind = Exclude<ReconciliationKind, "current">;
 
@@ -1542,76 +1537,36 @@ function hostSetupSections(
   );
 }
 
-function activationLines(
+/**
+ * Emit one invocation-wide next-launch readiness statement for successful changed apply
+ * (#292 DEC-011–DEC-013, US-011–US-013).
+ */
+function readinessLines(
   report: ReconciliationReport,
   receipt: ReconciliationReport,
-  presented: readonly PresentedSetupStep[],
 ): readonly string[] {
-  const changedProjects = new Set(receipt.projects
-    .filter((project) => project.state.kind !== "current")
-    .map((project) => project.canonicalProject));
-  const actionableByCanonical = new Map<string, number>();
-  for (const { step, canonicalProject } of presented) {
-    if (!ACTIONABLE_HOST_SETUP_STEP_KINDS.has(step.kind)) continue;
-    actionableByCanonical.set(
-      canonicalProject,
-      (actionableByCanonical.get(canonicalProject) ?? 0) + 1,
-    );
-  }
-  const groups = new Map<string, {
-    readonly hosts: readonly string[];
-    readonly profile: string;
-    readonly requiresSetup: boolean;
-    projects: Array<{ readonly authored: string; readonly canonical: string }>;
-  }>();
-  for (const record of report.projects) {
-    const installation = record.desired;
-    if (installation === undefined || !changedProjects.has(record.canonicalProject)) continue;
-    const requiresSetup = (actionableByCanonical.get(record.canonicalProject) ?? 0) > 0;
-    const key = [installation.profile, installation.hosts.join(","), requiresSetup ? "setup" : "ready"].join("\u0000");
-    const project = {
-      authored: record.project,
-      canonical: record.canonicalProject,
-    };
-    const existing = groups.get(key);
-    if (existing) {
-      existing.projects.push(project);
-    } else {
-      groups.set(key, {
-        hosts: installation.hosts,
-        profile: installation.profile,
-        projects: [project],
-        requiresSetup,
-      });
-    }
-  }
-  return [...groups.values()]
-    .map((group) => ({
-      ...group,
-      projects: [...group.projects].sort((left, right) =>
-        compareCanonicalStrings(left.canonical, right.canonical),
-      ),
-    }))
-    .sort((left, right) =>
-      left.profile.localeCompare(right.profile) ||
-      left.hosts.join(",").localeCompare(right.hosts.join(",")) ||
-      Number(right.requiresSetup) - Number(left.requiresSetup) ||
-      left.projects.map((project) => project.canonical).join("\u0000")
-        .localeCompare(right.projects.map((project) => project.canonical).join("\u0000")),
-    )
-    .map((group) => {
-      const setupCondition = group.requiresSetup
-        ? "After completing the Host setup above, "
-        : "No further Host setup is required. ";
-      const presented = group.projects.map((project) =>
-        displayProjectPath(project.canonical, project.authored),
-      );
-      const projectClause = presented.length === 1
-        ? `from ${presented[0]!}`
-        : `in ${plural(presented.length, "project")}`;
-      return `${setupCondition}Profile ${group.profile} becomes active on the next launch ` +
-        `of each bound Host (${group.hosts.join(", ")}) ${projectClause}.`;
-    });
+  const changedProjects = new Set(
+    receipt.projects
+      .filter((project) =>
+        project.state.kind !== "current" ||
+        project.outputs.some((output) => output.kind !== "unchanged") ||
+        project.repositoryExclusions.some((change) => change.current.join("\n") !== change.next.join("\n")) ||
+        project.repositoryExclusionRepairs.length > 0
+      )
+      .map((project) => project.canonicalProject),
+  );
+  const profiles = [...new Set(
+    report.projects
+      .filter((record) => changedProjects.has(record.canonicalProject))
+      .map((record) => record.desired?.profile ?? receipt.projects.find((p) => p.canonicalProject === record.canonicalProject)?.desired?.profile)
+      .filter((profile): profile is string => profile !== undefined),
+  )].sort(compareCanonicalStrings);
+
+  if (profiles.length === 0) return [];
+  const subject = profiles.length === 1
+    ? `Profile ${profiles[0]}`
+    : `${plural(profiles.length, "Profile")}`;
+  return [`${subject} will load the next time you launch a configured Host from a bound Project root.`];
 }
 
 function nextActionScope(
@@ -2186,8 +2141,8 @@ function conciseReport(
     }
   }
   if (command === "apply" && reportBlockers(report).length === 0 && !noOpApply) {
-    const activation = receipt ? activationLines(report, receipt, presented) : [];
-    if (activation.length > 0) lines.push("", ...activation);
+    const readiness = receipt ? readinessLines(report, receipt) : [];
+    if (readiness.length > 0) lines.push("", ...readiness);
   }
   return `${lines.join("\n")}\n`;
 }
@@ -2579,14 +2534,13 @@ function verboseApplyReport(result: {
     })}` +
     verboseSetupSection("apply", result.resultingState)
   );
-  const activation = reportBlockers(result.resultingState).length === 0
-    ? activationLines(
+  const readiness = reportBlockers(result.resultingState).length === 0
+    ? readinessLines(
         result.resultingState,
         result.receipt,
-        presentedSetupSteps("apply", result.resultingState, undefined, true),
       )
     : [];
-  return activation.length > 0 ? `${report}\n${activation.join("\n")}\n` : report;
+  return readiness.length > 0 ? `${report}\n${readiness.join("\n")}\n` : report;
 }
 
 export function formatApplyReport(
