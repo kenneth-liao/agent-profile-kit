@@ -175,7 +175,7 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
         outputs: fixture.outputs.filter((output) => canonicalProject(output.project) === key).map((output) => ({
           consumingHosts: fixture.outputConsumers.find((consumer) =>
             canonicalProject(consumer.project) === key && consumer.path === output.path
-          )?.consumingHosts ?? [],
+          )?.consumingHosts ?? (installation?.hosts ?? []),
           kind: output.kind,
           path: output.path,
         })),
@@ -532,28 +532,34 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const apply = formatApplyReport(applyResult(report, resultingState));
 
-    expect(apply.split("\n")).toContain("Host setup:");
+    expect(apply).toContain("First use:\n");
+    expect(apply).not.toContain("Host setup:");
+    expect(apply).not.toContain("Standing Host setup:");
     expect(apply).toContain(
-      "Review and approve the generated SessionStart hook when Codex asks.",
+      "- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.",
     );
-    expect(apply).toContain("Declining the hook prevents Profile Context from loading.");
-    expect(apply).toContain("Standing Host setup:");
-    expect(apply).toContain("Trust the bound project in Codex.");
-    expect(apply).toContain("Launch Codex from the exact bound project root: /project-a");
-    expect(apply).toContain("Grok uses Claude's shared rule path.");
+    expect(apply).toContain("- Trust the bound project in Codex so the Profile can load.");
+    expect(apply).toContain(
+      "- Launch Codex from the exact bound project root so the Profile can load.",
+    );
+    expect(apply).not.toContain("Declining the hook prevents Profile Context from loading.");
+    expect(apply).not.toContain("Grok uses Claude's shared rule path.");
     expect(apply.trimEnd()).toEndWith(
       "After completing the Host setup above, Profile coding becomes active on the next launch " +
         "of each bound Host (codex) from /project-a.",
     );
     const verbose = formatApplyReport(applyResult(report, resultingState), { verbose: true });
+    expect(verbose).toContain("Host setup:");
+    expect(verbose).toContain("Standing Host setup:");
     expect(verbose).toContain("Grok uses Claude's shared rule path.");
+    expect(verbose).toContain("Declining the hook prevents Profile Context from loading.");
     expect(verbose.trimEnd()).toEndWith(
       "After completing the Host setup above, Profile coding becomes active on the next launch " +
         "of each bound Host (codex) from /project-a.",
     );
   });
 
-  test("apply does not replay transition setup for unrelated applied work", () => {
+  test("routine update does not replay transition setup or standing trust", () => {
     const receipt = emptyReport({
       desired: [installation("/project-a", [hookApproval(), codexTrust()])],
       items: [{ kind: "update", project: "/project-a" }],
@@ -567,12 +573,17 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
 
+    expect(apply).not.toContain("First use:");
     expect(apply).not.toContain(
       "Review and approve the generated SessionStart hook",
     );
-    expect(apply.split("\n")).not.toContain("Host setup:");
-    expect(apply).toContain("Standing Host setup:");
-    expect(apply).toContain("Trust the bound project in Codex.");
+    expect(apply).not.toContain("Host setup:");
+    expect(apply).not.toContain("Standing Host setup:");
+    expect(apply).not.toContain("Trust the bound project in Codex.");
+    expect(apply.trimEnd()).toEndWith(
+      "No further Host setup is required. Profile coding becomes active on the next launch " +
+        "of each bound Host (codex) from /project-a.",
+    );
   });
 
   test("setup-free apply says no further Host setup is required", () => {
@@ -621,12 +632,16 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const apply = formatApplyReport(applyResult(report, resultingState));
 
-    expect(apply).toContain("Standing Host setup:");
-    expect(apply).toContain("Grok uses Claude's shared rule path.");
+    expect(apply).not.toContain("First use:");
+    expect(apply).not.toContain("Standing Host setup:");
+    expect(apply).not.toContain("Grok uses Claude's shared rule path.");
     expect(apply.trimEnd()).toEndWith(
       "No further Host setup is required. Profile coding becomes active on the next launch " +
         "of each bound Host (claude, grok) from /project-a.",
     );
+    const verbose = formatApplyReport(applyResult(report, resultingState), { verbose: true });
+    expect(verbose).toContain("Standing Host setup:");
+    expect(verbose).toContain("Grok uses Claude's shared rule path.");
   });
 
   test("no-op apply omits transition setup and the standing reminder", () => {
@@ -638,6 +653,7 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const output = formatApplyReport(applyResult(report));
     expect(output).not.toContain("becomes active");
+    expect(output).not.toContain("First use:");
     expect(output).not.toContain("Host setup:");
     expect(output).not.toContain(
       "Review and approve the generated SessionStart hook",
@@ -646,6 +662,144 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(formatApplyReport(applyResult(report), { verbose: true })).not.toContain(
       "becomes active",
     );
+  });
+
+  test("concise apply deduplicates first-use guidance across projects without a path matrix", () => {
+    const piTrust: HostSetupStep = {
+      host: "pi",
+      kind: "trust-required",
+      message: "Trust the bound project in Pi.",
+      consequence: "The Profile does not load until the project is trusted.",
+      provenance: "standing",
+    };
+    const projects = ["/p-1", "/p-2", "/p-3", "/p-4"].map((project) => ({
+      canonicalProject: project,
+      context: "composed",
+      hosts: ["codex", "pi"] as const,
+      outputs: ["a.md", hookPath],
+      profile: "coding",
+      project,
+      resolvedArtifacts: [],
+      setupSteps: [hookApproval(), codexTrust(), piTrust],
+    }));
+    const receipt = emptyReport({
+      desired: projects,
+      items: projects.map((p) => ({ kind: "addition" as const, project: p.project })),
+      outputs: projects.flatMap((p) => [
+        { kind: "addition" as const, path: "a.md", project: p.project },
+        { kind: "addition" as const, path: hookPath, project: p.project },
+      ]),
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: projects.map((p) => ({ kind: "current" as const, project: p.project })),
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).toContain("First use:\n");
+    expect(apply).toContain("- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.\n");
+    expect(apply).toContain("- Trust the bound project in Codex so the Profile can load.\n");
+    expect(apply).toContain("- Trust the bound project in Pi so the Profile can load.\n");
+    expect(apply).not.toContain("/p-1");
+    expect(apply).not.toContain("/p-2");
+    expect(apply.match(/- Trust the bound project in Codex/g)).toHaveLength(1);
+    expect(apply.match(/- Trust the bound project in Pi/g)).toHaveLength(1);
+  });
+
+  test("subset-only launch constraint gives affected count and verbose route", () => {
+    const projects = ["/p-1", "/p-2", "/p-3", "/p-4"].map((project, idx) => ({
+      canonicalProject: project,
+      context: "composed",
+      hosts: ["codex"] as const,
+      outputs: ["a.md"],
+      profile: "coding",
+      project,
+      resolvedArtifacts: [],
+      setupSteps: idx < 2 ? [codexTrust(), rootLaunch()] : [codexTrust()],
+    }));
+    const receipt = emptyReport({
+      desired: projects,
+      items: projects.map((p) => ({ kind: "addition" as const, project: p.project })),
+      outputs: projects.map((p) => ({ kind: "addition" as const, path: "a.md", project: p.project })),
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: projects.map((p) => ({ kind: "current" as const, project: p.project })),
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).toContain(
+      "- Launch Codex from the exact bound project root for 2 projects (use --verbose to see all Projects) so the Profile can load.",
+    );
+
+    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+    expect(verbose).toContain("- Launch Codex from the exact bound project root: /p-1");
+    expect(verbose).toContain("- Launch Codex from the exact bound project root: /p-2");
+  });
+
+  test("standing guidance is not triggered by non-host bookkeeping additions or outputs for different hosts", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["claude", "codex"] as const,
+        outputs: [".agent-profile-kit/installation.json", ".claude/rules/agent-profile-kit.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [codexTrust()],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [
+        { kind: "addition", path: ".agent-profile-kit/installation.json", project: "/project-a" },
+        { kind: "addition", path: ".claude/rules/agent-profile-kit.md", project: "/project-a" },
+      ],
+      outputConsumers: [
+        { consumingHosts: [], path: ".agent-profile-kit/installation.json", project: "/project-a" },
+        { consumingHosts: ["claude"], path: ".claude/rules/agent-profile-kit.md", project: "/project-a" },
+      ],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(report),
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    const apply = formatApplyReport(applyResult(report, resultingState));
+    expect(apply).not.toContain("First use:");
+    expect(apply).not.toContain("Trust the bound project in Codex");
+    expect(apply).toContain("No further Host setup is required.");
+  });
+
+  test("non-standard security warning consequence is preserved in concise apply", () => {
+    const warningStep: HostSetupStep = {
+      consequence: "Security warning: remote execution permitted",
+      host: "codex",
+      kind: "trust-required",
+      message: "Trust the bound project in Codex.",
+      provenance: "standing",
+    };
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["codex"] as const,
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [warningStep],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(report),
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    const apply = formatApplyReport(applyResult(report, resultingState));
+    expect(apply).toContain("First use:\n");
+    expect(apply).toContain("- Trust the bound project in Codex (Security warning: remote execution permitted).");
   });
 
   test("changed aliased projects retain activation through their authored report identity", () => {
@@ -660,6 +814,7 @@ describe("Host Setup Step provenance and presentation", () => {
         setupSteps: [codexTrust()],
       }],
       items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
     const resultingState = emptyReport({
       desired: reportDesired(receipt),
@@ -704,6 +859,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(blockedApply).not.toContain(
       "Review and approve the generated SessionStart hook",
     );
+    expect(blockedApply).not.toContain("First use:");
     expect(blockedApply).not.toContain("Host setup:");
     expect(blockedApply).not.toContain("Standing Host setup:");
     expect(blockedApply).not.toContain("Trust the bound project in Codex.");
@@ -713,12 +869,13 @@ describe("Host Setup Step provenance and presentation", () => {
     const report = emptyReport({
       desired: [installation("/project-a", [codexTrust()])],
       items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
     const failure = formatApplyVerificationFailure(report, "Verification failed.");
 
-    expect(failure).toContain("Standing Host setup:");
-    expect(failure).toContain("Trust the bound project in Codex.");
+    expect(failure).toContain("First use:");
+    expect(failure).toContain("- Trust the bound project in Codex so the Profile can load.");
     expect(failure).not.toContain("becomes active");
   });
 });
