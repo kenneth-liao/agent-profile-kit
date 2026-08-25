@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Emit one invocation-wide next-launch readiness statement on successful changed apply using Profile-loading language and bound-Project-root guidance, naming one Profile when unambiguous and using a count when multiple Profiles changed, without splitting equivalent outcomes by exact Host set ([#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305)).
+
 - Group first-use Host setup guidance under one note with plain reasons in concise apply, deduplicating actions across Projects without path matrices, suppressing standing trust and root-launch guidance during routine updates, and omitting shared-path layout notes from concise output while verbose apply and JSON retain full step evidence ([#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304)).
 
 - Lead successful apply from its committed Apply Receipt impact before setup guidance, summarize affected Project and generated-file counts once in concise output, omit routine Git exclusion bookkeeping from concise success, and reserve "already current" exclusively for true no-op apply ([#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303)).

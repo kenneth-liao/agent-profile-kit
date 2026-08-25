@@ -231,9 +231,12 @@ Interactive previews that outlast a short anti-flicker threshold show delayed
 operation-level progress on the terminal line; the line is cleared before the
 report, and redirected output and JSON never carry progress bytes.
 
-Gaps: ~~[UJ-32](#uj-32)~~ (status compact decision shipped in
-[#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); remaining
-apply work is stage 8); ~~[UJ-33](#uj-33)~~ (shipped across
+Gaps: ~~[UJ-32](#uj-32)~~ (shipped across
+[#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301),
+[#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303),
+[#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and
+[#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305));
+~~[UJ-33](#uj-33)~~ (shipped across
 [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302) and
 [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304)); ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
@@ -279,7 +282,7 @@ First use:
 - Review and approve the generated SessionStart hook when Codex asks so the Profile can load.
 - Trust the bound project in Codex so the Profile can load.
 
-After completing the Host setup above, Profile coding becomes active on the next launch of each bound Host (codex) from <project>.
+Profile coding will load the next time you launch a configured Host from a bound Project root.
 ```
 
 A multi-Project apply shows:
@@ -294,7 +297,7 @@ First use:
 - Review and approve the generated SessionStart hook when Codex asks so the Profile can load.
 - Trust the bound project in Codex so the Profile can load.
 
-After completing the Host setup above, Profile coding becomes active on the next launch of each bound Host (codex) in 3 projects.
+Profile coding will load the next time you launch a configured Host from a bound Project root.
 ```
 
 Verbose apply retains the full per-Project inventory:
@@ -321,21 +324,23 @@ Standing Host setup:
 - Trust the bound project in Codex. (<api>)
   Consequence: Profile Context does not load until the project is trusted.
 
-After completing the Host setup above, Profile coding becomes active on the next launch of each bound Host (claude, codex) in 3 projects.
+Profile coding will load the next time you launch a configured Host from a bound Project root.
 ```
 
 Separating verified resulting state from the Apply Receipt is architecturally
 correct (`CONTEXT.md`, *Apply Receipt*), and the receipt is now grouped and
 preview-consistent: `Applied:` lists the same operation groups with the same
 symbols and counts as the preceding preview, never reprints verified-current
-Project blocks, and is followed by change-relevant first-use guidance and grouped
-next-launch readiness (once per Host scope, never per Project). Conditional Host
+Project blocks, and is followed by change-relevant first-use guidance and invocation-wide
+next-launch readiness (once per apply invocation, never split by Host or Project set). Conditional Host
 guidance carries this journey into Codex, Claude Code, Grok, Pi, and Antigravity.
 
-Gaps: [UJ-32](#uj-32) (status and receipt impact shipped in
+Gaps: ~~[UJ-32](#uj-32)~~ (status and receipt impact shipped in
 [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301) and
-[#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303); readiness
-remains [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305));
+[#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303); first-use apply
+note shipped in [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304);
+invocation-wide readiness shipped in
+[#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305));
 ~~[UJ-33](#uj-33)~~ (shipped across
 [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302) and
 [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304));
@@ -394,9 +399,12 @@ a short anti-flicker threshold show delayed operation-level progress on the
 terminal line; the line is cleared before the report, and redirected output and
 JSON never carry progress bytes.
 
-Gaps: ~~[UJ-32](#uj-32)~~ (status compact decision shipped in
-[#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); remaining
-apply work is stage 8); ~~[UJ-33](#uj-33)~~ (shipped across
+Gaps: ~~[UJ-32](#uj-32)~~ (shipped across
+[#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301),
+[#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303),
+[#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and
+[#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305));
+~~[UJ-33](#uj-33)~~ (shipped across
 [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302) and
 [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304)); ~~[UJ-14](#uj-14)~~, ~~[UJ-15](#uj-15)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)).
@@ -528,7 +536,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 |----|----------|-------|-----|
 | ~~[UJ-33](#uj-33)~~ | ~~High~~ | ~~8~~ | ~~Concise `apply` still labels persistent Host constraints as standing unfinished setup~~ — status suppression shipped in [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302), apply first-use shipped in [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304) |
 | ~~[UJ-35](#uj-35)~~ | ~~High~~ | ~~8~~ | ~~A successful changed `apply` can say the Project was already current while its Apply Receipt proves work was completed~~ — shipped in [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303) |
-| [UJ-32](#uj-32) | Med-High | 8 | Routine apply output still repeats setup and readiness facts instead of one task-first decision — status compact decision shipped in [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); remaining apply work tracked by [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303), [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305) |
+| ~~[UJ-32](#uj-32)~~ | ~~Med-High~~ | ~~8~~ | ~~Routine apply output still repeats setup and readiness facts instead of one task-first decision~~ — status compact decision shipped in [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); apply receipt lead shipped in [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303); first-use apply note shipped in [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304); invocation-wide readiness shipped in [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305) |
 | ~~[UJ-34](#uj-34)~~ | ~~Medium~~ | ~~13~~ | ~~Next-action surfaces fork the primary path~~ — shipped in [#297](https://github.com/kenneth-liao/agent-profile-kit/issues/297), [#298](https://github.com/kenneth-liao/agent-profile-kit/issues/298), [#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299), and [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300) |
 | ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
 | ~~[UJ-02](#uj-02)~~ | ~~High~~ | ~~11~~ | ~~Drifted output has no stated remedy anywhere~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
@@ -562,17 +570,19 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ~~[UJ-17](#uj-17)~~ | ~~Low~~ | ~~6~~ | ~~`validate` prints "1 Profiles" and names nothing~~ — shipped in [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119) |
 | ~~[UJ-18](#uj-18)~~ | ~~Low~~ | ~~7~~ | ~~`--verbose` inlines composed Context without a separator~~ — shipped in [#123](https://github.com/kenneth-liao/agent-profile-kit/issues/123) |
 
-### UJ-32
+### ~~UJ-32~~
 
 The `status` portion shipped in
 [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301): pending
 single-Project and fleet views now render one scope-correct impact decision,
 one matching apply command, and at most one matching verbose route while routine
-paths and successful Git bookkeeping remain diagnostic detail. The remaining
-apply hierarchy, setup, and readiness repetition is tracked by
-[#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303),
-[#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and
-[#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305).
+paths and successful Git bookkeeping remain diagnostic detail. The apply receipt lead
+portion shipped in [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303),
+first-use guidance shipped in [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304),
+and invocation-wide readiness shipped in [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305):
+successful changed apply leads from the Apply Receipt, provides one action-grouped
+first-use note when relevant, and ends with exactly one invocation-wide Profile loading
+readiness statement.
 
 ### ~~UJ-33~~
 
@@ -1035,7 +1045,7 @@ these rather than from scratch.
 7. **Summarize routine impact; disclose actionable identity.** Exact generated
    paths and Git bookkeeping are verbose by default, while blockers, warnings,
    drift, ownership attention, and repair or failure retain the identity needed
-   to act ([UJ-11](#uj-11), [UJ-22](#uj-22), [UJ-32](#uj-32)).
+    to act ([UJ-11](#uj-11), [UJ-22](#uj-22), ~~[UJ-32](#uj-32)~~).
 8. **Show identity at the shortest unambiguous length**, including the Hosts the
    user chose ([UJ-07](#uj-07), [UJ-20](#uj-20)).
 9. **Teach once, at the point of need** — not on every run ([UJ-15](#uj-15)),

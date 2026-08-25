@@ -545,8 +545,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(apply).not.toContain("Declining the hook prevents Profile Context from loading.");
     expect(apply).not.toContain("Grok uses Claude's shared rule path.");
     expect(apply.trimEnd()).toEndWith(
-      "After completing the Host setup above, Profile coding becomes active on the next launch " +
-        "of each bound Host (codex) from /project-a.",
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
     const verbose = formatApplyReport(applyResult(report, resultingState), { verbose: true });
     expect(verbose).toContain("Host setup:");
@@ -554,8 +553,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(verbose).toContain("Grok uses Claude's shared rule path.");
     expect(verbose).toContain("Declining the hook prevents Profile Context from loading.");
     expect(verbose.trimEnd()).toEndWith(
-      "After completing the Host setup above, Profile coding becomes active on the next launch " +
-        "of each bound Host (codex) from /project-a.",
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
 
@@ -581,12 +579,11 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(apply).not.toContain("Standing Host setup:");
     expect(apply).not.toContain("Trust the bound project in Codex.");
     expect(apply.trimEnd()).toEndWith(
-      "No further Host setup is required. Profile coding becomes active on the next launch " +
-        "of each bound Host (codex) from /project-a.",
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
 
-  test("setup-free apply says no further Host setup is required", () => {
+  test("setup-free apply emits invocation-wide readiness statement", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -606,8 +603,7 @@ describe("Host Setup Step provenance and presentation", () => {
     });
 
     expect(formatApplyReport(applyResult(report, resultingState)).trimEnd()).toEndWith(
-      "No further Host setup is required. Profile coding becomes active on the next launch " +
-        "of each bound Host (claude) from /project-a.",
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
 
@@ -636,8 +632,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(apply).not.toContain("Standing Host setup:");
     expect(apply).not.toContain("Grok uses Claude's shared rule path.");
     expect(apply.trimEnd()).toEndWith(
-      "No further Host setup is required. Profile coding becomes active on the next launch " +
-        "of each bound Host (claude, grok) from /project-a.",
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
     const verbose = formatApplyReport(applyResult(report, resultingState), { verbose: true });
     expect(verbose).toContain("Standing Host setup:");
@@ -767,7 +762,9 @@ describe("Host Setup Step provenance and presentation", () => {
     const apply = formatApplyReport(applyResult(report, resultingState));
     expect(apply).not.toContain("First use:");
     expect(apply).not.toContain("Trust the bound project in Codex");
-    expect(apply).toContain("No further Host setup is required.");
+    expect(apply).toContain(
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+    );
   });
 
   test("non-standard security warning consequence is preserved in concise apply", () => {
@@ -822,8 +819,7 @@ describe("Host Setup Step provenance and presentation", () => {
     });
 
     expect(formatApplyReport(applyResult(receipt, resultingState)).trimEnd()).toEndWith(
-      "After completing the Host setup above, Profile coding becomes active on the next launch " +
-        "of each bound Host (codex) from /project-a.",
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
 
@@ -3729,7 +3725,9 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
-    expect(apply).toBe("Apply complete\n");
+    expect(apply).toBe(
+      "Apply complete\n\nProfile coding will load the next time you launch a configured Host from a bound Project root.\n",
+    );
     expect(apply).not.toContain("All Projects were already current.");
     expect(apply).not.toContain("Project: /repo");
     expect(apply).not.toContain("State: current");
@@ -4002,16 +4000,158 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
-    expect(apply.match(/becomes active on the next launch/g)).toHaveLength(1);
+    expect(apply.match(/will load the next time you launch/g)).toHaveLength(1);
     expect(apply).toContain(
-      "After completing the Host setup above, Profile coding becomes active on the next launch " +
-        "of each bound Host (codex) in 2 projects.",
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
     expect(apply).not.toContain("from /project-a");
     expect(apply).not.toContain("from /project-b");
+    expect(apply).not.toContain("becomes active");
+    expect(apply).not.toContain("bound Host");
+    expect(apply.trimEnd()).toEndWith(
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+    );
   });
 
-  test("setup-dependent readiness appears only when setup remains relevant", () => {
+  test("grouped readiness appears once across multiple projects despite distinct exact Host sets", () => {
+    const receipt = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          hosts: ["codex"],
+          outputs: [".codex/hooks.json"],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+          setupSteps: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          hosts: ["claude"],
+          outputs: [".claude/rules/agent-profile-kit.md"],
+          profile: "coding",
+          project: "/project-b",
+          resolvedArtifacts: [],
+          setupSteps: [],
+        },
+        {
+          canonicalProject: "/project-c",
+          context: "composed",
+          hosts: ["claude", "grok"],
+          outputs: [".claude/rules/agent-profile-kit.md"],
+          profile: "coding",
+          project: "/project-c",
+          resolvedArtifacts: [],
+          setupSteps: [],
+        },
+      ],
+      items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        kind: "addition" as const,
+        project,
+      })),
+      outputs: [
+        { kind: "addition" as const, path: ".codex/hooks.json", project: "/project-a" },
+        { kind: "addition" as const, path: ".claude/rules/agent-profile-kit.md", project: "/project-b" },
+        { kind: "addition" as const, path: ".claude/rules/agent-profile-kit.md", project: "/project-c" },
+      ],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: ["/project-a", "/project-b", "/project-c"].map((project) => ({
+        kind: "current" as const,
+        project,
+      })),
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply.match(/will load the next time you launch/g)).toHaveLength(1);
+    expect(apply.trimEnd()).toEndWith(
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+    );
+    expect(apply).not.toContain("becomes active");
+    expect(apply).not.toContain("bound Host");
+  });
+
+  test("multiple changed Profiles emit count in readiness statement", () => {
+    const receipt = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          hosts: ["codex"],
+          outputs: [".codex/hooks.json"],
+          profile: "backend",
+          project: "/project-a",
+          resolvedArtifacts: [],
+          setupSteps: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          hosts: ["claude"],
+          outputs: [".claude/rules/agent-profile-kit.md"],
+          profile: "frontend",
+          project: "/project-b",
+          resolvedArtifacts: [],
+          setupSteps: [],
+        },
+      ],
+      items: ["/project-a", "/project-b"].map((project) => ({
+        kind: "addition" as const,
+        project,
+      })),
+      outputs: [
+        { kind: "addition" as const, path: ".codex/hooks.json", project: "/project-a" },
+        { kind: "addition" as const, path: ".claude/rules/agent-profile-kit.md", project: "/project-b" },
+      ],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: ["/project-a", "/project-b"].map((project) => ({
+        kind: "current" as const,
+        project,
+      })),
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply.match(/will load the next time you launch/g)).toHaveLength(1);
+    expect(apply.trimEnd()).toEndWith(
+      "2 Profiles will load the next time you launch a configured Host from a bound Project root.",
+    );
+  });
+
+  test("current project . identity is never formatted with adjacent punctuation as ..", () => {
+    const receipt = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/Users/test/workspace/my-project",
+          context: "composed",
+          hosts: ["codex"],
+          outputs: [".codex/hooks.json"],
+          profile: "coding",
+          project: ".",
+          resolvedArtifacts: [],
+          setupSteps: [],
+        },
+      ],
+      items: [{ kind: "addition" as const, project: "." }],
+      outputs: [{ kind: "addition" as const, path: ".codex/hooks.json", project: "." }],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current" as const, project: "." }],
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).not.toContain("..");
+    expect(apply.trimEnd()).toEndWith(
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+    );
+  });
+
+  test("setup-dependent readiness appears without presenter-internal grouping copy", () => {
     const hookApproval: HostSetupStep = {
       host: "codex",
       kind: "approval-required",
@@ -4041,9 +4181,9 @@ describe("lifecycle summaries, next actions, and readiness", () => {
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
     expect(apply).not.toContain("After completing the Host setup above");
-    expect(apply).toContain(
-      "No further Host setup is required. Profile coding becomes active on the next launch " +
-        "of each bound Host (codex) from /project-a.",
+    expect(apply).not.toContain("No further Host setup is required");
+    expect(apply.trimEnd()).toEndWith(
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
 

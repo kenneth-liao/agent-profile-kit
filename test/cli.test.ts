@@ -2237,8 +2237,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     expect(apply.stdout).not.toContain("Skill review-pr");
     expect(apply.stdout).not.toContain("Project: ");
-    expect(apply.stdout).not.toContain("State: current");
-    expect(humanText(apply.stdout).match(/becomes active on the next launch/g)).toHaveLength(1);
+    expect(humanText(apply.stdout).match(/will load the next time you launch/g)).toHaveLength(1);
 
     // A later status reports the next shared change once.
     writeFileSync(
@@ -2587,8 +2586,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     expect(humanText(result.stdout)).toEndWith(
       humanText(
-        `After completing the Host setup above, Profile coding becomes active on the next launch ` +
-          `of each bound Host (codex) from ${projectPath}.`,
+        "Profile coding will load the next time you launch a configured Host from a bound Project root.",
       ),
     );
     expect(result.stdout).not.toContain("Selected setup:");
@@ -10052,11 +10050,9 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(verboseStatus.stdout).toContain(authored);
     expect(verboseStatus.stdout).not.toContain(canonical);
 
-    const applied = await runCli(home, "apply");
+    const applied = await runCli(home, "apply", "--verbose");
     expectExitCode(applied, 0);
-    expect(humanText(applied.stdout)).toContain(
-      humanText(`bound Host (codex) from ${authored}.`),
-    );
+    expect(applied.stdout).toContain(authored);
     expect(applied.stdout).not.toContain(canonical);
 
     // Machine contracts stay canonical/authored.
