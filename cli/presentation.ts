@@ -1274,6 +1274,19 @@ const TRANSITION_TRIGGERING_OUTPUT_KINDS: ReadonlySet<OutputReconciliationKind> 
   "repair",
 ]);
 
+/**
+ * Whether a Project record in the Apply Receipt added at least one generated
+ * output consumed by the given Host (ADR-0012, DEC-036).
+ */
+function projectHasHostAddition(
+  project: ReconciliationProjectRecord,
+  host: string,
+): boolean {
+  return project.outputs.some((output) =>
+    output.kind === "addition" && output.consumingHosts.includes(host)
+  );
+}
+
 /** A Host Setup Step selected for one surface, with its Project identities. */
 interface PresentedSetupStep {
   readonly canonicalProject: string;
@@ -1282,13 +1295,13 @@ interface PresentedSetupStep {
 }
 
 /**
- * Select the Host Setup Steps one lifecycle surface presents (DEC-014–DEC-020):
- * transition-triggered steps appear when their associated output is added,
- * updated, or repaired, while standing trust and root-launch guidance appear
- * only when the Apply Receipt adds a relevant output consumed by that
- * Project/Host pairing (DEC-016). Concise `status` renders none (DEC-015);
- * shared-path steps remain verbose (DEC-020); verbose and JSON retain every
- * step as complete evidence.
+ * Select the Host Setup Steps one lifecycle surface presents (DEC-036–DEC-038,
+ * #292 DEC-014–DEC-020): transition-triggered steps appear when their associated
+ * output is added, updated, or repaired, while standing trust and root-launch
+ * guidance appear only when the Apply Receipt adds a relevant output consumed by
+ * that Project/Host pairing (#292 DEC-016). Concise `status` renders none (DEC-008,
+ * #292 DEC-015); shared-path steps remain verbose (#292 DEC-020); verbose and JSON
+ * retain every step as complete evidence.
  */
 function presentedSetupSteps(
   command: LifecycleCommand,
@@ -1313,12 +1326,7 @@ function presentedSetupSteps(
             output.path === step.output && TRANSITION_TRIGGERING_OUTPUT_KINDS.has(output.kind)
           )) continue;
         } else if (step.provenance === "standing") {
-          if (!changeProject.outputs.some((output) =>
-            output.kind === "addition" &&
-            (output.consumingHosts.length === 0
-              ? (project.desired === undefined || project.desired.hosts.length === 0 || project.desired.hosts.includes(step.host))
-              : output.consumingHosts.includes(step.host))
-          )) continue;
+          if (!projectHasHostAddition(changeProject, step.host)) continue;
         }
       }
       const message = setupStepMessage(
@@ -1408,20 +1416,34 @@ function setupStepLines(group: SetupStepGroup, verbose: boolean): readonly strin
   return lines;
 }
 
+function isStandardLoadConsequence(consequence: string | undefined): boolean {
+  if (consequence === undefined) return true;
+  const lower = consequence.toLowerCase();
+  return (
+    lower.includes("prevents profile") ||
+    lower.includes("does not load until") ||
+    lower.includes("cannot load") ||
+    lower.includes("profile context does not load") ||
+    lower.includes("the profile does not load")
+  );
+}
+
 function conciseFirstUseAction(
   step: HostSetupStep,
   projects: readonly string[],
   isSubset: boolean,
 ): string {
-  if (step.kind === "launch-constraint") {
-    const host = capitalize(step.host);
-    const subsetClause = isSubset
-      ? ` for ${plural(projects.length, "project")} (use --verbose to see all Projects)`
-      : "";
-    return `Launch ${host} from the bound project root${subsetClause} so the Profile can load.`;
-  }
-  const base = step.message.replace(/[.:]+$/, "");
-  return `${base} so the Profile can load.`;
+  const base = step.message
+    .replace(/:\s*$/, "")
+    .replace(/\bexact bound project root\b/, "bound project root")
+    .replace(/[.:]+$/, "");
+  const subsetClause = isSubset
+    ? ` for ${plural(projects.length, "project")} (use --verbose to see all Projects)`
+    : "";
+  const reason = isStandardLoadConsequence(step.consequence)
+    ? "so the Profile can load."
+    : (step.consequence ? `(${step.consequence.replace(/[.:]+$/, "")}).` : "so the Profile can load.");
+  return `${base}${subsetClause} ${reason}`;
 }
 
 function conciseFirstUseLines(
@@ -1437,7 +1459,7 @@ function conciseFirstUseLines(
     step: HostSetupStep;
   }>();
   for (const { step, canonicalProject } of presented) {
-    const key = `${step.host}\0${step.kind}`;
+    const key = `${step.host}\0${step.kind}\0${step.message}`;
     const existing = byKey.get(key);
     if (existing) {
       existing.projects.push(canonicalProject);
@@ -1468,10 +1490,7 @@ function conciseFirstUseLines(
     let isSubset = false;
     if (group.kind === "launch-constraint" && changeEvidence !== undefined) {
       const hostAdditionProjects = changeEvidence.projects.filter((p) =>
-        p.outputs.some((o) =>
-          o.kind === "addition" &&
-          (o.consumingHosts.length === 0 || o.consumingHosts.includes(group.host))
-        )
+        projectHasHostAddition(p, group.host)
       ).length;
       isSubset = group.projects.length < hostAdditionProjects;
     }
@@ -1483,12 +1502,12 @@ function conciseFirstUseLines(
 /**
  * Host Setup presentation sections: verbose retains separate transition and
  * standing headings, consequences, and project paths (DEC-014, DEC-015); concise
- * apply groups first-use actions under one note with plain reasons (DEC-016–DEC-020).
+ * apply groups first-use actions under one note with plain reasons (#292 DEC-016–DEC-020).
  */
 function setupSectionsFromPresented(
   presented: readonly PresentedSetupStep[],
   verbose: boolean,
-  changeEvidence?: ReconciliationReport,
+  changeEvidence: ReconciliationReport | undefined,
 ): readonly string[] {
   if (!verbose) {
     return conciseFirstUseLines(presented, changeEvidence);

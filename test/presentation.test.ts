@@ -175,7 +175,7 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
         outputs: fixture.outputs.filter((output) => canonicalProject(output.project) === key).map((output) => ({
           consumingHosts: fixture.outputConsumers.find((consumer) =>
             canonicalProject(consumer.project) === key && consumer.path === output.path
-          )?.consumingHosts ?? [],
+          )?.consumingHosts ?? (installation?.hosts ?? []),
           kind: output.kind,
           path: output.path,
         })),
@@ -735,6 +735,71 @@ describe("Host Setup Step provenance and presentation", () => {
     const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
     expect(verbose).toContain("- Launch Codex from the exact bound project root: /p-1");
     expect(verbose).toContain("- Launch Codex from the exact bound project root: /p-2");
+  });
+
+  test("standing guidance is not triggered by non-host bookkeeping additions or outputs for different hosts", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["claude", "codex"] as const,
+        outputs: [".agent-profile-kit/installation.json", ".claude/rules/agent-profile-kit.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [codexTrust()],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [
+        { kind: "addition", path: ".agent-profile-kit/installation.json", project: "/project-a" },
+        { kind: "addition", path: ".claude/rules/agent-profile-kit.md", project: "/project-a" },
+      ],
+      outputConsumers: [
+        { consumingHosts: [], path: ".agent-profile-kit/installation.json", project: "/project-a" },
+        { consumingHosts: ["claude"], path: ".claude/rules/agent-profile-kit.md", project: "/project-a" },
+      ],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(report),
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    const apply = formatApplyReport(applyResult(report, resultingState));
+    expect(apply).not.toContain("First use:");
+    expect(apply).not.toContain("Trust the bound project in Codex");
+    expect(apply).toContain("No further Host setup is required.");
+  });
+
+  test("non-standard security warning consequence is preserved in concise apply", () => {
+    const warningStep: HostSetupStep = {
+      consequence: "Security warning: remote execution permitted",
+      host: "codex",
+      kind: "trust-required",
+      message: "Trust the bound project in Codex.",
+      provenance: "standing",
+    };
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["codex"] as const,
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [warningStep],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(report),
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    const apply = formatApplyReport(applyResult(report, resultingState));
+    expect(apply).toContain("First use:\n");
+    expect(apply).toContain("- Trust the bound project in Codex (Security warning: remote execution permitted).");
   });
 
   test("changed aliased projects retain activation through their authored report identity", () => {

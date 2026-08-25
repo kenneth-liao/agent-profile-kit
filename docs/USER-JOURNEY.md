@@ -248,6 +248,17 @@ apply work is stage 8); ~~[UJ-33](#uj-33)~~ (shipped across
 
 ### 8. Apply
 
+`apply` defaults to the bound Project containing the current working directory,
+accepts one explicit existing absolute or home-relative bound Project root, and
+requires `--all` for the complete fleet. Scoped apply does not plan, probe,
+inspect, report, or write unrelated Projects; it may update a shared Git
+exclusion target only for the selected installation's contribution while
+preserving the complete union. `apply --all` stops every write for a global
+Blocker, but leaves Project-scoped blocked Projects untouched while committing
+and freshly verifying healthy Projects sequentially. A partial blocker result
+exits `2`; a tool or verification failure exits `1` and identifies committed,
+failed, and still-pending Project work.
+
 After an edit or when `status` reports changes, the user runs:
 
 ```
