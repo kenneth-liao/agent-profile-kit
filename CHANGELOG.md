@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Lead successful apply from its committed Apply Receipt impact before setup guidance, summarize affected Project and generated-file counts once in concise output, omit routine Git exclusion bookkeeping from concise success, and reserve "already current" exclusively for true no-op apply ([#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303)).
+
 - Keep concise pending, clean, and blocked status free of transition-triggered and standing Host Setup Steps while verbose status and JSON retain every Adapter-authored step and its typed provenance ([#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302)).
 
 - Make unblocked concise status one compact, scope-correct decision with routine generated paths and successful Git bookkeeping behind one matching verbose route, while preserving exceptional evidence and machine behavior ([#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301)).

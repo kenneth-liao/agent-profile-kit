@@ -2568,9 +2568,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("State: current");
     expect(result.stdout).not.toContain("State: addition");
     expect(result.stdout).toContain("Applied:");
-    expect(result.stdout).toContain("+ .agent-profile-kit/codex/context.md");
-    expect(result.stdout).toContain("+ .agent-profile-kit/installation.json");
-    expect(result.stdout).toContain("+ .codex/hooks.json");
+    expect(result.stdout).toContain("+ 3 generated file additions in 1 project");
     expect(result.stdout).toContain(
       "Review and approve the generated SessionStart hook when Codex asks.",
     );
@@ -2640,7 +2638,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("Applied:");
-    expect(result.stdout).toContain("~ .agent-profile-kit/codex/context.md");
+    expect(result.stdout).toContain("~ 1 generated file update in 1 project");
+    expect(result.stdout).not.toContain("All Projects were already current.");
     expect(humanText(result.stdout)).not.toContain(humanText(`Project: ${projectPath}`));
     expect(result.stdout).not.toContain("State: current");
     expect(result.stdout).not.toContain("State: stale source");
@@ -3761,8 +3760,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const repaired = await runCli(home, "apply");
     expectExitCode(repaired, 0);
     expect(repaired.stdout).not.toContain("State: current");
-    expect(repaired.stdout).toContain("Applied:");
-    expect(repaired.stdout).toContain("Git exclusions: 3 recorded entries restored.");
+    expect(repaired.stdout).not.toContain("All Projects were already current.");
     expect(repaired.stdout).not.toContain(exclude);
     expect(repaired.stdout).not.toContain("apply will restore");
 
@@ -10044,7 +10042,10 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const applied = await runCli(home, "apply");
     expectExitCode(applied, 0);
-    expect(applied.stdout).toContain(`- ${authored}:`);
+    expect(humanText(applied.stdout)).toContain(
+      humanText(`bound Host (codex) from ${authored}.`),
+    );
+    expect(applied.stdout).not.toContain(canonical);
 
     // Machine contracts stay canonical/authored.
     const state = parse(readFileSync(statePath(home), "utf8")) as {

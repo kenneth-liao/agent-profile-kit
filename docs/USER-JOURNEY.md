@@ -284,7 +284,8 @@ Claude Code, Grok, Pi, and Antigravity.
 
 Gaps: [UJ-32](#uj-32), [UJ-33](#uj-33) (apply first-use only; status setup
 suppression shipped in
-[#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302)), [UJ-35](#uj-35); ~~[UJ-04](#uj-04)~~ (shipped in
+[#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302)); ~~[UJ-35](#uj-35)~~ (shipped in
+[#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303)); ~~[UJ-04](#uj-04)~~ (shipped in
 [#122](https://github.com/kenneth-liao/agent-profile-kit/issues/122)), ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-20](#uj-20)~~,
 ~~[UJ-21](#uj-21)~~.
 
@@ -467,7 +468,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | ID | Severity | Stage | Gap |
 |----|----------|-------|-----|
 | [UJ-33](#uj-33) | High | 8 | Concise `apply` still labels persistent Host constraints as standing unfinished setup; status suppression shipped in [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302), apply first-use remains [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304) |
-| [UJ-35](#uj-35) | High | 8 | A successful changed `apply` can say the Project was already current while its Apply Receipt proves work was completed — tracked by [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303) |
+| ~~[UJ-35](#uj-35)~~ | ~~High~~ | ~~8~~ | ~~A successful changed `apply` can say the Project was already current while its Apply Receipt proves work was completed~~ — shipped in [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303) |
 | [UJ-32](#uj-32) | Med-High | 8 | Routine apply output still repeats setup and readiness facts instead of one task-first decision — status compact decision shipped in [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301); remaining apply work tracked by [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303), [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305) |
 | ~~[UJ-34](#uj-34)~~ | ~~Medium~~ | ~~13~~ | ~~Next-action surfaces fork the primary path~~ — shipped in [#297](https://github.com/kenneth-liao/agent-profile-kit/issues/297), [#298](https://github.com/kenneth-liao/agent-profile-kit/issues/298), [#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299), and [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300) |
 | ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
@@ -552,14 +553,18 @@ install success now prints the exact `apkit remove-temp <actual-id>` command
 using the durable identity created by that operation
 ([#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300)).
 
-### UJ-35
-
-A successful first apply can lead from the freshly current verification and say
+### ~~UJ-35~~
+~~A successful first apply can lead from the freshly current verification and say
 that the selected Project was already current, then show non-empty work in the
 Apply Receipt. Both records have distinct authority, but this ordering makes the
 resulting-state sentence contradict the command's completed work. Only a true
-no-op receipt can support "already current." Delivery is tracked by
-[#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303).
+no-op receipt can support "already current."~~
+
+Shipped in [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303):
+`apply` now leads from its committed Apply Receipt impact before setup guidance,
+summarizes affected Project and generated-file counts once in concise output,
+omits routine Git exclusion bookkeeping from concise success, and reserves
+"already current" exclusively for a true no-op apply.
 
 ### ~~UJ-01~~
 ~~`init` closes with an unusable next step because a fresh Workspace holds zero

@@ -1534,8 +1534,12 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatApplyReport(applyResult(receipt, emptyReport()));
 
-    expect(concise).toContain("- ~/receipt-project:\n  + a.md\n");
+    expect(concise).toContain("Applied:\n  + 1 generated file addition in ~/receipt-project");
     expect(concise).not.toContain(`- ${project}:`);
+
+    const verbose = formatApplyReport(applyResult(receipt, emptyReport()), { verbose: true });
+    expect(verbose).toContain("Applied:\nProjects:\n~/receipt-project: addition");
+    expect(verbose).toContain("~/receipt-project/a.md: addition");
   });
 
   test("labels remaining and committed apply work distinctly", () => {
@@ -1549,7 +1553,8 @@ describe("formatLifecycleReport concise terminology", () => {
     const concise = formatApplyReport(applyResult(receipt, resultingState));
 
     expect(concise).not.toContain("Pending: none");
-    expect(concise).toContain("Applied:\n- /project-a:\n  + a.md");
+    expect(concise).not.toContain("All Projects were already current.");
+    expect(concise).toContain("Applied:\n  + 1 generated file addition in 1 project");
     expect(concise).not.toContain("Changes:");
     expect(concise).not.toContain("Apply receipt:");
 
@@ -2241,7 +2246,8 @@ describe("formatLifecycleReport concise terminology", () => {
     }
 
     const concise = formatApplyReport(applyResult(receipt, result));
-    expect(concise).toContain("Git exclusions: 1 recorded entry restored.");
+    expect(concise).not.toContain("Git exclusions: 1 recorded entry restored.");
+    expect(concise).not.toContain("All Projects were already current.");
     expect(concise).not.toContain("Project: /repo");
     expect(concise).not.toContain("State: current");
     expect(concise).not.toContain("/repo/.git/info/exclude");
@@ -2583,7 +2589,10 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
     const metadataOnly = formatApplyReport(applyResult(metadataOnlyReceipt, metadataOnlyResult));
     expect(metadataOnly).not.toContain("no changes were applied");
-    expect(metadataOnly).toContain("Project update");
+    expect(metadataOnly).not.toContain("All Projects were already current.");
+    expect(
+      formatApplyReport(applyResult(metadataOnlyReceipt, metadataOnlyResult), { verbose: true }),
+    ).toContain("update");
   });
 
   test("mixed multi-project guidance names ready work alongside blocked work", () => {
@@ -3532,7 +3541,8 @@ describe("lifecycle summaries, next actions, and readiness", () => {
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
     expect(apply).toContain("Apply complete");
-    expect(apply).toContain("Applied:\n- /project-a:\n  + a.md");
+    expect(apply).toContain("Applied:\n  + 1 generated file addition in 1 project");
+    expect(apply).not.toContain("All Projects were already current.");
     expect(apply).not.toContain("Project: /project-a");
     expect(apply).not.toContain("State: current");
     expect(apply).not.toContain("State: addition");
@@ -3562,10 +3572,13 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
-    expect(apply).toContain("Apply complete");
-    expect(apply).toContain("Git exclusions: 1 recorded entry restored.");
+    expect(apply).toBe("Apply complete\n");
+    expect(apply).not.toContain("All Projects were already current.");
     expect(apply).not.toContain("Project: /repo");
     expect(apply).not.toContain("State: current");
+
+    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+    expect(verbose).toContain("restored 1 recorded Git exclusion entry");
   });
 
   test("remaining attention after apply still appears", () => {
@@ -3592,7 +3605,57 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(apply).toContain("Project: /project-a");
     expect(apply).toContain("State: drifted output");
     expect(apply).toContain("! a.md");
-    expect(apply).toContain("Applied:\n- /project-a:\n  ~ a.md");
+    expect(apply).toContain("Applied:\n  ~ 1 generated file update in 1 project");
+  });
+
+  test("multi-project apply preserves remaining attention across projects", () => {
+    const receipt = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          outputs: ["b.md"],
+          profile: "coding",
+          project: "/project-b",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [
+        { kind: "update", project: "/project-a" },
+        { kind: "update", project: "/project-b" },
+      ],
+      outputs: [
+        { kind: "update", path: "a.md", project: "/project-a" },
+        { kind: "update", path: "b.md", project: "/project-b" },
+      ],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [
+        { kind: "current", project: "/project-a" },
+        { kind: "drifted output", project: "/project-b" },
+      ],
+      outputs: [
+        { kind: "unchanged", path: "a.md", project: "/project-a" },
+        { kind: "drifted output", path: "b.md", project: "/project-b" },
+      ],
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).toContain("Apply completed with attention");
+    expect(apply).toContain("Applied:\n  ~ 2 generated file updates in 2 projects");
+    expect(apply).toContain("Project: /project-b");
+    expect(apply).toContain("State: drifted output");
+    expect(apply).toContain("! b.md");
+    expect(apply).not.toContain("Project: /project-a");
   });
 
   test("no-op status states current once", () => {
@@ -3638,6 +3701,110 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(apply).not.toContain("Blockers: 0");
     expect(apply).not.toContain("becomes active");
     expect(apply).not.toContain("Host setup:");
+  });
+
+  test("no-op apply preserves adapter warnings", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+      warnings: ["Project /project-a carries an adapter warning."],
+    });
+
+    const apply = formatApplyReport(applyResult(report));
+    expect(apply).toBe(
+      "Apply complete\n" +
+        "All Projects were already current.\n\n" +
+        "Warnings:\n" +
+        "- Project /project-a carries an adapter warning.\n",
+    );
+    expect(apply).not.toContain("Applied:");
+    expect(apply).not.toContain("Host setup:");
+  });
+
+  test("blocked apply retains pending Git exclusions", () => {
+    const report = emptyReport({
+      blockers: [fixtureBlocker("Project is blocked", "/project-a")],
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      repositoryExclusions: [{
+        current: [],
+        next: ["/.agent-profile-kit/codex/context.md"],
+        target: "/project-a/.git/info/exclude",
+      }],
+    });
+
+    const apply = formatBlockedApplyReport(asBlockedReport(report));
+    expect(apply).toContain("Apply blocked");
+    expect(apply).toContain("Git exclusions: 1 entry to add.");
+  });
+
+  test("blocked multi-project apply retains exclusion-only apply receipt", () => {
+    const receipt = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: [],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [],
+      repositoryExclusions: [{
+        current: [],
+        next: ["/.agent-profile-kit/codex/context.md"],
+        target: "/project-a/.git/info/exclude",
+      }],
+    });
+    const resultingState = emptyReport({
+      blockers: [fixtureBlocker("Project B is blocked", "/project-b")],
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: [],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          outputs: ["b.md"],
+          profile: "coding",
+          project: "/project-b",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [
+        { kind: "current", project: "/project-a" },
+        { kind: "addition", project: "/project-b" },
+      ],
+      outputs: [{ kind: "addition", path: "b.md", project: "/project-b" }],
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).toContain("Apply completed with blockers");
+    expect(apply).toContain("Applied:\n\nGit exclusions: 1 entry added.");
+    expect(apply).toContain("Freshly current: /project-a");
   });
 
   test("readiness groups Projects that share Profile, Hosts, and setup condition", () => {
