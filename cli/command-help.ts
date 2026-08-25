@@ -1,3 +1,4 @@
+import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { COMMAND_NAME } from "../installer/version.js";
 import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installation.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
@@ -52,7 +53,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Initialize or adopt the canonical Workspace and Local Configuration",
     examples: COMMAND_EXAMPLES.init,
     writes: "Creates missing Workspace scaffolding and Local Configuration; never overwrites a valid Workspace.",
-    next: `Run ${COMMAND_NAME} guide profile.`,
+    next: `Run ${COMMAND_NAME} bind ${AUTHORING_EXAMPLES.profile.id} --host codex.`,
   },
   {
     name: "guide",
