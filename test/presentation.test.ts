@@ -559,6 +559,39 @@ describe("Host Setup Step provenance and presentation", () => {
     );
   });
 
+  test("later Host-consumed addition on an established pairing does not replay standing first-use", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["codex"],
+        outputs: ["a.md", "skill.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [codexTrust(), rootLaunch()],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "skill.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [
+        { kind: "unchanged", path: "a.md", project: "/project-a" },
+        { kind: "unchanged", path: "skill.md", project: "/project-a" },
+      ],
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).not.toContain("First use:");
+    expect(apply).not.toContain("Trust the bound project in Codex");
+    expect(apply).not.toContain("Launch Codex from the exact bound project root");
+    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+    expect(verbose).toContain("Standing Host setup:");
+    expect(verbose).toContain("Trust the bound project in Codex.");
+  });
+
   test("routine update does not replay transition setup or standing trust", () => {
     const receipt = emptyReport({
       desired: [installation("/project-a", [hookApproval(), codexTrust()])],
