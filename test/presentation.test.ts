@@ -592,6 +592,51 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(verbose).toContain("Trust the bound project in Codex.");
   });
 
+  test("replacing the last Host-consumed output on an established pairing does not replay standing first-use", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["pi"],
+        outputs: ["skill.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{
+          host: "pi",
+          kind: "trust-required",
+          message: "Trust the bound project in Pi.",
+          consequence: "The Profile does not load until the project is trusted.",
+          provenance: "standing",
+        }],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [
+        { kind: "removal", path: "context.md", project: "/project-a" },
+        { kind: "addition", path: "skill.md", project: "/project-a" },
+      ],
+      outputConsumers: [
+        { consumingHosts: ["pi"], path: "context.md", project: "/project-a" },
+        { consumingHosts: ["pi"], path: "skill.md", project: "/project-a" },
+      ],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "skill.md", project: "/project-a" }],
+      outputConsumers: [
+        { consumingHosts: ["pi"], path: "skill.md", project: "/project-a" },
+      ],
+    });
+
+    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    expect(apply).not.toContain("First use:");
+    expect(apply).not.toContain("Trust the bound project in Pi");
+    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+    expect(verbose).toContain("Standing Host setup:");
+    expect(verbose).toContain("Trust the bound project in Pi.");
+  });
+
   test("routine update does not replay transition setup or standing trust", () => {
     const receipt = emptyReport({
       desired: [installation("/project-a", [hookApproval(), codexTrust()])],

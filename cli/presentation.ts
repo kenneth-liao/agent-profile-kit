@@ -1290,8 +1290,8 @@ const TRANSITION_TRIGGERING_OUTPUT_KINDS: ReadonlySet<OutputReconciliationKind> 
 
 /**
  * Whether the Apply Receipt creates the first Host-consumed generated output
- * for this Project/Host pairing (#292 DEC-016). Later additions on a pairing
- * that already has generated output are routine content updates, not first use.
+ * for this Project/Host pairing (#292 DEC-016). Later additions, and replacements
+ * that remove a prior Host-consumed output in the same receipt, are not first use.
  */
 function isFirstRelevantHostOutput(
   changeProject: ReconciliationProjectRecord,
@@ -1306,11 +1306,15 @@ function isFirstRelevantHostOutput(
       .map((output) => output.path),
   );
   if (addedPaths.size === 0) return false;
-  return !resultingProject.outputs.some((output) =>
+  const hadPriorResultingOutput = resultingProject.outputs.some((output) =>
     output.consumingHosts.includes(host) &&
     output.kind !== "removal" &&
     !addedPaths.has(output.path)
   );
+  const hadRemovedHostOutput = changeProject.outputs.some((output) =>
+    output.kind === "removal" && output.consumingHosts.includes(host)
+  );
+  return !hadPriorResultingOutput && !hadRemovedHostOutput;
 }
 
 /** A Host Setup Step selected for one surface, with its Project identities. */
