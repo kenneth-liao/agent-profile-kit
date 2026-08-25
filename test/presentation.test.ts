@@ -3068,6 +3068,8 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
       if (line.includes("apkit ") || line.includes("(2 Profile")) continue;
       expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
     }
+    expect(output).toContain("Warning:");
+    expect(output).toContain("Next: apkit status");
     expect(formatValidationResult({
       bindings: 0,
       hosts: [],
@@ -3076,7 +3078,8 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     })).toBe(
       "Workspace and Local Configuration valid (0 Profiles, 0 Project Bindings)\n" +
         "Profiles found: none\n" +
-        "Hosts bound: none\n",
+        "Hosts bound: none\n" +
+        "Next: apkit bind <profile> --host <host>\n",
     );
   });
 

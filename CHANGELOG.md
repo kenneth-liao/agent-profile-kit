@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Derive successful validation guidance from the configured Project count: point to `apkit bind` when none exist and `apkit status` otherwise, while preserving warnings and read-only behavior ([#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299)).
+
 - Align focused initialization help and successful scaffold initialization on `apkit bind example --host codex`, deriving both routes from the existing scaffolded example Profile ([#298](https://github.com/kenneth-liao/agent-profile-kit/issues/298)).
 
 - Replace optional or redundant inventory `Next:` actions with instructional usage guidance, including how to select a listed Host for a configured Project, while keeping inventory read-only and JSON unchanged ([#297](https://github.com/kenneth-liao/agent-profile-kit/issues/297)).

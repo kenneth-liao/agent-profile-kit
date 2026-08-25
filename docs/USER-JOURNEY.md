@@ -126,7 +126,7 @@ without reading bindings, artifacts, credentials, or Installation State
 contents. It is distinct from `status`, which remains the ordinary Project
 lifecycle diagnostic.
 
-Gaps: [UJ-34](#uj-34); ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
+Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/agent-profile-kit/issues/115)).
 
 ### 2. Initialize
 
@@ -142,7 +142,7 @@ Profile and its Context Module, `README.md`, `AGENTS.md`, `.gitignore`, and a
 `schema_version: 2` `config.yaml`. Re-running is safe, and does not restore a
 removed example or overwrite any valid existing Workspace.
 
-Gaps: [UJ-34](#uj-34); ~~[UJ-01](#uj-01)~~ (shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121)), ~~[UJ-10](#uj-10)~~ (shipped in
+Gaps: ~~[UJ-01](#uj-01)~~ (shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121)), ~~[UJ-10](#uj-10)~~ (shipped in
 [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119)).
 
 ### 3. Learn the format
@@ -194,9 +194,14 @@ $ apkit validate
 Workspace and Local Configuration valid (1 Profile, 0 Project Bindings)
 Profiles found: engineering
 Hosts bound: none
+Next: apkit bind <profile> --host <host>
 ```
 
-Gaps: [UJ-34](#uj-34); ~~[UJ-17](#uj-17)~~ (shipped in
+Successful validation derives its next action from the configured Project count:
+zero points to `apkit bind`, while one or more points to `apkit status`. Warnings
+remain visible without changing that branch, and validation remains read-only.
+
+Gaps: ~~[UJ-17](#uj-17)~~ (shipped in
 [#119](https://github.com/kenneth-liao/agent-profile-kit/issues/119)).
 
 ### 7. Preview
@@ -479,7 +484,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | [UJ-33](#uj-33) | High | 7, 8, 10 | Persistent Host constraints render as observed unfinished setup even though Agent Profile Kit cannot inspect trust or approval completion — tracked by [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302) and [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304) |
 | [UJ-35](#uj-35) | High | 8 | A successful changed `apply` can say the Project was already current while its Apply Receipt proves work was completed — tracked by [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303) |
 | [UJ-32](#uj-32) | Med-High | 7, 8, 10 | Routine lifecycle output repeats impact, setup, and readiness facts instead of presenting one task-first decision — tracked by [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301), [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303), [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305) |
-| [UJ-34](#uj-34) | Medium | 1, 2, 6, 13 | Next-action surfaces still fork the primary path — inventory usage guidance shipped in [#297](https://github.com/kenneth-liao/agent-profile-kit/issues/297), and initialization help/receipt alignment shipped in [#298](https://github.com/kenneth-liao/agent-profile-kit/issues/298); remaining delivery is tracked by [#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299) and [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300) |
+| [UJ-34](#uj-34) | Medium | 13 | Next-action surfaces still fork the primary path — inventory usage guidance shipped in [#297](https://github.com/kenneth-liao/agent-profile-kit/issues/297), initialization help/receipt alignment shipped in [#298](https://github.com/kenneth-liao/agent-profile-kit/issues/298), and configured-Project-aware validation guidance shipped in [#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299); remaining delivery is tracked by [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300) |
 | ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
 | ~~[UJ-02](#uj-02)~~ | ~~High~~ | ~~11~~ | ~~Drifted output has no stated remedy anywhere~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-03](#uj-03)~~ | ~~High~~ | ~~12~~ | ~~Post-`uninstall` `status` warns about an intended state~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
@@ -554,12 +559,13 @@ Host for a configured Project
 `init` help and successful scaffold initialization now derive the same
 `apkit bind example --host codex` route from the existing scaffolded example
 Profile ([#298](https://github.com/kenneth-liao/agent-profile-kit/issues/298)).
-The remaining first-run hierarchy forks across next-action surfaces: validation
-with no configured Projects does not point to `bind`, and a temporary-install
-success prints an identity without the removal command that consumes it.
-Remaining delivery is tracked by
-[#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299) and
-[#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300).
+Successful validation now derives guidance from the result it produced: no
+configured Projects points to `apkit bind`, while one or more points to
+`apkit status`; warnings stay visible and validation stays read-only
+([#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299)). The
+remaining first-run hierarchy fork is temporary-install success, which prints an
+identity without the removal command that consumes it. Remaining delivery is
+tracked by [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300).
 
 ### UJ-35
 

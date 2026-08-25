@@ -750,7 +750,10 @@ export function formatValidationResult(
   const output = `Workspace and Local Configuration valid ${countClause}\n` +
     `Profiles found: ${profileCount === 0 ? "none" : result.profiles.join(", ")}\n` +
     `Hosts bound: ${result.hosts.length === 0 ? "none" : result.hosts.join(", ")}\n` +
-    result.warnings.map((warning) => `Warning: ${warning}\n`).join("");
+    result.warnings.map((warning) => `Warning: ${warning}\n`).join("") +
+    `Next: ${result.bindings === 0
+      ? `${COMMAND_NAME} bind <profile> --host <host>`
+      : `${COMMAND_NAME} status`}\n`;
   return responsiveHumanText(output, options.context, [
     countClause,
     result.profiles.join(", "),

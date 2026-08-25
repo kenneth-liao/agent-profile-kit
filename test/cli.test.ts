@@ -540,6 +540,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(workspace, "README.md"), "utf8")).toBe("# authored\n");
   });
 
+  test("validate directs a Workspace with no configured Projects to bind one", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+
+    const result = await runCli(home, "validate");
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("Next: apkit bind <profile> --host <host>");
+    expect(result.stdout).not.toContain("Next: apkit status");
+  });
+
   test("validate explains how to recover from removing only half of the scaffolded example", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -1528,6 +1539,42 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("3 Profiles, 2 Project Bindings");
     expect(result.stdout).toContain("Profiles found: coding, example, writing");
     expect(result.stdout).toContain("Hosts bound: claude, codex");
+    expect(result.stdout).toContain("Next: apkit status");
+    expect(result.stdout).not.toContain("Next: apkit bind");
+  });
+
+  test("validation warnings remain visible without changing configured-Project guidance or state", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    mkdirSync(join(workspacePath(home), "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(home), "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
+    );
+    const projectPath = project();
+    const configuration =
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+      `  - project: ${projectPath}\n    profile: coding\n    hosts: [pi]\n`;
+    writeFileSync(configPath(home), configuration);
+    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+    writeFileSync(join(home, ".pi", "agent", "settings.json"), "not json\n");
+
+    const result = await runCli(home, "validate");
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("Warning:");
+    expect(humanText(result.stdout)).toContain("Pi global settings relevant to planned Skills");
+    expect(result.stdout).toContain("Next: apkit status");
+    expect(result.stdout).not.toContain("Next: apkit bind");
+    expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
+    expect(existsSync(statePath(home))).toBe(false);
+    expect(existsSync(join(projectPath, ".agents"))).toBe(false);
   });
 
   test("validate normalizes home-relative project roots and does not invoke Codex", async () => {
