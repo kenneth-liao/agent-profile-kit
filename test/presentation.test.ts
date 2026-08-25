@@ -19,6 +19,7 @@ import {
   formatLifecycleToolErrorJson,
   formatProfileInventoryHuman,
   formatProjectInventoryHuman,
+  formatMissingProfileError,
   formatTemporaryInstallationHuman,
   formatTemporaryInventoryHuman,
   formatUninstallResult,
@@ -27,6 +28,7 @@ import {
   type TemporaryInstallationReceiptView,
   displayPath,
   lifecycleExitCode,
+  DEFAULT_VIEW_LEXICON,
   INTERNAL_ONLY_DEFAULT_TERMS,
   NON_CURRENT_STATE_ORDER,
 } from "../cli/presentation.js";
@@ -1394,7 +1396,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(receipt).toContain("Removed generated paths:");
     expect(receipt).toContain("Cleaned Git exclusions:");
     expect(receipt.match(/Cleaned Git exclusions:/g)).toHaveLength(1);
-    expect(receipt).toContain("Project Bindings preserved.");
+    expect(receipt).toContain("Configured Projects preserved.");
   });
 
   test("blocked lifecycle reports lead with the blocker and suppress planned changes", () => {
@@ -3195,13 +3197,13 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     expect(formatInventoryIndex()).toBe(
       "Inventory topics:\n" +
         "  apkit list projects\n" +
-        "    Project inventory from Local Configuration.\n" +
+        "    Configured Project inventory from settings.\n" +
         "  apkit list profiles\n" +
         "    Profile inventory from the selected Workspace.\n" +
         "  apkit list hosts\n" +
         "    Supported Agent Hosts for configured Projects.\n" +
         "  apkit list temporary\n" +
-        "    Active Temporary Profile Installation inventory from Installation State.\n",
+        "    Active temporary Profile inventory.\n",
     );
   });
 
@@ -3283,7 +3285,7 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     );
     expect(temporary).not.toContain("Next:");
     expect(formatTemporaryInventoryHuman([], {}, "/home", "/work")).toBe(
-      "No Temporary Profile Installations are active.\n" +
+      "No temporary Profiles are active.\n" +
         "Use apkit install-temp <profile> <project> --host <host> to create one.\n",
     );
   });
@@ -3309,7 +3311,7 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
       profiles: [],
       warnings: [],
     })).toBe(
-      "Workspace and Local Configuration valid (0 Profiles, 0 Project Bindings)\n" +
+      "Workspace and settings valid (0 Profiles, 0 configured Projects)\n" +
         "Profiles found: none\n" +
         "Hosts bound: none\n" +
         "Next: apkit bind <profile> --host <host>\n",
@@ -3331,7 +3333,7 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     expect(prose!.length).toBeLessThanOrEqual(40);
 
     expect(formatUninstallResult({ projects: [] })).toBe(
-      "No ordinary Agent Profile Kit-owned output is installed.\n\nProject Bindings preserved.\n",
+      "No ordinary Agent Profile Kit-owned output is installed.\n\nConfigured Projects preserved.\n",
     );
     const wrappedEmpty = formatUninstallResult({ projects: [] }, { context: context(40) });
     for (const line of wrappedEmpty.split("\n")) {
@@ -4239,3 +4241,196 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     }))).toBe(2);
   });
 });
+
+describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", () => {
+  test("maintains canonical newcomer mappings in DEFAULT_VIEW_LEXICON", () => {
+    expect(DEFAULT_VIEW_LEXICON.projectBinding.singular).toBe("configured Project");
+    expect(DEFAULT_VIEW_LEXICON.projectBinding.plural).toBe("configured Projects");
+    expect(DEFAULT_VIEW_LEXICON.localConfiguration).toBe("settings");
+    expect(DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular).toBe("temporary Profile");
+    expect(DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.plural).toBe("temporary Profiles");
+    expect(DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.action).toBe("temporary install");
+    expect(DEFAULT_VIEW_LEXICON.hostSetupStep).toBe("first use");
+  });
+
+  test("INTERNAL_ONLY_DEFAULT_TERMS disallows internal domain terms on routine default views", () => {
+    const prohibited = [
+      "Project Binding",
+      "Project Bindings",
+      "Local Configuration",
+      "Temporary Profile Installation",
+      "Temporary Profile Installations",
+      "Host Setup Step",
+      "Host Setup Steps",
+      "Installation State",
+      "Profile Installation",
+      "generated-output",
+      "Repository Exclusion",
+      "Installer-owned",
+      "reconciliation",
+      "Artifact ID",
+      "Installation Manifest",
+      "desired state",
+    ];
+    for (const term of prohibited) {
+      const matches = INTERNAL_ONLY_DEFAULT_TERMS.some((pattern) => pattern.test(term));
+      expect(matches).toBeTrue();
+    }
+  });
+
+  test("routine validation uses newcomer presentation lexicon and omits internal terms", () => {
+    const zeroProjects = formatValidationResult({
+      bindings: 0,
+      hosts: [],
+      profiles: ["engineering"],
+      warnings: [],
+    });
+    expect(zeroProjects).toContain("Workspace and settings valid (1 Profile, 0 configured Projects)");
+    expect(zeroProjects).toContain("Profiles found: engineering");
+    expect(zeroProjects).toContain("Hosts bound: none");
+    expect(zeroProjects).toContain("Next: apkit bind <profile> --host <host>");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(zeroProjects).not.toMatch(term);
+
+    const oneProject = formatValidationResult({
+      bindings: 1,
+      hosts: ["codex"],
+      profiles: ["engineering"],
+      warnings: [],
+    });
+    expect(oneProject).toContain("Workspace and settings valid (1 Profile, 1 configured Project)");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(oneProject).not.toMatch(term);
+
+    const multiProjects = formatValidationResult({
+      bindings: 3,
+      hosts: ["codex", "claude"],
+      profiles: ["engineering", "design"],
+      warnings: [],
+    });
+    expect(multiProjects).toContain("Workspace and settings valid (2 Profiles, 3 configured Projects)");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(multiProjects).not.toMatch(term);
+  });
+
+  test("routine inventory topics and temporary inventory use newcomer lexicon", () => {
+    const index = formatInventoryIndex();
+    expect(index).toContain("Configured Project inventory from settings.");
+    expect(index).toContain("Active temporary Profile inventory.");
+    expect(index).not.toContain("Installation State");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(index).not.toMatch(term);
+
+    const emptyTemp = formatTemporaryInventoryHuman([]);
+    expect(emptyTemp).toContain("No temporary Profiles are active.");
+    expect(emptyTemp).toContain("Use apkit install-temp <profile> <project> --host <host> to create one.");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(emptyTemp).not.toMatch(term);
+
+    const activeTemp = formatTemporaryInventoryHuman([
+      {
+        host: "codex",
+        profileId: "engineering",
+        project: "/project-a",
+        temporaryInstallationId: "temp-12345",
+      },
+    ]);
+    expect(activeTemp).toContain("Temporary Profiles (1):");
+    expect(activeTemp).toContain("Temporary installation: temp-12345");
+    expect(activeTemp).toContain("Use apkit remove-temp <temporary-installation-id> to remove one when finished.");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(activeTemp).not.toMatch(term);
+  });
+
+  test("routine teardown receipts preserve configured Projects in user-facing vocabulary", () => {
+    const uninstall = formatUninstallResult({
+      projects: [{
+        outputs: [".agent-profile-kit/installation.json", ".codex/hooks.json"],
+        project: "/project-a",
+        repositoryExclusions: [],
+      }],
+    });
+    expect(uninstall).toContain("Configured Projects preserved.");
+    expect(uninstall).toContain("Next: Run apkit unbind for configured Projects you no longer want, or apkit apply to reinstall.");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(uninstall).not.toMatch(term);
+  });
+
+  test("empty status references configured Projects in next guidance", () => {
+    const empty = formatLifecycleReport("status", emptyReport());
+    expect(empty).toContain("No Projects are configured.");
+    expect(empty).toContain("Next: Run apkit list projects to inspect configured Projects, or apkit bind <profile> --host <host> to configure one.");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(empty).not.toMatch(term);
+  });
+
+  test("temporary install and remove receipts use newcomer lexicon", () => {
+    const install = formatTemporaryInstallationHuman("install-temp", {
+      completionState: "installed",
+      diagnosticValues: [],
+      host: "codex",
+      outputs: [".codex/hooks.json"],
+      profileId: "engineering",
+      project: "/project-a",
+      repositoryExclusion: undefined,
+      setupSteps: [],
+      temporaryInstallationId: "temp-987",
+      warnings: [],
+    });
+    expect(install).toContain("Installed temporary Profile");
+    expect(install).toContain("Temporary installation: temp-987");
+    expect(install).toContain("Next: apkit remove-temp temp-987");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(install).not.toMatch(term);
+
+    const remove = formatTemporaryInstallationHuman("remove-temp", {
+      completionState: "removed",
+      diagnosticValues: [],
+      host: "codex",
+      outputs: [],
+      repositoryExclusion: undefined,
+      setupSteps: [],
+      temporaryInstallationId: "temp-987",
+      warnings: [],
+    });
+    expect(remove).toContain("Removed temporary Profile");
+    expect(remove).toContain("Temporary installation: temp-987");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(remove).not.toMatch(term);
+  });
+
+  test("technical surfaces (info, verbose, JSON, actionable recovery) retain canonical domain terms", () => {
+    const info = formatInfoHuman({
+      configurationState: "current",
+      engineVersion: "0.114.0",
+      installationState: "/home/user/.agents/agent-profile-kit/state/manifest.json",
+      localConfiguration: "/home/user/.agents/agent-profile-kit/config.yaml",
+      workspace: { authored: "~/workspace", canonical: "/home/user/workspace" },
+    });
+    expect(info).toContain("Local Configuration:");
+    expect(info).toContain("Installation State:");
+
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{
+          consequence: "hook approval required",
+          host: "codex",
+          kind: "approval-required",
+          message: "Approve hook",
+          output: ".codex/hooks.json",
+          provenance: "transition",
+        }],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    expect(verbose).toContain("Host Setup:");
+
+    const missingProfile = formatMissingProfileError({
+      availableProfiles: ["coding"],
+      message: "Profile 'unknown' not found",
+      name: "MissingProfileError",
+      profile: "unknown",
+      recoverByEditingLocalConfiguration: true,
+    });
+    expect(missingProfile).toContain("Edit Local Configuration directly");
+  });
+});
+

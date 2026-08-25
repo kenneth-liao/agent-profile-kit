@@ -1136,7 +1136,7 @@ describe("project-bound release candidate", () => {
 
     const minimalValidate = await runCli(home, ["validate"]);
     expectExitCode(minimalValidate, 0);
-    expect(minimalValidate.stdout).toContain("Workspace and Local Configuration valid");
+    expect(minimalValidate.stdout).toContain("Workspace and settings valid");
 
     // Re-init must not restore optional scaffolding.
     expectExitCode(await runCli(home, ["init"]), 0);
@@ -1255,7 +1255,7 @@ describe("project-bound release candidate", () => {
       "pi",
     ]);
     expectExitCode(bind, 0);
-    expect(bind.stdout).toContain("Recorded Project Binding");
+    expect(bind.stdout).toContain("Recorded configured Project");
 
     const projects = await runCli(home, ["list", "projects"]);
     expectExitCode(projects, 0);
@@ -1339,7 +1339,7 @@ describe("project-bound release candidate", () => {
 
     const emptyTemporary = await runCli(home, ["list", "temporary"], { path: pathWithHosts });
     expectExitCode(emptyTemporary, 0);
-    expect(emptyTemporary.stdout).toContain("No Temporary Profile Installations are active.");
+    expect(emptyTemporary.stdout).toContain("No temporary Profiles are active.");
     const finalState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       readonly receipts: readonly unknown[];
       readonly removed_temporary_installation_ids: readonly string[];

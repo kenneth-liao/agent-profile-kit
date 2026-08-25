@@ -122,7 +122,7 @@ const HOST_SETUP_STEP_ORDER: readonly HostSetupStepKind[] = [
 
 type NonCurrentKind = Exclude<ReconciliationKind, "current">;
 
-const DEFAULT_VIEW_LEXICON = {
+export const DEFAULT_VIEW_LEXICON = {
   artifactId: { singular: "name", plural: "names" },
   desiredState: "selected setup",
   generatedOutput: {
@@ -130,12 +130,15 @@ const DEFAULT_VIEW_LEXICON = {
     plural: "generated files",
     singular: "generated file",
   },
+  hostSetupStep: "first use",
   installationManifest: { singular: "installation record", plural: "installation records" },
   installerOwned: {
     attributive: "Agent Profile Kit-managed",
     postpositive: "managed by Agent Profile Kit",
   },
+  localConfiguration: "settings",
   profileInstallation: { singular: "project", plural: "projects" },
+  projectBinding: { singular: "configured Project", plural: "configured Projects" },
   reconciliation: {
     base: "sync",
     continuous: "syncing",
@@ -148,6 +151,11 @@ const DEFAULT_VIEW_LEXICON = {
     singular: "Git exclusion",
   },
   repositoryExclusionRecord: { singular: "Git exclusion record", plural: "Git exclusion records" },
+  temporaryProfileInstallation: {
+    action: "temporary install",
+    plural: "temporary Profiles",
+    singular: "temporary Profile",
+  },
 } as const;
 
 const OUTPUT_PATH_PRIORITY = {
@@ -160,8 +168,8 @@ const OUTPUT_PATH_PRIORITY = {
 } as const satisfies Readonly<Record<OutputReconciliationKind, number>>;
 
 export const INTERNAL_ONLY_DEFAULT_TERMS = [
-  // Ordinary Profile Installation vocabulary — not the temporary-lifetime phrase.
-  /(?<!temporary )Profile Installations?/i,
+  // Ordinary Profile Installation vocabulary
+  /Profile Installations?/i,
   /generated[- ]outputs?/i,
   /Repository Exclusions?/i,
   /Installer-owned/i,
@@ -169,6 +177,11 @@ export const INTERNAL_ONLY_DEFAULT_TERMS = [
   /Artifact IDs?/i,
   /Installation Manifests?/i,
   /desired state/i,
+  /Project Bindings?/i,
+  /Local Configuration/i,
+  /Temporary Profile Installations?/i,
+  /Host Setup Steps?/i,
+  /Installation State/i,
 ] as const;
 
 export function formatMissingProfileError(error: MissingProfileError): string {
@@ -185,7 +198,7 @@ export function formatMissingProfileError(error: MissingProfileError): string {
   return `${heading} Available Profiles: ${error.availableProfiles.join(", ")}.${recovery}`;
 }
 
-function capitalize(text: string): string {
+export function capitalize(text: string): string {
   return `${text[0]?.toUpperCase()}${text.slice(1)}`;
 }
 
@@ -241,7 +254,7 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
     `${capitalize(DEFAULT_VIEW_LEXICON.reconciliation.noun)} cannot change this ` +
     `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} until the listed blocker is resolved.`,
   removal:
-    `No Project Binding remains for this installation; apply will remove proven ` +
+    `No ${DEFAULT_VIEW_LEXICON.projectBinding.singular} remains for this installation; apply will remove proven ` +
     `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`,
   "missing output":
     `The ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} is absent or its ` +
@@ -660,13 +673,13 @@ export function formatTemporaryInventoryHuman(
 ): string {
   if (installations.length === 0) {
     return responsiveHumanText(
-      "No Temporary Profile Installations are active.\n" +
+      `No ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.plural} are active.\n` +
         `Use ${COMMAND_NAME} install-temp <profile> <project> --host <host> to create one.\n`,
       options.context,
     );
   }
 
-  const lines = [`Temporary Profile Installations (${installations.length}):`];
+  const lines = [`${capitalize(DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.plural)} (${installations.length}):`];
   const copyable: string[] = [];
   for (const installation of installations) {
     const presented = displayProjectPath(installation.project, installation.project, cwd, home);
@@ -741,8 +754,12 @@ export function formatValidationResult(
   options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
   const profileCount = result.profiles.length;
-  const countClause = `(${plural(profileCount, "Profile")}, ${plural(result.bindings, "Project Binding")})`;
-  const output = `Workspace and Local Configuration valid ${countClause}\n` +
+  const countClause = `(${plural(profileCount, "Profile")}, ${plural(
+    result.bindings,
+    DEFAULT_VIEW_LEXICON.projectBinding.singular,
+    DEFAULT_VIEW_LEXICON.projectBinding.plural,
+  )})`;
+  const output = `Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} valid ${countClause}\n` +
     `Profiles found: ${profileCount === 0 ? "none" : result.profiles.join(", ")}\n` +
     `Hosts bound: ${result.hosts.length === 0 ? "none" : result.hosts.join(", ")}\n` +
     result.warnings.map((warning) => `Warning: ${warning}\n`).join("") +
@@ -791,9 +808,11 @@ export function formatUninstallResult(
       );
     }
   }
-  lines.push("", "Project Bindings preserved.");
+  lines.push("", `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.plural)} preserved.`);
   if (projectCount > 0) {
-    lines.push(`Next: Run ${COMMAND_NAME} unbind for bindings you no longer want, or ${COMMAND_NAME} apply to reinstall.`);
+    lines.push(
+      `Next: Run ${COMMAND_NAME} unbind for ${DEFAULT_VIEW_LEXICON.projectBinding.plural} you no longer want, or ${COMMAND_NAME} apply to reinstall.`,
+    );
   }
   return responsiveHumanText(`${lines.join("\n")}\n`, options.context, copyable);
 }
@@ -1970,7 +1989,7 @@ function conciseReport(
   if (emptyStatus) {
     return [
       "No Projects are configured.",
-      `Next: Run ${COMMAND_NAME} list projects to inspect Project Bindings, or ` +
+      `Next: Run ${COMMAND_NAME} list projects to inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}, or ` +
         `${COMMAND_NAME} bind <profile> --host <host> to configure one.`,
       "",
     ].join("\n");
@@ -2978,7 +2997,7 @@ export function formatTemporaryInstallationHuman(
             }),
         ];
     return responsiveLifecycleOutput((
-      `Installed Profile temporarily\n` +
+      `Installed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}\n` +
       `  Profile: ${receipt.profileId}\n` +
       `  Host: ${receipt.host}\n` +
       `  Project: ${project!}\n` +
@@ -2996,7 +3015,7 @@ export function formatTemporaryInstallationHuman(
     ]);
   }
   return responsiveLifecycleOutput((
-    `Removed temporary Profile installation\n` +
+    `Removed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}\n` +
     `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
     (project === undefined ? "" : `  Project: ${project}\n`)
   ), options.context, [

@@ -5,6 +5,8 @@ import type { WriteStream } from "node:tty";
 
 import { agentGuide, focusedGuide, guideIndex, humanGuide, type GuideTopic } from "./guides.js";
 import {
+  capitalize,
+  DEFAULT_VIEW_LEXICON,
   displayProjectPath,
   formatApplyJson,
   formatApplyReport,
@@ -703,10 +705,10 @@ async function main(): Promise<void> {
       writeHuman(
         process.stdout,
         humanOutput(
-          `Migrated Local Configuration and validated the Agent Profile Kit Workspace at ${result.path}\n` +
+          `Migrated ${DEFAULT_VIEW_LEXICON.localConfiguration} and validated the Agent Profile Kit Workspace at ${result.path}\n` +
             `Next: run ${COMMAND_NAME} validate, then status and apply as needed\n`,
           [
-            `Migrated Local Configuration and validated the Agent Profile Kit Workspace at ${result.path}`,
+            `Migrated ${DEFAULT_VIEW_LEXICON.localConfiguration} and validated the Agent Profile Kit Workspace at ${result.path}`,
           ],
         ),
         stdoutPresentationContext,
@@ -717,8 +719,8 @@ async function main(): Promise<void> {
       writeHuman(
         process.stdout,
         humanOutput(
-          `Workspace and Local Configuration already initialized at ${result.path}; unchanged.\n`,
-          [`Workspace and Local Configuration already initialized at ${result.path}; unchanged.`],
+          `Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} already initialized at ${result.path}; unchanged.\n`,
+          [`Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} already initialized at ${result.path}; unchanged.`],
         ),
         stdoutPresentationContext,
       );
@@ -730,9 +732,9 @@ async function main(): Promise<void> {
     writeHuman(
       process.stdout,
       humanOutput(
-        `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}\n` + next,
+        `Initialized Agent Profile Kit Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} at ${result.path}\n` + next,
         [
-          `Initialized Agent Profile Kit Workspace and Local Configuration at ${result.path}`,
+          `Initialized Agent Profile Kit Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} at ${result.path}`,
         ],
       ),
       stdoutPresentationContext,
@@ -752,12 +754,12 @@ async function main(): Promise<void> {
       writeHuman(
         process.stdout,
         humanOutput(
-          `Project Binding unchanged for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
+          `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
             `  Profile: ${result.profile}\n` +
             `  Hosts: ${result.hosts.join(", ")}\n` +
             `Next: ${COMMAND_NAME} status\n`,
           [
-            `Project Binding unchanged for ${displayProjectPath(result.canonicalProject, result.project)}`,
+            `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged for ${displayProjectPath(result.canonicalProject, result.project)}`,
             result.hosts.join(", "),
           ],
         ),
@@ -768,12 +770,12 @@ async function main(): Promise<void> {
     writeHuman(
       process.stdout,
       humanOutput(
-        `Recorded Project Binding for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
+        `Recorded ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
           `  Profile: ${result.profile}\n` +
           `  Hosts: ${result.hosts.join(", ")}\n` +
           `Next: ${COMMAND_NAME} status\n`,
         [
-          `Recorded Project Binding for ${displayProjectPath(result.canonicalProject, result.project)}`,
+          `Recorded ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project)}`,
           result.hosts.join(", "),
         ],
       ),
@@ -792,8 +794,8 @@ async function main(): Promise<void> {
       writeHuman(
         process.stdout,
         humanOutput(
-          `Project Binding unchanged; no binding matched ${result.requestedProject}\n`,
-          [`Project Binding unchanged; no binding matched ${result.requestedProject}`],
+          `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged; no ${DEFAULT_VIEW_LEXICON.projectBinding.singular} matched ${result.requestedProject}\n`,
+          [`${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged; no ${DEFAULT_VIEW_LEXICON.projectBinding.singular} matched ${result.requestedProject}`],
         ),
         stdoutPresentationContext,
       );
@@ -821,13 +823,13 @@ async function main(): Promise<void> {
     writeHuman(
       process.stdout,
       humanOutput(
-        `Removed Project Binding for ${presentedProject}\n` +
+        `Removed ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${presentedProject}\n` +
           recovery +
           `  Profile: ${result.profile}\n` +
           `  Hosts: ${result.hosts.join(", ")}\n` +
           survival,
         [
-          `Removed Project Binding for ${presentedProject}`,
+          `Removed ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${presentedProject}`,
           ...recoveryCopyable,
           result.hosts.join(", "),
         ],

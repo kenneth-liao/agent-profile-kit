@@ -1,6 +1,6 @@
 export const INVENTORY_TOPICS = [
   {
-    description: "Project inventory from Local Configuration.",
+    description: "Configured Project inventory from settings.",
     name: "projects",
   },
   {
@@ -12,7 +12,7 @@ export const INVENTORY_TOPICS = [
     name: "hosts",
   },
   {
-    description: "Active Temporary Profile Installation inventory from Installation State.",
+    description: "Active temporary Profile inventory.",
     name: "temporary",
   },
 ] as const;

@@ -575,8 +575,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const minimalValidate = await runCli(home, "validate");
     expectExitCode(minimalValidate, 0);
-    expect(minimalValidate.stdout).toContain("Workspace and Local Configuration valid");
-    expect(minimalValidate.stdout).toContain("0 Profiles, 0 Project Bindings");
+    expect(minimalValidate.stdout).toContain("Workspace and settings valid");
+    expect(minimalValidate.stdout).toContain("0 Profiles, 0 configured Projects");
     expect(minimalValidate.stdout).toContain("Profiles found: none");
     expect(minimalValidate.stdout).toContain("Hosts bound: none");
 
@@ -666,7 +666,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const validate = await runCli(home, "validate");
     expectExitCode(validate, 0);
-    expect(validate.stdout).toContain("Workspace and Local Configuration valid");
+    expect(validate.stdout).toContain("Workspace and settings valid");
 
     const reinit = await runCli(home, "init");
     expectExitCode(reinit, 0);
@@ -1509,7 +1509,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const validate = await runCli(home, "validate");
     expectExitCode(validate, 0);
-    expect(validate.stdout).toContain("1 Profile, 1 Project Binding");
+    expect(validate.stdout).toContain("1 Profile, 1 configured Project");
 
     const apply = await runCli(home, "apply");
     expectExitCode(apply, 0);
@@ -1536,7 +1536,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "validate");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("3 Profiles, 2 Project Bindings");
+    expect(result.stdout).toContain("3 Profiles, 2 configured Projects");
     expect(result.stdout).toContain("Profiles found: coding, example, writing");
     expect(result.stdout).toContain("Hosts bound: claude, codex");
     expect(result.stdout).toContain("Next: apkit status");
@@ -1601,7 +1601,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     });
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Local Configuration valid");
+    expect(result.stdout).toContain("settings valid");
     expect(existsSync(invoked)).toBe(false);
   });
 
@@ -1979,7 +1979,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toBe(
       humanText(
         "No Projects are configured.\n" +
-        "Next: Run apkit list projects to inspect Project Bindings, or apkit bind <profile> --host <host> to configure one.\n",
+        "Next: Run apkit list projects to inspect configured Projects, or apkit bind <profile> --host <host> to configure one.\n",
       ),
     );
     expect(result.stdout.match(/No Projects are configured/g)).toHaveLength(1);
@@ -4383,7 +4383,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("- .codex/hooks.json");
     expect(result.stdout).toContain("Cleaned Git exclusions:");
     expect(result.stdout).toContain("- /.agent-profile-kit/codex/context.md");
-    expect(result.stdout).toContain("Project Bindings preserved.");
+    expect(result.stdout).toContain("Configured Projects preserved.");
   });
 
   test("uninstall with no installed output states the empty result without removing Projects", async () => {
@@ -4395,7 +4395,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(result.stdout).toBe(
       "No ordinary Agent Profile Kit-owned output is installed.\n\n" +
-      "Project Bindings preserved.\n",
+      "Configured Projects preserved.\n",
     );
     expect(result.stdout).not.toMatch(/(?:Uninstalled|Removed .*Projects?)/i);
   });
@@ -6672,7 +6672,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCliAt(home, projectPath, "unbind");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed Project Binding for .");
+    expect(result.stdout).toContain("Removed configured Project for .");
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
     expect(result.stdout).not.toContain(realpathSync(projectPath));
@@ -6696,7 +6696,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", authored);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed Project Binding");
+    expect(result.stdout).toContain("Removed configured Project");
     expect(result.stdout).toContain("canonical project identity could not be proven");
     expect(result.stdout).toContain(`Local Configuration: ${configPath(home)}`);
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
@@ -6717,7 +6717,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", alias);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Project Binding unchanged");
+    expect(result.stdout).toContain("Configured Project unchanged");
     expect(result.stdout).toContain(alias);
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
@@ -6875,7 +6875,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", other);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Project Binding unchanged");
+    expect(result.stdout).toContain("Configured Project unchanged");
     expect(result.stdout).not.toContain(configPath(home));
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
@@ -6893,7 +6893,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     const removed = await runCli(home, "unbind", projectPath);
     expectExitCode(removed, 0);
-    expect(removed.stdout).toContain(`Removed Project Binding for ${projectPath}`);
+    expect(removed.stdout).toContain(`Removed configured Project for ${projectPath}`);
     expect(removed.stdout).not.toContain(realpathSync(projectPath));
     expect(removed.stdout).not.toContain(configPath(home));
     expect(removed.stdout).toContain("Generated files remain until apply");
@@ -6924,7 +6924,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", projectPath);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed Project Binding");
+    expect(result.stdout).toContain("Removed configured Project");
     expect(result.stdout).not.toContain("Next:");
     expect(result.stdout).not.toContain("status");
     expect(result.stdout).not.toContain("apply");
@@ -6963,7 +6963,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", alias);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(`Removed Project Binding for ${projectPath}`);
+    expect(result.stdout).toContain(`Removed configured Project for ${projectPath}`);
     expect(result.stdout).not.toContain(realpathSync(projectPath));
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
     expect(existsSync(alias)).toBe(true);
@@ -7003,7 +7003,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", authored);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed Project Binding");
+    expect(result.stdout).toContain("Removed configured Project");
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
   });
 
@@ -7022,7 +7022,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", removed);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(`Removed Project Binding for ${removed}`);
+    expect(result.stdout).toContain(`Removed configured Project for ${removed}`);
     expect(result.stdout).not.toContain(realpathSync(removed));
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
@@ -7045,7 +7045,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const result = await runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Recorded Project Binding for .\n");
+    expect(result.stdout).toContain("Recorded configured Project for .\n");
     expect(result.stdout).not.toContain(realpathSync(projectPath));
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
@@ -7085,7 +7085,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     const validate = await runCli(home, "validate");
     expectExitCode(validate, 0);
-    expect(validate.stdout).toContain("1 Project Binding");
+    expect(validate.stdout).toContain("1 configured Project");
   });
 
   test("bind accepts a home-relative project path and preserves authored spelling", async () => {
@@ -7445,7 +7445,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     const validate = await runCli(home, "validate");
     expectExitCode(validate, 0);
-    expect(validate.stdout).toContain("2 Project Bindings");
+    expect(validate.stdout).toContain("2 configured Projects");
   });
 
   test("bind recovers legacy held residue only under exclusive lock ownership", async () => {
@@ -7523,7 +7523,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     const validate = await runCli(home, "validate");
     expectExitCode(validate, 0);
-    expect(validate.stdout).toContain("2 Project Bindings");
+    expect(validate.stdout).toContain("2 configured Projects");
   });
 
   test("bind recovers from a stale lock left by a dead owner process", async () => {
@@ -7537,7 +7537,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Recorded Project Binding");
+    expect(result.stdout).toContain("Recorded configured Project");
     expect(existsSync(lockPath)).toBe(false);
     expect(readFileSync(configPath(home), "utf8")).toContain(projectPath);
   });
@@ -7701,7 +7701,7 @@ describe("shared presentation boundary", () => {
     const unbreakableProject = (line: string) => line.includes(projectPath);
     const unbreakableApkit = (line: string) => line.includes("apkit ");
     const structuralLabel = (line: string) =>
-      /^\s*(?:Engine version|Workspace|Local Configuration|Installation State|Profiles found|Hosts bound|Project:|Removed generated paths:|Cleaned Git exclusions:|Project Bindings preserved\.|Temporary installation:|Temporary Profile Installation:)/.test(line);
+      /^\s*(?:Engine version|Workspace|Local Configuration|Installation State|Profiles found|Hosts bound|Project:|Removed generated paths:|Cleaned Git exclusions:|Configured Projects preserved\.|Project Bindings preserved\.|Temporary installation:|Temporary Profile Installation:)/.test(line);
     const usageLine = (line: string) => line.startsWith("Usage:");
 
     const assertions: Array<{
@@ -8543,7 +8543,7 @@ describe("apkit list", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
-      "No Temporary Profile Installations are active.\n" +
+      "No temporary Profiles are active.\n" +
         "Use apkit install-temp <profile> <project> --host <host> to create one.\n",
     );
     expect(result.stdout).not.toContain("Next:");
@@ -8620,7 +8620,7 @@ describe("apkit list", () => {
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("No Temporary Profile Installations are active.");
+    expect(result.stdout).toContain("No temporary Profiles are active.");
     expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
   });
 
@@ -8648,7 +8648,7 @@ describe("apkit list", () => {
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("Temporary Profile Installations (1):");
+    expect(result.stdout).toContain("Temporary Profiles (1):");
     expect(result.stdout).toContain(`Temporary installation: ${receipt.temporaryInstallationId}`);
     expect(result.stdout).toContain("Project: ~/projects/temporary-project");
     expect(result.stdout).toContain("Profile: coding");
@@ -8740,7 +8740,7 @@ describe("apkit list", () => {
     const afterRemoval = await runCli(home, "list", "temporary");
 
     expectExitCode(afterRemoval, 0);
-    expect(afterRemoval.stdout).toContain("No Temporary Profile Installations are active.");
+    expect(afterRemoval.stdout).toContain("No temporary Profiles are active.");
     expect(afterRemoval.stdout).not.toContain(receipt.temporaryInstallationId);
     expect(afterRemoval.stdout).not.toContain("ordinary-project");
 
@@ -9492,7 +9492,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     const home = isolatedHome();
     const installHelp = await runCli(home, "install-temp", "--help");
     expectExitCode(installHelp, 0);
-    expect(installHelp.stdout).toContain("Install a Profile temporarily into one Project");
+    expect(installHelp.stdout).toContain("Install a temporary Profile into one Project");
     expect(installHelp.stdout).toContain("Usage: apkit install-temp <profile> <project> --host <host> [--json]");
     expect(installHelp.stdout).toContain("Next: Run apkit remove-temp <temporary-installation-id> when finished.");
     expect(installHelp.stdout).toContain("--host claude");
@@ -9503,7 +9503,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const removeHelp = await runCli(home, "remove-temp", "--help");
     expectExitCode(removeHelp, 0);
-    expect(removeHelp.stdout).toContain("Remove one temporary Profile installation");
+    expect(removeHelp.stdout).toContain("Remove one temporary Profile");
     expect(removeHelp.stdout).not.toContain("Remove one temporary project");
     expect(removeHelp.stdout).toContain("Usage: apkit remove-temp <temporary-installation-id> [--json]");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
@@ -9511,8 +9511,8 @@ describe("apkit temporary Profile installation (Codex)", () => {
     }
 
     const root = await runCli(home);
-    expect(root.stdout).toContain("Install a Profile temporarily into one Project");
-    expect(root.stdout).toContain("Remove one temporary Profile installation");
+    expect(root.stdout).toContain("Install a temporary Profile into one Project");
+    expect(root.stdout).toContain("Remove one temporary Profile");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
       expect(root.stdout).not.toMatch(term);
     }
@@ -9759,7 +9759,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "codex",
     );
     expectExitCode(humanInstall, 0);
-    expect(humanInstall.stdout).toContain("Installed Profile temporarily");
+    expect(humanInstall.stdout).toContain("Installed temporary Profile");
     expect(humanInstall.stdout).toContain("Warnings:");
     expect(humanInstall.stdout).toMatch(/hooks are not enabled/i);
     expect(humanInstall.stdout).toContain("Codex setup:");
@@ -10032,7 +10032,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const bind = await runCli(home, "bind", "coding", authored, "--host", "codex");
     expectExitCode(bind, 0);
-    expect(bind.stdout).toContain(`Recorded Project Binding for ${authored}\n`);
+    expect(bind.stdout).toContain(`Recorded configured Project for ${authored}\n`);
     expect(bind.stdout).not.toContain(canonical);
 
     const list = await runCli(home, "list", "projects");
@@ -10069,7 +10069,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const unbind = await runCli(home, "unbind", authored);
     expectExitCode(unbind, 0);
-    expect(unbind.stdout).toContain(`Removed Project Binding for ${authored}\n`);
+    expect(unbind.stdout).toContain(`Removed configured Project for ${authored}\n`);
     expect(unbind.stdout).not.toContain(canonical);
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
   });
@@ -10195,7 +10195,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     );
     // Already installed — re-install after remove for human summary, then assert jargon-free.
     expectExitCode(humanInstall, 0);
-    expect(humanInstall.stdout).toContain("Removed temporary Profile installation");
+    expect(humanInstall.stdout).toContain("Removed temporary Profile");
     expect(humanInstall.stdout).toContain(`Temporary installation: ${receipt.temporaryInstallationId}`);
     expect(humanInstall.stdout).not.toMatch(/Project Binding|reconcil|materializ|cleanup/i);
 
@@ -10208,7 +10208,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       "claude",
     );
     expectExitCode(reinstall, 0);
-    expect(reinstall.stdout).toContain("Installed Profile temporarily");
+    expect(reinstall.stdout).toContain("Installed temporary Profile");
     expect(reinstall.stdout).toContain("Host: claude");
     expect(reinstall.stdout).toContain("Profile: coding");
     expect(reinstall.stdout).not.toMatch(/Project Binding|reconcil|materializ|cleanup/i);

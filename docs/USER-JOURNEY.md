@@ -132,7 +132,7 @@ Gaps: ~~[UJ-16](#uj-16)~~ (shipped in [#115](https://github.com/kenneth-liao/age
 
 ```
 $ apkit init
-Initialized Agent Profile Kit Workspace and Local Configuration at
+Initialized Agent Profile Kit Workspace and settings at
 <workspace>
 Next: from the project you want to try, run apkit bind example --host codex
 ```
@@ -173,7 +173,7 @@ empty, that a Context Module's identity is frontmatter `id`, and that a Skill's
 
 ```
 $ agent-profile-kit bind engineering ~/projects/api --host claude --host codex --host grok --host pi
-Recorded Project Binding for <project>
+Recorded configured Project for <project>
   Profile: engineering
   Hosts: claude, codex, grok, pi
 Next: agent-profile-kit preview
@@ -191,7 +191,7 @@ Gaps: ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao
 
 ```
 $ apkit validate
-Workspace and Local Configuration valid (1 Profile, 0 Project Bindings)
+Workspace and settings valid (1 Profile, 0 configured Projects)
 Profiles found: engineering
 Hosts bound: none
 Next: apkit bind <profile> --host <host>
@@ -493,7 +493,7 @@ installation receipt rather than a Project Binding (ADR-0015):
 
 ```
 $ apkit install-temp coding ~/scratch --host codex
-Installed Profile temporarily
+Installed temporary Profile
   Profile: coding
   Host: codex
   Project: ~/scratch
@@ -501,7 +501,7 @@ Installed Profile temporarily
 Next: apkit remove-temp temporary-installation-…
 
 $ apkit list temporary
-Temporary Profile Installations (1):
+Temporary Profiles (1):
 
 Temporary installation: temporary-installation-…
   Project: ~/scratch
@@ -509,7 +509,7 @@ Temporary installation: temporary-installation-…
   Host: codex
 
 $ apkit remove-temp temporary-installation-…
-Removed temporary Profile installation
+Removed temporary Profile
   Temporary installation: temporary-installation-…
   Project: ~/scratch
 ```
