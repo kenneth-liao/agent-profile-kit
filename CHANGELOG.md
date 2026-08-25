@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Qualify the complete quiet, task-first newcomer journey through one packed CLI path and recapture the living first-run excerpts from that run ([#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307)).
+
 - Apply the maintained newcomer presentation lexicon across default views, help, inventory, and lifecycle summaries while preserving canonical domain terms on technical and machine surfaces ([#306](https://github.com/kenneth-liao/agent-profile-kit/issues/306)).
 
 - Emit one invocation-wide next-launch readiness statement on successful changed apply using Profile-loading language and bound-Project-root guidance, naming one Profile when unambiguous and using a count when multiple Profiles changed, without splitting equivalent outcomes by exact Host set ([#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305)).

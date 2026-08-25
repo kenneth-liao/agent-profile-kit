@@ -188,7 +188,8 @@ function statePath(home: string): string {
 
 function withFleetScope(arguments_: readonly string[]): readonly string[] {
   const [command, ...rest] = arguments_;
-  return (command === "apply" || command === "status") && !rest.includes("--all")
+  const hasPositional = rest.some((arg) => !arg.startsWith("-"));
+  return (command === "apply" || command === "status") && !rest.includes("--all") && !hasPositional
     ? [...arguments_, "--all"]
     : arguments_;
 }
@@ -1445,4 +1446,140 @@ describe("project-bound release candidate", () => {
     expect(statusJson.projects).toHaveLength(12);
     expect(statusJson.projects.every((project) => project.state.kind === "current")).toBe(true);
   }, 60_000);
+
+  test("one packed newcomer journey proves bare help, init, validate, bind, ready status, changed apply, current status, temporary install, the exact printed remove command, and successful removal (TEST-017)", async () => {
+    const home = isolatedHome();
+    const boundProject = gitRepository("agent-profile-kit-rc-newcomer-git-");
+    const temporaryProject = project("agent-profile-kit-rc-newcomer-nongit-");
+    const pathWithHosts = installControlledHosts(home);
+
+    // 1. Bare help: discover root command surface and first-run guidance.
+    const help = await runCli(home, ["--help"], { path: pathWithHosts });
+    expectExitCode(help, 0);
+    expect(help.stdout).toContain("First run:\n  apkit init\n  apkit bind <profile> --host <host>\n  apkit status\n  apkit apply");
+    expect(help.stdout).toContain("Common commands:\n  init [workspace]");
+    expect(help.stdout).toContain("More commands:\n  Inventory:");
+
+    // 2. Initialize: scaffold default Workspace and settings.
+    const init = await runCli(home, ["init"], { path: pathWithHosts });
+    expectExitCode(init, 0);
+    expect(init.stdout).toContain("Initialized Agent Profile Kit Workspace and settings at");
+    expect(init.stdout).toContain(
+      "Next: from the project you want to try, run apkit bind example --host codex",
+    );
+    expect(existsSync(workspacePath(home))).toBe(true);
+    expect(existsSync(configPath(home))).toBe(true);
+    enableCodexHooks(home);
+
+    // 3. Validate: check empty initial state points to bind example.
+    const validate = await runCli(home, ["validate"], { path: pathWithHosts });
+    expectExitCode(validate, 0);
+    expect(validate.stdout).toContain(
+      "Workspace and settings valid (1 Profile, 0 configured Projects)",
+    );
+    expect(validate.stdout).toContain("Profiles found: example");
+    expect(validate.stdout).toContain("Hosts bound: none");
+    expect(validate.stdout).toContain("Next: apkit bind <profile> --host <host>");
+
+    // 4. Bind: bind scaffolded example Profile to a configured Git Project.
+    const bind = await runCli(
+      home,
+      ["bind", "example", boundProject, "--host", "codex"],
+      { path: pathWithHosts },
+    );
+    expectExitCode(bind, 0);
+    expect(bind.stdout).toContain("Recorded configured Project for");
+    expect(bind.stdout).toContain("Profile: example");
+    expect(bind.stdout).toContain("Hosts: codex");
+    expect(bind.stdout).toContain("Next: apkit status");
+
+    // 5. Ready status: unblocked status presents one compact decision.
+    const readyStatus = await runCli(
+      home,
+      ["status", boundProject],
+      { path: pathWithHosts },
+    );
+    expectExitCode(readyStatus, 0);
+    expect(readyStatus.stdout).toContain("Updates ready for 1 project (3 file additions).");
+    expect(humanText(readyStatus.stdout)).toContain(
+      humanText(`Next: apkit apply ${boundProject}`),
+    );
+    expect(humanText(readyStatus.stdout)).toContain(
+      humanText(`Details: apkit status ${boundProject} --verbose`),
+    );
+    expect(readyStatus.stdout).not.toContain("Standing Host setup:");
+    expect(readyStatus.stdout).not.toContain("Host setup:");
+
+    // 6. Changed apply: leads from Apply Receipt, shows first use and invocation readiness.
+    const apply = await runCli(
+      home,
+      ["apply", boundProject],
+      { path: pathWithHosts },
+    );
+    expectExitCode(apply, 0);
+    expect(apply.stdout).toContain("Apply complete");
+    expect(apply.stdout).toContain("Applied:\n  + 3 generated file additions in 1 project");
+    expect(apply.stdout).toContain("First use:");
+    expect(humanText(apply.stdout)).toContain(
+      humanText(
+        "- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.",
+      ),
+    );
+    expect(humanText(apply.stdout)).toContain(
+      humanText("- Trust the bound project in Codex so the Profile can load."),
+    );
+    expect(humanText(apply.stdout)).toContain(
+      humanText(
+        "Profile example will load the next time you launch a configured Host from a bound Project root.",
+      ),
+    );
+    expect(apply.stdout).not.toContain("already current");
+    expect(existsSync(join(boundProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(boundProject, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(statePath(home))).toBe(true);
+
+    // 7. Current status: clean status states that fact once with no next action.
+    const cleanStatus = await runCli(
+      home,
+      ["status", boundProject],
+      { path: pathWithHosts },
+    );
+    expectExitCode(cleanStatus, 0);
+    expect(cleanStatus.stdout).toBe("All Projects are current (1 Project)\n");
+    expect(cleanStatus.stdout).not.toContain("Next:");
+    expect(cleanStatus.stdout).not.toContain("Standing Host setup:");
+    expect(cleanStatus.stdout).not.toContain("Host setup:");
+
+    // 8. Temporary install: install temporary Profile to non-Git Project.
+    const installTemp = await runCli(
+      home,
+      ["install-temp", "example", temporaryProject, "--host", "codex"],
+      { path: pathWithHosts },
+    );
+    expectExitCode(installTemp, 0);
+    expect(installTemp.stdout).toContain("Installed temporary Profile");
+    expect(installTemp.stdout).toContain("Profile: example");
+    expect(installTemp.stdout).toContain("Host: codex");
+    expect(installTemp.stdout).toContain("Temporary installation:");
+    expect(existsSync(join(temporaryProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+
+    // 9. Exact printed remove command: parse and execute the printed Next command.
+    const printed = installTemp.stdout.match(/^Next: (apkit remove-temp (\S+))$/m);
+    expect(printed?.[2]).toBeTruthy();
+    const tempId = printed![2]!;
+    expect(tempId).toMatch(/^[0-9a-f-]+$/);
+
+    // 10. Successful removal: execute the exact printed command and verify clean state.
+    const removeTemp = await runCli(
+      home,
+      printed![1]!.split(" ").slice(1),
+      { path: pathWithHosts },
+    );
+    expectExitCode(removeTemp, 0);
+    expect(removeTemp.stdout).toContain("Removed temporary Profile");
+    expect(removeTemp.stdout).toContain(`Temporary installation: ${tempId}`);
+    expect(existsSync(join(temporaryProject, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(temporaryProject, ".agent-profile-kit", "installation.json"))).toBe(false);
+  }, 30_000);
 });
