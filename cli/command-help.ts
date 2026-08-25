@@ -24,12 +24,13 @@ export interface CommandHelp {
   readonly next: string;
 }
 
-export type CommandGroup = "onboarding" | "workspace" | "lifecycle" | "temporary";
+export type CommandGroup = "common" | "inventory" | "teardown" | "machine" | "temporary";
 
 export const COMMAND_GROUPS = [
-  ["onboarding", "Onboarding"],
-  ["workspace", "Workspace and discovery"],
-  ["lifecycle", "Project lifecycle"],
+  ["common", "Common commands"],
+  ["inventory", "Inventory"],
+  ["teardown", "Teardown"],
+  ["machine", "Machine details"],
   ["temporary", "Temporary installations"],
 ] as const satisfies readonly (readonly [CommandGroup, string])[];
 
@@ -46,7 +47,7 @@ void _assertCommandGroupsExhaustive;
 export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "init",
-    group: "onboarding",
+    group: "common",
     syntax: "init [workspace]",
     summary: "Initialize or adopt the canonical Workspace and Local Configuration",
     examples: COMMAND_EXAMPLES.init,
@@ -55,7 +56,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "guide",
-    group: "onboarding",
+    group: "common",
     syntax: "guide [profile|context|skill|--full|--agent]",
     summary: "Show a topic index, full Workspace guidance, or one focused authoring example",
     examples: COMMAND_EXAMPLES.guide,
@@ -64,7 +65,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "bind",
-    group: "workspace",
+    group: "common",
     syntax: "bind <profile> [project] --host <host> [--host <host> ...]",
     summary: "Record a Project Binding to a Profile and Agent Hosts",
     examples: COMMAND_EXAMPLES.bind,
@@ -74,7 +75,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "unbind",
-    group: "workspace",
+    group: "teardown",
     syntax: "unbind [project]",
     summary: "Remove a Project Binding",
     examples: COMMAND_EXAMPLES.unbind,
@@ -83,7 +84,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "validate",
-    group: "workspace",
+    group: "common",
     syntax: "validate",
     summary: "Check Workspace and Local Configuration validity",
     examples: COMMAND_EXAMPLES.validate,
@@ -92,7 +93,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "info",
-    group: "workspace",
+    group: "machine",
     syntax: "info [--json]",
     summary: "Show the engine version and selected application locations",
     examples: COMMAND_EXAMPLES.info,
@@ -101,7 +102,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   },
   {
     name: "list",
-    group: "workspace",
+    group: "inventory",
     syntax: inventoryCommandSyntax(),
     summary: "List read-only inventory for Projects, Profiles, Hosts, or temporary installations",
     examples: COMMAND_EXAMPLES.list,
@@ -109,17 +110,8 @@ export const COMMANDS: readonly CommandHelp[] = [
     next: `Run ${COMMAND_NAME} status for Project lifecycle diagnostics.`,
   },
   {
-    name: "apply",
-    group: "lifecycle",
-    syntax: "apply [project | --all] [--verbose] [--json]",
-    summary: "Sync the current Project, one explicit Project, or the complete fleet",
-    examples: COMMAND_EXAMPLES.apply,
-    writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",
-    next: `Launch a bound Host from the project, or run ${COMMAND_NAME} status.`,
-  },
-  {
     name: "status",
-    group: "lifecycle",
+    group: "common",
     syntax: "status [project | --all] [--verbose] [--json]",
     summary: "Show the complete read-only apply plan for the current Project, one explicit Project, or the complete fleet",
     examples: COMMAND_EXAMPLES.status,
@@ -127,8 +119,17 @@ export const COMMANDS: readonly CommandHelp[] = [
     next: `Run ${COMMAND_NAME} apply for pending work after resolving any blockers.`,
   },
   {
+    name: "apply",
+    group: "common",
+    syntax: "apply [project | --all] [--verbose] [--json]",
+    summary: "Sync the current Project, one explicit Project, or the complete fleet",
+    examples: COMMAND_EXAMPLES.apply,
+    writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",
+    next: `Launch a bound Host from the project, or run ${COMMAND_NAME} status.`,
+  },
+  {
     name: "uninstall",
-    group: "lifecycle",
+    group: "teardown",
     syntax: "uninstall",
     summary: "Remove proven Agent Profile Kit-owned output from all ordinary Project installations",
     examples: COMMAND_EXAMPLES.uninstall,
