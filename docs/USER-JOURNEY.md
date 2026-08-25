@@ -86,11 +86,12 @@ output drift. The former separate plan command was removed before 1.0.
 <!-- historical-command-excerpts:start -->
 ### 1. Discover
 
-A bare invocation, `--help`, `-h`, and `help` print root help: description,
-workflow-grouped commands with two-line syntax and wrapped descriptions, a
-four-step quick start, and a pointer to `guide`. The quick start points to
-`guide profile` for a valid Profile example and `bind --help` for supported Host
-values. Interactive output selects the tty width (falling back to `COLUMNS`)
+A bare invocation, `--help`, `-h`, and `help` print root help: description, a
+four-step first run, common commands, then secondary inventory, teardown,
+machine-detail, and temporary-installation commands under `More commands`. Each
+catalog command retains its syntax and wrapped description. The first run points
+to `guide profile` for a valid Profile example and `bind --help` for supported
+Host values. Interactive output selects the tty width (falling back to `COLUMNS`)
 and clamps readable prose to 40–100 columns; redirected output uses a
 deterministic 80-column measure. Color is used only for color-capable
 interactive human output; `TERM=dumb`, an unset `TERM`, and a non-empty
@@ -473,7 +474,7 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 | [UJ-33](#uj-33) | High | 7, 8, 10 | Persistent Host constraints render as observed unfinished setup even though Agent Profile Kit cannot inspect trust or approval completion — tracked by [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302) and [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304) |
 | [UJ-35](#uj-35) | High | 8 | A successful changed `apply` can say the Project was already current while its Apply Receipt proves work was completed — tracked by [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303) |
 | [UJ-32](#uj-32) | Med-High | 7, 8, 10 | Routine lifecycle output repeats impact, setup, and readiness facts instead of presenting one task-first decision — tracked by [#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301), [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303), [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305) |
-| [UJ-34](#uj-34) | Medium | 1, 2, 6, 13 | First-run menus and next actions bury or fork the primary path — tracked by [#294](https://github.com/kenneth-liao/agent-profile-kit/issues/294) through [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300) |
+| [UJ-34](#uj-34) | Medium | 1, 2, 6, 13 | Inventory and next-action surfaces bury or fork the primary path — tracked by [#295](https://github.com/kenneth-liao/agent-profile-kit/issues/295) through [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300) |
 | ~~[UJ-01](#uj-01)~~ | ~~High~~ | ~~2, 3, 4~~ | ~~`init` next-step dead-ends on an empty Workspace~~ — shipped in [#121](https://github.com/kenneth-liao/agent-profile-kit/issues/121) |
 | ~~[UJ-02](#uj-02)~~ | ~~High~~ | ~~11~~ | ~~Drifted output has no stated remedy anywhere~~ — shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117) |
 | ~~[UJ-03](#uj-03)~~ | ~~High~~ | ~~12~~ | ~~Post-`uninstall` `status` warns about an intended state~~ — shipped in [#124](https://github.com/kenneth-liao/agent-profile-kit/issues/124) |
@@ -532,13 +533,16 @@ by [#302](https://github.com/kenneth-liao/agent-profile-kit/issues/302) and
 
 ### UJ-34
 
-The first-run hierarchy forks across discovery and next-action surfaces. Root
-help puts the full catalog before the quick start; the inventory menu repeats
-JSON examples; ordinary Host support is secondary to temporary eligibility;
-`init` help and success output disagree; validation with no configured Projects
-does not point to `bind`; and a temporary-install success prints an identity
-without the removal command that consumes it. Delivery is tracked across
-[#294](https://github.com/kenneth-liao/agent-profile-kit/issues/294) through
+Root help now leads with the four-step first run, then separates common commands
+from secondary inventory, teardown, machine-detail, and temporary-installation
+commands ([#294](https://github.com/kenneth-liao/agent-profile-kit/issues/294)).
+The remaining first-run hierarchy forks across inventory and next-action
+surfaces: the inventory menu repeats JSON examples; ordinary Host support is
+secondary to temporary eligibility; `init` help and success output disagree;
+validation with no configured Projects does not point to `bind`; and a
+temporary-install success prints an identity without the removal command that
+consumes it. Remaining delivery is tracked across
+[#295](https://github.com/kenneth-liao/agent-profile-kit/issues/295) through
 [#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300).
 
 ### UJ-35
