@@ -757,7 +757,10 @@ describe("responsive lifecycle presentation", () => {
   test("keeps copyable Project paths and command invocations intact while wrapping prose", () => {
     const project = "/tmp/agent profile kit/project with a long name";
     const report = identityReport(project);
-    const status = formatLifecycleReport("status", report, { context: context(40) });
+    const status = formatLifecycleReport("status", report, {
+      context: context(40),
+      project,
+    });
     const emptyStatus = formatLifecycleReport("status", emptyReport(), { context: context(40) });
 
     expect(status).toContain(project);
@@ -1129,8 +1132,10 @@ test("terminal styling follows lifecycle labels emitted by the formatter", () =>
     }),
   );
 
-  expect(ready).toContain("Ready to apply");
-  expect(renderHumanOutput(ready, context)).toContain("\u001b[32mReady to apply\u001b[0m");
+  expect(ready).toContain("Updates ready");
+  expect(renderHumanOutput(ready, context)).toContain(
+    "\u001b[32mUpdates ready for 1 project (1 file addition).\u001b[0m",
+  );
   expect(blocked).toContain("Cannot apply");
   expect(renderHumanOutput(blocked, context)).toContain("\u001b[31mCannot apply\u001b[0m");
 });
@@ -1426,30 +1431,30 @@ describe("formatLifecycleReport concise terminology", () => {
     const project = process.cwd();
     const report = identityReport(project);
 
-    const concise = formatLifecycleReport("status", report);
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
 
-    expect(concise).toContain("Project: .\n");
-    expect(concise).not.toContain(`Project: ${project}\n`);
+    expect(verbose).toContain("Projects:\n.: addition\n");
+    expect(verbose).not.toContain(`Projects:\n${project}: addition\n`);
   });
 
   test("identifies an ancestor project relative to the working directory", () => {
     const project = dirname(process.cwd());
     const report = identityReport(project);
 
-    const concise = formatLifecycleReport("status", report);
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
 
-    expect(concise).toContain("Project: ..\n");
-    expect(concise).not.toContain(`Project: ${project}\n`);
+    expect(verbose).toContain("Projects:\n..: addition\n");
+    expect(verbose).not.toContain(`Projects:\n${project}: addition\n`);
   });
 
   test("identifies another home project with a home-relative path", () => {
     const project = join(homedir(), "another-project");
     const report = identityReport(project);
 
-    const concise = formatLifecycleReport("status", report);
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
 
-    expect(concise).toContain("Project: ~/another-project\n");
-    expect(concise).not.toContain(`Project: ${project}\n`);
+    expect(verbose).toContain("Projects:\n~/another-project: addition\n");
+    expect(verbose).not.toContain(`Projects:\n${project}: addition\n`);
   });
 
   test("keeps canonical paths short through symlinked home and working-directory aliases", () => {
@@ -1510,10 +1515,10 @@ describe("formatLifecycleReport concise terminology", () => {
     const project = join(homedir(), "multi-host-project");
     const report = identityReport(project, ["claude", "codex"]);
 
-    const concise = formatLifecycleReport("status", report);
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
 
-    expect(concise).toContain(
-      "Project: ~/multi-host-project\n  Profile: coding\n  Hosts: claude, codex\n",
+    expect(verbose).toContain(
+      "~/multi-host-project: Profile coding\n  Hosts: claude, codex\n",
     );
   });
 
@@ -1544,18 +1549,19 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
 
-    expect(concise).toContain(
-      "Project changes:\n  + 2 generated file additions in ~/team-a/project, ~/team-b/project",
-    );
+    expect(verbose).toContain("~/team-a/project: addition");
+    expect(verbose).toContain("~/team-b/project: addition");
   });
 
   test("keeps an outside-home project absolute", () => {
     const project = "/var/tmp/outside-home-project";
     const report = identityReport(project);
 
-    expect(formatLifecycleReport("status", report)).toContain(`Project: ${project}\n`);
+    expect(formatLifecycleReport("status", report, { verbose: true })).toContain(
+      `Projects:\n${project}: addition\n`,
+    );
   });
 
   test("preserves an authored path when its canonical spelling differs", () => {
@@ -1571,10 +1577,10 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: reportOutputs(report),
     });
 
-    const concise = formatLifecycleReport("status", aliasedReport);
+    const verbose = formatLifecycleReport("status", aliasedReport, { verbose: true });
 
-    expect(concise).toContain(`Project: ${authoredProject}\n`);
-    expect(concise).not.toContain(`Project: ${canonicalProject}\n`);
+    expect(verbose).toContain(`Projects:\n${authoredProject}: addition\n`);
+    expect(verbose).not.toContain(`Projects:\n${canonicalProject}: addition\n`);
   });
 
   test("preserves an authored home-relative path when its canonical spelling differs", () => {
@@ -1590,10 +1596,10 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: reportOutputs(report),
     });
 
-    const concise = formatLifecycleReport("status", aliasedReport);
+    const verbose = formatLifecycleReport("status", aliasedReport, { verbose: true });
 
-    expect(concise).toContain(`Project: ${authoredProject}\n`);
-    expect(concise).not.toContain(`Project: ${canonicalProject}\n`);
+    expect(verbose).toContain(`Projects:\n${authoredProject}: addition\n`);
+    expect(verbose).not.toContain(`Projects:\n${canonicalProject}: addition\n`);
   });
 
   test("keeps internal vocabulary out of every default lifecycle view", () => {
@@ -1672,19 +1678,22 @@ describe("formatLifecycleReport concise terminology", () => {
       warnings: [`Review /tmp/reconcile/generated-output for Profile 'reconcile'`],
     });
 
-    for (const view of [
-      formatLifecycleReport("status", report),
-      formatApplyReport(applyResult(report)),
-      formatLifecycleReport("status", report),
-    ]) {
-      expect(view).toContain(`Project: ${project}`);
-      expect(view).toContain("Profile: reconcile");
-      expect(view).toContain("generated-output/reconcile");
-      expect(view).toContain("/tmp/reconcile/generated-output");
-      expect(view).toContain("'reconcile'");
-    }
+    const conciseStatus = formatLifecycleReport("status", report);
+    expect(conciseStatus).toContain("/tmp/reconcile/generated-output");
+    expect(conciseStatus).toContain("'reconcile'");
+    expect(conciseStatus).not.toContain(`Project: ${project}`);
+    expect(conciseStatus).not.toContain(exclusionTarget);
+    expect(conciseStatus).not.toContain(exclusionEntry);
+
+    const apply = formatApplyReport(applyResult(report));
+    expect(apply).toContain(`Project: ${project}`);
+    expect(apply).toContain("Profile: reconcile");
+    expect(apply).toContain("generated-output/reconcile");
 
     const verbose = formatLifecycleReport("status", report, { verbose: true });
+    expect(verbose).toContain(project);
+    expect(verbose).toContain("Profile reconcile");
+    expect(verbose).toContain("generated-output/reconcile");
     expect(verbose).toContain(exclusionTarget);
     expect(verbose).toContain(exclusionEntry);
   });
@@ -1707,7 +1716,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("Selected setup:");
   });
 
-  test("non-Git status lists reconciliation-plan paths with action markers", () => {
+  test("concise status keeps only drift and destructive-removal paths", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -1731,19 +1740,21 @@ describe("formatLifecycleReport concise terminology", () => {
     const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain(
-      "  Files:\n" +
-      "  ! f.md (drifted output)\n" +
-      "  - e.md\n" +
-      "  ~ c.md\n" +
-      "  + a.md\n" +
-      "  + b.md\n" +
-      "  + d.md",
+      "Project exceptions:\n" +
+      "  /project-a:\n" +
+      "    ! f.md (drifted output)\n" +
+      "    - e.md",
     );
+    expect(concise).not.toContain("a.md");
+    expect(concise).not.toContain("b.md");
+    expect(concise).not.toContain("c.md");
+    expect(concise).not.toContain("d.md");
+    expect(concise).toContain("Details: apkit status --verbose");
     expect(concise).not.toContain("Selected setup:");
     expect(concise).not.toContain("Outputs:");
   });
 
-  test("orders path priority groups deterministically", () => {
+  test("destructive removal remains visible while routine paths stay suppressed", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -1763,11 +1774,12 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("status", report);
 
-    expect(concise.indexOf("- z.md")).toBeLessThan(concise.indexOf("~ m.md"));
-    expect(concise.indexOf("~ m.md")).toBeLessThan(concise.indexOf("+ a.md"));
+    expect(concise).toContain("    - z.md");
+    expect(concise).not.toContain("m.md");
+    expect(concise).not.toContain("a.md");
   });
 
-  test("caps generated file paths with an overflow pointer to --verbose", () => {
+  test("hides routine generated paths behind one verbose route", () => {
     const project = "/project-a";
     const paths = Array.from({ length: 12 }, (_, index) => `file-${String(index + 1).padStart(2, "0")}.md`);
     const report = emptyReport({
@@ -1785,9 +1797,10 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("status", report);
 
-    expect(concise).toContain("+ file-10.md");
-    expect(concise).not.toContain("+ file-11.md");
-    expect(concise).toContain("… 2 more files; use --verbose to see all paths");
+    expect(concise).not.toContain("file-01.md");
+    expect(concise).not.toContain("file-12.md");
+    expect(concise.match(/Details:/g)).toHaveLength(1);
+    expect(concise).toContain("Details: apkit status --verbose");
 
     const verbose = formatLifecycleReport("status", report, { verbose: true });
     expect(verbose).toContain("/project-a/file-11.md: addition");
@@ -1821,9 +1834,9 @@ describe("formatLifecycleReport concise terminology", () => {
 
     expect(concise).toContain("! z-attention.md (drifted output)");
     expect(concise).toContain("- z-removal.md");
-    expect(concise.indexOf("! z-attention.md")).toBeLessThan(concise.indexOf("+ a-1.md"));
-    expect(concise.indexOf("- z-removal.md")).toBeLessThan(concise.indexOf("+ a-1.md"));
-    expect(concise).toContain("… 2 more files; use --verbose to see all paths");
+    expect(concise).not.toContain("a-1.md");
+    expect(concise).not.toContain("more files");
+    expect(concise).toContain("Details: apkit status --verbose");
   });
 
   test("verbose output keeps generated-root attention authoritative", () => {
@@ -1869,8 +1882,11 @@ describe("formatLifecycleReport concise terminology", () => {
       if (kind === "blocked") {
         expect(concise).toContain("Blocker: hooks disabled");
         expect(concise).not.toContain("State:");
-      } else {
+      } else if (["drifted output", "malformed ownership state", "missing output", "stale source"].includes(kind)) {
         expect(concise).toContain(`State: ${kind}`);
+      } else {
+        expect(concise).toStartWith("Updates ready for 1 project");
+        expect(concise).not.toContain("State:");
       }
       const glosses = explanationLines(formatLifecycleReport("status", report, { verbose: true }));
       expect(glosses).toHaveLength(1);
@@ -2031,9 +2047,10 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("status", report);
 
-    expect(concise).toContain("Git exclusions: 2 entries to add, 1 entry to remove.");
+    expect(concise).not.toContain("Git exclusions:");
     expect(concise).not.toContain(target);
     expect(concise).not.toContain("/.old-path.md");
+    expect(concise).toContain("Details: apkit status --verbose");
 
     const verbose = formatLifecycleReport("status", report, { verbose: true });
     expect(verbose).toContain(
@@ -2160,6 +2177,7 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const status = formatLifecycleReport("status", receipt);
     expect(status).toContain("Git exclusions: 1 recorded entry to restore.");
+    expect(status).toContain("Details: apkit status --verbose");
     expect(status).not.toContain("/repo/.git/info/exclude");
     expect(status).not.toContain("/.agent-profile-kit/codex/context.md");
 
@@ -2313,6 +2331,8 @@ describe("formatLifecycleReport concise terminology", () => {
 
 describe("formatLifecycleReport next-action guidance", () => {
   function nextActionLines(reportText: string): string[] {
+    const direct = /^Next: (.+)$/m.exec(reportText);
+    if (direct !== null) return [direct[1]!];
     const next = reportText.indexOf("Next:\n");
     if (next < 0) return [];
     return reportText
@@ -2342,9 +2362,10 @@ describe("formatLifecycleReport next-action guidance", () => {
     expect(next).toHaveLength(1);
     expect(next[0]).toMatch(/apply/i);
     expect(next[0]).not.toMatch(/status|bind/i);
-    expect(concise).toContain("Ready to apply");
-    expect(concise).toContain("State: stale source");
-    expect(concise).toContain("~ a.md");
+    expect(concise).toContain("Updates ready for 1 project (1 file update).");
+    expect(concise).not.toContain("State: stale source");
+    expect(concise).not.toContain("a.md");
+    expect(concise).toContain("Details: apkit status --verbose");
   });
 
   test("ready status recommends apply", () => {
@@ -2365,7 +2386,7 @@ describe("formatLifecycleReport next-action guidance", () => {
     const next = nextActionLines(concise);
     expect(next).toHaveLength(1);
     expect(next[0]).toMatch(/apkit apply/);
-    expect(concise).toContain("Ready to apply");
+    expect(concise).toContain("Updates ready for 1 project (1 file addition).");
   });
 
   test("blocked status retries status without recommending apply", () => {
@@ -2611,9 +2632,8 @@ describe("formatLifecycleReport next-action guidance", () => {
 
     const mixedStatus = formatLifecycleReport("status", mixedActionable);
     expect(nextActionLines(mixedStatus)).toHaveLength(1);
-    expect(nextActionLines(mixedStatus)[0]).toMatch(/^\/project-b:/);
-    expect(nextActionLines(mixedStatus)[0]).toMatch(/apply/i);
-    expect(nextActionLines(mixedStatus)[0]).not.toMatch(/bind/i);
+    expect(nextActionLines(mixedStatus)).toEqual(["apkit apply --all"]);
+    expect(mixedStatus).toContain("Details: apkit status --all --verbose");
   });
 
   test("--verbose does not append next-action guidance", () => {
@@ -2654,9 +2674,10 @@ describe("formatLifecycleReport next-action guidance", () => {
     });
 
     const status = formatLifecycleReport("status", report);
-    expect(status).toContain("Ready to apply");
-    expect(status).toContain("Git exclusions: 1 entry to add.");
-    expect(nextActionLines(status)).toEqual(["Run apkit apply."]);
+    expect(status).toContain("Updates ready for 1 project.");
+    expect(status).not.toContain("Git exclusions:");
+    expect(status).toContain("Details: apkit status --verbose");
+    expect(nextActionLines(status)).toEqual(["apkit apply"]);
   });
 
   test("status renders a nested desired Project with current state as current", () => {
@@ -3135,8 +3156,11 @@ describe("operation-first multi-Project presentation", () => {
   test("multi-Project status groups observable operations without inferring artifact causality", () => {
     const concise = formatLifecycleReport("status", sharedSkillFleet());
 
-    expect(concise).toContain("Ready to apply\n");
-    expect(concise).toContain("Project changes:\n  ~ 3 generated file updates in 3 projects");
+    expect(concise).toBe(
+      "Updates ready for 3 projects (3 file updates).\n" +
+        "Next: apkit apply --all\n\n" +
+        "Details: apkit status --all --verbose\n",
+    );
     expect(concise).not.toContain("Skill review-pr");
     expect(concise).not.toContain("Workspace changes:");
     expect(concise).not.toContain("Project: /project-a");
@@ -3158,13 +3182,15 @@ describe("operation-first multi-Project presentation", () => {
 
     const concise = formatLifecycleReport("status", report);
 
-    expect(concise).toContain(
-      "Project changes:\n" +
-        "  + 1 generated file addition in /project-a\n" +
-        "  ~ 2 generated file updates in /project-a, /project-b\n" +
-        "  ~ 1 generated file repair in /project-b\n" +
-        "  - 1 generated file removal in /project-c",
+    expect(concise).toStartWith(
+      "Updates ready for 3 projects.\n" +
+        "+ 1 file addition in /project-a\n" +
+        "~ 2 file updates in /project-a, /project-b\n" +
+        "~ 1 file repair in /project-b\n" +
+        "- 1 file removal in /project-c\n",
     );
+    expect(concise).not.toContain("Projects: 3");
+    expect(concise).not.toContain("Project changes:");
   });
 
   test("large affected-Project sets are capped with a verbose pointer", () => {
@@ -3190,12 +3216,12 @@ describe("operation-first multi-Project presentation", () => {
       })),
     });
 
-    expect(formatLifecycleReport("status", report)).toContain(
-      "~ 5 generated file updates in /project-a, /project-b, /project-c, /project-d, … 1 more Project; use --verbose to see all Projects",
+    expect(formatLifecycleReport("status", report)).toStartWith(
+      "Updates ready for 5 projects (5 file updates).\n",
     );
   });
 
-  test("single-Project runs remain Project-first", () => {
+  test("single-Project status hides routine paths and Git bookkeeping behind matching verbose detail", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -3207,12 +3233,23 @@ describe("operation-first multi-Project presentation", () => {
       }],
       items: [{ kind: "update", project: "/project-a" }],
       outputs: [{ kind: "update", path: SKILL_PATH, project: "/project-a" }],
+      repositoryExclusions: [{
+        current: [],
+        next: [`/${SKILL_PATH}`],
+        target: "/project-a/.git/info/exclude",
+      }],
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = formatLifecycleReport("status", report, { project: "/project-a" });
 
-    expect(concise).toContain("Project: /project-a\n  Profile: coding\n  Hosts: codex");
-    expect(concise).not.toContain("Project changes:");
+    expect(concise).toBe(
+      "Updates ready for 1 project (1 file update).\n" +
+        "Next: apkit apply /project-a\n\n" +
+        "Details: apkit status /project-a --verbose\n",
+    );
+    expect(concise).not.toContain(SKILL_PATH);
+    expect(concise).not.toContain("Git exclusion");
+    expect(concise).not.toContain(".git/info/exclude");
   });
 
   test("blocked fleets keep structured blockers ahead of operation detail", () => {
@@ -3298,8 +3335,8 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
 
     const status = formatLifecycleReport("status", report);
-    expect(status).toContain("Ready to apply");
-    expect(status).toContain("Projects: 1 · Changes: 1 generated file addition");
+    expect(status).toContain("Updates ready for 1 project (1 file addition).");
+    expect(status).not.toContain("Projects: 1");
     expect(status).not.toContain("Blockers: 0");
     expect(status).not.toContain("Changes: none");
 
@@ -3361,9 +3398,9 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
 
     const status = formatLifecycleReport("status", report);
-    expect(status).toContain("Next:\n- Run apkit apply --all.");
-    expect(status).not.toContain("/project-a: Run apkit apply --all.");
-    expect(status.match(/Run apkit apply --all\./g)).toHaveLength(1);
+    expect(status).toContain("Next: apkit apply --all");
+    expect(status).not.toContain("/project-a: apkit apply --all");
+    expect(status.match(/Next: apkit apply --all/g)).toHaveLength(1);
   });
 
   test("aliased Project next actions keep the authored identity", () => {
@@ -3380,9 +3417,10 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const status = formatLifecycleReport("status", report);
-    expect(status).toContain("- /project-a: Run apkit apply.");
-    expect(status).not.toContain("/private/project-a: Run apkit apply.");
+    const status = formatLifecycleReport("status", report, { project: "/project-a" });
+    expect(status).toContain("Next: apkit apply /project-a");
+    expect(status).toContain("Details: apkit status /project-a --verbose");
+    expect(status).not.toContain("/private/project-a");
   });
 
   test("differing next actions stay scoped", () => {

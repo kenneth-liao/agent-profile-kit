@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Make unblocked concise status one compact, scope-correct decision with routine generated paths and successful Git bookkeeping behind one matching verbose route, while preserving exceptional evidence and machine behavior ([#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301)).
+
 - Print the exact `apkit remove-temp <actual-id>` command after a successful temporary install, using the durable identity created by that operation while preserving removal and JSON behavior ([#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300)).
 
 - Derive successful validation guidance from the configured Project count: point to `apkit bind` when none exist and `apkit status` otherwise, while preserving warnings and read-only behavior ([#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299)).

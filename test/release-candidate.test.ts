@@ -556,7 +556,7 @@ describe("project-bound release candidate", () => {
     );
     const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(staleStatus, 0);
-    expect(staleStatus.stdout).toContain("generated file updates");
+    expect(staleStatus.stdout).toMatch(/Updates ready for \d+ projects? \(\d+ file updates?\)\./);
 
     const reapply = await runCli(home, ["apply"], { path: pathWithClaude });
     expectExitCode(reapply, 0);
@@ -1047,7 +1047,7 @@ describe("project-bound release candidate", () => {
     writeSkill(home, "review-pr", { body: "# Review updated for release candidate\n" });
     const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(staleStatus, 0);
-    expect(staleStatus.stdout).toContain("generated file updates");
+    expect(staleStatus.stdout).toMatch(/Updates ready for \d+ projects? \(\d+ file updates?\)\./);
     const reapply = await runCli(home, ["apply"], { path: pathWithClaude });
     expectExitCode(reapply, 0);
     expect(
@@ -1266,7 +1266,7 @@ describe("project-bound release candidate", () => {
     const pathWithHosts = installAllControlledHosts(home);
     const plannedStatus = await runCli(home, ["status"], { path: pathWithHosts });
     expectExitCode(plannedStatus, 0);
-    expect(plannedStatus.stdout).toContain("Ready to apply");
+    expect(plannedStatus.stdout).toContain("Updates ready for");
 
     const apply = await runCli(home, ["apply"], { path: pathWithHosts });
     expectExitCode(apply, 0);

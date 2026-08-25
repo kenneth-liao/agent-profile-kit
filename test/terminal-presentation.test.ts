@@ -56,7 +56,7 @@ test("human presentation styles semantic lines without changing their words", ()
     "  status",
     "Workspace: ~/.agents/agent-profile-kit/workspace",
     "Initialized Agent Profile Kit Workspace",
-    "Ready to apply",
+    "Updates ready for 1 project (1 file addition).",
     "Apply blocked",
     "Apply completed with blockers",
     "Apply completed with attention",
@@ -81,7 +81,9 @@ test("human presentation styles semantic lines without changing their words", ()
   expect(colored).toContain("\u001b[36m  status\u001b[0m");
   expect(colored).toContain("\u001b[35mWorkspace: ~/.agents/agent-profile-kit/workspace\u001b[0m");
   expect(colored).toContain("\u001b[32mInitialized Agent Profile Kit Workspace\u001b[0m");
-  expect(colored).toContain("\u001b[32mReady to apply\u001b[0m");
+  expect(colored).toContain(
+    "\u001b[32mUpdates ready for 1 project (1 file addition).\u001b[0m",
+  );
   expect(colored).toContain("\u001b[31mApply blocked\u001b[0m");
   expect(colored).toContain("\u001b[31mApply completed with blockers\u001b[0m");
   expect(colored).toContain("\u001b[33mApply completed with attention\u001b[0m");

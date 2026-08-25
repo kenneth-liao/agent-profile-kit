@@ -143,7 +143,11 @@ boundaries over the same ReconciliationReport. Concise output presents the
 outcome, affected scope or impact, one next action when one exists, and optional
 first-use guidance, in that order. It renders each semantic fact once and omits
 routine generated paths, Project matrices, Git exclusion bookkeeping, setup
-provenance, and separate consequences. Blockers, warnings, ownership attention,
+provenance, and separate consequences. For unblocked pending `status`, one line
+carries every non-zero file-operation count when those operations share a
+Project scope; differing scopes use compact operation lines without a duplicate
+aggregate. Its single `Next:` apply command and optional `Details:` verbose route
+preserve the selected invocation scope. Blockers, warnings, ownership attention,
 drift, destructive-removal attention, and Git repair or failure retain the
 identity required for their remedies. A concise clean `status` states that the
 selected scope is current once and emits no Host setup reminder or next action;

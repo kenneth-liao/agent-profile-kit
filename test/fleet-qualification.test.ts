@@ -195,21 +195,21 @@ describe("fleet-wide synchronization qualification", () => {
 
     const preview = await runCli(home, pathWithHosts, "status");
     expectExitCode(preview, 0);
-    // The concise header totals the fleet change once.
-    expect(preview.stdout).toContain(
-      "Projects: 12 · Changes: 1 generated file addition, 21 generated file updates",
-    );
+    // Differing operation scopes render once without a duplicate aggregate.
+    expect(preview.stdout).toStartWith("Updates ready for 12 projects.\n");
+    expect(preview.stdout).toContain("+ 1 file addition in");
+    expect(preview.stdout).toContain("~ 21 file updates in 12 projects");
+    expect(preview.stdout).not.toContain("Project changes:");
+    expect(preview.stdout).not.toContain("Projects: 12");
     // Concise fleet output groups only observable operations and affected
     // Projects; it does not infer Workspace artifact or Project Binding causes.
-    expect(preview.stdout).toContain("Project changes:");
-    expect(preview.stdout).toContain("  + 1 generated file addition in");
-    expect(preview.stdout).toContain("  ~ 21 generated file updates in 12 projects");
     expect(preview.stdout).not.toContain("Workspace changes:");
     expect(preview.stdout).not.toContain("Skill review-pr");
     expect(preview.stdout).not.toContain("Project Binding");
     // One collapsed next action; no repeated per-Project blocks or zero-value
     // blocker clauses.
-    expect(preview.stdout.match(/Run apkit apply --all\./g)).toHaveLength(1);
+    expect(preview.stdout.match(/Next: apkit apply --all/g)).toHaveLength(1);
+    expect(preview.stdout.match(/Details: apkit status --all --verbose/g)).toHaveLength(1);
     expect(preview.stdout).not.toContain("Blockers: 0");
     expect(preview.stdout).not.toContain("State: current");
 
@@ -438,7 +438,7 @@ describe("fleet-wide synchronization qualification", () => {
     );
     expectExitCode(pty, 0);
     expect(pty.stdout).toContain(STATUS_PROGRESS_LABEL);
-    const reportIndex = pty.stdout.indexOf("Ready to apply");
+    const reportIndex = pty.stdout.indexOf("Updates ready");
     expect(reportIndex).toBeGreaterThan(-1);
     const beforeReport = pty.stdout.slice(0, reportIndex);
     const afterReport = pty.stdout.slice(reportIndex);
@@ -447,7 +447,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(lastLabel).toBeGreaterThan(-1);
     expect(beforeReport.slice(lastLabel + STATUS_PROGRESS_LABEL.length)).toMatch(/^\.*\r +\r$/);
     // The concise fleet report follows the clear, not a repeated matrix.
-    expect(afterReport).toContain("Ready to apply");
+    expect(afterReport).toContain("Updates ready");
 
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({

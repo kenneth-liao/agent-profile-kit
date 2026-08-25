@@ -206,54 +206,25 @@ Gaps: ~~[UJ-17](#uj-17)~~ (shipped in
 
 ### 7. Preview
 
-Leading with the outcome (`Ready to apply` / `Cannot apply`) and closing with one
-next action is the right shape, and it now survives scale. A multi-Project run
-groups observable output operations instead of repeating the same Profile,
-Hosts, paths, and next action per Project. Additions, updates, repairs, and
-removals carry generated-file and affected-Project counts without inferred
-artifact causality; generated-directory ownership attention identifies only the
-aggregate generated root as a Project exception. A single-Project run keeps the
-recognizable Project-first detail.
-A qualified 12-Project preview of one shared Skill update plus one Host addition
-renders the operation shape as:
+Unblocked pending `status` now presents one compact decision at both single-
+Project and fleet scope. When every non-zero file operation affects the same
+Project scope, one outcome line carries all counts. Differing scopes use one
+compact line per operation without an aggregate that repeats those totals.
+Routine generated paths and successful Git exclusion bookkeeping move behind
+`--verbose`; drift, ownership, destructive-removal, warning, Blocker, and Git
+attention keep the identity needed to act. The selected invocation determines
+one apply command and, when detail is suppressed, one matching verbose route:
 
 ```
-Ready to apply
-Projects: 12 · Changes: 2 generated file additions, 27 generated file updates
+Updates ready for 14 projects (96 file updates).
+Next: apkit apply --all
 
-Project changes:
-  + 2 generated file additions in <project>
-  ~ 27 generated file updates in 12 projects
-
-Next:
-- Run apkit apply --all.
+Details: apkit status --all --verbose
 ```
 
-Project lists use progressive disclosure: a complete short list when small, a
-count when every Project is affected, or a capped representative list with an
-explicit `--verbose` pointer to every Project.
-Verbose retains the full per-Project and per-path evidence, and the versioned
-JSON stays flat.
-
-```
-Ready to apply
-Profile Installations: 3 · Changes: 19 generated-output additions · Blockers: 0
-
-Profile Installation: <api>
-  Profile: engineering
-  State: addition
-  Changes: 13 generated-output additions
-…
-Repository exclusions:
-Git-local exclusions that keep Installer-owned generated paths untracked.
-- <api>/.git/info/exclude: add /.agent-profile-kit/codex/context.md, /.agent-profile-kit/installation.json, /.agents/skills/code-review, /.agents/skills/deploy, /.claude/rules/agent-profile-kit.md, /.claude/skills/code-review, /.claude/skills/deploy, /.codex/hooks.json, /.grok/skills/code-review, /.grok/skills/deploy, /.pi/APPEND_SYSTEM.md
-```
-
-At capture time, three things broke here. The 13 files were never listed as
-files — the exclusion line was the only place any path appeared, as one
-~500-character comma-separated run. Project blocks now echo the four Hosts that
-produced the files, and changed paths now appear directly beneath each project,
-including non-Git projects.
+Verbose retains the full per-Project, per-path, and Git evidence, and versioned
+JSON remains unchanged. Host Setup Step filtering, apply receipts, first-use
+guidance, and readiness wording are separate slices.
 
 Interactive previews that outlast a short anti-flicker threshold show delayed
 operation-level progress on the terminal line; the line is cleared before the
@@ -521,13 +492,12 @@ Severity is a maintainer judgement about journey impact, not a schedule.
 
 ### UJ-32
 
-A real 14-Project `status --all` renders the same pending generated-file totals
-in both its aggregate and `Project changes` sections, then repeats standing
-setup actions and consequences. `apply --all` repeats that guidance before its
-primary result and splits one equivalent next-launch outcome by exact Host set.
-The facts are valid evidence, but the default hierarchy makes a routine decision
-look like several separate outcomes. Delivery is tracked across
-[#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301),
+The `status` portion shipped in
+[#301](https://github.com/kenneth-liao/agent-profile-kit/issues/301): pending
+single-Project and fleet views now render one scope-correct impact decision,
+one matching apply command, and at most one matching verbose route while routine
+paths and successful Git bookkeeping remain diagnostic detail. The remaining
+apply hierarchy, setup, and readiness repetition is tracked by
 [#303](https://github.com/kenneth-liao/agent-profile-kit/issues/303),
 [#304](https://github.com/kenneth-liao/agent-profile-kit/issues/304), and
 [#305](https://github.com/kenneth-liao/agent-profile-kit/issues/305).
