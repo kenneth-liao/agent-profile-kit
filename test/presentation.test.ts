@@ -905,6 +905,7 @@ describe("responsive lifecycle presentation", () => {
     expect(output.split("\n").some((line) => line.includes(receipt.project!))).toBe(true);
     expect(output).toContain("- Trust the bound project in Codex.");
     expect(output.split("\n")).toContain(`    ${receipt.temporaryInstallationId}`);
+    expect(output).toContain(`apkit remove-temp ${receipt.temporaryInstallationId}`);
     expect(output).toContain("  Consequence: Profile Context does");
     expect(output).toContain(diagnosticValue);
     expect(output).not.toContain("generated diagnostic path with\n");
@@ -912,7 +913,7 @@ describe("responsive lifecycle presentation", () => {
       "Consequence: Profile Context does not load until the project is trusted.",
     );
     for (const line of output.trimEnd().split("\n")) {
-      if (line.includes(receipt.project!)) continue;
+      if (line.includes(receipt.project!) || line.includes("apkit remove-temp")) continue;
       expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
     }
   });

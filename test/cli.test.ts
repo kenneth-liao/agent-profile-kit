@@ -9459,6 +9459,45 @@ describe("apkit temporary Profile installation (Codex)", () => {
     }
   });
 
+  test("install-temp prints the exact idempotent removal command for its temporary Profile", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-command-"));
+    const unrelated = join(tempProject, "keep.txt");
+    writeFileSync(unrelated, "user-owned\n");
+
+    const install = await runCli(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "codex",
+    );
+
+    expectExitCode(install, 0);
+    const identity = install.stdout.match(/^  Temporary installation: (\S+)$/m)?.[1];
+    const printed = install.stdout.match(/^Next: (apkit remove-temp (\S+))$/m);
+    expect(identity).toBeTruthy();
+    expect(printed?.[2]).toBe(identity);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+
+    const commandArguments = printed![1]!.split(" ").slice(1);
+    const remove = await runCli(home, ...commandArguments);
+
+    expectExitCode(remove, 0);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(readFileSync(unrelated, "utf8")).toBe("user-owned\n");
+
+    const removeAgain = await runCli(home, ...commandArguments);
+
+    expectExitCode(removeAgain, 0);
+    expect(removeAgain.stdout).toContain(`Temporary installation: ${identity}`);
+    expect(readFileSync(unrelated, "utf8")).toBe("user-owned\n");
+  });
+
   test("install-temp / remove-temp complete Codex lifecycle with a versioned receipt and isolation", async () => {
     const home = isolatedHome();
     await initialize(home);
