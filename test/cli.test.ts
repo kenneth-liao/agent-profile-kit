@@ -499,17 +499,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(exampleContext)).toBe(false);
   });
 
-  test("init names a next bind command that succeeds with the scaffolded Profile", async () => {
+  test("init help and scaffold success recommend the same bindable example Profile", async () => {
     const home = isolatedHome();
     const projectPath = project();
+    const firstRunCommand = `apkit bind ${AUTHORING_EXAMPLES.profile.id} --host codex`;
 
+    const help = await runCli(home, "init", "--help");
     const init = await runCli(home, "init");
 
+    expectExitCode(help, 0);
     expectExitCode(init, 0);
+    expect(help.stdout).toContain(`Next: Run ${firstRunCommand}.`);
     expect(init.stdout).toContain(
-      "Next: from the project you want to try, run apkit bind example --host codex",
+      `Next: from the project you want to try, run ${firstRunCommand}`,
     );
-    const bind = await runCliAt(home, projectPath, "bind", "example", "--host", "codex");
+    const bind = await runCliAt(
+      home,
+      projectPath,
+      "bind",
+      AUTHORING_EXAMPLES.profile.id,
+      "--host",
+      "codex",
+    );
     expectExitCode(bind, 0);
   });
 
@@ -8274,10 +8285,6 @@ describe("apkit root help", () => {
     }
     expect(result.stdout).toContain("apkit guide --full");
     expect(result.stdout).toContain("apkit guide --agent");
-
-    const initHelp = await runCli(home, "init", "--help");
-    expectExitCode(initHelp, 0);
-    expect(initHelp.stdout).toContain("Next: Run apkit guide profile.");
   });
 
   test("a close unknown command gets one suggestion and a distant one gets concise help", async () => {
