@@ -8414,10 +8414,10 @@ describe("apkit list", () => {
     // present word-for-word, so compare with whitespace collapsed.
     const collapsed = result.stdout.replace(/\s+/g, " ");
     for (const topic of INVENTORY_TOPICS) {
-      expect(result.stdout).toContain(`apkit list ${topic.name}`);
-      expect(collapsed).toContain(topic.description);
-      expect(result.stdout).toContain(`apkit list ${topic.name} --json`);
+      expect(result.stdout.match(new RegExp(`apkit list ${topic.name}`, "g"))).toHaveLength(1);
+      expect(collapsed.split(topic.description)).toHaveLength(2);
     }
+    expect(result.stdout).not.toContain("--json");
     expect(existsSync(configPath(home))).toBe(false);
     expect(existsSync(statePath(home))).toBe(false);
   });
@@ -9168,6 +9168,10 @@ describe("apkit list", () => {
     expect(listHelp.stdout).toContain(`Usage: apkit ${inventoryCommandSyntax()}`);
     expect(listHelp.stdout).toContain("read-only inventory");
     expect(listHelp.stdout).toContain("Project lifecycle diagnostics");
+    expect(listHelp.stdout).toContain("[--json]");
+    for (const topic of INVENTORY_TOPICS) {
+      expect(listHelp.stdout).toContain(`apkit list ${topic.name} --json`);
+    }
     expect(statusHelp.stdout).toContain("complete read-only apply plan");
     expect(statusHelp.stdout).not.toContain("Project inventory");
   });

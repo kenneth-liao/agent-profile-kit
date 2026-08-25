@@ -449,7 +449,6 @@ export function formatInventoryIndex(
     lines.push(
       `  ${COMMAND_NAME} list ${topic.name}`,
       `    ${topic.description}`,
-      `    JSON example: ${COMMAND_NAME} list ${topic.name} --json`,
     );
   }
   return responsiveHumanText(`${lines.join("\n")}\n`, options.context);

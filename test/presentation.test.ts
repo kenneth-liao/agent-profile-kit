@@ -2964,16 +2964,12 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
       "Inventory topics:\n" +
         "  apkit list projects\n" +
         "    Project inventory from Local Configuration.\n" +
-        "    JSON example: apkit list projects --json\n" +
         "  apkit list profiles\n" +
         "    Profile inventory from the selected Workspace.\n" +
-        "    JSON example: apkit list profiles --json\n" +
         "  apkit list hosts\n" +
         "    Supported Agent Host inventory with Temporary Profile Installation eligibility.\n" +
-        "    JSON example: apkit list hosts --json\n" +
         "  apkit list temporary\n" +
-        "    Active Temporary Profile Installation inventory from Installation State.\n" +
-        "    JSON example: apkit list temporary --json\n",
+        "    Active Temporary Profile Installation inventory from Installation State.\n",
     );
   });
 
