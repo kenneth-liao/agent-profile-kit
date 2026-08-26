@@ -5479,7 +5479,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       join(projectPath, ".claude", "skills", "to-spec", "SKILL.md"),
       "utf8",
     );
+    const codexSkill = readFileSync(
+      join(projectPath, ".agents", "skills", "to-spec", "SKILL.md"),
+      "utf8",
+    );
+    expect(claudeSkill).toBe(codexSkill);
     expect(claudeSkill).toContain("disable-model-invocation: true");
+    expect(claudeSkill).toContain("# Agent Profile Kit: keep Skill invocation explicit.");
     const codexPolicy = parse(
       readFileSync(
         join(projectPath, ".agents", "skills", "to-spec", "agents", "openai.yaml"),

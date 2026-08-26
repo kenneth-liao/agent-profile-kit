@@ -20,6 +20,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Preserve authored YAML frontmatter comments and formatting when projecting disabled-invocation Skills, and unify the Claude and qualified shared Skill emitters ([#329](https://github.com/kenneth-liao/agent-profile-kit/issues/329)).
+
 - Qualify the complete quiet, task-first newcomer journey through one packed CLI path and recapture the living first-run excerpts from that run ([#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307)).
 
 - Apply the maintained newcomer presentation lexicon across default views, help, inventory, and lifecycle summaries while preserving canonical domain terms on technical and machine surfaces ([#306](https://github.com/kenneth-liao/agent-profile-kit/issues/306)).

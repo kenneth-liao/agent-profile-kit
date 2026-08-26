@@ -14,7 +14,6 @@ import { parse } from "yaml";
 import {
   assertClaudeCliVersionSupported,
   assertClaudeProjectCapability,
-  emitClaudeSkillMarkdown,
   planClaudeProject,
   CLAUDE_HOST_VERSION,
   CLAUDE_HOST_VERSION_WITH_INVOCATION,
@@ -31,6 +30,7 @@ import {
   CODEX_HOST_VERSION_WITH_INVOCATION,
   CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION,
 } from "../adapters/codex.js";
+import { emitSharedSkillMarkdown } from "../adapters/shared-skill.js";
 import { blockerMessage } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
@@ -146,7 +146,7 @@ describe("Skill model-invocation policy", () => {
     const skill = parseSkill(DISABLED_BODY, SKILL_PATH, SOURCE_PATH);
     expect(skill.modelInvocation).toBe("disabled");
     // Unrelated metadata is not stripped from source; projection keeps author.
-    const projected = emitClaudeSkillMarkdown("to-spec", DISABLED_BODY, "disabled");
+    const projected = emitSharedSkillMarkdown("to-spec", DISABLED_BODY, "disabled");
     expect(projected).toContain("author: maintainer");
   });
 
@@ -160,16 +160,18 @@ describe("Skill model-invocation policy", () => {
     ).toThrow("does not allow fields: disable-model-invocation");
   });
 
-  test("Claude Host projection emits disable-model-invocation only when disabled", () => {
+  test("shared invocation emitter projects disable-model-invocation only when disabled while preserving authored comments and formatting", () => {
     const allowedSource =
       "---\nname: to-spec\ndescription: Turn conversation into a spec.\n---\n\n# To spec\n";
-    expect(emitClaudeSkillMarkdown("to-spec", allowedSource, "allowed")).toBe(allowedSource);
+    expect(emitSharedSkillMarkdown("to-spec", allowedSource, "allowed")).toBe(allowedSource);
 
-    const projected = emitClaudeSkillMarkdown("to-spec", DISABLED_BODY, "disabled");
-    expect(projected).toContain("disable-model-invocation: true");
-    expect(projected).toContain("agent-profile-kit.model-invocation: disabled");
-    expect(projected).toContain("author: maintainer");
-    expect(projected).toContain("# To spec");
+    const authoredSource =
+      "---\n# Primary header comment\nname: to-spec\n# Authored description comment\ndescription: 'Single quoted description'\nlicense: \"MIT\"\nmetadata:\n  # Author metadata comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n---\n\n# To spec\n\nPreserve body bytes.\n";
+
+    const projected = emitSharedSkillMarkdown("to-spec", authoredSource, "disabled");
+    expect(projected).toBe(
+      "---\n# Primary header comment\nname: to-spec\n# Authored description comment\ndescription: 'Single quoted description'\nlicense: \"MIT\"\nmetadata:\n  # Author metadata comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n\n# To spec\n\nPreserve body bytes.\n",
+    );
   });
 
   test("Codex Host projection coalesces equivalent openai.yaml policy and rejects conflicts", () => {
@@ -351,8 +353,11 @@ describe("Skill model-invocation policy", () => {
     await applyReconciliation(home, desired.installations);
 
     const claudeSkill = readFileSync(join(project, ".claude", "skills", "to-spec", "SKILL.md"), "utf8");
+    const codexSkill = readFileSync(join(project, ".agents", "skills", "to-spec", "SKILL.md"), "utf8");
+    expect(claudeSkill).toBe(codexSkill);
     expect(claudeSkill).toContain("disable-model-invocation: true");
     expect(claudeSkill).toContain("agent-profile-kit.model-invocation: disabled");
+    expect(claudeSkill).toContain("# Agent Profile Kit: keep Skill invocation explicit.");
     const codexOpenAi = parse(
       readFileSync(join(project, ".agents", "skills", "to-spec", "agents", "openai.yaml"), "utf8"),
     ) as { policy: { allow_implicit_invocation: boolean } };
@@ -360,6 +365,45 @@ describe("Skill model-invocation policy", () => {
     // Canonical Workspace source remains unchanged.
     expect(readFileSync(join(skillRoot, "SKILL.md"), "utf8")).toBe(DISABLED_BODY);
     expect(existsSync(join(skillRoot, "agents", "openai.yaml"))).toBe(false);
+  });
+
+  test("Claude and Codex plans produce identical Skill document bytes for disabled model invocation", async () => {
+    const source = temporaryDirectory("apk-mi-identical-");
+    const authoredSource =
+      "---\n# Header comment\nname: to-spec\ndescription: \"Turn conversation into a spec.\"\nmetadata:\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n---\n\n# To spec\n";
+    writeSkillPackage(source, { "SKILL.md": { bytes: authoredSource } });
+
+    const claude = await planClaudeProject("coding", [{ id: "team-rules", content: "rules\n" }], [
+      skillAt(source, "disabled"),
+    ]);
+    const codex = await planCodexProject("coding", [{ id: "team-rules", content: "rules\n" }], [
+      skillAt(source, "disabled"),
+    ]);
+
+    const claudePkg = claude.outputs.find(
+      (output) => output.type === "directory" && output.path === ".claude/skills/to-spec",
+    );
+    const codexPkg = codex.outputs.find(
+      (output) => output.type === "directory" && output.path === ".agents/skills/to-spec",
+    );
+    if (!claudePkg || claudePkg.type !== "directory" || !codexPkg || codexPkg.type !== "directory") {
+      throw new Error("expected packages");
+    }
+
+    const claudeMd = claudePkg.members.find((member) => member.path === "SKILL.md");
+    const codexMd = codexPkg.members.find((member) => member.path === "SKILL.md");
+    if (!claudeMd || claudeMd.type !== "file" || !codexMd || codexMd.type !== "file") {
+      throw new Error("expected SKILL.md");
+    }
+
+    const claudeBytes = Buffer.from(claudeMd.bytes).toString("utf8");
+    const codexBytes = Buffer.from(codexMd.bytes).toString("utf8");
+    expect(claudeBytes).toBe(codexBytes);
+    expect(claudeBytes).toContain("# Header comment");
+    expect(claudeBytes).toContain("description: \"Turn conversation into a spec.\"");
+    expect(claudeBytes).toContain("author: 'maintainer'");
+    expect(claudeBytes).toContain("# Agent Profile Kit: keep Skill invocation explicit.");
+    expect(claudeBytes).toContain("disable-model-invocation: true");
   });
 
   test("allowed Skills keep base Host capability contract tokens", async () => {

@@ -1,7 +1,6 @@
 import { join, posix } from "node:path";
-import { parse, stringify } from "yaml";
 
-import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
+import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { CLAUDE_ADAPTER_VERSION } from "./host-catalog.js";
 import { type ContextModuleSource } from "./context-envelope.js";
@@ -19,6 +18,7 @@ import {
   compareCoreSemanticVersions,
   normalizeCoreSemanticVersion,
 } from "./services/semantic-version.js";
+import { emitSharedSkillMarkdown } from "./shared-skill.js";
 import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
   DISABLED_MODEL_INVOCATION_REQUIREMENT,
@@ -100,20 +100,6 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
-function parseYaml(source: string, description: string): unknown {
-  try {
-    return parse(source);
-  } catch {
-    throw new Error(`${description} is invalid YAML`);
-  }
-}
-
-function requireMapping(value: unknown, description: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${description} must be a YAML mapping`);
-  }
-  return value as Record<string, unknown>;
-}
 
 function memberBytesAsString(bytes: string | Uint8Array): string {
   return typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8");
@@ -301,34 +287,6 @@ export async function assertClaudeProjectCapability(
   await assertClaudeProjectSurface(project, options);
 }
 
-/** Emit Claude Host SKILL.md with disable-model-invocation when policy is disabled. */
-export function emitClaudeSkillMarkdown(
-  skillId: string,
-  source: string,
-  modelInvocation: ModelInvocationPolicy,
-): string {
-  if (modelInvocation === "allowed") return source;
-
-  const delimiter = "---\n";
-  if (!source.startsWith(delimiter)) {
-    throw new Error(`Skill '${skillId}' SKILL.md must start with YAML frontmatter`);
-  }
-  const closing = source.indexOf(delimiter, delimiter.length);
-  if (closing === -1) {
-    throw new Error(`Skill '${skillId}' SKILL.md must close its YAML frontmatter`);
-  }
-  const header = requireMapping(
-    parseYaml(
-      source.slice(delimiter.length, closing),
-      `Skill '${skillId}' SKILL.md frontmatter`,
-    ),
-    `Skill '${skillId}' SKILL.md frontmatter`,
-  );
-  header["disable-model-invocation"] = true;
-  const body = source.slice(closing + delimiter.length);
-  return `${delimiter}${stringify(header).trimEnd()}\n---\n${body}`;
-}
-
 /** Claude-owned Skill package projection (Host-native model-invocation mapping). */
 export function projectClaudeSkillMembers(
   skill: Skill,
@@ -338,7 +296,7 @@ export function projectClaudeSkillMembers(
     if (member.type !== "file" || member.path !== "SKILL.md") return member;
     const projected: ProposedDirectoryFileMember = {
       ...member,
-      bytes: emitClaudeSkillMarkdown(
+      bytes: emitSharedSkillMarkdown(
         skill.id,
         memberBytesAsString(member.bytes),
         skill.modelInvocation,
