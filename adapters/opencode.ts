@@ -16,6 +16,7 @@ import {
 } from "./services/semantic-version.js";
 import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
+  skillsRequireDisabledModelInvocation,
   type AdapterPlanningMaterials,
 } from "./skill-package.js";
 import {
@@ -32,8 +33,25 @@ import type {
 
 /** Capability Contract for OpenCode native project instructions and shared Skills. */
 export const OPENCODE_HOST_VERSION = "native-project-instructions-skills-v1";
+/**
+ * Capability Contract for OpenCode native project instructions and shared Skills
+ * whose generated global rule denies model loading while native Skill commands
+ * remain available for explicit activation. User-authored permission overrides
+ * and command collisions remain Host Resolution.
+ *
+ * Evidence: OpenCode 1.18.23 filters globally denied Skills from the model-facing
+ * inventory and rejects guessed `skill` tool calls before an approval request,
+ * including in auto mode. Its separate native command inventory registers every
+ * discovered Skill and expands an explicit `/<Artifact ID>` without the Skill
+ * permission path.
+ */
+export const OPENCODE_HOST_VERSION_WITH_INVOCATION =
+  "native-project-instructions-skills-invocation-v1";
 
-/** Minimum OpenCode version verified for native shared Skill discovery. */
+/**
+ * Minimum OpenCode version verified for native shared Skill discovery, denied
+ * model loading, and explicit native Skill command activation.
+ */
 export const OPENCODE_MINIMUM_CLI_VERSION = "1.18.23";
 
 /** OpenCode native project Skill discovery root. */
@@ -56,6 +74,10 @@ export const OPENCODE_CONTEXT_REQUIREMENTS = [
 
 export const OPENCODE_CONFIG_REQUIREMENTS = [
   "OpenCode loads Profile Context through owned configuration instruction reference",
+] as const;
+
+export const OPENCODE_CONFIG_INVOCATION_REQUIREMENTS = [
+  "OpenCode blocks model-selected Skill loading while native Skill commands remain available for explicit activation",
 ] as const;
 
 export const OPENCODE_CONFIG_OCCUPIED_REMEDY =
@@ -138,6 +160,7 @@ async function resolveOpenCodeCliVersion(
 
 /** Complete normalized machine-level requirements for the OpenCode probe. */
 export function openCodeMachineRequirements(options: {
+  readonly requireConfig?: boolean;
   readonly requireContext?: boolean;
   readonly requireSkills?: boolean;
 }): Readonly<Record<string, boolean>> {
@@ -160,12 +183,14 @@ export async function probeOpenCodeMachineCapability(
 export async function assertOpenCodeProjectSurface(
   project: string,
   options: {
+    readonly requireConfig?: boolean;
     readonly requireContext?: boolean;
     readonly requireSkills?: boolean;
   } = {},
 ): Promise<void> {
   const requireSkills = options.requireSkills === true;
   const requireContext = options.requireContext !== false;
+  const requireConfig = options.requireConfig === true || requireContext;
 
   if (requireSkills) {
     const agentsPath = join(project, ".agents");
@@ -194,7 +219,7 @@ export async function assertOpenCodeProjectSurface(
     }
   }
 
-  if (requireContext) {
+  if (requireConfig) {
     const opencodePath = join(project, ".opencode");
     const opencodeKind = await classifyFileSystemEntry(opencodePath);
     if (opencodeKind !== "missing" && opencodeKind !== "directory") {
@@ -207,6 +232,9 @@ export async function assertOpenCodeProjectSurface(
         problem,
       );
     }
+  }
+
+  if (requireContext) {
     const apkPath = join(project, ".agent-profile-kit");
     const apkKind = await classifyFileSystemEntry(apkPath);
     if (apkKind !== "missing" && apkKind !== "directory") {
@@ -244,25 +272,14 @@ export async function assertOpenCodeProjectCapability(
 }
 
 /**
- * Detect unsupported Profile features (disabled-invocation Skills)
- * for the OpenCode Adapter. Returns the list of typed capability failures.
+ * Detect unsupported Profile features for the OpenCode Adapter.
+ * Returns the list of typed capability failures.
  */
 export function openCodeProfileCapabilityFailures(
   _modules: readonly ContextModuleSource[] = [],
-  skills: readonly Skill[] = [],
+  _skills: readonly Skill[] = [],
 ): readonly AdapterCapabilityError[] {
-  const failures: AdapterCapabilityError[] = [];
-  const disabledSkill = skills.find((skill) => skill.modelInvocation === "disabled");
-  if (disabledSkill) {
-    failures.push(
-      capabilityFailure(
-        "opencode",
-        `OpenCode does not support disabled model invocation for Skill '${disabledSkill.id}'`,
-        "change the Skill's model-invocation policy to allowed or do not select OpenCode for this Project",
-      ),
-    );
-  }
-  return failures;
+  return [];
 }
 
 /** Reject unsupported Profile features before direct OpenCode planning. */
@@ -274,15 +291,29 @@ export function assertOpenCodeProfileSupported(
   if (firstFailure) throw firstFailure;
 }
 
-function openCodeConfiguration(contextPath: string): string {
-  return `${JSON.stringify(
-    {
-      "$schema": "https://opencode.ai/config.json",
-      "instructions": [contextPath],
-    },
-    null,
-    2,
-  )}\n`;
+function openCodeConfiguration(options: {
+  readonly contextPath?: string | undefined;
+  readonly disabledSkills?: readonly Skill[] | undefined;
+}): string {
+  const config: Record<string, unknown> = {
+    $schema: "https://opencode.ai/config.json",
+  };
+  if (options.contextPath) {
+    config.instructions = [options.contextPath];
+  }
+  if (options.disabledSkills && options.disabledSkills.length > 0) {
+    const sortedSkills = [...options.disabledSkills].sort((a, b) =>
+      a.id.localeCompare(b.id),
+    );
+    const skillPermissions: Record<string, string> = {};
+    for (const skill of sortedSkills) {
+      skillPermissions[skill.id] = "deny";
+    }
+    config.permission = {
+      skill: skillPermissions,
+    };
+  }
+  return `${JSON.stringify(config, null, 2)}\n`;
 }
 
 function contextOutput(
@@ -302,14 +333,26 @@ function contextOutput(
 
 function configurationOutput(
   modules: readonly ContextModuleSource[],
+  disabledSkills: readonly Skill[] = [],
 ): ProposedProjectFileOutput {
+  const requirements: string[] = [
+    ...(modules.length > 0 ? OPENCODE_CONFIG_REQUIREMENTS : []),
+    ...(disabledSkills.length > 0 ? OPENCODE_CONFIG_INVOCATION_REQUIREMENTS : []),
+  ];
+  const origins = [
+    ...modules.map((module) => ({ id: module.id, type: "context" as const })),
+    ...disabledSkills.map((skill) => ({ id: skill.id, type: "skill" as const })),
+  ];
   return {
-    bytes: openCodeConfiguration(OPENCODE_CONTEXT_PATH),
+    bytes: openCodeConfiguration({
+      contextPath: modules.length > 0 ? OPENCODE_CONTEXT_PATH : undefined,
+      disabledSkills,
+    }),
     mode: 0o644,
-    origins: modules.map((module) => ({ id: module.id, type: "context" as const })),
+    origins,
     path: OPENCODE_CONFIG_PATH,
     remedy: OPENCODE_CONFIG_OCCUPIED_REMEDY,
-    requirements: [...OPENCODE_CONFIG_REQUIREMENTS],
+    requirements,
     type: "file",
   };
 }
@@ -342,14 +385,19 @@ export async function planOpenCodeProject(
   assertOpenCodeProfileSupported(modules, skills);
   const materials = options.materials ?? DEFAULT_ADAPTER_PLANNING_MATERIALS;
   const packages = await skillOutputs(skills, materials);
-  const outputs: readonly ProposedProjectOutput[] = modules.length > 0
-    ? [
-        configurationOutput(modules),
-        contextOutput(profileId, modules, materials),
-        ...packages,
-      ]
-    : packages;
-  const setupSteps: readonly AdapterHostSetupStep[] = modules.length > 0
+  const disabledSkills = skills.filter((skill) => skill.modelInvocation === "disabled");
+  const hasConfig = modules.length > 0 || disabledSkills.length > 0;
+
+  const outputs: ProposedProjectOutput[] = [];
+  if (hasConfig) {
+    outputs.push(configurationOutput(modules, disabledSkills));
+  }
+  if (modules.length > 0) {
+    outputs.push(contextOutput(profileId, modules, materials));
+  }
+  outputs.push(...packages);
+
+  const setupSteps: readonly AdapterHostSetupStep[] = hasConfig
     ? [
         {
           consequence:
@@ -361,9 +409,14 @@ export async function planOpenCodeProject(
         },
       ]
     : [];
+
+  const hostVersion = skillsRequireDisabledModelInvocation(skills)
+    ? OPENCODE_HOST_VERSION_WITH_INVOCATION
+    : OPENCODE_HOST_VERSION;
+
   return {
     host: "opencode",
-    hostVersion: OPENCODE_HOST_VERSION,
+    hostVersion,
     outputs,
     setupSteps,
   };
@@ -378,12 +431,14 @@ export const opencodeAdapter = {
     );
     const requireContext = input.resolvedContexts.length > 0;
     const requireSkills = input.resolvedSkills.length > 0;
+    const requireConfig =
+      requireContext || skillsRequireDisabledModelInvocation(input.resolvedSkills);
     const capabilityFailures: unknown[] = [...profileFailures];
 
     if (input.checkHostCapability) {
       try {
         await services.probeMachineCapability(
-          openCodeMachineRequirements({ requireContext, requireSkills }),
+          openCodeMachineRequirements({ requireConfig, requireContext, requireSkills }),
           () => probeOpenCodeMachineCapability({
             ...(input.env === undefined ? {} : { env: input.env }),
             requireContext,
@@ -391,6 +446,7 @@ export const opencodeAdapter = {
           }),
         );
         await assertOpenCodeProjectSurface(input.project, {
+          requireConfig,
           requireContext,
           requireSkills,
         });
