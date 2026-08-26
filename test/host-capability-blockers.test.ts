@@ -14,6 +14,7 @@ import { assertAntigravityProjectCapability } from "../adapters/antigravity.js";
 import { assertClaudeProjectCapability } from "../adapters/claude.js";
 import { assertCodexProjectCapability } from "../adapters/codex.js";
 import { assertGrokProjectCapability, parseGrokInspectDocument } from "../adapters/grok.js";
+import { assertOpenCodeProjectCapability } from "../adapters/opencode.js";
 import { assertPiProjectCapability } from "../adapters/pi.js";
 import {
   capabilityFailure,
@@ -154,6 +155,12 @@ describe("Host capability blockers", () => {
         host: "grok" as const,
         run: () => assertGrokProjectCapability(project, {
           resolveVersion: async () => "0.1.0",
+        }),
+      },
+      {
+        host: "opencode" as const,
+        run: () => assertOpenCodeProjectCapability(project, {
+          resolveVersion: async () => "1.18.22",
         }),
       },
       {

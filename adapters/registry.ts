@@ -2,6 +2,7 @@ import { antigravityAdapter } from "./antigravity.js";
 import { claudeAdapter } from "./claude.js";
 import { codexAdapter } from "./codex.js";
 import { grokAdapter } from "./grok.js";
+import { opencodeAdapter } from "./opencode.js";
 import { piAdapter } from "./pi.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 import {
@@ -27,6 +28,7 @@ const COMPLETE_ADAPTERS = {
   claude: claudeAdapter,
   codex: codexAdapter,
   grok: grokAdapter,
+  opencode: opencodeAdapter,
   pi: piAdapter,
 } as const satisfies {
   readonly [H in SupportedHost]: CompleteHostAdapter & {
