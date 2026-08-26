@@ -209,4 +209,25 @@ describe("shared .agents Skill projector", () => {
     expect(output.members.some((member) => member.path === "disable-model-invocation")).toBe(false);
     expect(output.requirements).toEqual(["qualified shared Skill package"]);
   });
+
+  test("preserves frontmatter comments, key order, scalar style, and body bytes when disabled", async () => {
+    const source = temporaryDirectory("apk-shared-skill-formatting-");
+    const sourceSkill =
+      "---\n# Primary comment\nname: review-pr\n# Description comment\ndescription: 'Review a pull request.'\nlicense: \"MIT\"\nmetadata:\n  # Maintainer comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n\nPreserved body bytes.\n";
+    writeSkillPackage(source, {
+      "SKILL.md": { bytes: sourceSkill },
+    });
+
+    const output = await planSharedSkillPackageDirectory(
+      skillAt(source, "disabled"),
+      ["qualified shared Skill package"],
+      "codex",
+    );
+    const skillMember = output.members.find((member) => member.path === "SKILL.md");
+    if (!skillMember || skillMember.type !== "file") throw new Error("expected SKILL.md");
+    const generatedSkill = Buffer.from(skillMember.bytes).toString("utf8");
+    expect(generatedSkill).toBe(
+      "---\n# Primary comment\nname: review-pr\n# Description comment\ndescription: 'Review a pull request.'\nlicense: \"MIT\"\nmetadata:\n  # Maintainer comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n\n# Review\n\nPreserved body bytes.\n",
+    );
+  });
 });
