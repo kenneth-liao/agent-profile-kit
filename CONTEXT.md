@@ -17,7 +17,7 @@ The `workspace.yaml` file that marks a Workspace root and declares the Workspace
 _Avoid_: Installation Receipt, Profile
 
 **Agent Host**:
-An agent product or environment that consumes Agent Profile Kit material, such as Antigravity, Codex, Claude Code, Grok, or Pi.
+An agent product or environment that consumes Agent Profile Kit material, such as Antigravity, Codex, Claude Code, Grok, OpenCode, or Pi.
 _Avoid_: Agent Profile Kit implementation
 
 **Adapter**:
