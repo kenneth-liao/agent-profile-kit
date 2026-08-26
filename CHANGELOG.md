@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Enforce explicit-only OpenCode Skill invocation through Artifact-ID-keyed global deny rules while preserving native explicit Skill commands, and record distinct Capability Contracts ([#332](https://github.com/kenneth-liao/agent-profile-kit/issues/332)).
+
 - Load composed Profile Context for OpenCode through dedicated whole-file JSONC configuration referencing the owned Context document ([#331](https://github.com/kenneth-liao/agent-profile-kit/issues/331)).
 
 - Add OpenCode as a supported Agent Host that installs allowed-invocation Skills through the qualified shared projection ([#330](https://github.com/kenneth-liao/agent-profile-kit/issues/330)).

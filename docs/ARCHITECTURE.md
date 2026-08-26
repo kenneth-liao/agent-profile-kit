@@ -227,7 +227,7 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, OpenCode, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, OpenCode, and Pi support portable Skills, with Antigravity, Codex, OpenCode, and Pi using the qualified shared projection and preserving disabled model invocation (with OpenCode currently delivering allowed-invocation Skills); Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
+The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, OpenCode, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, OpenCode, and Pi support portable Skills, with Antigravity, Codex, OpenCode, and Pi using the qualified shared projection and preserving disabled model invocation; Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
 
 ### Codex
 
@@ -337,39 +337,13 @@ CLI cannot prove the newer Capability Contract.
 
 ### OpenCode
 
-The OpenCode Adapter delivers Profile Context and allowed-invocation portable
-Skills through dedicated Host configuration and the qualified shared
-`.agents/skills/<Artifact ID>/` projection. It requires an `opencode` executable
-at or above verified floor `1.18.23` on `PATH` and rejects missing, unreadable,
-or older binaries with a typed capability failure. Capability preflight verifies
-that `.agents` and `.agents/skills` are missing or real directories when Skills
-are selected, and that `.opencode`, `.agent-profile-kit`, and `.agent-profile-kit/opencode`
-are directories and `.opencode/opencode.jsonc` and `.agent-profile-kit/opencode/context.md`
-are regular files when Context is selected.
+The OpenCode Adapter delivers Profile Context and portable Skills through dedicated Host configuration and the qualified shared `.agents/skills/<Artifact ID>/` projection. It requires an `opencode` executable at or above verified floor `1.18.23` on `PATH` and rejects missing, unreadable, or older binaries with a typed capability failure. Capability preflight verifies that `.agents` and `.agents/skills` are missing or real directories when Skills are selected, that `.opencode` is a directory when configuration is planned (Context or disabled Skills), and that `.agent-profile-kit` and `.agent-profile-kit/opencode` are directories when Context is selected.
 
-OpenCode delivers Profile Context through the owned composed Context document
-at `.agent-profile-kit/opencode/context.md` and references it through the additive
-`instructions` list inside the claimed wholly owned configuration file at
-`.opencode/opencode.jsonc`. OpenCode combines this configuration with user-authored
-slots via native additive merging, and the Project-relative reference continues to
-load Context when OpenCode is launched from any subdirectory. Repository-owned
-instructions and other user configuration slots remain untouched. Existing unowned
-material at `.opencode/opencode.jsonc` produces an Output Ownership Conflict Blocker
-before writes. When Context is planned, the Adapter emits one transition-provenance
-launch-constraint Host Setup Step tied to `.opencode/opencode.jsonc` reminding the
-user to restart running OpenCode sessions.
+OpenCode delivers Profile Context through the owned composed Context document at `.agent-profile-kit/opencode/context.md` and references it through the additive `instructions` list inside the claimed wholly owned configuration file at `.opencode/opencode.jsonc`. OpenCode combines this configuration with user-authored slots via native additive merging, and the Project-relative reference continues to load Context when OpenCode is launched from any subdirectory. Repository-owned instructions and other user configuration slots remain untouched. Existing unowned material at `.opencode/opencode.jsonc` produces an Output Ownership Conflict Blocker before writes. When configuration is planned (Context and/or disabled Skills), the Adapter emits one transition-provenance launch-constraint Host Setup Step tied to `.opencode/opencode.jsonc` reminding the user to restart running OpenCode sessions.
 
-OpenCode plans allowed-invocation Skill packages at the shared discovery root,
-preserving standard package bytes and modes while omitting the `agent-profile-kit.yaml`
-sidecar. In this release, disabled-invocation Skills are not supported by the OpenCode
-Adapter and are rejected at the planning boundary with typed capability failures before writes.
-When neither Context nor disabled-invocation Skills are required, no OpenCode configuration
-file and no Host Setup Steps are generated.
+OpenCode plans Skill packages at the shared discovery root, preserving standard package bytes and modes while omitting the `agent-profile-kit.yaml` sidecar. When trusted model-invocation policy is `disabled`, the OpenCode Adapter configures an Artifact-ID-keyed global Skill permission rule with action `deny` inside `.opencode/opencode.jsonc`. OpenCode 1.18.23 filters that Skill from the model-facing inventory and rejects guessed `skill` tool calls before any approval request, so CLI and TUI auto-approval cannot bypass the rule. OpenCode separately registers every discovered Skill as a native user Command; explicit `/<Artifact ID>` activation expands the Skill without entering the denied tool path. User-authored per-Agent or session permission overrides and same-name Commands remain Host Resolution. Allowed-invocation Skills produce no permission rules. When neither Context nor disabled-invocation Skills are required, no OpenCode configuration file and no Host Setup Steps are generated.
 
-Healthy OpenCode installations record baseline Capability Contract
-`native-project-instructions-skills-v1` under Adapter version `opencode-project-v1` in
-the Installation Receipt and participate in the standard Project Binding,
-status, apply, and Repository Exclusion lifecycle.
+Healthy OpenCode installations record baseline Capability Contract `native-project-instructions-skills-v1` or invocation contract `native-project-instructions-skills-invocation-v1` under Adapter version `opencode-project-v1` in the Installation Receipt and participate in the standard Project Binding, status, apply, and Repository Exclusion lifecycle.
 
 ## Reconciliation and Ownership
 
