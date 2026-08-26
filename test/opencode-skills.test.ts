@@ -16,6 +16,7 @@ import {
   assertOpenCodeCliVersionSupported,
   assertOpenCodeProjectCapability,
   assertOpenCodeProjectSurface,
+  detectOpenCodeProjectConfigurationWarnings,
   OPENCODE_ADAPTER_VERSION,
   OPENCODE_CONFIG_OCCUPIED_REMEDY,
   OPENCODE_CONFIG_PATH,
@@ -23,10 +24,15 @@ import {
   OPENCODE_HOST_VERSION_WITH_INVOCATION,
   OPENCODE_MINIMUM_CLI_VERSION,
   OPENCODE_PROJECT_SKILLS_ROOT,
+  openCodeClaudeDuplicateSkillDiscoveryWarning,
   parseOpenCodeCliVersion,
   planOpenCodeProject,
   probeOpenCodeMachineCapability,
 } from "../adapters/opencode.js";
+import {
+  CLAUDE_SKILLS_DISCOVERY_ROOT,
+  planClaudeProject,
+} from "../adapters/claude.js";
 import { planAntigravityProject } from "../adapters/antigravity.js";
 import { planCodexProject } from "../adapters/codex.js";
 import { planPiProject } from "../adapters/pi.js";
@@ -720,3 +726,241 @@ describe("OpenCode lifecycle: status and apply", () => {
     expect(existsSync(join(project, ".agents"))).toBe(false);
   });
 });
+
+describe("OpenCode and Claude duplicate Skill discovery", () => {
+  test("openCodeClaudeDuplicateSkillDiscoveryWarning names both Host-visible Skill roots and preserves them as copyable values", () => {
+    const warning = openCodeClaudeDuplicateSkillDiscoveryWarning();
+    expect(warning.copyableValues).toEqual([
+      CLAUDE_SKILLS_DISCOVERY_ROOT,
+      OPENCODE_PROJECT_SKILLS_ROOT,
+    ]);
+    expect(warning.copyableValues).toEqual([".claude/skills", ".agents/skills"]);
+    expect(warning.message).toContain(".claude/skills");
+    expect(warning.message).toContain(".agents/skills");
+    expect(warning.message).toContain("duplicate");
+  });
+
+  test("detects duplicate Skill discovery warning only when Claude is co-selected and at least one Skill is present", () => {
+    const sampleSkill: Skill = {
+      dependencies: [],
+      id: "review-pr",
+      modelInvocation: "allowed",
+      path: "/dummy",
+    };
+
+    // Both Claude and OpenCode selected + Skills -> 1 warning
+    const warned = detectOpenCodeProjectConfigurationWarnings(
+      ["claude", "opencode"],
+      [sampleSkill],
+    );
+    expect(warned).toHaveLength(1);
+    expect(warned[0]?.copyableValues).toContain(".claude/skills");
+    expect(warned[0]?.copyableValues).toContain(".agents/skills");
+
+    // Claude not selected -> 0 warnings
+    expect(
+      detectOpenCodeProjectConfigurationWarnings(["opencode"], [sampleSkill]),
+    ).toEqual([]);
+    expect(
+      detectOpenCodeProjectConfigurationWarnings(
+        ["antigravity", "codex", "opencode", "pi"],
+        [sampleSkill],
+      ),
+    ).toEqual([]);
+
+    // Claude selected but no Skills -> 0 warnings
+    expect(
+      detectOpenCodeProjectConfigurationWarnings(["claude", "opencode"], []),
+    ).toEqual([]);
+  });
+
+  test("produces identical candidate SKILL.md documents across Claude and OpenCode discovery roots for allowed-invocation Skills", async () => {
+    const source = temporaryDirectory("apk-opencode-claude-allowed-src-");
+    const skillContent =
+      "---\nname: review-pr\ndescription: Review pull request.\n---\n\n# Review PR\n";
+    writeSkillPackage(source, {
+      "SKILL.md": { bytes: skillContent, mode: 0o644 },
+    });
+
+    const canonicalSkill = skill("review-pr", source);
+    const claudePlan = await planClaudeProject("engineering", [], [canonicalSkill]);
+    const opencodePlan = await planOpenCodeProject("engineering", [], [canonicalSkill]);
+
+    const claudePkg = claudePlan.outputs.find((o) => o.path === ".claude/skills/review-pr");
+    const opencodePkg = opencodePlan.outputs.find((o) => o.path === ".agents/skills/review-pr");
+
+    if (!claudePkg || claudePkg.type !== "directory" || !opencodePkg || opencodePkg.type !== "directory") {
+      throw new Error("expected directory outputs");
+    }
+
+    const claudeSkillMd = claudePkg.members.find((m) => m.path === "SKILL.md");
+    const opencodeSkillMd = opencodePkg.members.find((m) => m.path === "SKILL.md");
+
+    expect(claudeSkillMd).toBeDefined();
+    expect(opencodeSkillMd).toBeDefined();
+    if (!claudeSkillMd || claudeSkillMd.type !== "file" || !opencodeSkillMd || opencodeSkillMd.type !== "file") {
+      throw new Error("expected SKILL.md file members");
+    }
+    expect(Buffer.from(claudeSkillMd.bytes).toString("utf8")).toBe(
+      Buffer.from(opencodeSkillMd.bytes).toString("utf8"),
+    );
+    expect(Buffer.from(opencodeSkillMd.bytes).toString("utf8")).toBe(skillContent);
+  });
+
+  test("produces identical candidate SKILL.md documents across Claude and OpenCode discovery roots for disabled-invocation Skills", async () => {
+    const source = temporaryDirectory("apk-opencode-claude-disabled-src-");
+    const authoredSkillContent =
+      "---\n# Frontmatter comment\nname: deploy\ndescription: Deploy production safely.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n";
+    writeSkillPackage(source, {
+      "SKILL.md": { bytes: authoredSkillContent, mode: 0o644 },
+    });
+
+    const disabledSkill: Skill = {
+      dependencies: [],
+      id: "deploy",
+      modelInvocation: "disabled",
+      path: source,
+    };
+
+    const claudePlan = await planClaudeProject("engineering", [], [disabledSkill]);
+    const opencodePlan = await planOpenCodeProject("engineering", [], [disabledSkill]);
+
+    const claudePkg = claudePlan.outputs.find((o) => o.path === ".claude/skills/deploy");
+    const opencodePkg = opencodePlan.outputs.find((o) => o.path === ".agents/skills/deploy");
+
+    if (!claudePkg || claudePkg.type !== "directory" || !opencodePkg || opencodePkg.type !== "directory") {
+      throw new Error("expected directory outputs");
+    }
+
+    const claudeSkillMd = claudePkg.members.find((m) => m.path === "SKILL.md");
+    const opencodeSkillMd = opencodePkg.members.find((m) => m.path === "SKILL.md");
+
+    expect(claudeSkillMd).toBeDefined();
+    expect(opencodeSkillMd).toBeDefined();
+    if (!claudeSkillMd || claudeSkillMd.type !== "file" || !opencodeSkillMd || opencodeSkillMd.type !== "file") {
+      throw new Error("expected SKILL.md file members");
+    }
+    // Byte-for-byte equality across candidate Skill documents
+    expect(Buffer.from(claudeSkillMd.bytes).toString("utf8")).toBe(
+      Buffer.from(opencodeSkillMd.bytes).toString("utf8"),
+    );
+    expect(Buffer.from(opencodeSkillMd.bytes).toString("utf8")).toContain(
+      "disable-model-invocation: true",
+    );
+    expect(Buffer.from(opencodeSkillMd.bytes).toString("utf8")).toContain("name: deploy");
+    expect(Buffer.from(opencodeSkillMd.bytes).toString("utf8")).toContain(
+      "description: Deploy production safely.",
+    );
+  });
+
+  test("emits exactly one diagnostic warning naming both roots when Project selects both Claude and OpenCode with Skills", async () => {
+    const home = temporaryDirectory("apk-opencode-claude-warn-home-");
+    const project = temporaryDirectory("apk-opencode-claude-warn-proj-");
+
+    await workspaceWithSkills(
+      home,
+      project,
+      [{ id: "review-pr" }, { id: "deploy" }],
+      ["review-pr", "deploy"],
+      ["claude", "opencode"],
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    expect(desired.installations).toHaveLength(1);
+    const installation = desired.installations[0]!;
+
+    // AC 1: exactly one Adapter diagnostic warning naming both roots
+    expect(installation.warnings).toHaveLength(1);
+    const warning = installation.warnings[0]!;
+    expect(warning.message).toContain(".claude/skills");
+    expect(warning.message).toContain(".agents/skills");
+    expect(warning.copyableValues).toContain(".claude/skills");
+    expect(warning.copyableValues).toContain(".agents/skills");
+
+    // AC 2: no Blocker is raised
+    expect(installation.blockers).toEqual([]);
+
+    // Both outputs are planned
+    const outputPaths = installation.outputs.map((o) => o.path).sort();
+    expect(outputPaths).toContain(".claude/skills/deploy");
+    expect(outputPaths).toContain(".claude/skills/review-pr");
+    expect(outputPaths).toContain(".agents/skills/deploy");
+    expect(outputPaths).toContain(".agents/skills/review-pr");
+  });
+
+  test("emits no duplicate-discovery warning when Claude and OpenCode are selected without Skills", async () => {
+    const home = temporaryDirectory("apk-opencode-claude-ctx-home-");
+    const project = temporaryDirectory("apk-opencode-claude-ctx-proj-");
+
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    mkdirSync(join(workspace, "context"), { recursive: true });
+    writeFileSync(
+      join(workspace, "context", "rules.md"),
+      "---\nid: rules\n---\n\nAlways follow conventions.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: [rules]\nskills: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [claude, opencode]\n`,
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    expect(desired.installations).toHaveLength(1);
+    const installation = desired.installations[0]!;
+
+    expect(installation.warnings).toEqual([]);
+    expect(installation.blockers).toEqual([]);
+  });
+
+  test("reconciles Claude and OpenCode co-selected binding, applies cleanly, and status reports current with warning", async () => {
+    const home = temporaryDirectory("apk-opencode-claude-life-home-");
+    const project = temporaryDirectory("apk-opencode-claude-life-proj-");
+
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "deploy", "SKILL.md"),
+      "---\nname: deploy\ndescription: Deploy production.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: []\nskills: [deploy]\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [claude, opencode]\n`,
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    expect(desired.installations[0]?.warnings).toHaveLength(1);
+    expect(desired.installations[0]?.blockers).toEqual([]);
+
+    // AC 2: Apply succeeds without blocking
+    const applied = await applyReconciliation(home, desired.installations);
+    expect(reportBlockers(applied.receipt)).toEqual([]);
+
+    // Both discovery roots exist on disk
+    expect(existsSync(join(project, ".claude", "skills", "deploy", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(project, ".agents", "skills", "deploy", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(project, ".opencode", "opencode.jsonc"))).toBe(true);
+
+    const state = await readInstallationState(home);
+    const receipt = state.receipts[0];
+    if (!receipt) throw new Error("expected receipt");
+    expect(receipt.hosts.claude).toBeDefined();
+    expect(receipt.hosts.opencode).toBeDefined();
+
+    // Status reports current with no blockers
+    const status = await previewReconciliation(desired.installations, state);
+    expect(reportItems(status).some((item) => item.kind === "current")).toBe(true);
+    expect(reportBlockers(status)).toEqual([]);
+  });
+});
+

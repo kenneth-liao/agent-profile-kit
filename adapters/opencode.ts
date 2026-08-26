@@ -19,12 +19,15 @@ import {
   skillsRequireDisabledModelInvocation,
   type AdapterPlanningMaterials,
 } from "./skill-package.js";
+import type { SupportedHost } from "./host-catalog.js";
+import { CLAUDE_SKILLS_DISCOVERY_ROOT } from "./claude.js";
 import {
   planSharedSkillPackageDirectory,
   SHARED_SKILLS_DISCOVERY_ROOT,
   SHARED_SKILL_DISCOVERY_REQUIREMENT,
 } from "./shared-skill.js";
 import type {
+  AdapterDiagnosticWarning,
   AdapterHostSetupStep,
   AdapterProjectPlan,
   ProposedProjectFileOutput,
@@ -422,6 +425,34 @@ export async function planOpenCodeProject(
   };
 }
 
+/**
+ * Diagnostic warning emitted when OpenCode and Claude are co-selected in a Project
+ * with Skills. OpenCode discovers Skills under both `.claude/skills` and `.agents/skills`
+ * and reports duplicate Skill names; candidate Skill documents are identical across both roots.
+ */
+export function openCodeClaudeDuplicateSkillDiscoveryWarning(): AdapterDiagnosticWarning {
+  return {
+    copyableValues: [CLAUDE_SKILLS_DISCOVERY_ROOT, OPENCODE_PROJECT_SKILLS_ROOT],
+    message: `OpenCode discovers Skills from both ${CLAUDE_SKILLS_DISCOVERY_ROOT} and ${OPENCODE_PROJECT_SKILLS_ROOT} and will report duplicate Skill names; candidate Skill documents are identical across both discovery roots`,
+  };
+}
+
+/**
+ * Detect OpenCode project configuration and co-selection diagnostics.
+ * When Claude is co-selected and at least one Skill is present, emits one
+ * non-blocking duplicate Skill discovery warning naming both roots.
+ */
+export function detectOpenCodeProjectConfigurationWarnings(
+  selectedHosts: readonly SupportedHost[] = [],
+  skills: readonly Skill[] = [],
+): readonly AdapterDiagnosticWarning[] {
+  const warnings: AdapterDiagnosticWarning[] = [];
+  if (selectedHosts.includes("claude") && skills.length > 0) {
+    warnings.push(openCodeClaudeDuplicateSkillDiscoveryWarning());
+  }
+  return warnings;
+}
+
 export const opencodeAdapter = {
   host: "opencode",
   async planProject(input, services) {
@@ -455,6 +486,11 @@ export const opencodeAdapter = {
       }
     }
 
+    const diagnostics = detectOpenCodeProjectConfigurationWarnings(
+      input.selectedHosts,
+      input.resolvedSkills,
+    );
+
     let plan: OpenCodeProjectPlan | undefined;
     if (profileFailures.length === 0) {
       try {
@@ -479,6 +515,6 @@ export const opencodeAdapter = {
       }
     }
 
-    return { capabilityFailures, diagnostics: [], plan };
+    return { capabilityFailures, diagnostics, plan };
   },
 } satisfies CompleteHostAdapter;
