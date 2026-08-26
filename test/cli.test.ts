@@ -8633,6 +8633,7 @@ describe("apkit list", () => {
         { host: "claude", supportsTemporaryProfileInstallation: true },
         { host: "codex", supportsTemporaryProfileInstallation: true },
         { host: "grok", supportsTemporaryProfileInstallation: false },
+        { host: "opencode", supportsTemporaryProfileInstallation: false },
         { host: "pi", supportsTemporaryProfileInstallation: false },
       ],
     });

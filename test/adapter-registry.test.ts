@@ -35,15 +35,22 @@ describe("canonical Host registry", () => {
       "claude",
       "codex",
       "grok",
+      "opencode",
       "pi",
     ]);
     expect(HOST_REGISTRY.map((registration) => registration.host)).toEqual([...SUPPORTED_HOSTS]);
     expect(isSupportedHost("claude")).toBe(true);
+    expect(isSupportedHost("opencode")).toBe(true);
     expect(isSupportedHost("unknown")).toBe(false);
     expect(hostRegistrationFor("claude")).toMatchObject({
       adapterVersion: "claude-project-v1",
       host: "claude",
       supportsTemporaryProfileInstallation: true,
+    });
+    expect(hostRegistrationFor("opencode")).toMatchObject({
+      adapterVersion: "opencode-project-v1",
+      host: "opencode",
+      supportsTemporaryProfileInstallation: false,
     });
     expect(hostRegistrationFor("pi")).toMatchObject({
       adapterVersion: "pi-project-v2",
@@ -71,6 +78,7 @@ describe("canonical Host registry", () => {
       "claude",
       "codex",
       "grok",
+      "opencode",
       "pi",
     ]);
 

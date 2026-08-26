@@ -18,6 +18,7 @@ import {
   assertCodexProjectCapability,
   planCodexProject,
 } from "../adapters/codex.js";
+import { planOpenCodeProject } from "../adapters/opencode.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { ingestDefaultWorkspace } from "../installer/ingest-workspace.js";
 import {
@@ -152,6 +153,23 @@ describe("Skills-only Profiles", () => {
     ]);
     expect(
       plan.outputs.some((output) => output.path === ".claude/rules/agent-profile-kit.md"),
+    ).toBe(false);
+  });
+
+  test("OpenCode Skills-only plans Skill packages through the shared projection without configuration", async () => {
+    const source = temporaryDirectory("apk-skills-only-opencode-src-");
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+
+    const plan = await planOpenCodeProject("engineering", [], [skill("review-pr", source)]);
+
+    expect(plan.outputs.map((output) => output.path).sort()).toEqual([
+      ".agents/skills/review-pr",
+    ]);
+    expect(
+      plan.outputs.some((output) => output.path.startsWith(".opencode")),
     ).toBe(false);
   });
 

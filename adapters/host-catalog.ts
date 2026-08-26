@@ -25,6 +25,11 @@ export const HOST_CATALOG = [
     supportsTemporaryProfileInstallation: false,
   },
   {
+    adapterVersion: "opencode-project-v1",
+    host: "opencode",
+    supportsTemporaryProfileInstallation: false,
+  },
+  {
     adapterVersion: "pi-project-v2",
     host: "pi",
     supportsTemporaryProfileInstallation: false,
@@ -69,4 +74,6 @@ export const ANTIGRAVITY_ADAPTER_VERSION =
 export const CLAUDE_ADAPTER_VERSION = hostCatalogEntryFor("claude").adapterVersion;
 export const CODEX_ADAPTER_VERSION = hostCatalogEntryFor("codex").adapterVersion;
 export const GROK_ADAPTER_VERSION = hostCatalogEntryFor("grok").adapterVersion;
+export const OPENCODE_ADAPTER_VERSION =
+  hostCatalogEntryFor("opencode").adapterVersion;
 export const PI_ADAPTER_VERSION = hostCatalogEntryFor("pi").adapterVersion;
