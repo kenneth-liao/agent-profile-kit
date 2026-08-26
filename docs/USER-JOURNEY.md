@@ -68,7 +68,7 @@ The first-run excerpts below were captured from that packed run.
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
-| 5 | Bind | `bind <profile> [project] --host <host>` | One project associated with one Profile and its Hosts |
+| 5 | Bind | `bind <profile> [project] --host <host> [--replace]` | One project associated with one Profile and its Hosts, or an existing binding restated with `--replace` |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed |
 | 7 | Plan | `status [project \| --all] [--verbose] [--json]` | See current state, pending work, predictable blockers, warnings, Host guidance, and exactly what `apply` would attempt without writing |
 | 8 | Apply | `apply [project \| --all] [--verbose] [--json]` | Generated output for the current Project, one explicit Project, or the explicitly selected fleet, and proof of what changed |
@@ -217,10 +217,21 @@ Recorded configured Project for <project>
 Next: apkit status
 ```
 
+```
+$ apkit bind ops <project> --host codex --host opencode --replace
+Replaced configured Project for <project>
+  Profile: coding → ops
+  Hosts: codex → codex, opencode
+Next: apkit status
+```
+
 Correct and well scoped; additional `--host` values are recorded the same way,
 `unchanged` is distinguished from `Recorded`, the project defaults to the
 working directory, and `--host` is explicit with no default. Lifecycle project blocks now echo the selected Hosts, so that identity
-remains visible after `bind`.
+remains visible after `bind`. A conflicting bind without `--replace` fails and
+names the flag; passing `--replace` restates the existing binding's Profile and
+Host set in one command (shown old → new above) while reconciling generated
+output through the ordinary status → apply path.
 
 Gaps: ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)), ~~[UJ-16](#uj-16)~~,
 ~~[UJ-20](#uj-20)~~ (shipped in [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116)).
