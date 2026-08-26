@@ -183,7 +183,7 @@ and `bind` does not replace or remove an existing binding.
 
 ## Canonical Model
 
-Profiles are explicit flat selections containing exactly `id`, `context`, and `skills`. The current slice accepts Profile Context for Antigravity CLI, Codex, Claude, Grok, and Pi, and portable Skills for Antigravity, Codex, Claude, Grok, OpenCode, and Pi. Antigravity, Codex, OpenCode, and Pi consume the qualified shared `.agents/skills/<Artifact ID>/` projection. Obsolete `agents`, `hooks`, and `tools` Profile placeholders fail at ingestion with removal guidance; those artifact categories remain undelivered. Trusted disabled model-invocation policy is projected into the qualified Host-native Skill package while explicit Artifact ID activation remains available. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; Project-scoped `apply` updates the selected binding and `apply --all` updates every Project bound to that Profile. A Project that needs different material binds to a different Profile rather than pinning an older revision.
+Profiles are explicit flat selections containing exactly `id`, `context`, and `skills`. The current slice accepts Profile Context for Antigravity CLI, Codex, Claude, Grok, OpenCode, and Pi, and portable Skills for Antigravity, Codex, Claude, Grok, OpenCode, and Pi. Antigravity, Codex, OpenCode, and Pi consume the qualified shared `.agents/skills/<Artifact ID>/` projection. Obsolete `agents`, `hooks`, and `tools` Profile placeholders fail at ingestion with removal guidance; those artifact categories remain undelivered. Trusted disabled model-invocation policy is projected into the qualified Host-native Skill package while explicit Artifact ID activation remains available. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; Project-scoped `apply` updates the selected binding and `apply --all` updates every Project bound to that Profile. A Project that needs different material binds to a different Profile rather than pinning an older revision.
 
 Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
@@ -227,7 +227,7 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, OpenCode, and Pi support portable Skills, with Antigravity, Codex, OpenCode, and Pi using the qualified shared projection and preserving disabled model invocation (with OpenCode currently delivering allowed-invocation Skills); Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
+The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, OpenCode, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, OpenCode, and Pi support portable Skills, with Antigravity, Codex, OpenCode, and Pi using the qualified shared projection and preserving disabled model invocation (with OpenCode currently delivering allowed-invocation Skills); Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
 
 ### Codex
 
@@ -337,23 +337,37 @@ CLI cannot prove the newer Capability Contract.
 
 ### OpenCode
 
-The OpenCode Adapter delivers allowed-invocation portable Skills through the
-qualified shared `.agents/skills/<Artifact ID>/` projection. It requires an
-`opencode` executable at or above verified floor `1.18.23` on `PATH` and rejects
-missing, unreadable, or older binaries with a typed capability failure.
-Capability preflight verifies that `.agents` and `.agents/skills` are missing or
-real directories when Skills are selected.
+The OpenCode Adapter delivers Profile Context and allowed-invocation portable
+Skills through dedicated Host configuration and the qualified shared
+`.agents/skills/<Artifact ID>/` projection. It requires an `opencode` executable
+at or above verified floor `1.18.23` on `PATH` and rejects missing, unreadable,
+or older binaries with a typed capability failure. Capability preflight verifies
+that `.agents` and `.agents/skills` are missing or real directories when Skills
+are selected, and that `.opencode`, `.agent-profile-kit`, and `.agent-profile-kit/opencode`
+are directories and `.opencode/opencode.jsonc` and `.agent-profile-kit/opencode/context.md`
+are regular files when Context is selected.
+
+OpenCode delivers Profile Context through the owned composed Context document
+at `.agent-profile-kit/opencode/context.md` and references it through the additive
+`instructions` list inside the claimed wholly owned configuration file at
+`.opencode/opencode.jsonc`. OpenCode combines this configuration with user-authored
+slots via native additive merging, and the Project-relative reference continues to
+load Context when OpenCode is launched from any subdirectory. Repository-owned
+instructions and other user configuration slots remain untouched. Existing unowned
+material at `.opencode/opencode.jsonc` produces an Output Ownership Conflict Blocker
+before writes. When Context is planned, the Adapter emits one transition-provenance
+launch-constraint Host Setup Step tied to `.opencode/opencode.jsonc` reminding the
+user to restart running OpenCode sessions.
 
 OpenCode plans allowed-invocation Skill packages at the shared discovery root,
-preserving standard package bytes and modes while omitting the
-`agent-profile-kit.yaml` sidecar. In this release, Profile Context and
-disabled-invocation Skills are not supported by the OpenCode Adapter and are
-rejected at the planning boundary with typed capability failures before writes.
-Allowed-invocation Skills-only plans generate no OpenCode configuration file and
-no Host Setup Steps.
+preserving standard package bytes and modes while omitting the `agent-profile-kit.yaml`
+sidecar. In this release, disabled-invocation Skills are not supported by the OpenCode
+Adapter and are rejected at the planning boundary with typed capability failures before writes.
+When neither Context nor disabled-invocation Skills are required, no OpenCode configuration
+file and no Host Setup Steps are generated.
 
 Healthy OpenCode installations record baseline Capability Contract
-`native-project-shared-skills-v1` under Adapter version `opencode-project-v1` in
+`native-project-instructions-skills-v1` under Adapter version `opencode-project-v1` in
 the Installation Receipt and participate in the standard Project Binding,
 status, apply, and Repository Exclusion lifecycle.
 

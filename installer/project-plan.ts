@@ -98,6 +98,7 @@ export interface DesiredProjectFileOutput {
   readonly mode: number;
   readonly origins: readonly ArtifactReference[];
   readonly path: string;
+  readonly remedy?: string;
   readonly requirements: readonly string[];
   readonly type: "file";
 }
@@ -109,6 +110,7 @@ export interface DesiredProjectDirectoryOutput {
   readonly mode: number;
   readonly origins: readonly ArtifactReference[];
   readonly path: string;
+  readonly remedy?: string;
   readonly requirements: readonly string[];
   readonly type: "directory";
 }
@@ -471,6 +473,7 @@ function normalizeProposedOutput(
       mode,
       origins,
       path,
+      ...(proposed.remedy === undefined ? {} : { remedy: proposed.remedy }),
       requirements,
       type: "file",
     };
@@ -489,6 +492,7 @@ function normalizeProposedOutput(
       mode,
       origins,
       path,
+      ...(proposed.remedy === undefined ? {} : { remedy: proposed.remedy }),
       requirements,
       type: "directory",
     };
@@ -524,10 +528,12 @@ export function normalizeAdapterPlans(
         artifactReferenceKey(left).localeCompare(artifactReferenceKey(right))
       );
       const requirements = [...new Set([...existing.requirements, ...normalized.requirements])].sort();
+      const remedy = existing.remedy ?? normalized.remedy;
       outputs.set(normalized.path, {
         ...existing,
         consumingHosts: hosts,
         origins,
+        ...(remedy === undefined ? {} : { remedy }),
         requirements,
       });
     }

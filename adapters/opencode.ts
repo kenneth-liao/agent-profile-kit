@@ -1,9 +1,13 @@
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { OPENCODE_ADAPTER_VERSION } from "./host-catalog.js";
 import { type ContextModuleSource } from "./context-envelope.js";
-import { capabilityFailure, type AdapterCapabilityError } from "./capability.js";
+import {
+  capabilityFailure,
+  isAdapterCapabilityError,
+  type AdapterCapabilityError,
+} from "./capability.js";
 import { invokeExecutable } from "./services/executable.js";
 import { classifyFileSystemEntry } from "./services/project-surface.js";
 import {
@@ -20,12 +24,14 @@ import {
   SHARED_SKILL_DISCOVERY_REQUIREMENT,
 } from "./shared-skill.js";
 import type {
+  AdapterHostSetupStep,
   AdapterProjectPlan,
+  ProposedProjectFileOutput,
   ProposedProjectOutput,
 } from "./project-plan.js";
 
-/** Capability Contract for OpenCode shared Skills. */
-export const OPENCODE_HOST_VERSION = "native-project-shared-skills-v1";
+/** Capability Contract for OpenCode native project instructions and shared Skills. */
+export const OPENCODE_HOST_VERSION = "native-project-instructions-skills-v1";
 
 /** Minimum OpenCode version verified for native shared Skill discovery. */
 export const OPENCODE_MINIMUM_CLI_VERSION = "1.18.23";
@@ -33,10 +39,34 @@ export const OPENCODE_MINIMUM_CLI_VERSION = "1.18.23";
 /** OpenCode native project Skill discovery root. */
 export const OPENCODE_PROJECT_SKILLS_ROOT = SHARED_SKILLS_DISCOVERY_ROOT;
 
+/** Owned OpenCode JSONC configuration file path (project-relative). */
+export const OPENCODE_CONFIG_PATH = posix.join(".opencode", "opencode.jsonc");
+
+/** Owned composed Profile Context path for OpenCode (project-relative). */
+export const OPENCODE_CONTEXT_PATH = posix.join(
+  ".agent-profile-kit",
+  "opencode",
+  "context.md",
+);
+
+export const OPENCODE_CONTEXT_REQUIREMENTS = [
+  "OpenCode loads Profile Context through owned configuration instruction reference",
+  "OpenCode instruction content remains subordinate to repository-owned instructions",
+] as const;
+
+export const OPENCODE_CONFIG_REQUIREMENTS = [
+  "OpenCode loads Profile Context through owned configuration instruction reference",
+] as const;
+
+export const OPENCODE_CONFIG_OCCUPIED_REMEDY =
+  "move authored OpenCode configuration to opencode.json or .opencode/opencode.json, " +
+  "or change the Project Binding or Host selection so Agent Profile Kit does not plan output at that path, then retry";
+
 export type OpenCodeProjectPlan = AdapterProjectPlan;
 
 export interface OpenCodeCapabilityOptions {
   readonly env?: NodeJS.ProcessEnv;
+  readonly requireContext?: boolean;
   readonly requireSkills?: boolean;
   readonly resolveVersion?: () => Promise<string>;
 }
@@ -58,12 +88,12 @@ export function parseOpenCodeCliVersion(source: string): string {
   return normalizeCoreSemanticVersion(match[1]!, match[2]!, match[3]!);
 }
 
-/** Reject OpenCode versions that cannot discover native project Skills. */
+/** Reject OpenCode versions that cannot discover native project instructions or Skills. */
 export function assertOpenCodeCliVersionSupported(version: string): void {
   if (compareCoreSemanticVersions(version, OPENCODE_MINIMUM_CLI_VERSION) < 0) {
     throw capabilityFailure(
       "opencode",
-      `OpenCode ${version} does not support native project Skills (requires ${OPENCODE_MINIMUM_CLI_VERSION}+)`,
+      `OpenCode ${version} does not support native project instructions or Skills (requires ${OPENCODE_MINIMUM_CLI_VERSION}+)`,
       "upgrade OpenCode before checking status or applying the Profile",
     );
   }
@@ -108,9 +138,11 @@ async function resolveOpenCodeCliVersion(
 
 /** Complete normalized machine-level requirements for the OpenCode probe. */
 export function openCodeMachineRequirements(options: {
+  readonly requireContext?: boolean;
   readonly requireSkills?: boolean;
 }): Readonly<Record<string, boolean>> {
   return {
+    requireContext: options.requireContext !== false,
     requireSkills: options.requireSkills === true,
   };
 }
@@ -127,9 +159,15 @@ export async function probeOpenCodeMachineCapability(
 /** Reject OpenCode project surfaces that cannot host planned outputs. */
 export async function assertOpenCodeProjectSurface(
   project: string,
-  options: { readonly requireSkills?: boolean } = {},
+  options: {
+    readonly requireContext?: boolean;
+    readonly requireSkills?: boolean;
+  } = {},
 ): Promise<void> {
-  if (options.requireSkills) {
+  const requireSkills = options.requireSkills === true;
+  const requireContext = options.requireContext !== false;
+
+  if (requireSkills) {
     const agentsPath = join(project, ".agents");
     const agentsKind = await classifyFileSystemEntry(agentsPath);
     if (agentsKind !== "missing" && agentsKind !== "directory") {
@@ -155,6 +193,45 @@ export async function assertOpenCodeProjectSurface(
       );
     }
   }
+
+  if (requireContext) {
+    const opencodePath = join(project, ".opencode");
+    const opencodeKind = await classifyFileSystemEntry(opencodePath);
+    if (opencodeKind !== "missing" && opencodeKind !== "directory") {
+      const problem = `OpenCode project surface cannot host outputs: ${opencodePath} is a ${opencodeKind}, not a directory`;
+      throw capabilityFailure(
+        "opencode",
+        problem,
+        "ensure the .opencode project surface is a directory, then retry",
+        [{ kind: "path", value: opencodePath }],
+        problem,
+      );
+    }
+    const apkPath = join(project, ".agent-profile-kit");
+    const apkKind = await classifyFileSystemEntry(apkPath);
+    if (apkKind !== "missing" && apkKind !== "directory") {
+      const problem = `OpenCode project surface cannot host Context: ${apkPath} is a ${apkKind}, not a directory`;
+      throw capabilityFailure(
+        "opencode",
+        problem,
+        "ensure the .agent-profile-kit project surface is a directory, then retry",
+        [{ kind: "path", value: apkPath }],
+        problem,
+      );
+    }
+    const apkOpenCodePath = join(project, ".agent-profile-kit", "opencode");
+    const apkOpenCodeKind = await classifyFileSystemEntry(apkOpenCodePath);
+    if (apkOpenCodeKind !== "missing" && apkOpenCodeKind !== "directory") {
+      const problem = `OpenCode project surface cannot host Context: ${apkOpenCodePath} is a ${apkOpenCodeKind}, not a directory`;
+      throw capabilityFailure(
+        "opencode",
+        problem,
+        "ensure the .agent-profile-kit/opencode project surface is a directory, then retry",
+        [{ kind: "path", value: apkOpenCodePath }],
+        problem,
+      );
+    }
+  }
 }
 
 /** Prove the OpenCode executable and project surfaces needed by the selected Profile. */
@@ -167,23 +244,14 @@ export async function assertOpenCodeProjectCapability(
 }
 
 /**
- * Detect unsupported Profile features (Profile Context and disabled-invocation Skills)
+ * Detect unsupported Profile features (disabled-invocation Skills)
  * for the OpenCode Adapter. Returns the list of typed capability failures.
  */
 export function openCodeProfileCapabilityFailures(
-  modules: readonly ContextModuleSource[] = [],
+  _modules: readonly ContextModuleSource[] = [],
   skills: readonly Skill[] = [],
 ): readonly AdapterCapabilityError[] {
   const failures: AdapterCapabilityError[] = [];
-  if (modules.length > 0) {
-    failures.push(
-      capabilityFailure(
-        "opencode",
-        "OpenCode does not support Profile Context",
-        "remove Context from the selected Profile or do not select OpenCode for this Project",
-      ),
-    );
-  }
   const disabledSkill = skills.find((skill) => skill.modelInvocation === "disabled");
   if (disabledSkill) {
     failures.push(
@@ -206,6 +274,46 @@ export function assertOpenCodeProfileSupported(
   if (firstFailure) throw firstFailure;
 }
 
+function openCodeConfiguration(contextPath: string): string {
+  return `${JSON.stringify(
+    {
+      "$schema": "https://opencode.ai/config.json",
+      "instructions": [contextPath],
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+function contextOutput(
+  profileId: string,
+  modules: readonly ContextModuleSource[],
+  materials: AdapterPlanningMaterials,
+): ProposedProjectFileOutput {
+  return {
+    bytes: materials.composeContext(profileId, modules),
+    mode: 0o644,
+    origins: modules.map((module) => ({ id: module.id, type: "context" as const })),
+    path: OPENCODE_CONTEXT_PATH,
+    requirements: [...OPENCODE_CONTEXT_REQUIREMENTS],
+    type: "file",
+  };
+}
+
+function configurationOutput(
+  modules: readonly ContextModuleSource[],
+): ProposedProjectFileOutput {
+  return {
+    bytes: openCodeConfiguration(OPENCODE_CONTEXT_PATH),
+    mode: 0o644,
+    origins: modules.map((module) => ({ id: module.id, type: "context" as const })),
+    path: OPENCODE_CONFIG_PATH,
+    remedy: OPENCODE_CONFIG_OCCUPIED_REMEDY,
+    requirements: [...OPENCODE_CONFIG_REQUIREMENTS],
+    type: "file",
+  };
+}
+
 function skillOutputs(
   skills: readonly Skill[],
   materials: AdapterPlanningMaterials,
@@ -224,21 +332,40 @@ function skillOutputs(
   );
 }
 
-/** Pure OpenCode Adapter planner for portable Skills. */
+/** Pure OpenCode Adapter planner for Profile Context and portable Skills. */
 export async function planOpenCodeProject(
-  _profileId: string,
+  profileId: string,
   modules: readonly ContextModuleSource[] = [],
   skills: readonly Skill[] = [],
   options: { readonly materials?: AdapterPlanningMaterials } = {},
 ): Promise<OpenCodeProjectPlan> {
   assertOpenCodeProfileSupported(modules, skills);
   const materials = options.materials ?? DEFAULT_ADAPTER_PLANNING_MATERIALS;
-  const outputs = await skillOutputs(skills, materials);
+  const packages = await skillOutputs(skills, materials);
+  const outputs: readonly ProposedProjectOutput[] = modules.length > 0
+    ? [
+        configurationOutput(modules),
+        contextOutput(profileId, modules, materials),
+        ...packages,
+      ]
+    : packages;
+  const setupSteps: readonly AdapterHostSetupStep[] = modules.length > 0
+    ? [
+        {
+          consequence:
+            "A running OpenCode session keeps its previously loaded configuration until restarted.",
+          kind: "launch-constraint",
+          message: "Restart OpenCode to load changed configuration.",
+          output: OPENCODE_CONFIG_PATH,
+          provenance: "transition",
+        },
+      ]
+    : [];
   return {
     host: "opencode",
     hostVersion: OPENCODE_HOST_VERSION,
     outputs,
-    setupSteps: [],
+    setupSteps,
   };
 }
 
@@ -249,19 +376,22 @@ export const opencodeAdapter = {
       input.resolvedContexts,
       input.resolvedSkills,
     );
+    const requireContext = input.resolvedContexts.length > 0;
     const requireSkills = input.resolvedSkills.length > 0;
     const capabilityFailures: unknown[] = [...profileFailures];
 
     if (input.checkHostCapability) {
       try {
         await services.probeMachineCapability(
-          openCodeMachineRequirements({ requireSkills }),
+          openCodeMachineRequirements({ requireContext, requireSkills }),
           () => probeOpenCodeMachineCapability({
             ...(input.env === undefined ? {} : { env: input.env }),
+            requireContext,
             requireSkills,
           }),
         );
         await assertOpenCodeProjectSurface(input.project, {
+          requireContext,
           requireSkills,
         });
       } catch (error) {
@@ -269,9 +399,10 @@ export const opencodeAdapter = {
       }
     }
 
-    const plan = profileFailures.length > 0
-      ? undefined
-      : await services.planProjection(
+    let plan: OpenCodeProjectPlan | undefined;
+    if (profileFailures.length === 0) {
+      try {
+        plan = await services.planProjection(
           {
             host: "opencode",
             options: {},
@@ -286,6 +417,11 @@ export const opencodeAdapter = {
             { materials: services.materials },
           ),
         );
+      } catch (error) {
+        if (!isAdapterCapabilityError(error)) throw error;
+        capabilityFailures.push(error);
+      }
+    }
 
     return { capabilityFailures, diagnostics: [], plan };
   },
