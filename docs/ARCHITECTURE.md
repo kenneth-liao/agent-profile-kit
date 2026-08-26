@@ -1,6 +1,6 @@
 # Agent Profile Kit Architecture
 
-This document describes the implemented project-bound architecture for Profile Context and portable Skills on Antigravity CLI, Codex CLI, Claude Code, Grok, and Pi. Antigravity Context and shared Skill delivery use native project surfaces; the former per-session overlay implementation is removed.
+This document describes the implemented project-bound architecture for Profile Context and portable Skills on Antigravity CLI, Codex CLI, Claude Code, Grok, OpenCode, and Pi. Antigravity Context and shared Skill delivery use native project surfaces; the former per-session overlay implementation is removed.
 
 ## Purpose
 
@@ -81,7 +81,7 @@ bindings:
 
 Every `project` is an explicit existing directory that the user declares to be the project root. Paths must be absolute or begin with `~/`; other relative paths are invalid. Home-relative paths and symbolic links are normalized once at ingestion to a canonical absolute directory, which is used for identity and installation state while the authored spelling remains available for display. Wildcards, directory scans, and implicit parent-root detection are unsupported. A canonical project root may appear in exactly one binding; duplicates are invalid regardless of whether their Profile and Hosts agree.
 
-Host selections are a set normalized at Local Configuration and `bind` ingestion: authored order and repeated entries collapse to the deterministic `SUPPORTED_HOSTS` order (`claude`, `codex`, `grok`, `pi`).
+Host selections are a set normalized at Local Configuration and `bind` ingestion: authored order and repeated entries collapse to the deterministic `SUPPORTED_HOSTS` order (`antigravity`, `claude`, `codex`, `grok`, `opencode`, `pi`).
 
 Git is optional. When a project is not a Git working tree, native Codex discovery can guarantee the installed project Context only when Codex starts in the exact bound root; starting it in a descendant is unsupported because Codex has no repository boundary to search toward. Claude project rules and Grok project rules load from the project root independently of Git. The project workflow documents the Codex launch-from-root constraint.
 
@@ -183,7 +183,7 @@ and `bind` does not replace or remove an existing binding.
 
 ## Canonical Model
 
-Profiles are explicit flat selections containing exactly `id`, `context`, and `skills`. The current slice accepts Profile Context for Antigravity CLI, Codex, Claude, Grok, and Pi, and portable Skills for Antigravity, Codex, Claude, Grok, and Pi. Antigravity, Codex, and Pi consume the qualified shared `.agents/skills/<Artifact ID>/` projection. Obsolete `agents`, `hooks`, and `tools` Profile placeholders fail at ingestion with removal guidance; those artifact categories remain undelivered. Trusted disabled model-invocation policy is projected into the qualified Host-native Skill package while explicit Artifact ID activation remains available. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; Project-scoped `apply` updates the selected binding and `apply --all` updates every Project bound to that Profile. A Project that needs different material binds to a different Profile rather than pinning an older revision.
+Profiles are explicit flat selections containing exactly `id`, `context`, and `skills`. The current slice accepts Profile Context for Antigravity CLI, Codex, Claude, Grok, and Pi, and portable Skills for Antigravity, Codex, Claude, Grok, OpenCode, and Pi. Antigravity, Codex, OpenCode, and Pi consume the qualified shared `.agents/skills/<Artifact ID>/` projection. Obsolete `agents`, `hooks`, and `tools` Profile placeholders fail at ingestion with removal guidance; those artifact categories remain undelivered. Trusted disabled model-invocation policy is projected into the qualified Host-native Skill package while explicit Artifact ID activation remains available. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; Project-scoped `apply` updates the selected binding and `apply --all` updates every Project bound to that Profile. A Project that needs different material binds to a different Profile rather than pinning an older revision.
 
 Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
@@ -207,7 +207,7 @@ Ownership Conflicts remain blockers.
 
 Each supported Agent Host has one Adapter that owns its native paths, formats, discovery behavior, version detection, Capability Contract, and Host Setup Steps. An Adapter is a pure planner: it returns exact proposed files, bytes, modes, semantic requirements, and typed post-apply setup requirements but does not write to the filesystem.
 
-One canonical Host registry owns supported Host order and lookup, Adapter versions, Temporary Profile Installation eligibility, and discovery metadata. Its policy-free Host catalog can be consumed by schemas and command validation without loading Adapter implementations; the registry attaches every complete Adapter at the planning boundary and supplies Host inventory. Antigravity, Claude, Codex, Grok, and Pi ordinary planning enter through the complete Adapter contract, which owns capability probing, Project-surface inspection, configuration warnings, topology inputs, output planning, Capability Contract selection, and Host Setup Steps. The Installer only iterates selected registrations, translates Adapter evidence, and normalizes physical outputs; it contains no Host-specific planning fallback. Ordinary and Temporary Profile Installations route capability checks, Project-surface checks, warnings, Capability Contracts, Host Setup Steps, and outputs through the same registered Adapter planning boundary; temporary Host eligibility is registry metadata. Generic executable invocation, core semantic-version handling, filesystem entry classification, and invocation-scoped reuse remain policy-free shared services.
+One canonical Host registry owns supported Host order and lookup, Adapter versions, Temporary Profile Installation eligibility, and discovery metadata. Its policy-free Host catalog can be consumed by schemas and command validation without loading Adapter implementations; the registry attaches every complete Adapter at the planning boundary and supplies Host inventory. Antigravity, Claude, Codex, Grok, OpenCode, and Pi ordinary planning enter through the complete Adapter contract, which owns capability probing, Project-surface inspection, configuration warnings, topology inputs, output planning, Capability Contract selection, and Host Setup Steps. The Installer only iterates selected registrations, translates Adapter evidence, and normalizes physical outputs; it contains no Host-specific planning fallback. Ordinary and Temporary Profile Installations route capability checks, Project-surface checks, warnings, Capability Contracts, Host Setup Steps, and outputs through the same registered Adapter planning boundary; temporary Host eligibility is registry metadata. Generic executable invocation, core semantic-version handling, filesystem entry classification, and invocation-scoped reuse remain policy-free shared services.
 
 Host Setup Steps use the shared kinds `approval-required`, `trust-required`, `launch-constraint`, and `shared-path`. Every step carries typed provenance classified once at the Adapter boundary (DEC-036): `transition` steps are caused by the current lifecycle transition and name the exact generated output whose addition, update, or repair makes them newly relevant (the Codex hook approval names `.codex/hooks.json`); `standing` steps are persistent constraints (project trust, exact-root launch, shared-path explanation). Host identity has one Adapter-plan-level home; the Installer attaches that identity when it carries each Adapter-authored step into the ReconciliationReport. A step may identify its path semantically as the bound project, leaving the one canonical path presenter to choose its user-facing spelling.
 
@@ -227,7 +227,7 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, and Pi support portable Skills, with Antigravity, Codex, and Pi using the qualified shared projection and preserving disabled model invocation; Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
+The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, OpenCode, and Pi support portable Skills, with Antigravity, Codex, OpenCode, and Pi using the qualified shared projection and preserving disabled model invocation (with OpenCode currently delivering allowed-invocation Skills); Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
 
 ### Codex
 
@@ -334,6 +334,28 @@ Agent Profile Kit 0.83.0+; unbind or uninstall Antigravity with 0.83.0+ before
 rolling back below 0.83.0. A rollback without uninstall leaves generated
 always-on rules or shared Skills visible to Antigravity even though the older
 CLI cannot prove the newer Capability Contract.
+
+### OpenCode
+
+The OpenCode Adapter delivers allowed-invocation portable Skills through the
+qualified shared `.agents/skills/<Artifact ID>/` projection. It requires an
+`opencode` executable at or above verified floor `1.18.23` on `PATH` and rejects
+missing, unreadable, or older binaries with a typed capability failure.
+Capability preflight verifies that `.agents` and `.agents/skills` are missing or
+real directories when Skills are selected.
+
+OpenCode plans allowed-invocation Skill packages at the shared discovery root,
+preserving standard package bytes and modes while omitting the
+`agent-profile-kit.yaml` sidecar. In this release, Profile Context and
+disabled-invocation Skills are not supported by the OpenCode Adapter and are
+rejected at the planning boundary with typed capability failures before writes.
+Allowed-invocation Skills-only plans generate no OpenCode configuration file and
+no Host Setup Steps.
+
+Healthy OpenCode installations record baseline Capability Contract
+`native-project-shared-skills-v1` under Adapter version `opencode-project-v1` in
+the Installation Receipt and participate in the standard Project Binding,
+status, apply, and Repository Exclusion lifecycle.
 
 ## Reconciliation and Ownership
 

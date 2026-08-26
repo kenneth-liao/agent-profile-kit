@@ -3,7 +3,7 @@ import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { OPENCODE_ADAPTER_VERSION } from "./host-catalog.js";
 import { type ContextModuleSource } from "./context-envelope.js";
-import { capabilityFailure } from "./capability.js";
+import { capabilityFailure, isAdapterCapabilityError } from "./capability.js";
 import { invokeExecutable } from "./services/executable.js";
 import { classifyFileSystemEntry } from "./services/project-surface.js";
 import {
@@ -187,10 +187,25 @@ function skillOutputs(
 /** Pure OpenCode Adapter planner for portable Skills. */
 export async function planOpenCodeProject(
   _profileId: string,
-  _modules: readonly ContextModuleSource[],
+  modules: readonly ContextModuleSource[] = [],
   skills: readonly Skill[] = [],
   options: { readonly materials?: AdapterPlanningMaterials } = {},
 ): Promise<OpenCodeProjectPlan> {
+  if (modules.length > 0) {
+    throw capabilityFailure(
+      "opencode",
+      "OpenCode does not support Profile Context",
+      "remove Context from the selected Profile or do not select OpenCode for this Project",
+    );
+  }
+  const disabledSkill = skills.find((skill) => skill.modelInvocation === "disabled");
+  if (disabledSkill) {
+    throw capabilityFailure(
+      "opencode",
+      `OpenCode does not support disabled model invocation for Skill '${disabledSkill.id}'`,
+      "change the Skill's model-invocation policy to allowed or do not select OpenCode for this Project",
+    );
+  }
   const materials = options.materials ?? DEFAULT_ADAPTER_PLANNING_MATERIALS;
   const outputs = await skillOutputs(skills, materials);
   return {
@@ -204,8 +219,32 @@ export async function planOpenCodeProject(
 export const opencodeAdapter = {
   host: "opencode",
   async planProject(input, services) {
+    const requireContext = input.resolvedContexts.length > 0;
     const requireSkills = input.resolvedSkills.length > 0;
+    const disabledSkill = input.resolvedSkills.find(
+      (skill) => skill.modelInvocation === "disabled",
+    );
     const capabilityFailures: unknown[] = [];
+
+    if (requireContext) {
+      capabilityFailures.push(
+        capabilityFailure(
+          "opencode",
+          "OpenCode does not support Profile Context",
+          "remove Context from the selected Profile or do not select OpenCode for this Project",
+        ),
+      );
+    }
+    if (disabledSkill) {
+      capabilityFailures.push(
+        capabilityFailure(
+          "opencode",
+          `OpenCode does not support disabled model invocation for Skill '${disabledSkill.id}'`,
+          "change the Skill's model-invocation policy to allowed or do not select OpenCode for this Project",
+        ),
+      );
+    }
+
     if (input.checkHostCapability) {
       try {
         await services.probeMachineCapability(
@@ -223,21 +262,30 @@ export const opencodeAdapter = {
       }
     }
 
-    const plan = await services.planProjection(
-      {
-        host: "opencode",
-        options: {},
-        profileId: input.profileId,
-        resolvedContexts: input.resolvedContexts,
-        resolvedSkills: input.resolvedSkills,
-      },
-      () => planOpenCodeProject(
-        input.profileId,
-        input.resolvedContexts,
-        input.resolvedSkills,
-        { materials: services.materials },
-      ),
-    );
+    let plan: AdapterProjectPlan | undefined;
+    try {
+      plan = await services.planProjection(
+        {
+          host: "opencode",
+          options: {},
+          profileId: input.profileId,
+          resolvedContexts: input.resolvedContexts,
+          resolvedSkills: input.resolvedSkills,
+        },
+        () => planOpenCodeProject(
+          input.profileId,
+          input.resolvedContexts,
+          input.resolvedSkills,
+          { materials: services.materials },
+        ),
+      );
+    } catch (error) {
+      if (!isAdapterCapabilityError(error)) throw error;
+      if (!capabilityFailures.some((existing) => isAdapterCapabilityError(existing) && existing.message === error.message)) {
+        capabilityFailures.push(error);
+      }
+    }
+
     return { capabilityFailures, diagnostics: [], plan };
   },
 } satisfies CompleteHostAdapter;

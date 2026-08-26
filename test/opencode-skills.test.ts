@@ -265,6 +265,67 @@ describe("OpenCode allowed-invocation Skills-only planning", () => {
     expect(opencodePkg.members).toEqual(antigravityPkg.members);
     expect(opencodePkg.members).toEqual(piPkg.members);
   });
+
+  test("rejects Profile Context at the Adapter boundary with typed capability failure", async () => {
+    const source = temporaryDirectory("apk-opencode-ctx-src-");
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+
+    await expect(
+      planOpenCodeProject(
+        "engineering",
+        [{ content: "instructions\n", id: "rules" }],
+        [skill("review-pr", source)],
+      ),
+    ).rejects.toThrow(/OpenCode does not support Profile Context/i);
+
+    try {
+      await planOpenCodeProject(
+        "engineering",
+        [{ content: "instructions\n", id: "rules" }],
+        [skill("review-pr", source)],
+      );
+    } catch (error) {
+      expect(isAdapterCapabilityError(error)).toBe(true);
+      if (isAdapterCapabilityError(error)) {
+        expect(error.host).toBe("opencode");
+        expect(error.problem).toBe("OpenCode does not support Profile Context");
+      }
+    }
+  });
+
+  test("rejects disabled-invocation Skills at the Adapter boundary with typed capability failure", async () => {
+    const source = temporaryDirectory("apk-opencode-dis-src-");
+    writeFileSync(
+      join(source, "SKILL.md"),
+      "---\nname: dangerous-action\ndescription: Dangerous action.\n---\n\n# Dangerous\n",
+    );
+
+    const disabledSkill: Skill = {
+      dependencies: [],
+      id: "dangerous-action",
+      modelInvocation: "disabled",
+      path: source,
+    };
+
+    await expect(
+      planOpenCodeProject("engineering", [], [disabledSkill]),
+    ).rejects.toThrow(/OpenCode does not support disabled model invocation for Skill 'dangerous-action'/i);
+
+    try {
+      await planOpenCodeProject("engineering", [], [disabledSkill]);
+    } catch (error) {
+      expect(isAdapterCapabilityError(error)).toBe(true);
+      if (isAdapterCapabilityError(error)) {
+        expect(error.host).toBe("opencode");
+        expect(error.problem).toBe(
+          "OpenCode does not support disabled model invocation for Skill 'dangerous-action'",
+        );
+      }
+    }
+  });
 });
 
 describe("OpenCode lifecycle: status and apply", () => {
@@ -343,5 +404,86 @@ describe("OpenCode lifecycle: status and apply", () => {
       capabilityContract: OPENCODE_HOST_VERSION,
     });
     expect(receipt.hosts.pi).toBeDefined();
+  });
+
+  test("blocks status and apply without writing files when Profile contains Context for OpenCode", async () => {
+    const home = temporaryDirectory("apk-opencode-ctx-block-home-");
+    const project = temporaryDirectory("apk-opencode-ctx-block-proj-");
+
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    mkdirSync(join(workspace, "context"), { recursive: true });
+    writeFileSync(
+      join(workspace, "context", "rules.md"),
+      "---\nid: rules\n---\n\n# Rules\nAlways follow repo rules.\n",
+    );
+    mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review PR.\n---\n\n# Review\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: [rules]\nskills: [review-pr]\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [opencode]\n`,
+    );
+
+    const desired = await buildDesiredState(home, {
+      checkHostCapability: false,
+    });
+
+    expect(desired.installations).toHaveLength(1);
+    const blockers = desired.installations[0]?.blockers ?? [];
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0]?.problem).toBe("OpenCode does not support Profile Context");
+
+    await expect(
+      applyReconciliation(home, desired.installations),
+    ).rejects.toThrow(/Apply blocked before writes/);
+    expect(existsSync(join(project, ".agents"))).toBe(false);
+    expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("blocks status and apply without writing files when Profile contains disabled-invocation Skill for OpenCode", async () => {
+    const home = temporaryDirectory("apk-opencode-dis-block-home-");
+    const project = temporaryDirectory("apk-opencode-dis-block-proj-");
+
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "deploy", "SKILL.md"),
+      "---\nname: deploy\ndescription: Deploy production.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: []\nskills: [deploy]\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [opencode]\n`,
+    );
+
+    const desired = await buildDesiredState(home, {
+      checkHostCapability: false,
+    });
+
+    expect(desired.installations).toHaveLength(1);
+    const blockers = desired.installations[0]?.blockers ?? [];
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0]?.problem).toContain(
+      "OpenCode does not support disabled model invocation for Skill 'deploy'",
+    );
+
+    await expect(
+      applyReconciliation(home, desired.installations),
+    ).rejects.toThrow(/Apply blocked before writes/);
+    expect(existsSync(join(project, ".agents"))).toBe(false);
+    expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
   });
 });
