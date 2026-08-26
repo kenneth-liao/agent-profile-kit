@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Report safe Claude and OpenCode duplicate Skill discovery as a non-blocking Adapter diagnostic warning while preserving semantic equality across discovery roots ([#333](https://github.com/kenneth-liao/agent-profile-kit/issues/333)).
+
 - Enforce explicit-only OpenCode Skill invocation through Artifact-ID-keyed global deny rules while preserving native explicit Skill commands, and record distinct Capability Contracts ([#332](https://github.com/kenneth-liao/agent-profile-kit/issues/332)).
 
 - Load composed Profile Context for OpenCode through dedicated whole-file JSONC configuration referencing the owned Context document ([#331](https://github.com/kenneth-liao/agent-profile-kit/issues/331)).
