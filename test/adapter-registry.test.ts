@@ -50,7 +50,7 @@ describe("canonical Host registry", () => {
     expect(hostRegistrationFor("opencode")).toMatchObject({
       adapterVersion: "opencode-project-v1",
       host: "opencode",
-      supportsTemporaryProfileInstallation: false,
+      supportsTemporaryProfileInstallation: true,
     });
     expect(hostRegistrationFor("pi")).toMatchObject({
       adapterVersion: "pi-project-v2",

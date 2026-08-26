@@ -412,6 +412,7 @@ Setup guidance is reported conditionally by Host *and* by what was installed:
 | Claude Code | None. Rule + Skills load on next launch; no Git dependency. |
 | Codex | Codex CLI 0.145.0+ for complete Context delivery, plus project trust **and** native review/trust of the generated `SessionStart` hook — only when Context is installed. Non-Git projects must be launched from the exact bound root. |
 | Grok | None, except when co-bound with Claude and rules compatibility is on: Grok reads Claude's rule file and **no `.grok/rules/` is created**. |
+| OpenCode | OpenCode CLI 1.18.23+. Profile Context loads via `.opencode/opencode.jsonc` referencing `.agent-profile-kit/opencode/context.md`, and Skills load from `.agents/skills/`. Restart running OpenCode sessions to load updated configuration. |
 | Pi | Native project trust; `--skill` / `--no-skills` runtime overrides fall outside the guarantee. |
 | Antigravity | `agy` 1.1.13+ and native project trust. Profile Context loads from deterministic always-on `.agents/rules/` files and Skills from the qualified shared `.agents/skills/` packages. |
 

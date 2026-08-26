@@ -7,13 +7,14 @@ existing configuration or capabilities.
 
 Profiles are reusable Workspace selections. Each machine-local Project Binding
 installs one Profile into one explicit project for the Hosts you name.
-Antigravity, Codex, Claude Code, Grok, and Pi on macOS then load that material
+Antigravity, Codex, Claude Code, Grok, OpenCode, and Pi on macOS then load that material
 through ordinary native project discovery. Global Host configuration and repository-owned
 instructions remain untouched.
 
 This release installs Profile Context for Antigravity, Codex, Claude, Grok,
-and Pi, and portable Skills for Antigravity, Codex, Claude, Grok, and Pi.
-Antigravity, Codex, and Pi consume one qualified shared package under
+OpenCode, and Pi, and portable Skills for Antigravity, Codex, Claude, Grok,
+OpenCode, and Pi.
+Antigravity, Codex, OpenCode, and Pi consume one qualified shared package under
 `.agents/skills/<Artifact ID>/`, alongside Host-native resolution and
 user-managed Skills. Disabled model-invocation Skills receive the shared
 Host-policy projection while remaining explicitly activatable by Artifact ID.
@@ -65,7 +66,11 @@ bound and Grok Claude rules compatibility is enabled, shares Claude’s
 and discovers selected Skills under `.grok/skills/`. Pi loads Profile Context
 from the owned `.pi/APPEND_SYSTEM.md` project surface and consumes selected
 Skills from the shared `.agents/skills/<Artifact ID>/` package; Pi trust and
-session overrides remain Pi-owned.
+session overrides remain Pi-owned. OpenCode loads Profile Context through owned
+configuration at `.opencode/opencode.jsonc` referencing the composed document
+at `.agent-profile-kit/opencode/context.md` and discovers selected Skills from the
+shared `.agents/skills/<Artifact ID>/` package; running OpenCode sessions keep
+previously loaded configuration until restarted.
 Skills-only Profiles install only selected Skill packages for Hosts that support
 them. They do not install Context snapshots, Codex hooks, or Claude/Grok Context
 rules, and do not require Context-related Host capability. Antigravity Skills-only
@@ -136,14 +141,14 @@ Machine-readable command contracts:
   Parse stdout as JSON only on exit `0` or `2`, or when exit `1` still emitted
   a JSON object under `--json`.
 
-Launch Antigravity, Codex, Claude, Grok, or Pi from the bound project. For a
+Launch Antigravity, Codex, Claude, Grok, OpenCode, or Pi from the bound project. For a
 non-Git project with Context, use the exact bound root so Codex can discover the
 generated project hook and Context. Antigravity receives Context through
 always-on `.agents/rules/` files and Skills through `.agents/skills/`.
 
 ```sh
 apkit bind engineering --host codex
-apkit bind engineering ~/projects/x --host antigravity --host codex --host claude --host grok --host pi
+apkit bind engineering ~/projects/x --host antigravity --host codex --host claude --host grok --host opencode --host pi
 apkit unbind ~/projects/x
 apkit info
 apkit info --json
@@ -180,7 +185,7 @@ bindings: []
 ```
 
 Each binding names one existing absolute or home-relative project root, one
-Profile, and one or more Hosts (`antigravity`, `codex`, `claude`, `grok`, or
+Profile, and one or more Hosts (`antigravity`, `codex`, `claude`, `grok`, `opencode`, or
 `pi`). Host order and duplicate entries normalize at ingestion. Use `bind` to append one
 validated binding, or `unbind` to remove one binding, without reconciling
 output; hand-editing `config.yaml` remains supported. `unbind` defaults to the
