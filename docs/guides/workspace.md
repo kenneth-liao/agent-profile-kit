@@ -182,19 +182,20 @@ when every consumer has upgraded to 0.16.1+.
 
 ## Author the Workspace
 
-This release supports Profile Context for Antigravity and Context Modules and
-portable Skills for Antigravity, Codex, Claude Code, Grok, and Pi. Antigravity
-Context uses `.agents/rules/`; Antigravity, Codex, and Pi Skills install through
-the qualified shared `.agents/skills/<Artifact ID>/` projection
-after project-surface capability checks; Pi resolves other Skills, extensions,
-and packages through its native Host behavior.
+This release supports Profile Context and Context Modules for Antigravity,
+Codex, Claude Code, Grok, OpenCode, and Pi, and portable Skills for Antigravity,
+Codex, Claude Code, Grok, OpenCode, and Pi. Antigravity Context uses `.agents/rules/`;
+Antigravity, Codex, OpenCode, and Pi Skills install through the qualified shared
+`.agents/skills/<Artifact ID>/` projection after project-surface capability checks;
+Pi and OpenCode resolve other Skills, extensions, and packages through native
+Host behavior.
 Disabled model-invocation Skills are projected with the shared
 `disable-model-invocation: true` field while explicit `/skill:<Artifact ID>`
-activation remains available. Profiles contain only `id`, `context`, and
-`skills`; Agents, Hooks, and Tools are not delivered by this release. A Profile
-must select at least one supported artifact overall (Context Module,
-Skill, or both); no individual category is mandatory. Context-only, Skills-only,
-and combined Profiles are valid.
+activation (or OpenCode `/<Artifact ID>` command activation) remains available.
+Profiles contain only `id`, `context`, and `skills`; Agents, Hooks, and Tools
+are not delivered by this release. A Profile must select at least one supported
+artifact overall (Context Module, Skill, or both); no individual category is
+mandatory. Context-only, Skills-only, and combined Profiles are valid.
 
 A Context Module is a Markdown file under `context/` with frontmatter containing
 one stable, lowercase kebab-case `id`; the Markdown body is the Context. A Skill
@@ -227,10 +228,10 @@ validate, status, or apply.
 
 Adapters translate the trusted policy only in generated Host output:
 
-| Canonical policy | Claude / Grok generated output | Antigravity / Codex / Pi shared output |
+| Canonical policy | Claude / Grok generated output | Antigravity / Codex / OpenCode / Pi shared output |
 | --- | --- | --- |
 | `allowed` (default) | No Host restriction field | No Host restriction field |
-| `disabled` | `disable-model-invocation: true` in generated `SKILL.md` | `disable-model-invocation: true` in generated `SKILL.md` plus `policy.allow_implicit_invocation: false` in generated `agents/openai.yaml` |
+| `disabled` | `disable-model-invocation: true` in generated `SKILL.md` | `disable-model-invocation: true` in generated `SKILL.md` plus `policy.allow_implicit_invocation: false` in generated `agents/openai.yaml` and `"permission": { "skill": { "<id>": "deny" } }` in generated `.opencode/opencode.jsonc` |
 
 Existing source `agents/openai.yaml` content is preserved. An equivalent
 invocation policy coalesces; malformed, wrong-type, or conflicting policy
@@ -242,18 +243,17 @@ enforce it before writes: Claude Code CLI
 `2.0.64+` (same floor as unscoped rules and native Skill discovery, which
 honors `disable-model-invocation`), Grok CLI `0.2.0+` (same floor as project
 rules and native Skill discovery, which honors `disable-model-invocation`),
-and Codex CLI `0.99.0+` (first stable release with `agents/openai.yaml`
-`policy.allow_implicit_invocation`; see openai/codex#11244 / rust-v0.99.0).
-Pi CLI `0.82.1+` honors and enforces the Pi-native frontmatter field: the
-official [Skills documentation](https://pi.dev/docs/latest/skills) says the
-field hides a Skill from the model's system prompt while users can still invoke
-it explicitly with `/skill:<name>`, and the behavior was introduced in
-[Pi 0.50.0](https://pi.dev/news/releases/0.50.0). Pi records
-`native-project-shared-skills-invocation-v1` for Skills-only or
-`native-project-append-system-shared-skills-invocation-v1` for combined
-Profiles, proving the complete shared package. Antigravity records
-`native-project-shared-skills-invocation-v1` or
-`native-project-always-on-rules-shared-skills-invocation-v1` for the same two
+Codex CLI `0.99.0+` (first stable release with `agents/openai.yaml`
+`policy.allow_implicit_invocation`; see openai/codex#11244 / rust-v0.99.0),
+OpenCode CLI `1.18.23+` (filters denied Skills from model inventory while
+leaving native command activation available), and Pi CLI `0.82.1+` (honors
+`disable-model-invocation: true` in `SKILL.md`).
+OpenCode records `native-project-instructions-skills-invocation-v1` for
+explicit-only Skill enforcement or `native-project-instructions-skills-v1` for
+baseline allowed Skills. Pi records `native-project-shared-skills-invocation-v1`
+for Skills-only or `native-project-append-system-shared-skills-invocation-v1`
+for combined Profiles. Antigravity records `native-project-shared-skills-invocation-v1`
+or `native-project-always-on-rules-shared-skills-invocation-v1` for the same two
 shapes. Unsupported versions fail closed rather than silently weakening the
 policy.
 
@@ -356,7 +356,7 @@ metadata:
 Project Bindings live only in machine-local
 `~/.agents/agent-profile-kit/config.yaml`. Each binding names exactly one
 existing absolute or home-relative project root, one Profile, and a non-empty set
-of supported Hosts (`antigravity`, `codex`, `claude`, `grok`, `pi`). Host order
+of supported Hosts (`antigravity`, `codex`, `claude`, `grok`, `opencode`, `pi`). Host order
 and duplicate entries normalize at ingestion. There are no wildcards, recursive scans,
 hidden default projects, Host auto-detection, per-session Profile selection, or
 Profile version pins. A project root may appear in only one binding.
@@ -366,7 +366,7 @@ Hand-edit `config.yaml`, or record one binding with the authoring-only command
 
 ```sh
 apkit bind coding --host codex
-apkit bind coding ~/projects/tools/agent-profile-kit --host antigravity --host codex --host claude --host grok --host pi
+apkit bind coding ~/projects/tools/agent-profile-kit --host antigravity --host codex --host claude --host grok --host opencode --host pi
 ```
 
 Omit the project argument to use the current working directory. At least one
@@ -496,7 +496,7 @@ unexpected directory members remain blockers and are never overwritten.
 
 ## Use Hosts natively
 
-After `apply`, launch Antigravity, Codex, Claude Code, Grok, or Pi from the
+After `apply`, launch Antigravity, Codex, Claude Code, Grok, OpenCode, or Pi from the
 bound project the way you normally would. Agent Profile Kit does not manage their
 authentication, trust, approvals, plugins, or sessions, and does not launch
 Hosts.
@@ -565,6 +565,31 @@ unreadable relevant settings warn without blocking. Pi's native project trust,
 authentication, settings, prompt files, and per-session overrides remain
 Host-owned.
 
+### OpenCode
+
+OpenCode receives Profile Context through the owned composed Context document
+at `.agent-profile-kit/opencode/context.md` and references it through the
+additive `instructions` list inside the claimed configuration file at
+`.opencode/opencode.jsonc`. OpenCode combines this configuration with
+user-authored slots via native additive merging, and the Project-relative
+reference continues to load Context when OpenCode is launched from any subdirectory.
+The OpenCode Adapter requires CLI 1.18.23 or newer. When configuration is planned
+(Context or disabled Skills), the Adapter emits one transition launch-constraint
+Host Setup Step tied to `.opencode/opencode.jsonc` reminding you to restart
+running OpenCode sessions.
+
+OpenCode discovers selected Skills through the qualified shared
+`.agents/skills/<Artifact ID>/` projection used by Antigravity, Codex, and Pi.
+When trusted model-invocation policy is `disabled`, the OpenCode Adapter
+configures an Artifact-ID-keyed global Skill permission rule with action `deny`
+inside `.opencode/opencode.jsonc`. OpenCode filters denied Skills from the
+model-facing inventory while native Command activation (`/<Artifact ID>`)
+remains available. When Claude and OpenCode are co-selected in a Project Binding
+with Skills, OpenCode natively discovers Skills under both `.claude/skills` and
+`.agents/skills` and reports duplicate Skill names; the OpenCode Adapter emits
+one non-blocking diagnostic warning naming both roots. OpenCode's native
+discovery, configuration slots, and session commands remain Host-owned.
+
 ### Precedence and conflicts
 
 Repository-owned project instructions take precedence over Profile Context on
@@ -615,7 +640,7 @@ This section is the Host-path detail for the
 [Universal Workspace material](#universal-workspace-material) boundary.
 
 Agent Profile Kit installs selected Skills only into the bound **project**
-(`.agents/skills/<Artifact ID>/` for Antigravity, Codex, and Pi,
+(`.agents/skills/<Artifact ID>/` for Antigravity, Codex, OpenCode, and Pi,
 `.claude/skills/<Artifact ID>/` for Claude, `.grok/skills/<Artifact ID>/` for
 Grok). Antigravity Profile Context uses `.agents/rules/` alongside its shared
 Skill packages. It never installs into, adopts, disables, or removes
@@ -629,6 +654,8 @@ Those global folders remain Host-owned:
 - Claude Code: `~/.claude/skills/`
 - Grok: `~/.grok/skills/` (plus enabled compatibility roots and configured
   `[skills].paths`; see `grok inspect`)
+- OpenCode: personal/global configured directories
+- Pi: `~/.pi/skills/` (plus configured sources)
 
 Selected Skills may share an identity with material from these roots, packages,
 plugins, extensions, compatibility sources, or other Host-native locations.

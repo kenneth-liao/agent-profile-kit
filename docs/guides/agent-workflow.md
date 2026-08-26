@@ -19,7 +19,7 @@ Use this workflow when helping a person author their Workspace and bind projects
    project facts, Host preferences, credentials, or machine paths.
 3. Create the smallest useful artifact set. This release accepts Profile Context
    and shared Skills for Antigravity, plus portable Context and Skills for Codex,
-   Claude Code, Grok, and Pi. Put standing facts in
+   Claude Code, Grok, OpenCode, and Pi. Put standing facts in
    Context Modules and reusable procedures in Skills. A Profile needs at least
    one supported artifact (Context, Skills, or both); Context is not mandatory—a
    Skills-only Profile is valid on CLI 0.17.0+ (convert or uninstall before
@@ -41,7 +41,7 @@ Use this workflow when helping a person author their Workspace and bind projects
      machine-local Project Bindings and the explicit Workspace path. Current
      schema version 2 requires one existing absolute or home-relative Workspace
      path and each binding names one existing project root, one Profile, and a
-     supported Host set (`antigravity`, `codex`, `claude`, `grok`, or `pi`); Host
+     supported Host set (`antigravity`, `codex`, `claude`, `grok`, `opencode`, or `pi`); Host
      order and duplicate entries normalize at ingestion. A version-1 configuration without
      `workspace` is legacy migration input only; run `apkit init` before any desired-state
      or binding-recording command.
@@ -82,16 +82,18 @@ Use this workflow when helping a person author their Workspace and bind projects
    no tool error and no blockers (JSON `outcome` may still be `attention`),
    exit `1` is a tool error, and exit `2` means blockers. The current Workspace
    schema version is 1.
-7. After apply, the user launches Antigravity, Codex, Claude, Grok, or Pi
+7. After apply, the user launches Antigravity, Codex, Claude, Grok, OpenCode, or Pi
    natively in the bound project. Do not claim that Agent Profile Kit manages
    Host authentication, trust, approvals, plugins, or sessions. Antigravity
    bindings load deterministic always-on Context rules under `.agents/rules/`
    and shared `.agents/skills/<Artifact ID>` packages after the user's native
-   trust step. Pi bindings load the generated `.pi/APPEND_SYSTEM.md` and shared
-   `.agents/skills/<Artifact ID>` packages after Pi's native trust boundary;
-   packages, extensions, and other Skill sources coexist through Pi Host
-   Resolution. For non-Git projects, remind the user that Codex must launch from
-   the exact bound root.
+   trust step. OpenCode bindings load Profile Context via `.opencode/opencode.jsonc`
+   and `.agent-profile-kit/opencode/context.md` and shared `.agents/skills/<Artifact ID>`
+   packages after restarting running sessions. Pi bindings load the generated
+   `.pi/APPEND_SYSTEM.md` and shared `.agents/skills/<Artifact ID>` packages after
+   Pi's native trust boundary; packages, extensions, and other Skill sources coexist
+   through Pi Host Resolution. For non-Git projects, remind the user that Codex must
+   launch from the exact bound root.
 8. Use `apkit status` for the bound Project containing cwd, pass one explicit
    Project root, or use `apkit status --all` for the fleet. Its concise result
    reports all-current state when nothing needs action, labels change

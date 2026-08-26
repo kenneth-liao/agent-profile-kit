@@ -27,7 +27,7 @@ export const HOST_CATALOG = [
   {
     adapterVersion: "opencode-project-v1",
     host: "opencode",
-    supportsTemporaryProfileInstallation: false,
+    supportsTemporaryProfileInstallation: true,
   },
   {
     adapterVersion: "pi-project-v2",

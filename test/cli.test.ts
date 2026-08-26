@@ -438,6 +438,25 @@ exit 2
   return bin;
 }
 
+/** Put a controlled OpenCode CLI stub first on PATH for version capability preflight. */
+function installFakeOpenCode(home: string, version = "1.18.23"): string {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(
+    join(bin, "opencode"),
+    `#!/bin/sh
+if [ "$1" = "--version" ] || [ "$1" = "version" ]; then
+  echo "opencode ${version} (fake)"
+  exit 0
+fi
+echo "unexpected opencode invocation: $*" >&2
+exit 2
+`,
+  );
+  execFileSync("chmod", ["+x", join(bin, "opencode")]);
+  return bin;
+}
+
 async function runCliWithPath(
   home: string,
   pathValue: string,
@@ -8633,7 +8652,7 @@ describe("apkit list", () => {
         { host: "claude", supportsTemporaryProfileInstallation: true },
         { host: "codex", supportsTemporaryProfileInstallation: true },
         { host: "grok", supportsTemporaryProfileInstallation: false },
-        { host: "opencode", supportsTemporaryProfileInstallation: false },
+        { host: "opencode", supportsTemporaryProfileInstallation: true },
         { host: "pi", supportsTemporaryProfileInstallation: false },
       ],
     });
@@ -10492,6 +10511,261 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expect(payload.outcome).toBe("blocked");
     expect(payload.schemaVersion).toBe(2);
     expect(payload.blockers.some((blocker) => /Claude CLI|requires 2\.0\.64/i.test(String(blocker.message))))
+      .toBe(true);
+    expect(payload.blockers.some((blocker) => blocker.kind === "host-capability" && blocker.scope === "project"))
+      .toBe(true);
+  });
+});
+
+describe("apkit temporary Profile installation (OpenCode parity)", () => {
+  async function prepareOpenCodeTempWorkspace(home: string): Promise<void> {
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const skillSource = join(workspacePath(home), "skills", "review-pr");
+    mkdirSync(skillSource, { recursive: true });
+    writeFileSync(
+      join(skillSource, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\nReview the change carefully.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\n",
+    );
+  }
+
+  function runCliWithOpenCode(home: string, ...arguments_: string[]) {
+    const pathValue = `${installFakeOpenCode(home)}:${process.env.PATH ?? ""}`;
+    return runProcess({
+      executable: process.env.NODE_BINARY ?? "node",
+      arguments_: [cliPath, ...withHistoricalFleetScope(arguments_)],
+      environment: { ...process.env, HOME: home, PATH: pathValue },
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "packed CLI",
+    });
+  }
+
+  test("install-temp / remove-temp complete OpenCode lifecycle with versioned receipt and OpenCode Adapter outputs", async () => {
+    const home = isolatedHome();
+    await prepareOpenCodeTempWorkspace(home);
+    const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-opencode-cli-"));
+    const boundProject = realpathSync(gitRepository("agent-profile-kit-bound-opencode-cli-"));
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${boundProject}\n    profile: coding\n    hosts:\n      - opencode\n`,
+    );
+    const applyBound = await runCliWithOpenCode(home, "apply");
+    expectExitCode(applyBound, 0);
+    const configBefore = readFileSync(configPath(home));
+    const boundContextBefore = readFileSync(
+      join(boundProject, ".agent-profile-kit", "opencode", "context.md"),
+    );
+    const boundConfigBefore = readFileSync(
+      join(boundProject, ".opencode", "opencode.jsonc"),
+    );
+
+    const install = await runCliWithOpenCode(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "opencode",
+      "--json",
+    );
+    expectExitCode(install, 0);
+    const receipt = JSON.parse(install.stdout) as {
+      readonly schemaVersion: number;
+      readonly command: string;
+      readonly outcome: string;
+      readonly temporaryInstallationId: string;
+      readonly profileId: string;
+      readonly host: string;
+      readonly project: string;
+      readonly workspaceInputHash: string;
+      readonly engineVersion: string;
+      readonly adapterVersion: string;
+      readonly hostVersion: string;
+      readonly outputs: readonly string[];
+      readonly repositoryExclusion: {
+        readonly target: string;
+        readonly entries: readonly string[];
+      } | null;
+      readonly completionState: string;
+      readonly setupSteps: readonly {
+        readonly host: string;
+        readonly kind: string;
+        readonly message: string;
+        readonly consequence?: string;
+        readonly output?: string;
+        readonly provenance?: string;
+      }[];
+      readonly warnings: readonly string[];
+    };
+    expect(receipt.schemaVersion).toBe(2);
+    expect(receipt.command).toBe("install-temp");
+    expect(receipt.outcome).toBe("success");
+    expect(receipt.profileId).toBe("coding");
+    expect(receipt.host).toBe("opencode");
+    expect(receipt.project).toBe(tempProject);
+    expect(receipt.completionState).toBe("installed");
+    expect(receipt.temporaryInstallationId.length).toBeGreaterThan(0);
+    expect(receipt.workspaceInputHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(receipt.engineVersion).toBeTruthy();
+    expect(receipt.adapterVersion).toBe("opencode-project-v1");
+    expect(receipt.hostVersion).toBe("native-project-instructions-skills-v1");
+    expect(receipt.outputs).not.toContain(".agent-profile-kit/installation.json");
+    expect(receipt.outputs).toContain(".agent-profile-kit/opencode/context.md");
+    expect(receipt.outputs).toContain(".opencode/opencode.jsonc");
+    expect(receipt.outputs).toContain(".agents/skills/review-pr");
+    expect(receipt.repositoryExclusion).not.toBeNull();
+    expect(receipt.repositoryExclusion!.entries).toEqual(
+      expect.arrayContaining([
+        "/.agent-profile-kit/installation.json",
+        "/.agent-profile-kit/opencode/context.md",
+        "/.opencode/opencode.jsonc",
+        "/.agents/skills/review-pr",
+      ]),
+    );
+    expect(receipt.setupSteps).toEqual([
+      {
+        consequence:
+          "A running OpenCode session keeps its previously loaded configuration until restarted.",
+        host: "opencode",
+        kind: "launch-constraint",
+        message: "Restart OpenCode to load changed configuration.",
+        output: ".opencode/opencode.jsonc",
+        provenance: "transition",
+      },
+    ]);
+    expect(Array.isArray(receipt.warnings)).toBe(true);
+
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "opencode", "context.md"))).toBe(true);
+    expect(existsSync(join(tempProject, ".opencode", "opencode.jsonc"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
+    expect(
+      readFileSync(join(boundProject, ".agent-profile-kit", "opencode", "context.md")).equals(
+        boundContextBefore,
+      ),
+    ).toBe(true);
+    expect(
+      readFileSync(join(boundProject, ".opencode", "opencode.jsonc")).equals(
+        boundConfigBefore,
+      ),
+    ).toBe(true);
+
+    const humanRemove = await runCliWithOpenCode(
+      home,
+      "remove-temp",
+      receipt.temporaryInstallationId,
+    );
+    expectExitCode(humanRemove, 0);
+    expect(humanRemove.stdout).toContain("Removed temporary Profile");
+    expect(humanRemove.stdout).toContain(`Temporary installation: ${receipt.temporaryInstallationId}`);
+    expect(humanRemove.stdout).not.toMatch(/Project Binding|reconcil|materializ|cleanup/i);
+
+    const reinstall = await runCliWithOpenCode(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "opencode",
+    );
+    expectExitCode(reinstall, 0);
+    expect(reinstall.stdout).toContain("Installed temporary Profile");
+    expect(reinstall.stdout).toContain("Host: opencode");
+    expect(reinstall.stdout).toContain("Profile: coding");
+    expect(reinstall.stdout).not.toMatch(/Project Binding|reconcil|materializ|cleanup/i);
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
+      expect(reinstall.stdout).not.toMatch(term);
+    }
+    const reinstallIdMatch = reinstall.stdout.match(/Temporary installation: (\S+)/);
+    expect(reinstallIdMatch?.[1]).toBeTruthy();
+    const reinstallId = reinstallIdMatch![1]!;
+
+    const remove = await runCliWithOpenCode(home, "remove-temp", reinstallId, "--json");
+    expectExitCode(remove, 0);
+    const removed = JSON.parse(remove.stdout) as {
+      readonly outcome: string;
+      readonly completionState: string;
+      readonly temporaryInstallationId: string;
+      readonly host: string;
+      readonly outputs: readonly string[];
+      readonly setupSteps: readonly unknown[];
+      readonly warnings: readonly unknown[];
+    };
+    expect(removed.outcome).toBe("success");
+    expect(removed.completionState).toBe("removed");
+    expect(removed.temporaryInstallationId).toBe(reinstallId);
+    expect(removed.host).toBe("opencode");
+    expect(removed.outputs).toEqual([]);
+    expect(removed.setupSteps).toEqual([]);
+    expect(removed.warnings).toEqual([]);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "opencode", "context.md"))).toBe(false);
+    expect(existsSync(join(tempProject, ".opencode", "opencode.jsonc"))).toBe(false);
+    expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
+
+    const removeAgain = await runCliWithOpenCode(home, "remove-temp", reinstallId, "--json");
+    expectExitCode(removeAgain, 0);
+    expect(JSON.parse(removeAgain.stdout).completionState).toBe("removed");
+    expect(JSON.parse(removeAgain.stdout).outcome).toBe("success");
+
+    // Ordinary OpenCode Profile Installation remains after temporary lifecycle.
+    expect(existsSync(join(boundProject, ".opencode", "opencode.jsonc"))).toBe(true);
+    expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
+  });
+
+  test("OpenCode install-temp exit codes: 0 success, 1 tool error, 2 capability blocker", async () => {
+    const home = isolatedHome();
+    await prepareOpenCodeTempWorkspace(home);
+    const projectPath = realpathSync(gitRepository("agent-profile-kit-temp-opencode-exits-"));
+
+    const success = await runCliWithOpenCode(
+      home,
+      "install-temp",
+      "coding",
+      projectPath,
+      "--host",
+      "opencode",
+      "--json",
+    );
+    expectExitCode(success, 0);
+
+    const missingProfile = await runCliWithOpenCode(
+      home,
+      "install-temp",
+      "no-such-profile",
+      projectPath,
+      "--host",
+      "opencode",
+      "--json",
+    );
+    expectExitCode(missingProfile, 1);
+    expect(JSON.parse(missingProfile.stdout).outcome).toBe("error");
+
+    // Capability blocker: old OpenCode CLI floor (1.18.22 vs 1.18.23).
+    const oldBin = installFakeOpenCode(home, "1.18.22");
+    const pathValue = `${oldBin}:${process.env.PATH ?? ""}`;
+    const blocked = await runProcess({
+      executable: process.env.NODE_BINARY ?? "node",
+      arguments_: [cliPath, "install-temp", "coding", gitRepository("agent-profile-kit-temp-opencode-old-"), "--host", "opencode", "--json"],
+      environment: { ...process.env, HOME: home, PATH: pathValue },
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "packed CLI",
+    });
+    expectExitCode(blocked, 2);
+    const payload = JSON.parse(blocked.stdout) as {
+      readonly outcome: string;
+      readonly schemaVersion: number;
+      readonly blockers: readonly Record<string, unknown>[];
+    };
+    expect(payload.outcome).toBe("blocked");
+    expect(payload.schemaVersion).toBe(2);
+    expect(payload.blockers.some((blocker) => /OpenCode 1\.18\.22 does not support native project instructions or Skills/i.test(String(blocker.message))))
       .toBe(true);
     expect(payload.blockers.some((blocker) => blocker.kind === "host-capability" && blocker.scope === "project"))
       .toBe(true);

@@ -1,13 +1,20 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { uninstallApplication } from "../installer/commands.js";
+import {
+  installTemporaryProfile,
+  removeTemporaryProfile,
+} from "../installer/temporary-installation.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isAdapterCapabilityError } from "../adapters/capability.js";
@@ -21,6 +28,7 @@ import {
   OPENCODE_CONTEXT_PATH,
   OPENCODE_CONTEXT_REQUIREMENTS,
   OPENCODE_HOST_VERSION,
+  OPENCODE_HOST_VERSION_WITH_INVOCATION,
   OPENCODE_MINIMUM_CLI_VERSION,
   OPENCODE_PROJECT_SKILLS_ROOT,
   parseOpenCodeCliVersion,
@@ -57,6 +65,17 @@ function temporaryDirectory(prefix: string): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   temporaryDirectories.push(directory);
   return directory;
+}
+
+function gitRepository(prefix: string): string {
+  const repository = temporaryDirectory(prefix);
+  execFileSync("git", ["init", "-q", repository]);
+  execFileSync("git", ["-C", repository, "config", "user.email", "tests@example.com"]);
+  execFileSync("git", ["-C", repository, "config", "user.name", "Agent Profile Kit Tests"]);
+  writeFileSync(join(repository, "README.md"), "fixture\n");
+  execFileSync("git", ["-C", repository, "add", "README.md"]);
+  execFileSync("git", ["-C", repository, "commit", "-qm", "fixture"]);
+  return realpathSync(repository);
 }
 
 function skill(id: string, path: string): Skill {
@@ -577,6 +596,230 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     const finalState = await readInstallationState(home);
     const finalStatus = await previewReconciliation(updatedDesired.installations, finalState);
     expect(reportItems(finalStatus).some((item) => item.kind === "current")).toBe(true);
+  });
+
+  test("contributes all OpenCode outputs including configuration and Context to Git repository exclusions", async () => {
+    const home = temporaryDirectory("apk-opencode-excl-home-");
+    const project = gitRepository("apk-opencode-excl-proj-");
+
+    await workspaceWithContextAndSkills(
+      home,
+      project,
+      [{ id: "team-rules", content: "Rules.\n" }],
+      [{ id: "review-pr" }],
+      ["team-rules"],
+      ["review-pr"],
+      ["opencode"],
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const applied = await applyReconciliation(home, desired.installations);
+    expect(reportBlockers(applied.receipt)).toEqual([]);
+
+    const state = await readInstallationState(home);
+    const receipt = state.receipts[0];
+    if (!receipt) throw new Error("expected receipt");
+
+    expect(receipt.repositoryExclusion).toBeDefined();
+    expect(receipt.repositoryExclusion?.target).toBe(join(project, ".git", "info", "exclude"));
+    expect(receipt.repositoryExclusion?.entries).toEqual(
+      expect.arrayContaining([
+        "/.agent-profile-kit/installation.json",
+        "/.agent-profile-kit/opencode/context.md",
+        "/.agents/skills/review-pr",
+        "/.opencode/opencode.jsonc",
+      ]),
+    );
+
+    const excludeContent = readFileSync(join(project, ".git", "info", "exclude"), "utf8");
+    expect(excludeContent).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(excludeContent).toContain("/.agent-profile-kit/installation.json");
+    expect(excludeContent).toContain("/.agent-profile-kit/opencode/context.md");
+    expect(excludeContent).toContain("/.agents/skills/review-pr");
+    expect(excludeContent).toContain("/.opencode/opencode.jsonc");
+    expect(excludeContent).toContain("# END Agent Profile Kit generated paths");
+  });
+
+  test("ordinary uninstall removes every proven OpenCode output without touching user configuration and leaves binding ready for apply", async () => {
+    const home = temporaryDirectory("apk-opencode-uninst-home-");
+    const project = gitRepository("apk-opencode-uninst-proj-");
+
+    // Existing user-authored config in distinct slots
+    writeFileSync(join(project, "opencode.json"), JSON.stringify({ customUserSlot: 1 }, null, 2));
+    mkdirSync(join(project, ".opencode"), { recursive: true });
+    writeFileSync(
+      join(project, ".opencode", "opencode.json"),
+      JSON.stringify({ customDotOpencodeSlot: 2 }, null, 2),
+    );
+
+    await workspaceWithContextAndSkills(
+      home,
+      project,
+      [{ id: "team-rules", content: "Rules.\n" }],
+      [{ id: "review-pr" }],
+      ["team-rules"],
+      ["review-pr"],
+      ["opencode"],
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, desired.installations);
+
+    // Verify all outputs exist
+    expect(existsSync(join(project, ".agent-profile-kit", "opencode", "context.md"))).toBe(true);
+    expect(existsSync(join(project, ".opencode", "opencode.jsonc"))).toBe(true);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(true);
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
+
+    const uninstallResult = await uninstallApplication(home);
+    expect(uninstallResult.projects).toHaveLength(1);
+    expect(uninstallResult.projects[0]?.project).toBe(project);
+
+    // Outputs removed
+    expect(existsSync(join(project, ".agent-profile-kit", "opencode", "context.md"))).toBe(false);
+    expect(existsSync(join(project, ".opencode", "opencode.jsonc"))).toBe(false);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
+
+    // User-authored files preserved
+    expect(readFileSync(join(project, "opencode.json"), "utf8")).toBe(
+      JSON.stringify({ customUserSlot: 1 }, null, 2),
+    );
+    expect(readFileSync(join(project, ".opencode", "opencode.json"), "utf8")).toBe(
+      JSON.stringify({ customDotOpencodeSlot: 2 }, null, 2),
+    );
+
+    // Git exclusion cleaned
+    const excludeContent = readFileSync(join(project, ".git", "info", "exclude"), "utf8");
+    expect(excludeContent).not.toContain("# BEGIN Agent Profile Kit generated paths");
+
+    // Binding remains and project is reported not installed, ready for apply
+    const postUninstallState = await readInstallationState(home);
+    expect(postUninstallState.receipts).toEqual([]);
+
+    const postUninstallDesired = await buildDesiredState(home, { checkHostCapability: false });
+    const postStatus = await previewReconciliation(postUninstallDesired.installations, postUninstallState);
+    expect(reportItems(postStatus).some((item) => item.kind === "addition")).toBe(true);
+    expect(reportBlockers(postStatus)).toEqual([]);
+  });
+
+  test("temporary Profile installation installs OpenCode Context, configuration, and Skills without Project Binding, and remove-temp cleans up idempotently", async () => {
+    const home = temporaryDirectory("apk-opencode-temp-home-");
+
+    // Capability preflight probes the real `opencode --version`; CI runners have no
+    // OpenCode install, so put a controlled stub first on PATH (same pattern as the
+    // recovery tests for Codex and Claude).
+    const stubBin = join(home, "bin");
+    mkdirSync(stubBin, { recursive: true });
+    writeFileSync(join(stubBin, "opencode"), "#!/bin/sh\necho \"opencode 1.18.23 (fake)\"\n");
+    execFileSync("chmod", ["+x", join(stubBin, "opencode")]);
+    process.env.PATH = `${stubBin}:${process.env.PATH ?? ""}`;
+
+    const tempProject = gitRepository("apk-opencode-temp-proj-");
+
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+
+    mkdirSync(join(workspace, "context"), { recursive: true });
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\n---\n\n# Rules\nFollow team rules.\n",
+    );
+
+    mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review PR.\n---\n\n# Review PR\n",
+    );
+
+    mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "deploy", "SKILL.md"),
+      "---\nname: deploy\ndescription: Deploy.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n",
+    );
+
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: [team-rules]\nskills: [review-pr, deploy]\n",
+    );
+
+    const configPath = join(application, "config.yaml");
+    const configBefore = readFileSync(configPath, "utf8");
+
+    const receipt = await installTemporaryProfile({
+      home,
+      host: "opencode",
+      profile: "engineering",
+      project: tempProject,
+    });
+
+    expect(receipt.completionState).toBe("installed");
+    expect(receipt.host).toBe("opencode");
+    expect(receipt.adapterVersion).toBe(OPENCODE_ADAPTER_VERSION);
+    expect(receipt.hostVersion).toBe(OPENCODE_HOST_VERSION_WITH_INVOCATION);
+    expect(receipt.profileId).toBe("engineering");
+    expect(receipt.project).toBe(tempProject);
+    expect(receipt.setupSteps).toEqual([
+      {
+        consequence:
+          "A running OpenCode session keeps its previously loaded configuration until restarted.",
+        host: "opencode",
+        kind: "launch-constraint",
+        message: "Restart OpenCode to load changed configuration.",
+        output: ".opencode/opencode.jsonc",
+        provenance: "transition",
+      },
+    ]);
+
+    // Verify files on disk
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "opencode", "context.md"))).toBe(true);
+    expect(existsSync(join(tempProject, ".opencode", "opencode.jsonc"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agents", "skills", "deploy", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+
+    const configParsed = JSON.parse(
+      readFileSync(join(tempProject, ".opencode", "opencode.jsonc"), "utf8"),
+    ) as { instructions?: readonly string[]; permission?: { skill?: Record<string, string> } };
+    expect(configParsed.instructions).toEqual([".agent-profile-kit/opencode/context.md"]);
+    expect(configParsed.permission?.skill).toEqual({ deploy: "deny" });
+
+    // Local Configuration (config.yaml) is NOT modified
+    expect(readFileSync(configPath, "utf8")).toBe(configBefore);
+
+    // Repository exclusion exists
+    const excludeFile = join(tempProject, ".git", "info", "exclude");
+    expect(readFileSync(excludeFile, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(readFileSync(excludeFile, "utf8")).toContain("/.opencode/opencode.jsonc");
+    expect(readFileSync(excludeFile, "utf8")).toContain("/.agent-profile-kit/opencode/context.md");
+    expect(readFileSync(excludeFile, "utf8")).toContain("/.agents/skills/review-pr");
+    expect(readFileSync(excludeFile, "utf8")).toContain("/.agents/skills/deploy");
+
+    // Remove temporary profile
+    const removedReceipt = await removeTemporaryProfile({
+      home,
+      temporaryInstallationId: receipt.temporaryInstallationId,
+    });
+    expect(removedReceipt.completionState).toBe("removed");
+    expect(removedReceipt.temporaryInstallationId).toBe(receipt.temporaryInstallationId);
+
+    // Outputs removed
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "opencode", "context.md"))).toBe(false);
+    expect(existsSync(join(tempProject, ".opencode", "opencode.jsonc"))).toBe(false);
+    expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(tempProject, ".agents", "skills", "deploy"))).toBe(false);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
+
+    // Exclusion cleaned
+    expect(readFileSync(excludeFile, "utf8")).not.toContain("# BEGIN Agent Profile Kit generated paths");
+
+    // Idempotent second removal
+    const secondRemoved = await removeTemporaryProfile({
+      home,
+      temporaryInstallationId: receipt.temporaryInstallationId,
+    });
+    expect(secondRemoved.completionState).toBe("removed");
   });
 });
 
