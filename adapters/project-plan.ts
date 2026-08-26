@@ -34,6 +34,7 @@ export interface ProposedProjectFileOutput {
    */
   readonly origins: readonly ArtifactReference[];
   readonly path: string;
+  readonly remedy?: string;
   readonly requirements: readonly string[];
   readonly type: "file";
 }
@@ -48,6 +49,7 @@ export interface ProposedProjectDirectoryOutput {
   /** Canonical Artifact references that generated this output. */
   readonly origins: readonly ArtifactReference[];
   readonly path: string;
+  readonly remedy?: string;
   readonly requirements: readonly string[];
   readonly type: "directory";
 }

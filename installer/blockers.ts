@@ -319,6 +319,7 @@ export function occupiedOutputBlocker(options: {
   readonly message: string;
   readonly path: string;
   readonly project: string;
+  readonly remedy?: string;
 }): ProjectScopedBlockerInput {
   return projectBlocker({
     affectedItems: [{ kind: "path", value: options.path }],
@@ -326,9 +327,10 @@ export function occupiedOutputBlocker(options: {
     problem: options.message,
     project: options.project,
     remedy:
-      "Remove, move, or adopt the occupying material yourself, or change the Project " +
+      options.remedy ??
+      ("Remove, move, or adopt the occupying material yourself, or change the Project " +
       "Binding or Host selection so Agent Profile Kit does not plan output at that path, " +
-      "then retry",
+      "then retry"),
     requirement:
       "Generated files are installed only at new or Agent Profile Kit-managed destinations; " +
       "occupied unowned material is never overwritten or adopted",

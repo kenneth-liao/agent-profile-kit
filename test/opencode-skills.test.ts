@@ -148,7 +148,7 @@ describe("OpenCode Adapter capabilities and version probing", () => {
     expect(() => assertOpenCodeCliVersionSupported("2.0.0")).not.toThrow();
 
     expect(() => assertOpenCodeCliVersionSupported("1.18.22")).toThrow(
-      `OpenCode 1.18.22 does not support native project Skills (requires ${OPENCODE_MINIMUM_CLI_VERSION}+)`,
+      `OpenCode 1.18.22 does not support native project instructions or Skills (requires ${OPENCODE_MINIMUM_CLI_VERSION}+)`,
     );
     try {
       assertOpenCodeCliVersionSupported("0.9.0");
@@ -157,7 +157,7 @@ describe("OpenCode Adapter capabilities and version probing", () => {
       if (isAdapterCapabilityError(error)) {
         expect(error.host).toBe("opencode");
         expect(error.problem).toBe(
-          `OpenCode 0.9.0 does not support native project Skills (requires ${OPENCODE_MINIMUM_CLI_VERSION}+)`,
+          `OpenCode 0.9.0 does not support native project instructions or Skills (requires ${OPENCODE_MINIMUM_CLI_VERSION}+)`,
         );
         expect(error.remedy).toBe("upgrade OpenCode before checking status or applying the Profile");
       }
@@ -174,7 +174,13 @@ describe("OpenCode Adapter capabilities and version probing", () => {
       probeOpenCodeMachineCapability({
         resolveVersion: async () => "opencode 1.18.22\n",
       }),
-    ).rejects.toThrow(/does not support native project Skills/i);
+    ).rejects.toThrow(/does not support native project instructions or Skills/i);
+  });
+
+  test("rejects with capability failure when OpenCode executable is missing on PATH", async () => {
+    await expect(
+      probeOpenCodeMachineCapability({ env: { PATH: "" } }),
+    ).rejects.toThrow(/OpenCode was not found on PATH/i);
   });
 
   test("rejects project surface when .agents or .agents/skills is not a directory", async () => {
@@ -266,35 +272,6 @@ describe("OpenCode allowed-invocation Skills-only planning", () => {
     expect(opencodePkg.members).toEqual(piPkg.members);
   });
 
-  test("rejects Profile Context at the Adapter boundary with typed capability failure", async () => {
-    const source = temporaryDirectory("apk-opencode-ctx-src-");
-    writeFileSync(
-      join(source, "SKILL.md"),
-      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
-    );
-
-    await expect(
-      planOpenCodeProject(
-        "engineering",
-        [{ content: "instructions\n", id: "rules" }],
-        [skill("review-pr", source)],
-      ),
-    ).rejects.toThrow(/OpenCode does not support Profile Context/i);
-
-    try {
-      await planOpenCodeProject(
-        "engineering",
-        [{ content: "instructions\n", id: "rules" }],
-        [skill("review-pr", source)],
-      );
-    } catch (error) {
-      expect(isAdapterCapabilityError(error)).toBe(true);
-      if (isAdapterCapabilityError(error)) {
-        expect(error.host).toBe("opencode");
-        expect(error.problem).toBe("OpenCode does not support Profile Context");
-      }
-    }
-  });
 
   test("rejects disabled-invocation Skills at the Adapter boundary with typed capability failure", async () => {
     const source = temporaryDirectory("apk-opencode-dis-src-");
@@ -406,47 +383,6 @@ describe("OpenCode lifecycle: status and apply", () => {
     expect(receipt.hosts.pi).toBeDefined();
   });
 
-  test("blocks status and apply without writing files when Profile contains Context for OpenCode", async () => {
-    const home = temporaryDirectory("apk-opencode-ctx-block-home-");
-    const project = temporaryDirectory("apk-opencode-ctx-block-proj-");
-
-    await initializeWorkspace(home);
-    const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
-    mkdirSync(join(workspace, "context"), { recursive: true });
-    writeFileSync(
-      join(workspace, "context", "rules.md"),
-      "---\nid: rules\n---\n\n# Rules\nAlways follow repo rules.\n",
-    );
-    mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
-    writeFileSync(
-      join(workspace, "skills", "review-pr", "SKILL.md"),
-      "---\nname: review-pr\ndescription: Review PR.\n---\n\n# Review\n",
-    );
-    writeFileSync(
-      join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [rules]\nskills: [review-pr]\n",
-    );
-    writeFileSync(
-      join(application, "config.yaml"),
-      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [opencode]\n`,
-    );
-
-    const desired = await buildDesiredState(home, {
-      checkHostCapability: false,
-    });
-
-    expect(desired.installations).toHaveLength(1);
-    const blockers = desired.installations[0]?.blockers ?? [];
-    expect(blockers).toHaveLength(1);
-    expect(blockers[0]?.problem).toBe("OpenCode does not support Profile Context");
-
-    await expect(
-      applyReconciliation(home, desired.installations),
-    ).rejects.toThrow(/Apply blocked before writes/);
-    expect(existsSync(join(project, ".agents"))).toBe(false);
-    expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
-  });
 
   test("blocks status and apply without writing files when Profile contains disabled-invocation Skill for OpenCode", async () => {
     const home = temporaryDirectory("apk-opencode-dis-block-home-");

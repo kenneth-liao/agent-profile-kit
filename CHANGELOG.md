@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Load composed Profile Context for OpenCode through dedicated whole-file JSONC configuration referencing the owned Context document ([#331](https://github.com/kenneth-liao/agent-profile-kit/issues/331)).
+
 - Add OpenCode as a supported Agent Host that installs allowed-invocation Skills through the qualified shared projection ([#330](https://github.com/kenneth-liao/agent-profile-kit/issues/330)).
 
 - Add weekly grouped Dependabot updates for the npm/Bun dependency graph and SHA-pinned GitHub Actions, with both update streams passing through normal pull-request CI ([#283](https://github.com/kenneth-liao/agent-profile-kit/issues/283)).

@@ -542,6 +542,9 @@ export async function desiredOutputConflicts(
       gitProject,
       outputs.map((output) => output.path),
     );
+  const remedies = new Map(
+    desired.outputs.map((output) => [output.path, output.remedy]),
+  );
   const trackedPaths: string[] = [];
   for (const output of outputs) {
     const absolute = outputPath(project, output);
@@ -559,12 +562,14 @@ export async function desiredOutputConflicts(
     blockers.push(...await parentConflicts(project, absolute));
     const kind = await pathKind(absolute);
     if (kind === "missing") continue;
+    const remedy = remedies.get(output.path);
     if (output.type === "file") {
       if (kind !== "file") {
         blockers.push(occupiedOutputBlocker({
           message: `${output.path} is an occupied ${kind} path`,
           path: output.path,
           project,
+          ...(remedy === undefined ? {} : { remedy }),
         }));
         continue;
       }
@@ -572,6 +577,7 @@ export async function desiredOutputConflicts(
         message: `${output.path} is occupied by unowned or drifted output`,
         path: output.path,
         project,
+        ...(remedy === undefined ? {} : { remedy }),
       }));
       continue;
     }
@@ -580,6 +586,7 @@ export async function desiredOutputConflicts(
         message: `${output.path} is an occupied ${kind} path`,
         path: output.path,
         project,
+        ...(remedy === undefined ? {} : { remedy }),
       }));
       continue;
     }
@@ -587,6 +594,7 @@ export async function desiredOutputConflicts(
       message: `${output.path} is an occupied unowned artifact directory`,
       path: output.path,
       project,
+      ...(remedy === undefined ? {} : { remedy }),
     }));
   }
   if (trackedPaths.length > 0) {
