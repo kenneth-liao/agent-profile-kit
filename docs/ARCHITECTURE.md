@@ -179,7 +179,9 @@ lifecycle: it removes only ownership-proven generated output and preserves
 bindings. `status` and `apply` select the bound Project containing the current
 working directory by default, accept one explicit existing absolute or
 home-relative Project root, and use `--all` as their only fleet scope. `bind` and `unbind` are recording-only; hand-editing Local Configuration remains valid,
-and `bind` does not replace or remove an existing binding.
+and `bind` never removes an existing binding — `--replace` opt-in restates one
+binding's Profile and Host set in place (see ADR-0010), while removal stays
+exclusive to `unbind`.
 
 ## Canonical Model
 
