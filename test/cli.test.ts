@@ -1920,7 +1920,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(humanText(result.stdout)).toContain(humanText(`${projectPath}: addition`));
     expect(result.stdout).toContain("Profile coding");
-    expect(result.stdout).toContain("Context Module: team-rules");
+    expect(result.stdout).toContain("Always preserve the project boundary.");
+    expect(result.stdout).not.toContain("<!-- Context Module:");
     expect(result.stdout).toContain(".codex/hooks.json");
     expect(humanText(result.stdout)).toContain(
       humanText(`Launch Codex from the exact bound project root: ${projectPath}`),
@@ -2613,7 +2614,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const hookPath = join(projectPath, ".codex", "hooks.json");
     const markerPath = join(projectPath, ".agent-profile-kit", "installation.json");
     expect(readFileSync(contextPath, "utf8")).toContain("Profile: coding");
-    expect(readFileSync(contextPath, "utf8")).toContain("Context Module: team-rules");
+    expect(readFileSync(contextPath, "utf8")).toContain("Always preserve the project boundary.");
+    expect(readFileSync(contextPath, "utf8")).not.toContain("<!-- Context Module:");
     expect(readFileSync(contextPath, "utf8")).toContain("Repository-owned project instructions");
     const hook = JSON.parse(readFileSync(hookPath, "utf8")) as { hooks: { SessionStart: readonly { matcher: string; hooks: readonly { command: string }[] }[] } };
     expect(hook.hooks.SessionStart[0]?.matcher).toBe("startup|clear|compact");
@@ -5644,7 +5646,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: addition`));
     expect(status.stdout).toContain("Profile coding");
-    expect(status.stdout).toContain("Context Module: team-rules");
+    expect(status.stdout).toContain("Always preserve the project boundary.");
+    expect(status.stdout).not.toContain("<!-- Context Module:");
     expect(status.stdout).toContain("# Agent Profile Kit Context");
     expect(status.stdout).toContain(".claude/rules/agent-profile-kit.md");
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
@@ -5653,7 +5656,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(apply, 0);
     const rule = readFileSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"), "utf8");
     expect(rule).toContain("Profile: coding");
-    expect(rule).toContain("Context Module: team-rules");
+    expect(rule).toContain("Always preserve the project boundary.");
+    expect(rule).not.toContain("<!-- Context Module:");
     expect(rule).not.toMatch(/^---\n/);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
     expect(readFileSync(join(projectPath, "CLAUDE.md"), "utf8")).toBe("project-owned instructions\n");
@@ -6109,7 +6113,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(apply, 0);
     const rule = readFileSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"), "utf8");
     expect(rule).toContain("Profile: coding");
-    expect(rule).toContain("Context Module: team-rules");
+    expect(rule).toContain("Always preserve the project boundary.");
+    expect(rule).not.toContain("<!-- Context Module:");
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned instructions\n");
     expect(readFileSync(join(projectPath, ".grok", "rules", "team.md"), "utf8")).toBe(
       "existing team rule\n",

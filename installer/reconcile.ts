@@ -769,7 +769,7 @@ function composedContextFromOutputs(outputs: readonly DesiredProjectOutput[]): s
     const bytes = typeof output.bytes === "string"
       ? output.bytes
       : Buffer.from(output.bytes).toString("utf8");
-    if (bytes.startsWith("# Agent Profile Kit Context\n")) return bytes;
+    if (bytes.startsWith("# Agent Profile Kit Context")) return bytes;
   }
   return "";
 }
