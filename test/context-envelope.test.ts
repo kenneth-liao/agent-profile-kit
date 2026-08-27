@@ -66,6 +66,20 @@ describe("composeContextEnvelope", () => {
     expect(composed.endsWith("Beta.\n")).toBe(true);
   });
 
+  test("never glues a non-final body missing its trailing newline to the next module", () => {
+    const unterminated = parseContextModule(
+      moduleSource("unterminated", "Alpha."),
+      "context/unterminated.md",
+    );
+    const second = parseContextModule(
+      moduleSource("second", "Beta.\n"),
+      "context/second.md",
+    );
+    const composed = composeContextEnvelope("coding", [unterminated, second]);
+    expect(composed).toContain("Alpha.\nBeta.\n");
+    expect(composed).not.toContain("Alpha.Beta.");
+  });
+
   test("normalizes the final trailing newline sequence to exactly one newline", () => {
     const multiple = parseContextModule(
       moduleSource("trailing-many", "Content.\n\n\n"),

@@ -8,7 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
-- Reduce the complete Profile Context envelope to compact Profile metadata plus normalized Context Module bodies with no generated per-module boundary markers, shared identically by Pi, Codex, Claude, and Grok while Antigravity keeps separate per-module always-on rules ([#326](https://github.com/kenneth-liao/agent-profile-kit/issues/326)).
+- Reduce the complete Profile Context envelope to compact Profile metadata plus normalized Context Module bodies with no generated per-module boundary markers, shared identically by Pi, Codex, Claude, and Grok while Antigravity keeps separate per-module always-on rules ([#326](https://github.com/kenneth-liao/agent-profile-kit/issues/326)). Upgrading changes every bound envelope hash, so `status` reports Context drift until `apply` refreshes each Project.
 
 ### Added
 

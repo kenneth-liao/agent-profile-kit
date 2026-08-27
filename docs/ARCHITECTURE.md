@@ -229,7 +229,7 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, OpenCode, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, OpenCode, and Pi support portable Skills, with Antigravity, Codex, OpenCode, and Pi using the qualified shared projection and preserving disabled model invocation; Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
+The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, OpenCode, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, OpenCode, and Pi support portable Skills, with Antigravity, Codex, OpenCode, and Pi using the qualified shared projection and preserving disabled model invocation; Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every complete-envelope Context Adapter emits the same canonical Context envelope (compact Profile identity metadata and repository-instructions precedence followed by normalized module bodies); Antigravity additionally preserves per-module boundary markers in separate always-on rules; Host-specific delivery is Adapter-local.
 
 ### Codex
 
