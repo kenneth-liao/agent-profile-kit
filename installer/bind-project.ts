@@ -234,8 +234,6 @@ export async function bindProject(
         bindingNode.set("profile", profile);
         bindingNode.set("hosts", [...hosts]);
         bindingNode.flow = false;
-        const hostsNode = bindingNode.get("hosts");
-        if (isSeq(hostsNode)) hostsNode.flow = false;
 
         await publishSourceReplacement(document.toString());
 

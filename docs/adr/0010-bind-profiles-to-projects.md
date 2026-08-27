@@ -127,3 +127,29 @@ The exact-root implementation replaces it directly and carries no compatibility
 reader, state migration, or cleanup command for installations produced by the
 development-only behavior. Development installations may be reset and reapplied
 from canonical Workspace and Local Configuration source.
+
+### Amendment: replace an existing Project Binding with --replace
+
+The original amendment made a conflicting `bind` fail without replacement,
+forcing users through a manual unbind → bind round-trip to restate a binding.
+That choice traded one-command usability for avoiding duplicate-binding states
+that ingestion already rejects; because Local Configuration permits each
+canonical project root in exactly one binding, replacing that single record is
+the same poka-yoke boundary, so the restriction added friction without adding
+safety.
+
+Post-v1, `agent-profile-kit bind --replace` restates the existing binding for
+the requested canonical project root: its Profile and Host set become the exact
+desired final set under the same validation rules as a first bind (explicit
+Profile Artifact ID, required explicit Hosts in canonical order). An identical
+restatement remains idempotently unchanged. The command records desired state
+only and never previews, applies, installs, removes, or reconciles project
+output; generated files reconcile through the ordinary status → apply path
+exactly as after any hand edit of Local Configuration. Omitting `--replace`
+keeps the conflicting-bind failure, which names the flag as its remedy.
+
+Replacement edits only the matched binding's Profile and Host values within the
+same cooperating-command sidecar lock, exact source snapshot recheck, newline/
+mode preservation, and atomic publication boundary as appending. The stored
+authored project path, all sibling bindings, and unrelated authored content are
+preserved by that publication machinery.

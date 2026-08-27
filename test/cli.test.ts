@@ -7327,6 +7327,9 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expectExitCode(await runCli(home, "apply"), 0);
     expectExitCode(await runCli(home, "status", "--verbose"), 0);
 
+    // This lifecycle adds Claude through the replace, so its probe must find it.
+    const pathWithClaude = `${installFakeClaude(home)}:${defaultCliPath(home)}`;
+
     const replaced = await runCli(
       home,
       "bind",
@@ -7340,7 +7343,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     );
     expectExitCode(replaced, 0);
 
-    const stale = await runCli(home, "status", "--verbose");
+    const stale = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
     // Host changes alter desired output, not Workspace source hashes, so the
     // ordinary reconcile path classifies the pending work as an update (AC7's
     // "ordinary path exactly like today's round-trip").
@@ -7348,10 +7351,42 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
       humanText(`${projectPath}: update (desired output changed)`),
     );
 
-    const reconciled = await runCli(home, "apply");
+    const reconciled = await runCliWithPath(home, pathWithClaude, "apply");
     expectExitCode(reconciled, 0);
-    const current = await runCli(home, "status", "--verbose");
-    expect(humanText(current.stdout)).not.toContain(humanText(`${projectPath}: stale source`));
+    const current = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
+    expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: current`));
+  });
+
+  test("bind --replace shrinks the Host set and apply removes dropped-Host output", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    // This lifecycle exercises Claude after the replace, so its probe must find it.
+    const pathWithClaude = `${installFakeClaude(home)}:${defaultCliPath(home)}`;
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n      - claude\n`,
+    );
+    expectExitCode(await runCliWithPath(home, pathWithClaude, "apply"), 0);
+    const claudeOutput = join(projectPath, ".claude", "rules", "agent-profile-kit.md");
+    expect(existsSync(claudeOutput)).toBe(true);
+
+    const replaced = await runCli(home, "bind", "coding", projectPath, "--host", "codex", "--replace");
+    expectExitCode(replaced, 0);
+    expect(humanText(replaced.stdout)).toContain("Hosts: claude, codex → codex");
+
+    const pending = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
+    expect(humanText(pending.stdout)).toContain(
+      humanText(`${projectPath}: update (desired output changed)`),
+    );
+
+    expectExitCode(await runCliWithPath(home, pathWithClaude, "apply"), 0);
+    expect(existsSync(claudeOutput)).toBe(false);
+
+    const current = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
+    expectExitCode(current, 0);
+    expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: current`));
   });
 
   test("successful bind preserves unrelated configuration, comments, and bindings", async () => {
