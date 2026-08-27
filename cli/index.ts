@@ -47,7 +47,7 @@ import {
   type LifecycleCommand,
 } from "./presentation.js";
 import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
-import { bindProject } from "../installer/bind-project.js";
+import { bindProject, hostsEqual } from "../installer/bind-project.js";
 import {
   generatedOutputSurvivesUnbind,
   unbindProject,
@@ -363,13 +363,14 @@ function parseInitArguments(arguments_: readonly string[]): { readonly workspace
 }
 
 /**
- * Parse `bind <profile> [project] --host <host> ...`.
+ * Parse `bind <profile> [project] --host <host> ... [--replace]`.
  * At least one --host is required. Host detection/defaults are intentionally absent.
  */
 function parseBindArguments(arguments_: readonly string[]): {
   readonly profile: string;
   readonly project?: string;
   readonly hosts: readonly string[];
+  readonly replace: boolean;
 } {
   if (arguments_.length === 0) {
     throw new Error("bind requires a Profile name");
@@ -383,6 +384,7 @@ function parseBindArguments(arguments_: readonly string[]): {
   }
 
   const hosts: string[] = [];
+  let replace = false;
   while (index < arguments_.length) {
     const flag = arguments_[index]!;
     if (flag === "--host") {
@@ -394,6 +396,11 @@ function parseBindArguments(arguments_: readonly string[]): {
       index += 2;
       continue;
     }
+    if (flag === "--replace") {
+      replace = true;
+      index += 1;
+      continue;
+    }
     throw new Error(`bind does not accept argument '${flag}'`);
   }
 
@@ -402,7 +409,7 @@ function parseBindArguments(arguments_: readonly string[]): {
       "bind requires at least one --host flag; supported Hosts: " + SUPPORTED_HOSTS.join(", "),
     );
   }
-  return project === undefined ? { profile, hosts } : { profile, project, hosts };
+  return project === undefined ? { profile, hosts, replace } : { profile, project, hosts, replace };
 }
 
 function parseUnbindArguments(arguments_: readonly string[]): { readonly project?: string } {
@@ -748,6 +755,7 @@ async function main(): Promise<void> {
       home,
       profile: parsed.profile,
       hosts: parsed.hosts,
+      ...(parsed.replace ? { replace: true } : {}),
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
     });
     if (result.outcome === "unchanged") {
@@ -761,6 +769,30 @@ async function main(): Promise<void> {
           [
             `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged for ${displayProjectPath(result.canonicalProject, result.project)}`,
             result.hosts.join(", "),
+          ],
+        ),
+        stdoutPresentationContext,
+      );
+      return;
+    }
+    if (result.outcome === "replaced") {
+      const deltaLines = [
+        result.previousProfile === result.profile
+          ? undefined
+          : `  Profile: ${result.previousProfile} → ${result.profile}`,
+        hostsEqual(result.previousHosts, result.hosts)
+          ? undefined
+          : `  Hosts: ${result.previousHosts.join(", ")} → ${result.hosts.join(", ")}`,
+      ].filter((line) => line !== undefined);
+      writeHuman(
+        process.stdout,
+        humanOutput(
+          `Replaced ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
+            deltaLines.map((line) => `${line}\n`).join("") +
+            `Next: ${COMMAND_NAME} status\n`,
+          [
+            `Replaced ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project)}`,
+            ...deltaLines.map((line) => line.slice(2)),
           ],
         ),
         stdoutPresentationContext,

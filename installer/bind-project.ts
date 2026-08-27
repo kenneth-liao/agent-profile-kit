@@ -64,7 +64,8 @@ function normalizeHosts(hosts: readonly string[]): readonly SupportedHost[] {
   return SUPPORTED_HOSTS.filter((host) => seen.has(host));
 }
 
-function hostsEqual(
+/** Canonical-order equality; shared with CLI old → new receipt rendering. */
+export function hostsEqual(
   left: readonly SupportedHost[],
   right: readonly SupportedHost[],
 ): boolean {
@@ -77,6 +78,8 @@ export interface BindProjectOptions {
   /** Authored project path; omit to use cwd. */
   readonly project?: string;
   readonly hosts: readonly string[];
+  /** Restate Profile and Hosts of an existing binding for the canonical project. */
+  readonly replace?: boolean;
   /** Working directory used when project is omitted. Defaults to process.cwd(). */
   readonly cwd?: string;
   /** Test-only filesystem override for snapshot and publication proofs. */
@@ -85,14 +88,22 @@ export interface BindProjectOptions {
   readonly lockTimeoutMs?: number;
 }
 
-export interface BindProjectResult {
-  readonly outcome: "created" | "unchanged";
+interface BindProjectResultBase {
   readonly configurationPath: string;
   readonly project: string;
   readonly canonicalProject: string;
   readonly profile: string;
   readonly hosts: readonly SupportedHost[];
 }
+
+export type BindProjectResult =
+  | (BindProjectResultBase & { readonly outcome: "created" | "unchanged" })
+  | (BindProjectResultBase & {
+      readonly outcome: "replaced";
+      /** Previous values for old → new receipts; "replaced" guarantees a delta. */
+      readonly previousProfile: string;
+      readonly previousHosts: readonly SupportedHost[];
+    });
 
 /**
  * Append one Project Binding to Local Configuration without reconciling output.
@@ -169,9 +180,29 @@ export async function bindProject(
       );
       requireProfile(workspace.profiles, profile);
 
-      const existing = configuration.bindings.find(
+      // Serialize one edited document and publish it through the shared
+      // configuration-replacement boundary; all edits happen under held lock.
+      const publishSourceReplacement = async (editedSource: string): Promise<void> => {
+        const nextSource = preserveSourceNewlines(source, editedSource);
+        const sourceStats = await fileSystem.stat(configurationPath);
+        const mode = sourceStats.mode & 0o777;
+        await publishConfigurationReplacement(
+          configurationPath,
+          source,
+          nextSource,
+          mode,
+          fileSystem,
+          description,
+          "bind",
+        );
+      };
+
+      // The application model preserves Local Configuration's binding order 1:1,
+      // so the semantic match's position is also the YAML sequence index.
+      const existingIndex = configuration.bindings.findIndex(
         (binding) => binding.canonicalProject === canonicalProject,
       );
+      const existing = existingIndex === -1 ? undefined : configuration.bindings[existingIndex];
       if (existing) {
         if (existing.profile === profile && hostsEqual(existing.hosts, hosts)) {
           return {
@@ -183,9 +214,39 @@ export async function bindProject(
             hosts,
           };
         }
-        throw new Error(
-          `${description} already binds canonical project '${canonicalProject}' to profile '${existing.profile}' hosts [${existing.hosts.join(", ")}]; replace is not supported by bind`,
-        );
+        if (!options.replace) {
+          throw new Error(
+            `${description} already binds canonical project '${canonicalProject}' to profile '${existing.profile}' hosts [${existing.hosts.join(", ")}]; pass --replace to restate its Profile and Hosts`,
+          );
+        }
+
+        // The application model preserves Local Configuration's binding order 1:1,
+        // so the semantic match's position is also the YAML sequence index.
+        const document = parseDocument(source);
+        const bindingsNode = document.get("bindings");
+        if (!isSeq(bindingsNode)) {
+          throw new Error(`${description} bindings must be an array`);
+        }
+        const bindingNode = bindingsNode.items[existingIndex];
+        if (!isMap(bindingNode)) {
+          throw new Error(`${description} bindings[${existingIndex}] must be a mapping`);
+        }
+        bindingNode.set("profile", profile);
+        bindingNode.set("hosts", [...hosts]);
+        bindingNode.flow = false;
+
+        await publishSourceReplacement(document.toString());
+
+        return {
+          outcome: "replaced" as const,
+          configurationPath,
+          project: existing.project,
+          canonicalProject,
+          profile,
+          hosts,
+          previousProfile: existing.profile,
+          previousHosts: existing.hosts,
+        };
       }
 
       const document = parseDocument(source);
@@ -210,19 +271,7 @@ export async function bindProject(
       }
       bindingsNode.add(entry);
 
-      const nextSource = preserveSourceNewlines(source, document.toString());
-      const sourceStats = await fileSystem.stat(configurationPath);
-      const mode = sourceStats.mode & 0o777;
-
-      await publishConfigurationReplacement(
-        configurationPath,
-        source,
-        nextSource,
-        mode,
-        fileSystem,
-        description,
-        "bind",
-      );
+      await publishSourceReplacement(document.toString());
 
       return {
         outcome: "created" as const,

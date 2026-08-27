@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Support updating an existing Project Binding in one command with `apkit bind --replace`, restating its Profile and Host set with an old → new receipt while reconciling generated output through the ordinary status/apply path ([#342](https://github.com/kenneth-liao/agent-profile-kit/issues/342)).
+
 - Qualify complete OpenCode temporary profile installation, ordinary uninstallation, repository exclusion contributions, and documentation across all Host-facing surfaces ([#334](https://github.com/kenneth-liao/agent-profile-kit/issues/334)).
 
 - Report safe Claude and OpenCode duplicate Skill discovery as a non-blocking Adapter diagnostic warning while preserving semantic equality across discovery roots ([#333](https://github.com/kenneth-liao/agent-profile-kit/issues/333)).

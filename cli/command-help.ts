@@ -67,11 +67,12 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "bind",
     group: "common",
-    syntax: "bind <profile> [project] --host <host> [--host <host> ...]",
-    summary: "Configure a Project with a Profile and Agent Hosts",
+    syntax: "bind <profile> [project] --host <host> [--host <host> ...] [--replace]",
+    summary: "Configure a Project with a Profile and Agent Hosts, or replace an existing binding",
     examples: COMMAND_EXAMPLES.bind,
     supportedHosts: SUPPORTED_HOSTS,
-    writes: "Records one configured Project in settings; does not install project files.",
+    writes:
+      "Records one configured Project in settings; --replace restates an existing binding's Profile and Hosts. Does not install project files.",
     next: `Run ${COMMAND_NAME} status.`,
   },
   {

@@ -7178,7 +7178,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(readFileSync(configPath(home), "utf8")).toBe(afterFirst);
   });
 
-  test("conflicting bind for an already-bound canonical root fails without mutation", async () => {
+  test("conflicting bind for an already-bound canonical root fails without mutation and points at --replace", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home, "coding");
@@ -7193,8 +7193,200 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const result = await runCli(home, "bind", "ops", projectPath, "--host", "codex");
 
     expectExitCode(result, 1);
-    expect(result.stderr).toMatch(/already binds|replace is not supported/i);
+    expect(result.stderr).toContain("already binds canonical project");
+    expect(result.stderr).toContain("--replace");
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
+  });
+
+  test("bind --replace restates Profile and Hosts of the existing binding with an old → new receipt", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    writeContextProfile(home, "ops");
+    const projectPath = project();
+    bind(home, projectPath);
+
+    const result = await runCli(
+      home,
+      "bind",
+      "ops",
+      projectPath,
+      "--host",
+      "codex",
+      "--host",
+      "claude",
+      "--replace",
+    );
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain(`Replaced configured Project for ${projectPath}`);
+    expect(humanText(result.stdout)).toContain("Profile: coding → ops");
+    expect(humanText(result.stdout)).toContain("Hosts: codex → claude, codex");
+    expect(result.stdout).toContain("Next: apkit status");
+
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toContain("profile: ops");
+    expect(source).toMatch(/hosts:\n\s+- claude\n\s+- codex/);
+  });
+
+  test("bind --replace changing only Hosts omits the Profile delta line", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+
+    const result = await runCli(
+      home,
+      "bind",
+      "coding",
+      projectPath,
+      "--host",
+      "codex",
+      "--host",
+      "claude",
+      "--replace",
+    );
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain(`Replaced configured Project for ${projectPath}`);
+    expect(humanText(result.stdout)).toContain("Hosts: codex → claude, codex");
+    expect(humanText(result.stdout)).not.toContain("Profile:");
+  });
+
+  test("identical bind remains unchanged with --replace", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+    const before = readFileSync(configPath(home), "utf8");
+
+    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex", "--replace");
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("unchanged");
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
+  });
+
+  test("bind without --host fails even for an already bound project", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+    const before = readFileSync(configPath(home), "utf8");
+
+    const result = await runCli(home, "bind", "coding", projectPath);
+
+    expectExitCode(result, 1);
+    expect(result.stderr).toMatch(/--host/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
+  });
+
+  test("replace preserves unrelated bindings and comments", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    writeContextProfile(home, "ops");
+    const unrelated = project();
+    const target = project();
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${unrelated}\n    profile: coding\n    hosts:\n      - codex\n  - project: ${target}\n    profile: coding\n    hosts:\n      - codex\n`,
+    );
+
+    const result = await runCli(
+      home,
+      "bind",
+      "ops",
+      target,
+      "--host",
+      "codex",
+      "--host",
+      "grok",
+      "--replace",
+    );
+
+    expectExitCode(result, 0);
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toContain("# keep this comment");
+    const parsed = parse(source) as {
+      bindings: Array<{ project: string; profile: string; hosts: string[] }>;
+    };
+    expect(parsed.bindings[0]).toEqual({ project: unrelated, profile: "coding", hosts: ["codex"] });
+    expect(parsed.bindings[1]).toEqual({ project: target, profile: "ops", hosts: ["codex", "grok"] });
+  });
+
+  test("after a replace, status reports stale source and apply reconciles it", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    expectExitCode(await runCli(home, "status", "--verbose"), 0);
+
+    // This lifecycle adds Claude through the replace, so its probe must find it.
+    const pathWithClaude = `${installFakeClaude(home)}:${defaultCliPath(home)}`;
+
+    const replaced = await runCli(
+      home,
+      "bind",
+      "coding",
+      projectPath,
+      "--host",
+      "codex",
+      "--host",
+      "claude",
+      "--replace",
+    );
+    expectExitCode(replaced, 0);
+
+    const stale = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
+    // Host changes alter desired output, not Workspace source hashes, so the
+    // ordinary reconcile path classifies the pending work as an update (AC7's
+    // "ordinary path exactly like today's round-trip").
+    expect(humanText(stale.stdout)).toContain(
+      humanText(`${projectPath}: update (desired output changed)`),
+    );
+
+    const reconciled = await runCliWithPath(home, pathWithClaude, "apply");
+    expectExitCode(reconciled, 0);
+    const current = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
+    expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: current`));
+  });
+
+  test("bind --replace shrinks the Host set and apply removes dropped-Host output", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    // This lifecycle exercises Claude after the replace, so its probe must find it.
+    const pathWithClaude = `${installFakeClaude(home)}:${defaultCliPath(home)}`;
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n      - claude\n`,
+    );
+    expectExitCode(await runCliWithPath(home, pathWithClaude, "apply"), 0);
+    const claudeOutput = join(projectPath, ".claude", "rules", "agent-profile-kit.md");
+    expect(existsSync(claudeOutput)).toBe(true);
+
+    const replaced = await runCli(home, "bind", "coding", projectPath, "--host", "codex", "--replace");
+    expectExitCode(replaced, 0);
+    expect(humanText(replaced.stdout)).toContain("Hosts: claude, codex → codex");
+
+    const pending = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
+    expect(humanText(pending.stdout)).toContain(
+      humanText(`${projectPath}: update (desired output changed)`),
+    );
+
+    expectExitCode(await runCliWithPath(home, pathWithClaude, "apply"), 0);
+    expect(existsSync(claudeOutput)).toBe(false);
+
+    const current = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
+    expectExitCode(current, 0);
+    expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: current`));
   });
 
   test("successful bind preserves unrelated configuration, comments, and bindings", async () => {
@@ -8205,6 +8397,19 @@ describe("apkit root help", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("apkit: unknown command 'help'");
     expect(result.stderr).not.toContain("Did you mean: apkit bind?");
+  });
+
+  test("focused bind help documents --replace", async () => {
+    const home = isolatedHome();
+    const aliasHelp = await Promise.all(
+      ["-h", "--help"].map((alias) => runCli(home, "bind", alias)),
+    );
+
+    for (const result of [...aliasHelp]) {
+      expectExitCode(result, 0);
+      expect(result.stdout).toContain("--replace");
+      expect(result.stdout.replace(/\s+/g, " ")).toMatch(/replaces? an existing/i);
+    }
   });
 
   test("focused binding help names Hosts from each command's supported capability set", async () => {

@@ -12,6 +12,7 @@ export const COMMAND_EXAMPLES = {
   bind: [
     `bind ${profile} --host codex`,
     `bind ${profile} ${project} --host codex --host claude`,
+    `bind ${profile} ${project} --host codex --host opencode --replace`,
   ],
   unbind: ["unbind", `unbind ${project}`],
   validate: ["validate"],
