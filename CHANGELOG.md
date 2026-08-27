@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Reduce the complete Profile Context envelope to compact Profile metadata plus normalized Context Module bodies with no generated per-module boundary markers, shared identically by Pi, Codex, Claude, and Grok while Antigravity keeps separate per-module always-on rules ([#326](https://github.com/kenneth-liao/agent-profile-kit/issues/326)). Upgrading changes every bound envelope hash, so `status` reports Context drift until `apply` refreshes each Project.
+
 ### Added
 
 - Support updating an existing Project Binding in one command with `apkit bind --replace`, restating its Profile and Host set with an old → new receipt while reconciling generated output through the ordinary status/apply path ([#342](https://github.com/kenneth-liao/agent-profile-kit/issues/342)).

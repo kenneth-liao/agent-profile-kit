@@ -1,21 +1,17 @@
+/** Stable first line prefix of every canonical Profile Context envelope. */
+export const CONTEXT_ENVELOPE_PREFIX = "# Agent Profile Kit Context";
+
 /** One composed Context Module retained with its source Artifact ID. */
 export interface ContextModuleSource {
   readonly content: string;
   readonly id: string;
 }
 
-/**
- * Canonical Profile Context envelope shared by every Host Adapter.
- * Adapters deliver this semantic snapshot without Host-specific canonical models.
- */
-/** The canonical Profile Context header shared by every Host Adapter. */
+/** The compact Profile Context metadata shared by every complete-envelope Host Adapter. */
 export function composeContextEnvelopeHeader(profileId: string): string {
   return [
-    "# Agent Profile Kit Context",
-    "",
-    `Profile: ${profileId}`,
-    "",
-    "This Context is reusable Profile material. Repository-owned project instructions, including AGENTS.md, take precedence when they conflict with this material.",
+    `${CONTEXT_ENVELOPE_PREFIX} — Profile: ${profileId}`,
+    "Repository-owned project instructions, including AGENTS.md, take precedence when they conflict with this material.",
   ].join("\n");
 }
 
@@ -29,9 +25,12 @@ export function composeContextEnvelope(
   profileId: string,
   modules: readonly ContextModuleSource[],
 ): string {
-  return [
-    composeContextEnvelopeHeader(profileId),
-    "",
-    ...modules.map(composeContextModuleBoundary),
-  ].join("\n").replace(/\n?$/, "\n");
+  // Boundary bodies keep their authored bytes; a non-final body without its
+  // trailing newline gains exactly one so the next module can never glue onto it.
+  const bodies = modules.map((module) =>
+    module.content.endsWith("\n") ? module.content : `${module.content}\n`,
+  );
+  return `${composeContextEnvelopeHeader(profileId)}\n\n${
+    bodies.join("")
+  }`.replace(/\n*$/, "\n");
 }

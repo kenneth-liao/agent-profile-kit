@@ -19,6 +19,7 @@ import {
   type OwnershipReceipt,
 } from "../schemas/ownership-state.js";
 import { hostCatalogEntryFor } from "../adapters/host-catalog.js";
+import { CONTEXT_ENVELOPE_PREFIX } from "../adapters/context-envelope.js";
 import { formatInstallationMarker as markerText } from "../schemas/installation-manifest.js";
 import {
   hashBytes,
@@ -769,7 +770,9 @@ function composedContextFromOutputs(outputs: readonly DesiredProjectOutput[]): s
     const bytes = typeof output.bytes === "string"
       ? output.bytes
       : Buffer.from(output.bytes).toString("utf8");
-    if (bytes.startsWith("# Agent Profile Kit Context\n")) return bytes;
+    // Match the stable bare prefix, not one full header spelling: the header
+    // shape has changed before and detection must survive future changes too.
+    if (bytes.startsWith(CONTEXT_ENVELOPE_PREFIX)) return bytes;
   }
   return "";
 }

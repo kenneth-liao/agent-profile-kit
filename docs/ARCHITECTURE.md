@@ -187,7 +187,7 @@ exclusive to `unbind`.
 
 Profiles are explicit flat selections containing exactly `id`, `context`, and `skills`. The current slice accepts Profile Context for Antigravity CLI, Codex, Claude, Grok, OpenCode, and Pi, and portable Skills for Antigravity, Codex, Claude, Grok, OpenCode, and Pi. Antigravity, Codex, OpenCode, and Pi consume the qualified shared `.agents/skills/<Artifact ID>/` projection. Obsolete `agents`, `hooks`, and `tools` Profile placeholders fail at ingestion with removal guidance; those artifact categories remain undelivered. Trusted disabled model-invocation policy is projected into the qualified Host-native Skill package while explicit Artifact ID activation remains available. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability preflight is derived from the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; Project-scoped `apply` updates the selected binding and `apply --all` updates every Project bound to that Profile. A Project that needs different material binds to a different Profile rather than pinning an older revision.
 
-Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical envelope that identifies the Profile and explicitly states that repository-owned project instructions take precedence on conflict. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
+Context Modules contain reusable declarative facts, preferences, and standing rules. The engine deterministically composes selected Context inside one canonical complete envelope: a compact metadata header naming the Profile and stating that repository-owned project instructions take precedence on conflict, followed by the normalized Context Module bodies in selection order with no generated per-module markers. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose.
 
 Skills conform to the portable subset of the Agent Skills standard. Standard Skill package members are projected with source bytes and modes preserved, except for Host-native translation of optional model-invocation policy (`metadata.agent-profile-kit.model-invocation`, default `allowed`). Agents, Hooks, and Tools retain their portable canonical definitions and are accepted for a Host only when its Adapter can preserve their required semantics.
 
@@ -229,7 +229,7 @@ An Adapter rejects a Profile when the detected Host version or project surface c
 
 ## Initial Adapter Mappings
 
-The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, OpenCode, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, OpenCode, and Pi support portable Skills, with Antigravity, Codex, OpenCode, and Pi using the qualified shared projection and preserving disabled model invocation; Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every Context Adapter emits the same canonical Context envelope (Profile identity, module source boundaries, and repository-instructions precedence); Host-specific delivery is Adapter-local.
+The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, OpenCode, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, OpenCode, and Pi support portable Skills, with Antigravity, Codex, OpenCode, and Pi using the qualified shared projection and preserving disabled model invocation; Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every complete-envelope Context Adapter emits the same canonical Context envelope (compact Profile identity metadata and repository-instructions precedence followed by normalized module bodies); Antigravity additionally preserves per-module boundary markers in separate always-on rules; Host-specific delivery is Adapter-local.
 
 ### Codex
 
@@ -295,9 +295,10 @@ recorded by Agent Profile Kit 0.34.0; unbind Pi or re-apply/uninstall with
 ### Antigravity
 
 The Antigravity Adapter requires `agy` CLI `1.1.13+` and plans Profile Context as
-owned always-on rules under `.agents/rules/`. One deterministic envelope rule
-preserves Profile identity and repository-instruction precedence; each later
-rule preserves one complete Context Module and its boundary. Rule names use the
+owned always-on rules under `.agents/rules/`. Unlike complete-envelope Hosts,
+Antigravity's envelope rule preserves only the compact Profile identity and
+repository-instruction precedence metadata, while each later rule preserves one
+complete Context Module with its generated boundary markers. Rule names use the
 stable `agent-profile-kit-000-envelope.md`, followed by ten-spaced module names
 in resolved Context order. Every rule includes `trigger: always_on` frontmatter
 and stays within Antigravity's 12,000-character limit. An oversized module is a

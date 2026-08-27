@@ -373,7 +373,9 @@ describe("Skills-only Profiles", () => {
     );
     expect(context?.type).toBe("file");
     if (context?.type === "file") {
-      expect(String(context.bytes)).toContain("<!-- Context Module: team-rules -->");
+      expect(String(context.bytes)).toContain("# Agent Profile Kit Context");
+      expect(String(context.bytes)).toContain("Always preserve the project boundary.");
+      expect(String(context.bytes)).not.toContain("<!-- Context Module:");
     }
   });
 

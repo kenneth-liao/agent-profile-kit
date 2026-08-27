@@ -229,7 +229,7 @@ describe("Grok Adapter planner", () => {
     expect(String(output.bytes)).not.toMatch(/^---\n/);
     expect(String(output.bytes)).toContain("Profile: coding");
     expect(String(output.bytes)).toContain("Repository-owned project instructions");
-    expect(String(output.bytes)).toContain("<!-- Context Module: team-rules -->");
+    expect(String(output.bytes)).not.toContain("<!-- Context Module:");
     expect(plan.setupSteps).toEqual([]);
   });
 
@@ -549,7 +549,10 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(true);
     expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(false);
     expect(readFileSync(join(project, CLAUDE_CONTEXT_RULE_PATH), "utf8")).toContain(
-      "<!-- Context Module: team-rules -->",
+      "Always preserve the project boundary.",
+    );
+    expect(readFileSync(join(project, CLAUDE_CONTEXT_RULE_PATH), "utf8")).not.toContain(
+      "<!-- Context Module:",
     );
     expect(readFileSync(join(project, "CLAUDE.md"), "utf8")).toBe("project-owned\n");
     expect(readFileSync(join(project, "AGENTS.md"), "utf8")).toBe("repository-owned\n");

@@ -204,7 +204,7 @@ describe("Claude Adapter planner", () => {
     expect(String(output.bytes)).not.toContain("paths:");
     expect(String(output.bytes)).toContain("Profile: coding");
     expect(String(output.bytes)).toContain("Repository-owned project instructions");
-    expect(String(output.bytes)).toContain("<!-- Context Module: team-rules -->");
+    expect(String(output.bytes)).not.toContain("<!-- Context Module:");
   });
 
   test("plans Context without Skills when the Profile selects none", async () => {
@@ -301,7 +301,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
     expect(reportDesired(preview)[0]?.outputs).toContain(CLAUDE_CONTEXT_RULE_PATH);
     expect(reportDesired(preview)[0]?.context).toContain("# Agent Profile Kit Context");
     expect(reportDesired(preview)[0]?.context).toContain("Profile: coding");
-    expect(reportDesired(preview)[0]?.context).toContain("<!-- Context Module: team-rules -->");
+    expect(reportDesired(preview)[0]?.context).not.toContain("<!-- Context Module:");
     expect(reportDesired(preview)[0]?.context).toBe(composeContextEnvelope("coding", [
       { id: "team-rules", content: "Always preserve the project boundary.\n" },
     ]));
@@ -427,7 +427,8 @@ describe("Combined Codex and Claude Profile Installation", () => {
       "utf8",
     );
     expect(claudeRule).toBe(codexContext);
-    expect(claudeRule).toContain("<!-- Context Module: team-rules -->");
+    expect(claudeRule).toContain("Always preserve the project boundary.");
+    expect(claudeRule).not.toContain("<!-- Context Module:");
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(true);
     expect(readFileSync(join(project, "CLAUDE.md"), "utf8")).toBe("project-owned\n");
     expect(readFileSync(join(project, "AGENTS.md"), "utf8")).toBe("repository-owned\n");

@@ -124,8 +124,9 @@ describe("OpenCode Context Adapter planning", () => {
     expect(contextOutput.bytes).toBe(expectedContextBytes);
     expect(contextOutput.bytes).toContain("# Agent Profile Kit Context");
     expect(contextOutput.bytes).toContain("Profile: engineering");
-    expect(contextOutput.bytes).toContain("<!-- Context Module: team-rules -->");
-    expect(contextOutput.bytes).toContain("<!-- Context Module: coding-style -->");
+    expect(contextOutput.bytes).toContain("Always write tests first.");
+    expect(contextOutput.bytes).toContain("Prefer immutable data structures.");
+    expect(contextOutput.bytes).not.toContain("<!-- Context Module:");
 
     // OpenCode JSONC configuration output verification
     const configOutput = plan.outputs.find(
@@ -336,7 +337,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     const contextContent = readFileSync(contextFileOnDisk, "utf8");
     expect(contextContent).toContain("# Agent Profile Kit Context");
     expect(contextContent).toContain("Profile: engineering");
-    expect(contextContent).toContain("<!-- Context Module: team-rules -->");
+    expect(contextContent).not.toContain("<!-- Context Module:");
     expect(contextContent).toContain("Follow project conventions.");
 
     const configContent = readFileSync(configFileOnDisk, "utf8");
