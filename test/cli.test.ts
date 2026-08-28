@@ -3848,6 +3848,54 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(finalStatus.stdout).toContain("All Projects are current");
   });
 
+  test("a missing contribution with a repairable missing output applies both Safe Repairs", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-missing-record-output-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    const before = readFileSync(exclude);
+    const contextOutput = join(repository, ".agent-profile-kit", "codex", "context.md");
+    rmSync(contextOutput);
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: { repository_exclusion?: unknown }[];
+    };
+    delete state.receipts[0]!.repository_exclusion;
+    writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
+
+    const status = await runCliAt(home, repository, "status");
+
+    expectExitCode(status, 0);
+    expect(status.stdout).toContain("1 file repair");
+    expect(status.stdout).toContain("Git exclusions:");
+    expect(status.stdout).toContain("entries to add");
+    expect(readFileSync(exclude).equals(before)).toBe(true);
+    const statusJson = JSON.parse(
+      (await runCliAt(home, repository, "status", "--json")).stdout,
+    ) as {
+      projects: readonly { state: { kind: string }; repositoryExclusionRepairs: readonly { class: string }[] }[];
+    };
+    expect(statusJson.projects[0]!.state.kind).toBe("repairable missing output");
+    expect(statusJson.projects[0]!.repositoryExclusionRepairs[0]!.class).toBe("missing-contribution");
+
+    const applied = await runCliAt(home, repository, "apply");
+
+    expectExitCode(applied, 0);
+    expect(existsSync(contextOutput)).toBe(true);
+    const repairedState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: { repository_exclusion?: { target: string } }[];
+    };
+    expect(repairedState.receipts[0]!.repository_exclusion).toBeDefined();
+    expect(readFileSync(exclude).equals(before)).toBe(true);
+
+    const retry = await runCliAt(home, repository, "apply");
+
+    expectExitCode(retry, 0);
+    expect(retry.stdout).toContain("All Projects were already current.");
+  });
+
   test("a missing contribution with a lost shared section publishes the complete proven union", async () => {
     const home = isolatedHome();
     await initialize(home);

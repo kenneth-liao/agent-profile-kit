@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, basename, join } from "node:path";
 
@@ -32,7 +32,10 @@ import {
   temporaryInstallationRemovalBlocker,
 } from "../installer/blockers.js";
 import { statusApplication } from "../installer/commands.js";
-import { gitExclusionBlockers } from "../installer/git-exclusions.js";
+import {
+  gitExclusionBlockers,
+  missingContributionRepairEligibility,
+} from "../installer/git-exclusions.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { buildDesiredState, stateManifestPath } from "../installer/project-plan.js";
@@ -322,6 +325,34 @@ describe("structured Installer blocker evidence", () => {
     );
     expect(blocker).toMatchObject({ scope: "global" });
     expect(lifecycleExitCode(report)).toBe(2);
+  });
+
+  test("missing-contribution eligibility distinguishes unreadable bytes from mismatched entries", async () => {
+    const repository = gitRepository("apkit-evidence-eligibility-");
+    const home = await prepareHome(repository);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations[0]!;
+    const git = requireDefined(installation.gitProject, "a desired Git target");
+    const receipt = manifestFor(installation, "eligibility-installation-id");
+    const exclude = join(repository, ".git", "info", "exclude");
+
+    writeFileSync(
+      exclude,
+      "# BEGIN Agent Profile Kit generated paths\n/unowned/entry\n# END Agent Profile Kit generated paths\n",
+    );
+    const mismatched = await missingContributionRepairEligibility(receipt, git, emptyState());
+    expect(mismatched).toEqual({
+      cause: "incoherent-exclusion-bytes",
+      eligible: false,
+    });
+
+    rmSync(exclude);
+    symlinkSync(join(repository, "README.md"), exclude);
+    const unreadable = await missingContributionRepairEligibility(receipt, git, emptyState());
+    expect(unreadable).toEqual({
+      cause: "unreadable-exclusion-bytes",
+      eligible: false,
+    });
   });
 
   test("a Git exclusion contribution on the wrong Git target emits structured global evidence", async () => {

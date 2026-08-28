@@ -89,6 +89,7 @@ import {
 import {
   isMissingContributionRepair,
   safeRepairItemClassification,
+  withProvenSafeRepairs,
   type MissingContributionRepair,
   type SafeRepairWithProjectItem,
 } from "./safe-repair.js";
@@ -1226,7 +1227,6 @@ export async function previewReconciliation(
       } else if (repairableMissingOutput) {
         const repair: SafeRepairWithProjectItem = {
           class: "absent-output",
-          installationId: previous.installationId,
           paths: [...repairableMissingOutputs],
         };
         projectItems.push({
@@ -1259,7 +1259,7 @@ export async function previewReconciliation(
           reason: "desired output changed",
         });
       } else if (repairableMissingMarker) {
-        const repair: SafeRepairWithProjectItem = { class: "missing-marker", installationId: previous.installationId };
+        const repair: SafeRepairWithProjectItem = { class: "missing-marker" };
         projectItems.push({
           ...safeRepairItemClassification(repair),
           project: installation.binding.project,
@@ -2079,17 +2079,7 @@ async function applyReconciliationLocked(
     .filter(isMissingContributionRepair);
   const contributionTargets = new Set(pendingContributionRepairs.map((repair) => repair.target));
   if (contributionTargets.size > 0) {
-    const contributionState = pendingContributionRepairs.reduce(
-      (state, repair) =>
-        withReceipts(
-          state,
-          withRepositoryExclusion(state.receipts, repair.installationId, {
-            entries: repair.entries,
-            target: repair.target,
-          }),
-        ),
-      workingState,
-    );
+    const contributionState = withProvenSafeRepairs(workingState, pendingContributionRepairs);
     let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
     let stateWriteAttempted = false;
     try {

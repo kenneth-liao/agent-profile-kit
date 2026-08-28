@@ -955,20 +955,26 @@ function repositoryExclusionClause(
   /** Ready status suppresses successful bookkeeping and keeps only repair attention. */
   repairsOnly = false,
 ): string | undefined {
-  const provenContributions = reportRepositoryExclusionRepairs(report)
-    .filter((repair) => repair.class === "missing-contribution")
-    .reduce((count, repair) => count + repair.entries.length, 0);
-  const delta = repairsOnly
-    ? { additions: provenContributions, removals: 0 }
-    : changedRepositoryExclusions(report)
-        .map(exclusionDelta)
-        .reduce(
-          (total, change) => ({
-            additions: total.additions + change.additions.length,
-            removals: total.removals + change.removals.length,
-          }),
-          { additions: 0, removals: 0 },
-        );
+  const provenContributionTargets = new Set(
+    reportRepositoryExclusionRepairs(report)
+      .filter((repair) => repair.class === "missing-contribution")
+      .map((repair) => repair.target),
+  );
+  const changes = changedRepositoryExclusions(report);
+  // Ready status keeps only proven-contribution attention; one delta function
+  // owns the count so overlapping recorded entries are never double-counted.
+  const delta = (repairsOnly
+    ? changes.filter((change) => provenContributionTargets.has(change.target))
+    : changes
+  )
+    .map(exclusionDelta)
+    .reduce(
+      (total, change) => ({
+        additions: total.additions + change.additions.length,
+        removals: total.removals + change.removals.length,
+      }),
+      { additions: 0, removals: 0 },
+    );
   const repairs = reportRepositoryExclusionRepairs(report)
     .filter((repair) => repair.class === "exclusion-section")
     .reduce((count, repair) => count + repair.entries.length, 0);

@@ -573,16 +573,16 @@ export async function missingContributionRepairEligibility(
   state: OwnershipState,
   gitInspection?: LifecycleGitInspection,
 ): Promise<SafeRepairEligibility<MissingContributionRepair>> {
-  const ineligible: SafeRepairEligibility = {
-    cause: "incoherent-exclusion-bytes",
-    eligible: false,
-  };
   const entries = expectedContributionEntries(previous, git.relativeProject);
   const repair: MissingContributionRepair = {
     class: "missing-contribution",
     entries,
     installationId: previous.installationId,
     target: git.excludeFile,
+  };
+  const incoherentBytes: SafeRepairEligibility<MissingContributionRepair> = {
+    cause: "incoherent-exclusion-bytes",
+    eligible: false,
   };
   try {
     const snapshot = await readSnapshot(git, false, gitInspection);
@@ -592,10 +592,12 @@ export async function missingContributionRepairEligibility(
       repositoryExclusionRecords(state).find((record) => record.target === git.excludeFile)
         ?.entries ?? [];
     const expected = sortedUniqueEntries([...recorded, ...entries]);
-    if (!sameEntries(sectionEntries(snapshot.bytes, section), expected)) return ineligible;
+    if (!sameEntries(sectionEntries(snapshot.bytes, section), expected)) return incoherentBytes;
     return { eligible: true, repair };
   } catch {
-    return ineligible;
+    // Read, safety, and parse failures are a distinct diagnosis from readable
+    // bytes with the wrong entries; the Blocker boundary surfaces the error.
+    return { cause: "unreadable-exclusion-bytes", eligible: false };
   }
 }
 

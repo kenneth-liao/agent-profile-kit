@@ -25,12 +25,8 @@ export type SafeRepairClass =
  * the recorded union a damaged exclude file must be restored to.
  */
 export type SafeRepair =
-  | {
-      readonly class: "absent-output";
-      readonly installationId: string;
-      readonly paths: readonly string[];
-    }
-  | { readonly class: "missing-marker"; readonly installationId: string }
+  | { readonly class: "absent-output"; readonly paths: readonly string[] }
+  | { readonly class: "missing-marker" }
   | {
       readonly class: "exclusion-section";
       readonly target: string;
@@ -58,10 +54,17 @@ export type MissingContributionRepair = Extract<
 /**
  * Eligibility decision for one candidate Safe Repair condition. Ineligible
  * candidates remain typed Blockers at the condition's existing Blocker site.
+ * `unreadable-exclusion-bytes` marks a target that could not be read or parsed
+ * (including unsafe paths); `incoherent-exclusion-bytes` marks a readable owned
+ * section whose entries are not exactly the recorded union plus the proven
+ * contribution.
  */
 export type SafeRepairEligibility<R extends SafeRepair = SafeRepair> =
   | { readonly eligible: true; readonly repair: R }
-  | { readonly eligible: false; readonly cause: "incoherent-exclusion-bytes" };
+  | {
+      readonly eligible: false;
+      readonly cause: "incoherent-exclusion-bytes" | "unreadable-exclusion-bytes";
+    };
 
 export interface SafeRepairItemClassification {
   readonly kind: "current" | "repairable missing output" | "update";
