@@ -5368,6 +5368,57 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
     }]);
   });
+
+  test("semantically distinct same-message groups supplied in non-output order sort deterministically (INT-1)", () => {
+    // Supplied in reverse order of canonical sort
+    const report: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [
+        machineProject("/project-4", {
+          warnings: [{
+            consequence: "Consequence Z",
+            copyableValues: ["/val-z"],
+            kind: "host-attention",
+            message: "Shared warning message",
+          }],
+        }),
+        machineProject("/project-3", {
+          warnings: [{
+            consequence: "Consequence B",
+            copyableValues: ["/val-b"],
+            kind: "diagnostic",
+            message: "Shared warning message",
+          }],
+        }),
+        machineProject("/project-2", {
+          warnings: [{
+            consequence: "Consequence A",
+            copyableValues: ["/val-b", "/val-c"],
+            kind: "diagnostic",
+            message: "Shared warning message",
+          }],
+        }),
+        machineProject("/project-1", {
+          warnings: [{
+            consequence: "Consequence A",
+            copyableValues: ["/val-a"],
+            kind: "diagnostic",
+            message: "Shared warning message",
+          }],
+        }),
+      ],
+    };
+
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    const warningSection = verbose.slice(verbose.indexOf("Warnings:\n"), verbose.indexOf("Blockers:\n"));
+    expect(warningSection).toBe(
+      "Warnings:\n" +
+      "- Shared warning message (/project-1)\n" +
+      "- Shared warning message (/project-2)\n" +
+      "- Shared warning message (/project-3)\n" +
+      "- Shared warning message (/project-4)\n",
+    );
+  });
 });
 
 

@@ -149,9 +149,19 @@ Project scope; differing scopes use compact operation lines without a duplicate
 aggregate. Its single `Next:` apply command and optional `Details:` verbose route
 preserve the selected invocation scope. Blockers, warnings, ownership attention,
 drift, destructive-removal attention, and Git repair or failure retain the
-identity required for their remedies. A concise clean `status` states that the
-selected scope is current once and emits no Host setup reminder or next action;
-a pending concise `status` does not pre-announce post-apply setup.
+identity required for their remedies. Adapter diagnostic normalization keeps
+warning messages independent from Project identity (messages exclude Project
+path prefixes), while nested Project records in the ReconciliationReport remain
+the sole scope authority. Human presentation groups warnings across Projects by
+the exact warning tuple `(kind, message, consequence, copyableValues)` with
+deterministic canonical sorting: concise output renders each semantic warning
+once with its deterministic affected-Project count `(N Projects)`, while
+ordinary verbose output renders each semantic warning once and lists every
+affected Project via the canonical Project presenter (`displayProjectPath`).
+Machine JSON preserves normalized warning records nested under each affected
+Project without embedded Project prefixes. A concise clean `status` states that
+the selected scope is current once and emits no Host setup reminder or next
+action; a pending concise `status` does not pre-announce post-apply setup.
 
 A changed `apply` leads from its Apply Receipt and cannot describe the selected
 Projects as already current when that receipt records work. It renders first-use

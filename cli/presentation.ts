@@ -1541,9 +1541,12 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
     }))
     .sort((left, right) =>
       compareCanonicalStrings(left.message, right.message) ||
-      left.kind.localeCompare(right.kind) ||
-      (left.consequence ?? "").localeCompare(right.consequence ?? "") ||
-      left.copyableValues.join("\0").localeCompare(right.copyableValues.join("\0"))
+      compareCanonicalStrings(left.kind, right.kind) ||
+      compareCanonicalStrings(left.consequence ?? "", right.consequence ?? "") ||
+      compareCanonicalStrings(
+        JSON.stringify(left.copyableValues),
+        JSON.stringify(right.copyableValues),
+      )
     );
 }
 
