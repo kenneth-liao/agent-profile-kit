@@ -946,6 +946,11 @@ function repositoryExclusionRepairLines(
     if (repair.class === "moved-contribution") {
       return `${repair.nextTarget}: ${completed ? "moved" : "will move"} ${count} ${noun} from ${repair.currentTarget}`;
     }
+    if (repair.class === "retiring-exclusion-section") {
+      return count === 0
+        ? `${repair.target}: ${completed ? "removed" : "will remove"} the Agent Profile Kit exclusion section`
+        : `${repair.target}: ${completed ? "published" : "will publish"} ${count} surviving ${noun}`;
+    }
     return `${repair.target}: ${completed ? "restored" : "will restore"} ${count} recorded ${noun}`;
   });
 }
@@ -2738,7 +2743,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 11 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 12 as const;
 
 /**
  * One version line per JSON command family: every `install-temp`/`remove-temp`
@@ -2861,6 +2866,8 @@ function machineRepositoryExclusionRepair(
         next: [...repair.next],
         nextTarget: repair.nextTarget,
       };
+    case "retiring-exclusion-section":
+      return { class: repair.class, entries: [...repair.entries], target: repair.target };
   }
 }
 

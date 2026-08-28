@@ -29,7 +29,6 @@ import {
   normalizeBlocker,
   repositoryExclusionInvalidBlocker,
   repositoryExclusionContributionBlocker,
-  repositoryExclusionSectionMissingBlocker,
   repositoryExclusionTargetUnprovenBlocker,
   type BlockerInput,
   type ReconciliationBlocker,
@@ -44,6 +43,7 @@ import {
   withStagedCurrentContributions,
   type MissingContributionRepair,
   type MovedContributionRepair,
+  type RetiringSectionRepair,
   type SafeRepairEligibility,
   type SafeRepairExclusionRepair,
   type SafeRepairIneligibilityCause,
@@ -54,9 +54,11 @@ import {
  * Repository-local exclusion repairs carry the exhaustive typed Safe Repair
  * boundary (ADR-0022): a damaged recorded section (`exclusion-section`), a
  * provably missing receipt contribution (`missing-contribution`), stale
- * recorded entries at an unchanged proven target (`stale-contribution`), or a
+ * recorded entries at an unchanged proven target (`stale-contribution`), a
  * receipt contribution whose target moved between two proven targets
- * (`moved-contribution`).
+ * (`moved-contribution`), or a missing section, file, or safe parent during
+ * intentional-deletion retirement whose post-retirement union the active
+ * receipts and live target prove (`retiring-exclusion-section`).
  */
 export type RepositoryExclusionRepair = SafeRepairExclusionRepair;
 
@@ -327,6 +329,10 @@ export interface RepositoryExclusionDiagnostics {
 /** Canonical suffix for a repair warning surfaced by status. */
 export const REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX =
   " is missing its Agent Profile Kit exclusion section; apply will restore recorded exact entries";
+
+/** Canonical suffix for a retirement repair warning surfaced by status. */
+export const REPOSITORY_EXCLUSION_RETIREMENT_REPAIR_WARNING_SUFFIX =
+  " is missing its Agent Profile Kit exclusion section; apply will publish the resulting Git exclusion entries during retirement";
 
 function removeContribution(
   records: readonly RepositoryExclusionRecord[],
@@ -797,6 +803,62 @@ function sameEntries(left: readonly string[], right: readonly string[]): boolean
   return left.length === right.length && left.every((entry, index) => entry === right[index]);
 }
 
+/**
+ * The one shared typed decision for a missing repository-local exclusion
+ * section, file, or safe parent during intentional-deletion retirement
+ * (ADR-0022). Both the Blocker boundary and the diagnostics evidence consume
+ * this gate, so suppression and repair evidence can never diverge. The caller
+ * establishes the remaining retirement proof set: the retiring installation's
+ * recorded contribution must already pass the retiring-ownership gates, and
+ * the resulting union derives only from the surviving active receipts. The
+ * byte gate reads the live target: a missing file, a missing safe parent, or
+ * an absent owned section is eligible and carries the exact post-retirement
+ * union (empty when the retiring installation is the sole contributor); a
+ * present owned section means no absence repair is pending; unreadable,
+ * unsafe, or malformed bytes stay ineligible so publication can never disturb
+ * unprovable bytes.
+ */
+export async function retiringSectionRepairEligibility(
+  state: OwnershipState,
+  git: GitProject,
+  retiringInstallationIds: ReadonlySet<string>,
+  gitInspection?: LifecycleGitInspection,
+): Promise<SafeRepairEligibility<RetiringSectionRepair>> {
+  const record = repositoryExclusionRecords(state).find(
+    (candidate) => candidate.target === git.excludeFile,
+  );
+  if (
+    record === undefined ||
+    !record.contributions.some((contribution) =>
+      retiringInstallationIds.has(contribution.installationId)
+    )
+  ) {
+    // Defensive: both callers dispatch only retirement targets here, so a
+    // target without retiring contributions is a caller-contract violation,
+    // not a byte diagnosis.
+    return { cause: "wrong-target", eligible: false };
+  }
+  const repair: RetiringSectionRepair = {
+    class: "retiring-exclusion-section",
+    entries: sortedUniqueEntries(
+      record.contributions
+        .filter((contribution) => !retiringInstallationIds.has(contribution.installationId))
+        .flatMap((contribution) => contribution.entries),
+    ),
+    target: git.excludeFile,
+  };
+  try {
+    const snapshot = await readSnapshot(git, false, gitInspection);
+    return parseOwnedSection(snapshot.bytes, git.excludeFile) === undefined
+      ? { eligible: true, repair }
+      : { cause: "unchanged-contribution", eligible: false };
+  } catch {
+    // Read, safety, and parse failures are a distinct diagnosis from a
+    // provable absence; the Blocker boundary surfaces the error.
+    return { cause: "unreadable-exclusion-bytes", eligible: false };
+  }
+}
+
 function contributionFor(
   records: readonly RepositoryExclusionRecord[],
   installationId: string,
@@ -1255,24 +1317,34 @@ export async function gitExclusionBlockers(
       const targetRecord = repositoryExclusionRecords(state).find(
         (record) => record.target === target.git.excludeFile,
       );
+      const retiringContributions = targetRecord?.contributions.filter((contribution) =>
+        options.retiringInstallationIds?.has(contribution.installationId),
+      );
       if (
         options.retiringInstallationIds !== undefined &&
-        targetRecord?.contributions.some((contribution) => options.retiringInstallationIds?.has(contribution.installationId)) &&
+        retiringContributions !== undefined &&
+        retiringContributions.length > 0 &&
         target.current.length > 0 &&
-        ((!snapshot.exists && !snapshot.targetMissing) ||
-          (snapshot.exists && !parseOwnedSection(snapshot.bytes, target.git.excludeFile)))
+        !snapshot.targetMissing
       ) {
-        const projects = projectsForExclusionTarget(state, desired, target.git.excludeFile);
-        for (const project of projects) {
-          blockers.push(repositoryExclusionSectionMissingBlocker({
-            message:
-              `${target.git.excludeFile} is missing its Agent Profile Kit exclusion section; ` +
-              "intentional-deletion retirement requires the recorded section to be present",
-            project,
-            target: target.git.excludeFile,
-          }));
-        }
-        if (projects.length === 0) {
+        // One shared typed decision owns retirement-absence eligibility for
+        // both this Blocker boundary and the diagnostics evidence. An eligible
+        // absence is non-blocking pending work: the ordinary retirement pass
+        // publishes the exact post-retirement union (or removes the section)
+        // and retires the receipt atomically. Every other outcome stays at the
+        // existing byte gate below — a present section with drifted entries,
+        // malformed bytes, and unsafe paths remain Blockers through
+        // reconcileGitExcludeBytes.
+        const absence = await retiringSectionRepairEligibility(
+          state,
+          target.git,
+          options.retiringInstallationIds,
+          options.gitInspection,
+        );
+        if (
+          absence.eligible &&
+          projectsForExclusionTarget(state, desired, target.git.excludeFile).length === 0
+        ) {
           blockers.push(repositoryExclusionContributionBlocker({
             affectedItems: [{ kind: "path", value: target.git.excludeFile }],
             message: `${target.git.excludeFile} has no Project identity for its recorded exclusion ownership`,
@@ -1315,6 +1387,13 @@ export async function gitExclusionDiagnostics(
     readonly eligibleContributionRepairs?: readonly SafeRepairExclusionRepair[];
     readonly gitInspection?: LifecycleGitInspection;
     readonly includedInstallationIds?: ReadonlySet<string>;
+    /**
+     * Intentional-deletion retirement installations. Retirement targets take
+     * their evidence from the one shared retirement-absence decision instead
+     * of the recorded-section repair, so a retirement never publishes the
+     * retiring installation's recorded entries.
+     */
+    readonly retiringInstallationIds?: ReadonlySet<string>;
   } = {},
 ): Promise<RepositoryExclusionDiagnostics> {
   const warnings: string[] = [];
@@ -1322,13 +1401,42 @@ export async function gitExclusionDiagnostics(
   const provenContributionTargets = new Set(
     (options.eligibleContributionRepairs ?? []).flatMap(safeRepairTargets),
   );
+  const retiringInstallationIds = options.retiringInstallationIds ?? new Set<string>();
   for (const target of await inspectionTargets(
     state,
     desired,
-    new Set(),
+    retiringInstallationIds,
     options.includedInstallationIds,
   )) {
     if (provenContributionTargets.has(target.git.excludeFile)) continue;
+    const retirementRecord = repositoryExclusionRecords(state).find(
+      (record) => record.target === target.git.excludeFile,
+    );
+    if (
+      retiringInstallationIds.size > 0 &&
+      target.current.length > 0 &&
+      retirementRecord?.contributions.some((contribution) =>
+        retiringInstallationIds.has(contribution.installationId)
+      )
+    ) {
+      // The one shared typed retirement-absence decision; the Blocker boundary
+      // consumes the same gate, so suppression and evidence cannot diverge.
+      const absence = await retiringSectionRepairEligibility(
+        state,
+        target.git,
+        retiringInstallationIds,
+        options.gitInspection,
+      );
+      if (absence.eligible) {
+        warnings.push(
+          `${target.git.excludeFile}${REPOSITORY_EXCLUSION_RETIREMENT_REPAIR_WARNING_SUFFIX}`,
+        );
+        repairs.push(absence.repair);
+      }
+      // Present, malformed, and unsafe exclusion bytes stay with the Blocker
+      // boundary; they are never retirement diagnostics.
+      continue;
+    }
     try {
       const snapshot = await readSnapshot(
         target.git,

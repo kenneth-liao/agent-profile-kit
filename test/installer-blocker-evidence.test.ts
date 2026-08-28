@@ -22,7 +22,6 @@ import {
   occupiedOutputBlocker,
   REPOSITORY_EXCLUSION_INVALID,
   REPOSITORY_EXCLUSION_CONTRIBUTION,
-  REPOSITORY_EXCLUSION_SECTION_MISSING,
   REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
   repositoryExclusionContributionBlocker,
   repositoryExclusionTargetUnprovenBlocker,
@@ -31,6 +30,7 @@ import {
   temporaryInstallationConflictBlocker,
   temporaryInstallationRemovalBlocker,
 } from "../installer/blockers.js";
+import { isRetiringSectionRepair } from "../installer/safe-repair.js";
 import { statusApplication } from "../installer/commands.js";
 import {
   gitExclusionBlockers,
@@ -143,7 +143,7 @@ describe("structured Installer blocker evidence", () => {
       readonly globalBlockers: readonly Record<string, unknown>[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(11);
+    expect(machine.schemaVersion).toBe(12);
     expect(machine.globalBlockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
@@ -786,7 +786,7 @@ describe("structured Installer blocker evidence", () => {
     expect(blocker.affectedItems).toEqual([{ kind: "path", value: missingProject }]);
   });
 
-  test("a missing recorded exclusion section during retirement emits structured Project evidence", async () => {
+  test("a missing recorded exclusion section during retirement emits Safe Repair evidence", async () => {
     const repository = gitRepository("apkit-evidence-retire-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -817,21 +817,19 @@ describe("structured Installer blocker evidence", () => {
     const state = await readInstallationState(home);
 
     const report = await previewReconciliation(desiredAfter.installations, state);
-    const blocker = requireDefined(
-      reportBlockers(report).find(
-        (candidate) =>
-          isStructuredBlocker(candidate) &&
-          candidate.kind === REPOSITORY_EXCLUSION_SECTION_MISSING,
-      ),
-      "a structured repository-exclusion-section-missing blocker",
+
+    expect(reportBlockers(report)).toEqual([]);
+    const retiringProject = requireDefined(
+      report.projects.find((project) => project.state.kind === "removal"),
+      "a removal Project record for the retiring installation",
     );
-    expect(blocker).toMatchObject({ project: realpathSync(repository), scope: "project" });
-    expect(blocker.message).toBe(
-      ".git/info/exclude is missing its Agent Profile Kit exclusion section; " +
-        "intentional-deletion retirement requires the recorded section to be present",
-    );
-    expect(blocker.affectedItems).toEqual([{ kind: "path", value: exclude }]);
-    expect(lifecycleExitCode(report)).toBe(2);
+    expect(retiringProject.repositoryExclusionRepairs).toHaveLength(1);
+    const repair = retiringProject.repositoryExclusionRepairs[0]!;
+    expect(repair.class).toBe("retiring-exclusion-section");
+    if (!isRetiringSectionRepair(repair)) throw new Error("unexpected repair class");
+    expect(repair.target).toBe(`${realpathSync(join(repository, ".git", "info"))}/exclude`);
+    expect(repair.entries.length).toBeGreaterThan(0);
+    expect(lifecycleExitCode(report)).toBe(0);
   });
 
   test("a malformed recorded exclusion section emits structured Project evidence", async () => {
