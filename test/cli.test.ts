@@ -303,6 +303,43 @@ function stateDirectory(home: string): string {
   return join(home, ".agents", "agent-profile-kit", "state");
 }
 
+function withExcludeSectionEntries(source: string, entries: readonly string[]): string {
+  const begin = source.indexOf("# BEGIN Agent Profile Kit generated paths");
+  const end = source.indexOf("# END Agent Profile Kit generated paths");
+  if (begin === -1 || end === -1) {
+    throw new Error("fixture exclude source has no Agent Profile Kit owned section");
+  }
+  return `${source.slice(0, begin)}# BEGIN Agent Profile Kit generated paths\n${entries.join("\n")}\n${source.slice(end)}`;
+}
+
+/**
+ * Rewrite one receipt's recorded contribution and the live exclude section
+ * consistently so both carry stale entries relative to what the receipt's
+ * owned outputs derive, and return the exact current and desired entry sets.
+ */
+function makeContributionStale(
+  home: string,
+  repository: string,
+  project?: string,
+): { readonly desired: readonly string[]; readonly stale: readonly string[] } {
+  const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+    receipts: { project?: string; repository_exclusion?: { entries: readonly string[] } }[];
+  };
+  const receipt = project === undefined
+    ? state.receipts[0]!
+    : state.receipts.find((entry) => entry.project === realpathSync(project))!;
+  const desired = [...receipt.repository_exclusion!.entries];
+  const stale = [
+    ...desired.filter((entry) => entry !== "/.agent-profile-kit/installation.json"),
+    "/stale-generated",
+  ];
+  receipt.repository_exclusion!.entries = stale;
+  writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
+  const exclude = join(repository, ".git", "info", "exclude");
+  writeFileSync(exclude, withExcludeSectionEntries(readFileSync(exclude, "utf8"), stale));
+  return { desired, stale };
+}
+
 function writeContextProfile(home: string, profile = "coding"): void {
   const workspace = workspacePath(home);
   writeFileSync(
@@ -2245,7 +2282,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly schemaVersion: number;
       readonly projects: readonly { readonly outputs: readonly { readonly kind: string }[] }[];
     };
-    expect(payload.schemaVersion).toBe(9);
+    expect(payload.schemaVersion).toBe(10);
     expect(payload.projects.flatMap((project) => project.outputs)
       .filter((output) => output.kind === "update")).toHaveLength(12);
 
@@ -2334,12 +2371,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly command: string;
         readonly schemaVersion: number;
       };
-      expect(payload.schemaVersion).toBe(9);
+      expect(payload.schemaVersion).toBe(10);
       expect(payload.command).toBe(command);
 
       const both = await runCli(home, command, "--verbose", "--json");
       expectExitCode(both, 0);
-      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 9 });
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 10 });
 
       const unsupported = await runCli(home, command, "--yaml");
       expectExitCode(unsupported, 1);
@@ -2479,7 +2516,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
-        schemaVersion: 9,
+        schemaVersion: 10,
       });
     }
 
@@ -2524,7 +2561,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly schemaVersion: number;
       };
       expect(payload).toMatchObject({
-        schemaVersion: 9,
+        schemaVersion: 10,
         command,
         outcome: "error",
       });
@@ -2544,14 +2581,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
-        schemaVersion: 9,
+        schemaVersion: 10,
       });
     }
     const firstApply = await runCli(pendingHome, "apply", "--json");
     expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "apply",
-      schemaVersion: 9,
+      schemaVersion: 10,
     });
     expect(["clean", "attention"]).toContain(
       (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
@@ -3615,7 +3652,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         }[];
       }[];
     };
-    expect(statusJson.schemaVersion).toBe(9);
+    expect(statusJson.schemaVersion).toBe(10);
     expect(statusJson.outcome).toBe("attention");
     expect(statusJson.globalBlockers).toEqual([]);
     const machineProject = statusJson.projects[0]!;
@@ -3642,6 +3679,316 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(retry, 0);
     expect(retry.stdout).toContain("All Projects were already current.");
+
+    const finalStatus = await runCliAt(home, repository, "status");
+
+    expectExitCode(finalStatus, 0);
+    expect(finalStatus.stdout).toContain("All Projects are current");
+  });
+
+  test("a stale Git exclusion contribution at an unchanged proven target is a Safe Repair through status and apply", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-stale-record-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    const { desired, stale } = makeContributionStale(home, repository);
+    const drifted = readFileSync(exclude);
+
+    const status = await runCliAt(home, repository, "status");
+
+    expectExitCode(status, 0);
+    expect(status.stdout).toContain("Git exclusions:");
+    expect(status.stdout).toContain("1 entry to add");
+    expect(status.stdout).toContain("1 entry to remove");
+    expect(status.stdout).not.toContain(
+      "does not match the entries recorded by its installation record",
+    );
+    expect(readFileSync(exclude).equals(drifted)).toBe(true);
+    const stateAfterStatus = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: { repository_exclusion?: { entries: readonly string[] } }[];
+    };
+    expect(stateAfterStatus.receipts[0]!.repository_exclusion!.entries).toEqual(stale);
+
+    const statusJson = JSON.parse(
+      (await runCliAt(home, repository, "status", "--json")).stdout,
+    ) as {
+      schemaVersion: number;
+      outcome: string;
+      globalBlockers: readonly unknown[];
+      projects: readonly {
+        state: { kind: string };
+        repositoryExclusionRepairs: readonly {
+          class: string;
+          installationId: string;
+          target: string;
+          current: readonly string[];
+          entries: readonly string[];
+        }[];
+        repositoryExclusions: readonly {
+          current: readonly string[];
+          next: readonly string[];
+          target: string;
+        }[];
+      }[];
+    };
+    expect(statusJson.schemaVersion).toBe(10);
+    expect(statusJson.outcome).toBe("attention");
+    expect(statusJson.globalBlockers).toEqual([]);
+    const machineProject = statusJson.projects[0]!;
+    expect(machineProject.state.kind).toBe("current");
+    expect(machineProject.repositoryExclusionRepairs).toHaveLength(1);
+    const repair = machineProject.repositoryExclusionRepairs[0]!;
+    expect(repair.class).toBe("stale-contribution");
+    expect(repair.target).toBe(realpathSync(exclude));
+    expect(repair.current).toEqual([...new Set(stale)].sort());
+    expect(repair.entries).toEqual(desired);
+    const change = machineProject.repositoryExclusions[0]!;
+    expect(change.target).toBe(realpathSync(exclude));
+    expect(change.current).toEqual([...new Set(stale)].sort());
+    expect(change.next).toEqual(desired);
+
+    const statusVerbose = await runCliAt(home, repository, "status", "--verbose");
+
+    expectExitCode(statusVerbose, 0);
+    expect(statusVerbose.stdout).toContain("Git exclusion repairs:");
+    expect(humanText(statusVerbose.stdout)).toContain(
+      humanText(
+        `.git/info/exclude: will replace ${stale.length} stale Git exclusion entries ` +
+          `with ${desired.length} Git exclusion entries`,
+      ),
+    );
+
+    const applied = await runCliAt(home, repository, "apply");
+
+    expectExitCode(applied, 0);
+    const repairedState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: { repository_exclusion?: { target: string; entries: readonly string[] } }[];
+    };
+    expect(repairedState.receipts[0]!.repository_exclusion!.target).toBe(realpathSync(exclude));
+    expect(repairedState.receipts[0]!.repository_exclusion!.entries).toEqual(desired);
+    const corrected = readFileSync(exclude, "utf8");
+    expect(withExcludeSectionEntries(corrected, desired)).toBe(corrected);
+
+    const retry = await runCliAt(home, repository, "apply");
+
+    expectExitCode(retry, 0);
+    expect(retry.stdout).toContain("All Projects were already current.");
+
+    const finalStatus = await runCliAt(home, repository, "status");
+
+    expectExitCode(finalStatus, 0);
+    expect(finalStatus.stdout).toContain("All Projects are current");
+  });
+
+  test("a stale Git exclusion contribution with drifted exclusion bytes blocks before writes", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-stale-drift-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    makeContributionStale(home, repository);
+    const drifted = `${readFileSync(exclude, "utf8").replace(
+      "# BEGIN Agent Profile Kit generated paths",
+      "# BEGIN Agent Profile Kit generated paths\n/unexpected/entry",
+    )}`;
+    writeFileSync(exclude, drifted);
+
+    const status = await runCliAt(home, repository, "status");
+
+    expectExitCode(status, 2);
+    expect(humanText(status.stdout)).toContain(
+      "does not match the entries recorded by its installation record",
+    );
+    expect(status.stdout).toContain("section is modified");
+    expect(readFileSync(exclude).equals(Buffer.from(drifted))).toBe(true);
+    expectExitCode(await runCliAt(home, repository, "apply"), 2);
+    expect(readFileSync(exclude).equals(Buffer.from(drifted))).toBe(true);
+  });
+
+  test("a stale Git exclusion contribution with unprovable exclusion content blocks before writes", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-stale-unprovable-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    makeContributionStale(home, repository);
+    const unprovable = "unrelated malformed exclusion state\n";
+    writeFileSync(exclude, unprovable);
+
+    const status = await runCliAt(home, repository, "status");
+
+    expectExitCode(status, 2);
+    expect(humanText(status.stdout)).toContain(
+      "does not match the entries recorded by its installation record",
+    );
+    expect(readFileSync(exclude, "utf8")).toBe(unprovable);
+    expectExitCode(await runCliAt(home, repository, "apply"), 2);
+    expect(readFileSync(exclude, "utf8")).toBe(unprovable);
+  });
+
+  test("a stale Git exclusion contribution with a missing Installation Marker blocks before writes", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-stale-marker-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    makeContributionStale(home, repository);
+    const before = readFileSync(exclude);
+    rmSync(join(repository, ".agent-profile-kit", "installation.json"));
+
+    const status = await runCliAt(home, repository, "status");
+
+    expectExitCode(status, 2);
+    expect(humanText(status.stdout)).toContain(
+      "does not match the entries recorded by its installation record",
+    );
+    expect(readFileSync(exclude).equals(before)).toBe(true);
+    expectExitCode(await runCliAt(home, repository, "apply"), 2);
+    expect(readFileSync(exclude).equals(before)).toBe(true);
+  });
+
+  test("a stale Git exclusion contribution with a changing desired write set blocks before writes", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-stale-source-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    makeContributionStale(home, repository);
+    const before = readFileSync(exclude);
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated project boundary rules.\n",
+    );
+
+    const status = await runCliAt(home, repository, "status");
+
+    expectExitCode(status, 2);
+    expect(humanText(status.stdout)).toContain(
+      "does not match the entries recorded by its installation record",
+    );
+    expect(readFileSync(exclude).equals(before)).toBe(true);
+    expectExitCode(await runCliAt(home, repository, "apply"), 2);
+    expect(readFileSync(exclude).equals(before)).toBe(true);
+  });
+
+  test("a stale contribution repair preserves every other contribution at a shared target", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-stale-shared-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: {
+        project: string;
+        repository_exclusion?: { target: string; entries: readonly string[] };
+      }[];
+    };
+    const rootReceipt = state.receipts.find(
+      (receipt) => receipt.project === realpathSync(repository),
+    )!;
+    const nestedReceipt = state.receipts.find(
+      (receipt) => receipt.project === realpathSync(nested),
+    )!;
+    const rootEntries = [...rootReceipt.repository_exclusion!.entries];
+    const nestedDesired = [...nestedReceipt.repository_exclusion!.entries];
+    const nestedStale = [
+      ...nestedDesired.filter(
+        (entry) => entry !== "/nested/.agent-profile-kit/installation.json",
+      ),
+      "/stale-generated",
+    ];
+    nestedReceipt.repository_exclusion!.entries = nestedStale;
+    const sharedUnion = [...new Set([...rootEntries, ...nestedStale])].sort();
+    writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
+    writeFileSync(exclude, withExcludeSectionEntries(readFileSync(exclude, "utf8"), sharedUnion));
+
+    const status = await runCliAt(home, nested, "status", "--all");
+
+    expectExitCode(status, 0);
+    expect(status.stdout).toContain("Git exclusions:");
+
+    const applied = await runCliAt(home, nested, "apply", "--all");
+
+    expectExitCode(applied, 0);
+    const repairedState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: {
+        project: string;
+        repository_exclusion?: { target: string; entries: readonly string[] };
+      }[];
+    };
+    const repairedRoot = repairedState.receipts.find(
+      (receipt) => receipt.project === realpathSync(repository),
+    )!;
+    const repairedNested = repairedState.receipts.find(
+      (receipt) => receipt.project === realpathSync(nested),
+    )!;
+    expect(repairedRoot.repository_exclusion!.entries).toEqual(rootEntries);
+    expect(repairedNested.repository_exclusion!.entries).toEqual(nestedDesired);
+    const corrected = readFileSync(exclude, "utf8");
+    expect(corrected).not.toContain("/stale-generated");
+    for (const entry of rootEntries) expect(corrected).toContain(entry);
+    for (const entry of nestedDesired) expect(corrected).toContain(entry);
+
+    const finalStatus = await runCliAt(home, nested, "status", "--all");
+
+    expectExitCode(finalStatus, 0);
+    expect(finalStatus.stdout).toContain("All Projects are current");
+  });
+
+  test("a stale contribution repair rolls back and stays retryable", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-stale-rollback-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    const { desired, stale } = makeContributionStale(home, repository);
+    const infoDirectory = join(repository, ".git", "info");
+    chmodSync(infoDirectory, 0o555);
+
+    const failed = await runCliAt(home, repository, "apply");
+
+    chmodSync(infoDirectory, 0o755);
+    expectExitCode(failed, 1);
+    expect(failed.stderr).toContain("Apply failed");
+    const rolledBackState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: { repository_exclusion?: { entries: readonly string[] } }[];
+    };
+    expect(rolledBackState.receipts[0]!.repository_exclusion!.entries).toEqual(stale);
+    expect(readFileSync(exclude, "utf8")).toContain("/stale-generated");
+
+    const retry = await runCliAt(home, repository, "apply");
+
+    expectExitCode(retry, 0);
+    const repairedState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: { repository_exclusion?: { entries: readonly string[] } }[];
+    };
+    expect(repairedState.receipts[0]!.repository_exclusion!.entries).toEqual(desired);
+    expect(readFileSync(exclude, "utf8")).not.toContain("/stale-generated");
 
     const finalStatus = await runCliAt(home, repository, "status");
 

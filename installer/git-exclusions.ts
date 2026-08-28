@@ -36,10 +36,12 @@ import {
 } from "./blockers.js";
 import {
   isMissingContributionRepair,
+  isStaleContributionRepair,
   withProvenSafeRepairs,
   type MissingContributionRepair,
   type SafeRepairEligibility,
   type SafeRepairExclusionRepair,
+  type StaleContributionRepair,
 } from "./safe-repair.js";
 
 /**
@@ -601,6 +603,66 @@ export async function missingContributionRepairEligibility(
   }
 }
 
+/**
+ * Decide whether a desired installation whose active receipt records stale
+ * Repository Exclusion Contribution entries is an eligible stale-contribution
+ * Safe Repair. The caller establishes the same proof set as the
+ * missing-contribution class — an active receipt, a present Marker with
+ * matching identity and hash-proven owned roots, a live Project with an
+ * unchanged resolved Git target, untracked destinations without conflicts, and
+ * an otherwise-current desired write set — plus the staleness itself: recorded
+ * entries that differ from the entries the receipt's owned outputs derive. This
+ * function owns the byte-level gate: the target's owned section must already
+ * contain exactly the recorded union, so one exact replacement can never
+ * disturb unprovable bytes.
+ */
+export async function staleContributionRepairEligibility(
+  previous: OwnershipReceipt,
+  git: GitProject,
+  state: OwnershipState,
+  gitInspection?: LifecycleGitInspection,
+): Promise<SafeRepairEligibility<StaleContributionRepair>> {
+  const recordedContribution = previous.repositoryExclusion;
+  if (
+    recordedContribution === undefined ||
+    recordedContribution.target !== git.excludeFile
+  ) {
+    return { cause: "incoherent-exclusion-bytes", eligible: false };
+  }
+  const entries = expectedContributionEntries(previous, git.relativeProject);
+  const currentEntries = sortedUniqueEntries(recordedContribution.entries);
+  if (sameEntries(currentEntries, entries)) {
+    // The recorded contribution already equals the entries its receipt derives;
+    // no stale correction is pending and repeating status must stay current.
+    return { cause: "unchanged-contribution", eligible: false };
+  }
+  const repair: StaleContributionRepair = {
+    class: "stale-contribution",
+    currentEntries,
+    entries,
+    installationId: previous.installationId,
+    target: git.excludeFile,
+  };
+  const incoherentBytes: SafeRepairEligibility<StaleContributionRepair> = {
+    cause: "incoherent-exclusion-bytes",
+    eligible: false,
+  };
+  try {
+    const snapshot = await readSnapshot(git, false, gitInspection);
+    const section = parseOwnedSection(snapshot.bytes, git.excludeFile);
+    if (section === undefined) return incoherentBytes;
+    const recorded =
+      repositoryExclusionRecords(state).find((record) => record.target === git.excludeFile)
+        ?.entries ?? [];
+    if (!sameEntries(sectionEntries(snapshot.bytes, section), recorded)) return incoherentBytes;
+    return { eligible: true, repair };
+  } catch {
+    // Read, safety, and parse failures are a distinct diagnosis from readable
+    // bytes with the wrong entries; the Blocker boundary surfaces the error.
+    return { cause: "unreadable-exclusion-bytes", eligible: false };
+  }
+}
+
 function sameEntries(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((entry, index) => entry === right[index]);
 }
@@ -688,11 +750,16 @@ async function existingInstallationForDesired(
 async function repositoryExclusionOwnershipBlockers(
   state: OwnershipState,
   desired: readonly DesiredInstallation[],
-  eligibleMissingContributionRepairs: readonly SafeRepairExclusionRepair[],
+  eligibleContributionRepairs: readonly SafeRepairExclusionRepair[],
 ): Promise<readonly BlockerInput[]> {
   const eligibleMissingContributionIds = new Set(
-    eligibleMissingContributionRepairs
+    eligibleContributionRepairs
       .filter(isMissingContributionRepair)
+      .map((repair) => repair.installationId),
+  );
+  const eligibleStaleContributionIds = new Set(
+    eligibleContributionRepairs
+      .filter(isStaleContributionRepair)
       .map((repair) => repair.installationId),
   );
   const blockers: BlockerInput[] = [];
@@ -730,12 +797,14 @@ async function repositoryExclusionOwnershipBlockers(
     }
     const expected = expectedContributionEntries(previous, git.relativeProject);
     if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
-      blockers.push(repositoryExclusionContributionBlocker({
-        affectedItems: [{ kind: "path", value: git.excludeFile }],
-        message:
-          `${git.excludeFile} Git exclusion contribution for Installation ID ` +
-          `${previous.installationId} does not match the entries recorded by its installation record`,
-      }));
+      if (!eligibleStaleContributionIds.has(previous.installationId)) {
+        blockers.push(repositoryExclusionContributionBlocker({
+          affectedItems: [{ kind: "path", value: git.excludeFile }],
+          message:
+            `${git.excludeFile} Git exclusion contribution for Installation ID ` +
+            `${previous.installationId} does not match the entries recorded by its installation record`,
+        }));
+      }
     }
   }
   return blockers;
@@ -906,11 +975,14 @@ export async function gitExclusionBlockers(
   desired: readonly DesiredInstallation[] = [],
   options: {
     /**
-     * Missing-contribution Safe Repairs proven by the reconciliation boundary.
-     * Their Blockers are suppressed and their proven contributions validate the
-     * byte-level section check without persisting a second ownership record.
+     * Contribution Safe Repairs (missing and stale) proven by the
+     * reconciliation boundary. Their Blockers are suppressed; missing
+     * contributions validate the byte-level section check against the recorded
+     * union plus the proven contribution, and stale contributions validate
+     * against the recorded union itself, without persisting a second
+     * ownership record.
      */
-    readonly eligibleMissingContributionRepairs?: readonly SafeRepairExclusionRepair[];
+    readonly eligibleContributionRepairs?: readonly SafeRepairExclusionRepair[];
     readonly gitInspection?: LifecycleGitInspection;
     readonly retiringInstallationIds?: ReadonlySet<string>;
     readonly validateRecordedInstallations?: boolean;
@@ -918,9 +990,9 @@ export async function gitExclusionBlockers(
   } = {},
 ): Promise<readonly ReconciliationBlocker[]> {
   const validateRecordedInstallations = options.validateRecordedInstallations ?? desired.length === 0;
-  const eligibleMissingContributionRepairs = options.eligibleMissingContributionRepairs ?? [];
+  const eligibleContributionRepairs = options.eligibleContributionRepairs ?? [];
   const blockers: BlockerInput[] = [
-    ...await repositoryExclusionOwnershipBlockers(state, desired, eligibleMissingContributionRepairs),
+    ...await repositoryExclusionOwnershipBlockers(state, desired, eligibleContributionRepairs),
     ...await retiringInstallationOwnershipBlockers(
       state,
       desired,
@@ -934,8 +1006,14 @@ export async function gitExclusionBlockers(
       )
       : []),
   ];
-  // Proven contributions count as expected section content for byte-level
-  // validation only; they are persisted by apply's ordinary state write.
+  // Proven missing contributions count as expected section content for
+  // byte-level validation only; they are persisted by apply's ordinary state
+  // write. A proven stale contribution keeps its target's un-overlaid recorded
+  // union as expected section content: the live section must still match it
+  // exactly until apply replaces the stale entries.
+  const eligibleMissingContributionRepairs = eligibleContributionRepairs.filter(
+    isMissingContributionRepair,
+  );
   const inspectionState = eligibleMissingContributionRepairs.length === 0
     ? state
     : withProvenSafeRepairs(state, eligibleMissingContributionRepairs);
@@ -1006,12 +1084,12 @@ export async function gitExclusionDiagnostics(
   desired: readonly DesiredInstallation[] = [],
   options: {
     /**
-     * Missing-contribution Safe Repairs proven by the reconciliation boundary.
-     * Their contribution pass publishes the complete proven union at the
-     * target, so a separate recorded-section repair would publish a stale
-     * conflicting entry list and is suppressed here.
+     * Contribution Safe Repairs (missing and stale) proven by the
+     * reconciliation boundary. Their contribution pass publishes the complete
+     * proven union at the target, so a separate recorded-section repair would
+     * publish a stale conflicting entry list and is suppressed here.
      */
-    readonly eligibleMissingContributionRepairs?: readonly SafeRepairExclusionRepair[];
+    readonly eligibleContributionRepairs?: readonly SafeRepairExclusionRepair[];
     readonly gitInspection?: LifecycleGitInspection;
     readonly includedInstallationIds?: ReadonlySet<string>;
   } = {},
@@ -1019,7 +1097,7 @@ export async function gitExclusionDiagnostics(
   const warnings: string[] = [];
   const repairs: RepositoryExclusionRepair[] = [];
   const provenContributionTargets = new Set(
-    (options.eligibleMissingContributionRepairs ?? []).map((repair) => repair.target),
+    (options.eligibleContributionRepairs ?? []).map((repair) => repair.target),
   );
   for (const target of await inspectionTargets(
     state,

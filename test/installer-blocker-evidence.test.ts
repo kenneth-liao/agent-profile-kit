@@ -35,6 +35,7 @@ import { statusApplication } from "../installer/commands.js";
 import {
   gitExclusionBlockers,
   missingContributionRepairEligibility,
+  staleContributionRepairEligibility,
 } from "../installer/git-exclusions.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState } from "../installer/installation-state.js";
@@ -141,7 +142,7 @@ describe("structured Installer blocker evidence", () => {
       readonly globalBlockers: readonly Record<string, unknown>[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(9);
+    expect(machine.schemaVersion).toBe(10);
     expect(machine.globalBlockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
@@ -353,6 +354,74 @@ describe("structured Installer blocker evidence", () => {
       cause: "unreadable-exclusion-bytes",
       eligible: false,
     });
+  });
+
+  test("stale-contribution eligibility distinguishes stale, current, and unprovable recorded entries", async () => {
+    const repository = gitRepository("apkit-evidence-stale-eligibility-");
+    const home = await prepareHome(repository);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations[0]!;
+    const git = requireDefined(installation.gitProject, "a desired Git target");
+    const exclude = join(repository, ".git", "info", "exclude");
+    const staleEntries = ["/unowned/stale"];
+    const receipt = {
+      ...manifestFor(installation, "stale-eligibility-installation-id"),
+      repositoryExclusion: { target: git.excludeFile, entries: staleEntries },
+    };
+    const state: OwnershipState = { ...emptyState(), receipts: [receipt] };
+
+    writeFileSync(
+      exclude,
+      "# BEGIN Agent Profile Kit generated paths\n/unowned/stale\n# END Agent Profile Kit generated paths\n",
+    );
+    const eligible = await staleContributionRepairEligibility(receipt, git, state);
+    if (!eligible.eligible) throw new Error("expected an eligible stale-contribution repair");
+    expect(eligible.repair).toMatchObject({
+      class: "stale-contribution",
+      currentEntries: staleEntries,
+      installationId: receipt.installationId,
+      target: git.excludeFile,
+    });
+    expect(eligible.repair.entries).toContain("/.agent-profile-kit/installation.json");
+
+    // A recorded contribution that already equals its receipt's derived entries
+    // is not stale, so repeating status stays current.
+    const currentReceipt = {
+      ...receipt,
+      repositoryExclusion: { target: git.excludeFile, entries: [...eligible.repair.entries] },
+    };
+    const current = await staleContributionRepairEligibility(
+      currentReceipt,
+      git,
+      { ...emptyState(), receipts: [currentReceipt] },
+    );
+    expect(current).toEqual({ cause: "unchanged-contribution", eligible: false });
+
+    rmSync(exclude);
+    const missingSection = await staleContributionRepairEligibility(receipt, git, state);
+    expect(missingSection).toEqual({ cause: "incoherent-exclusion-bytes", eligible: false });
+
+    writeFileSync(
+      exclude,
+      "# BEGIN Agent Profile Kit generated paths\n/unowned/other\n# END Agent Profile Kit generated paths\n",
+    );
+    const mismatched = await staleContributionRepairEligibility(receipt, git, state);
+    expect(mismatched).toEqual({ cause: "incoherent-exclusion-bytes", eligible: false });
+
+    const wrongTarget = await staleContributionRepairEligibility(
+      {
+        ...receipt,
+        repositoryExclusion: { target: join(repository, "other-exclude"), entries: staleEntries },
+      },
+      git,
+      state,
+    );
+    expect(wrongTarget).toEqual({ cause: "incoherent-exclusion-bytes", eligible: false });
+
+    rmSync(exclude);
+    symlinkSync(join(repository, "README.md"), exclude);
+    const unreadable = await staleContributionRepairEligibility(receipt, git, state);
+    expect(unreadable).toEqual({ cause: "unreadable-exclusion-bytes", eligible: false });
   });
 
   test("a Git exclusion contribution on the wrong Git target emits structured global evidence", async () => {
