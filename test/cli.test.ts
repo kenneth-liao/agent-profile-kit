@@ -3134,7 +3134,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 0);
     expect(result.stdout).toStartWith("No blockers.");
-    expect(result.stdout).toContain("Run apkit status for the complete lifecycle view.");
+    expect(result.stdout).toContain("Run apkit status --all for the complete lifecycle view.");
     expect(result.stdout).not.toContain("Project:");
   });
 

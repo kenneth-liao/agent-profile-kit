@@ -4655,13 +4655,29 @@ describe("focused blockers-only status view (#351)", () => {
     expect(output).toContain("Affected host: codex");
     expect(output).toContain("- Installation State is unreadable");
     expect(output).toContain("Scope: Global");
-    expect(output).not.toContain("Projects:");
+    expect(output).toContain("Blockers: 2 · Affected Projects: 1");
+    expect(output).not.toMatch(/^Projects:/m);
     expect(output).not.toContain("Outputs:");
     expect(output).not.toContain("Selected setup:");
     expect(output).not.toContain("Warnings:");
     expect(output).not.toContain("Host Setup:");
     expect(output).not.toContain("Git exclusions");
     expect(output).not.toContain("Next:");
+  });
+
+  test("focused footer omits affected-Project count when only global Blockers are displayed", () => {
+    const report = emptyReport({
+      blockers: [fixtureBlocker("Installation State is unreadable")],
+    });
+
+    const concise = formatLifecycleReport("status", report, { blockersOnly: true });
+    const verbose = formatLifecycleReport("status", report, { blockersOnly: true, verbose: true });
+
+    expect(concise).toContain("Global blockers:");
+    expect(concise).toContain("Blockers: 1");
+    expect(concise).not.toContain("Affected Projects:");
+    expect(verbose).toContain("Blockers: 1");
+    expect(verbose).not.toContain("Affected Projects:");
   });
 
   test("a scope with no Blockers reports that outcome without lifecycle inventory", () => {
@@ -4672,5 +4688,8 @@ describe("focused blockers-only status view (#351)", () => {
     expect(concise).toStartWith("No blockers.\n");
     expect(concise).toContain("Run apkit status for the complete lifecycle view.");
     expect(concise).not.toContain("Project");
+
+    const fleet = formatLifecycleReport("status", emptyReport(), { all: true, blockersOnly: true });
+    expect(fleet).toContain("Run apkit status --all for the complete lifecycle view.");
   });
 });
