@@ -1080,6 +1080,7 @@ describe("responsive lifecycle presentation", () => {
       }],
       items: [{ kind: "stale source", project: "/project-a" }],
       repositoryExclusionRepairs: [{
+        class: "exclusion-section",
         entries: ["/tmp/owned path.md"],
         target: repairTarget,
       }],
@@ -1527,7 +1528,7 @@ describe("formatLifecycleReport concise terminology", () => {
       machineProject("/project-a", { blockers: reportBlockers(structured) }),
     ]);
     expect(JSON.parse(formatLifecycleJson("status", machine))).toMatchObject({
-      schemaVersion: 8,
+      schemaVersion: 9,
       globalBlockers: [],
       projects: [{
         project: "/project-a",
@@ -2358,6 +2359,7 @@ describe("formatLifecycleReport concise terminology", () => {
       items: [{ kind: "blocked", project: "/repo", reason: "occupied output" }],
       blockers: [fixtureBlocker("/repo: occupied output", "/repo")],
       repositoryExclusionRepairs: [{
+        class: "exclusion-section",
         entries: ["/.agent-profile-kit/codex/context.md"],
         target: "/repo/.git/info/exclude",
       }],
@@ -2447,6 +2449,7 @@ describe("formatLifecycleReport concise terminology", () => {
       }],
       items: [{ kind: "current", project: "/repo" }],
       repositoryExclusionRepairs: [{
+        class: "exclusion-section",
         entries: ["/.agent-profile-kit/codex/context.md"],
         target: "/repo/.git/info/exclude",
       }],
@@ -3060,6 +3063,7 @@ describe("Machine surface JSON and exit codes", () => {
           target: "/project-a/.git/info/exclude",
         }],
         repositoryExclusionRepairs: [{
+          class: "exclusion-section",
           entries: ["/.agent-profile-kit/"],
           target: "/project-a/.git/info/exclude",
         }],
@@ -3067,7 +3071,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatLifecycleJson("status", report));
-    expect(payload.schemaVersion).toBe(8);
+    expect(payload.schemaVersion).toBe(9);
     expect(payload.command).toBe("status");
     expect(payload.outcome).toBe("blocked");
     expect(payload.globalBlockers).toEqual([]);
@@ -3101,6 +3105,7 @@ describe("Machine surface JSON and exit codes", () => {
         target: "/project-a/.git/info/exclude",
       }],
       repositoryExclusionRepairs: [{
+        class: "exclusion-section",
         entries: ["/.agent-profile-kit/"],
         target: "/project-a/.git/info/exclude",
       }],
@@ -3170,7 +3175,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatApplyJson(machineApplyResult(receipt, resultingState)));
-    expect(payload.schemaVersion).toBe(8);
+    expect(payload.schemaVersion).toBe(9);
     expect(payload.projects[0].state).toEqual({ kind: "current" });
     expect(payload.applied.projects[0].state).toEqual({ kind: "addition" });
   });
@@ -3181,7 +3186,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatBlockedApplyJson(report));
-    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 8 });
+    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 9 });
     expect(payload).not.toHaveProperty("applied");
     expect(payload.projects[0].blockers).toHaveLength(1);
   });
@@ -3201,7 +3206,7 @@ describe("Machine surface JSON and exit codes", () => {
       command: "apply",
       outcome: "error",
       error: "post-apply verification failed: boom",
-      schemaVersion: 8,
+      schemaVersion: 9,
     });
     expect(payload.projects).toEqual([]);
     expect(payload.applied.projects[0].outputs).toEqual([
@@ -3212,7 +3217,7 @@ describe("Machine surface JSON and exit codes", () => {
   test("tool-error JSON uses the empty nested model", () => {
     for (const command of ["status", "apply"] as const) {
       expect(JSON.parse(formatLifecycleToolErrorJson(command, "missing"))).toEqual({
-        schemaVersion: 8,
+        schemaVersion: 9,
         command,
         outcome: "error",
         error: "missing",
@@ -3794,6 +3799,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       items: [{ kind: "current", project: "/repo" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/repo" }],
       repositoryExclusionRepairs: [{
+        class: "exclusion-section",
         entries: ["/.agent-profile-kit/codex/context.md"],
         target: "/repo/.git/info/exclude",
       }],
@@ -4311,7 +4317,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(payload).toMatchObject({
       command: "status",
       outcome: "attention",
-      schemaVersion: 8,
+      schemaVersion: 9,
     });
     expect(lifecycleExitCode(report)).toBe(0);
     expect(lifecycleExitCode(emptyReport({

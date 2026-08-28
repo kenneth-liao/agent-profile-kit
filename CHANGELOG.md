@@ -6,8 +6,13 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- Treat a provably missing Repository Exclusion Contribution as an ordinary Safe Repair: an existing installation that is now in a Git Project moves through read-only `status` and transactional `apply` without a Blocker when its active Installation Receipt, Marker, owned roots, live Project, untracked destinations, and Git target independently prove the exact contribution, and one exhaustive typed Safe Repair eligibility boundary now distinguishes every supported repair class (ADR-0022) ([#347](https://github.com/kenneth-liao/agent-profile-kit/issues/347)).
+
 ### Changed
 
+- Advance the `status`/`apply` lifecycle payload family to schema version 9: repository exclusion repairs carry their Safe Repair class and, for a missing contribution, the owning Installation ID (ADR-0022). Machine `outcome` is now `attention` (instead of `clean`) whenever any repository exclusion repair is pending, including the pre-existing section class; exit codes are unchanged. Pre-1.0: automation consuming lifecycle JSON must accept schema version 9 and the repair-record fields ([#347](https://github.com/kenneth-liao/agent-profile-kit/issues/347)).
 - Use `repository-exclusion-contribution` as the only structured Blocker kind for receipt-owned Git exclusion evidence, replace Repository Exclusion Record language in every emitter, renderer, and machine payload, and advance the `status`/`apply` lifecycle payload family and the whole `install-temp`/`remove-temp` payload family (success receipt, blocked, tool error) to schema version 8, each versioning as one per-command family line (ADR-0023). The Blocker normalization boundary rejects the retired kind without a compatibility alias. Pre-1.0: automation consuming lifecycle or temporary-installation JSON must accept schema version 8 and the new kind; the temporary success receipt moves 2 → 8 and its tool-error envelope 1 → 8 ([#346](https://github.com/kenneth-liao/agent-profile-kit/issues/346)).
 - Reduce the complete Profile Context envelope to compact Profile metadata plus normalized Context Module bodies with no generated per-module boundary markers, shared identically by Pi, Codex, Claude, and Grok while Antigravity keeps separate per-module always-on rules ([#326](https://github.com/kenneth-liao/agent-profile-kit/issues/326)). Upgrading changes every bound envelope hash, so `status` reports Context drift until `apply` refreshes each Project.
 

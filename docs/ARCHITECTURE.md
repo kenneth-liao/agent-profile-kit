@@ -122,7 +122,7 @@ in `cli/presentation.ts`: exit `0` means no tool error and no
 blockers (JSON `outcome` may still be `attention` for pending work), exit `1`
 is a tool error (`outcome: "error"` under `--json` when flags were accepted),
 and exit `2` means blockers are present. The lifecycle JSON contract is versioned
-(`schemaVersion: 8`) and publishes global Blockers plus one deterministic record
+(`schemaVersion: 9`) and publishes global Blockers plus one deterministic record
 per Project. Each Project record owns desired identity, state, observable output
 operations with consuming Hosts, Project Blockers, structured warnings classified
 as `diagnostic` or `host-attention` with their copyable values, Host Setup Steps,
@@ -409,7 +409,14 @@ including its Installation Marker entry. Planning derives one deterministic
 union per target from all active ordinary and temporary contributions. The union
 is never persisted as a second ownership fact. Publication still proves the
 marked repository-local section, preserves every unrelated byte, and retains
-entries while any linked-worktree contributor requires them.
+entries while any linked-worktree contributor requires them. A missing
+contribution on an otherwise-current installation is a Safe Repair (ADR-0022):
+when the active receipt, Marker, hash-proven owned roots, live Project, untracked
+destinations, and Git target independently prove the exact contribution and the
+target's owned section is absent or exactly the recorded union plus that
+contribution, `status` reports non-blocking pending work and `apply` records the
+contribution and publishes the resulting union through the ordinary transaction;
+every other missing-contribution condition remains a Blocker.
 
 The pre-1.0 YAML migration window is closed. Runtime Installation State reading
 accepts only strict schema-6 `state/manifest.json`; no YAML parser, compatibility
