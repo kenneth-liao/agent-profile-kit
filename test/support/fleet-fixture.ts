@@ -90,11 +90,11 @@ export function cleanupFleetFixtures(): void {
   }
 }
 
-function plainProject(): string {
+export function plainProject(): string {
   return createTempDirectory("agent-profile-kit-fleet-plain-");
 }
 
-function gitRepository(): string {
+export function gitRepository(): string {
   const path = createTempDirectory("agent-profile-kit-fleet-git-");
   execFileSync("git", ["init", "-q", path]);
   execFileSync("git", ["-C", path, "config", "user.email", "tests@example.com"]);
@@ -195,8 +195,9 @@ export function installControlledHosts(home: string): string {
     join(bin, "grok"),
     `#!/bin/sh\nif [ "$1" = "version" ]; then\n  echo "grok 0.2.111 (fake) [stable]"\n  exit 0\nfi\nif [ "$1" = "inspect" ] && [ "$2" = "--json" ]; then\n  cat <<'EOF'\n{"externalCompat":{"cells":[{"enabled":true,"source":"default","surface":"rules","vendor":"claude"}],"remoteSettingsLoaded":false},"groKVersion":"0.2.111","projectInstructions":[],"skills":[]}\nEOF\n  exit 0\nfi\necho "unexpected grok invocation: $*" >&2\nexit 2\n`,
   );
+  writeFileSync(join(bin, "opencode"), `#!/bin/sh\necho "1.18.23"\n`);
   writeFileSync(join(bin, "pi"), `#!/bin/sh\necho "pi 0.82.1"\n`);
-  for (const name of ["agy", "claude", "codex", "grok", "pi"]) {
+  for (const name of ["agy", "claude", "codex", "grok", "opencode", "pi"]) {
     execFileSync("chmod", ["+x", join(bin, name)]);
   }
   return `${bin}:${process.env.PATH ?? ""}`;

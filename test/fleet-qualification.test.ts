@@ -1,10 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -43,6 +47,10 @@ import { ensureProductionBundle } from "./support/package-archive.js";
 import {
   createFleetFixture,
   cleanupFleetFixtures,
+  gitRepository,
+  installControlledHosts,
+  plainProject,
+  workspacePath,
   FLEET_HOSTS,
   FLEET_SKILL,
   writeBindings,
@@ -85,7 +93,8 @@ function createPackedFleet(home: string): FleetFixture {
 
 function withFleetScope(arguments_: readonly string[]): readonly string[] {
   const [command, ...rest] = arguments_;
-  return (command === "apply" || command === "status") && !rest.includes("--all")
+  const hasPositional = rest.some((arg) => !arg.startsWith("-"));
+  return (command === "apply" || command === "status") && !rest.includes("--all") && !hasPositional
     ? [...arguments_, "--all"]
     : arguments_;
 }
@@ -544,4 +553,354 @@ describe("fleet-wide synchronization qualification", () => {
     expect(reportItems(report)).toHaveLength(12);
     expect(statusInstrumentation.counts.resolveProfile).toBe(1);
   });
+});
+
+interface FsSnapshotEntry {
+  type: "file" | "directory" | "symlink" | "other";
+  mode: number;
+  hash?: string;
+  target?: string;
+}
+
+function snapshotProjectTree(projectDir: string): Record<string, FsSnapshotEntry> {
+  const result: Record<string, FsSnapshotEntry> = {};
+  function walk(current: string, rel: string) {
+    if (!existsSync(current)) return;
+    const entries = readdirSync(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryRel = rel ? `${rel}/${entry.name}` : entry.name;
+      const entryPath = join(current, entry.name);
+      const stat = lstatSync(entryPath);
+      if (entry.isSymbolicLink()) {
+        result[entryRel] = {
+          type: "symlink",
+          mode: stat.mode,
+          target: readlinkSync(entryPath),
+        };
+      } else if (entry.isDirectory()) {
+        result[entryRel] = {
+          type: "directory",
+          mode: stat.mode,
+        };
+        walk(entryPath, entryRel);
+      } else if (entry.isFile()) {
+        result[entryRel] = {
+          type: "file",
+          mode: stat.mode,
+          hash: createHash("sha256").update(readFileSync(entryPath)).digest("hex"),
+        };
+      } else {
+        result[entryRel] = {
+          type: "other",
+          mode: stat.mode,
+        };
+      }
+    }
+  }
+  walk(projectDir, "");
+  return result;
+}
+
+describe("integrated fleet recovery qualification", () => {
+  test("qualifies the complete recovery journey: Safe Repairs, global and project blockers, repeated warnings, focused status and partial apply, and zero unauthorized writes", async () => {
+    const home = isolatedHome();
+    const workspace = workspacePath(home);
+    mkdirSync(workspace, { recursive: true });
+    for (const category of ["agents", "context", "hooks", "profiles", "skills", "tools"]) {
+      mkdirSync(join(workspace, category), { recursive: true });
+    }
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+
+    // Context & Skills
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    );
+    writeSkill(home, "review-pr", "# review-pr\n\nReview PR with care.\n");
+    writeSkill(home, "deploy-helper", "# deploy-helper\n\nDeploy helper.\n");
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: [team-rules]\nskills: [review-pr, deploy-helper]\n",
+    );
+
+    const projectA = gitRepository();
+    const projectB = gitRepository();
+    const projectC = gitRepository();
+    const projectD = plainProject();
+    const projectE = gitRepository();
+
+    const pathWithHosts = installControlledHosts(home);
+
+    // Initial binding for projectA only, to establish its durable receipt & marker
+    writeBindings(home, [
+      { project: projectA, hosts: ["codex"], profile: "engineering" },
+    ]);
+    const initialApplyA = await runCli(home, pathWithHosts, "apply", projectA);
+    expectExitCode(initialApplyA, 0);
+    expect(existsSync(join(projectA, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(true);
+
+    // In projectB (Git), create and track multiple planned output paths across directory prefixes
+    // (.claude/rules/, .claude/skills/, .agents/skills/)
+    mkdirSync(join(projectB, ".claude", "rules"), { recursive: true });
+    mkdirSync(join(projectB, ".claude", "skills", "review-pr"), { recursive: true });
+    mkdirSync(join(projectB, ".claude", "skills", "deploy-helper"), { recursive: true });
+    mkdirSync(join(projectB, ".agents", "skills", "review-pr"), { recursive: true });
+    mkdirSync(join(projectB, ".agents", "skills", "deploy-helper"), { recursive: true });
+    writeFileSync(join(projectB, ".claude", "rules", "agent-profile-kit.md"), "# conflicting rule\n");
+    writeFileSync(join(projectB, ".claude", "skills", "review-pr", "SKILL.md"), "# conflicting skill 1\n");
+    writeFileSync(join(projectB, ".claude", "skills", "deploy-helper", "SKILL.md"), "# conflicting skill 2\n");
+    writeFileSync(join(projectB, ".agents", "skills", "review-pr", "SKILL.md"), "# conflicting shared 1\n");
+    writeFileSync(join(projectB, ".agents", "skills", "deploy-helper", "SKILL.md"), "# conflicting shared 2\n");
+    execFileSync("git", ["-C", projectB, "add", "-f", "."]);
+    execFileSync("git", ["-C", projectB, "commit", "-qm", "track planned outputs"]);
+
+    // Create an eligible Safe Repair on projectA: remove .git/info/exclude
+    rmSync(join(projectA, ".git", "info", "exclude"), { force: true });
+
+    // Update fleet bindings:
+    // projectA: [codex] (Safe Repair candidate)
+    // projectB: [claude, opencode] (Project Blocker with many tracked paths)
+    // projectC: [claude, opencode] (Healthy, duplicate skill warning)
+    // projectD: [claude, opencode] (Healthy, duplicate skill warning)
+    // projectE: [antigravity, codex] (Healthy)
+    writeBindings(home, [
+      { project: projectA, hosts: ["codex"], profile: "engineering" },
+      { project: projectB, hosts: ["claude", "opencode"], profile: "engineering" },
+      { project: projectC, hosts: ["claude", "opencode"], profile: "engineering" },
+      { project: projectD, hosts: ["claude", "opencode"], profile: "engineering" },
+      { project: projectE, hosts: ["antigravity", "codex"], profile: "engineering" },
+    ]);
+
+    // Create a Global Blocker: add a recorded exclusion contribution targeting a nonexistent repository
+    const stateManifest = join(home, ".agents", "agent-profile-kit", "state", "manifest.json");
+    const validStateContent = readFileSync(stateManifest, "utf8");
+    const stateData = JSON.parse(validStateContent) as {
+      receipts: unknown[];
+    };
+    stateData.receipts.push({
+      desired_input_digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      hosts: (stateData.receipts[0] as { hosts: unknown }).hosts,
+      installation_id: "orphan-global-blocker-id",
+      lifetime: "ordinary",
+      outputs: [
+        {
+          hash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          mode: 420,
+          path: ".agent-profile-kit/codex/context.md",
+          type: "file",
+        },
+      ],
+      profile_id: "engineering",
+      project: "/nonexistent/orphan-project",
+      repository_exclusion: {
+        entries: ["/.agent-profile-kit"],
+        target: "/nonexistent/orphan-project/.git/info/exclude",
+      },
+    });
+    writeFileSync(stateManifest, JSON.stringify(stateData, null, 2));
+
+    // 1. Focused status under Global + Project Blockers
+    const focusedStatusGlobalBlocked = await runCli(home, pathWithHosts, "status", "--all", "--blockers-only");
+    expectExitCode(focusedStatusGlobalBlocked, 2);
+    expect(focusedStatusGlobalBlocked.stdout).toContain("Global blockers:");
+    expect(humanText(focusedStatusGlobalBlocked.stdout)).toContain(
+      humanText("Git exclusion contribution for Installation ID orphan-global-blocker-id does not match"),
+    );
+    expect(focusedStatusGlobalBlocked.stdout).toContain("Blockers:");
+    expect(focusedStatusGlobalBlocked.stdout).toContain("These generated paths are tracked by Git");
+    expect(focusedStatusGlobalBlocked.stdout).toMatch(/Blockers:\s*2\s*·\s*Affected Projects:\s*1/);
+    expect(focusedStatusGlobalBlocked.stdout).not.toContain("Updates ready");
+    expect(focusedStatusGlobalBlocked.stdout).not.toContain("Applied:");
+    expect(focusedStatusGlobalBlocked.stdout).not.toContain("Host setup:");
+    expect(focusedStatusGlobalBlocked.stdout).not.toContain("Standing Host setup:");
+    expect(focusedStatusGlobalBlocked.stdout).not.toContain("Warnings:");
+    expect(focusedStatusGlobalBlocked.stdout).not.toContain(projectC);
+    expect(focusedStatusGlobalBlocked.stdout).not.toContain(projectD);
+    expect(focusedStatusGlobalBlocked.stdout).not.toContain(projectE);
+
+    // Material comparison with ordinary verbose
+    const verboseGlobalBlocked = await runCli(home, pathWithHosts, "status", "--all", "--verbose");
+    expectExitCode(verboseGlobalBlocked, 2);
+    expect(focusedStatusGlobalBlocked.stdout.length).toBeLessThan(verboseGlobalBlocked.stdout.length / 2);
+
+    // Determinism
+    const repeatFocusedStatus = await runCli(home, pathWithHosts, "status", "--all", "--blockers-only");
+    expect(repeatFocusedStatus.stdout).toBe(focusedStatusGlobalBlocked.stdout);
+
+    // Snapshot complete directory trees for Projects A-E, Git exclude files, and Installation State (INT-2)
+    const preGlobalBlockedState = readFileSync(stateManifest, "utf8");
+    const preSnapA = snapshotProjectTree(projectA);
+    const preSnapB = snapshotProjectTree(projectB);
+    const preSnapC = snapshotProjectTree(projectC);
+    const preSnapD = snapshotProjectTree(projectD);
+    const preSnapE = snapshotProjectTree(projectE);
+    const preExcludeA = existsSync(join(projectA, ".git", "info", "exclude"))
+      ? readFileSync(join(projectA, ".git", "info", "exclude"), "utf8")
+      : undefined;
+    const preExcludeBContent = readFileSync(join(projectB, ".git", "info", "exclude"), "utf8");
+
+    // 2. Global blocker halts all apply writes
+    const applyGlobalBlocked = await runCli(home, pathWithHosts, "apply", "--all", "--blockers-only");
+    expectExitCode(applyGlobalBlocked, 2);
+    expect(readFileSync(stateManifest, "utf8")).toBe(preGlobalBlockedState);
+    expect(snapshotProjectTree(projectA)).toEqual(preSnapA);
+    expect(snapshotProjectTree(projectB)).toEqual(preSnapB);
+    expect(snapshotProjectTree(projectC)).toEqual(preSnapC);
+    expect(snapshotProjectTree(projectD)).toEqual(preSnapD);
+    expect(snapshotProjectTree(projectE)).toEqual(preSnapE);
+    if (preExcludeA !== undefined) {
+      expect(readFileSync(join(projectA, ".git", "info", "exclude"), "utf8")).toBe(preExcludeA);
+    } else {
+      expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(false);
+    }
+    expect(readFileSync(join(projectB, ".git", "info", "exclude"), "utf8")).toBe(preExcludeBContent);
+
+    // Resolve the Global Blocker by restoring the valid state manifest
+    writeFileSync(stateManifest, validStateContent);
+
+    // 3. Focused partial apply commits healthy Safe Repairs, leaves blocked Project untouched,
+    //    retains pending and Applied evidence, and exits with code 2.
+    const partialApply = await runCli(home, pathWithHosts, "apply", "--all", "--blockers-only");
+    expectExitCode(partialApply, 2);
+
+    // Assert section ordering: committed Apply Receipt evidence forms an ordered prefix before the Blocker section (ADR-0024, INT-1)
+    const appliedIndex = partialApply.stdout.indexOf("Applied:");
+    const freshlyCurrentIndex = partialApply.stdout.indexOf("Freshly current:");
+    const projectSectionIndex = partialApply.stdout.indexOf("\n\nProject:\n");
+    const blockerTextIndex = partialApply.stdout.indexOf("These generated paths are tracked by Git");
+    const blockersFooterIndex = partialApply.stdout.indexOf("Blockers: 1 · Affected Projects: 1");
+
+    expect(appliedIndex).toBeGreaterThan(-1);
+    expect(freshlyCurrentIndex).toBeGreaterThan(appliedIndex);
+    expect(projectSectionIndex).toBeGreaterThan(freshlyCurrentIndex);
+    expect(blockerTextIndex).toBeGreaterThan(projectSectionIndex);
+    expect(blockersFooterIndex).toBeGreaterThan(blockerTextIndex);
+
+    // Safety prefix contains applied projects made current and excludes blocked project B
+    const safetyPrefix = partialApply.stdout.slice(appliedIndex, projectSectionIndex);
+    expect(safetyPrefix).toContain(projectA);
+    expect(safetyPrefix).toContain(projectC);
+    expect(safetyPrefix).toContain(projectD);
+    expect(safetyPrefix).toContain(projectE);
+    expect(safetyPrefix).not.toContain(projectB);
+
+    // Blocker section after safety prefix contains blocked Project B evidence and footer
+    const blockerSection = partialApply.stdout.slice(projectSectionIndex);
+    expect(blockerSection).toContain(projectB);
+    expect(blockerSection).toContain("These generated paths are tracked by Git");
+    expect(blockerSection).toContain("Blockers: 1 · Affected Projects: 1");
+
+    // projectA Safe Repair applied
+    expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(true);
+    expect(readFileSync(join(projectA, ".git", "info", "exclude"), "utf8")).toContain(
+      "# BEGIN Agent Profile Kit generated paths",
+    );
+
+    // projectC, projectD, projectE healthy outputs applied
+    expect(existsSync(join(projectC, ".opencode", "opencode.jsonc"))).toBe(true);
+    expect(existsSync(join(projectC, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(existsSync(join(projectD, ".opencode", "opencode.jsonc"))).toBe(true);
+    expect(existsSync(join(projectE, ".agents", "rules", "agent-profile-kit-000-envelope.md"))).toBe(true);
+
+    // Verify Installation State after partial apply: Project B has no receipt, and unowned generated output was never reconstructed into state (INT-2)
+    const stateAfterPartial = JSON.parse(readFileSync(stateManifest, "utf8")) as {
+      receipts: { project: string; profile_id: string }[];
+    };
+    expect(stateAfterPartial.receipts.some((r) => r.project === projectB)).toBe(false);
+    expect(stateAfterPartial.receipts.some((r) => r.project === projectA)).toBe(true);
+    expect(stateAfterPartial.receipts.some((r) => r.project === projectC)).toBe(true);
+    expect(stateAfterPartial.receipts.some((r) => r.project === projectD)).toBe(true);
+    expect(stateAfterPartial.receipts.some((r) => r.project === projectE)).toBe(true);
+
+    // projectB untouched: zero Git index changes, no marker, no exclusion change, no adoption, no overwrite, no state reconstruction (INT-2)
+    expect(existsSync(join(projectB, ".agent-profile-kit"))).toBe(false);
+    expect(readFileSync(join(projectB, ".git", "info", "exclude"), "utf8")).toBe(preExcludeBContent);
+    expect(preExcludeBContent).not.toContain("Agent Profile Kit");
+    expect(execFileSync("git", ["-C", projectB, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
+    expect(execFileSync("git", ["-C", projectB, "diff", "--cached"], { encoding: "utf8" })).toBe("");
+    expect(execFileSync("git", ["-C", projectB, "diff"], { encoding: "utf8" })).toBe("");
+    expect(readFileSync(join(projectB, ".claude", "rules", "agent-profile-kit.md"), "utf8")).toBe("# conflicting rule\n");
+    expect(readFileSync(join(projectB, ".claude", "skills", "review-pr", "SKILL.md"), "utf8")).toBe("# conflicting skill 1\n");
+
+    // 4. Focused verbose includes complete Blocker evidence and exact untracking command
+    const focusedVerbose = await runCli(home, pathWithHosts, "status", "--all", "--blockers-only", "--verbose");
+    expectExitCode(focusedVerbose, 2);
+    expect(focusedVerbose.stdout).toContain("These generated paths are tracked by Git");
+    expect(focusedVerbose.stdout).toContain("Requirement:");
+    expect(focusedVerbose.stdout).toContain("Remedy:");
+    expect(focusedVerbose.stdout).toContain("Scope: Project");
+    expect(focusedVerbose.stdout).toContain("Affected path:");
+    expect(focusedVerbose.stdout).toContain("git -C");
+    expect(focusedVerbose.stdout).toContain("rm -r --cached --");
+    expect(focusedVerbose.stdout).toContain(".agents/skills/deploy-helper");
+    expect(focusedVerbose.stdout).toContain(".agents/skills/review-pr");
+    expect(focusedVerbose.stdout).toContain(".claude/rules/agent-profile-kit.md");
+    expect(focusedVerbose.stdout).toContain(".claude/skills/deploy-helper");
+    expect(focusedVerbose.stdout).toContain(".claude/skills/review-pr");
+    expect(focusedVerbose.stdout).toContain("working files are preserved");
+
+    // Ordinary verbose retains complete fleet report and Project-nested warnings
+    const ordinaryVerbose = await runCli(home, pathWithHosts, "status", "--all", "--verbose");
+    expectExitCode(ordinaryVerbose, 2);
+    for (const p of [projectA, projectB, projectC, projectD, projectE]) {
+      expect(ordinaryVerbose.stdout).toContain(p);
+    }
+    expect(humanText(ordinaryVerbose.stdout)).toContain(
+      humanText("OpenCode discovers Skills from both .claude/skills and .agents/skills"),
+    );
+
+    // Machine JSON retains complete fleet report and Project-nested warnings
+    const statusJsonResult = await runCli(home, pathWithHosts, "status", "--all", "--json");
+    expectExitCode(statusJsonResult, 2);
+    const jsonPayload = JSON.parse(statusJsonResult.stdout) as {
+      schemaVersion: number;
+      outcome: string;
+      projects: {
+        canonicalProject: string;
+        state: { kind: string };
+        blockers: { kind: string; message: string; affectedItems: { kind: string; value: string }[] }[];
+        warnings: { kind: string; message: string; copyableValues: string[] }[];
+      }[];
+    };
+    expect(jsonPayload.schemaVersion).toBe(12);
+    expect(jsonPayload.outcome).toBe("blocked");
+    expect(jsonPayload.projects).toHaveLength(5);
+
+    const jsonA = jsonPayload.projects.find((p) => p.canonicalProject === projectA);
+    const jsonB = jsonPayload.projects.find((p) => p.canonicalProject === projectB);
+    const jsonC = jsonPayload.projects.find((p) => p.canonicalProject === projectC);
+    const jsonD = jsonPayload.projects.find((p) => p.canonicalProject === projectD);
+    const jsonE = jsonPayload.projects.find((p) => p.canonicalProject === projectE);
+
+    expect(jsonA?.state.kind).toBe("current");
+    expect(jsonA?.blockers).toHaveLength(0);
+
+    expect(jsonB?.blockers).toHaveLength(1);
+    expect(jsonB?.blockers[0]?.kind).toBe("output-ownership-conflict");
+    expect(jsonB?.blockers[0]?.affectedItems.length).toBeGreaterThanOrEqual(5);
+
+    expect(jsonC?.state.kind).toBe("current");
+    expect(jsonC?.warnings.some((w) => w.message.includes("OpenCode discovers Skills"))).toBe(true);
+
+    expect(jsonD?.state.kind).toBe("current");
+    expect(jsonD?.warnings.some((w) => w.message.includes("OpenCode discovers Skills"))).toBe(true);
+
+    expect(jsonE?.state.kind).toBe("current");
+
+    // 5. Second status after apply: repaired projects current, blocked project actionable, warning grouping stable
+    const secondStatus = await runCli(home, pathWithHosts, "status", "--all");
+    expectExitCode(secondStatus, 2);
+    expect(secondStatus.stdout).toContain("Blockers:");
+    expect(secondStatus.stdout).toContain(projectB);
+    expect(secondStatus.stdout).toContain("Warnings:");
+    expect(humanText(secondStatus.stdout)).toContain(
+      humanText(
+        "- OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names; candidate Skill documents are identical across both discovery roots (3 Projects)",
+      ),
+    );
+    expect(humanText(secondStatus.stdout).match(/OpenCode discovers Skills/g)).toHaveLength(1);
+  }, 120_000);
 });
