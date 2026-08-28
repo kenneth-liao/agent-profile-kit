@@ -516,6 +516,81 @@ cannot be reached, leaving the one actionable line in eighth position
 work for `api` and `web` blocked, the run preserves `api`'s next step after the
 all-project blocker is resolved and gives `web` its blocker remedy.
 
+**Focused Blocker Recovery (`--blockers-only`).** When diagnosing or resolving blockers across single projects or the entire fleet, `--blockers-only` strictly isolates displayed blockers and their direct next steps without leaking unblocked project inventories, setup steps, or warnings:
+
+```
+$ apkit status --all --blockers-only
+Cannot apply
+
+Project:
+  <project-b>
+  Blocker: These generated paths are tracked by Git, so Agent Profile Kit
+    cannot write to them without conflicting with repository ownership.
+    Requirement: Generated files must be exclusively managed by Agent Profile
+      Kit; repository-owned paths cannot be replaced.
+    Remedy: Choose one: keep repository ownership and change the Project
+      Binding or its Host selection so Agent Profile Kit does not plan output at
+      these paths, or intentionally remove the conflicting paths from repository
+      ownership yourself before retrying. Agent Profile Kit will not delete,
+      untrack, adopt, or overwrite repository-owned material.
+    Scope: Project
+      <project-b>
+    Affected paths (5):
+      - .agents/skills/ (2 paths)
+      - .claude/rules/agent-profile-kit.md
+      - .claude/skills/ (2 paths)
+    Recovery command: run
+      apkit status --blockers-only --verbose
+      to see the exact untracking command.
+
+Blockers: 1 · Affected Projects: 1
+
+Next:
+- <project-b>:
+  Resolve the reported blocker, then run
+  apkit status
+  again.
+```
+
+Under `--blockers-only --verbose`, the complete structured blocker evidence includes copyable Git untracking commands staging removal from Git ownership while preserving working files:
+
+```
+$ apkit status --all --blockers-only --verbose
+Cannot apply
+
+Blockers:
+- These generated paths are tracked by Git, so Agent Profile Kit cannot write to
+  them without conflicting with repository ownership.
+  Requirement: Generated files must be exclusively managed by Agent Profile
+    Kit; repository-owned paths cannot be replaced.
+  Remedy: Choose one: keep repository ownership and change the Project Binding
+    or its Host selection so Agent Profile Kit does not plan output at these
+    paths, or intentionally remove the conflicting paths from repository
+    ownership yourself before retrying. Agent Profile Kit will not delete,
+    untrack, adopt, or overwrite repository-owned material.
+  Scope: Project
+    <project-b>
+  Affected path:
+    <project-b>/.agents/skills/deploy-helper
+  Affected path:
+    <project-b>/.agents/skills/review-pr
+  Affected path:
+    <project-b>/.claude/rules/agent-profile-kit.md
+  Affected path:
+    <project-b>/.claude/skills/deploy-helper
+  Affected path:
+    <project-b>/.claude/skills/review-pr
+  Recovery: run the command below yourself; Agent Profile Kit never executes
+    it. It stages removal of these paths from Git ownership (the Git index)
+    while the working files are preserved:
+    git -C '<project-b>' rm -r --cached -- '.agents/skills/deploy-helper' '.agents/skills/review-pr' '.claude/rules/agent-profile-kit.md' '.claude/skills/deploy-helper' '.claude/skills/review-pr'
+  Alternatively, change or remove the Project Binding.
+
+Blockers: 1 · Affected Projects: 1
+```
+
+During a focused partial apply (`apkit apply --all --blockers-only`), healthy projects and eligible Safe Repairs commit while blocked projects remain untouched. The resulting report retains the committed `Applied:` receipt prefix before remaining blockers, so writes are never hidden.
+
 Gaps: ~~[UJ-02](#uj-02)~~, ~~[UJ-05](#uj-05)~~, ~~[UJ-06](#uj-06)~~ (shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)), ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)),
 ~~[UJ-11](#uj-11)~~ (shipped in
 [#120](https://github.com/kenneth-liao/agent-profile-kit/issues/120)),
