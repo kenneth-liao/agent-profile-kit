@@ -104,6 +104,7 @@ export type HostSetupStep = AdapterHostSetupStep & { readonly host: SupportedHos
 
 /** Adapter-authored warning plus the values its human presentation must keep intact. */
 export interface AdapterDiagnosticWarning {
+  readonly consequence?: string;
   readonly copyableValues: readonly string[];
   readonly message: string;
 }

@@ -8,9 +8,13 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Sort warning groups deterministically using canonical string comparison across kind, consequence, and JSON-encoded copyable values ([#354](https://github.com/kenneth-liao/agent-profile-kit/issues/354)).
+
 - Bind the focused untracking command to the Blocker's Project root with `git -C` so the caller's working directory cannot target the wrong repository, and add `-r` so directory output roots untrack without a fatal recursion error ([#353](https://github.com/kenneth-liao/agent-profile-kit/issues/353)).
 
 ### Added
+
+- Group semantic warnings across Projects in concise and verbose human lifecycle views with exact `(kind, message, consequence, copyableValues)` matching, reporting the affected-Project count in concise output and all affected Project paths in verbose output, while normalizing diagnostic messages at the Adapter ingestion boundary and retaining Project-nested warning records in machine JSON ([#354](https://github.com/kenneth-liao/agent-profile-kit/issues/354)).
 
 - Group concise tracked-path Blocker evidence by deterministic immediate parent-directory prefix with lossless counts, and print the exact user-owned `git -C <project> rm -r --cached --` untracking command (bound to the Blocker's Project root, safely quoted, canonically ordered, never executed) in focused verbose `status` and `apply` views with recovery copy that preserves working files and retains the Project Binding alternative; ordinary concise and verbose views point to the focused diagnostics instead ([#353](https://github.com/kenneth-liao/agent-profile-kit/issues/353)).
 

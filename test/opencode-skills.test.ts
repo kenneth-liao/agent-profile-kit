@@ -49,6 +49,10 @@ import { buildDesiredState } from "../installer/project-plan.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import type { Skill } from "../schemas/skill.js";
 import {
+  formatLifecycleJson,
+  formatLifecycleReport,
+} from "../cli/presentation.js";
+import {
   reportBlockers,
   reportDesired,
   reportItems,
@@ -962,5 +966,75 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     expect(reportItems(status).some((item) => item.kind === "current")).toBe(true);
     expect(reportBlockers(status)).toEqual([]);
   });
+
+  test("fifteen-Project OpenCode and Claude fixture renders duplicate-Skill warning once in human output while retaining 15 Project-nested machine records", async () => {
+    const home = temporaryDirectory("apk-opencode-claude-15-home-");
+    const projects = Array.from({ length: 15 }, (_, i) =>
+      temporaryDirectory(`apk-opencode-claude-15-proj-${i + 1}-`),
+    );
+
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review pull requests.\n---\n\n# Review PR\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: []\nskills: [review-pr]\n",
+    );
+
+    const bindingsYaml = projects
+      .map((project) => `  - project: ${project}\n    profile: engineering\n    hosts: [claude, opencode]`)
+      .join("\n");
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n${bindingsYaml}\n`,
+    );
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    expect(desired.installations).toHaveLength(15);
+
+    const state = await readInstallationState(home);
+    const statusReport = await previewReconciliation(desired.installations, state);
+
+    // 1. Concise human output groups duplicate-Skill warning into one bullet with (15 Projects)
+    const concise = formatLifecycleReport("status", statusReport);
+    expect(concise).toContain(
+      "Warnings:\n" +
+      "- OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names; candidate Skill documents are identical across both discovery roots (15 Projects)",
+    );
+    expect(concise.match(/OpenCode discovers Skills/g)).toHaveLength(1);
+
+    // 2. Verbose human output renders the duplicate-Skill warning once and lists all 15 Projects
+    const verbose = formatLifecycleReport("status", statusReport, { verbose: true });
+    expect(verbose.match(/OpenCode discovers Skills/g)).toHaveLength(1);
+    for (const project of projects) {
+      expect(verbose).toContain(project);
+    }
+
+    // 3. Machine JSON retains 15 separate Project records, each with the normalized warning and no Project prefix in message
+    const json = JSON.parse(formatLifecycleJson("status", statusReport)) as {
+      projects: {
+        canonicalProject: string;
+        warnings: { copyableValues: string[]; kind: string; message: string }[];
+      }[];
+    };
+    expect(json.projects).toHaveLength(15);
+    for (const projectRecord of json.projects) {
+      expect(projectRecord.warnings).toHaveLength(1);
+      const warning = projectRecord.warnings[0]!;
+      expect(warning.kind).toBe("diagnostic");
+      expect(warning.copyableValues).toEqual([".claude/skills", ".agents/skills"]);
+      expect(warning.message).toBe(
+        "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names; candidate Skill documents are identical across both discovery roots",
+      );
+      // Project prefix must NOT be embedded in message
+      expect(warning.message).not.toContain(projectRecord.canonicalProject);
+    }
+  });
 });
+
 

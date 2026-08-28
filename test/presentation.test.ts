@@ -4244,7 +4244,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       "Apply complete\n" +
         "All Projects were already current.\n\n" +
         "Warnings:\n" +
-        "- Project /project-a carries an adapter warning.\n",
+        "- Project /project-a carries an adapter warning. (1 Project)\n",
     );
     expect(apply).not.toContain("Applied:");
     expect(apply).not.toContain("Host setup:");
@@ -5193,3 +5193,232 @@ describe("focused blockers-only apply view (#352)", () => {
     );
   });
 });
+
+describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
+  test("concise lifecycle output groups identical warnings and reports affected-Project count", () => {
+    const report: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [
+        machineProject("/project-a", {
+          warnings: [{
+            copyableValues: [".claude/skills", ".agents/skills"],
+            kind: "diagnostic",
+            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+          }],
+        }),
+        machineProject("/project-b", {
+          warnings: [{
+            copyableValues: [".claude/skills", ".agents/skills"],
+            kind: "diagnostic",
+            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+          }],
+        }),
+        machineProject("/project-c", {
+          warnings: [{
+            copyableValues: [".claude/skills", ".agents/skills"],
+            kind: "diagnostic",
+            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+          }],
+        }),
+      ],
+    };
+
+    const concise = formatLifecycleReport("status", report);
+    expect(concise).toContain(
+      "Warnings:\n" +
+      "- OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names (3 Projects)",
+    );
+    expect(concise.match(/OpenCode discovers Skills/g)).toHaveLength(1);
+  });
+
+  test("concise lifecycle output reports (1 Project) for a single affected project", () => {
+    const report: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [
+        machineProject("/project-a", {
+          warnings: [{
+            copyableValues: ["/tmp/config.toml"],
+            kind: "diagnostic",
+            message: "Codex SessionStart hooks are not enabled",
+          }],
+        }),
+      ],
+    };
+
+    const concise = formatLifecycleReport("status", report);
+    expect(concise).toContain(
+      "Warnings:\n" +
+      "- Codex SessionStart hooks are not enabled (1 Project)",
+    );
+  });
+
+  test("verbose lifecycle output renders each semantic warning once and lists every affected project", () => {
+    const report: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [
+        machineProject("/project-a", {
+          warnings: [{
+            copyableValues: [".claude/skills", ".agents/skills"],
+            kind: "diagnostic",
+            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+          }],
+        }),
+        machineProject("/project-b", {
+          warnings: [{
+            copyableValues: [".claude/skills", ".agents/skills"],
+            kind: "diagnostic",
+            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+          }],
+        }),
+      ],
+    };
+
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    expect(verbose).toContain(
+      "Warnings:\n" +
+      "- OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names (/project-a, /project-b)\n",
+    );
+    expect(verbose.match(/OpenCode discovers Skills/g)).toHaveLength(1);
+  });
+
+  test("distinct warning kinds, messages, consequences, or copyable values do not collapse", () => {
+    const report: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [
+        machineProject("/project-a", {
+          warnings: [{
+            copyableValues: ["/val-1"],
+            kind: "diagnostic",
+            message: "Same message",
+          }],
+        }),
+        machineProject("/project-b", {
+          warnings: [{
+            copyableValues: ["/val-2"],
+            kind: "diagnostic",
+            message: "Same message",
+          }],
+        }),
+        machineProject("/project-c", {
+          warnings: [{
+            consequence: "Consequence X",
+            copyableValues: ["/val-1"],
+            kind: "diagnostic",
+            message: "Same message",
+          }],
+        }),
+        machineProject("/project-d", {
+          warnings: [{
+            copyableValues: ["/val-1"],
+            kind: "host-attention",
+            message: "Same message",
+          }],
+        }),
+      ],
+    };
+
+    const concise = formatLifecycleReport("status", report);
+    // All 4 distinct warnings render separately with their respective counts
+    expect(concise.match(/- Same message/g)).toHaveLength(4);
+
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    expect(verbose).toContain("- Same message (/project-a)");
+    expect(verbose).toContain("- Same message (/project-b)");
+    expect(verbose).toContain("- Same message (/project-c)");
+    expect(verbose).toContain("- Same message (/project-d)");
+  });
+
+  test("machine JSON retains normalized warning under each Project without embedded Project prefix in message", () => {
+    const report: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [
+        machineProject("/project-a", {
+          warnings: [{
+            copyableValues: [".claude/skills", ".agents/skills"],
+            kind: "diagnostic",
+            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+          }],
+        }),
+        machineProject("/project-b", {
+          warnings: [{
+            copyableValues: [".claude/skills", ".agents/skills"],
+            kind: "diagnostic",
+            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+          }],
+        }),
+      ],
+    };
+
+    const json = JSON.parse(formatLifecycleJson("status", report)) as {
+      projects: {
+        canonicalProject: string;
+        warnings: { copyableValues: string[]; kind: string; message: string }[];
+      }[];
+    };
+
+    expect(json.projects).toHaveLength(2);
+    expect(json.projects[0]?.warnings).toEqual([{
+      copyableValues: [".claude/skills", ".agents/skills"],
+      kind: "diagnostic",
+      message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+    }]);
+    expect(json.projects[1]?.warnings).toEqual([{
+      copyableValues: [".claude/skills", ".agents/skills"],
+      kind: "diagnostic",
+      message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+    }]);
+  });
+
+  test("semantically distinct same-message groups supplied in non-output order sort deterministically (INT-1)", () => {
+    // Supplied in reverse order of canonical sort
+    const report: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [
+        machineProject("/project-4", {
+          warnings: [{
+            consequence: "Consequence Z",
+            copyableValues: ["/val-z"],
+            kind: "host-attention",
+            message: "Shared warning message",
+          }],
+        }),
+        machineProject("/project-3", {
+          warnings: [{
+            consequence: "Consequence B",
+            copyableValues: ["/val-b"],
+            kind: "diagnostic",
+            message: "Shared warning message",
+          }],
+        }),
+        machineProject("/project-2", {
+          warnings: [{
+            consequence: "Consequence A",
+            copyableValues: ["/val-b", "/val-c"],
+            kind: "diagnostic",
+            message: "Shared warning message",
+          }],
+        }),
+        machineProject("/project-1", {
+          warnings: [{
+            consequence: "Consequence A",
+            copyableValues: ["/val-a"],
+            kind: "diagnostic",
+            message: "Shared warning message",
+          }],
+        }),
+      ],
+    };
+
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    const warningSection = verbose.slice(verbose.indexOf("Warnings:\n"), verbose.indexOf("Blockers:\n"));
+    expect(warningSection).toBe(
+      "Warnings:\n" +
+      "- Shared warning message (/project-1)\n" +
+      "- Shared warning message (/project-2)\n" +
+      "- Shared warning message (/project-3)\n" +
+      "- Shared warning message (/project-4)\n",
+    );
+  });
+});
+
+
