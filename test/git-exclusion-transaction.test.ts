@@ -61,4 +61,58 @@ describe("Git exclusion transaction", () => {
     await transaction.rollback();
     expect(readFileSync(exclude).equals(authored)).toBe(true);
   });
+
+  test("a stale contribution transaction swaps only its installation entries and preserves unrelated bytes", async () => {
+    const repository = gitRepository();
+    const exclude = join(repository, ".git", "info", "exclude");
+    const authored = "# authored exclusion\n";
+    writeFileSync(
+      exclude,
+      Buffer.from(
+        `${authored}` +
+        "# BEGIN Agent Profile Kit generated paths\n" +
+        "/.agent-profile-kit/codex/context.md\n" +
+        "/.codex/hooks.json\n" +
+        "/stale-generated\n" +
+        "# END Agent Profile Kit generated paths\n",
+      ),
+    );
+    const staged: OwnershipState = {
+      ...installationState(repository),
+      receipts: installationState(repository).receipts.map((receipt) => ({
+        ...receipt,
+        repositoryExclusion: {
+          entries: ["/.agent-profile-kit/codex/context.md", "/.codex/hooks.json", "/stale-generated"],
+          target: receipt.repositoryExclusion!.target,
+        },
+      })),
+    };
+    const corrected: OwnershipState = {
+      ...staged,
+      receipts: staged.receipts.map((receipt) => ({
+        ...receipt,
+        repositoryExclusion: {
+          entries: [
+            "/.agent-profile-kit/codex/context.md",
+            "/.agent-profile-kit/installation.json",
+            "/.codex/hooks.json",
+          ],
+          target: receipt.repositoryExclusion!.target,
+        },
+      })),
+    };
+
+    const transaction = await stageGitExclusions(staged, corrected);
+
+    expect(readFileSync(exclude, "utf8")).toContain("/stale-generated");
+    await transaction.commit();
+    const committed = readFileSync(exclude, "utf8");
+    expect(committed).not.toContain("/stale-generated");
+    expect(committed).toContain("/.codex/hooks.json");
+    expect(committed).toContain("/.agent-profile-kit/codex/context.md");
+    expect(committed.startsWith(authored)).toBe(true);
+
+    await transaction.rollback();
+    expect(readFileSync(exclude, "utf8")).toContain("/stale-generated");
+  });
 });

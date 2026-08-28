@@ -925,6 +925,11 @@ function repositoryExclusionRepairLines(
     if (repair.class === "missing-contribution") {
       return `${repair.target}: ${completed ? "recorded" : "will record"} ${count} ${noun}`;
     }
+    if (repair.class === "stale-contribution") {
+      const staleCount = repair.currentEntries.length;
+      const staleNoun = `Git exclusion ${staleCount === 1 ? "entry" : "entries"}`;
+      return `${repair.target}: ${completed ? "replaced" : "will replace"} ${staleCount} stale ${staleNoun} with ${count} ${noun}`;
+    }
     return `${repair.target}: ${completed ? "restored" : "will restore"} ${count} recorded ${noun}`;
   });
 }
@@ -957,7 +962,7 @@ function repositoryExclusionClause(
 ): string | undefined {
   const provenContributionTargets = new Set(
     reportRepositoryExclusionRepairs(report)
-      .filter((repair) => repair.class === "missing-contribution")
+      .filter((repair) => repair.class === "missing-contribution" || repair.class === "stale-contribution")
       .map((repair) => repair.target),
   );
   const changes = changedRepositoryExclusions(report);
@@ -2717,7 +2722,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 9 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 10 as const;
 
 /**
  * One version line per JSON command family: every `install-temp`/`remove-temp`
@@ -2799,11 +2804,13 @@ function canonicalMachineProject(project: ReconciliationProjectRecord): unknown 
     })).sort((left, right) => left.target.localeCompare(right.target)),
     repositoryExclusionRepairs: project.repositoryExclusionRepairs
       .map((repair) => ({
-        ...(repair.class === "missing-contribution"
+        ...(repair.class === "missing-contribution" || repair.class === "stale-contribution"
           ? { installationId: repair.installationId }
           : {}),
+        ...(repair.class === "stale-contribution"
+          ? { current: [...repair.currentEntries], next: [...repair.entries] }
+          : { entries: [...repair.entries] }),
         class: repair.class,
-        entries: [...repair.entries],
         target: repair.target,
       }))
       .sort((left, right) =>
