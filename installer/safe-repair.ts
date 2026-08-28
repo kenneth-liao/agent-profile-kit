@@ -104,8 +104,9 @@ export function isMissingContributionRepair(
 /**
  * Overlay proven missing-contribution repairs onto Installation State so
  * byte-level validation sees the union the receipts independently prove. The
- * overlay is validation-only: apply persists each contribution through the
- * ordinary state write, never through this projection.
+ * same projection serves byte-level validation in `gitExclusionBlockers` and
+ * apply's contribution pass; apply persists the resulting state through the
+ * ordinary `writeState` call.
  */
 export function withProvenSafeRepairs(
   state: OwnershipState,
