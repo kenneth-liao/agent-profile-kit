@@ -141,14 +141,12 @@ export interface DesiredInstallation {
 export function appendDiagnosticWarnings(
   warnings: AdapterDiagnosticWarning[],
   diagnostics: readonly AdapterDiagnosticWarning[],
-  projectPrefix?: string,
 ): void {
   for (const diagnostic of diagnostics) {
     warnings.push({
+      ...(diagnostic.consequence === undefined ? {} : { consequence: diagnostic.consequence }),
       copyableValues: [...diagnostic.copyableValues],
-      message: projectPrefix === undefined
-        ? diagnostic.message
-        : `${projectPrefix}: ${diagnostic.message}`,
+      message: diagnostic.message,
     });
   }
 }
@@ -687,7 +685,7 @@ export async function buildDesiredState(
           hostCapabilityBlocker(error, host, binding.canonicalProject),
         );
       }
-      appendDiagnosticWarnings(warnings, result.diagnostics, binding.project);
+      appendDiagnosticWarnings(warnings, result.diagnostics);
       if (result.plan !== undefined) {
         plans.push(result.plan);
         hostVersions[host] = result.plan.hostVersion;

@@ -169,6 +169,7 @@ export interface DesiredResolvedArtifactPreview {
 }
 
 export interface ReconciliationWarning {
+  readonly consequence?: string;
   readonly copyableValues: readonly string[];
   readonly kind: "diagnostic" | "host-attention";
   readonly message: string;
@@ -846,6 +847,7 @@ function nestedReconciliationReport(
   for (const installation of desiredInstallations) {
     const key = installation.binding.canonicalProject;
     warningsByCanonical.set(key, installation.warnings.map((warning) => ({
+      ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
       copyableValues: [...warning.copyableValues],
       kind: "diagnostic" as const,
       message: warning.message,

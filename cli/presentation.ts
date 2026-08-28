@@ -63,12 +63,6 @@ function reportRepositoryExclusionRepairs(
   return deduplicateRecords(report.projects.flatMap((project) => project.repositoryExclusionRepairs));
 }
 
-function reportWarningMessages(report: ReconciliationReport): readonly string[] {
-  return [...new Set(report.projects.flatMap((project) =>
-    project.warnings.map((warning) => warning.message)
-  ))].sort(compareCanonicalStrings);
-}
-
 function reportWarningValues(report: ReconciliationReport): readonly string[] {
   return [...new Set(report.projects.flatMap((project) =>
     project.warnings.flatMap((warning) => warning.copyableValues)
@@ -80,7 +74,10 @@ function reportHasHostAttention(report: ReconciliationReport): boolean {
     project.warnings.some((warning) => warning.kind === "host-attention")
   );
 }
-import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
+import {
+  REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX,
+  REPOSITORY_EXCLUSION_RETIREMENT_REPAIR_WARNING_SUFFIX,
+} from "../installer/git-exclusions.js";
 import {
   isContributionRepair,
   publishedContribution,
@@ -1474,15 +1471,80 @@ function aggregateLine(
   return parts.length === 1 ? undefined : parts.join(" · ");
 }
 
-function warningsForPresentation(
-  warnings: readonly string[],
-): readonly string[] {
-  // The dedicated exclusion clause/verbose repair section owns this fact.
-  // Keeping the raw warning too would duplicate it and leak exact paths into
-  // the default view.
-  return warnings.filter(
-    (warning) => !warning.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX),
-  );
+function warningGroupKey(warning: ReconciliationWarning): string {
+  return JSON.stringify([
+    warning.kind,
+    warning.message,
+    warning.consequence ?? "",
+    [...warning.copyableValues],
+  ]);
+}
+
+export interface WarningPresentationGroup {
+  readonly consequence?: string;
+  readonly copyableValues: readonly string[];
+  readonly kind: ReconciliationWarning["kind"];
+  readonly message: string;
+  readonly projects: readonly {
+    readonly canonicalProject: string;
+    readonly project: string;
+  }[];
+}
+
+function groupWarnings(report: ReconciliationReport): readonly WarningPresentationGroup[] {
+  const groups = new Map<string, {
+    consequence?: string;
+    copyableValues: readonly string[];
+    kind: ReconciliationWarning["kind"];
+    message: string;
+    projects: { canonicalProject: string; project: string }[];
+  }>();
+
+  for (const projectRecord of report.projects) {
+    for (const warning of projectRecord.warnings) {
+      if (warning.message.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX)) {
+        continue;
+      }
+      const key = warningGroupKey(warning);
+      const existing = groups.get(key);
+      if (!existing) {
+        groups.set(key, {
+          ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
+          copyableValues: [...warning.copyableValues],
+          kind: warning.kind,
+          message: warning.message,
+          projects: [{
+            canonicalProject: projectRecord.canonicalProject,
+            project: projectRecord.project,
+          }],
+        });
+      } else {
+        if (!existing.projects.some((p) => p.canonicalProject === projectRecord.canonicalProject)) {
+          existing.projects.push({
+            canonicalProject: projectRecord.canonicalProject,
+            project: projectRecord.project,
+          });
+        }
+      }
+    }
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      ...(group.consequence === undefined ? {} : { consequence: group.consequence }),
+      copyableValues: group.copyableValues,
+      kind: group.kind,
+      message: group.message,
+      projects: [...group.projects].sort((left, right) =>
+        compareCanonicalStrings(left.canonicalProject, right.canonicalProject)
+      ),
+    }))
+    .sort((left, right) =>
+      compareCanonicalStrings(left.message, right.message) ||
+      left.kind.localeCompare(right.kind) ||
+      (left.consequence ?? "").localeCompare(right.consequence ?? "") ||
+      left.copyableValues.join("\0").localeCompare(right.copyableValues.join("\0"))
+    );
 }
 
 /** Output kinds that make a transition-triggered Host Setup Step newly relevant. */
@@ -2313,11 +2375,12 @@ function conciseReport(
     lines.push("", "Diagnostics:");
     for (const item of grouped.unscopedItems) lines.push(`- ${item.project}: ${itemText(item)}`);
   }
-  const warnings = warningsForPresentation(reportWarningMessages(report));
-  if (warnings.length > 0) {
+  const warningGroups = groupWarnings(report);
+  if (warningGroups.length > 0) {
     lines.push("", "Warnings:");
-    for (const warning of warnings) {
-      lines.push(`- ${shortenProjectReferences(warning, groups)}`);
+    for (const group of warningGroups) {
+      const formatted = shortenProjectReferences(group.message, groups);
+      lines.push(`- ${formatted} (${plural(group.projects.length, "Project")})`);
     }
   }
   const presented = presentedSetupSteps(
@@ -2709,10 +2772,18 @@ function verboseSections(
     : repositoryExclusionRepairLines(report, completedRepositoryExclusions)
         .map((repair) => `- ${shorten(repair)}`)
         .join("\n");
-  const presentationWarnings = warningsForPresentation(reportWarningMessages(report));
-  const warnings = presentationWarnings.length === 0
+  const warningGroups = groupWarnings(report);
+  const warnings = warningGroups.length === 0
     ? "(none)"
-    : presentationWarnings.map((warning) => `- ${shorten(warning)}`).join("\n");
+    : warningGroups
+        .map((group) => {
+          const formatted = shorten(group.message);
+          const projectList = group.projects
+            .map((p) => displayProjectPath(p.canonicalProject, p.project))
+            .join(", ");
+          return `- ${formatted} (${projectList})`;
+        })
+        .join("\n");
   const explanations = includeStateExplanations ? stateExplanationLines(stateExplanationItems) : [];
   const explanationSection = explanations.length > 0 ? `${explanations.join("\n")}\n` : "";
   const detail = `Projects:\n${items}\n${explanationSection}Outputs:\n${outputs}\nGit exclusions:\n${repositoryExclusions}\nGit exclusion repairs:\n${repositoryExclusionRepairs}\nSelected setup:\n${desired}\nWarnings:\n${warnings}\n`;
@@ -3119,6 +3190,7 @@ function canonicalMachineSetupSteps(
 
 function canonicalMachineWarning(warning: ReconciliationWarning): ReconciliationWarning {
   return {
+    ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
     copyableValues: [...warning.copyableValues],
     kind: warning.kind,
     message: warning.message,
