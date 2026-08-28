@@ -1,11 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -552,18 +555,45 @@ describe("fleet-wide synchronization qualification", () => {
   });
 });
 
-function snapshotProjectTree(projectDir: string): Record<string, string> {
-  const result: Record<string, string> = {};
+interface FsSnapshotEntry {
+  type: "file" | "directory" | "symlink" | "other";
+  mode: number;
+  hash?: string;
+  target?: string;
+}
+
+function snapshotProjectTree(projectDir: string): Record<string, FsSnapshotEntry> {
+  const result: Record<string, FsSnapshotEntry> = {};
   function walk(current: string, rel: string) {
     if (!existsSync(current)) return;
     const entries = readdirSync(current, { withFileTypes: true });
     for (const entry of entries) {
       const entryRel = rel ? `${rel}/${entry.name}` : entry.name;
       const entryPath = join(current, entry.name);
-      if (entry.isDirectory()) {
+      const stat = lstatSync(entryPath);
+      if (entry.isSymbolicLink()) {
+        result[entryRel] = {
+          type: "symlink",
+          mode: stat.mode,
+          target: readlinkSync(entryPath),
+        };
+      } else if (entry.isDirectory()) {
+        result[entryRel] = {
+          type: "directory",
+          mode: stat.mode,
+        };
         walk(entryPath, entryRel);
       } else if (entry.isFile()) {
-        result[entryRel] = readFileSync(entryPath, "utf8");
+        result[entryRel] = {
+          type: "file",
+          mode: stat.mode,
+          hash: createHash("sha256").update(readFileSync(entryPath)).digest("hex"),
+        };
+      } else {
+        result[entryRel] = {
+          type: "other",
+          mode: stat.mode,
+        };
       }
     }
   }
