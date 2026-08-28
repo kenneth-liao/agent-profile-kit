@@ -4,7 +4,7 @@ import { replaceRepositoryExclusionContribution } from "../installer/git-exclusi
 
 const hash = `sha256:${"0".repeat(64)}`;
 
-describe("Repository Exclusion Record ownership", () => {
+describe("Repository Exclusion Contribution ownership", () => {
   test("updates one installation contribution without removing shared entries", () => {
     const git = { excludeFile: "/repo/.git/info/exclude", relativeProject: "" };
     const output = {

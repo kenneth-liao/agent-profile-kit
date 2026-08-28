@@ -120,8 +120,8 @@ export const OUTPUT_OWNERSHIP_CONFLICT = "output-ownership-conflict" as const;
 /** Typed blocker class for unreadable machine-local Installation State. */
 export const INSTALLATION_STATE_UNREADABLE = "installation-state-unreadable" as const;
 
-/** Typed blocker class for Git exclusion ownership evidence that does not match recorded state. */
-export const REPOSITORY_EXCLUSION_RECORD = "repository-exclusion-record" as const;
+/** Typed blocker class for a receipt-owned Git exclusion contribution that does not match live ownership. */
+export const REPOSITORY_EXCLUSION_CONTRIBUTION = "repository-exclusion-contribution" as const;
 
 /** Typed blocker class for a Git project or repository-local target that cannot be proven. */
 export const REPOSITORY_EXCLUSION_TARGET_UNPROVEN = "repository-exclusion-target-unproven" as const;
@@ -157,7 +157,7 @@ export const BLOCKER_KINDS = [
   HOST_CAPABILITY_UNCLASSIFIED,
   OUTPUT_OWNERSHIP_CONFLICT,
   INSTALLATION_STATE_UNREADABLE,
-  REPOSITORY_EXCLUSION_RECORD,
+  REPOSITORY_EXCLUSION_CONTRIBUTION,
   REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
   REPOSITORY_EXCLUSION_SECTION_MISSING,
   REPOSITORY_EXCLUSION_INVALID,
@@ -236,22 +236,22 @@ export function installationStateUnreadableBlocker(options: {
   });
 }
 
-/** Build one complete structured blocker for Git exclusion ownership evidence that does not match. */
-export function repositoryExclusionRecordBlocker(options: {
+/** Build one complete structured blocker for receipt-owned Git exclusion evidence that does not match. */
+export function repositoryExclusionContributionBlocker(options: {
   readonly affectedItems: readonly BlockerAffectedItem[];
   readonly message: string;
 }): GlobalScopedBlockerInput {
   return globalBlocker({
     affectedItems: options.affectedItems,
-    kind: REPOSITORY_EXCLUSION_RECORD,
+    kind: REPOSITORY_EXCLUSION_CONTRIBUTION,
     problem: options.message,
     remedy:
-      "Restore Installation State from a known-good backup so each Git exclusion record " +
-      "matches its installation record, installation ID, and live repository-local " +
-      "target, then retry",
+      "Restore Installation State from a known-good backup so each receipt-owned Git " +
+      "exclusion contribution matches its installation record, installation ID, and " +
+      "live repository-local target, then retry",
     requirement:
-      "Git exclusion records must remain the machine-local ownership source for Git " +
-      "exclusion contributions",
+      "Receipt-owned Git exclusion contributions must remain the machine-local ownership " +
+      "source for repository exclusion sections",
   });
 }
 

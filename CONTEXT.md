@@ -56,6 +56,10 @@ _Avoid_: Host Skill collision, precedence conflict
 A condition that prevents a lifecycle operation from proceeding. A Blocker is one exhaustively typed structured record (`kind`, `problem`, `requirement`, `remedy`, `scope`, and `affectedItems`) normalized at the Installer boundary, with a derived `message` projection retained for machine JSON. `scope: global` applies independently of one project; `scope: project` carries one canonical project identity that `problem` does not duplicate. Machine JSON publishes the structured evidence and derived message directly; human views render the structured fields and derive grouping and verbose completeness from the same record.
 _Avoid_: Warning, reconciliation item, Output Ownership Conflict
 
+**Safe Repair**:
+The deterministic restoration of Agent Profile Kit-owned output or lifecycle metadata from existing durable ownership evidence when no user-managed bytes or repository ownership change. It uses the ordinary `status` → `apply` lifecycle, performs no writes from `status`, and is not a general repair command. A condition that lacks sufficient evidence or authority remains a Blocker.
+_Avoid_: Adoption, ownership transfer, best-effort recovery, repair command
+
 **Apply Receipt**:
 The pre-apply ReconciliationReport retained after a successful apply. It represents `Applied` generated-output and Repository Exclusion work; a separate post-commit reconciliation snapshot is authoritative for the resulting Profile Installation state and represents `Pending` work.
 _Avoid_: Resulting state, pending report
@@ -73,8 +77,8 @@ The single active ownership record for one ordinary or Temporary Profile Install
 _Avoid_: Installation Manifest, presentation history, selected Context, generated output
 
 **Repository Exclusion Contribution**:
-One active Installation Receipt's exact repository-local exclusion target and entries. The Installer derives the deterministic shared-target union at planning time; no separate union or Repository Exclusion Record is persisted.
-_Avoid_: Shared `.gitignore`, persisted target union, one exclusion owner per Profile Installation
+One active Installation Receipt's exact repository-local exclusion target and entries, owned by that receipt rather than by any separately persisted record. The Installer derives the deterministic shared-target union at planning time, represented in code by the `RepositoryExclusionRecord` planning type (`repositoryExclusionRecords()`); that type names the derived union only and persists nothing. Structured Blockers use the `repository-exclusion-contribution` kind for this evidence.
+_Avoid_: Repository Exclusion Record (as a separately persisted record), shared `.gitignore`, persisted target union, one exclusion owner per Profile Installation
 
 **Installation Marker**:
 The minimal Installer-owned file that travels with a project and links its Profile Installation to the machine-local Installation Receipt through an opaque installation ID. It proves continuity across a project-folder move, is lifecycle metadata rather than a generated output receipt, and contains no desired state.

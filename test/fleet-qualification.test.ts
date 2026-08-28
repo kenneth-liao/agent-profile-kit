@@ -224,7 +224,7 @@ describe("fleet-wide synchronization qualification", () => {
       readonly projects: readonly { readonly state: { readonly kind: string } }[];
       readonly schemaVersion: number;
     };
-    expect(payload.schemaVersion).toBe(7);
+    expect(payload.schemaVersion).toBe(8);
     expect(payload.projects).toHaveLength(12);
 
     // Apply reconciles the fleet and reports the receipt without a repeated

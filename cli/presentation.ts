@@ -150,7 +150,6 @@ export const DEFAULT_VIEW_LEXICON = {
     plural: "Git exclusions",
     singular: "Git exclusion",
   },
-  repositoryExclusionRecord: { singular: "Git exclusion record", plural: "Git exclusion records" },
   temporaryProfileInstallation: {
     action: "temporary install",
     plural: "temporary Profiles",
@@ -2707,7 +2706,16 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 7 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 8 as const;
+
+/**
+ * One version line per JSON command family: every `install-temp`/`remove-temp`
+ * payload (success receipt, blocked, tool error) shares this constant so the
+ * version identifies the family, and it evolves independently of the
+ * `status`/`apply` lifecycle payload family even when both currently publish
+ * the same number.
+ */
+const TEMPORARY_INSTALLATION_MACHINE_SCHEMA_VERSION = 8 as const;
 
 function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
   return {
@@ -2945,7 +2953,7 @@ export function formatTemporaryInstallationJson(
 ): string {
   return `${JSON.stringify(
     {
-      schemaVersion: 2,
+      schemaVersion: TEMPORARY_INSTALLATION_MACHINE_SCHEMA_VERSION,
       command,
       outcome: "success",
       temporaryInstallationId: receipt.temporaryInstallationId,
@@ -3086,7 +3094,7 @@ export function formatTemporaryInstallationBlockedJson(
 ): string {
   return `${JSON.stringify(
     {
-      schemaVersion: 2,
+      schemaVersion: TEMPORARY_INSTALLATION_MACHINE_SCHEMA_VERSION,
       command,
       outcome: "blocked",
       blockers: blockers.map(machineBlocker),
@@ -3106,7 +3114,7 @@ export function formatTemporaryInstallationToolErrorJson(
 ): string {
   return `${JSON.stringify(
     {
-      schemaVersion: 1,
+      schemaVersion: TEMPORARY_INSTALLATION_MACHINE_SCHEMA_VERSION,
       command,
       outcome: "error",
       error: message,

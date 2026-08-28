@@ -161,7 +161,7 @@ describe("shared blocker contract", () => {
       "host-capability-unclassified",
       "output-ownership-conflict",
       "installation-state-unreadable",
-      "repository-exclusion-record",
+      "repository-exclusion-contribution",
       "repository-exclusion-target-unproven",
       "repository-exclusion-section-missing",
       "repository-exclusion-invalid",
@@ -174,14 +174,25 @@ describe("shared blocker contract", () => {
     expect(AFFECTED_ITEM_KINDS).toEqual(["host", "path", "installation-id"]);
   });
 
-  test("temporary-installation blocked JSON publishes structured evidence at schema version 2", () => {
+  test("the retired repository-exclusion-record kind is rejected, not aliased", () => {
+    expect(() => normalizeBlocker({
+      affectedItems: [{ kind: "installation-id", value: "install-1" }],
+      kind: "repository-exclusion-record",
+      problem: "Git exclusion evidence does not match",
+      remedy: "Restore Installation State from a known-good backup, then retry",
+      requirement: "Git exclusion contributions must match their receipts",
+      scope: "global",
+    } as never)).toThrow(/Unknown structured blocker kind "repository-exclusion-record"/);
+  });
+
+  test("temporary-installation blocked JSON publishes structured evidence at the family schema version", () => {
     const structured = normalizeBlocker(HOST_CAPABILITY_INPUT);
 
     const payload = JSON.parse(
       formatTemporaryInstallationBlockedJson("install-temp", [structured]),
     ) as Record<string, unknown>;
     expect(payload).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 8,
       command: "install-temp",
       outcome: "blocked",
       blockers: [{
@@ -266,7 +277,7 @@ describe("shared blocker contract", () => {
       readonly projects: readonly { readonly blockers: readonly Record<string, unknown>[] }[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(7);
+    expect(machine.schemaVersion).toBe(8);
     expect(machine.projects[0]!.blockers).toEqual([{
       kind: "host-capability",
       scope: "project",

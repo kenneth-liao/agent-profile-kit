@@ -8,6 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Use `repository-exclusion-contribution` as the only structured Blocker kind for receipt-owned Git exclusion evidence, replace Repository Exclusion Record language in every emitter, renderer, and machine payload, and advance the `status`/`apply` lifecycle payload family and the whole `install-temp`/`remove-temp` payload family (success receipt, blocked, tool error) to schema version 8, each versioning as one per-command family line (ADR-0023). The Blocker normalization boundary rejects the retired kind without a compatibility alias. Pre-1.0: automation consuming lifecycle or temporary-installation JSON must accept schema version 8 and the new kind; the temporary success receipt moves 2 → 8 and its tool-error envelope 1 → 8 ([#346](https://github.com/kenneth-liao/agent-profile-kit/issues/346)).
 - Reduce the complete Profile Context envelope to compact Profile metadata plus normalized Context Module bodies with no generated per-module boundary markers, shared identically by Pi, Codex, Claude, and Grok while Antigravity keeps separate per-module always-on rules ([#326](https://github.com/kenneth-liao/agent-profile-kit/issues/326)). Upgrading changes every bound envelope hash, so `status` reports Context drift until `apply` refreshes each Project.
 
 ### Added

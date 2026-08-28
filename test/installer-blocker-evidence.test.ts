@@ -21,10 +21,10 @@ import {
   OCCUPIED_OUTPUT,
   occupiedOutputBlocker,
   REPOSITORY_EXCLUSION_INVALID,
-  REPOSITORY_EXCLUSION_RECORD,
+  REPOSITORY_EXCLUSION_CONTRIBUTION,
   REPOSITORY_EXCLUSION_SECTION_MISSING,
   REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
-  repositoryExclusionRecordBlocker,
+  repositoryExclusionContributionBlocker,
   repositoryExclusionTargetUnprovenBlocker,
   TEMPORARY_INSTALLATION_CONFLICT,
   TEMPORARY_INSTALLATION_REMOVAL,
@@ -138,7 +138,7 @@ describe("structured Installer blocker evidence", () => {
       readonly globalBlockers: readonly Record<string, unknown>[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(7);
+    expect(machine.schemaVersion).toBe(8);
     expect(machine.globalBlockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
@@ -164,16 +164,16 @@ describe("structured Installer blocker evidence", () => {
     expect(stateBlocker.project).toBeUndefined();
     expect(stateBlocker.affectedItems).toEqual([{ kind: "path", value: "/home/state/manifest.yaml" }]);
 
-    const recordBlocker = normalizeBlocker(repositoryExclusionRecordBlocker({
+    const contributionBlocker = normalizeBlocker(repositoryExclusionContributionBlocker({
       affectedItems: [{ kind: "installation-id", value: "id-1" }],
-      message: "/repo is missing its Git exclusion record for Installation ID id-1",
+      message: "/repo is missing its Git exclusion contribution for Installation ID id-1",
     }));
-    expect(recordBlocker).toMatchObject({
-      kind: REPOSITORY_EXCLUSION_RECORD,
-      message: "/repo is missing its Git exclusion record for Installation ID id-1",
+    expect(contributionBlocker).toMatchObject({
+      kind: REPOSITORY_EXCLUSION_CONTRIBUTION,
+      message: "/repo is missing its Git exclusion contribution for Installation ID id-1",
       scope: "global",
     });
-    expect(recordBlocker.project).toBeUndefined();
+    expect(contributionBlocker.project).toBeUndefined();
 
     const occupied = normalizeBlocker(occupiedOutputBlocker({
       message: ".codex/hooks.json is occupied by unowned or drifted output",
@@ -246,7 +246,7 @@ describe("structured Installer blocker evidence", () => {
     });
   });
 
-  test("a missing Git exclusion record emits structured global evidence", async () => {
+  test("a missing Git exclusion contribution emits structured global evidence", async () => {
     const repository = gitRepository("apkit-evidence-record-");
     const home = await prepareHome(repository);
     const desired = await buildDesiredState(home, { checkHostCapability: false });
@@ -263,14 +263,14 @@ describe("structured Installer blocker evidence", () => {
 
     const blocker = requireDefined(
       reportBlockers(report).find(
-        (candidate) => isStructuredBlocker(candidate) && candidate.kind === REPOSITORY_EXCLUSION_RECORD,
+        (candidate) => isStructuredBlocker(candidate) && candidate.kind === REPOSITORY_EXCLUSION_CONTRIBUTION,
       ),
-      "a structured repository-exclusion-record blocker",
+      "a structured repository-exclusion-contribution blocker",
     );
     expect(blocker).toMatchObject({ scope: "global" });
     expect(blocker.project).toBeUndefined();
     expect(blocker.message).toBe(
-      `${canonicalProject} is missing its Git exclusion record for Installation ID ${installationId}`,
+      `${canonicalProject} is missing its Git exclusion contribution for Installation ID ${installationId}`,
     );
     expect(blocker.affectedItems).toEqual([{ kind: "installation-id", value: installationId }]);
     expect(lifecycleExitCode(report)).toBe(2);
@@ -278,7 +278,7 @@ describe("structured Installer blocker evidence", () => {
     // Human output keeps the message projection, including the default-view lexicon.
     const human = formatLifecycleReport("status", report);
     expect(human).toContain("Global blockers:");
-    expect(human).toContain("missing its Git exclusion record");
+    expect(human).toContain("missing its Git exclusion contribution");
     const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       readonly globalBlockers: readonly Record<string, unknown>[];
     };
@@ -286,7 +286,7 @@ describe("structured Installer blocker evidence", () => {
       (candidate) => candidate.message === blocker.message
     )).toBe(true);
     expect(machine.globalBlockers.some(
-      (candidate) => candidate.kind === REPOSITORY_EXCLUSION_RECORD
+      (candidate) => candidate.kind === REPOSITORY_EXCLUSION_CONTRIBUTION
     )).toBe(true);
     expect(machine.globalBlockers.some((candidate) => candidate.scope === "global")).toBe(true);
     expect(machine.globalBlockers.some((candidate) => (
@@ -294,7 +294,7 @@ describe("structured Installer blocker evidence", () => {
     ).some((item) => item.kind === "installation-id" && item.value === installationId))).toBe(true);
   });
 
-  test("a Git exclusion record on the wrong Git target emits structured global evidence", async () => {
+  test("a Git exclusion contribution on the wrong Git target emits structured global evidence", async () => {
     const repository = gitRepository("apkit-evidence-target-");
     const other = gitRepository("apkit-evidence-target-other-");
     const home = await prepareHome(repository);
@@ -320,13 +320,13 @@ describe("structured Installer blocker evidence", () => {
 
     const blocker = requireDefined(
       reportBlockers(report).find(
-        (candidate) => isStructuredBlocker(candidate) && candidate.kind === REPOSITORY_EXCLUSION_RECORD,
+        (candidate) => isStructuredBlocker(candidate) && candidate.kind === REPOSITORY_EXCLUSION_CONTRIBUTION,
       ),
-      "a structured repository-exclusion-record blocker",
+      "a structured repository-exclusion-contribution blocker",
     );
     expect(blocker).toMatchObject({ scope: "global" });
     expect(blocker.message).toBe(
-      `${canonicalProject} Git exclusion record for Installation ID ${installationId} ` +
+      `${canonicalProject} Git exclusion contribution for Installation ID ${installationId} ` +
         `targets ${wrongTarget}, expected ${expectedTarget}`,
     );
     expect(blocker.affectedItems).toEqual([
@@ -497,16 +497,16 @@ describe("structured Installer blocker evidence", () => {
     };
 
     const blockers = await gitExclusionBlockers(state, desired.installations);
-    const recordBlockers = blockers.filter(
-      (blocker) => isStructuredBlocker(blocker) && blocker.kind === REPOSITORY_EXCLUSION_RECORD,
+    const contributionBlockers = blockers.filter(
+      (blocker) => isStructuredBlocker(blocker) && blocker.kind === REPOSITORY_EXCLUSION_CONTRIBUTION,
     );
 
     // Canonical code-point ordering places the uppercase path before the
     // lowercase path; locale collation would reverse them.
-    expect(recordBlockers).toHaveLength(2);
-    expect(recordBlockers.map((blocker) => blocker.message)).toEqual([
-      `${upper} is missing its Git exclusion record for Installation ID recorded-B`,
-      `${lower} is missing its Git exclusion record for Installation ID recorded-a`,
+    expect(contributionBlockers).toHaveLength(2);
+    expect(contributionBlockers.map((blocker) => blocker.message)).toEqual([
+      `${upper} is missing its Git exclusion contribution for Installation ID recorded-B`,
+      `${lower} is missing its Git exclusion contribution for Installation ID recorded-a`,
     ]);
   });
 
