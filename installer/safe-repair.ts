@@ -68,24 +68,35 @@ export type StaleContributionRepair = Extract<
 >;
 
 /**
- * Eligibility decision for one candidate Safe Repair condition. Ineligible
- * candidates remain typed Blockers at the condition's existing Blocker site.
+ * The typed reason one candidate Safe Repair condition was found ineligible.
  * `unreadable-exclusion-bytes` marks a target that could not be read or parsed
  * (including unsafe paths); `incoherent-exclusion-bytes` marks a readable owned
  * section whose entries are not exactly the bytes the recorded contributions
  * prove — the recorded union plus the proven contribution for a missing
  * contribution, or the recorded union itself for a stale contribution;
  * `unchanged-contribution` marks a recorded contribution that already equals
- * the entries its receipt derives, so no stale correction is pending.
+ * the entries its receipt derives, so no stale correction is pending;
+ * `wrong-target` marks a recorded contribution whose target differs from the
+ * live Git target — always a caller-contract violation for the eligibility
+ * gates, which require the unchanged-target proof at the reconciliation
+ * boundary.
+ */
+export type SafeRepairIneligibilityCause =
+  | "incoherent-exclusion-bytes"
+  | "unreadable-exclusion-bytes"
+  | "unchanged-contribution"
+  | "wrong-target";
+
+/**
+ * Eligibility decision for one candidate Safe Repair condition. Ineligible
+ * candidates remain typed Blockers at the condition's existing Blocker site,
+ * and the cause is surfaced as distinct Blocker evidence at that site.
  */
 export type SafeRepairEligibility<R extends SafeRepair = SafeRepair> =
   | { readonly eligible: true; readonly repair: R }
   | {
       readonly eligible: false;
-      readonly cause:
-        | "incoherent-exclusion-bytes"
-        | "unreadable-exclusion-bytes"
-        | "unchanged-contribution";
+      readonly cause: SafeRepairIneligibilityCause;
     };
 
 export interface SafeRepairItemClassification {
@@ -136,26 +147,13 @@ export function isContributionRepair(
   return repair.class === "missing-contribution" || repair.class === "stale-contribution";
 }
 
-/**
- * Overlay proven contribution repairs (missing and stale) onto Installation
- * State so the receipts carry the exact contributions the proofs derive.
- * Byte-level validation in `gitExclusionBlockers` overlays only the missing
- * subset — a stale target's live section must still match the un-overlaid
- * recorded union — while apply's contribution pass stages the missing-only
- * projection as the staged current state and this full projection as the
- * staged next state, then persists the full projection through the ordinary
- * `writeState` call.
- */
-export function withProvenSafeRepairs(
+function overlayContributionRepairs(
   state: OwnershipState,
   repairs: readonly SafeRepairExclusionRepair[],
 ): OwnershipState {
   return {
     ...state,
-    receipts: [
-      ...repairs.filter(isMissingContributionRepair),
-      ...repairs.filter(isStaleContributionRepair),
-    ].reduce(
+    receipts: repairs.filter(isContributionRepair).reduce(
       (receipts, repair) =>
         withRepositoryExclusion(receipts, repair.installationId, {
           entries: repair.entries,
@@ -164,4 +162,35 @@ export function withProvenSafeRepairs(
       state.receipts,
     ),
   };
+}
+
+/**
+ * Overlay every proven contribution repair (missing and stale) onto
+ * Installation State so the receipts carry the exact contributions the proofs
+ * derive. This full projection is apply's staged next state and the state
+ * apply persists through the ordinary `writeState` call.
+ */
+export function withProvenContributions(
+  state: OwnershipState,
+  repairs: readonly SafeRepairExclusionRepair[],
+): OwnershipState {
+  return overlayContributionRepairs(state, repairs);
+}
+
+/**
+ * Overlay only the proven missing contributions onto Installation State. This
+ * projection is byte-level validation's expected state and apply's staged
+ * current state: a stale target's live section must still match the
+ * un-overlaid recorded union exactly, so only this function may project
+ * validation and staging-current expectations and the caller cannot pass the
+ * wrong subset.
+ */
+export function withStagedCurrentContributions(
+  state: OwnershipState,
+  repairs: readonly SafeRepairExclusionRepair[],
+): OwnershipState {
+  return overlayContributionRepairs(
+    state,
+    repairs.filter(isMissingContributionRepair),
+  );
 }

@@ -89,14 +89,13 @@ import {
 } from "./blockers.js";
 import {
   isContributionRepair,
-  isMissingContributionRepair,
   safeRepairItemClassification,
-  withProvenSafeRepairs,
-  type MissingContributionRepair,
+  withProvenContributions,
+  withStagedCurrentContributions,
   type SafeRepairExclusionRepair,
   type SafeRepairWithProjectItem,
-  type StaleContributionRepair,
 } from "./safe-repair.js";
+import type { IneligibleContributionEvidence } from "./git-exclusions.js";
 
 export type { ReconciliationBlocker } from "./blockers.js";
 
@@ -982,6 +981,7 @@ export async function previewReconciliation(
    * bytes.
    */
   const eligibleContributionRepairs: SafeRepairExclusionRepair[] = [];
+  const ineligibleContributionEvidence = new Map<string, IneligibleContributionEvidence>();
   const desiredReport = desired.map((installation) => {
     return {
       canonicalProject: installation.binding.canonicalProject,
@@ -1197,6 +1197,8 @@ export async function previewReconciliation(
         installation.gitProject !== undefined &&
         proof.owned &&
         outputConflicts.length === 0 &&
+        (previous.repositoryExclusion === undefined ||
+          previous.repositoryExclusion.target === installation.gitProject.excludeFile) &&
         previous.desiredInputDigest === installation.sourceHash &&
         previous.profileId === installation.profile.id &&
         hostReceiptsEqual(previous, installation) &&
@@ -1208,7 +1210,7 @@ export async function previewReconciliation(
             previousOutput.mode === output.mode &&
             previousOutput.type === output.type;
         });
-      let contributionRepair: MissingContributionRepair | StaleContributionRepair | undefined;
+      let contributionRepair: SafeRepairExclusionRepair | undefined;
       if (contributionRepairProof) {
         const eligibility = previous.repositoryExclusion === undefined
           ? await missingContributionRepairEligibility(
@@ -1226,6 +1228,11 @@ export async function previewReconciliation(
         if (eligibility.eligible) {
           contributionRepair = eligibility.repair;
           eligibleContributionRepairs.push(eligibility.repair);
+        } else {
+          ineligibleContributionEvidence.set(previous.installationId, {
+            cause: eligibility.cause,
+            target: installation.gitProject!.excludeFile,
+          });
         }
       }
       if (!proof.owned && !repairableMissingMarker && !repairableMissingOutput) {
@@ -1337,6 +1344,9 @@ export async function previewReconciliation(
     ...(eligibleContributionRepairs.length === 0
       ? {}
       : { eligibleContributionRepairs }),
+    ...(ineligibleContributionEvidence.size === 0
+      ? {}
+      : { ineligibleContributionEvidence }),
   })));
   const staleCandidates = scope.kind === "all" ? ordinaryReceipts(state) : [];
   const staleResults = await scheduler.run(staleCandidates.map((installation) => async () => {
@@ -2097,11 +2107,8 @@ async function applyReconciliationLocked(
     .filter(isContributionRepair);
   const contributionTargets = new Set(pendingContributionRepairs.map((repair) => repair.target));
   if (contributionTargets.size > 0) {
-    const stagedCurrentState = withProvenSafeRepairs(
-      workingState,
-      pendingContributionRepairs.filter(isMissingContributionRepair),
-    );
-    const contributionState = withProvenSafeRepairs(workingState, pendingContributionRepairs);
+    const stagedCurrentState = withStagedCurrentContributions(workingState, pendingContributionRepairs);
+    const contributionState = withProvenContributions(workingState, pendingContributionRepairs);
     let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
     let stateWriteAttempted = false;
     try {

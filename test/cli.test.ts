@@ -3725,7 +3725,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
           installationId: string;
           target: string;
           current: readonly string[];
-          entries: readonly string[];
+          next: readonly string[];
         }[];
         repositoryExclusions: readonly {
           current: readonly string[];
@@ -3744,7 +3744,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(repair.class).toBe("stale-contribution");
     expect(repair.target).toBe(realpathSync(exclude));
     expect(repair.current).toEqual([...new Set(stale)].sort());
-    expect(repair.entries).toEqual(desired);
+    expect(repair.next).toEqual(desired);
     const change = machineProject.repositoryExclusions[0]!;
     expect(change.target).toBe(realpathSync(exclude));
     expect(change.current).toEqual([...new Set(stale)].sort());
@@ -3802,7 +3802,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(status, 2);
     expect(humanText(status.stdout)).toContain(
-      "does not match the entries recorded by its installation record",
+      "Git exclusion contribution for Installation ID",
+    );
+    expect(humanText(status.stdout)).toContain(
+      "is stale and its owned section does not match the recorded entries; " +
+        "restore the recorded section before retrying",
     );
     expect(status.stdout).toContain("section is modified");
     expect(readFileSync(exclude).equals(Buffer.from(drifted))).toBe(true);
@@ -3826,11 +3830,47 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(status, 2);
     expect(humanText(status.stdout)).toContain(
-      "does not match the entries recorded by its installation record",
+      "Git exclusion contribution for Installation ID",
+    );
+    expect(humanText(status.stdout)).toContain(
+      "is stale and its owned section does not match the recorded entries; " +
+        "restore the recorded section before retrying",
     );
     expect(readFileSync(exclude, "utf8")).toBe(unprovable);
     expectExitCode(await runCliAt(home, repository, "apply"), 2);
     expect(readFileSync(exclude, "utf8")).toBe(unprovable);
+  });
+
+  test("a missing Git exclusion contribution with unprovable exclusion content names the byte failure", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-missing-unprovable-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: { repository_exclusion?: unknown }[];
+    };
+    delete state.receipts[0]!.repository_exclusion;
+    writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
+    const foreign =
+      "# BEGIN Agent Profile Kit generated paths\n/unowned/foreign-entry\n# END Agent Profile Kit generated paths\n";
+    writeFileSync(exclude, foreign);
+
+    const status = await runCliAt(home, repository, "status");
+
+    expectExitCode(status, 2);
+    expect(humanText(status.stdout)).toContain(
+      "Git exclusion contribution for Installation ID",
+    );
+    expect(humanText(status.stdout)).toContain(
+      "cannot be proven: its owned section does not match the recorded entries; " +
+        "restore the recorded section before retrying",
+    );
+    expect(readFileSync(exclude, "utf8")).toBe(foreign);
+    expectExitCode(await runCliAt(home, repository, "apply"), 2);
+    expect(readFileSync(exclude, "utf8")).toBe(foreign);
   });
 
   test("a stale Git exclusion contribution with a missing Installation Marker blocks before writes", async () => {

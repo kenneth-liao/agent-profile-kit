@@ -2808,7 +2808,7 @@ function canonicalMachineProject(project: ReconciliationProjectRecord): unknown 
           ? { installationId: repair.installationId }
           : {}),
         ...(repair.class === "stale-contribution"
-          ? { current: [...repair.currentEntries] }
+          ? { current: [...repair.currentEntries], next: [...repair.entries] }
           : {}),
         class: repair.class,
         entries: [...repair.entries],

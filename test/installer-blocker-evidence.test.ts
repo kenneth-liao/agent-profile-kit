@@ -416,7 +416,7 @@ describe("structured Installer blocker evidence", () => {
       git,
       state,
     );
-    expect(wrongTarget).toEqual({ cause: "incoherent-exclusion-bytes", eligible: false });
+    expect(wrongTarget).toEqual({ cause: "wrong-target", eligible: false });
 
     rmSync(exclude);
     symlinkSync(join(repository, "README.md"), exclude);

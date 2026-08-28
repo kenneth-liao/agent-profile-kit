@@ -35,21 +35,31 @@ import {
   type ReconciliationBlocker,
 } from "./blockers.js";
 import {
+  isContributionRepair,
   isMissingContributionRepair,
   isStaleContributionRepair,
-  withProvenSafeRepairs,
+  withProvenContributions,
+  withStagedCurrentContributions,
   type MissingContributionRepair,
   type SafeRepairEligibility,
   type SafeRepairExclusionRepair,
+  type SafeRepairIneligibilityCause,
   type StaleContributionRepair,
 } from "./safe-repair.js";
 
 /**
  * Repository-local exclusion repairs carry the exhaustive typed Safe Repair
- * boundary (ADR-0022): a damaged recorded section (`exclusion-section`) or a
- * provably missing receipt contribution (`missing-contribution`).
+ * boundary (ADR-0022): a damaged recorded section (`exclusion-section`), a
+ * provably missing receipt contribution (`missing-contribution`), or stale
+ * recorded entries at an unchanged proven target (`stale-contribution`).
  */
 export type RepositoryExclusionRepair = SafeRepairExclusionRepair;
+
+/** Why one installation's candidate contribution repair was found ineligible. */
+export interface IneligibleContributionEvidence {
+  readonly cause: SafeRepairIneligibilityCause;
+  readonly target: string;
+}
 
 const BEGIN = "# BEGIN Agent Profile Kit generated paths";
 const BEGIN_WITH_SEPARATOR = `${BEGIN} (separator owned)`;
@@ -627,7 +637,10 @@ export async function staleContributionRepairEligibility(
     recordedContribution === undefined ||
     recordedContribution.target !== git.excludeFile
   ) {
-    return { cause: "incoherent-exclusion-bytes", eligible: false };
+    // Defensive: the reconciliation boundary proves the unchanged Git target
+    // before calling this gate, so a mismatch here is a caller-contract
+    // violation, not a byte diagnosis.
+    return { cause: "wrong-target", eligible: false };
   }
   const entries = expectedContributionEntries(previous, git.relativeProject);
   const currentEntries = sortedUniqueEntries(recordedContribution.entries);
@@ -658,7 +671,8 @@ export async function staleContributionRepairEligibility(
     return { eligible: true, repair };
   } catch {
     // Read, safety, and parse failures are a distinct diagnosis from readable
-    // bytes with the wrong entries; the Blocker boundary surfaces the error.
+    // bytes with the wrong entries; the ineligible cause becomes distinct
+    // Blocker evidence at the ownership boundary.
     return { cause: "unreadable-exclusion-bytes", eligible: false };
   }
 }
@@ -746,11 +760,36 @@ async function existingInstallationForDesired(
   );
 }
 
+/**
+ * One missing contribution's Blocker message. When the reconciliation boundary
+ * already ran the eligibility gate and the byte gate failed, the cause becomes
+ * distinct evidence instead of the generic missing-contribution diagnosis.
+ */
+function missingContributionBlockerMessage(
+  target: string,
+  installationId: string,
+  evidence: IneligibleContributionEvidence | undefined,
+  fallback: string,
+): string {
+  if (evidence === undefined) return fallback;
+  if (evidence.cause === "incoherent-exclusion-bytes") {
+    return `${target} Git exclusion contribution for Installation ID ` +
+      `${installationId} cannot be proven: its owned section does not match ` +
+      "the recorded entries; restore the recorded section before retrying";
+  }
+  if (evidence.cause === "unreadable-exclusion-bytes") {
+    return `${target} Git exclusion contribution for Installation ID ` +
+      `${installationId} cannot be proven: its exclusion file is unreadable or unsafe`;
+  }
+  return fallback;
+}
+
 /** Validate semantic ownership links before touching any repository-local exclusion bytes. */
 async function repositoryExclusionOwnershipBlockers(
   state: OwnershipState,
   desired: readonly DesiredInstallation[],
   eligibleContributionRepairs: readonly SafeRepairExclusionRepair[],
+  ineligibleContributionEvidence: ReadonlyMap<string, IneligibleContributionEvidence>,
 ): Promise<readonly BlockerInput[]> {
   const eligibleMissingContributionIds = new Set(
     eligibleContributionRepairs
@@ -773,9 +812,13 @@ async function repositoryExclusionOwnershipBlockers(
       if (!eligibleMissingContributionIds.has(previous.installationId)) {
         blockers.push(repositoryExclusionContributionBlocker({
           affectedItems: [{ kind: "installation-id", value: previous.installationId }],
-          message:
+          message: missingContributionBlockerMessage(
+            git.excludeFile,
+            previous.installationId,
+            ineligibleContributionEvidence.get(previous.installationId),
             `${installation.binding.canonicalProject} is missing its Git exclusion ` +
-            `contribution for Installation ID ${previous.installationId}`,
+              `contribution for Installation ID ${previous.installationId}`,
+          ),
         }));
       }
       continue;
@@ -798,11 +841,22 @@ async function repositoryExclusionOwnershipBlockers(
     const expected = expectedContributionEntries(previous, git.relativeProject);
     if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
       if (!eligibleStaleContributionIds.has(previous.installationId)) {
+        const evidence = ineligibleContributionEvidence.get(previous.installationId);
         blockers.push(repositoryExclusionContributionBlocker({
           affectedItems: [{ kind: "path", value: git.excludeFile }],
-          message:
-            `${git.excludeFile} Git exclusion contribution for Installation ID ` +
-            `${previous.installationId} does not match the entries recorded by its installation record`,
+          message: evidence === undefined
+            ? `${git.excludeFile} Git exclusion contribution for Installation ID ` +
+              `${previous.installationId} does not match the entries recorded by its installation record`
+            : evidence.cause === "incoherent-exclusion-bytes"
+              ? `${git.excludeFile} Git exclusion contribution for Installation ID ` +
+                `${previous.installationId} is stale and its owned section does not match ` +
+                "the recorded entries; restore the recorded section before retrying"
+              : evidence.cause === "unreadable-exclusion-bytes"
+                ? `${git.excludeFile} Git exclusion contribution for Installation ID ` +
+                  `${previous.installationId} is stale and its exclusion file is unreadable or unsafe`
+                : `${git.excludeFile} Git exclusion contribution for Installation ID ` +
+                  `${previous.installationId} targets ${contribution.record.target}, ` +
+                  `expected ${git.excludeFile}`,
         }));
       }
     }
@@ -987,12 +1041,25 @@ export async function gitExclusionBlockers(
     readonly retiringInstallationIds?: ReadonlySet<string>;
     readonly validateRecordedInstallations?: boolean;
     readonly includedInstallationIds?: ReadonlySet<string>;
+    /**
+     * Byte-gate failures the reconciliation boundary already proved for one
+     * installation's candidate contribution repair. They become distinct
+     * Blocker evidence at the ownership boundary instead of the generic
+     * entries-mismatch diagnosis.
+     */
+    readonly ineligibleContributionEvidence?: ReadonlyMap<string, IneligibleContributionEvidence>;
   } = {},
 ): Promise<readonly ReconciliationBlocker[]> {
   const validateRecordedInstallations = options.validateRecordedInstallations ?? desired.length === 0;
   const eligibleContributionRepairs = options.eligibleContributionRepairs ?? [];
+  const ineligibleContributionEvidence = options.ineligibleContributionEvidence ?? new Map();
   const blockers: BlockerInput[] = [
-    ...await repositoryExclusionOwnershipBlockers(state, desired, eligibleContributionRepairs),
+    ...await repositoryExclusionOwnershipBlockers(
+      state,
+      desired,
+      eligibleContributionRepairs,
+      ineligibleContributionEvidence,
+    ),
     ...await retiringInstallationOwnershipBlockers(
       state,
       desired,
@@ -1016,7 +1083,7 @@ export async function gitExclusionBlockers(
   );
   const inspectionState = eligibleMissingContributionRepairs.length === 0
     ? state
-    : withProvenSafeRepairs(state, eligibleMissingContributionRepairs);
+    : withStagedCurrentContributions(state, eligibleContributionRepairs);
   for (const target of await inspectionTargets(
     inspectionState,
     desired,
