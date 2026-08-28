@@ -1174,11 +1174,16 @@ function shellSingleQuoted(value: string): string {
 
 /**
  * The exact user-owned untracking command for proven tracked paths only
- * (#353): canonical order, safe option termination, POSIX single-quoting.
- * Guidance only — Agent Profile Kit never executes it.
+ * (#353): bound to the Blocker's own Project root so the caller's working
+ * directory never selects the wrong repository, recursive so directory
+ * evidence works, canonical order, safe option termination, POSIX
+ * single-quoting. Guidance only — Agent Profile Kit never executes it.
  */
-function trackedPathUntrackCommand(paths: readonly string[]): string {
-  return `git rm --cached -- ${paths.map(shellSingleQuoted).join(" ")}`;
+function trackedPathUntrackCommand(
+  project: string,
+  paths: readonly string[],
+): string {
+  return `git -C ${shellSingleQuoted(project)} rm -r --cached -- ${paths.map(shellSingleQuoted).join(" ")}`;
 }
 
 /** How one ownership-conflict Blocker presents its user-owned recovery. */
@@ -1187,6 +1192,7 @@ type UntrackRecovery =
   | { readonly kind: "pointer"; readonly command: LifecycleCommand };
 
 function untrackRecoveryLines(
+  project: string,
   paths: readonly string[],
   indent: string,
   recovery: UntrackRecovery,
@@ -1200,7 +1206,7 @@ function untrackRecoveryLines(
   return [
     `${indent}  Recovery: run the command below yourself; Agent Profile Kit never executes it. ` +
       "It stages removal of these paths from Git ownership (the Git index) while the working files are preserved:",
-    `${indent}    ${trackedPathUntrackCommand(paths)}`,
+    `${indent}    ${trackedPathUntrackCommand(project, paths)}`,
     `${indent}  Alternatively, change or remove the Project Binding.`,
   ];
 }
@@ -1226,7 +1232,7 @@ function conciseOwnershipConflictLines(
     lines.push(`${indent}  Affected paths (${paths.length}):`);
     lines.push(...trackedPathGroupLines(paths, indent));
   }
-  lines.push(...untrackRecoveryLines(paths, indent, untrackRecovery));
+  lines.push(...untrackRecoveryLines(blocker.project, paths, indent, untrackRecovery));
   return lines;
 }
 
@@ -1271,7 +1277,12 @@ function verboseBlockerLines(
     lines.push(`  ${affectedItemLabel({ ...item, value })}`);
   }
   if (isOutputOwnershipConflict(blocker)) {
-    lines.push(...untrackRecoveryLines(outputOwnershipConflictPaths(blocker), "", untrackRecovery));
+    lines.push(...untrackRecoveryLines(
+      blocker.project,
+      outputOwnershipConflictPaths(blocker),
+      "",
+      untrackRecovery,
+    ));
   }
   return lines;
 }
@@ -2526,7 +2537,7 @@ function lifecycleCopyableValues(
       // must never split it (#353).
       if (isOutputOwnershipConflict(blocker)) {
         const paths = outputOwnershipConflictPaths(blocker);
-        if (paths.length > 0) values.add(trackedPathUntrackCommand(paths));
+        if (paths.length > 0) values.add(trackedPathUntrackCommand(blocker.project, paths));
       }
     }
     for (const exclusion of reportRepositoryExclusions(report)) {

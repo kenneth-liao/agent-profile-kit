@@ -3042,7 +3042,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("Remedy:");
     expect(result.stdout).toContain("Affected paths (1):");
     expect(result.stdout).toContain("- .codex/hooks.json");
-    expect(result.stdout).not.toContain("git rm --cached");
+    expect(result.stdout).not.toContain("rm -r --cached");
     expect(humanText(result.stdout)).toContain(
       humanText("Generated files must be exclusively managed by Agent Profile Kit"),
     );
@@ -3206,7 +3206,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(status.stdout).toContain("- .agent-profile-kit/codex/context.md");
     expect(status.stdout).toContain("- .agents/skills/ (12 paths)");
     expect(status.stdout).toContain("- .codex/hooks.json");
-    expect(status.stdout).not.toContain("git rm --cached");
+    expect(status.stdout).not.toContain("rm -r --cached");
     expect(status.stdout).toContain("Recovery command:");
     expect(status.stdout).toContain("apkit status --blockers-only --verbose");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
@@ -3226,16 +3226,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
     expect(verbose.stdout.match(/Requirement:/g)).toHaveLength(1);
     expect(verbose.stdout).not.toContain("more paths");
-    expect(verbose.stdout).not.toContain("git rm --cached");
+    expect(verbose.stdout).not.toContain("rm -r --cached");
 
     const focusedVerbose = await runCli(home, "status", "--blockers-only", "--verbose");
 
     expectExitCode(focusedVerbose, 2);
     expect(
-      focusedVerbose.stdout.split("\n").filter((line) => line.includes("git rm --cached")),
+      focusedVerbose.stdout.split("\n").filter((line) => line.includes("rm -r --cached")),
     ).toHaveLength(1);
+    expect(focusedVerbose.stdout).toContain("git -C ");
     expect(focusedVerbose.stdout).toContain(
-      "git rm --cached -- '.agent-profile-kit/codex/context.md'",
+      "rm -r --cached -- '.agent-profile-kit/codex/context.md'",
     );
     expect(focusedVerbose.stdout).toContain("'.agents/skills/s01'");
     expect(focusedVerbose.stdout).toContain("'.agents/skills/s12'");
@@ -3256,6 +3257,69 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "tracked context\n",
     );
     expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("the focused untracking command is Project-root bound, handles directory evidence, and preserves working files (#353)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = gitRepository();
+    const otherRepository = gitRepository("agent-profile-kit-unrelated-git-");
+    writeContextProfile(home);
+    mkdirSync(join(workspacePath(home), "skills", "s01"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(home), "skills", "s01", "SKILL.md"),
+      "---\nname: s01\ndescription: Skill s01.\n---\n\n# s01\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [s01]\n",
+    );
+    mkdirSync(join(projectPath, ".agent-profile-kit", "codex"), { recursive: true });
+    mkdirSync(join(projectPath, ".codex"));
+    mkdirSync(join(projectPath, ".agents", "skills", "s01"), { recursive: true });
+    writeFileSync(
+      join(projectPath, ".agent-profile-kit", "codex", "context.md"),
+      "tracked context\n",
+    );
+    writeFileSync(join(projectPath, ".codex", "hooks.json"), "tracked hooks\n");
+    writeFileSync(join(projectPath, ".agents", "skills", "s01", "SKILL.md"), "tracked s01\n");
+    execFileSync("git", ["-C", projectPath, "add", "."]);
+    execFileSync("git", ["-C", projectPath, "commit", "-qm", "track generated paths"]);
+    writeFileSync(join(otherRepository, "unrelated.txt"), "unrelated\n");
+    execFileSync("git", ["-C", otherRepository, "add", "."]);
+    execFileSync("git", ["-C", otherRepository, "commit", "-qm", "unrelated"]);
+    bind(home, projectPath);
+
+    const focusedVerbose = await runCli(home, "status", "--blockers-only", "--verbose");
+
+    expectExitCode(focusedVerbose, 2);
+    const commandLine = focusedVerbose.stdout
+      .split("\n")
+      .find((line) => line.includes("rm -r --cached"));
+    expect(commandLine).toBeDefined();
+    const command = (commandLine ?? "").trim();
+    expect(command).toStartWith(`git -C '${realpathSync(projectPath)}' rm -r --cached -- `);
+    expect(command).toContain("'.agents/skills/s01'");
+
+    // Executed from a different repository's working directory: the Project
+    // root binding, not the caller's cwd, selects the affected index.
+    execFileSync("bash", ["-c", command], { cwd: otherRepository });
+
+    const remaining = execFileSync("git", ["-C", projectPath, "ls-files"], { encoding: "utf8" });
+    expect(remaining).not.toContain(".agent-profile-kit/codex/context.md");
+    expect(remaining).not.toContain(".codex/hooks.json");
+    expect(remaining).not.toContain(".agents/skills/s01");
+    expect(remaining).toContain("README.md");
+    const otherFiles = execFileSync("git", ["-C", otherRepository, "ls-files"], {
+      encoding: "utf8",
+    });
+    expect(otherFiles).toContain("unrelated.txt");
+    expect(readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"))
+      .toBe("tracked context\n");
+    expect(readFileSync(join(projectPath, ".codex", "hooks.json"), "utf8")).toBe("tracked hooks\n");
+    expect(readFileSync(join(projectPath, ".agents", "skills", "s01", "SKILL.md"), "utf8")).toBe(
+      "tracked s01\n",
+    );
   });
 
   test("a Git binding reconciles only its exact root and preserves local exclusions", async () => {

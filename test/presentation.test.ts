@@ -1639,7 +1639,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).toContain("- .agents/skills/ (12 paths)");
     expect(concise).toContain("- .codex/hooks.json");
     expect(concise).not.toContain("/project-a/.agents/skills/s08");
-    expect(concise).not.toContain("git rm --cached");
+    expect(concise).not.toContain("rm -r --cached");
 
     const verbose = formatLifecycleReport("status", report, { verbose: true });
 
@@ -1648,7 +1648,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("/project-a/.codex/hooks.json");
     expect(verbose.match(/Requirement:/g)).toHaveLength(1);
     expect(verbose).not.toContain("more paths");
-    expect(verbose).not.toContain("git rm --cached");
+    expect(verbose).not.toContain("rm -r --cached");
     expect(verbose).toContain(
       "Recovery command: run apkit status --blockers-only --verbose to see the exact untracking command.",
     );
@@ -1737,8 +1737,8 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-  const untrackCommandFor = (paths: readonly string[]): string =>
-    `git rm --cached -- ${[...paths]
+  const untrackCommandFor = (project: string, paths: readonly string[]): string =>
+    `git -C '${project}' rm -r --cached -- ${[...paths]
       .sort((left, right) => compareCanonicalStrings(left, right))
       .map((path) => `'${path.replaceAll("'", "'\\''")}'`)
       .join(" ")}`;
@@ -1809,10 +1809,11 @@ describe("formatLifecycleReport concise terminology", () => {
       { blockersOnly: true, verbose: true },
     );
 
-    const commandLines = verbose.split("\n").filter((line) => line.includes("git rm --cached"));
+    const commandLines = verbose.split("\n").filter((line) => line.includes("rm -r --cached"));
     expect(commandLines).toHaveLength(1);
     const commandLine = commandLines[0] ?? "";
-    expect(commandLine.trim()).toBe(untrackCommandFor(paths));
+    expect(commandLine.trim()).toBe(untrackCommandFor("/project-a", paths));
+    expect(commandLine).toContain("git -C '/project-a' rm -r --cached --");
     expect(commandLine).toContain("-- '-leading-dash.md'");
     expect(commandLine).toContain("'weird'\\''name.md'");
   });
@@ -1824,7 +1825,9 @@ describe("formatLifecycleReport concise terminology", () => {
       { blockersOnly: true, verbose: true },
     );
 
-    expect(verbose).toContain("git rm --cached -- '.codex/hooks.json'");
+    expect(verbose).toContain(
+      "git -C '/project-a' rm -r --cached -- '.codex/hooks.json'",
+    );
     expect(verbose).toContain("working files are preserved");
     expect(verbose).toContain("Git ownership");
     expect(verbose).toContain("change or remove the Project Binding");
@@ -1840,7 +1843,7 @@ describe("formatLifecycleReport concise terminology", () => {
       expect(output).toContain(
         "Recovery command: run apkit status --blockers-only --verbose to see the exact untracking command.",
       );
-      expect(output).not.toContain("git rm --cached");
+      expect(output).not.toContain("rm -r --cached");
     }
   });
 
@@ -1865,13 +1868,13 @@ describe("formatLifecycleReport concise terminology", () => {
         normalizeBlocker(outputOwnershipConflictBlocker({ paths: [...paths], project })),
       ],
     });
-    const command = untrackCommandFor(paths);
+    const command = untrackCommandFor("/project-b", paths);
 
     const focusedApply = formatApplyReport(
       applyResult(receipt, resultingState),
       { blockersOnly: true, verbose: true },
     );
-    expect(focusedApply.split("\n").filter((line) => line.includes("git rm --cached")))
+    expect(focusedApply.split("\n").filter((line) => line.includes("rm -r --cached")))
       .toHaveLength(1);
     expect(focusedApply).toContain(command);
 
@@ -1896,7 +1899,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(ordinaryVerbose).toContain(
       "Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command.",
     );
-    expect(ordinaryVerbose).not.toContain("git rm --cached");
+    expect(ordinaryVerbose).not.toContain("rm -r --cached");
   });
 
   test("focused verbose verification failure prints the command while ordinary verbose only points to it (#353)", () => {
@@ -1922,15 +1925,15 @@ describe("formatLifecycleReport concise terminology", () => {
       blockersOnly: true,
       verbose: true,
     });
-    expect(focused.split("\n").filter((line) => line.includes("git rm --cached")))
+    expect(focused.split("\n").filter((line) => line.includes("rm -r --cached")))
       .toHaveLength(1);
-    expect(focused).toContain(untrackCommandFor(paths));
+    expect(focused).toContain(untrackCommandFor("/project-b", paths));
 
     const ordinary = formatApplyVerificationFailure(receipt, message, { verbose: true });
     expect(ordinary).toContain(
       "Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command.",
     );
-    expect(ordinary).not.toContain("git rm --cached");
+    expect(ordinary).not.toContain("rm -r --cached");
   });
 
   test("large tracked-path sets render lossless groups and one complete command (#353)", () => {
@@ -1951,9 +1954,9 @@ describe("formatLifecycleReport concise terminology", () => {
     });
     const commandLine = verbose
       .split("\n")
-      .find((line) => line.includes("git rm --cached"));
+      .find((line) => line.includes("rm -r --cached"));
     expect(commandLine).toBeDefined();
-    expect((commandLine ?? "").match(/'/g)).toHaveLength(300);
+    expect((commandLine ?? "").match(/'/g)).toHaveLength(302);
   });
 
   test("narrow terminals keep the untracking command on one unsplit line (#353)", () => {
@@ -1967,7 +1970,7 @@ describe("formatLifecycleReport concise terminology", () => {
       verbose: true,
       context: { color: false, interactive: true, width: 40 },
     });
-    const command = untrackCommandFor(paths);
+    const command = untrackCommandFor("/project-a", paths);
 
     const lines = verbose.split("\n");
     expect(lines.filter((line) => line.includes(command))).toHaveLength(1);
@@ -1978,7 +1981,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const report = ownershipReport(paths);
 
     const json = formatLifecycleJson("status", report);
-    expect(json).not.toContain("git rm --cached");
+    expect(json).not.toContain("rm -r --cached");
     for (const path of paths) {
       expect(json.split(JSON.stringify(path))).toHaveLength(2);
     }
