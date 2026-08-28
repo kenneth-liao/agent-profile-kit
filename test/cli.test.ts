@@ -3741,6 +3741,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(machineProject.state.kind).toBe("current");
     expect(machineProject.repositoryExclusionRepairs).toHaveLength(1);
     const repair = machineProject.repositoryExclusionRepairs[0]!;
+    expect(Object.keys(repair).sort()).toEqual([
+      "class",
+      "current",
+      "installationId",
+      "next",
+      "target",
+    ]);
     expect(repair.class).toBe("stale-contribution");
     expect(repair.target).toBe(realpathSync(exclude));
     expect(repair.current).toEqual([...new Set(stale)].sort());

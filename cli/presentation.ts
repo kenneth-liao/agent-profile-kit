@@ -2809,9 +2809,8 @@ function canonicalMachineProject(project: ReconciliationProjectRecord): unknown 
           : {}),
         ...(repair.class === "stale-contribution"
           ? { current: [...repair.currentEntries], next: [...repair.entries] }
-          : {}),
+          : { entries: [...repair.entries] }),
         class: repair.class,
-        entries: [...repair.entries],
         target: repair.target,
       }))
       .sort((left, right) =>
