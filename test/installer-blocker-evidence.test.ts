@@ -35,6 +35,7 @@ import { statusApplication } from "../installer/commands.js";
 import {
   gitExclusionBlockers,
   missingContributionRepairEligibility,
+  movedContributionRepairEligibility,
   staleContributionRepairEligibility,
 } from "../installer/git-exclusions.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
@@ -142,7 +143,7 @@ describe("structured Installer blocker evidence", () => {
       readonly globalBlockers: readonly Record<string, unknown>[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(10);
+    expect(machine.schemaVersion).toBe(11);
     expect(machine.globalBlockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
@@ -422,6 +423,119 @@ describe("structured Installer blocker evidence", () => {
     symlinkSync(join(repository, "README.md"), exclude);
     const unreadable = await staleContributionRepairEligibility(receipt, git, state);
     expect(unreadable).toEqual({ cause: "unreadable-exclusion-bytes", eligible: false });
+  });
+
+  test("moved-contribution eligibility distinguishes a provable two-target move from unprovable targets", async () => {
+    const repository = gitRepository("apkit-evidence-move-eligibility-");
+    const previousRepository = gitRepository("apkit-evidence-move-old-");
+    const home = await prepareHome(repository);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations[0]!;
+    const git = requireDefined(installation.gitProject, "a desired Git target");
+    const exclude = join(repository, ".git", "info", "exclude");
+    const currentTarget = join(previousRepository, ".git", "info", "exclude");
+    const current = ["/.agent-profile-kit/installation.json", "/legacy-owned-entry"];
+    const receipt = {
+      ...manifestFor(installation, "move-eligibility-installation-id"),
+      repositoryExclusion: { entries: current, target: currentTarget },
+    };
+    const state: OwnershipState = { ...emptyState(), receipts: [receipt] };
+    const next = [...new Set([
+      ...receipt.outputs.map((output) => `/${output.path}`),
+      "/.agent-profile-kit/installation.json",
+    ])].sort();
+
+    writeFileSync(
+      currentTarget,
+      "# BEGIN Agent Profile Kit generated paths\n" +
+        "/.agent-profile-kit/installation.json\n" +
+        "/legacy-owned-entry\n" +
+        "# END Agent Profile Kit generated paths\n",
+    );
+    const eligible = await movedContributionRepairEligibility(receipt, git, state);
+    if (!eligible.eligible) throw new Error("expected an eligible moved-contribution repair");
+    expect(eligible.repair).toEqual({
+      class: "moved-contribution",
+      current,
+      currentTarget,
+      installationId: receipt.installationId,
+      next,
+      nextTarget: git.excludeFile,
+    });
+
+    // The new target's entries derive from the live GitProject's own
+    // relativeProject — the worktree toplevel for a linked worktree — never
+    // from the common-directory exclude root.
+    const worktreeGit = {
+      commonDirectory: join(repository, ".git"),
+      excludeFile: git.excludeFile,
+      relativeProject: "app",
+      root: temporaryDirectory("apkit-evidence-move-wt-root-"),
+    };
+    const worktreeEligible = await movedContributionRepairEligibility(receipt, worktreeGit, state);
+    if (!worktreeEligible.eligible) {
+      throw new Error("expected an eligible linked-worktree moved-contribution repair");
+    }
+    expect(worktreeEligible.repair.next).toEqual([...new Set([
+      ...receipt.outputs.map((output) => `/app/${output.path}`),
+      "/app/.agent-profile-kit/installation.json",
+    ])].sort());
+    expect(worktreeEligible.repair.nextTarget).toBe(git.excludeFile);
+
+    // The old target's owned section must match the recorded union exactly.
+    writeFileSync(
+      currentTarget,
+      "# BEGIN Agent Profile Kit generated paths\n" +
+        "/.agent-profile-kit/installation.json\n" +
+        "/legacy-owned-entry\n" +
+        "/unexpected/entry\n" +
+        "# END Agent Profile Kit generated paths\n",
+    );
+    const driftedOld = await movedContributionRepairEligibility(receipt, git, state);
+    expect(driftedOld).toEqual({ cause: "incoherent-exclusion-bytes", eligible: false });
+
+    writeFileSync(currentTarget, "unrelated content without an owned section\n");
+    const missingOldSection = await movedContributionRepairEligibility(receipt, git, state);
+    expect(missingOldSection).toEqual({ cause: "incoherent-exclusion-bytes", eligible: false });
+
+    rmSync(currentTarget);
+    symlinkSync(join(previousRepository, "README.md"), currentTarget);
+    const unreadableOld = await movedContributionRepairEligibility(receipt, git, state);
+    expect(unreadableOld).toEqual({ cause: "unreadable-exclusion-bytes", eligible: false });
+
+    // The new target's owned section must be absent or match its recorded union.
+    rmSync(currentTarget);
+    writeFileSync(
+      currentTarget,
+      "# BEGIN Agent Profile Kit generated paths\n" +
+        "/.agent-profile-kit/installation.json\n" +
+        "/legacy-owned-entry\n" +
+        "# END Agent Profile Kit generated paths\n",
+    );
+    writeFileSync(
+      exclude,
+      "# BEGIN Agent Profile Kit generated paths\n/unowned/foreign-entry\n# END Agent Profile Kit generated paths\n",
+    );
+    const driftedNew = await movedContributionRepairEligibility(receipt, git, state);
+    expect(driftedNew).toEqual({ cause: "incoherent-exclusion-bytes", eligible: false });
+
+    rmSync(exclude);
+    symlinkSync(join(repository, "README.md"), exclude);
+    const unreadableNew = await movedContributionRepairEligibility(receipt, git, state);
+    expect(unreadableNew).toEqual({ cause: "unreadable-exclusion-bytes", eligible: false });
+
+    // A recorded contribution already at the live target is not a move.
+    rmSync(exclude);
+    const sameTargetReceipt = {
+      ...receipt,
+      repositoryExclusion: { entries: next, target: git.excludeFile },
+    };
+    const sameTarget = await movedContributionRepairEligibility(
+      sameTargetReceipt,
+      git,
+      { ...emptyState(), receipts: [sameTargetReceipt] },
+    );
+    expect(sameTarget).toEqual({ cause: "wrong-target", eligible: false });
   });
 
   test("a Git exclusion contribution on the wrong Git target emits structured global evidence", async () => {

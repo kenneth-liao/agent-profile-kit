@@ -422,9 +422,14 @@ entries at an unchanged, proven Git target are the same kind of Safe Repair
 write set — and the recorded entries differ from the entries the receipt's owned
 outputs derive, and the live section still matches the recorded union exactly,
 `status` reports the one exact replacement as pending work and `apply` replaces
-only the proven installation's entries through the same contribution pass;
-movement between Git targets, retirement divergence, and unprovable exclusion
-bytes remain Blockers.
+only the proven installation's entries through the same contribution pass. A
+contribution whose target moved while the Project path stayed is the same kind
+of Safe Repair (ADR-0022): the old target derives only from the active receipt
+and independently passes path, owned-section, and exact recorded-union proof,
+the new target derives from live Git topology and independently passes its own
+proof, and `apply` removes the recorded entries at the old target and publishes
+the re-derived entries at the new target as one exact two-target transaction;
+retirement divergence and unprovable exclusion bytes remain Blockers.
 
 The pre-1.0 YAML migration window is closed. Runtime Installation State reading
 accepts only strict schema-6 `state/manifest.json`; no YAML parser, compatibility

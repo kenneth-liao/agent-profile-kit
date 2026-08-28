@@ -1528,7 +1528,7 @@ describe("formatLifecycleReport concise terminology", () => {
       machineProject("/project-a", { blockers: reportBlockers(structured) }),
     ]);
     expect(JSON.parse(formatLifecycleJson("status", machine))).toMatchObject({
-      schemaVersion: 10,
+      schemaVersion: 11,
       globalBlockers: [],
       projects: [{
         project: "/project-a",
@@ -3071,7 +3071,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatLifecycleJson("status", report));
-    expect(payload.schemaVersion).toBe(10);
+    expect(payload.schemaVersion).toBe(11);
     expect(payload.command).toBe("status");
     expect(payload.outcome).toBe("blocked");
     expect(payload.globalBlockers).toEqual([]);
@@ -3175,7 +3175,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatApplyJson(machineApplyResult(receipt, resultingState)));
-    expect(payload.schemaVersion).toBe(10);
+    expect(payload.schemaVersion).toBe(11);
     expect(payload.projects[0].state).toEqual({ kind: "current" });
     expect(payload.applied.projects[0].state).toEqual({ kind: "addition" });
   });
@@ -3186,7 +3186,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatBlockedApplyJson(report));
-    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 10 });
+    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 11 });
     expect(payload).not.toHaveProperty("applied");
     expect(payload.projects[0].blockers).toHaveLength(1);
   });
@@ -3206,7 +3206,7 @@ describe("Machine surface JSON and exit codes", () => {
       command: "apply",
       outcome: "error",
       error: "post-apply verification failed: boom",
-      schemaVersion: 10,
+      schemaVersion: 11,
     });
     expect(payload.projects).toEqual([]);
     expect(payload.applied.projects[0].outputs).toEqual([
@@ -3217,7 +3217,7 @@ describe("Machine surface JSON and exit codes", () => {
   test("tool-error JSON uses the empty nested model", () => {
     for (const command of ["status", "apply"] as const) {
       expect(JSON.parse(formatLifecycleToolErrorJson(command, "missing"))).toEqual({
-        schemaVersion: 10,
+        schemaVersion: 11,
         command,
         outcome: "error",
         error: "missing",
@@ -4317,7 +4317,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(payload).toMatchObject({
       command: "status",
       outcome: "attention",
-      schemaVersion: 10,
+      schemaVersion: 11,
     });
     expect(lifecycleExitCode(report)).toBe(0);
     expect(lifecycleExitCode(emptyReport({

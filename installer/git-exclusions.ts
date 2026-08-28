@@ -37,10 +37,13 @@ import {
 import {
   isContributionRepair,
   isMissingContributionRepair,
+  isMovedContributionRepair,
   isStaleContributionRepair,
+  safeRepairTargets,
   withProvenContributions,
   withStagedCurrentContributions,
   type MissingContributionRepair,
+  type MovedContributionRepair,
   type SafeRepairEligibility,
   type SafeRepairExclusionRepair,
   type SafeRepairIneligibilityCause,
@@ -50,8 +53,10 @@ import {
 /**
  * Repository-local exclusion repairs carry the exhaustive typed Safe Repair
  * boundary (ADR-0022): a damaged recorded section (`exclusion-section`), a
- * provably missing receipt contribution (`missing-contribution`), or stale
- * recorded entries at an unchanged proven target (`stale-contribution`).
+ * provably missing receipt contribution (`missing-contribution`), stale
+ * recorded entries at an unchanged proven target (`stale-contribution`), or a
+ * receipt contribution whose target moved between two proven targets
+ * (`moved-contribution`).
  */
 export type RepositoryExclusionRepair = SafeRepairExclusionRepair;
 
@@ -431,6 +436,12 @@ function targetsFor(
       ? []
       : [[receipt.installationId, receipt.repositoryExclusion.target] as const]
   ));
+  const currentReceiptByInstallationId = new Map(current.receipts.map(
+    (receipt) => [receipt.installationId, receipt] as const,
+  ));
+  const nextReceiptByInstallationId = new Map(next.receipts.map(
+    (receipt) => [receipt.installationId, receipt] as const,
+  ));
   return [...new Set([...currentByTarget.keys(), ...nextByTarget.keys()])]
     .filter((target) => includedTargets === undefined || includedTargets.has(target))
     .sort(compareCanonicalStrings)
@@ -440,15 +451,23 @@ function targetsFor(
       // When an entire Git Project moves, its repository-local exclusion file
       // moves with it. Validate the moved section against the same receipt
       // contribution at the new canonical target without persisting a second
-      // target or reconstructing ownership from generated output.
+      // target or reconstructing ownership from generated output. The
+      // physical-file signature is the receipt's Project changing between the
+      // two states: a same-Project target change re-derives its contribution
+      // at the new target, so its staged current state there stays the
+      // recorded union alone and unrecorded bytes are never adopted.
       const movedEntries = currentRecord === undefined
-        ? [...new Set((nextRecord?.contributions ?? []).flatMap((contribution) =>
-            currentContributionTarget.get(contribution.installationId) === target
-              ? []
-              : currentContributionTarget.has(contribution.installationId)
-                ? contribution.entries
-                : []
-          ))].sort(compareCanonicalStrings)
+        ? [...new Set((nextRecord?.contributions ?? []).flatMap((contribution) => {
+            const before = currentReceiptByInstallationId.get(contribution.installationId);
+            const after = nextReceiptByInstallationId.get(contribution.installationId);
+            const physicallyMoved = before !== undefined && after !== undefined &&
+              before.project !== after.project;
+            return physicallyMoved &&
+              currentContributionTarget.has(contribution.installationId) &&
+              currentContributionTarget.get(contribution.installationId) !== target
+              ? contribution.entries
+              : [];
+          }))].sort(compareCanonicalStrings)
         : [];
       return {
         allowMissingTarget: currentByTarget.has(target) && !nextByTarget.has(target),
@@ -677,6 +696,88 @@ export async function staleContributionRepairEligibility(
   }
 }
 
+/**
+ * Decide whether a desired installation whose active receipt records its
+ * Repository Exclusion Contribution at a target other than the live Git target
+ * is an eligible moved-contribution Safe Repair. The caller establishes the
+ * same proof set as the sibling contribution classes — an active receipt, a
+ * present Marker with matching identity and hash-proven owned roots, a live
+ * Project with untracked destinations without conflicts, and an
+ * otherwise-current desired write set — plus one exact two-target result: the
+ * old target derives only from the active receipt and must independently pass
+ * path, owned-section, and exact recorded-union proof, and the new target
+ * derives from live Git topology and must independently pass its own proof
+ * (path safety, then an owned section that is absent or exactly the recorded
+ * union there). Any combined condition without that one exact two-target
+ * result stays ineligible, so publication can never disturb unprovable bytes.
+ */
+export async function movedContributionRepairEligibility(
+  previous: OwnershipReceipt,
+  git: GitProject,
+  state: OwnershipState,
+  gitInspection?: LifecycleGitInspection,
+): Promise<SafeRepairEligibility<MovedContributionRepair>> {
+  const recordedContribution = previous.repositoryExclusion;
+  if (
+    recordedContribution === undefined ||
+    recordedContribution.target === git.excludeFile
+  ) {
+    // Defensive: the reconciliation boundary dispatches missing and stale
+    // candidates before this gate, so an absent or same-target recorded
+    // contribution here is a caller-contract violation, not a byte diagnosis.
+    return { cause: "wrong-target", eligible: false };
+  }
+  const repair: MovedContributionRepair = {
+    class: "moved-contribution",
+    current: sortedUniqueEntries(recordedContribution.entries),
+    currentTarget: recordedContribution.target,
+    installationId: previous.installationId,
+    // The new target's GitProject is topology-derived; its relativeProject is
+    // the one derivation Git itself uses (the worktree toplevel for a linked
+    // worktree, whose root differs from the common-directory exclude root).
+    next: expectedContributionEntries(previous, git.relativeProject),
+    nextTarget: git.excludeFile,
+  };
+  const incoherentBytes: SafeRepairEligibility<MovedContributionRepair> = {
+    cause: "incoherent-exclusion-bytes",
+    eligible: false,
+  };
+  try {
+    // Old-target proof: the receipt derives the target; the section must
+    // carry the recorded union exactly.
+    const currentSnapshot = await readSnapshot(
+      gitForExclusionTarget(repair.currentTarget),
+      false,
+      gitInspection,
+    );
+    const currentSection = parseOwnedSection(currentSnapshot.bytes, repair.currentTarget);
+    if (currentSection === undefined) return incoherentBytes;
+    const currentRecorded = repositoryExclusionRecords(state).find(
+      (record) => record.target === repair.currentTarget,
+    )?.entries ?? [];
+    if (!sameEntries(sectionEntries(currentSnapshot.bytes, currentSection), currentRecorded)) {
+      return incoherentBytes;
+    }
+    // New-target proof: live Git topology derives the target; its owned
+    // section must be absent or match the recorded union there exactly.
+    const nextSnapshot = await readSnapshot(git, false, gitInspection);
+    const nextSection = parseOwnedSection(nextSnapshot.bytes, repair.nextTarget);
+    if (nextSection === undefined) return { eligible: true, repair };
+    const nextRecorded = repositoryExclusionRecords(state).find(
+      (record) => record.target === repair.nextTarget,
+    )?.entries ?? [];
+    if (!sameEntries(sectionEntries(nextSnapshot.bytes, nextSection), nextRecorded)) {
+      return incoherentBytes;
+    }
+    return { eligible: true, repair };
+  } catch {
+    // Read, safety, and parse failures are a distinct diagnosis from readable
+    // bytes with the wrong entries; the ineligible cause becomes distinct
+    // Blocker evidence at the ownership boundary.
+    return { cause: "unreadable-exclusion-bytes", eligible: false };
+  }
+}
+
 function sameEntries(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((entry, index) => entry === right[index]);
 }
@@ -784,6 +885,33 @@ function missingContributionBlockerMessage(
   return fallback;
 }
 
+/**
+ * One moved contribution's Blocker message. When the reconciliation boundary
+ * already ran the eligibility gate and either target's byte gate failed, the
+ * cause becomes distinct evidence instead of the generic target-mismatch
+ * diagnosis.
+ */
+function movedContributionBlockerMessage(
+  currentTarget: string,
+  nextTarget: string,
+  installationId: string,
+  evidence: IneligibleContributionEvidence | undefined,
+  fallback: string,
+): string {
+  if (evidence === undefined) return fallback;
+  if (evidence.cause === "incoherent-exclusion-bytes") {
+    return `${nextTarget} Git exclusion contribution for Installation ID ` +
+      `${installationId} cannot be moved from ${currentTarget}: an owned section ` +
+      "does not match the recorded entries; restore the recorded section before retrying";
+  }
+  if (evidence.cause === "unreadable-exclusion-bytes") {
+    return `${nextTarget} Git exclusion contribution for Installation ID ` +
+      `${installationId} cannot be moved from ${currentTarget}: an exclusion file ` +
+      "is unreadable or unsafe";
+  }
+  return fallback;
+}
+
 /** Validate semantic ownership links before touching any repository-local exclusion bytes. */
 async function repositoryExclusionOwnershipBlockers(
   state: OwnershipState,
@@ -799,6 +927,11 @@ async function repositoryExclusionOwnershipBlockers(
   const eligibleStaleContributionIds = new Set(
     eligibleContributionRepairs
       .filter(isStaleContributionRepair)
+      .map((repair) => repair.installationId),
+  );
+  const eligibleMovedContributionIds = new Set(
+    eligibleContributionRepairs
+      .filter(isMovedContributionRepair)
       .map((repair) => repair.installationId),
   );
   const blockers: BlockerInput[] = [];
@@ -826,16 +959,23 @@ async function repositoryExclusionOwnershipBlockers(
     const moved = previous.project !== installation.binding.canonicalProject;
     if (moved) continue;
     if (contribution.record.target !== git.excludeFile) {
-      blockers.push(repositoryExclusionContributionBlocker({
-        affectedItems: [
-          { kind: "path", value: contribution.record.target },
-          { kind: "path", value: git.excludeFile },
-        ],
-        message:
-          `${installation.binding.canonicalProject} Git exclusion contribution for ` +
-          `Installation ID ${previous.installationId} targets ${contribution.record.target}, ` +
-          `expected ${git.excludeFile}`,
-      }));
+      if (!eligibleMovedContributionIds.has(previous.installationId)) {
+        blockers.push(repositoryExclusionContributionBlocker({
+          affectedItems: [
+            { kind: "path", value: contribution.record.target },
+            { kind: "path", value: git.excludeFile },
+          ],
+          message: movedContributionBlockerMessage(
+            contribution.record.target,
+            git.excludeFile,
+            previous.installationId,
+            ineligibleContributionEvidence.get(previous.installationId),
+            `${installation.binding.canonicalProject} Git exclusion contribution for ` +
+              `Installation ID ${previous.installationId} targets ${contribution.record.target}, ` +
+              `expected ${git.excludeFile}`,
+          ),
+        }));
+      }
       continue;
     }
     const expected = expectedContributionEntries(previous, git.relativeProject);
@@ -1029,12 +1169,13 @@ export async function gitExclusionBlockers(
   desired: readonly DesiredInstallation[] = [],
   options: {
     /**
-     * Contribution Safe Repairs (missing and stale) proven by the
+     * Contribution Safe Repairs (missing, stale, and moved) proven by the
      * reconciliation boundary. Their Blockers are suppressed; missing
      * contributions validate the byte-level section check against the recorded
-     * union plus the proven contribution, and stale contributions validate
-     * against the recorded union itself, without persisting a second
-     * ownership record.
+     * union plus the proven contribution, stale contributions validate
+     * against the recorded union itself, and moved contributions validate
+     * against the recorded union at each of their two targets, without
+     * persisting a second ownership record.
      */
     readonly eligibleContributionRepairs?: readonly SafeRepairExclusionRepair[];
     readonly gitInspection?: LifecycleGitInspection;
@@ -1164,7 +1305,7 @@ export async function gitExclusionDiagnostics(
   const warnings: string[] = [];
   const repairs: RepositoryExclusionRepair[] = [];
   const provenContributionTargets = new Set(
-    (options.eligibleContributionRepairs ?? []).map((repair) => repair.target),
+    (options.eligibleContributionRepairs ?? []).flatMap(safeRepairTargets),
   );
   for (const target of await inspectionTargets(
     state,
@@ -1189,7 +1330,8 @@ export async function gitExclusionDiagnostics(
     }
   }
   return {
-    repairs: repairs.sort((left, right) => compareCanonicalStrings(left.target, right.target)),
+    repairs: repairs.sort((left, right) =>
+      compareCanonicalStrings(safeRepairTargets(left)[0]!, safeRepairTargets(right)[0]!)),
     warnings: warnings.sort(compareCanonicalStrings),
   };
 }

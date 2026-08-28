@@ -17,15 +17,19 @@ export type SafeRepairClass =
   | "missing-marker"
   | "exclusion-section"
   | "missing-contribution"
-  | "stale-contribution";
+  | "stale-contribution"
+  | "moved-contribution";
 
 /**
  * One proven Safe Repair. `missing-contribution` carries the exact entries the
  * active Installation Receipt, Marker, owned roots, live Project, untracked
  * destinations, and Git target independently prove; `stale-contribution` carries
  * the exact stale recorded entries plus the one replacement those proofs derive
- * at the unchanged Git target; `exclusion-section` carries the recorded union a
- * damaged exclude file must be restored to.
+ * at the unchanged Git target; `moved-contribution` carries the exact
+ * two-target transition — the recorded entries at the receipt-derived old
+ * target plus the re-derived entries at the topology-derived new target — that
+ * both targets independently prove; `exclusion-section` carries the recorded
+ * union a damaged exclude file must be restored to.
  */
 export type SafeRepair =
   | { readonly class: "absent-output"; readonly paths: readonly string[] }
@@ -47,12 +51,30 @@ export type SafeRepair =
       readonly target: string;
       readonly currentEntries: readonly string[];
       readonly entries: readonly string[];
+    }
+  | {
+      readonly class: "moved-contribution";
+      readonly installationId: string;
+      /** Old target, derived only from the active Installation Receipt. */
+      readonly currentTarget: string;
+      /** New target, derived from live Git topology. */
+      readonly nextTarget: string;
+      /** Recorded entries the active receipt owns at the old target. */
+      readonly current: readonly string[];
+      /** Derived entries the receipt proves at the new target. */
+      readonly next: readonly string[];
     };
 
 /** Repository-local exclusion repair classes carried by reconciliation reports. */
 export type SafeRepairExclusionRepair = Extract<
   SafeRepair,
-  { readonly class: "exclusion-section" | "missing-contribution" | "stale-contribution" }
+  {
+    readonly class:
+      | "exclusion-section"
+      | "missing-contribution"
+      | "stale-contribution"
+      | "moved-contribution";
+  }
 >;
 
 /** One provably missing receipt-owned Repository Exclusion Contribution. */
@@ -73,13 +95,15 @@ export type StaleContributionRepair = Extract<
  * (including unsafe paths); `incoherent-exclusion-bytes` marks a readable owned
  * section whose entries are not exactly the bytes the recorded contributions
  * prove — the recorded union plus the proven contribution for a missing
- * contribution, or the recorded union itself for a stale contribution;
+ * contribution, the recorded union itself for a stale contribution, or the
+ * recorded union at either target for a moved contribution;
  * `unchanged-contribution` marks a recorded contribution that already equals
  * the entries its receipt derives, so no stale correction is pending;
  * `wrong-target` marks a recorded contribution whose target differs from the
- * live Git target — always a caller-contract violation for the eligibility
- * gates, which require the unchanged-target proof at the reconciliation
- * boundary.
+ * live Git target — for the stale gate always a caller-contract violation,
+ * since the gates require the unchanged-target proof at the reconciliation
+ * boundary; for the moved gate a same-target receipt is equally a caller
+ * contract violation because the boundary dispatches stale candidates first.
  */
 export type SafeRepairIneligibilityCause =
   | "incoherent-exclusion-bytes"
@@ -140,11 +164,43 @@ export function isStaleContributionRepair(
   return repair.class === "stale-contribution";
 }
 
+/** One provably moved receipt-owned Repository Exclusion Contribution. */
+export type MovedContributionRepair = Extract<
+  SafeRepair,
+  { readonly class: "moved-contribution" }
+>;
+
+export function isMovedContributionRepair(
+  repair: SafeRepair,
+): repair is MovedContributionRepair {
+  return repair.class === "moved-contribution";
+}
+
 /** Repair classes owned by the contribution pass and the contribution overlay. */
 export function isContributionRepair(
   repair: SafeRepair,
-): repair is MissingContributionRepair | StaleContributionRepair {
-  return repair.class === "missing-contribution" || repair.class === "stale-contribution";
+): repair is MissingContributionRepair | StaleContributionRepair | MovedContributionRepair {
+  return (
+    repair.class === "missing-contribution" ||
+    repair.class === "stale-contribution" ||
+    repair.class === "moved-contribution"
+  );
+}
+
+/** The receipt-owned contribution one proven contribution repair publishes. */
+export function publishedContribution(
+  repair: MissingContributionRepair | StaleContributionRepair | MovedContributionRepair,
+): { readonly entries: readonly string[]; readonly target: string } {
+  return repair.class === "moved-contribution"
+    ? { entries: repair.next, target: repair.nextTarget }
+    : { entries: repair.entries, target: repair.target };
+}
+
+/** Every target one exclusion repair's evidence and byte plan covers. */
+export function safeRepairTargets(repair: SafeRepairExclusionRepair): readonly string[] {
+  return repair.class === "moved-contribution"
+    ? [repair.currentTarget, repair.nextTarget]
+    : [repair.target];
 }
 
 function overlayContributionRepairs(
@@ -155,17 +211,14 @@ function overlayContributionRepairs(
     ...state,
     receipts: repairs.filter(isContributionRepair).reduce(
       (receipts, repair) =>
-        withRepositoryExclusion(receipts, repair.installationId, {
-          entries: repair.entries,
-          target: repair.target,
-        }),
+        withRepositoryExclusion(receipts, repair.installationId, publishedContribution(repair)),
       state.receipts,
     ),
   };
 }
 
 /**
- * Overlay every proven contribution repair (missing and stale) onto
+ * Overlay every proven contribution repair (missing, stale, and moved) onto
  * Installation State so the receipts carry the exact contributions the proofs
  * derive. This full projection is apply's staged next state and the state
  * apply persists through the ordinary `writeState` call.
@@ -181,9 +234,10 @@ export function withProvenContributions(
  * Overlay only the proven missing contributions onto Installation State. This
  * projection is byte-level validation's expected state and apply's staged
  * current state: a stale target's live section must still match the
- * un-overlaid recorded union exactly, so only this function may project
- * validation and staging-current expectations and the caller cannot pass the
- * wrong subset.
+ * un-overlaid recorded union exactly, and a moved contribution's receipt stays
+ * un-overlaid so both of its targets gate against their recorded unions
+ * exactly; only this function may project validation and staging-current
+ * expectations and the caller cannot pass the wrong subset.
  */
 export function withStagedCurrentContributions(
   state: OwnershipState,
