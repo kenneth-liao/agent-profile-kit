@@ -73,6 +73,7 @@ import {
   repositoryExclusionChanges,
   repositoryExclusionTargetsForInstallations,
   REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX,
+  REPOSITORY_EXCLUSION_RETIREMENT_REPAIR_WARNING_SUFFIX,
   stageGitExclusions,
   type RepositoryExclusionChange,
   type RepositoryExclusionRepair,
@@ -870,12 +871,19 @@ function nestedReconciliationReport(
         if (records.includes(repair)) continue;
         records.push(repair);
         repairsByCanonical.set(key, records);
-        if (repair.class !== "exclusion-section") continue;
+        const warningSuffix =
+          repair.class === "exclusion-section"
+            ? REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX
+            : repair.class === "retiring-exclusion-section"
+              ? REPOSITORY_EXCLUSION_RETIREMENT_REPAIR_WARNING_SUFFIX
+              : undefined;
+        if (warningSuffix === undefined) continue;
+        const repairTarget = safeRepairTargets(repair)[0]!;
         const warnings = warningsByCanonical.get(key) ?? [];
         warnings.push({
-          copyableValues: [repair.target],
+          copyableValues: [repairTarget],
           kind: "diagnostic",
-          message: `${repair.target}${REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX}`,
+          message: `${repairTarget}${warningSuffix}`,
         });
         warningsByCanonical.set(key, warnings);
       }
@@ -1331,6 +1339,7 @@ export async function previewReconciliation(
   // and subsume any recorded-section repair at their target.
   const exclusionDiagnostics = await gitExclusionDiagnostics(state, desired, {
     gitInspection,
+    retiringInstallationIds: intentionallyDeletedInstallationIds,
     ...(includedInstallationIds === undefined ? {} : { includedInstallationIds }),
     ...(eligibleContributionRepairs.length === 0
       ? {}

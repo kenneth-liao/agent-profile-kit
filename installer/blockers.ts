@@ -126,9 +126,6 @@ export const REPOSITORY_EXCLUSION_CONTRIBUTION = "repository-exclusion-contribut
 /** Typed blocker class for a Git project or repository-local target that cannot be proven. */
 export const REPOSITORY_EXCLUSION_TARGET_UNPROVEN = "repository-exclusion-target-unproven" as const;
 
-/** Typed blocker class for a missing recorded exclusion section during intentional-deletion retirement. */
-export const REPOSITORY_EXCLUSION_SECTION_MISSING = "repository-exclusion-section-missing" as const;
-
 /** Typed blocker class for unreadable, unsafe, or modified repository-local exclusion state. */
 export const REPOSITORY_EXCLUSION_INVALID = "repository-exclusion-invalid" as const;
 
@@ -159,7 +156,6 @@ export const BLOCKER_KINDS = [
   INSTALLATION_STATE_UNREADABLE,
   REPOSITORY_EXCLUSION_CONTRIBUTION,
   REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
-  REPOSITORY_EXCLUSION_SECTION_MISSING,
   REPOSITORY_EXCLUSION_INVALID,
   OCCUPIED_OUTPUT,
   INSTALLATION_MARKER,
@@ -271,26 +267,6 @@ export function repositoryExclusionTargetUnprovenBlocker(options: {
     requirement:
       "Git exclusion ownership validation requires a provable Project root and live Git " +
       "repository-local exclusion target",
-  });
-}
-
-/** Build one complete structured blocker for a missing recorded exclusion section during retirement. */
-export function repositoryExclusionSectionMissingBlocker(options: {
-  readonly message: string;
-  readonly project: string;
-  readonly target: string;
-}): ProjectScopedBlockerInput {
-  return projectBlocker({
-    affectedItems: [{ kind: "path", value: options.target }],
-    kind: REPOSITORY_EXCLUSION_SECTION_MISSING,
-    problem: options.message,
-    project: options.project,
-    remedy:
-      "Restore the recorded Agent Profile Kit exclusion section in the repository-local " +
-      "exclude file, then retry",
-    requirement:
-      "Intentional-deletion retirement requires the recorded Agent Profile Kit exclusion " +
-      "section to be present",
   });
 }
 

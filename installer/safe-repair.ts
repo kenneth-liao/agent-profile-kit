@@ -18,7 +18,8 @@ export type SafeRepairClass =
   | "exclusion-section"
   | "missing-contribution"
   | "stale-contribution"
-  | "moved-contribution";
+  | "moved-contribution"
+  | "retiring-exclusion-section";
 
 /**
  * One proven Safe Repair. `missing-contribution` carries the exact entries the
@@ -29,7 +30,10 @@ export type SafeRepairClass =
  * two-target transition — the recorded entries at the receipt-derived old
  * target plus the re-derived entries at the topology-derived new target — that
  * both targets independently prove; `exclusion-section` carries the recorded
- * union a damaged exclude file must be restored to.
+ * union a damaged exclude file must be restored to; `retiring-exclusion-section`
+ * carries the exact post-retirement union the active receipts and live target
+ * prove during intentional-deletion retirement — empty entries mean the
+ * Agent Profile Kit section is removed.
  */
 export type SafeRepair =
   | { readonly class: "absent-output"; readonly paths: readonly string[] }
@@ -63,6 +67,12 @@ export type SafeRepair =
       readonly current: readonly string[];
       /** Derived entries the receipt proves at the new target. */
       readonly next: readonly string[];
+    }
+  | {
+      readonly class: "retiring-exclusion-section";
+      readonly target: string;
+      /** Exact post-retirement union; empty means the section is removed. */
+      readonly entries: readonly string[];
     };
 
 /** Repository-local exclusion repair classes carried by reconciliation reports. */
@@ -73,9 +83,22 @@ export type SafeRepairExclusionRepair = Extract<
       | "exclusion-section"
       | "missing-contribution"
       | "stale-contribution"
-      | "moved-contribution";
+      | "moved-contribution"
+      | "retiring-exclusion-section";
   }
 >;
+
+/** One proven retirement-time missing exclusion section, file, or safe parent. */
+export type RetiringSectionRepair = Extract<
+  SafeRepair,
+  { readonly class: "retiring-exclusion-section" }
+>;
+
+export function isRetiringSectionRepair(
+  repair: SafeRepair,
+): repair is RetiringSectionRepair {
+  return repair.class === "retiring-exclusion-section";
+}
 
 /** One provably missing receipt-owned Repository Exclusion Contribution. */
 export type MissingContributionRepair = Extract<
@@ -98,7 +121,8 @@ export type StaleContributionRepair = Extract<
  * contribution, the recorded union itself for a stale contribution, or the
  * recorded union at either target for a moved contribution;
  * `unchanged-contribution` marks a recorded contribution that already equals
- * the entries its receipt derives, so no stale correction is pending;
+ * the entries its receipt derives, so no stale correction is pending, or an
+ * owned section that is present so no retirement absence repair is pending;
  * `wrong-target` marks a recorded contribution whose target differs from the
  * live Git target — for the stale gate always a caller-contract violation,
  * since the gates require the unchanged-target proof at the reconciliation

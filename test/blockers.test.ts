@@ -163,7 +163,6 @@ describe("shared blocker contract", () => {
       "installation-state-unreadable",
       "repository-exclusion-contribution",
       "repository-exclusion-target-unproven",
-      "repository-exclusion-section-missing",
       "repository-exclusion-invalid",
       "occupied-output",
       "installation-marker",
@@ -277,7 +276,7 @@ describe("shared blocker contract", () => {
       readonly projects: readonly { readonly blockers: readonly Record<string, unknown>[] }[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(11);
+    expect(machine.schemaVersion).toBe(12);
     expect(machine.projects[0]!.blockers).toEqual([{
       kind: "host-capability",
       scope: "project",

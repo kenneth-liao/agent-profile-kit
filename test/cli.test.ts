@@ -2316,7 +2316,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly schemaVersion: number;
       readonly projects: readonly { readonly outputs: readonly { readonly kind: string }[] }[];
     };
-    expect(payload.schemaVersion).toBe(11);
+    expect(payload.schemaVersion).toBe(12);
     expect(payload.projects.flatMap((project) => project.outputs)
       .filter((output) => output.kind === "update")).toHaveLength(12);
 
@@ -2405,12 +2405,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly command: string;
         readonly schemaVersion: number;
       };
-      expect(payload.schemaVersion).toBe(11);
+      expect(payload.schemaVersion).toBe(12);
       expect(payload.command).toBe(command);
 
       const both = await runCli(home, command, "--verbose", "--json");
       expectExitCode(both, 0);
-      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 11 });
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 12 });
 
       const unsupported = await runCli(home, command, "--yaml");
       expectExitCode(unsupported, 1);
@@ -2550,7 +2550,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
-        schemaVersion: 11,
+        schemaVersion: 12,
       });
     }
 
@@ -2595,7 +2595,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly schemaVersion: number;
       };
       expect(payload).toMatchObject({
-        schemaVersion: 11,
+        schemaVersion: 12,
         command,
         outcome: "error",
       });
@@ -2615,14 +2615,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
-        schemaVersion: 11,
+        schemaVersion: 12,
       });
     }
     const firstApply = await runCli(pendingHome, "apply", "--json");
     expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "apply",
-      schemaVersion: 11,
+      schemaVersion: 12,
     });
     expect(["clean", "attention"]).toContain(
       (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
@@ -3509,7 +3509,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 2);
   });
 
-  test("blocks intentional-deletion retirement when the surviving exclusion section is missing", async () => {
+  test("a missing shared exclusion section during intentional-deletion retirement is a Safe Repair through status and apply", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-missing-exclude-");
@@ -3535,19 +3535,115 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(unbound, 0);
     const status = await runCli(home, "status");
 
-    expectExitCode(status, 2);
-    expect(status.stdout).toContain("missing its Agent Profile Kit exclusion section");
-    const applied = await runCli(home, "apply");
-    expectExitCode(applied, 2);
-    expect(applied.stdout).toContain("missing its Agent Profile Kit exclusion section");
-    expect(applied.stderr).toBe("");
-    const state = parse(readFileSync(statePath(home), "utf8")) as {
-      receipts: readonly { project: string }[];
+    expectExitCode(status, 0);
+    expect(status.stdout).toContain("Git exclusions:");
+    expect(status.stdout).toContain("entries to remove");
+    expect(status.stdout).toContain("apply will create the");
+    expect(status.stdout).toContain("exclusion file if needed");
+    expect(status.stdout).not.toContain("intentional-deletion retirement requires");
+    expect(existsSync(exclude)).toBe(false);
+    const statusJson = JSON.parse((await runCli(home, "status", "--json")).stdout) as {
+      schemaVersion: number;
+      outcome: string;
+      globalBlockers: readonly unknown[];
+      projects: readonly {
+        state: { kind: string; reason?: string };
+        repositoryExclusionRepairs: readonly {
+          class: string;
+          target: string;
+          entries: readonly string[];
+        }[];
+        repositoryExclusions: readonly {
+          current: readonly string[];
+          next: readonly string[];
+          target: string;
+        }[];
+      }[];
     };
-    expect(state.receipts).toHaveLength(2);
+    expect(statusJson.schemaVersion).toBe(12);
+    expect(statusJson.outcome).toBe("attention");
+    expect(statusJson.globalBlockers).toEqual([]);
+    const retiringProject = statusJson.projects.find(
+      (project) => project.state.kind === "removal",
+    )!;
+    expect(retiringProject.state.reason).toBe("project intentionally deleted");
+    expect(retiringProject.repositoryExclusionRepairs).toHaveLength(1);
+    const repair = retiringProject.repositoryExclusionRepairs[0]!;
+    expect(repair.class).toBe("retiring-exclusion-section");
+    expect(repair.target).toBe(`${realpathSync(join(repository, ".git", "info"))}/exclude`);
+    expect(repair.entries.length).toBeGreaterThan(0);
+    expect(retiringProject.repositoryExclusions[0]!.next).toEqual(repair.entries);
+    expect(retiringProject.repositoryExclusions[0]!.current.length).toBeGreaterThan(
+      repair.entries.length,
+    );
+
+    const applied = await runCli(home, "apply");
+
+    expectExitCode(applied, 0);
+    const excludeAfter = readFileSync(exclude, "utf8");
+    expect(excludeAfter).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(excludeAfter).not.toContain("/nested/");
+    for (const entry of repair.entries) {
+      expect(excludeAfter).toContain(`${entry}\n`);
+    }
+    const appliedState = parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly unknown[];
+    };
+    expect(appliedState.receipts).toHaveLength(1);
+
+    const retry = await runCli(home, "apply");
+
+    expectExitCode(retry, 0);
+    expect(retry.stdout).toContain("All Projects were already current.");
+
+    const finalStatus = await runCli(home, "status");
+
+    expectExitCode(finalStatus, 0);
+    expect(finalStatus.stdout).toContain("All Projects are current");
   });
 
-  test("blocks intentional-deletion retirement when its only exclusion file is missing", async () => {
+  test("retirement repair preserves unrelated exclusion bytes and reports the surviving union", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-unrelated-bytes-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    const unrelated = "# local rules\n*.local\n";
+    writeFileSync(exclude, unrelated);
+    rmSync(nested, { recursive: true });
+    expectExitCode(await runCli(home, "unbind", nested), 0);
+
+    const status = await runCli(home, "status", "--verbose");
+
+    expectExitCode(status, 0);
+    expect(status.stdout).toContain("will publish");
+    expect(status.stdout).toContain("surviving Git exclusion entries");
+    expect(readFileSync(exclude, "utf8")).toBe(unrelated);
+
+    const applied = await runCli(home, "apply", "--verbose");
+
+    expectExitCode(applied, 0);
+    expect(applied.stdout).toContain("published");
+    expect(applied.stdout).toContain("surviving Git exclusion entries");
+    const excludeAfter = readFileSync(exclude, "utf8");
+    expect(excludeAfter.startsWith(unrelated)).toBe(true);
+    expect(excludeAfter).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(excludeAfter).not.toContain("/nested/");
+  });
+
+  test("retiring the sole contributor of a missing exclusion file publishes nothing and retires the receipt", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-only-missing-exclude-");
@@ -3559,18 +3655,47 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, nested);
     expectExitCode(await runCli(home, "apply"), 0);
-    rmSync(join(repository, ".git", "info", "exclude"));
+    const exclude = join(repository, ".git", "info", "exclude");
+    rmSync(exclude);
     rmSync(nested, { recursive: true });
     expectExitCode(await runCli(home, "unbind", nested), 0);
 
-    const status = await runCli(home, "status");
+    const statusVerbose = await runCli(home, "status", "--verbose");
 
-    expectExitCode(status, 2);
-    expect(status.stdout).toContain("missing its Agent Profile Kit exclusion section");
-    expectExitCode(await runCli(home, "apply"), 2);
+    expectExitCode(statusVerbose, 0);
+    expect(statusVerbose.stdout).toContain("will remove the Agent Profile Kit exclusion section");
+    const statusJson = JSON.parse((await runCli(home, "status", "--json")).stdout) as {
+      globalBlockers: readonly unknown[];
+      projects: readonly {
+        state: { kind: string };
+        repositoryExclusionRepairs: readonly {
+          class: string;
+          target: string;
+          entries: readonly string[];
+        }[];
+      }[];
+    };
+
+    expect(statusJson.globalBlockers).toEqual([]);
+    const retiringProject = statusJson.projects.find(
+      (project) => project.state.kind === "removal",
+    )!;
+    expect(retiringProject.repositoryExclusionRepairs).toHaveLength(1);
+    expect(retiringProject.repositoryExclusionRepairs[0]!.class).toBe("retiring-exclusion-section");
+    expect(retiringProject.repositoryExclusionRepairs[0]!.entries).toEqual([]);
+
+    const applied = await runCli(home, "apply", "--verbose");
+
+    expectExitCode(applied, 0);
+    expect(applied.stdout).toContain("removed the Agent Profile Kit exclusion section");
+    expect(existsSync(exclude)).toBe(false);
+    const appliedState = parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly unknown[];
+    };
+    expect(appliedState.receipts).toHaveLength(0);
   });
 
-  test("blocks intentional-deletion retirement when the Git exclusion parent is missing", async () => {
+  test("retirement recreates a missing Git exclusion parent with the surviving union", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-retire-missing-exclude-parent-");
@@ -3580,7 +3705,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
     execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
     writeContextProfile(home);
-    bind(home, nested);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
     expectExitCode(await runCli(home, "apply"), 0);
     const info = join(repository, ".git", "info");
     rmSync(info, { recursive: true });
@@ -3589,10 +3719,105 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = await runCli(home, "status");
 
+    expectExitCode(status, 0);
+    expect(status.stdout).toContain("apply will create the");
+    expect(status.stdout).toContain("exclusion file if needed");
+    expect(status.stdout).not.toContain("intentional-deletion retirement requires");
+
+    const applied = await runCli(home, "apply");
+
+    expectExitCode(applied, 0);
+    const excludeAfter = readFileSync(join(info, "exclude"), "utf8");
+    expect(excludeAfter).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(excludeAfter).not.toContain("/nested/");
+    const appliedState = parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly unknown[];
+    };
+    expect(appliedState.receipts).toHaveLength(1);
+  });
+
+  test("a malformed exclusion section stays blocking during intentional-deletion retirement", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-malformed-exclude-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    const malformed = `${readFileSync(exclude, "utf8")}# BEGIN Agent Profile Kit generated paths\n`;
+    writeFileSync(exclude, malformed);
+    rmSync(nested, { recursive: true });
+    expectExitCode(await runCli(home, "unbind", nested), 0);
+
+    const status = await runCli(home, "status");
+
     expectExitCode(status, 2);
-    expect(status.stdout).toContain("missing its Agent Profile Kit exclusion section");
-    expectExitCode(await runCli(home, "apply"), 2);
-    expect(existsSync(info)).toBe(false);
+    expect(status.stdout).toContain("malformed or duplicate Agent Profile Kit exclusion section");
+    const applied = await runCli(home, "apply");
+
+    expectExitCode(applied, 2);
+    expect(readFileSync(exclude).equals(Buffer.from(malformed))).toBe(true);
+    const state = parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly unknown[];
+    };
+    expect(state.receipts).toHaveLength(2);
+  });
+
+  test("keeps retirement of a missing exclusion file retryable when state publication fails", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-retire-missing-file-failure-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeFileSync(join(nested, ".keep"), "fixture\n");
+    execFileSync("git", ["-C", repository, "add", "nested/.keep"]);
+    execFileSync("git", ["-C", repository, "commit", "-qm", "nested fixture"]);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply"), 0);
+    const exclude = join(repository, ".git", "info", "exclude");
+    rmSync(exclude);
+    rmSync(nested, { recursive: true });
+    expectExitCode(await runCli(home, "unbind", nested), 0);
+    const stateDirectory = join(home, ".agents", "agent-profile-kit", "state");
+    chmodSync(stateDirectory, 0o555);
+
+    const failed = await runCli(home, "apply");
+
+    chmodSync(stateDirectory, 0o755);
+    expectExitCode(failed, 1);
+    expect(failed.stderr).toContain("Apply failed");
+    expect(existsSync(exclude)).toBe(false);
+    const retained = parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly unknown[];
+    };
+    expect(retained.receipts).toHaveLength(2);
+
+    const retry = await runCli(home, "apply");
+
+    expectExitCode(retry, 0);
+    const excludeAfter = readFileSync(exclude, "utf8");
+    expect(excludeAfter).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(excludeAfter).not.toContain("/nested/");
+    const converged = parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly unknown[];
+    };
+    expect(converged.receipts).toHaveLength(1);
   });
 
   test("keeps intentional-deletion retirement retryable when state publication fails", async () => {
@@ -3686,7 +3911,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         }[];
       }[];
     };
-    expect(statusJson.schemaVersion).toBe(11);
+    expect(statusJson.schemaVersion).toBe(12);
     expect(statusJson.outcome).toBe("attention");
     expect(statusJson.globalBlockers).toEqual([]);
     const machineProject = statusJson.projects[0]!;
@@ -3768,7 +3993,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         }[];
       }[];
     };
-    expect(statusJson.schemaVersion).toBe(11);
+    expect(statusJson.schemaVersion).toBe(12);
     expect(statusJson.outcome).toBe("attention");
     expect(statusJson.globalBlockers).toEqual([]);
     const machineProject = statusJson.projects[0]!;
@@ -4122,7 +4347,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         }[];
       }[];
     };
-    expect(statusJson.schemaVersion).toBe(11);
+    expect(statusJson.schemaVersion).toBe(12);
     expect(statusJson.outcome).toBe("attention");
     expect(statusJson.globalBlockers).toEqual([]);
     const machineProject = statusJson.projects[0]!;
