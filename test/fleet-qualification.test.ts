@@ -680,10 +680,19 @@ describe("integrated fleet recovery qualification", () => {
     const repeatFocusedStatus = await runCli(home, pathWithHosts, "status", "--all", "--blockers-only");
     expect(repeatFocusedStatus.stdout).toBe(focusedStatusGlobalBlocked.stdout);
 
+    // Snapshot Installation State and filesystem paths before globally blocked apply
+    const preGlobalBlockedState = readFileSync(stateManifest, "utf8");
+    const preExcludeA = existsSync(join(projectA, ".git", "info", "exclude"));
+    const preExcludeBContent = readFileSync(join(projectB, ".git", "info", "exclude"), "utf8");
+    const preMarkerB = existsSync(join(projectB, ".agent-profile-kit", "installation.json"));
+
     // 2. Global blocker halts all apply writes
     const applyGlobalBlocked = await runCli(home, pathWithHosts, "apply", "--all", "--blockers-only");
     expectExitCode(applyGlobalBlocked, 2);
-    expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(false);
+    expect(readFileSync(stateManifest, "utf8")).toBe(preGlobalBlockedState);
+    expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(preExcludeA);
+    expect(readFileSync(join(projectB, ".git", "info", "exclude"), "utf8")).toBe(preExcludeBContent);
+    expect(existsSync(join(projectB, ".agent-profile-kit", "installation.json"))).toBe(preMarkerB);
     expect(existsSync(join(projectC, ".opencode", "opencode.jsonc"))).toBe(false);
     expect(existsSync(join(projectD, ".opencode", "opencode.jsonc"))).toBe(false);
     expect(existsSync(join(projectE, ".agents", "rules"))).toBe(false);
@@ -695,9 +704,31 @@ describe("integrated fleet recovery qualification", () => {
     //    retains pending and Applied evidence, and exits with code 2.
     const partialApply = await runCli(home, pathWithHosts, "apply", "--all", "--blockers-only");
     expectExitCode(partialApply, 2);
-    expect(partialApply.stdout).toContain("Applied:");
-    expect(partialApply.stdout).toContain("Blockers:");
-    expect(partialApply.stdout).toContain(projectB);
+
+    // Assert section ordering: committed Apply Receipt evidence forms an ordered prefix before the Blocker section (ADR-0024, INT-1)
+    const appliedIndex = partialApply.stdout.indexOf("Applied:");
+    const freshlyCurrentIndex = partialApply.stdout.indexOf("Freshly current:");
+    const projectBBlockerIndex = partialApply.stdout.indexOf(projectB);
+    const blockersFooterIndex = partialApply.stdout.indexOf("Blockers:");
+
+    expect(appliedIndex).toBeGreaterThan(-1);
+    expect(freshlyCurrentIndex).toBeGreaterThan(appliedIndex);
+    expect(projectBBlockerIndex).toBeGreaterThan(freshlyCurrentIndex);
+    expect(blockersFooterIndex).toBeGreaterThan(projectBBlockerIndex);
+
+    // Safety prefix contains applied projects made current and excludes blocked project B
+    const safetyPrefix = partialApply.stdout.slice(appliedIndex, projectBBlockerIndex);
+    expect(safetyPrefix).toContain(projectA);
+    expect(safetyPrefix).toContain(projectC);
+    expect(safetyPrefix).toContain(projectD);
+    expect(safetyPrefix).toContain(projectE);
+    expect(safetyPrefix).not.toContain(projectB);
+
+    // Blocker section after safety prefix contains blocked Project B evidence and footer
+    const blockerSection = partialApply.stdout.slice(projectBBlockerIndex);
+    expect(blockerSection).toContain(projectB);
+    expect(blockerSection).toContain("These generated paths are tracked by Git");
+    expect(blockerSection).toContain("Blockers: 1 · Affected Projects: 1");
 
     // projectA Safe Repair applied
     expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(true);
@@ -711,9 +742,23 @@ describe("integrated fleet recovery qualification", () => {
     expect(existsSync(join(projectD, ".opencode", "opencode.jsonc"))).toBe(true);
     expect(existsSync(join(projectE, ".agents", "rules", "agent-profile-kit-000-envelope.md"))).toBe(true);
 
-    // projectB untouched: zero Git index changes, no adoption, no overwrite
+    // Verify Installation State after partial apply: Project B has no receipt, and unowned generated output was never reconstructed into state (INT-2)
+    const stateAfterPartial = JSON.parse(readFileSync(stateManifest, "utf8")) as {
+      receipts: { project: string; profile_id: string }[];
+    };
+    expect(stateAfterPartial.receipts.some((r) => r.project === projectB)).toBe(false);
+    expect(stateAfterPartial.receipts.some((r) => r.project === projectA)).toBe(true);
+    expect(stateAfterPartial.receipts.some((r) => r.project === projectC)).toBe(true);
+    expect(stateAfterPartial.receipts.some((r) => r.project === projectD)).toBe(true);
+    expect(stateAfterPartial.receipts.some((r) => r.project === projectE)).toBe(true);
+
+    // projectB untouched: zero Git index changes, no marker, no exclusion change, no adoption, no overwrite, no state reconstruction (INT-2)
+    expect(existsSync(join(projectB, ".agent-profile-kit"))).toBe(false);
+    expect(readFileSync(join(projectB, ".git", "info", "exclude"), "utf8")).toBe(preExcludeBContent);
+    expect(preExcludeBContent).not.toContain("Agent Profile Kit");
     expect(execFileSync("git", ["-C", projectB, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
     expect(execFileSync("git", ["-C", projectB, "diff", "--cached"], { encoding: "utf8" })).toBe("");
+    expect(execFileSync("git", ["-C", projectB, "diff"], { encoding: "utf8" })).toBe("");
     expect(readFileSync(join(projectB, ".claude", "rules", "agent-profile-kit.md"), "utf8")).toBe("# conflicting rule\n");
     expect(readFileSync(join(projectB, ".claude", "skills", "review-pr", "SKILL.md"), "utf8")).toBe("# conflicting skill 1\n");
 
