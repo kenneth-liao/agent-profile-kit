@@ -1193,6 +1193,33 @@ function verboseBlockerLines(
   return lines;
 }
 
+/** One group's concise blocker evidence, one entry per Blocker. */
+function conciseGroupBlockerLines(
+  group: ProjectGroup,
+  groups: readonly ProjectGroup[],
+  indent: string,
+): readonly string[] {
+  const displayProject = displayProjectPath(group.canonicalProject, group.project);
+  return group.blockers.flatMap((blocker) =>
+    conciseBlockerLines(blocker, displayProject, groups, indent),
+  );
+}
+
+/** The concise global-blocker section; empty when no global Blocker exists. */
+function conciseGlobalBlockerLines(
+  report: ReconciliationReport,
+  groups: readonly ProjectGroup[],
+): readonly string[] {
+  const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
+  if (globalBlockers.length === 0) return [];
+  return [
+    "Global blockers:",
+    ...globalBlockers.flatMap((blocker) =>
+      conciseBlockerLines(blocker, undefined, groups, "  ")
+    ),
+  ];
+}
+
 function groupProjects(report: ReconciliationReport): GroupedProjects {
   const groups = report.projects.map((record): ProjectGroup => ({
     blockers: [...record.blockers],
@@ -2089,14 +2116,7 @@ function conciseReport(
           lines.push(`  Profile: ${desired.profile}`, `  Hosts: ${desired.hosts.join(", ")}`);
         }
         if (blocked) {
-          for (const blocker of group.blockers) {
-            lines.push(...conciseBlockerLines(
-              blocker,
-              displayProjectPath(group.canonicalProject, group.project),
-              groups,
-              "  ",
-            ));
-          }
+          lines.push(...conciseGroupBlockerLines(group, groups, "  "));
           continue;
         }
         for (const item of group.items) {
@@ -2149,13 +2169,8 @@ function conciseReport(
   const exclusionClause = repositoryExclusionClause(report, false, readyStatus);
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
 
-  const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
-  if (globalBlockers.length > 0) {
-    lines.push("", "Global blockers:");
-    for (const blocker of globalBlockers) {
-      lines.push(...conciseBlockerLines(blocker, undefined, groups, "  "));
-    }
-  }
+  const globalBlockerLines = conciseGlobalBlockerLines(report, groups);
+  if (globalBlockerLines.length > 0) lines.push("", ...globalBlockerLines);
   const blockedSummary = blocked ? aggregateLine(command, report, groups) : undefined;
   if (blockedSummary !== undefined) lines.push("", blockedSummary);
   if (!blocked && grouped.unscopedItems.length > 0) {
@@ -2698,11 +2713,91 @@ export function formatBlockedApplyReport(
   return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
 }
 
+/**
+ * Focused Blocker view for `status --blockers-only` (#351). A strict Blocker
+ * filter, not an attention or warning filter: every selected-scope Blocker with
+ * concise deterministic grouping, no unrelated lifecycle inventory. Footer
+ * counts derive exclusively from the displayed Blockers.
+ */
+function blockersOnlyFooter(report: ReconciliationReport): string {
+  const blockers = reportBlockers(report);
+  const affectedProjects = new Set(
+    blockers
+      .map((blocker) => blockerProject(blocker))
+      .filter((project): project is string => project !== undefined),
+  );
+  const parts = [`Blockers: ${blockers.length}`];
+  if (affectedProjects.size > 0) {
+    parts.push(`Affected Projects: ${affectedProjects.size}`);
+  }
+  return parts.join(" · ");
+}
+
+function blockersOnlyConciseReport(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): string {
+  const grouped = groupProjects(report);
+  const displayedGroups = grouped.groups.filter((candidate) => candidate.blockers.length > 0);
+  const lines = [outcomeLine("status", report)];
+  for (const group of displayedGroups) {
+    lines.push(
+      "",
+      `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project)}`,
+      ...conciseGroupBlockerLines(group, grouped.groups, "  "),
+    );
+  }
+  const globalBlockerLines = conciseGlobalBlockerLines(report, grouped.groups);
+  if (globalBlockerLines.length > 0) lines.push("", ...globalBlockerLines);
+  lines.push("", blockersOnlyFooter(report));
+  // Only groups whose Blockers are displayed contribute next actions, so
+  // pending but Blocker-free Projects cannot leak into the focused view.
+  const next = nextActionLines("status", report, {
+    groups: displayedGroups,
+    unscopedItems: [],
+  }, options);
+  if (next.length > 0) lines.push("", ...next);
+  return `${lines.join("\n")}\n`;
+}
+
+function blockersOnlyVerboseReport(report: ReconciliationReport): string {
+  const groups = groupProjects(report).groups;
+  const shorten = (text: string): string => shortenProjectReferences(text, groups);
+  return [
+    outcomeLine("status", report),
+    "",
+    `Blockers:\n${reportBlockers(report)
+      .flatMap((blocker) => verboseBlockerLines(blocker, shorten))
+      .join("\n")}`,
+    "",
+    blockersOnlyFooter(report),
+  ].join("\n") + "\n";
+}
+
+/** Options for the status-only human surface (`LifecycleHumanOptions` plus the focused filter). */
+interface StatusLifecycleOptions extends LifecycleHumanOptions {
+  readonly blockersOnly?: boolean;
+}
+
 export function formatLifecycleReport(
   command: Exclude<LifecycleCommand, "apply">,
   report: ReconciliationReport,
-  options: LifecycleHumanOptions = {},
+  options: StatusLifecycleOptions = {},
 ): string {
+  if (options.blockersOnly === true) {
+    if (reportBlockers(report).length === 0) {
+      const completeView = options.all === true
+        ? `${COMMAND_NAME} status --all`
+        : `${COMMAND_NAME} status`;
+      const output =
+        `No blockers.\nNext: Run ${completeView} for the complete lifecycle view.\n`;
+      return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
+    }
+    const output = options.verbose
+      ? blockersOnlyVerboseReport(report)
+      : blockersOnlyConciseReport(report, options);
+    return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
+  }
   const output = options.verbose
     ? verboseReport(command, report)
     : conciseReport(command, report, undefined, options);

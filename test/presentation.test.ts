@@ -4518,3 +4518,178 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
   });
 });
 
+
+describe("focused blockers-only status view (#351)", () => {
+  const blockedFleet = (): ReconciliationReport => {
+    const projectBlocker = normalizeBlocker({
+      affectedItems: [{ kind: "host", value: "codex" }],
+      kind: "host-capability",
+      problem: "Codex CLI is unavailable",
+      remedy: "Install a supported Codex CLI, then retry",
+      requirement: "The selected Profile requires Codex project delivery",
+      project: "/project-a",
+      scope: "project",
+    });
+    return emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [{
+          consequence: "hook approval required",
+          host: "codex",
+          kind: "approval-required",
+          message: "Approve hook",
+          output: ".codex/hooks.json",
+          provenance: "transition",
+        }],
+      }],
+      items: [{ kind: "blocked", project: "/project-a", reason: "tracked path" }],
+      outputs: [{ kind: "drifted output", path: "a.md", project: "/project-a" }],
+      warnings: ["OpenCode reports a duplicate Skill identity"],
+      blockers: [
+        projectBlocker,
+        normalizeBlocker({
+          affectedItems: [],
+          kind: "installation-state-unreadable",
+          problem: "Installation State is unreadable",
+          remedy: "Restore the reported evidence, then retry",
+          requirement: "Lifecycle commands cannot proceed while blocked",
+          scope: "global",
+        }),
+      ],
+    });
+  };
+
+  test("focused concise view renders Project and global Blockers and suppresses unrelated inventory", () => {
+    const output = formatLifecycleReport("status", blockedFleet(), { blockersOnly: true });
+
+    expect(output).toStartWith("Cannot apply\n");
+    expect(output).toContain("Project: /project-a");
+    expect(output).toContain("Blocker: Codex CLI is unavailable");
+    expect(output).toContain("Global blockers:");
+    expect(output).toContain("Blocker: Installation State is unreadable");
+    expect(output).toContain("Next:");
+    expect(output).toContain("/project-a: Resolve the reported blocker, then run apkit status again.");
+    expect(output).toContain("Resolve the reported global blocker, then run apkit status again.");
+    // Footer counts derive exclusively from the displayed Blockers.
+    expect(output).toContain("Blockers: 2 · Affected Projects: 1");
+    expect(output).not.toContain("Warnings:");
+    expect(output).not.toContain("duplicate Skill identity");
+    expect(output).not.toContain("Files:");
+    expect(output).not.toContain("drifted output");
+    expect(output).not.toContain("Profile: coding");
+    expect(output).not.toContain("State:");
+    expect(output).not.toContain("Host Setup:");
+    expect(output).not.toContain("Approve hook");
+    expect(output).not.toContain("Git exclusions");
+  });
+
+  test("focused concise output is deterministic across repeated rendering", () => {
+    const first = formatLifecycleReport("status", blockedFleet(), { blockersOnly: true });
+    const second = formatLifecycleReport("status", blockedFleet(), { blockersOnly: true });
+    expect(second).toBe(first);
+  });
+
+  test("focused concise view deduplicates one shared blocker resolution across Projects", () => {
+    const report = emptyReport({
+      blockers: [
+        fixtureBlocker("Project /z-project is blocked", "/z-project"),
+        fixtureBlocker("Project /a-project is blocked", "/a-project"),
+      ],
+    });
+
+    const output = formatLifecycleReport("status", report, { blockersOnly: true });
+
+    expect(output.indexOf("Project: /a-project")).toBeLessThan(output.indexOf("Project: /z-project"));
+    expect(output.match(/then run apkit status again/g)).toHaveLength(1);
+    expect(output).toContain("Blockers: 2 · Affected Projects: 2");
+  });
+
+  test("focused concise view never attributes next actions to Projects without displayed Blockers", () => {
+    const report = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          outputs: ["b.md"],
+          profile: "coding",
+          project: "/project-b",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [{ kind: "blocked", project: "/project-a", reason: "tracked path" }],
+      outputs: [
+        { kind: "drifted output", path: "a.md", project: "/project-a" },
+        { kind: "addition", path: "b.md", project: "/project-b" },
+      ],
+      blockers: [fixtureBlocker("Project /project-a is blocked", "/project-a")],
+    });
+
+    const output = formatLifecycleReport("status", report, { blockersOnly: true });
+
+    expect(output).toContain("Project: /project-a");
+    expect(output).not.toContain("/project-b");
+    expect(output).not.toContain("After all blockers are resolved");
+    expect(output).toContain("Blockers: 1 · Affected Projects: 1");
+  });
+
+  test("focused verbose view retains complete Blocker fields and affected items without unrelated sections", () => {
+    const output = formatLifecycleReport("status", blockedFleet(), { blockersOnly: true, verbose: true });
+
+    expect(output).toContain("- Codex CLI is unavailable");
+    expect(output).toContain("Requirement: The selected Profile requires Codex project delivery");
+    expect(output).toContain("Remedy: Install a supported Codex CLI, then retry");
+    expect(output).toContain("Scope: Project /project-a");
+    expect(output).toContain("Affected host: codex");
+    expect(output).toContain("- Installation State is unreadable");
+    expect(output).toContain("Scope: Global");
+    expect(output).toContain("Blockers: 2 · Affected Projects: 1");
+    expect(output).not.toMatch(/^Projects:/m);
+    expect(output).not.toContain("Outputs:");
+    expect(output).not.toContain("Selected setup:");
+    expect(output).not.toContain("Warnings:");
+    expect(output).not.toContain("Host Setup:");
+    expect(output).not.toContain("Git exclusions");
+    expect(output).not.toContain("Next:");
+  });
+
+  test("focused footer omits affected-Project count when only global Blockers are displayed", () => {
+    const report = emptyReport({
+      blockers: [fixtureBlocker("Installation State is unreadable")],
+    });
+
+    const concise = formatLifecycleReport("status", report, { blockersOnly: true });
+    const verbose = formatLifecycleReport("status", report, { blockersOnly: true, verbose: true });
+
+    expect(concise).toContain("Global blockers:");
+    expect(concise).toContain("Blockers: 1");
+    expect(concise).not.toContain("Affected Projects:");
+    expect(verbose).toContain("Blockers: 1");
+    expect(verbose).not.toContain("Affected Projects:");
+  });
+
+  test("a scope with no Blockers reports that outcome without lifecycle inventory", () => {
+    const concise = formatLifecycleReport("status", emptyReport(), { blockersOnly: true });
+    const verbose = formatLifecycleReport("status", emptyReport(), { blockersOnly: true, verbose: true });
+
+    expect(concise).toBe(verbose);
+    expect(concise).toStartWith("No blockers.\n");
+    expect(concise).toContain("Run apkit status for the complete lifecycle view.");
+    expect(concise).not.toContain("Project");
+
+    const fleet = formatLifecycleReport("status", emptyReport(), { all: true, blockersOnly: true });
+    expect(fleet).toContain("Run apkit status --all for the complete lifecycle view.");
+  });
+});

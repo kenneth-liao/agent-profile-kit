@@ -3055,6 +3055,89 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
+  test("status --blockers-only renders a focused Blocker view and rejects --json before inspection (#351)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = join(home, "tracked-project");
+    mkdirSync(projectPath);
+    execFileSync("git", ["init", "-q", projectPath]);
+    mkdirSync(join(projectPath, ".codex"));
+    writeFileSync(join(projectPath, ".codex", "hooks.json"), "tracked placeholder\n");
+    execFileSync("git", ["-C", projectPath, "add", ".codex/hooks.json"]);
+    rmSync(join(projectPath, ".codex", "hooks.json"));
+    writeContextProfile(home);
+    const authoredProject = `~/${projectPath.slice(home.length + 1)}`;
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authoredProject}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const focused = await runCli(home, "status", "--all", "--blockers-only");
+
+    expectExitCode(focused, 2);
+    expect(focused.stdout).toStartWith("Cannot apply");
+    expect(focused.stdout).toContain("Blocker: These generated paths are tracked by Git");
+    expect(focused.stdout).toContain("Blockers: 1 · Affected Projects: 1");
+    expect(focused.stdout).toContain("Resolve the reported blocker");
+    expect(focused.stdout).not.toContain("Warnings:");
+    expect(focused.stdout).not.toContain("Files:");
+    expect(focused.stdout).not.toContain("Host Setup:");
+
+    const focusedProjectScope = await runCliAt(home, projectPath, "status", "--blockers-only");
+
+    expectExitCode(focusedProjectScope, 2);
+    expect(focusedProjectScope.stdout).toContain("Blocker: These generated paths are tracked by Git");
+    expect(focusedProjectScope.stdout).toContain("Blockers: 1 · Affected Projects: 1");
+
+    const rejectedApplyFlag = await runCli(home, "apply", "--blockers-only");
+    expectExitCode(rejectedApplyFlag, 1);
+    expect(rejectedApplyFlag.stderr).toContain("apply does not accept argument '--blockers-only'");
+
+    const focusedVerbose = await runCli(home, "status", "--blockers-only", "--verbose");
+
+    expectExitCode(focusedVerbose, 2);
+    expect(focusedVerbose.stdout).toContain("- These generated paths are tracked by Git");
+    expect(focusedVerbose.stdout).toContain("Affected path:");
+    expect(focusedVerbose.stdout).toContain(".codex/hooks.json");
+    expect(focusedVerbose.stdout).not.toContain("Selected setup:");
+    expect(focusedVerbose.stdout).not.toContain("Warnings:");
+    expect(focusedVerbose.stdout).not.toContain("Next:");
+
+    // The rejection must precede lifecycle inspection: an uninitialized HOME
+    // would otherwise produce a workspace tool error, not this flag error.
+    const rejectedJson = await runCli(isolatedHome(), "status", "--blockers-only", "--json");
+    expectExitCode(rejectedJson, 1);
+    expect(rejectedJson.stderr).toContain(
+      "status --blockers-only cannot be combined with --json",
+    );
+    expect(rejectedJson.stderr).toContain(
+      "Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]",
+    );
+    expect(rejectedJson.stdout).not.toContain('"');
+
+    const help = await runCli(home, "help", "status");
+    expectExitCode(help, 0);
+    expect(help.stdout).toContain("Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
+    expect(help.stdout).toContain("apkit status --blockers-only --verbose");
+  });
+
+  test("status --blockers-only reports a clean scope without lifecycle inventory (#351)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    const projectPath = homeGitRepository(home, "clean-project");
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+
+    const result = await runCli(home, "status", "--blockers-only");
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toStartWith("No blockers.");
+    expect(result.stdout).toContain("Run apkit status --all for the complete lifecycle view.");
+    expect(result.stdout).not.toContain("Project:");
+  });
+
   test("packed regression groups many tracked generated paths into one explained blocker with zero writes", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -10222,12 +10305,12 @@ describe("apkit root help", () => {
     const badLifecycleFlag = await runCli(home, "status", "--yaml");
     expectExitCode(badLifecycleFlag, 1);
     expect(badLifecycleFlag.stderr).toContain("status does not accept argument '--yaml'");
-    expect(badLifecycleFlag.stderr).toContain("Usage: apkit status [project | --all] [--verbose] [--json]");
+    expect(badLifecycleFlag.stderr).toContain("Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
 
     const badAfterValidLifecycleFlag = await runCli(home, "status", "--verbose", "--yaml");
     expectExitCode(badAfterValidLifecycleFlag, 1);
     expect(badAfterValidLifecycleFlag.stderr).toContain("status does not accept argument '--yaml'");
-    expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: apkit status [project | --all] [--verbose] [--json]");
+    expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
 
     const badGuideFlag = await runCli(home, "guide", "--json");
     expectExitCode(badGuideFlag, 1);

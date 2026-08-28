@@ -19,7 +19,14 @@ export const COMMAND_EXAMPLES = {
   info: ["info", "info --json"],
   list: inventoryCommandExamples(),
   apply: ["apply", `apply ${project}`, "apply --all", "apply --json"],
-  status: ["status", `status ${project}`, "status --all", "status --json"],
+  status: [
+    "status",
+    `status ${project}`,
+    "status --all",
+    "status --blockers-only",
+    "status --blockers-only --verbose",
+    "status --json",
+  ],
   uninstall: ["uninstall"],
   "install-temp": [
     `install-temp ${profile} ${project} --host codex --json`,
