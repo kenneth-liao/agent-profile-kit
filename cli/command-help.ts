@@ -114,8 +114,8 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "status",
     group: "common",
-    syntax: "status [project | --all] [--verbose] [--json]",
-    summary: "Show the complete read-only apply plan for the current Project, one explicit Project, or the complete fleet",
+    syntax: "status [project | --all] [--verbose] [--blockers-only] [--json]",
+    summary: "Show the complete read-only apply plan for the current Project, one explicit Project, or the complete fleet; --blockers-only shows a focused Blocker-only view (combines with --verbose, not --json)",
     examples: COMMAND_EXAMPLES.status,
     writes: "Nothing; this command is read-only.",
     next: `Run ${COMMAND_NAME} apply for pending work after resolving any blockers.`,

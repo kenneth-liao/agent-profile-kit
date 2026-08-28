@@ -567,6 +567,7 @@ function assertNever(value: never): never {
 
 interface ParsedLifecycleArguments {
   readonly all: boolean;
+  readonly blockersOnly: boolean;
   readonly json: boolean;
   readonly project?: string;
   readonly verbose: boolean;
@@ -577,6 +578,7 @@ function parseLifecycleArguments(
   arguments_: readonly string[],
 ): ParsedLifecycleArguments {
   let all = false;
+  let blockersOnly = false;
   let json = false;
   let project: string | undefined;
   let verbose = false;
@@ -587,6 +589,10 @@ function parseLifecycleArguments(
     }
     if (argument === "--verbose") {
       verbose = true;
+      continue;
+    }
+    if (command === "status" && argument === "--blockers-only") {
+      blockersOnly = true;
       continue;
     }
     if (argument === "--all") {
@@ -605,8 +611,14 @@ function parseLifecycleArguments(
   if (all && project !== undefined) {
     throw new Error(`${command} --all cannot be combined with a Project path`);
   }
+  if (blockersOnly && json) {
+    throw new Error(
+      "status --blockers-only cannot be combined with --json; use status --json for the complete machine report",
+    );
+  }
   return {
     all,
+    blockersOnly,
     json,
     ...(project === undefined ? {} : { project }),
     verbose,
@@ -664,7 +676,7 @@ async function main(): Promise<void> {
     writeHuman(
       process.stderr,
       humanError(
-        `${COMMAND_NAME}: ${COMMAND_NAME} preview was removed; use ${COMMAND_NAME} status [project | --all] [--verbose] [--json] for the complete read-only apply plan.\n`,
+        `${COMMAND_NAME}: ${COMMAND_NAME} preview was removed; use ${COMMAND_NAME} status [project | --all] [--verbose] [--blockers-only] [--json] for the complete read-only apply plan.\n`,
       ),
       stderrPresentationContext,
     );

@@ -2459,6 +2459,7 @@ export function responsiveHumanText(
 
 interface LifecycleHumanOptions {
   readonly all?: boolean;
+  readonly blockersOnly?: boolean;
   readonly context?: TerminalPresentationContext;
   readonly project?: string;
   readonly verbose?: boolean;
@@ -2698,11 +2699,94 @@ export function formatBlockedApplyReport(
   return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
 }
 
+/**
+ * Focused Blocker view for `status --blockers-only` (#351). A strict Blocker
+ * filter, not an attention or warning filter: every selected-scope Blocker with
+ * concise deterministic grouping, no unrelated lifecycle inventory. Footer
+ * counts derive exclusively from the displayed Blockers.
+ */
+function blockersOnlyFooter(report: ReconciliationReport): string {
+  const blockers = reportBlockers(report);
+  const affectedProjects = new Set(
+    blockers
+      .map((blocker) => blockerProject(blocker))
+      .filter((project): project is string => project !== undefined),
+  );
+  const parts = [`Blockers: ${blockers.length}`];
+  if (affectedProjects.size > 0) {
+    parts.push(`Affected Projects: ${affectedProjects.size}`);
+  }
+  return parts.join(" · ");
+}
+
+function blockersOnlyConciseReport(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): string {
+  const grouped = groupProjects(report);
+  const lines = [outcomeLine("status", report)];
+  for (const group of grouped.groups.filter((candidate) => candidate.blockers.length > 0)) {
+    lines.push(
+      "",
+      `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project)}`,
+    );
+    for (const blocker of group.blockers) {
+      lines.push(...conciseBlockerLines(
+        blocker,
+        displayProjectPath(group.canonicalProject, group.project),
+        grouped.groups,
+        "  ",
+      ));
+    }
+  }
+  const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
+  if (globalBlockers.length > 0) {
+    lines.push("", "Global blockers:");
+    for (const blocker of globalBlockers) {
+      lines.push(...conciseBlockerLines(blocker, undefined, grouped.groups, "  "));
+    }
+  }
+  lines.push("", blockersOnlyFooter(report));
+  // Only groups whose Blockers are displayed contribute next actions, so
+  // pending but Blocker-free Projects cannot leak into the focused view.
+  const next = nextActionLines("status", report, {
+    groups: grouped.groups.filter((candidate) => candidate.blockers.length > 0),
+    unscopedItems: [],
+  }, options);
+  if (next.length > 0) lines.push("", ...next);
+  return `${lines.join("\n")}\n`;
+}
+
+function blockersOnlyVerboseReport(report: ReconciliationReport): string {
+  const lines = [outcomeLine("status", report)];
+  const blockers = reportBlockers(report);
+  if (blockers.length > 0) {
+    const groups = groupProjects(report).groups;
+    const shorten = (text: string): string => shortenProjectReferences(text, groups);
+    lines.push(
+      "",
+      `Blockers:\n${blockers.flatMap((blocker) => verboseBlockerLines(blocker, shorten)).join("\n")}`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 export function formatLifecycleReport(
   command: Exclude<LifecycleCommand, "apply">,
   report: ReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
+  if (options.blockersOnly === true) {
+    if (reportBlockers(report).length === 0) {
+      const output =
+        `No blockers.\nNext: Run ${COMMAND_NAME} status for the complete lifecycle view.\n`;
+      return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
+    }
+    const output = options.verbose
+      ? blockersOnlyVerboseReport(report)
+      : blockersOnlyConciseReport(report, options);
+    return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
+  }
   const output = options.verbose
     ? verboseReport(command, report)
     : conciseReport(command, report, undefined, options);
