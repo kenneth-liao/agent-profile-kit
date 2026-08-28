@@ -586,6 +586,33 @@ function sortedUniqueEntries(entries: readonly string[]): readonly string[] {
   return [...new Set(entries)].sort(compareCanonicalStrings);
 }
 
+/** The canonical recorded union one target's owned section must carry. */
+function recordedUnionEntries(state: OwnershipState, target: string): readonly string[] {
+  return repositoryExclusionRecords(state).find((record) => record.target === target)?.entries ?? [];
+}
+
+/**
+ * The one byte gate every contribution eligibility class shares: read the
+ * target's live owned section and compare it with the expected canonical
+ * union. `absent` marks a file without an owned section, `matches` a section
+ * carrying exactly the expected entries, and `mismatched` readable bytes that
+ * differ. Read, safety, and parse failures throw so each gate can surface its
+ * own unreadable-bytes cause.
+ */
+async function exclusionSectionGate(
+  target: string,
+  git: GitProject,
+  expected: readonly string[],
+  gitInspection?: LifecycleGitInspection,
+): Promise<{ readonly kind: "absent" } | { readonly kind: "matches" } | { readonly kind: "mismatched" }> {
+  const snapshot = await readSnapshot(git, false, gitInspection);
+  const section = parseOwnedSection(snapshot.bytes, target);
+  if (section === undefined) return { kind: "absent" };
+  return sameEntries(sectionEntries(snapshot.bytes, section), sortedUniqueEntries(expected))
+    ? { kind: "matches" }
+    : { kind: "mismatched" };
+}
+
 /**
  * Decide whether a desired installation whose active receipt lacks its
  * Repository Exclusion Contribution is an eligible missing-contribution Safe
@@ -616,15 +643,13 @@ export async function missingContributionRepairEligibility(
     eligible: false,
   };
   try {
-    const snapshot = await readSnapshot(git, false, gitInspection);
-    const section = parseOwnedSection(snapshot.bytes, git.excludeFile);
-    if (section === undefined) return { eligible: true, repair };
-    const recorded =
-      repositoryExclusionRecords(state).find((record) => record.target === git.excludeFile)
-        ?.entries ?? [];
-    const expected = sortedUniqueEntries([...recorded, ...entries]);
-    if (!sameEntries(sectionEntries(snapshot.bytes, section), expected)) return incoherentBytes;
-    return { eligible: true, repair };
+    const gate = await exclusionSectionGate(
+      git.excludeFile,
+      git,
+      [...recordedUnionEntries(state, git.excludeFile), ...entries],
+      gitInspection,
+    );
+    return gate.kind === "mismatched" ? incoherentBytes : { eligible: true, repair };
   } catch {
     // Read, safety, and parse failures are a distinct diagnosis from readable
     // bytes with the wrong entries; the Blocker boundary surfaces the error.
@@ -680,14 +705,13 @@ export async function staleContributionRepairEligibility(
     eligible: false,
   };
   try {
-    const snapshot = await readSnapshot(git, false, gitInspection);
-    const section = parseOwnedSection(snapshot.bytes, git.excludeFile);
-    if (section === undefined) return incoherentBytes;
-    const recorded =
-      repositoryExclusionRecords(state).find((record) => record.target === git.excludeFile)
-        ?.entries ?? [];
-    if (!sameEntries(sectionEntries(snapshot.bytes, section), recorded)) return incoherentBytes;
-    return { eligible: true, repair };
+    const gate = await exclusionSectionGate(
+      git.excludeFile,
+      git,
+      recordedUnionEntries(state, git.excludeFile),
+      gitInspection,
+    );
+    return gate.kind === "matches" ? { eligible: true, repair } : incoherentBytes;
   } catch {
     // Read, safety, and parse failures are a distinct diagnosis from readable
     // bytes with the wrong entries; the ineligible cause becomes distinct
@@ -745,31 +769,22 @@ export async function movedContributionRepairEligibility(
   try {
     // Old-target proof: the receipt derives the target; the section must
     // carry the recorded union exactly.
-    const currentSnapshot = await readSnapshot(
+    const currentGate = await exclusionSectionGate(
+      repair.currentTarget,
       gitForExclusionTarget(repair.currentTarget),
-      false,
+      recordedUnionEntries(state, repair.currentTarget),
       gitInspection,
     );
-    const currentSection = parseOwnedSection(currentSnapshot.bytes, repair.currentTarget);
-    if (currentSection === undefined) return incoherentBytes;
-    const currentRecorded = repositoryExclusionRecords(state).find(
-      (record) => record.target === repair.currentTarget,
-    )?.entries ?? [];
-    if (!sameEntries(sectionEntries(currentSnapshot.bytes, currentSection), currentRecorded)) {
-      return incoherentBytes;
-    }
+    if (currentGate.kind !== "matches") return incoherentBytes;
     // New-target proof: live Git topology derives the target; its owned
     // section must be absent or match the recorded union there exactly.
-    const nextSnapshot = await readSnapshot(git, false, gitInspection);
-    const nextSection = parseOwnedSection(nextSnapshot.bytes, repair.nextTarget);
-    if (nextSection === undefined) return { eligible: true, repair };
-    const nextRecorded = repositoryExclusionRecords(state).find(
-      (record) => record.target === repair.nextTarget,
-    )?.entries ?? [];
-    if (!sameEntries(sectionEntries(nextSnapshot.bytes, nextSection), nextRecorded)) {
-      return incoherentBytes;
-    }
-    return { eligible: true, repair };
+    const nextGate = await exclusionSectionGate(
+      repair.nextTarget,
+      git,
+      recordedUnionEntries(state, repair.nextTarget),
+      gitInspection,
+    );
+    return nextGate.kind === "mismatched" ? incoherentBytes : { eligible: true, repair };
   } catch {
     // Read, safety, and parse failures are a distinct diagnosis from readable
     // bytes with the wrong entries; the ineligible cause becomes distinct

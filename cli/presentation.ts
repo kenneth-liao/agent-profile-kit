@@ -944,9 +944,7 @@ function repositoryExclusionRepairLines(
       return `${repair.target}: ${completed ? "replaced" : "will replace"} ${staleCount} stale ${staleNoun} with ${count} ${noun}`;
     }
     if (repair.class === "moved-contribution") {
-      const movedCount = repair.next.length;
-      const movedNoun = `Git exclusion ${movedCount === 1 ? "entry" : "entries"}`;
-      return `${repair.nextTarget}: ${completed ? "moved" : "will move"} ${movedCount} ${movedNoun} from ${repair.currentTarget}`;
+      return `${repair.nextTarget}: ${completed ? "moved" : "will move"} ${count} ${noun} from ${repair.currentTarget}`;
     }
     return `${repair.target}: ${completed ? "restored" : "will restore"} ${count} recorded ${noun}`;
   });

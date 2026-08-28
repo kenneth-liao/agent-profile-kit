@@ -4376,6 +4376,62 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(finalStatus.stdout).toContain("All Projects are current");
   });
 
+  test("a blocked sibling sharing either move target blocks the coupled move repair", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-move-coupled-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${repository}\n    profile: coding\n    hosts: [claude]\n` +
+        `  - project: ${nested}\n    profile: coding\n    hosts: [claude]\n`,
+    );
+    expectExitCode(await runCli(home, "apply"), 0);
+    const oldExclude = join(repository, ".git", "info", "exclude");
+    execFileSync("git", ["init", "-q", nested]);
+    const newExclude = join(nested, ".git", "info", "exclude");
+    const stateBefore = readFileSync(statePath(home));
+    const oldBefore = readFileSync(oldExclude);
+    const newBefore = readFileSync(newExclude);
+    // Block the sibling Project that shares the recorded target.
+    const rootOutput = join(repository, ".claude", "rules", "agent-profile-kit.md");
+    const rootOutputBefore = readFileSync(rootOutput);
+    writeFileSync(rootOutput, "drifted sibling output\n");
+
+    const blockedApply = await runCliAt(home, repository, "apply", "--all");
+
+    expectExitCode(blockedApply, 2);
+    expect(readFileSync(oldExclude).equals(oldBefore)).toBe(true);
+    expect(readFileSync(newExclude).equals(newBefore)).toBe(true);
+    expect(readFileSync(statePath(home)).equals(stateBefore)).toBe(true);
+
+    // Restoring the sibling's output unblocks the coupled move.
+    writeFileSync(rootOutput, rootOutputBefore);
+    expectExitCode(await runCliAt(home, repository, "apply", "--all"), 0);
+    const repairedState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: {
+        project: string;
+        repository_exclusion?: { target: string; entries: readonly string[] };
+      }[];
+    };
+    const repairedNested = repairedState.receipts.find(
+      (receipt) => receipt.project === realpathSync(nested),
+    )!;
+    expect(repairedNested.repository_exclusion!.target).toBe(realpathSync(newExclude));
+    expect(readFileSync(oldExclude, "utf8")).not.toContain("/nested/.agent-profile-kit/installation.json");
+    const movedNew = readFileSync(newExclude, "utf8");
+    expect(movedNew).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(movedNew).toContain("/.agent-profile-kit/installation.json");
+
+    const finalStatus = await runCliAt(home, repository, "status", "--all");
+
+    expectExitCode(finalStatus, 0);
+    expect(finalStatus.stdout).toContain("All Projects are current");
+  });
+
   test("a moved contribution repair proves both targets through a linked worktree", async () => {
     const home = isolatedHome();
     await initialize(home);

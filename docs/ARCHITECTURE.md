@@ -122,7 +122,7 @@ in `cli/presentation.ts`: exit `0` means no tool error and no
 blockers (JSON `outcome` may still be `attention` for pending work), exit `1`
 is a tool error (`outcome: "error"` under `--json` when flags were accepted),
 and exit `2` means blockers are present. The lifecycle JSON contract is versioned
-(`schemaVersion: 10`) and publishes global Blockers plus one deterministic record
+(`schemaVersion: 11`) and publishes global Blockers plus one deterministic record
 per Project. Each Project record owns desired identity, state, observable output
 operations with consuming Hosts, Project Blockers, structured warnings classified
 as `diagnostic` or `host-attention` with their copyable values, Host Setup Steps,
@@ -429,7 +429,17 @@ and independently passes path, owned-section, and exact recorded-union proof,
 the new target derives from live Git topology and independently passes its own
 proof, and `apply` removes the recorded entries at the old target and publishes
 the re-derived entries at the new target as one exact two-target transaction;
-retirement divergence and unprovable exclusion bytes remain Blockers.
+retirement divergence and unprovable exclusion bytes remain Blockers. The move
+is the first repair whose byte plan spans two files: each target write stays
+individually atomic and reversible, and Installation State publication
+precedes the commit so a failed commit rolls back both targets and the state
+together. A hard crash between the state publication and the target writes can
+leave the receipt-owned section behind at the receipt's previous target after
+the state no longer records it; because no record owns that target afterwards,
+no later pass reports or removes that residue. The residue is inert — its
+entries still exclude the same unchanged generated paths at the previous
+repository — and recovery is manual deletion of the Agent Profile Kit owned
+section at that previous target.
 
 The pre-1.0 YAML migration window is closed. Runtime Installation State reading
 accepts only strict schema-6 `state/manifest.json`; no YAML parser, compatibility
