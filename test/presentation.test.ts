@@ -4891,4 +4891,25 @@ describe("focused blockers-only apply view (#352)", () => {
       formatApplyExecutionFailure(failure, {}),
     );
   });
+
+  test("focused execution-failure output uses single blank-line separation before the Blocker section (RE-1)", () => {
+    const { receipt, resultingState } = partialApply();
+    const failure = {
+      failedProject: "/project-b",
+      message: "Apply failed while writing the Project",
+      pendingProjects: ["/project-c"],
+      receipt,
+      resultingState,
+    };
+
+    const concise = formatApplyExecutionFailure(failure, { blockersOnly: true });
+    expect(concise).toContain(
+      "Freshly current: /project-a\n\nProject: /project-b\n  Blocker: Claude Code CLI is unavailable",
+    );
+
+    const verbose = formatApplyExecutionFailure(failure, { blockersOnly: true, verbose: true });
+    expect(verbose).toContain(
+      "Freshly current: /project-a\n\nBlockers:\n- Claude Code CLI is unavailable",
+    );
+  });
 });

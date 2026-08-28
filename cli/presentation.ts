@@ -2732,12 +2732,10 @@ export function formatApplyExecutionFailure(
     failure.resultingState !== undefined &&
     reportBlockers(failure.resultingState).length > 0
   ) {
-    lines.push(
-      "",
-      ...(options.verbose
-        ? focusedVerboseBlockers(failure.resultingState)
-        : focusedConciseBlockers(failure.resultingState)),
-    );
+    // Both focused sections supply their own leading blank line (RE-1).
+    lines.push(...(options.verbose
+      ? focusedVerboseBlockers(failure.resultingState)
+      : focusedConciseBlockers(failure.resultingState)));
   }
   return responsiveLifecycleOutput(
     `${lines.join("\n")}\n`,
