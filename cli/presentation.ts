@@ -2671,10 +2671,11 @@ function focusedApplyReport(
   const blockers = options.verbose
     ? focusedVerboseBlockers(result.resultingState)
     : focusedConciseBlockers(result.resultingState);
-  const lines = [outcomeLine("apply", result.resultingState, true), ...evidence];
-  if (options.verbose && evidence.length > 0) lines.push("");
-  lines.push(...blockers);
-  return `${lines.join("\n")}\n`;
+  return [
+    outcomeLine("apply", result.resultingState, true),
+    ...evidence,
+    ...blockers,
+  ].join("\n") + "\n";
 }
 
 export function formatApplyReport(
@@ -2817,12 +2818,19 @@ function blockersOnlyFooter(report: ReconciliationReport): string {
   return parts.join(" · ");
 }
 
+/** Groups whose Blockers the focused view displays — the one derivation
+ * shared by the focused Blocker section and status next actions, so the two
+ * can never desync (INT-1). */
+function displayedBlockerGroups(report: ReconciliationReport): readonly ProjectGroup[] {
+  return groupProjects(report).groups.filter((candidate) => candidate.blockers.length > 0);
+}
+
 /** The concise focused Blocker section shared by `status` and `apply`: one
  * deterministic group per affected Project, then global Blockers, then the
  * displayed-Blocker footer. The caller owns the outcome line and any prefix. */
 function focusedConciseBlockers(report: ReconciliationReport): readonly string[] {
   const grouped = groupProjects(report);
-  const displayedGroups = grouped.groups.filter((candidate) => candidate.blockers.length > 0);
+  const displayedGroups = displayedBlockerGroups(report);
   const lines: string[] = [];
   for (const group of displayedGroups) {
     lines.push(
@@ -2838,11 +2846,13 @@ function focusedConciseBlockers(report: ReconciliationReport): readonly string[]
 }
 
 /** The verbose focused Blocker section shared by `status` and `apply`:
- * complete Blocker fields with every affected item, then the footer. */
+ * complete Blocker fields with every affected item, then the footer. The
+ * leading blank line keeps one spacing contract across focused views (INT-3). */
 function focusedVerboseBlockers(report: ReconciliationReport): readonly string[] {
   const groups = groupProjects(report).groups;
   const shorten = (text: string): string => shortenProjectReferences(text, groups);
   return [
+    "",
     `Blockers:\n${reportBlockers(report)
       .flatMap((blocker) => verboseBlockerLines(blocker, shorten))
       .join("\n")}`,
@@ -2856,13 +2866,10 @@ function blockersOnlyConciseReport(
   options: LifecycleHumanOptions,
 ): string {
   const lines = [outcomeLine("status", report), ...focusedConciseBlockers(report)];
-  // Only groups whose Blockers are displayed contribute next actions, so
-  // pending but Blocker-free Projects cannot leak into the focused view.
-  const displayedGroups = groupProjects(report).groups.filter(
-    (candidate) => candidate.blockers.length > 0,
-  );
+  // Next actions cover exactly the displayed groups, so pending but
+  // Blocker-free Projects cannot leak into the focused view.
   const next = nextActionLines("status", report, {
-    groups: displayedGroups,
+    groups: displayedBlockerGroups(report),
     unscopedItems: [],
   }, options);
   if (next.length > 0) lines.push("", ...next);
@@ -2872,7 +2879,6 @@ function blockersOnlyConciseReport(
 function blockersOnlyVerboseReport(report: ReconciliationReport): string {
   return [
     outcomeLine("status", report),
-    "",
     ...focusedVerboseBlockers(report),
   ].join("\n") + "\n";
 }

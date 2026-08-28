@@ -4766,13 +4766,16 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(output).toContain("Still pending: /project-c");
     expect(output).toContain("Blocker: Claude Code CLI is unavailable");
     expect(output).toContain("Blockers: 1 · Affected Projects: 1");
-    // Safety evidence is an ordered prefix before the focused Blocker section.
+    // Safety evidence is an ordered prefix before the focused Blocker section,
+    // rendered exactly once.
     expect(output.indexOf("Applied:")).toBeLessThan(
       output.indexOf("Blocker: Claude Code CLI is unavailable"),
     );
+    expect(output.split("Applied:")).toHaveLength(2);
     expect(output.indexOf("Still pending:")).toBeLessThan(
       output.indexOf("Blocker: Claude Code CLI is unavailable"),
     );
+    expect(output.split("Still pending:")).toHaveLength(2);
     expect(output).not.toContain("Warnings:");
     expect(output).not.toContain("duplicate Skill identity");
     expect(output).not.toContain("Files:");
