@@ -3040,8 +3040,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("Blocker: These generated paths are tracked by Git");
     expect(result.stdout).toContain("Requirement:");
     expect(result.stdout).toContain("Remedy:");
-    expect(result.stdout).toContain("Affected paths:");
+    expect(result.stdout).toContain("Affected paths (1):");
     expect(result.stdout).toContain("- .codex/hooks.json");
+    expect(result.stdout).not.toContain("git rm --cached");
     expect(humanText(result.stdout)).toContain(
       humanText("Generated files must be exclusively managed by Agent Profile Kit"),
     );
@@ -3201,10 +3202,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(status.stdout).toContain("Remedy:");
     expect(status.stdout).toContain("keep repository ownership");
     expect(status.stdout).toContain("intentionally remove");
-    expect(status.stdout).toContain("Affected paths:");
-    expect(status.stdout).toContain("- .agents/skills/s08");
-    expect(status.stdout).not.toContain(".agents/skills/s11");
-    expect(status.stdout).toContain("… 4 more paths; use --verbose to see all paths");
+    expect(status.stdout).toContain("Affected paths (14):");
+    expect(status.stdout).toContain("- .agent-profile-kit/codex/context.md");
+    expect(status.stdout).toContain("- .agents/skills/ (12 paths)");
+    expect(status.stdout).toContain("- .codex/hooks.json");
+    expect(status.stdout).not.toContain("git rm --cached");
+    expect(status.stdout).toContain("Recovery command:");
+    expect(status.stdout).toContain("apkit status --blockers-only --verbose");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
 
     const verbose = await runCli(home, "status", "--verbose");
@@ -3222,6 +3226,22 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
     expect(verbose.stdout.match(/Requirement:/g)).toHaveLength(1);
     expect(verbose.stdout).not.toContain("more paths");
+    expect(verbose.stdout).not.toContain("git rm --cached");
+
+    const focusedVerbose = await runCli(home, "status", "--blockers-only", "--verbose");
+
+    expectExitCode(focusedVerbose, 2);
+    expect(
+      focusedVerbose.stdout.split("\n").filter((line) => line.includes("git rm --cached")),
+    ).toHaveLength(1);
+    expect(focusedVerbose.stdout).toContain(
+      "git rm --cached -- '.agent-profile-kit/codex/context.md'",
+    );
+    expect(focusedVerbose.stdout).toContain("'.agents/skills/s01'");
+    expect(focusedVerbose.stdout).toContain("'.agents/skills/s12'");
+    expect(focusedVerbose.stdout).toContain("'.codex/hooks.json'");
+    expect(focusedVerbose.stdout).toContain("working files are preserved");
+    expect(focusedVerbose.stdout).toContain("change or remove the Project Binding");
 
     const apply = await runCli(home, "apply");
 
