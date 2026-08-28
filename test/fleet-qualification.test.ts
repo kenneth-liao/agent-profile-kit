@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -551,6 +552,25 @@ describe("fleet-wide synchronization qualification", () => {
   });
 });
 
+function snapshotProjectTree(projectDir: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  function walk(current: string, rel: string) {
+    if (!existsSync(current)) return;
+    const entries = readdirSync(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryRel = rel ? `${rel}/${entry.name}` : entry.name;
+      const entryPath = join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(entryPath, entryRel);
+      } else if (entry.isFile()) {
+        result[entryRel] = readFileSync(entryPath, "utf8");
+      }
+    }
+  }
+  walk(projectDir, "");
+  return result;
+}
+
 describe("integrated fleet recovery qualification", () => {
   test("qualifies the complete recovery journey: Safe Repairs, global and project blockers, repeated warnings, focused status and partial apply, and zero unauthorized writes", async () => {
     const home = isolatedHome();
@@ -680,22 +700,33 @@ describe("integrated fleet recovery qualification", () => {
     const repeatFocusedStatus = await runCli(home, pathWithHosts, "status", "--all", "--blockers-only");
     expect(repeatFocusedStatus.stdout).toBe(focusedStatusGlobalBlocked.stdout);
 
-    // Snapshot Installation State and filesystem paths before globally blocked apply
+    // Snapshot complete directory trees for Projects A-E, Git exclude files, and Installation State (INT-2)
     const preGlobalBlockedState = readFileSync(stateManifest, "utf8");
-    const preExcludeA = existsSync(join(projectA, ".git", "info", "exclude"));
+    const preSnapA = snapshotProjectTree(projectA);
+    const preSnapB = snapshotProjectTree(projectB);
+    const preSnapC = snapshotProjectTree(projectC);
+    const preSnapD = snapshotProjectTree(projectD);
+    const preSnapE = snapshotProjectTree(projectE);
+    const preExcludeA = existsSync(join(projectA, ".git", "info", "exclude"))
+      ? readFileSync(join(projectA, ".git", "info", "exclude"), "utf8")
+      : undefined;
     const preExcludeBContent = readFileSync(join(projectB, ".git", "info", "exclude"), "utf8");
-    const preMarkerB = existsSync(join(projectB, ".agent-profile-kit", "installation.json"));
 
     // 2. Global blocker halts all apply writes
     const applyGlobalBlocked = await runCli(home, pathWithHosts, "apply", "--all", "--blockers-only");
     expectExitCode(applyGlobalBlocked, 2);
     expect(readFileSync(stateManifest, "utf8")).toBe(preGlobalBlockedState);
-    expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(preExcludeA);
+    expect(snapshotProjectTree(projectA)).toEqual(preSnapA);
+    expect(snapshotProjectTree(projectB)).toEqual(preSnapB);
+    expect(snapshotProjectTree(projectC)).toEqual(preSnapC);
+    expect(snapshotProjectTree(projectD)).toEqual(preSnapD);
+    expect(snapshotProjectTree(projectE)).toEqual(preSnapE);
+    if (preExcludeA !== undefined) {
+      expect(readFileSync(join(projectA, ".git", "info", "exclude"), "utf8")).toBe(preExcludeA);
+    } else {
+      expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(false);
+    }
     expect(readFileSync(join(projectB, ".git", "info", "exclude"), "utf8")).toBe(preExcludeBContent);
-    expect(existsSync(join(projectB, ".agent-profile-kit", "installation.json"))).toBe(preMarkerB);
-    expect(existsSync(join(projectC, ".opencode", "opencode.jsonc"))).toBe(false);
-    expect(existsSync(join(projectD, ".opencode", "opencode.jsonc"))).toBe(false);
-    expect(existsSync(join(projectE, ".agents", "rules"))).toBe(false);
 
     // Resolve the Global Blocker by restoring the valid state manifest
     writeFileSync(stateManifest, validStateContent);
@@ -708,16 +739,18 @@ describe("integrated fleet recovery qualification", () => {
     // Assert section ordering: committed Apply Receipt evidence forms an ordered prefix before the Blocker section (ADR-0024, INT-1)
     const appliedIndex = partialApply.stdout.indexOf("Applied:");
     const freshlyCurrentIndex = partialApply.stdout.indexOf("Freshly current:");
-    const projectBBlockerIndex = partialApply.stdout.indexOf(projectB);
-    const blockersFooterIndex = partialApply.stdout.indexOf("Blockers:");
+    const projectSectionIndex = partialApply.stdout.indexOf("\n\nProject:\n");
+    const blockerTextIndex = partialApply.stdout.indexOf("These generated paths are tracked by Git");
+    const blockersFooterIndex = partialApply.stdout.indexOf("Blockers: 1 · Affected Projects: 1");
 
     expect(appliedIndex).toBeGreaterThan(-1);
     expect(freshlyCurrentIndex).toBeGreaterThan(appliedIndex);
-    expect(projectBBlockerIndex).toBeGreaterThan(freshlyCurrentIndex);
-    expect(blockersFooterIndex).toBeGreaterThan(projectBBlockerIndex);
+    expect(projectSectionIndex).toBeGreaterThan(freshlyCurrentIndex);
+    expect(blockerTextIndex).toBeGreaterThan(projectSectionIndex);
+    expect(blockersFooterIndex).toBeGreaterThan(blockerTextIndex);
 
     // Safety prefix contains applied projects made current and excludes blocked project B
-    const safetyPrefix = partialApply.stdout.slice(appliedIndex, projectBBlockerIndex);
+    const safetyPrefix = partialApply.stdout.slice(appliedIndex, projectSectionIndex);
     expect(safetyPrefix).toContain(projectA);
     expect(safetyPrefix).toContain(projectC);
     expect(safetyPrefix).toContain(projectD);
@@ -725,7 +758,7 @@ describe("integrated fleet recovery qualification", () => {
     expect(safetyPrefix).not.toContain(projectB);
 
     // Blocker section after safety prefix contains blocked Project B evidence and footer
-    const blockerSection = partialApply.stdout.slice(projectBBlockerIndex);
+    const blockerSection = partialApply.stdout.slice(projectSectionIndex);
     expect(blockerSection).toContain(projectB);
     expect(blockerSection).toContain("These generated paths are tracked by Git");
     expect(blockerSection).toContain("Blockers: 1 · Affected Projects: 1");
