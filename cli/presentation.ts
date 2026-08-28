@@ -1291,6 +1291,51 @@ function isNoOpApply(
     !reportHasReconciliationWork(receipt);
 }
 
+/** Projects that still need reconciliation work but carry no Blocker. */
+function stillPendingProjects(report: ReconciliationReport): readonly string[] {
+  return report.projects
+    .filter((project) =>
+      project.blockers.length === 0 &&
+      (
+        project.state.kind !== "current" ||
+        project.outputs.some((output) => output.kind !== "unchanged") ||
+        project.repositoryExclusions.some((change) =>
+          change.current.join("\n") !== change.next.join("\n")
+        ) ||
+        project.repositoryExclusionRepairs.length > 0
+      )
+    )
+    .map((project) => displayProjectPath(project.canonicalProject, project.project));
+}
+
+/**
+ * The committed Apply Receipt plus the Projects it made current — safety
+ * evidence every human apply view must show (ADR-0024). `postState` is the
+ * post-commit snapshot; `summarizeFleet` collapses per-Project receipts above
+ * one Project.
+ */
+function committedApplyEvidence(
+  receipt: ReconciliationReport,
+  postState: ReconciliationReport,
+  summarizeFleet: boolean,
+): readonly string[] {
+  const lines = [
+    ...applyReceiptLines(receipt, summarizeFleet, postState),
+  ];
+  const appliedProjects = new Set(
+    receipt.projects.map((project) => project.canonicalProject),
+  );
+  const freshlyCurrent = postState.projects
+    .filter((project) =>
+      project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
+    )
+    .map((project) => displayProjectPath(project.canonicalProject, project.project));
+  if (freshlyCurrent.length > 0) {
+    lines.push(`Freshly current: ${freshlyCurrent.join(", ")}`);
+  }
+  return lines;
+}
+
 function outcomeLine(
   command: LifecycleCommand,
   report: ReconciliationReport,
@@ -2148,19 +2193,7 @@ function conciseReport(
   }
 
   if (command === "apply" && blocked) {
-    const stillPending = report.projects
-      .filter((project) =>
-        project.blockers.length === 0 &&
-        (
-          project.state.kind !== "current" ||
-          project.outputs.some((output) => output.kind !== "unchanged") ||
-          project.repositoryExclusions.some((change) =>
-            change.current.join("\n") !== change.next.join("\n")
-          ) ||
-          project.repositoryExclusionRepairs.length > 0
-        )
-      )
-      .map((project) => displayProjectPath(project.canonicalProject, project.project));
+    const stillPending = stillPendingProjects(report);
     if (stillPending.length > 0) {
       lines.push("", `Still pending: ${stillPending.join(", ")}`);
     }
@@ -2204,18 +2237,7 @@ function conciseReport(
       }, options);
   if (next.length > 0) lines.push(...(readyStatus ? next : ["", ...next]));
   if (command === "apply" && blocked && receipt) {
-    lines.push("", ...applyReceiptLines(receipt, report.projects.length > 1, report));
-    const appliedProjects = new Set(
-      receipt.projects.map((project) => project.canonicalProject),
-    );
-    const freshlyCurrent = report.projects
-      .filter((project) =>
-        project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
-      )
-      .map((project) => displayProjectPath(project.canonicalProject, project.project));
-    if (freshlyCurrent.length > 0) {
-      lines.push(`Freshly current: ${freshlyCurrent.join(", ")}`);
-    }
+    lines.push("", ...committedApplyEvidence(receipt, report, report.projects.length > 1));
   }
   if (command === "apply" && reportBlockers(report).length === 0 && !noOpApply) {
     const readiness = receipt ? readinessLines(report, receipt) : [];
@@ -2474,6 +2496,7 @@ export function responsiveHumanText(
 
 interface LifecycleHumanOptions {
   readonly all?: boolean;
+  readonly blockersOnly?: boolean;
   readonly context?: TerminalPresentationContext;
   readonly project?: string;
   readonly verbose?: boolean;
@@ -2620,11 +2643,49 @@ function verboseApplyReport(result: {
   return readiness.length > 0 ? `${report}\n${readiness.join("\n")}\n` : report;
 }
 
+/**
+ * Ordered apply safety evidence for a focused view (#352): the committed Apply
+ * Receipt with the Projects it made current, then still-pending Project
+ * identities. The focused filter renders this prefix before Blocker evidence
+ * and can never suppress it, because a presentation filter must never hide
+ * writes (ADR-0024, spec #345 Decision 6).
+ */
+function focusedApplySafetyEvidence(
+  postState: ReconciliationReport,
+  receipt: ReconciliationReport,
+): readonly string[] {
+  const lines = [
+    ...committedApplyEvidence(receipt, postState, postState.projects.length > 1),
+  ];
+  const pending = stillPendingProjects(postState);
+  if (pending.length > 0) lines.push("", `Still pending: ${pending.join(", ")}`);
+  return lines.length > 0 ? ["", ...lines] : lines;
+}
+
+/** Focused apply view (#352): the safety-evidence prefix, then shared Blocker evidence. */
+function focusedApplyReport(
+  result: ApplyReconciliationResult,
+  options: LifecycleHumanOptions,
+): string {
+  const evidence = focusedApplySafetyEvidence(result.resultingState, result.receipt);
+  const blockers = options.verbose
+    ? focusedVerboseBlockers(result.resultingState)
+    : focusedConciseBlockers(result.resultingState);
+  const lines = [outcomeLine("apply", result.resultingState, true), ...evidence];
+  if (options.verbose && evidence.length > 0) lines.push("");
+  lines.push(...blockers);
+  return `${lines.join("\n")}\n`;
+}
+
 export function formatApplyReport(
   result: ApplyReconciliationResult,
   options: LifecycleHumanOptions = {},
 ): string {
-  const report = options.verbose
+  const focused =
+    options.blockersOnly === true && reportBlockers(result.resultingState).length > 0;
+  const report = focused
+    ? focusedApplyReport(result, options)
+    : options.verbose
     ? verboseApplyReport(result)
     : conciseReport("apply", result.resultingState, result.receipt, options);
   return responsiveLifecycleOutput(
@@ -2664,6 +2725,18 @@ export function formatApplyExecutionFailure(
       )
       .map((project) => displayProjectPath(project.canonicalProject, project.project));
     if (current.length > 0) lines.push(`Freshly current: ${current.join(", ")}`);
+  }
+  if (
+    options.blockersOnly === true &&
+    failure.resultingState !== undefined &&
+    reportBlockers(failure.resultingState).length > 0
+  ) {
+    lines.push(
+      "",
+      ...(options.verbose
+        ? focusedVerboseBlockers(failure.resultingState)
+        : focusedConciseBlockers(failure.resultingState)),
+    );
   }
   return responsiveLifecycleOutput(
     `${lines.join("\n")}\n`,
@@ -2707,17 +2780,28 @@ export function formatBlockedApplyReport(
   report: BlockedReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
-  const output = options.verbose
+  const focused = options.blockersOnly === true && reportBlockers(report).length > 0;
+  const output = focused
+    ? [
+        outcomeLine("apply", report),
+        ...(options.verbose
+          ? focusedVerboseBlockers(report)
+          : focusedConciseBlockers(report)),
+      ].join("\n") + "\n"
+    : options.verbose
     ? verboseReport("apply", report)
     : conciseReport("apply", report, undefined, options);
   return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
 }
 
 /**
- * Focused Blocker view for `status --blockers-only` (#351). A strict Blocker
- * filter, not an attention or warning filter: every selected-scope Blocker with
- * concise deterministic grouping, no unrelated lifecycle inventory. Footer
- * counts derive exclusively from the displayed Blockers.
+ * Focused Blocker view for `status --blockers-only` (#351) and
+ * `apply --blockers-only` (#352). A strict Blocker filter, not an attention or
+ * warning filter: every selected-scope Blocker with concise deterministic
+ * grouping, no unrelated lifecycle inventory. Footer counts derive exclusively
+ * from the displayed Blockers. Apply renderers place their receipt, failed,
+ * and pending safety evidence in an ordered prefix before this section so the
+ * filter can never conceal or duplicate it.
  */
 function blockersOnlyFooter(report: ReconciliationReport): string {
   const blockers = reportBlockers(report);
@@ -2733,13 +2817,13 @@ function blockersOnlyFooter(report: ReconciliationReport): string {
   return parts.join(" · ");
 }
 
-function blockersOnlyConciseReport(
-  report: ReconciliationReport,
-  options: LifecycleHumanOptions,
-): string {
+/** The concise focused Blocker section shared by `status` and `apply`: one
+ * deterministic group per affected Project, then global Blockers, then the
+ * displayed-Blocker footer. The caller owns the outcome line and any prefix. */
+function focusedConciseBlockers(report: ReconciliationReport): readonly string[] {
   const grouped = groupProjects(report);
   const displayedGroups = grouped.groups.filter((candidate) => candidate.blockers.length > 0);
-  const lines = [outcomeLine("status", report)];
+  const lines: string[] = [];
   for (const group of displayedGroups) {
     lines.push(
       "",
@@ -2750,8 +2834,33 @@ function blockersOnlyConciseReport(
   const globalBlockerLines = conciseGlobalBlockerLines(report, grouped.groups);
   if (globalBlockerLines.length > 0) lines.push("", ...globalBlockerLines);
   lines.push("", blockersOnlyFooter(report));
+  return lines;
+}
+
+/** The verbose focused Blocker section shared by `status` and `apply`:
+ * complete Blocker fields with every affected item, then the footer. */
+function focusedVerboseBlockers(report: ReconciliationReport): readonly string[] {
+  const groups = groupProjects(report).groups;
+  const shorten = (text: string): string => shortenProjectReferences(text, groups);
+  return [
+    `Blockers:\n${reportBlockers(report)
+      .flatMap((blocker) => verboseBlockerLines(blocker, shorten))
+      .join("\n")}`,
+    "",
+    blockersOnlyFooter(report),
+  ];
+}
+
+function blockersOnlyConciseReport(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): string {
+  const lines = [outcomeLine("status", report), ...focusedConciseBlockers(report)];
   // Only groups whose Blockers are displayed contribute next actions, so
   // pending but Blocker-free Projects cannot leak into the focused view.
+  const displayedGroups = groupProjects(report).groups.filter(
+    (candidate) => candidate.blockers.length > 0,
+  );
   const next = nextActionLines("status", report, {
     groups: displayedGroups,
     unscopedItems: [],
@@ -2761,28 +2870,17 @@ function blockersOnlyConciseReport(
 }
 
 function blockersOnlyVerboseReport(report: ReconciliationReport): string {
-  const groups = groupProjects(report).groups;
-  const shorten = (text: string): string => shortenProjectReferences(text, groups);
   return [
     outcomeLine("status", report),
     "",
-    `Blockers:\n${reportBlockers(report)
-      .flatMap((blocker) => verboseBlockerLines(blocker, shorten))
-      .join("\n")}`,
-    "",
-    blockersOnlyFooter(report),
+    ...focusedVerboseBlockers(report),
   ].join("\n") + "\n";
-}
-
-/** Options for the status-only human surface (`LifecycleHumanOptions` plus the focused filter). */
-interface StatusLifecycleOptions extends LifecycleHumanOptions {
-  readonly blockersOnly?: boolean;
 }
 
 export function formatLifecycleReport(
   command: Exclude<LifecycleCommand, "apply">,
   report: ReconciliationReport,
-  options: StatusLifecycleOptions = {},
+  options: LifecycleHumanOptions = {},
 ): string {
   if (options.blockersOnly === true) {
     if (reportBlockers(report).length === 0) {

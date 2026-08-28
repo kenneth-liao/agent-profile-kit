@@ -71,7 +71,7 @@ The first-run excerpts below were captured from that packed run.
 | 5 | Bind | `bind <profile> [project] --host <host> [--replace]` | One project associated with one Profile and its Hosts, or an existing binding restated with `--replace` |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed |
 | 7 | Plan | `status [project \| --all] [--verbose] [--blockers-only] [--json]` | See current state, pending work, predictable blockers, warnings, Host guidance, and exactly what `apply` would attempt without writing; `--blockers-only` shows a focused Blocker-only view (combines with `--verbose`, not `--json`) |
-| 8 | Apply | `apply [project \| --all] [--verbose] [--json]` | Generated output for the current Project, one explicit Project, or the explicitly selected fleet, and proof of what changed |
+| 8 | Apply | `apply [project \| --all] [--verbose] [--blockers-only] [--json]` | Generated output for the current Project, one explicit Project, or the explicitly selected fleet, and proof of what changed; `--blockers-only` shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects visible |
 | 9 | Use | *(launch Antigravity/Codex/Claude/Grok/Pi)* | Material loads through native Host discovery |
 | 10 | Re-sync | `status [project \| --all] [--blockers-only] [--json]` → `apply [project \| --all]` | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope |
 | 11 | Recover | `status`, `apply`, `uninstall` | Get unstuck from drifted, missing, or malformed state |

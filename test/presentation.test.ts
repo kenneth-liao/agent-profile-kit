@@ -4693,3 +4693,199 @@ describe("focused blockers-only status view (#351)", () => {
     expect(fleet).toContain("Run apkit status --all for the complete lifecycle view.");
   });
 });
+
+describe("focused blockers-only apply view (#352)", () => {
+  const affectedBlocker = () =>
+    normalizeBlocker({
+      affectedItems: [{ kind: "host", value: "codex" }],
+      kind: "host-capability",
+      problem: "Claude Code CLI is unavailable",
+      remedy: "Install a supported Claude Code CLI, then retry",
+      requirement: "The selected Profile requires Claude Code project delivery",
+      project: "/project-b",
+      scope: "project",
+    });
+
+  /** One committed Project, one Project-scoped Blocker, one still-pending Project. */
+  const partialApply = () => {
+    const receipt = emptyReport({
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          outputs: ["b.md"],
+          profile: "coding",
+          project: "/project-b",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/project-c",
+          context: "composed",
+          outputs: ["c.md"],
+          profile: "coding",
+          project: "/project-c",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [
+        { kind: "current", project: "/project-a" },
+        { kind: "blocked", project: "/project-b", reason: "host capability" },
+        { kind: "current", project: "/project-c" },
+      ],
+      outputs: [
+        { kind: "unchanged", path: "a.md", project: "/project-a" },
+        { kind: "addition", path: "b.md", project: "/project-b" },
+        { kind: "addition", path: "c.md", project: "/project-c" },
+      ],
+      warnings: ["OpenCode reports a duplicate Skill identity"],
+      blockers: [affectedBlocker()],
+    });
+    return { receipt, resultingState };
+  };
+
+  test("focused concise apply renders receipt and pending scope before Blocker evidence and suppresses unrelated inventory", () => {
+    const { receipt, resultingState } = partialApply();
+    const output = formatApplyReport({ receipt, resultingState }, { blockersOnly: true });
+
+    expect(output).toStartWith("Apply completed with blockers\n");
+    expect(output).toContain("Applied:");
+    expect(output).toContain("+ 1 generated file addition in /project-a");
+    expect(output).toContain("Freshly current: /project-a");
+    expect(output).toContain("Still pending: /project-c");
+    expect(output).toContain("Blocker: Claude Code CLI is unavailable");
+    expect(output).toContain("Blockers: 1 · Affected Projects: 1");
+    // Safety evidence is an ordered prefix before the focused Blocker section.
+    expect(output.indexOf("Applied:")).toBeLessThan(
+      output.indexOf("Blocker: Claude Code CLI is unavailable"),
+    );
+    expect(output.indexOf("Still pending:")).toBeLessThan(
+      output.indexOf("Blocker: Claude Code CLI is unavailable"),
+    );
+    expect(output).not.toContain("Warnings:");
+    expect(output).not.toContain("duplicate Skill identity");
+    expect(output).not.toContain("Files:");
+    expect(output).not.toContain("b.md");
+    expect(output).not.toContain("c.md");
+    expect(output).not.toContain("Profile: coding");
+    expect(output).not.toContain("Host Setup:");
+    expect(output).not.toContain("Next:");
+  });
+
+  test("focused verbose apply retains every Blocker affected item and the receipt without ordinary inventory sections", () => {
+    const { receipt, resultingState } = partialApply();
+    const output = formatApplyReport(
+      { receipt, resultingState },
+      { blockersOnly: true, verbose: true },
+    );
+
+    expect(output).toStartWith("Apply completed with blockers\n");
+    expect(output).toContain("- Claude Code CLI is unavailable");
+    expect(output).toContain("Requirement: The selected Profile requires Claude Code project delivery");
+    expect(output).toContain("Remedy: Install a supported Claude Code CLI, then retry");
+    expect(output).toContain("Scope: Project /project-b");
+    expect(output).toContain("Affected host: codex");
+    expect(output).toContain("Applied:");
+    expect(output).toContain("+ 1 generated file addition in /project-a");
+    expect(output).toContain("Still pending: /project-c");
+    expect(output).toContain("Blockers: 1 · Affected Projects: 1");
+    expect(output.indexOf("Applied:")).toBeLessThan(
+      output.indexOf("- Claude Code CLI is unavailable"),
+    );
+    expect(output).not.toMatch(/^Projects:/m);
+    expect(output).not.toContain("Outputs:");
+    expect(output).not.toContain("Selected setup:");
+    expect(output).not.toContain("Warnings:");
+    expect(output).not.toContain("Host Setup:");
+    expect(output).not.toContain("Git exclusions");
+    expect(output).not.toContain("Next:");
+  });
+
+  test("an apply with no Blockers renders the ordinary receipt view under the filter", () => {
+    const receipt = emptyReport({
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const result = applyResult(receipt, emptyReport());
+
+    expect(formatApplyReport(result, { blockersOnly: true })).toBe(formatApplyReport(result, {}));
+    expect(formatApplyReport(result, { blockersOnly: true, verbose: true })).toBe(
+      formatApplyReport(result, { verbose: true }),
+    );
+    expect(formatApplyReport(result, { blockersOnly: true })).toContain("Applied:");
+  });
+
+  test("a globally blocked apply renders focused Blocker evidence without receipt sections", () => {
+    const report = asBlockedReport(emptyReport({
+      blockers: [fixtureBlocker("Installation State is unreadable")],
+    }));
+
+    const concise = formatBlockedApplyReport(report, { blockersOnly: true });
+    const verbose = formatBlockedApplyReport(report, { blockersOnly: true, verbose: true });
+
+    expect(concise).toStartWith("Apply blocked\n");
+    expect(concise).toContain("Global blockers:");
+    expect(concise).toContain("Blocker: Installation State is unreadable");
+    expect(concise).toContain("Blockers: 1");
+    expect(concise).not.toContain("Applied:");
+    expect(concise).not.toContain("Still pending:");
+    expect(concise).not.toContain("Warnings:");
+    expect(verbose).toStartWith("Apply blocked\n");
+    expect(verbose).toContain("- Installation State is unreadable");
+    expect(verbose).toContain("Blockers: 1");
+    expect(verbose).not.toContain("Applied:");
+    expect(verbose).not.toContain("Next:");
+    expect(verbose).not.toMatch(/^Projects:/m);
+  });
+
+  test("an execution failure retains its safety evidence under the filter and appends Blocker evidence", () => {
+    const { receipt, resultingState } = partialApply();
+    const failure = {
+      failedProject: "/project-b",
+      message: "Apply failed while writing the Project",
+      pendingProjects: ["/project-c"],
+      receipt,
+      resultingState,
+    };
+    const output = formatApplyExecutionFailure(failure, { blockersOnly: true });
+
+    expect(output).toStartWith("Apply failed while writing the Project\n");
+    expect(output).toContain("Failed Project: /project-b");
+    expect(output).toContain("Still pending: /project-c");
+    expect(output).toContain("Applied:");
+    expect(output).toContain("Freshly current: /project-a");
+    expect(output).toContain("Blocker: Claude Code CLI is unavailable");
+    expect(output.indexOf("Applied:")).toBeLessThan(
+      output.indexOf("Blocker: Claude Code CLI is unavailable"),
+    );
+  });
+
+  test("an execution failure with no Blockers renders unchanged under the filter", () => {
+    const receipt = emptyReport({
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const failure = {
+      failedProject: "/project-b",
+      message: "Apply failed while writing the Project",
+      pendingProjects: ["/project-b"],
+      receipt,
+      resultingState: undefined,
+    };
+
+    expect(formatApplyExecutionFailure(failure, { blockersOnly: true })).toBe(
+      formatApplyExecutionFailure(failure, {}),
+    );
+  });
+});

@@ -591,7 +591,7 @@ function parseLifecycleArguments(
       verbose = true;
       continue;
     }
-    if (command === "status" && argument === "--blockers-only") {
+    if (argument === "--blockers-only") {
       blockersOnly = true;
       continue;
     }
@@ -613,7 +613,7 @@ function parseLifecycleArguments(
   }
   if (blockersOnly && json) {
     throw new Error(
-      "status --blockers-only cannot be combined with --json; use status --json for the complete machine report",
+      `${command} --blockers-only cannot be combined with --json; use ${command} --json for the complete machine report`,
     );
   }
   return {

@@ -18,7 +18,14 @@ export const COMMAND_EXAMPLES = {
   validate: ["validate"],
   info: ["info", "info --json"],
   list: inventoryCommandExamples(),
-  apply: ["apply", `apply ${project}`, "apply --all", "apply --json"],
+  apply: [
+    "apply",
+    `apply ${project}`,
+    "apply --all",
+    "apply --blockers-only",
+    "apply --blockers-only --verbose",
+    "apply --json",
+  ],
   status: [
     "status",
     `status ${project}`,
