@@ -3538,7 +3538,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(status, 0);
     expect(status.stdout).toContain("Git exclusions:");
     expect(status.stdout).toContain("entries to remove");
-    expect(status.stdout).toContain("apply will publish the");
+    expect(status.stdout).toContain("apply will create the");
+    expect(status.stdout).toContain("exclusion file if needed");
     expect(status.stdout).not.toContain("intentional-deletion retirement requires");
     expect(existsSync(exclude)).toBe(false);
     const statusJson = JSON.parse((await runCli(home, "status", "--json")).stdout) as {
@@ -3631,9 +3632,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(status.stdout).toContain("surviving Git exclusion entries");
     expect(readFileSync(exclude, "utf8")).toBe(unrelated);
 
-    const applied = await runCli(home, "apply");
+    const applied = await runCli(home, "apply", "--verbose");
 
     expectExitCode(applied, 0);
+    expect(applied.stdout).toContain("published");
+    expect(applied.stdout).toContain("surviving Git exclusion entries");
     const excludeAfter = readFileSync(exclude, "utf8");
     expect(excludeAfter.startsWith(unrelated)).toBe(true);
     expect(excludeAfter).toContain("# BEGIN Agent Profile Kit generated paths");
@@ -3657,6 +3660,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(nested, { recursive: true });
     expectExitCode(await runCli(home, "unbind", nested), 0);
 
+    const statusVerbose = await runCli(home, "status", "--verbose");
+
+    expectExitCode(statusVerbose, 0);
+    expect(statusVerbose.stdout).toContain("will remove the Agent Profile Kit exclusion section");
     const statusJson = JSON.parse((await runCli(home, "status", "--json")).stdout) as {
       globalBlockers: readonly unknown[];
       projects: readonly {
@@ -3677,9 +3684,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(retiringProject.repositoryExclusionRepairs[0]!.class).toBe("retiring-exclusion-section");
     expect(retiringProject.repositoryExclusionRepairs[0]!.entries).toEqual([]);
 
-    const applied = await runCli(home, "apply");
+    const applied = await runCli(home, "apply", "--verbose");
 
     expectExitCode(applied, 0);
+    expect(applied.stdout).toContain("removed the Agent Profile Kit exclusion section");
     expect(existsSync(exclude)).toBe(false);
     const appliedState = parse(readFileSync(statePath(home), "utf8")) as {
       receipts: readonly unknown[];
@@ -3712,7 +3720,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status");
 
     expectExitCode(status, 0);
-    expect(status.stdout).toContain("apply will publish the");
+    expect(status.stdout).toContain("apply will create the");
+    expect(status.stdout).toContain("exclusion file if needed");
     expect(status.stdout).not.toContain("intentional-deletion retirement requires");
 
     const applied = await runCli(home, "apply");
