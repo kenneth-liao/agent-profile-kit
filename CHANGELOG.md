@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Sort warning groups deterministically using canonical string comparison across kind, consequence, and JSON-encoded copyable values ([#354](https://github.com/kenneth-liao/agent-profile-kit/issues/354)).
+
 - Bind the focused untracking command to the Blocker's Project root with `git -C` so the caller's working directory cannot target the wrong repository, and add `-r` so directory output roots untrack without a fatal recursion error ([#353](https://github.com/kenneth-liao/agent-profile-kit/issues/353)).
 
 ### Added
