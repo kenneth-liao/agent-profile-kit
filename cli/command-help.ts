@@ -123,8 +123,8 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "apply",
     group: "common",
-    syntax: "apply [project | --all] [--verbose] [--json]",
-    summary: "Sync the current Project, one explicit Project, or the complete fleet",
+    syntax: "apply [project | --all] [--verbose] [--blockers-only] [--json]",
+    summary: "Sync the current Project, one explicit Project, or the complete fleet; --blockers-only shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view renders unchanged",
     examples: COMMAND_EXAMPLES.apply,
     writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",
     next: `Launch a bound Host from the project, or run ${COMMAND_NAME} status.`,

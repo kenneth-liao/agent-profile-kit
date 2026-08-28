@@ -3089,9 +3089,25 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(focusedProjectScope.stdout).toContain("Blocker: These generated paths are tracked by Git");
     expect(focusedProjectScope.stdout).toContain("Blockers: 1 · Affected Projects: 1");
 
-    const rejectedApplyFlag = await runCli(home, "apply", "--blockers-only");
-    expectExitCode(rejectedApplyFlag, 1);
-    expect(rejectedApplyFlag.stderr).toContain("apply does not accept argument '--blockers-only'");
+    // Under the focused filter a globally blocked apply reports focused
+    // Blocker evidence, performs no writes, and keeps the blocked exit code.
+    const focusedApply = await runCli(home, "apply", "--blockers-only");
+    expectExitCode(focusedApply, 2);
+    expect(focusedApply.stderr).toBe("");
+    expect(focusedApply.stdout).toStartWith("Apply blocked");
+    expect(focusedApply.stdout).toContain("Blocker: These generated paths are tracked by Git");
+    expect(focusedApply.stdout).toContain("Blockers: 1 · Affected Projects: 1");
+    expect(focusedApply.stdout).not.toContain("Warnings:");
+    expect(focusedApply.stdout).not.toContain("Files:");
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+
+    const focusedApplyVerbose = await runCli(home, "apply", "--blockers-only", "--verbose");
+    expectExitCode(focusedApplyVerbose, 2);
+    expect(focusedApplyVerbose.stdout).toContain("- These generated paths are tracked by Git");
+    expect(focusedApplyVerbose.stdout).toContain("Affected path:");
+    expect(focusedApplyVerbose.stdout).not.toContain("Selected setup:");
+    expect(focusedApplyVerbose.stdout).not.toContain("Warnings:");
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
 
     const focusedVerbose = await runCli(home, "status", "--blockers-only", "--verbose");
 
@@ -6505,6 +6521,114 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(healthy, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(blocked, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(blocked, ".codex", "hooks.json"), "utf8")).toBe("project-owned\n");
+  });
+
+  test("apply --all --blockers-only keeps partial-apply safety evidence before focused Blocker output (#352)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const healthy = project("agent-profile-kit-focused-apply-healthy-");
+    const blocked = project("agent-profile-kit-focused-apply-blocked-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${healthy}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${blocked}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    mkdirSync(join(blocked, ".codex"));
+    writeFileSync(join(blocked, ".codex", "hooks.json"), "project-owned\n");
+
+    const result = await runCli(home, "apply", "--all", "--blockers-only");
+
+    expectExitCode(result, 2);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toStartWith("Apply completed with blockers");
+    expect(result.stdout).toContain("Applied:");
+    expect(result.stdout).toContain("Freshly current:");
+    expect(humanText(result.stdout)).toContain(humanText(realpathSync(healthy)));
+    expect(result.stdout).toContain("Blocker:");
+    expect(result.stdout).toContain("Blockers: 1 · Affected Projects: 1");
+    // Committed evidence is an ordered prefix before the focused Blocker section.
+    expect(result.stdout.indexOf("Applied:")).toBeLessThan(result.stdout.indexOf("Blocker:"));
+    // Unrelated diagnostic inventory stays suppressed.
+    expect(result.stdout).not.toContain("Warnings:");
+    expect(result.stdout).not.toContain("Files:");
+    expect(result.stdout).not.toContain("Host Setup:");
+    // The filter concealed no writes.
+    expect(existsSync(join(healthy, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(blocked, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(readFileSync(join(blocked, ".codex", "hooks.json"), "utf8")).toBe("project-owned\n");
+  });
+
+  test("apply --blockers-only still reports every mutation when no Blockers exist (#352)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = gitRepository("agent-profile-kit-focused-apply-clean-");
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated under the filter.\n",
+    );
+
+    const result = await runCli(home, "apply", "--blockers-only");
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("Applied:");
+    expect(result.stdout).toContain("~ 1 generated file update in 1 project");
+    expect(result.stdout).not.toContain("No blockers.");
+    expect(result.stdout).not.toContain("Blockers:");
+    expect(
+      readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"),
+    ).toContain("Updated under the filter.");
+  });
+
+  test("apply --all --blockers-only retains execution-failure safety evidence (#352)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const committed = project("agent-profile-kit-focused-fail-committed-");
+    const failed = project("agent-profile-kit-focused-fail-failed-");
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${committed}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${failed}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    chmodSync(failed, 0o555);
+
+    const result = await runCli(home, "apply", "--all", "--blockers-only");
+
+    chmodSync(failed, 0o755);
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("Failed Project:");
+    expect(humanText(result.stderr)).toContain(humanText(realpathSync(failed)));
+    expect(result.stderr).toContain("Still pending:");
+    expect(humanText(result.stderr)).toContain(humanText(realpathSync(committed)));
+    expect(result.stderr).toContain("Applied:");
+    expect(result.stderr).toContain("Freshly current:");
+    expect(existsSync(join(committed, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(failed, ".agent-profile-kit", "installation.json"))).toBe(false);
+  });
+
+  test("apply --blockers-only rejects --json before inspection and documents the flag (#352)", async () => {
+    const rejectedJson = await runCli(isolatedHome(), "apply", "--blockers-only", "--json");
+    expectExitCode(rejectedJson, 1);
+    expect(rejectedJson.stderr).toContain(
+      "apply --blockers-only cannot be combined with --json",
+    );
+    expect(rejectedJson.stderr).toContain(
+      "Usage: apkit apply [project | --all] [--verbose] [--blockers-only] [--json]",
+    );
+    expect(rejectedJson.stdout).not.toContain('"');
+
+    const help = await runCli(isolatedHome(), "help", "apply");
+    expectExitCode(help, 0);
+    expect(help.stdout).toContain(
+      "Usage: apkit apply [project | --all] [--verbose] [--blockers-only] [--json]",
+    );
+    expect(help.stdout).toContain("apkit apply --blockers-only --verbose");
   });
 
   test("apply --all commits a healthy Project around another Project's modified Git exclusion", async () => {
