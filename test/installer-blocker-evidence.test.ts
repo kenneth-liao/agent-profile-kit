@@ -138,7 +138,7 @@ describe("structured Installer blocker evidence", () => {
       readonly globalBlockers: readonly Record<string, unknown>[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(8);
+    expect(machine.schemaVersion).toBe(9);
     expect(machine.globalBlockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
@@ -292,6 +292,36 @@ describe("structured Installer blocker evidence", () => {
     expect(machine.globalBlockers.some((candidate) => (
       candidate.affectedItems as readonly { kind: string; value: string }[]
     ).some((item) => item.kind === "installation-id" && item.value === installationId))).toBe(true);
+  });
+
+  test("a moved installation with a missing Git exclusion contribution stays blocked", async () => {
+    const repository = gitRepository("apkit-evidence-moved-");
+    const home = await prepareHome(repository);
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations[0]!;
+    const installationId = "moved-installation-id";
+    const previousRoot = temporaryDirectory("apkit-evidence-moved-old-");
+    const manifest = { ...manifestFor(installation, installationId), project: previousRoot };
+    mkdirSync(join(repository, ".agent-profile-kit"), { recursive: true });
+    writeFileSync(
+      join(repository, ".agent-profile-kit", "installation.json"),
+      formatInstallationMarker({ installationId, schemaVersion: 1 }),
+    );
+    const state: OwnershipState = {
+      ...emptyState(),
+      receipts: [manifest],
+    };
+
+    const report = await previewReconciliation(desired.installations, state);
+
+    const blocker = requireDefined(
+      reportBlockers(report).find(
+        (candidate) => isStructuredBlocker(candidate) && candidate.kind === REPOSITORY_EXCLUSION_CONTRIBUTION,
+      ),
+      "a structured repository-exclusion-contribution blocker",
+    );
+    expect(blocker).toMatchObject({ scope: "global" });
+    expect(lifecycleExitCode(report)).toBe(2);
   });
 
   test("a Git exclusion contribution on the wrong Git target emits structured global evidence", async () => {

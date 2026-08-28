@@ -921,8 +921,11 @@ function repositoryExclusionRepairLines(
 ): readonly string[] {
   return reportRepositoryExclusionRepairs(report).map((repair) => {
     const count = repair.entries.length;
-    const action = completed ? "restored" : "will restore";
-    return `${repair.target}: ${action} ${count} recorded Git exclusion ${count === 1 ? "entry" : "entries"}`;
+    const noun = `Git exclusion ${count === 1 ? "entry" : "entries"}`;
+    if (repair.class === "missing-contribution") {
+      return `${repair.target}: ${completed ? "recorded" : "will record"} ${count} ${noun}`;
+    }
+    return `${repair.target}: ${completed ? "restored" : "will restore"} ${count} recorded ${noun}`;
   });
 }
 
@@ -952,21 +955,23 @@ function repositoryExclusionClause(
   /** Ready status suppresses successful bookkeeping and keeps only repair attention. */
   repairsOnly = false,
 ): string | undefined {
+  const provenContributions = reportRepositoryExclusionRepairs(report)
+    .filter((repair) => repair.class === "missing-contribution")
+    .reduce((count, repair) => count + repair.entries.length, 0);
   const delta = repairsOnly
-    ? { additions: 0, removals: 0 }
+    ? { additions: provenContributions, removals: 0 }
     : changedRepositoryExclusions(report)
-      .map(exclusionDelta)
-      .reduce(
-        (total, change) => ({
-          additions: total.additions + change.additions.length,
-          removals: total.removals + change.removals.length,
-        }),
-        { additions: 0, removals: 0 },
-      );
-  const repairs = reportRepositoryExclusionRepairs(report).reduce(
-    (count, repair) => count + repair.entries.length,
-    0,
-  );
+        .map(exclusionDelta)
+        .reduce(
+          (total, change) => ({
+            additions: total.additions + change.additions.length,
+            removals: total.removals + change.removals.length,
+          }),
+          { additions: 0, removals: 0 },
+        );
+  const repairs = reportRepositoryExclusionRepairs(report)
+    .filter((repair) => repair.class === "exclusion-section")
+    .reduce((count, repair) => count + repair.entries.length, 0);
   const parts: string[] = [];
   if (delta.additions > 0) {
     parts.push(`${plural(delta.additions, "entry", "entries")} ${completed ? "added" : "to add"}`);
@@ -2706,7 +2711,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 8 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 9 as const;
 
 /**
  * One version line per JSON command family: every `install-temp`/`remove-temp`
@@ -2786,10 +2791,18 @@ function canonicalMachineProject(project: ReconciliationProjectRecord): unknown 
       next: [...change.next],
       target: change.target,
     })).sort((left, right) => left.target.localeCompare(right.target)),
-    repositoryExclusionRepairs: project.repositoryExclusionRepairs.map((repair) => ({
-      entries: [...repair.entries],
-      target: repair.target,
-    })).sort((left, right) => left.target.localeCompare(right.target)),
+    repositoryExclusionRepairs: project.repositoryExclusionRepairs
+      .map((repair) => ({
+        ...(repair.class === "missing-contribution"
+          ? { installationId: repair.installationId }
+          : {}),
+        class: repair.class,
+        entries: [...repair.entries],
+        target: repair.target,
+      }))
+      .sort((left, right) =>
+        left.target.localeCompare(right.target) || left.class.localeCompare(right.class)
+      ),
   };
 }
 
@@ -2811,6 +2824,7 @@ function canonicalMachineOutcome(
     report.projects.some((project) =>
       project.state.kind !== "current" ||
       project.outputs.some((output) => output.kind !== "unchanged") ||
+      project.repositoryExclusionRepairs.length > 0 ||
       project.warnings.some((warning) => warning.kind === "host-attention")
     )
   ) return "attention";

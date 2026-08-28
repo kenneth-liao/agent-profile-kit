@@ -34,6 +34,20 @@ import {
   type BlockerInput,
   type ReconciliationBlocker,
 } from "./blockers.js";
+import {
+  isMissingContributionRepair,
+  withProvenSafeRepairs,
+  type MissingContributionRepair,
+  type SafeRepairEligibility,
+  type SafeRepairExclusionRepair,
+} from "./safe-repair.js";
+
+/**
+ * Repository-local exclusion repairs carry the exhaustive typed Safe Repair
+ * boundary (ADR-0022): a damaged recorded section (`exclusion-section`) or a
+ * provably missing receipt contribution (`missing-contribution`).
+ */
+export type RepositoryExclusionRepair = SafeRepairExclusionRepair;
 
 const BEGIN = "# BEGIN Agent Profile Kit generated paths";
 const BEGIN_WITH_SEPARATOR = `${BEGIN} (separator owned)`;
@@ -285,11 +299,6 @@ interface Target {
 export interface RepositoryExclusionChange {
   readonly current: readonly string[];
   readonly next: readonly string[];
-  readonly target: string;
-}
-
-export interface RepositoryExclusionRepair {
-  readonly entries: readonly string[];
   readonly target: string;
 }
 
@@ -546,6 +555,50 @@ function sortedUniqueEntries(entries: readonly string[]): readonly string[] {
   return [...new Set(entries)].sort(compareCanonicalStrings);
 }
 
+/**
+ * Decide whether a desired installation whose active receipt lacks its
+ * Repository Exclusion Contribution is an eligible missing-contribution Safe
+ * Repair. The caller establishes the remaining proof set at the reconciliation
+ * boundary: an active receipt, a present Marker with matching identity and
+ * hash-proven owned roots (ownership proof), a live Project with a resolved Git
+ * target, untracked destinations without conflicts, and an otherwise-current
+ * desired write set, so the receipt can prove the exact contribution. This
+ * function owns the byte-level gate: the target's owned section must be absent
+ * or already contain exactly the recorded union plus the proven contribution,
+ * so publication can never disturb unprovable bytes.
+ */
+export async function missingContributionRepairEligibility(
+  previous: OwnershipReceipt,
+  git: GitProject,
+  state: OwnershipState,
+  gitInspection?: LifecycleGitInspection,
+): Promise<SafeRepairEligibility<MissingContributionRepair>> {
+  const ineligible: SafeRepairEligibility = {
+    cause: "incoherent-exclusion-bytes",
+    eligible: false,
+  };
+  const entries = expectedContributionEntries(previous, git.relativeProject);
+  const repair: MissingContributionRepair = {
+    class: "missing-contribution",
+    entries,
+    installationId: previous.installationId,
+    target: git.excludeFile,
+  };
+  try {
+    const snapshot = await readSnapshot(git, false, gitInspection);
+    const section = parseOwnedSection(snapshot.bytes, git.excludeFile);
+    if (section === undefined) return { eligible: true, repair };
+    const recorded =
+      repositoryExclusionRecords(state).find((record) => record.target === git.excludeFile)
+        ?.entries ?? [];
+    const expected = sortedUniqueEntries([...recorded, ...entries]);
+    if (!sameEntries(sectionEntries(snapshot.bytes, section), expected)) return ineligible;
+    return { eligible: true, repair };
+  } catch {
+    return ineligible;
+  }
+}
+
 function sameEntries(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((entry, index) => entry === right[index]);
 }
@@ -633,7 +686,13 @@ async function existingInstallationForDesired(
 async function repositoryExclusionOwnershipBlockers(
   state: OwnershipState,
   desired: readonly DesiredInstallation[],
+  eligibleMissingContributionRepairs: readonly SafeRepairExclusionRepair[],
 ): Promise<readonly BlockerInput[]> {
+  const eligibleMissingContributionIds = new Set(
+    eligibleMissingContributionRepairs
+      .filter(isMissingContributionRepair)
+      .map((repair) => repair.installationId),
+  );
   const blockers: BlockerInput[] = [];
   for (const installation of desired) {
     const git = installation.gitProject;
@@ -642,12 +701,14 @@ async function repositoryExclusionOwnershipBlockers(
     if (!previous) continue;
     const contribution = contributionFor(repositoryExclusionRecords(state), previous.installationId);
     if (!contribution) {
-      blockers.push(repositoryExclusionContributionBlocker({
-        affectedItems: [{ kind: "installation-id", value: previous.installationId }],
-        message:
-          `${installation.binding.canonicalProject} is missing its Git exclusion ` +
-          `contribution for Installation ID ${previous.installationId}`,
-      }));
+      if (!eligibleMissingContributionIds.has(previous.installationId)) {
+        blockers.push(repositoryExclusionContributionBlocker({
+          affectedItems: [{ kind: "installation-id", value: previous.installationId }],
+          message:
+            `${installation.binding.canonicalProject} is missing its Git exclusion ` +
+            `contribution for Installation ID ${previous.installationId}`,
+        }));
+      }
       continue;
     }
     const moved = previous.project !== installation.binding.canonicalProject;
@@ -842,6 +903,12 @@ export async function gitExclusionBlockers(
   state: OwnershipState,
   desired: readonly DesiredInstallation[] = [],
   options: {
+    /**
+     * Missing-contribution Safe Repairs proven by the reconciliation boundary.
+     * Their Blockers are suppressed and their proven contributions validate the
+     * byte-level section check without persisting a second ownership record.
+     */
+    readonly eligibleMissingContributionRepairs?: readonly SafeRepairExclusionRepair[];
     readonly gitInspection?: LifecycleGitInspection;
     readonly retiringInstallationIds?: ReadonlySet<string>;
     readonly validateRecordedInstallations?: boolean;
@@ -849,8 +916,9 @@ export async function gitExclusionBlockers(
   } = {},
 ): Promise<readonly ReconciliationBlocker[]> {
   const validateRecordedInstallations = options.validateRecordedInstallations ?? desired.length === 0;
+  const eligibleMissingContributionRepairs = options.eligibleMissingContributionRepairs ?? [];
   const blockers: BlockerInput[] = [
-    ...await repositoryExclusionOwnershipBlockers(state, desired),
+    ...await repositoryExclusionOwnershipBlockers(state, desired, eligibleMissingContributionRepairs),
     ...await retiringInstallationOwnershipBlockers(
       state,
       desired,
@@ -864,8 +932,13 @@ export async function gitExclusionBlockers(
       )
       : []),
   ];
+  // Proven contributions count as expected section content for byte-level
+  // validation only; they are persisted by apply's ordinary state write.
+  const inspectionState = eligibleMissingContributionRepairs.length === 0
+    ? state
+    : withProvenSafeRepairs(state, eligibleMissingContributionRepairs);
   for (const target of await inspectionTargets(
-    state,
+    inspectionState,
     desired,
     options.retiringInstallationIds,
     options.includedInstallationIds,
@@ -930,18 +1003,29 @@ export async function gitExclusionDiagnostics(
   state: OwnershipState,
   desired: readonly DesiredInstallation[] = [],
   options: {
+    /**
+     * Missing-contribution Safe Repairs proven by the reconciliation boundary.
+     * Their contribution pass publishes the complete proven union at the
+     * target, so a separate recorded-section repair would publish a stale
+     * conflicting entry list and is suppressed here.
+     */
+    readonly eligibleMissingContributionRepairs?: readonly SafeRepairExclusionRepair[];
     readonly gitInspection?: LifecycleGitInspection;
     readonly includedInstallationIds?: ReadonlySet<string>;
   } = {},
 ): Promise<RepositoryExclusionDiagnostics> {
   const warnings: string[] = [];
   const repairs: RepositoryExclusionRepair[] = [];
+  const provenContributionTargets = new Set(
+    (options.eligibleMissingContributionRepairs ?? []).map((repair) => repair.target),
+  );
   for (const target of await inspectionTargets(
     state,
     desired,
     new Set(),
     options.includedInstallationIds,
   )) {
+    if (provenContributionTargets.has(target.git.excludeFile)) continue;
     try {
       const snapshot = await readSnapshot(
         target.git,
@@ -951,7 +1035,7 @@ export async function gitExclusionDiagnostics(
       const expected = new Set(target.current);
       if (expected.size > 0 && !parseOwnedSection(snapshot.bytes, target.git.excludeFile)) {
         warnings.push(`${target.git.excludeFile}${REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX}`);
-        repairs.push({ entries: [...target.current], target: target.git.excludeFile });
+        repairs.push({ class: "exclusion-section", entries: [...target.current], target: target.git.excludeFile });
       }
     } catch {
       // The blocker path owns malformed or unsafe exclusion diagnostics.
