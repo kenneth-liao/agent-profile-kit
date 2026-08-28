@@ -4080,6 +4080,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("a Git exclusion contribution whose target moved between proven Git targets is a Safe Repair through status and apply", async () => {
     const home = isolatedHome();
     await initialize(home);
+    installFakeClaude(home);
     const repository = gitRepository("agent-profile-kit-move-record-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -4181,6 +4182,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("a moved Git exclusion contribution with drifted old-target bytes blocks before writes", async () => {
     const home = isolatedHome();
     await initialize(home);
+    installFakeClaude(home);
     const repository = gitRepository("agent-profile-kit-move-drift-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -4210,6 +4212,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("a moved Git exclusion contribution with an unprovable old target blocks before writes", async () => {
     const home = isolatedHome();
     await initialize(home);
+    installFakeClaude(home);
     const repository = gitRepository("agent-profile-kit-move-unprovable-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -4234,6 +4237,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("a moved Git exclusion contribution with a changing desired write set blocks before writes", async () => {
     const home = isolatedHome();
     await initialize(home);
+    installFakeClaude(home);
     const repository = gitRepository("agent-profile-kit-move-source-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -4261,6 +4265,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("a moved contribution repair rolls back and stays retryable", async () => {
     const home = isolatedHome();
     await initialize(home);
+    installFakeClaude(home);
     const repository = gitRepository("agent-profile-kit-move-rollback-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -4305,6 +4310,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("a moved contribution repair preserves every other contribution at the old shared target", async () => {
     const home = isolatedHome();
     await initialize(home);
+    installFakeClaude(home);
     const repository = gitRepository("agent-profile-kit-move-shared-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -4379,6 +4385,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("a blocked sibling sharing either move target blocks the coupled move repair", async () => {
     const home = isolatedHome();
     await initialize(home);
+    installFakeClaude(home);
     const repository = gitRepository("agent-profile-kit-move-coupled-");
     const nested = join(repository, "nested");
     mkdirSync(nested);
@@ -4435,6 +4442,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("a moved contribution repair proves both targets through a linked worktree", async () => {
     const home = isolatedHome();
     await initialize(home);
+    installFakeClaude(home);
     const repository = gitRepository("agent-profile-kit-move-worktree-");
     execFileSync("git", ["-C", repository, "worktree", "add", "--detach", "wt", "HEAD"]);
     const nested = join(repository, "wt", "app");
