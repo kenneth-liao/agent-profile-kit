@@ -33,6 +33,7 @@ import {
   NON_CURRENT_STATE_ORDER,
 } from "../cli/presentation.js";
 import type { ApplicationInfo } from "../installer/info.js";
+import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 import {
   renderHumanOutput,
   type TerminalPresentationContext,
@@ -1592,7 +1593,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(output).not.toContain("Use sync as authored");
   });
 
-  test("groups tracked-output ownership conflicts into one explained blocker with capped paths", () => {
+  test("groups tracked-output ownership conflicts into one explained blocker with deterministic directory groups", () => {
     const project = "/project-a";
     const paths = [
       ".agent-profile-kit/codex/context.md",
@@ -1632,11 +1633,13 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).toContain("Remedy:");
     expect(concise).toContain("keep repository ownership");
     expect(concise).toContain("intentionally remove");
-    expect(concise).toContain("Affected paths:");
-    expect(concise).toContain("- .agents/skills/s08");
+    expect(concise).toContain("Affected paths (15):");
+    expect(concise).toContain("- .agent-profile-kit/installation.json");
+    expect(concise).toContain("- .agent-profile-kit/codex/context.md");
+    expect(concise).toContain("- .agents/skills/ (12 paths)");
+    expect(concise).toContain("- .codex/hooks.json");
     expect(concise).not.toContain("/project-a/.agents/skills/s08");
-    expect(concise).not.toContain(".agents/skills/s11");
-    expect(concise).toContain("… 5 more paths; use --verbose to see all paths");
+    expect(concise).not.toContain("rm -r --cached");
 
     const verbose = formatLifecycleReport("status", report, { verbose: true });
 
@@ -1645,9 +1648,13 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("/project-a/.codex/hooks.json");
     expect(verbose.match(/Requirement:/g)).toHaveLength(1);
     expect(verbose).not.toContain("more paths");
+    expect(verbose).not.toContain("rm -r --cached");
+    expect(verbose).toContain(
+      "Recovery command: run apkit status --blockers-only --verbose to see the exact untracking command.",
+    );
   });
 
-  test("renders a single-path overflow pointer for ownership conflicts", () => {
+  test("renders every tracked path in one parent-directory group without an overflow cap", () => {
     const project = "/project-a";
     const paths = Array.from(
       { length: 11 },
@@ -1668,8 +1675,9 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("status", report);
 
-    expect(concise).toContain("… 1 more path; use --verbose to see all paths");
-    expect(concise).not.toContain("1 more paths");
+    expect(concise).toContain("Affected paths (11):");
+    expect(concise).toContain("- .agents/skills/ (11 paths)");
+    expect(concise).not.toContain("more path");
   });
 
   test("keeps project-scoped ownership conflicts distinct from global blockers", () => {
@@ -1707,6 +1715,278 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise.indexOf("Project: /project-a")).toBeGreaterThan(-1);
     expect(concise.indexOf("Project: /project-a")).toBeLessThan(
       concise.indexOf("Global blockers:"),
+    );
+  });
+
+  const ownershipReport = (
+    paths: readonly string[],
+    project = "/project-a",
+  ): ReconciliationReport =>
+    emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: [...paths],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project, reason: "tracked path" }],
+      blockers: [
+        normalizeBlocker(outputOwnershipConflictBlocker({ paths: [...paths], project })),
+      ],
+    });
+
+  const untrackCommandFor = (project: string, paths: readonly string[]): string =>
+    `git -C '${project}' rm -r --cached -- ${[...paths]
+      .sort((left, right) => compareCanonicalStrings(left, right))
+      .map((path) => `'${path.replaceAll("'", "'\\''")}'`)
+      .join(" ")}`;
+
+  test("groups concise tracked paths by immediate parent directory with lossless counts (#353)", () => {
+    const paths = [
+      ".agents/skills/b/deep.md",
+      ".agents/skills/a.md",
+      ".agents/skills/c.md",
+      ".codex/hooks.json",
+      "AGENTS.md",
+      "README.md",
+    ];
+    const concise = formatLifecycleReport("status", ownershipReport(paths));
+
+    expect(concise).toContain("Affected paths (6):");
+    expect(concise).toContain("- ./ (2 paths)");
+    expect(concise).toContain("- .agents/skills/ (2 paths)");
+    expect(concise).toContain("- .agents/skills/b/deep.md");
+    expect(concise).toContain("- .codex/hooks.json");
+    expect(concise).not.toContain("(1 path");
+  });
+
+  test("assigns paths under overlapping prefixes to exactly one group each (#353)", () => {
+    const paths = [
+      ".a/b/c.txt",
+      ".a/b/d/e.txt",
+      ".a/b/f.txt",
+    ];
+    const concise = formatLifecycleReport("status", ownershipReport(paths));
+
+    expect(concise).toContain("Affected paths (3):");
+    expect(concise).toContain("- .a/b/ (2 paths)");
+    expect(concise).toContain("- .a/b/d/e.txt");
+    expect(concise.match(/- \.a\//g)).toHaveLength(2);
+  });
+
+  test("renders concise tracked-path groups deterministically across repeated calls (#353)", () => {
+    const paths = [
+      ".b/two.md",
+      ".a/one.md",
+      ".a/sub/three.md",
+      "root.md",
+    ];
+    const first = formatLifecycleReport("status", ownershipReport(paths));
+    const second = formatLifecycleReport("status", ownershipReport(paths));
+
+    expect(second).toBe(first);
+    // Groups sort by canonical parent-directory key: ".", ".a", ".a/sub", ".b".
+    expect(first.split("\n").filter((line) => /^      - /.test(line))).toEqual([
+      "      - root.md",
+      "      - .a/one.md",
+      "      - .a/sub/three.md",
+      "      - .b/two.md",
+    ]);
+  });
+
+  test("focused verbose status prints one copyable untracking command with every proven path exactly once (#353)", () => {
+    const paths = [
+      ".b/space name.md",
+      ".a/one.md",
+      "-leading-dash.md",
+      "weird'name.md",
+    ];
+    const verbose = formatLifecycleReport(
+      "status",
+      ownershipReport(paths),
+      { blockersOnly: true, verbose: true },
+    );
+
+    const commandLines = verbose.split("\n").filter((line) => line.includes("rm -r --cached"));
+    expect(commandLines).toHaveLength(1);
+    const commandLine = commandLines[0] ?? "";
+    expect(commandLine.trim()).toBe(untrackCommandFor("/project-a", paths));
+    expect(commandLine).toContain("git -C '/project-a' rm -r --cached --");
+    expect(commandLine).toContain("-- '-leading-dash.md'");
+    expect(commandLine).toContain("'weird'\\''name.md'");
+  });
+
+  test("focused verbose recovery copy preserves working files and keeps the binding alternative (#353)", () => {
+    const verbose = formatLifecycleReport(
+      "status",
+      ownershipReport([".codex/hooks.json"]),
+      { blockersOnly: true, verbose: true },
+    );
+
+    expect(verbose).toContain(
+      "git -C '/project-a' rm -r --cached -- '.codex/hooks.json'",
+    );
+    expect(verbose).toContain("working files are preserved");
+    expect(verbose).toContain("Git ownership");
+    expect(verbose).toContain("change or remove the Project Binding");
+  });
+
+  test("ordinary concise, focused concise, and ordinary verbose point to focused diagnostics without the command (#353)", () => {
+    const report = ownershipReport([".codex/hooks.json", ".agents/skills/s01.md"]);
+    const concise = formatLifecycleReport("status", report);
+    const focusedConcise = formatLifecycleReport("status", report, { blockersOnly: true });
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+
+    for (const output of [concise, focusedConcise, verbose]) {
+      expect(output).toContain(
+        "Recovery command: run apkit status --blockers-only --verbose to see the exact untracking command.",
+      );
+      expect(output).not.toContain("rm -r --cached");
+    }
+  });
+
+  test("focused verbose apply views print the command while ordinary apply verbose only points to it (#353)", () => {
+    const paths = [".codex/hooks.json", ".agents/skills/s01.md"];
+    const project = "/project-b";
+    const receipt = emptyReport({
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: [...paths],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project, reason: "tracked path" }],
+      blockers: [
+        normalizeBlocker(outputOwnershipConflictBlocker({ paths: [...paths], project })),
+      ],
+    });
+    const command = untrackCommandFor("/project-b", paths);
+
+    const focusedApply = formatApplyReport(
+      applyResult(receipt, resultingState),
+      { blockersOnly: true, verbose: true },
+    );
+    expect(focusedApply.split("\n").filter((line) => line.includes("rm -r --cached")))
+      .toHaveLength(1);
+    expect(focusedApply).toContain(command);
+
+    const blockedApply = formatBlockedApplyReport(
+      asBlockedReport(resultingState),
+      { blockersOnly: true, verbose: true },
+    );
+    expect(blockedApply).toContain(command);
+
+    const executionFailure = formatApplyExecutionFailure({
+      failedProject: project,
+      message: "Apply failed while writing the Project",
+      pendingProjects: [],
+      receipt,
+      resultingState,
+    }, { blockersOnly: true, verbose: true });
+    expect(executionFailure).toContain(command);
+
+    const ordinaryVerbose = formatApplyReport(applyResult(receipt, resultingState), {
+      verbose: true,
+    });
+    expect(ordinaryVerbose).toContain(
+      "Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command.",
+    );
+    expect(ordinaryVerbose).not.toContain("rm -r --cached");
+  });
+
+  test("focused verbose verification failure prints the command while ordinary verbose only points to it (#353)", () => {
+    const paths = [".codex/hooks.json"];
+    const project = "/project-b";
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: [...paths],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project, reason: "tracked path" }],
+      blockers: [
+        normalizeBlocker(outputOwnershipConflictBlocker({ paths: [...paths], project })),
+      ],
+    });
+    const message = "Apply verification failed";
+
+    const focused = formatApplyVerificationFailure(receipt, message, {
+      blockersOnly: true,
+      verbose: true,
+    });
+    expect(focused.split("\n").filter((line) => line.includes("rm -r --cached")))
+      .toHaveLength(1);
+    expect(focused).toContain(untrackCommandFor("/project-b", paths));
+
+    const ordinary = formatApplyVerificationFailure(receipt, message, { verbose: true });
+    expect(ordinary).toContain(
+      "Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command.",
+    );
+    expect(ordinary).not.toContain("rm -r --cached");
+  });
+
+  test("large tracked-path sets render lossless groups and one complete command (#353)", () => {
+    const paths = [
+      ...Array.from({ length: 60 }, (_, index) => `.agents/skills/s${String(index).padStart(3, "0")}`),
+      ...Array.from({ length: 60 }, (_, index) => `.codex/prompts/p${String(index).padStart(3, "0")}`),
+      ...Array.from({ length: 30 }, (_, index) => `.opencode/agent/o${String(index).padStart(3, "0")}.md`),
+    ];
+    const concise = formatLifecycleReport("status", ownershipReport(paths));
+    expect(concise).toContain("Affected paths (150):");
+    expect(concise).toContain("- .agents/skills/ (60 paths)");
+    expect(concise).toContain("- .codex/prompts/ (60 paths)");
+    expect(concise).toContain("- .opencode/agent/ (30 paths)");
+
+    const verbose = formatLifecycleReport("status", ownershipReport(paths), {
+      blockersOnly: true,
+      verbose: true,
+    });
+    const commandLine = verbose
+      .split("\n")
+      .find((line) => line.includes("rm -r --cached"));
+    expect(commandLine).toBeDefined();
+    expect((commandLine ?? "").match(/'/g)).toHaveLength(302);
+  });
+
+  test("narrow terminals keep the untracking command on one unsplit line (#353)", () => {
+    const paths = [
+      ".codex/hooks.json",
+      ".agents/skills/a skill with spaces.md",
+      ".agent-profile-kit/installation.json",
+    ];
+    const verbose = formatLifecycleReport("status", ownershipReport(paths), {
+      blockersOnly: true,
+      verbose: true,
+      context: { color: false, interactive: true, width: 40 },
+    });
+    const command = untrackCommandFor("/project-a", paths);
+
+    const lines = verbose.split("\n");
+    expect(lines.filter((line) => line.includes(command))).toHaveLength(1);
+  });
+
+  test("machine JSON evidence stays byte-identical without any command text (#353)", () => {
+    const paths = [".codex/hooks.json", ".agents/skills/s01.md"];
+    const report = ownershipReport(paths);
+
+    const json = formatLifecycleJson("status", report);
+    expect(json).not.toContain("rm -r --cached");
+    for (const path of paths) {
+      expect(json.split(JSON.stringify(path))).toHaveLength(2);
+    }
+    expect(JSON.parse(json).projects[0].blockers[0].affectedItems).toEqual(
+      paths.sort(compareCanonicalStrings).map((path) => ({ kind: "path", value: path })),
     );
   });
 
