@@ -77,8 +77,8 @@ The single active ownership record for one ordinary or Temporary Profile Install
 _Avoid_: Installation Manifest, presentation history, selected Context, generated output
 
 **Repository Exclusion Contribution**:
-One active Installation Receipt's exact repository-local exclusion target and entries, owned by that receipt rather than by any separately persisted record. The Installer derives the deterministic shared-target union at planning time; no separate union is persisted. Structured Blockers use the `repository-exclusion-contribution` kind for this evidence.
-_Avoid_: Repository Exclusion Record, shared `.gitignore`, persisted target union, one exclusion owner per Profile Installation
+One active Installation Receipt's exact repository-local exclusion target and entries, owned by that receipt rather than by any separately persisted record. The Installer derives the deterministic shared-target union at planning time, represented in code by the `RepositoryExclusionRecord` planning type (`repositoryExclusionRecords()`); that type names the derived union only and persists nothing. Structured Blockers use the `repository-exclusion-contribution` kind for this evidence.
+_Avoid_: Repository Exclusion Record (as a separately persisted record), shared `.gitignore`, persisted target union, one exclusion owner per Profile Installation
 
 **Installation Marker**:
 The minimal Installer-owned file that travels with a project and links its Profile Installation to the machine-local Installation Receipt through an opaque installation ID. It proves continuity across a project-folder move, is lifecycle metadata rather than a generated output receipt, and contains no desired state.

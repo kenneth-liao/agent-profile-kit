@@ -133,8 +133,10 @@ Machine-readable command contracts:
   `requirement`, `remedy`, and `affectedItems`. Apply keeps an `applied` nested
   snapshot distinct from the freshly verified resulting Project records; failed
   Project transactions also identify the failed and still-pending Projects.
-  Blocked `install-temp`/`remove-temp` JSON retains its own versioned structured
-  blocker contract. Combined with `--verbose`, machine output wins.
+  Every `install-temp`/`remove-temp` JSON payload — success receipt, blocked,
+  and tool error — versions as one family and currently publishes
+  `schemaVersion: 8`, the same number as the lifecycle family; the two lines
+  evolve independently (ADR-0023). Combined with `--verbose`, machine output wins.
 - Exit codes: `0` no tool error and no blockers (JSON `outcome` may still be
   `attention` for pending work), `1` tool error (JSON `outcome: "error"` with
   an `error` string when `--json` was accepted), `2` blockers present.

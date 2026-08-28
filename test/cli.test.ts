@@ -9887,7 +9887,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       }[];
       readonly warnings: readonly string[];
     };
-    expect(receipt.schemaVersion).toBe(2);
+    expect(receipt.schemaVersion).toBe(8);
     expect(receipt.command).toBe("install-temp");
     expect(receipt.outcome).toBe("success");
     expect(receipt.profileId).toBe("coding");
@@ -10421,7 +10421,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       readonly setupSteps: readonly unknown[];
       readonly warnings: readonly string[];
     };
-    expect(receipt.schemaVersion).toBe(2);
+    expect(receipt.schemaVersion).toBe(8);
     expect(receipt.command).toBe("install-temp");
     expect(receipt.outcome).toBe("success");
     expect(receipt.profileId).toBe("coding");
@@ -10812,7 +10812,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
       }[];
       readonly warnings: readonly string[];
     };
-    expect(receipt.schemaVersion).toBe(2);
+    expect(receipt.schemaVersion).toBe(8);
     expect(receipt.command).toBe("install-temp");
     expect(receipt.outcome).toBe("success");
     expect(receipt.profileId).toBe("coding");

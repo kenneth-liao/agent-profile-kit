@@ -185,7 +185,7 @@ describe("shared blocker contract", () => {
     } as never)).toThrow(/Unknown structured blocker kind "repository-exclusion-record"/);
   });
 
-  test("temporary-installation blocked JSON publishes structured evidence at schema version 2", () => {
+  test("temporary-installation blocked JSON publishes structured evidence at the family schema version", () => {
     const structured = normalizeBlocker(HOST_CAPABILITY_INPUT);
 
     const payload = JSON.parse(
