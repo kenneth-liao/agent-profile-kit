@@ -123,7 +123,7 @@ Machine-readable command contracts:
   Project paths, Profile IDs, and Hosts. Removed identities and ordinary
   installations are omitted. It reads Installation State only and never runs
   reconciliation or changes state.
-- Lifecycle `--json` on `status` and `apply` prints a `schemaVersion: 7`
+- Lifecycle `--json` on `status` and `apply` prints a `schemaVersion: 8`
   object with global Blockers and one deterministic record per Project. Each
   Project record keeps desired identity, state, output operations with consuming
   Hosts, structured warnings classified as `diagnostic` or `host-attention`

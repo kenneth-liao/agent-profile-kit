@@ -28,7 +28,7 @@ import {
 import {
   normalizeBlocker,
   repositoryExclusionInvalidBlocker,
-  repositoryExclusionRecordBlocker,
+  repositoryExclusionContributionBlocker,
   repositoryExclusionSectionMissingBlocker,
   repositoryExclusionTargetUnprovenBlocker,
   type BlockerInput,
@@ -642,24 +642,24 @@ async function repositoryExclusionOwnershipBlockers(
     if (!previous) continue;
     const contribution = contributionFor(repositoryExclusionRecords(state), previous.installationId);
     if (!contribution) {
-      blockers.push(repositoryExclusionRecordBlocker({
+      blockers.push(repositoryExclusionContributionBlocker({
         affectedItems: [{ kind: "installation-id", value: previous.installationId }],
         message:
           `${installation.binding.canonicalProject} is missing its Git exclusion ` +
-          `record for Installation ID ${previous.installationId}`,
+          `contribution for Installation ID ${previous.installationId}`,
       }));
       continue;
     }
     const moved = previous.project !== installation.binding.canonicalProject;
     if (moved) continue;
     if (contribution.record.target !== git.excludeFile) {
-      blockers.push(repositoryExclusionRecordBlocker({
+      blockers.push(repositoryExclusionContributionBlocker({
         affectedItems: [
           { kind: "path", value: contribution.record.target },
           { kind: "path", value: git.excludeFile },
         ],
         message:
-          `${installation.binding.canonicalProject} Git exclusion record for ` +
+          `${installation.binding.canonicalProject} Git exclusion contribution for ` +
           `Installation ID ${previous.installationId} targets ${contribution.record.target}, ` +
           `expected ${git.excludeFile}`,
       }));
@@ -667,11 +667,11 @@ async function repositoryExclusionOwnershipBlockers(
     }
     const expected = expectedContributionEntries(previous, git.relativeProject);
     if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
-      blockers.push(repositoryExclusionRecordBlocker({
+      blockers.push(repositoryExclusionContributionBlocker({
         affectedItems: [{ kind: "path", value: git.excludeFile }],
         message:
-          `${git.excludeFile} Git exclusion record for Installation ID ` +
-          `${previous.installationId} does not match its recorded installation record contribution`,
+          `${git.excludeFile} Git exclusion contribution for Installation ID ` +
+          `${previous.installationId} does not match the entries recorded by its installation record`,
       }));
     }
   }
@@ -695,10 +695,10 @@ async function retiringInstallationOwnershipBlockers(
     );
     if (contributionLinks.length === 0) {
       if (hasKnownExclusionTargetForProject(state, desired, installation.project)) {
-        blockers.push(repositoryExclusionRecordBlocker({
+        blockers.push(repositoryExclusionContributionBlocker({
           affectedItems: [{ kind: "installation-id", value: installation.installationId }],
           message:
-            `${installation.project} is missing its Git exclusion record for ` +
+            `${installation.project} is missing its Git exclusion contribution for ` +
             `Installation ID ${installation.installationId}`,
         }));
       }
@@ -707,21 +707,21 @@ async function retiringInstallationOwnershipBlockers(
     // Keep this defensive check for callers that construct state in memory
     // without passing through the parser's cross-record uniqueness boundary.
     if (contributionLinks.length !== 1) {
-      blockers.push(repositoryExclusionRecordBlocker({
+      blockers.push(repositoryExclusionContributionBlocker({
         affectedItems: [{ kind: "installation-id", value: installation.installationId }],
         message:
-          `${installation.project} has duplicate Git exclusion records for ` +
+          `${installation.project} has duplicate Git exclusion contributions for ` +
           `Installation ID ${installation.installationId}`,
       }));
       continue;
     }
     const { contribution, record } = contributionLinks[0]!;
     if (!hasExpectedContributionEntries(installation, { entries: contribution.entries, record })) {
-      blockers.push(repositoryExclusionRecordBlocker({
+      blockers.push(repositoryExclusionContributionBlocker({
         affectedItems: [{ kind: "path", value: record.target }],
         message:
-          `${record.target} Git exclusion record for Installation ID ` +
-          `${installation.installationId} does not match its recorded installation record contribution`,
+          `${record.target} Git exclusion contribution for Installation ID ` +
+          `${installation.installationId} does not match the entries recorded by its installation record`,
       }));
     }
   }
@@ -770,29 +770,29 @@ async function recordedInstallationOwnershipBlockers(
       if (contribution) {
         blockers.push(repositoryExclusionTargetUnprovenBlocker({
           message:
-            `${installation.project} has a Git exclusion record but is no longer a Git project`,
+            `${installation.project} has a Git exclusion contribution but is no longer a Git project`,
           project: installation.project,
         }));
       }
       continue;
     }
     if (!contribution) {
-      blockers.push(repositoryExclusionRecordBlocker({
+      blockers.push(repositoryExclusionContributionBlocker({
         affectedItems: [{ kind: "installation-id", value: installation.installationId }],
         message:
-          `${installation.project} is missing its Git exclusion record for ` +
+          `${installation.project} is missing its Git exclusion contribution for ` +
           `Installation ID ${installation.installationId}`,
       }));
       continue;
     }
     if (contribution.record.target !== git.excludeFile) {
-      blockers.push(repositoryExclusionRecordBlocker({
+      blockers.push(repositoryExclusionContributionBlocker({
         affectedItems: [
           { kind: "path", value: contribution.record.target },
           { kind: "path", value: git.excludeFile },
         ],
         message:
-          `${installation.project} Git exclusion record for Installation ID ` +
+          `${installation.project} Git exclusion contribution for Installation ID ` +
           `${installation.installationId} targets ${contribution.record.target}, ` +
           `expected ${git.excludeFile}`,
       }));
@@ -800,11 +800,11 @@ async function recordedInstallationOwnershipBlockers(
     }
     const expected = expectedContributionEntries(installation, git.relativeProject);
     if (!sameEntries(sortedUniqueEntries(contribution.entries), expected)) {
-      blockers.push(repositoryExclusionRecordBlocker({
+      blockers.push(repositoryExclusionContributionBlocker({
         affectedItems: [{ kind: "path", value: git.excludeFile }],
         message:
-          `${git.excludeFile} Git exclusion record for Installation ID ` +
-          `${installation.installationId} does not match its recorded installation record contribution`,
+          `${git.excludeFile} Git exclusion contribution for Installation ID ` +
+          `${installation.installationId} does not match the entries recorded by its installation record`,
       }));
     }
   }
@@ -897,7 +897,7 @@ export async function gitExclusionBlockers(
           }));
         }
         if (projects.length === 0) {
-          blockers.push(repositoryExclusionRecordBlocker({
+          blockers.push(repositoryExclusionContributionBlocker({
             affectedItems: [{ kind: "path", value: target.git.excludeFile }],
             message: `${target.git.excludeFile} has no Project identity for its recorded exclusion ownership`,
           }));
@@ -914,7 +914,7 @@ export async function gitExclusionBlockers(
         }));
       }
       if (projects.length === 0) {
-        blockers.push(repositoryExclusionRecordBlocker({
+        blockers.push(repositoryExclusionContributionBlocker({
           affectedItems: [{ kind: "path", value: target.git.excludeFile }],
           message: error instanceof Error ? error.message : String(error),
         }));

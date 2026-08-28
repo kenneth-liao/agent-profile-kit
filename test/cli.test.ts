@@ -2245,7 +2245,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly schemaVersion: number;
       readonly projects: readonly { readonly outputs: readonly { readonly kind: string }[] }[];
     };
-    expect(payload.schemaVersion).toBe(7);
+    expect(payload.schemaVersion).toBe(8);
     expect(payload.projects.flatMap((project) => project.outputs)
       .filter((output) => output.kind === "update")).toHaveLength(12);
 
@@ -2334,12 +2334,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly command: string;
         readonly schemaVersion: number;
       };
-      expect(payload.schemaVersion).toBe(7);
+      expect(payload.schemaVersion).toBe(8);
       expect(payload.command).toBe(command);
 
       const both = await runCli(home, command, "--verbose", "--json");
       expectExitCode(both, 0);
-      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 7 });
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 8 });
 
       const unsupported = await runCli(home, command, "--yaml");
       expectExitCode(unsupported, 1);
@@ -2479,7 +2479,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
-        schemaVersion: 7,
+        schemaVersion: 8,
       });
     }
 
@@ -2524,7 +2524,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly schemaVersion: number;
       };
       expect(payload).toMatchObject({
-        schemaVersion: 7,
+        schemaVersion: 8,
         command,
         outcome: "error",
       });
@@ -2544,14 +2544,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
-        schemaVersion: 7,
+        schemaVersion: 8,
       });
     }
     const firstApply = await runCli(pendingHome, "apply", "--json");
     expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "apply",
-      schemaVersion: 7,
+      schemaVersion: 8,
     });
     expect(["clean", "attention"]).toContain(
       (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
@@ -3395,7 +3395,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status");
 
     expectExitCode(status, 2);
-    expect(status.stdout).toContain("missing its Git exclusion record");
+    expect(status.stdout).toContain("missing its Git exclusion contribution");
     expect(readFileSync(exclude).equals(beforeExclude)).toBe(true);
     expectExitCode(await runCli(home, "apply"), 2);
   });
@@ -3434,7 +3434,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status");
 
     expectExitCode(status, 2);
-    expect(humanText(status.stdout)).toContain("does not match its recorded installation record contribution");
+    expect(humanText(status.stdout)).toContain("does not match the entries recorded by its installation record");
     expectExitCode(await runCli(home, "apply"), 2);
   });
 
@@ -3569,7 +3569,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(exclude, "utf8")).not.toContain("/nested/");
   });
 
-  test("missing Git exclusion record blocks an existing Git installation before writes", async () => {
+  test("missing Git exclusion contribution blocks an existing Git installation before writes", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-missing-record-");
@@ -3587,13 +3587,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCliAt(home, repository, "status");
 
     expectExitCode(status, 2);
-    expect(status.stdout).toContain("missing its Git exclusion record");
+    expect(status.stdout).toContain("missing its Git exclusion contribution");
     expect(status.stdout).toContain("Affected path:");
     expect(status.stdout).toContain(realpathSync(repository));
     expect(readFileSync(exclude).equals(before)).toBe(true);
   });
 
-  test("uninstall rejects a Git exclusion record attached to the wrong Git target", async () => {
+  test("uninstall rejects a Git exclusion contribution attached to the wrong Git target", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-wrong-record-target-");
@@ -5231,7 +5231,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(moved, ".git", "info", "exclude"), "utf8")).toContain("/.codex/hooks.json");
   });
 
-  test("a moved Git project converges when its destination shares another repository exclusion record", async () => {
+  test("a moved Git project converges when its destination shares another repository exclusion contribution", async () => {
     const home = isolatedHome();
     await initialize(home);
     const original = gitRepository("agent-profile-kit-cross-repo-move-a-");
@@ -10110,7 +10110,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       readonly blockers: readonly Record<string, unknown>[];
     };
     expect(blocked.outcome).toBe("blocked");
-    expect(blocked.schemaVersion).toBe(2);
+    expect(blocked.schemaVersion).toBe(8);
     expect(blocked.blockers.some((blocker) => /tracked project path/i.test(String(blocker.message)))).toBe(true);
     expect(blocked.blockers.some((blocker) => blocker.kind === "output-ownership-conflict" && blocker.scope === "project")).toBe(true);
     expect(blocked.blockers.some((blocker) => (
@@ -10247,7 +10247,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       readonly blockers: readonly Record<string, unknown>[];
     };
     expect(blocked.outcome).toBe("blocked");
-    expect(blocked.schemaVersion).toBe(2);
+    expect(blocked.schemaVersion).toBe(8);
     expect(blocked.blockers.some((blocker) => /active Temporary Profile Installation/i.test(String(blocker.message))))
       .toBe(true);
     expect(blocked.blockers.some((blocker) => blocker.kind === "temporary-installation-conflict" && blocker.scope === "project"))
@@ -10719,7 +10719,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       readonly blockers: readonly Record<string, unknown>[];
     };
     expect(payload.outcome).toBe("blocked");
-    expect(payload.schemaVersion).toBe(2);
+    expect(payload.schemaVersion).toBe(8);
     expect(payload.blockers.some((blocker) => /Claude CLI|requires 2\.0\.64/i.test(String(blocker.message))))
       .toBe(true);
     expect(payload.blockers.some((blocker) => blocker.kind === "host-capability" && blocker.scope === "project"))
@@ -10974,7 +10974,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
       readonly blockers: readonly Record<string, unknown>[];
     };
     expect(payload.outcome).toBe("blocked");
-    expect(payload.schemaVersion).toBe(2);
+    expect(payload.schemaVersion).toBe(8);
     expect(payload.blockers.some((blocker) => /OpenCode 1\.18\.22 does not support native project instructions or Skills/i.test(String(blocker.message))))
       .toBe(true);
     expect(payload.blockers.some((blocker) => blocker.kind === "host-capability" && blocker.scope === "project"))

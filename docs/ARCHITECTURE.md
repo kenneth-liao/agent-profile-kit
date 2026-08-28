@@ -122,7 +122,7 @@ in `cli/presentation.ts`: exit `0` means no tool error and no
 blockers (JSON `outcome` may still be `attention` for pending work), exit `1`
 is a tool error (`outcome: "error"` under `--json` when flags were accepted),
 and exit `2` means blockers are present. The lifecycle JSON contract is versioned
-(`schemaVersion: 7`) and publishes global Blockers plus one deterministic record
+(`schemaVersion: 8`) and publishes global Blockers plus one deterministic record
 per Project. Each Project record owns desired identity, state, observable output
 operations with consuming Hosts, Project Blockers, structured warnings classified
 as `diagnostic` or `host-attention` with their copyable values, Host Setup Steps,

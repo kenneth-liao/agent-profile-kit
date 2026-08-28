@@ -150,7 +150,10 @@ export const DEFAULT_VIEW_LEXICON = {
     plural: "Git exclusions",
     singular: "Git exclusion",
   },
-  repositoryExclusionRecord: { singular: "Git exclusion record", plural: "Git exclusion records" },
+  repositoryExclusionContribution: {
+    singular: "Git exclusion contribution",
+    plural: "Git exclusion contributions",
+  },
   temporaryProfileInstallation: {
     action: "temporary install",
     plural: "temporary Profiles",
@@ -2707,7 +2710,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 7 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 8 as const;
 
 function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
   return {
@@ -3086,7 +3089,7 @@ export function formatTemporaryInstallationBlockedJson(
 ): string {
   return `${JSON.stringify(
     {
-      schemaVersion: 2,
+      schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
       command,
       outcome: "blocked",
       blockers: blockers.map(machineBlocker),
