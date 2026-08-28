@@ -123,7 +123,7 @@ Machine-readable command contracts:
   Project paths, Profile IDs, and Hosts. Removed identities and ordinary
   installations are omitted. It reads Installation State only and never runs
   reconciliation or changes state.
-- Lifecycle `--json` on `status` and `apply` prints a `schemaVersion: 8`
+- Lifecycle `--json` on `status` and `apply` prints a `schemaVersion: 11`
   object with global Blockers and one deterministic record per Project. Each
   Project record keeps desired identity, state, output operations with consuming
   Hosts, structured warnings classified as `diagnostic` or `host-attention`
@@ -135,8 +135,8 @@ Machine-readable command contracts:
   Project transactions also identify the failed and still-pending Projects.
   Every `install-temp`/`remove-temp` JSON payload — success receipt, blocked,
   and tool error — versions as one family and currently publishes
-  `schemaVersion: 8`, the same number as the lifecycle family; the two lines
-  evolve independently (ADR-0023). Combined with `--verbose`, machine output wins.
+  `schemaVersion: 8`; the two families evolve independently (ADR-0023).
+  Combined with `--verbose`, machine output wins.
 - Exit codes: `0` no tool error and no blockers (JSON `outcome` may still be
   `attention` for pending work), `1` tool error (JSON `outcome: "error"` with
   an `error` string when `--json` was accepted), `2` blockers present.

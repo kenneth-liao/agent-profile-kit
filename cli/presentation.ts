@@ -82,6 +82,12 @@ function reportHasHostAttention(report: ReconciliationReport): boolean {
 }
 import { REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX } from "../installer/git-exclusions.js";
 import {
+  isContributionRepair,
+  publishedContribution,
+  safeRepairTargets,
+  type SafeRepairExclusionRepair,
+} from "../installer/safe-repair.js";
+import {
   isStructuredBlocker,
   OUTPUT_OWNERSHIP_CONFLICT,
   type BlockerAffectedItem,
@@ -915,12 +921,19 @@ function changedRepositoryExclusions(
   );
 }
 
+/** The exact entries one exclusion repair publishes at its target. */
+function repairEntries(repair: SafeRepairExclusionRepair): readonly string[] {
+  return isContributionRepair(repair)
+    ? publishedContribution(repair).entries
+    : repair.entries;
+}
+
 function repositoryExclusionRepairLines(
   report: ReconciliationReport,
   completed = false,
 ): readonly string[] {
   return reportRepositoryExclusionRepairs(report).map((repair) => {
-    const count = repair.entries.length;
+    const count = repairEntries(repair).length;
     const noun = `Git exclusion ${count === 1 ? "entry" : "entries"}`;
     if (repair.class === "missing-contribution") {
       return `${repair.target}: ${completed ? "recorded" : "will record"} ${count} ${noun}`;
@@ -929,6 +942,9 @@ function repositoryExclusionRepairLines(
       const staleCount = repair.currentEntries.length;
       const staleNoun = `Git exclusion ${staleCount === 1 ? "entry" : "entries"}`;
       return `${repair.target}: ${completed ? "replaced" : "will replace"} ${staleCount} stale ${staleNoun} with ${count} ${noun}`;
+    }
+    if (repair.class === "moved-contribution") {
+      return `${repair.nextTarget}: ${completed ? "moved" : "will move"} ${count} ${noun} from ${repair.currentTarget}`;
     }
     return `${repair.target}: ${completed ? "restored" : "will restore"} ${count} recorded ${noun}`;
   });
@@ -962,8 +978,8 @@ function repositoryExclusionClause(
 ): string | undefined {
   const provenContributionTargets = new Set(
     reportRepositoryExclusionRepairs(report)
-      .filter((repair) => repair.class === "missing-contribution" || repair.class === "stale-contribution")
-      .map((repair) => repair.target),
+      .filter((repair) => repair.class !== "exclusion-section")
+      .flatMap(safeRepairTargets),
   );
   const changes = changedRepositoryExclusions(report);
   // Ready status keeps only proven-contribution attention; one delta function
@@ -2378,8 +2394,8 @@ function lifecycleCopyableValues(
       for (const entry of [...exclusion.current, ...exclusion.next]) values.add(entry);
     }
     for (const repair of reportRepositoryExclusionRepairs(report)) {
-      values.add(repair.target);
-      for (const entry of repair.entries) values.add(entry);
+      for (const target of safeRepairTargets(repair)) values.add(target);
+      for (const entry of repairEntries(repair)) values.add(entry);
     }
     for (const value of reportWarningValues(report)) values.add(value);
   }
@@ -2722,7 +2738,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 10 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 11 as const;
 
 /**
  * One version line per JSON command family: every `install-temp`/`remove-temp`
@@ -2802,21 +2818,50 @@ function canonicalMachineProject(project: ReconciliationProjectRecord): unknown 
       next: [...change.next],
       target: change.target,
     })).sort((left, right) => left.target.localeCompare(right.target)),
-    repositoryExclusionRepairs: project.repositoryExclusionRepairs
-      .map((repair) => ({
-        ...(repair.class === "missing-contribution" || repair.class === "stale-contribution"
-          ? { installationId: repair.installationId }
-          : {}),
-        ...(repair.class === "stale-contribution"
-          ? { current: [...repair.currentEntries], next: [...repair.entries] }
-          : { entries: [...repair.entries] }),
-        class: repair.class,
-        target: repair.target,
-      }))
+    repositoryExclusionRepairs: [...project.repositoryExclusionRepairs]
       .sort((left, right) =>
-        left.target.localeCompare(right.target) || left.class.localeCompare(right.class)
-      ),
+        safeRepairTargets(left)[0]!.localeCompare(safeRepairTargets(right)[0]!) ||
+        left.class.localeCompare(right.class))
+      .map(machineRepositoryExclusionRepair),
   };
+}
+
+/**
+ * One exclusion repair's canonical machine record. Every class publishes its
+ * own explicit key set; a moved contribution names both targets and both entry
+ * sets explicitly (`currentTarget`/`nextTarget`, `current`/`next`).
+ */
+function machineRepositoryExclusionRepair(
+  repair: SafeRepairExclusionRepair,
+): Record<string, unknown> {
+  switch (repair.class) {
+    case "exclusion-section":
+      return { class: repair.class, entries: [...repair.entries], target: repair.target };
+    case "missing-contribution":
+      return {
+        class: repair.class,
+        entries: [...repair.entries],
+        installationId: repair.installationId,
+        target: repair.target,
+      };
+    case "stale-contribution":
+      return {
+        class: repair.class,
+        current: [...repair.currentEntries],
+        installationId: repair.installationId,
+        next: [...repair.entries],
+        target: repair.target,
+      };
+    case "moved-contribution":
+      return {
+        class: repair.class,
+        current: [...repair.current],
+        currentTarget: repair.currentTarget,
+        installationId: repair.installationId,
+        next: [...repair.next],
+        nextTarget: repair.nextTarget,
+      };
+  }
 }
 
 function canonicalMachineSnapshot(report: ReconciliationReport): unknown {

@@ -67,6 +67,7 @@ import {
   gitExclusionBlockers,
   gitExclusionDiagnostics,
   missingContributionRepairEligibility,
+  movedContributionRepairEligibility,
   replaceRepositoryExclusionContribution,
   staleContributionRepairEligibility,
   repositoryExclusionChanges,
@@ -90,6 +91,7 @@ import {
 import {
   isContributionRepair,
   safeRepairItemClassification,
+  safeRepairTargets,
   withProvenContributions,
   withStagedCurrentContributions,
   type SafeRepairExclusionRepair,
@@ -859,19 +861,24 @@ function nestedReconciliationReport(
   }
   const repairsByCanonical = new Map<string, RepositoryExclusionRepair[]>();
   for (const repair of flat.repositoryExclusionRepairs) {
-    for (const project of exclusionProjects.get(repair.target) ?? []) {
-      const key = canonicalProject(project);
-      const records = repairsByCanonical.get(key) ?? [];
-      records.push(repair);
-      repairsByCanonical.set(key, records);
-      if (repair.class !== "exclusion-section") continue;
-      const warnings = warningsByCanonical.get(key) ?? [];
-      warnings.push({
-        copyableValues: [repair.target],
-        kind: "diagnostic",
-        message: `${repair.target}${REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX}`,
-      });
-      warningsByCanonical.set(key, warnings);
+    for (const target of safeRepairTargets(repair)) {
+      for (const project of exclusionProjects.get(target) ?? []) {
+        const key = canonicalProject(project);
+        const records = repairsByCanonical.get(key) ?? [];
+        // One moved repair covers two targets whose Project sets can overlap;
+        // each Project record carries the repair once.
+        if (records.includes(repair)) continue;
+        records.push(repair);
+        repairsByCanonical.set(key, records);
+        if (repair.class !== "exclusion-section") continue;
+        const warnings = warningsByCanonical.get(key) ?? [];
+        warnings.push({
+          copyableValues: [repair.target],
+          kind: "diagnostic",
+          message: `${repair.target}${REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX}`,
+        });
+        warningsByCanonical.set(key, warnings);
+      }
     }
   }
   const projectKeys = new Set([
@@ -1189,16 +1196,15 @@ export async function previewReconciliation(
       // contribution this lifecycle operation will publish only when every
       // remaining proof holds — ownership proof, no destination conflicts, and
       // an otherwise-current desired write set — and the recorded contribution
-      // is missing or stale at the unchanged live Git target. A changing
-      // desired source, Profile, Host set, or output set keeps a stale
-      // contribution blocking rather than proving one replacement and applying
-      // another through the ordinary update.
+      // is missing, stale at the unchanged live Git target, or moved between
+      // two independently proven targets. A changing desired source, Profile,
+      // Host set, or output set keeps the contribution blocking rather than
+      // proving one write set and applying another through the ordinary
+      // update.
       const contributionRepairProof =
         installation.gitProject !== undefined &&
         proof.owned &&
         outputConflicts.length === 0 &&
-        (previous.repositoryExclusion === undefined ||
-          previous.repositoryExclusion.target === installation.gitProject.excludeFile) &&
         previous.desiredInputDigest === installation.sourceHash &&
         previous.profileId === installation.profile.id &&
         hostReceiptsEqual(previous, installation) &&
@@ -1212,26 +1218,19 @@ export async function previewReconciliation(
         });
       let contributionRepair: SafeRepairExclusionRepair | undefined;
       if (contributionRepairProof) {
+        const git = installation.gitProject!;
         const eligibility = previous.repositoryExclusion === undefined
-          ? await missingContributionRepairEligibility(
-            previous,
-            installation.gitProject!,
-            state,
-            gitInspection,
-          )
-          : await staleContributionRepairEligibility(
-            previous,
-            installation.gitProject!,
-            state,
-            gitInspection,
-          );
+          ? await missingContributionRepairEligibility(previous, git, state, gitInspection)
+          : previous.repositoryExclusion.target === git.excludeFile
+            ? await staleContributionRepairEligibility(previous, git, state, gitInspection)
+            : await movedContributionRepairEligibility(previous, git, state, gitInspection);
         if (eligibility.eligible) {
           contributionRepair = eligibility.repair;
           eligibleContributionRepairs.push(eligibility.repair);
         } else {
           ineligibleContributionEvidence.set(previous.installationId, {
             cause: eligibility.cause,
-            target: installation.gitProject!.excludeFile,
+            target: git.excludeFile,
           });
         }
       }
@@ -2094,18 +2093,20 @@ async function applyReconciliationLocked(
       });
     }
   }
-  // Contribution Safe Repair pass (missing and stale): record every proven
-  // contribution in Installation State and publish the resulting union in one
-  // transaction. The staged current state carries only the missing-contribution
-  // overlay — a stale target's live section must still match its un-overlaid
-  // recorded union — while the staged next state carries the full proven
-  // overlay, so the byte plan only ever publishes the exact proven delta and
-  // never disturbs unrelated repository-local bytes.
+  // Contribution Safe Repair pass (missing, stale, and moved): record every
+  // proven contribution in Installation State and publish the resulting union
+  // in one transaction. The staged current state carries only the
+  // missing-contribution overlay — a stale target's live section must still
+  // match its un-overlaid recorded union, and a moved contribution's receipt
+  // stays un-overlaid so both of its targets gate against their recorded
+  // unions — while the staged next state carries the full proven overlay, so
+  // the byte plan only ever publishes the exact proven delta and never
+  // disturbs unrelated repository-local bytes.
   const pendingContributionRepairs = report.projects
     .filter((project) => !blockedProjects.has(project.canonicalProject))
     .flatMap((project) => project.repositoryExclusionRepairs)
     .filter(isContributionRepair);
-  const contributionTargets = new Set(pendingContributionRepairs.map((repair) => repair.target));
+  const contributionTargets = new Set(pendingContributionRepairs.flatMap(safeRepairTargets));
   if (contributionTargets.size > 0) {
     const stagedCurrentState = withStagedCurrentContributions(workingState, pendingContributionRepairs);
     const contributionState = withProvenContributions(workingState, pendingContributionRepairs);
