@@ -33,7 +33,9 @@ export interface OwnedOutputInspection {
   /**
    * On-disk classification of the output root. `missing` means the root itself
    * is proven absent (repairable); `unreadable` is an explicit non-repairable
-   * inspection failure for a root or traversal that cannot be proven.
+   * inspection failure for a root or traversal that cannot be proven; `other`
+   * covers a root that is not the recorded type and a readable root containing
+   * an unsupported member entry (distinguished by `unsupportedMember`).
    */
   readonly kind: "directory" | "file" | "missing" | "other" | "unreadable";
   /** Regular-file bytes when the output root is a regular file. */
@@ -44,6 +46,8 @@ export interface OwnedOutputInspection {
   readonly directoryHash?: string;
   /** Root mode when the output root is a regular file or directory. */
   readonly mode?: number;
+  /** Recorded-root-relative path of the first unsupported member entry. */
+  readonly unsupportedMember?: string;
 }
 
 /** One normalized Installation Marker evidence snapshot for one project root. */
@@ -143,7 +147,8 @@ async function inspectDirectoryOutput(
 
   try {
     const entries = await walk(root);
-    if (entries.some((entry) => entry.type === "other")) return { kind: "other", mode };
+    const unsupported = entries.find((entry) => entry.type === "other");
+    if (unsupported) return { kind: "other", mode, unsupportedMember: unsupported.path };
     const supported = entries.filter(
       (entry): entry is Exclude<DirectoryEntry, { readonly type: "other" }> => entry.type !== "other",
     );

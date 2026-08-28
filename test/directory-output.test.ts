@@ -260,19 +260,17 @@ describe("Installer-owned artifact-directory outputs", () => {
       project,
     }]);
     expect(reportOutputs(drifted).every((item) => !item.path.startsWith(`${directory.path}/`))).toBe(true);
-    expect(reportBlockers(drifted).some((blocker) =>
-      blocker.message.includes("owned output")
-    )).toBe(true);
+    expect(reportBlockers(drifted)).toEqual([]);
+    expect(reportItems(drifted)).toContainEqual({
+      kind: "drifted output",
+      project,
+      reason: directory.path,
+    });
 
     const updatedDirectory = normalizeAdapterPlans([
       skillDirectoryPlan("codex", { bytes: "# Updated Skill\n" }),
     ])[0]!;
     const updatedDesired = [withDirectoryOutput(base, updatedDirectory)];
-    // Restore owned content so update is not blocked by drift from this fixture.
-    writeFileSync(join(project, directory.path, "SKILL.md"), "# Demo Skill\n");
-    writeFileSync(join(project, directory.path, "scripts", "run.sh"), "#!/bin/sh\necho demo\n");
-    chmodSync(join(project, directory.path, "scripts", "run.sh"), 0o755);
-    rmSync(join(project, directory.path, "extra"), { recursive: true, force: true });
 
     const updatePreview = await previewReconciliation(updatedDesired, await readInstallationState(home));
     expect(reportOutputs(updatePreview)).toContainEqual({
@@ -282,7 +280,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     });
   });
 
-  test("aggregate-root proof rejects entry types, empty directories, symlinks, and root modes", async () => {
+  test("identity-proven roots refresh supported member differences and still block unsupported entries", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-root-boundaries-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-root-boundaries-project-");
     const base = await contextInstallation(home, project);
@@ -290,38 +288,41 @@ describe("Installer-owned artifact-directory outputs", () => {
     const desired = [withDirectoryOutput(base, directory)];
     await applyReconciliation(home, desired);
 
-    async function expectRootDrift(): Promise<void> {
+    async function expectRefreshDrift(): Promise<void> {
       const report = await previewReconciliation(desired, await readInstallationState(home));
       expect(reportOutputs(report).filter((output) => output.kind === "drifted output")).toEqual([{
         kind: "drifted output",
         path: directory.path,
         project,
       }]);
-      expect(reportBlockers(report)).not.toEqual([]);
+      expect(reportBlockers(report)).toEqual([]);
     }
 
     const skillPath = join(project, directory.path, "SKILL.md");
     rmSync(skillPath);
     mkdirSync(skillPath);
-    await expectRootDrift();
+    await expectRefreshDrift();
     rmSync(skillPath, { recursive: true });
     writeFileSync(skillPath, "# Demo Skill\n");
 
     const emptyPath = join(project, directory.path, "empty");
     mkdirSync(emptyPath);
-    await expectRootDrift();
+    await expectRefreshDrift();
     rmSync(emptyPath, { recursive: true });
 
     const scriptPath = join(project, directory.path, "scripts", "run.sh");
     rmSync(scriptPath);
     symlinkSync("../SKILL.md", scriptPath);
-    await expectRootDrift();
+    const unsupported = await previewReconciliation(desired, await readInstallationState(home));
+    expect(reportBlockers(unsupported).some((blocker) =>
+      blocker.message.includes("unsupported entry") && blocker.message.includes(directory.path)
+    )).toBe(true);
     rmSync(scriptPath);
     writeFileSync(scriptPath, "#!/bin/sh\necho demo\n");
     chmodSync(scriptPath, 0o755);
 
     chmodSync(join(project, directory.path), 0o700);
-    await expectRootDrift();
+    await expectRefreshDrift();
     chmodSync(join(project, directory.path), 0o755);
   });
 
@@ -395,7 +396,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(existsSync(join(project, directory.path))).toBe(false);
   });
 
-  test("preview reports member mode drift at the generated root", async () => {
+  test("preview reports member mode drift at the generated root as non-blocking refresh work", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-mode-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-mode-project-");
     const base = await contextInstallation(home, project);
@@ -412,9 +413,7 @@ describe("Installer-owned artifact-directory outputs", () => {
       path: directory.path,
       project,
     });
-    expect(reportBlockers(report).some((blocker) =>
-      blocker.message.includes(directory.path) && blocker.message.includes("will not overwrite")
-    )).toBe(true);
+    expect(reportBlockers(report)).toEqual([]);
   });
 
   test("preview reports combined member drift once at the generated root", async () => {
@@ -435,6 +434,59 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(reportOutputs(report).filter((output) =>
       output.kind === "drifted output" && output.path === directory.path
     )).toHaveLength(1);
+  });
+
+  test("a host scratch directory under an installed Skill root is non-blocking drift that apply restores", async () => {
+    const home = temporaryDirectory("agent-profile-kit-dir-scratch-home-");
+    const project = temporaryDirectory("agent-profile-kit-dir-scratch-project-");
+    const base = await contextInstallation(home, project);
+    const directory = normalizedDirectory();
+    const desired = [withDirectoryOutput(base, directory)];
+    await applyReconciliation(home, desired);
+
+    // Claude Code atomic-write scratch left inside the installed Skill root.
+    mkdirSync(join(project, directory.path, ".cc-writes"), { mode: 0o700 });
+
+    const preview = await previewReconciliation(desired, await readInstallationState(home));
+    expect(reportBlockers(preview)).toEqual([]);
+    expect(reportOutputs(preview)).toContainEqual({
+      kind: "drifted output",
+      path: directory.path,
+      project,
+    });
+
+    const applied = await applyReconciliation(home, desired);
+    expect(reportBlockers(applied.resultingState)).toEqual([]);
+    expect(reportOutputs(applied.resultingState)).toContainEqual({
+      kind: "unchanged",
+      path: directory.path,
+      project,
+    });
+    expect(existsSync(join(project, directory.path, ".cc-writes"))).toBe(false);
+    expect(readFileSync(join(project, directory.path, "SKILL.md"), "utf8")).toBe("# Demo Skill\n");
+  });
+
+  test("a recorded root that becomes a symlink stays blocking and is never followed", async () => {
+    const home = temporaryDirectory("agent-profile-kit-dir-symlink-root-home-");
+    const project = temporaryDirectory("agent-profile-kit-dir-symlink-root-project-");
+    const base = await contextInstallation(home, project);
+    const directory = normalizedDirectory();
+    await applyReconciliation(home, [withDirectoryOutput(base, directory)]);
+    const root = join(project, directory.path);
+    const external = temporaryDirectory("agent-profile-kit-dir-symlink-root-external-");
+    writeFileSync(join(external, "SKILL.md"), "external\n");
+    rmSync(root, { recursive: true });
+    symlinkSync(external, root);
+
+    const report = await previewReconciliation(
+      [withDirectoryOutput(base, directory)],
+      await readInstallationState(home),
+    );
+    expect(reportBlockers(report).some((blocker) =>
+      blocker.kind === "installation-ownership" &&
+      blocker.message.includes(directory.path)
+    )).toBe(true);
+    expect(readFileSync(join(external, "SKILL.md"), "utf8")).toBe("external\n");
   });
 
   test("apply rolls back a mid-directory publication failure", async () => {
@@ -476,7 +528,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
   });
 
-  test("proven removal deletes an owned artifact directory and blocks when drifted", async () => {
+  test("proven removal deletes a drifted owned artifact directory without a manual pre-clean", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-remove-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-remove-project-");
     const base = await contextInstallation(home, project);
@@ -487,12 +539,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     writeFileSync(join(project, directory.path, "SKILL.md"), "# Drifted for removal\n");
     const driftedProof = await proveOwnedInstallation(installation);
-    expect(driftedProof.owned).toBe(false);
-    await expect(stageProvenInstallationRemoval(installation)).rejects.toThrow("owned output");
-
-    writeFileSync(join(project, directory.path, "SKILL.md"), "# Demo Skill\n");
-    const ownedProof = await proveOwnedInstallation(installation);
-    expect(ownedProof.owned).toBe(true);
+    expect(driftedProof.owned).toBe(true);
     const removal = await stageProvenInstallationRemoval(installation);
     await removal.commit();
     expect(existsSync(join(project, directory.path))).toBe(false);

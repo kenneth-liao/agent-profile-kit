@@ -203,7 +203,7 @@ describe("Pi shared Skill migration", () => {
     expect(readFileSync(statePath, "utf8")).toBe(beforeState);
   });
 
-  test("blocks a modified old Pi package before changing output or Installation State", async () => {
+  test("migrates a modified old Pi package by removing the drifted proven old root", async () => {
     const home = temporaryDirectory("apk-pi-migration-drift-home-");
     const project = temporaryDirectory("apk-pi-migration-drift-project-");
     await writePiSkillWorkspace(home, project);
@@ -228,16 +228,15 @@ describe("Pi shared Skill migration", () => {
     const beforeState = readFileSync(statePath, "utf8");
     writeFileSync(join(project, oldPath, "SKILL.md"), "user edit\n");
 
-    let caught: unknown;
-    try {
-      await applyReconciliation(home, desired.installations);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(ApplyBlockedError);
-    expect(String(reportBlockers((caught as ApplyBlockedError).report)[0]?.message)).toContain(oldPath);
-    expect(readFileSync(join(project, oldPath, "SKILL.md"), "utf8")).toBe("user edit\n");
-    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
-    expect(readFileSync(statePath, "utf8")).toBe(beforeState);
+    // The old package is an identity-proven generated output root: its drift is
+    // refresh work, so migration removes it instead of blocking on the edit.
+    await applyReconciliation(home, desired.installations);
+
+    expect(existsSync(join(project, oldPath))).toBe(false);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(true);
+    expect((await readInstallationState(home)).receipts[0]?.outputs.some(
+      (output) => output.path === oldPath,
+    )).toBe(false);
+    expect(readFileSync(statePath, "utf8")).not.toBe(beforeState);
   });
 });

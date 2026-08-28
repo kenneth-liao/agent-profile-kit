@@ -248,8 +248,8 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
     `An owned ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} is wholly missing, but ownership is proven; ` +
     "apply will recreate it from current Workspace source.",
   "drifted output":
-    `An owned ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} no longer matches its ` +
-    `${DEFAULT_VIEW_LEXICON.installationManifest.singular} hash and is not treated as a safe automatic rewrite.`,
+    `An owned ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} differs from its recorded installation; apply will ` +
+    `replace it from current ${DEFAULT_VIEW_LEXICON.desiredState}.`,
   "malformed ownership state":
     "Ownership metadata is incomplete or inconsistent, so Agent Profile Kit cannot prove what it owns.",
   blocked:

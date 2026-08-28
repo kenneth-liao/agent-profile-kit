@@ -22,6 +22,17 @@ A contribution whose Repository Exclusion Contribution target changed while the 
 
 A missing repository-local exclusion section, exclusion file, or safe Git exclusion parent during intentional-deletion retirement is the fourth delivered class (spec #345, SRC-006), narrowing this record's original rule that retirement required the recorded section to be present. Intentional deletion does not authorize reconstruction of a missing contribution: when the retiring installation's recorded contribution passes the retiring-ownership gates and the active receipts and provable live target prove the complete post-retirement union through one shared typed decision, `status` classifies the retirement as non-blocking pending work and performs no writes, and `apply` publishes the exact post-retirement union — removing the Agent Profile Kit section when the union is empty, and creating the exclusion file or its safe parent only when the union requires it — and retires the receipt through the existing atomic retirement transaction, which remains the sole writer. Publication failure rolls back repository-local changes and leaves the retirement retryable. A malformed or unsafe target, an unprovable post-retirement union, or a missing authoritative contribution remains a Blocker and causes no writes.
 
-Wrong targets, malformed or unsafe retirement-target exclusion bytes, an unprovable post-retirement union, a missing authoritative contribution, unprovable or unreadable exclusion bytes, drift, missing identity proof, unsafe paths, and stale desired write sets remain Blockers and cause no writes.
+Wrong targets, malformed or unsafe retirement-target exclusion bytes, an unprovable post-retirement union, a missing authoritative contribution, unprovable or unreadable exclusion bytes, missing identity proof, unsafe paths, and stale desired write sets remain Blockers and cause no writes.
 
 The maintained glossary (`CONTEXT.md`) owns the canonical Safe Repair definition; this record owns the decision and its rationale.
+
+### Amendment: eligibility requires identity-proven roots, not hash-proven roots
+
+Issue #363 narrowed this record's requirement that Safe Repair eligibility always includes "hash-proven owned roots". Aggregate-hash equality is freshness evidence, not an authority requirement (see the ADR-0019 amendment): an active Installation Receipt plus an identity-matching Marker at safe paths grants authority over the recorded generated output roots whether or not their current bytes are fresh.
+
+Two consequences:
+
+- Every Safe Repair class evaluates its shared proofs against identity-proven roots. Proven-root drift (changed bytes, modes, missing or unexpected members) no longer makes a candidate ineligible, and the ordinary refresh of that drift proceeds as non-blocking pending work in the same `apply` run.
+- The missing-Installation-Marker repair is the deliberate exception: a missing Marker leaves no identity proof at the Project, so its independent proofs still require every remaining owned output to be present and hash-current. Drift must not substitute for missing identity proof.
+
+Residual ownership Blockers remain provenance-neutral: they state only what their evidence proves and never assert a user edit or prescribe moving a change into the Workspace unless that provenance is actually known.

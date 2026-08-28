@@ -167,23 +167,32 @@ function proveFileOutput(
   return { drifted: false, missing: true, modeDrifted: false };
 }
 
+/**
+ * Authority-failure classification. `drift` marks recorded identity or path
+ * evidence that differs unrepairably (unsafe parents or roots, unreadable
+ * output, foreign Marker identity) — never content freshness, which the
+ * ordinary refresh path restores without revoking authority.
+ */
 export type OwnershipFailureKind = "drift" | "malformed" | "missing";
-export type OwnershipDriftKind = "generated-file" | "generated-root";
 
 export interface OwnershipProof {
-  readonly driftKind?: OwnershipDriftKind;
   readonly failureKind?: OwnershipFailureKind;
   readonly reason?: string;
   readonly owned: boolean;
 }
 
+/**
+ * Strict hash proof for the missing-Marker Safe Repair: every remaining owned
+ * output must be present and hash-current. This is evidence, not authority —
+ * a missing Marker leaves no identity proof at the Project, so drift must not
+ * substitute for it. The Marker itself is excluded: it is the missing proof.
+ */
 async function proveOutputHashes(
   installation: OwnershipReceipt,
-  includeMarker: boolean,
   inspection: LifecycleOwnershipInspection,
 ): Promise<OwnershipProof> {
   const outputs = installation.outputs.filter(
-    (output) => includeMarker || output.path !== INSTALLATION_MARKER_PATH,
+    (output) => output.path !== INSTALLATION_MARKER_PATH,
   );
   if (outputs.length === 0) {
     return {
@@ -195,7 +204,6 @@ async function proveOutputHashes(
   const missing: string[] = [];
   const drifted: string[] = [];
   const modeDrifted: string[] = [];
-  let directoryDrift = false;
   for (const output of outputs) {
     const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
     if (unsafeParent) {
@@ -219,11 +227,9 @@ async function proveOutputHashes(
     }
     if (result.kind !== "directory" || result.directoryHash !== output.hash) {
       drifted.push(output.path);
-      directoryDrift = true;
     }
     if (result.kind === "directory" && result.mode !== output.mode) {
       modeDrifted.push(output.path);
-      directoryDrift = true;
     }
   }
   if (missing.length > 0 || drifted.length > 0 || modeDrifted.length > 0) {
@@ -233,13 +239,53 @@ async function proveOutputHashes(
       ...(modeDrifted.length > 0 ? [`drifted mode: ${modeDrifted.join(", ")}`] : []),
     ];
     return {
-      ...(drifted.length > 0 || modeDrifted.length > 0
-        ? { driftKind: directoryDrift ? "generated-root" as const : "generated-file" as const }
-        : {}),
       failureKind: missing.length > 0 ? "missing" : "drift",
       owned: false,
       reason: `owned output ${reasons.join("; ")}`,
     };
+  }
+  return { owned: true };
+}
+
+/**
+ * Authority proof for recorded generated output roots: Installation identity
+ * and path-safety evidence only. Content, mode, and membership differences are
+ * freshness drift that the ordinary refresh path restores; they never revoke
+ * authority over a proven root.
+ */
+async function proveRecordedRootAuthority(
+  installation: OwnershipReceipt,
+  inspection: LifecycleOwnershipInspection,
+): Promise<OwnershipProof> {
+  for (const output of installation.outputs) {
+    const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
+    if (unsafeParent) {
+      return {
+        failureKind: "drift",
+        owned: false,
+        reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
+      };
+    }
+    const result = await inspection.inspectOutput(installation.project, output);
+    if (result.kind === "missing") {
+      return { failureKind: "missing", owned: false, reason: `owned output missing: ${output.path}` };
+    }
+    if (result.kind === "unreadable") {
+      return {
+        failureKind: "drift",
+        owned: false,
+        reason: `owned output ${output.path} could not be inspected`,
+      };
+    }
+    if (result.kind !== output.type) {
+      return {
+        failureKind: "drift",
+        owned: false,
+        reason: result.unsupportedMember
+          ? `owned output ${output.path} contains an unsupported entry at ${result.unsupportedMember}`
+          : `owned output ${output.path} is not a ${output.type}`,
+      };
+    }
   }
   return { owned: true };
 }
@@ -249,7 +295,7 @@ export async function proveRemainingOwnedOutputs(
   installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<OwnershipProof> {
-  return proveOutputHashes(installation, false, inspection);
+  return proveOutputHashes(installation, inspection);
 }
 
 export interface InstallationOwnershipInspection extends OwnershipProof {
@@ -331,10 +377,9 @@ export async function inspectInstallationOwnership(
       (output) => !missingPaths.has(output.path),
     ),
   };
-  const proof = await proveOutputHashes(surviving, true, inspection);
+  const proof = await proveRecordedRootAuthority(surviving, inspection);
   if (!proof.owned && repairableMissingOutputs.length > 0) {
     return {
-      ...(proof.driftKind ? { driftKind: proof.driftKind } : {}),
       failureKind: "missing",
       owned: false,
       reason: `owned output missing: ${repairableMissingOutputs.join(", ")}; ${proof.reason ?? "surviving output ownership cannot be proven"}`,
@@ -347,19 +392,22 @@ export async function inspectInstallationOwnership(
   };
 }
 
+/**
+ * Prove removal authority over one recorded installation: Installation identity
+ * and path safety only. Freshness drift and wholly absent roots never block
+ * removal; missing or foreign identity does.
+ */
 export async function proveOwnedInstallation(
   installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<OwnershipProof> {
   const inspectionResult = await inspectInstallationOwnership(installation, inspection);
-  if (inspectionResult.repairableMissingOutputs.length > 0) {
-    return {
-      failureKind: "missing",
-      owned: false,
-      reason: `owned output missing: ${inspectionResult.repairableMissingOutputs.join(", ")}`,
-    };
-  }
-  return inspectionResult;
+  if (inspectionResult.owned) return { owned: true };
+  return {
+    ...(inspectionResult.failureKind ? { failureKind: inspectionResult.failureKind } : {}),
+    ...(inspectionResult.reason ? { reason: inspectionResult.reason } : {}),
+    owned: false,
+  };
 }
 
 export async function removeProvenInstallation(
