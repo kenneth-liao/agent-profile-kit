@@ -10059,7 +10059,12 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "--json",
     );
     expectExitCode(unknownProfile, 1);
-    expect(JSON.parse(unknownProfile.stdout).outcome).toBe("error");
+    const unknownProfilePayload = JSON.parse(unknownProfile.stdout) as {
+      readonly outcome: string;
+      readonly schemaVersion: number;
+    };
+    expect(unknownProfilePayload.outcome).toBe("error");
+    expect(unknownProfilePayload.schemaVersion).toBe(8);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
 
     const unsupportedHost = await runCli(
