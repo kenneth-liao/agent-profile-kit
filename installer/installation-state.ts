@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
+  compareCanonicalStrings,
   INSTALLATION_MARKER_PATH,
   parseInstallationMarker,
   type InstallationMarker,
@@ -31,6 +32,10 @@ import {
   type LifecycleOwnershipInspection,
   type OwnedOutputInspection,
 } from "./lifecycle-ownership-inspection.js";
+import {
+  createLifecycleGitInspectionContext,
+  type LifecycleGitInspection,
+} from "./lifecycle-git-inspection.js";
 import {
   hashBytes,
   markerPath,
@@ -393,21 +398,48 @@ export async function inspectInstallationOwnership(
 }
 
 /**
- * Prove removal authority over one recorded installation: Installation identity
- * and path safety only. Freshness drift and wholly absent roots never block
- * removal; missing or foreign identity does.
+ * Prove removal authority over one recorded installation: Installation identity,
+ * path safety, and repository ownership. Freshness drift and wholly absent
+ * roots never block removal; missing or foreign identity and Git-tracked
+ * recorded roots do — Agent Profile Kit never deletes or untracks
+ * repository-owned material.
  */
 export async function proveOwnedInstallation(
   installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
+  gitInspection: LifecycleGitInspection = createLifecycleGitInspectionContext(),
 ): Promise<OwnershipProof> {
   const inspectionResult = await inspectInstallationOwnership(installation, inspection);
-  if (inspectionResult.owned) return { owned: true };
-  return {
-    ...(inspectionResult.failureKind ? { failureKind: inspectionResult.failureKind } : {}),
-    ...(inspectionResult.reason ? { reason: inspectionResult.reason } : {}),
-    owned: false,
-  };
+  if (!inspectionResult.owned) {
+    return {
+      ...(inspectionResult.failureKind ? { failureKind: inspectionResult.failureKind } : {}),
+      ...(inspectionResult.reason ? { reason: inspectionResult.reason } : {}),
+      owned: false,
+    };
+  }
+  const tracked = await trackedOwnedRoots(installation, gitInspection);
+  if (tracked.length > 0) {
+    return {
+      failureKind: "drift",
+      owned: false,
+      reason:
+        `owned output ${tracked.join(", ")} is tracked by Git; ` +
+        "Agent Profile Kit will not delete or untrack repository-owned material",
+    };
+  }
+  return { owned: true };
+}
+
+/** Recorded roots the live Git index tracks, canonically ordered. */
+async function trackedOwnedRoots(
+  installation: OwnershipReceipt,
+  gitInspection: LifecycleGitInspection,
+): Promise<readonly string[]> {
+  const gitProject = await gitInspection.findGitProject(installation.project);
+  if (!gitProject) return [];
+  const paths = installation.outputs.map((output) => output.path);
+  const tracked = await gitInspection.classifyTrackedDestinations(gitProject, paths);
+  return paths.filter((path) => tracked.has(path)).sort(compareCanonicalStrings);
 }
 
 export async function removeProvenInstallation(
@@ -425,8 +457,9 @@ export interface ProvenInstallationRemovalTransaction {
 export async function stageProvenInstallationRemoval(
   installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
+  gitInspection: LifecycleGitInspection = createLifecycleGitInspectionContext(),
 ): Promise<ProvenInstallationRemovalTransaction> {
-  const proof = await proveOwnedInstallation(installation, inspection);
+  const proof = await proveOwnedInstallation(installation, inspection, gitInspection);
   if (!proof.owned) {
     throw new Error(
       `Cannot remove Project at ${installation.project}: ${proof.reason ?? "ownership could not be proven"}`,
@@ -453,6 +486,16 @@ export async function stageProvenInstallationRemoval(
       INSTALLATION_MARKER_PATH,
     ]) {
       const path = join(installation.project, relativePath);
+      // A wholly absent recorded root is proven removal authority, not a
+      // failure: skip it and remove the surviving proven output and Marker.
+      if (relativePath !== INSTALLATION_MARKER_PATH) {
+        try {
+          await lstat(path);
+        } catch (error) {
+          if (hasErrorCode(error, "ENOENT")) continue;
+          throw error;
+        }
+      }
       const staged = join(stage, relativePath);
       await mkdir(dirname(staged), { recursive: true });
       await rename(path, staged);
@@ -503,6 +546,20 @@ export async function removeDisposableOutputs(options: {
   }
 
   if (extantRoots.length > 0) {
+    // Git-tracked recorded roots are repository-owned material: removal never
+    // deletes or untracks them, regardless of proven identity or drift.
+    const gitInspection = createLifecycleGitInspectionContext();
+    const gitProject = await gitInspection.findGitProject(project);
+    if (gitProject) {
+      const tracked = await gitInspection.classifyTrackedDestinations(gitProject, extantRoots);
+      const trackedRoots = extantRoots.filter((path) => tracked.has(path)).sort(compareCanonicalStrings);
+      if (trackedRoots.length > 0) {
+        throw new Error(
+          `Cannot remove Temporary Profile Installation: owned output ${trackedRoots.join(", ")} ` +
+            "is tracked by Git; Agent Profile Kit will not delete or untrack repository-owned material",
+        );
+      }
+    }
     if (!marker) {
       throw new Error(
         `Cannot remove Temporary Profile Installation: Installation Marker is missing while owned output still exists (${extantRoots.join(", ")})`,

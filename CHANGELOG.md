@@ -8,15 +8,13 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
-- Treat identity-proven generated output roots as disposable: an active Installation Receipt plus an Installation Marker matching its Installation ID grants authority over each recorded generated output root, so content, mode, and membership drift reports as non-blocking pending `drifted output` work in `status` while `apply` atomically replaces the whole proven root from current Workspace source, and removal paths (`uninstall`, stale removal, `remove-temp`) remove drifted proven roots without a manual pre-clean; unsupported entry types such as symlinks inside a proven root, root type confusion, unreadable output, unsafe parents, missing or foreign unrepairable Markers, occupied unowned destinations, Git-tracked generated paths, and user-managed or shared files still block without being overwritten, adopted, untracked, or reconstructed, and the missing-Marker Safe Repair still requires hash-current surviving outputs so drift cannot substitute for missing identity proof (ADR-0019, ADR-0022) ([#363](https://github.com/kenneth-liao/agent-profile-kit/issues/363)).
-
-  Because this changes a pre-1.0 ownership guarantee, the package version receives the required minor bump.
+- Treat identity-proven generated output roots as disposable: drift reports as non-blocking pending `drifted output` work in `status`, `apply` replaces the whole proven root from current Workspace source, and removal paths remove drifted proven roots; identity, path-safety, and Git-ownership boundaries still block (ADR-0019, ADR-0022) ([#363](https://github.com/kenneth-liao/agent-profile-kit/issues/363)).
 
 ### Fixed
 
-- Make residual `installation-ownership` Blocker evidence provenance-neutral: problem, remedy, and derived human text state only what the evidence proves — for example an unsafe parent or unprovable identity — and no longer assert "your edit" or prescribe moving a change into the Workspace without provenance ([#363](https://github.com/kenneth-liao/agent-profile-kit/issues/363), [#364](https://github.com/kenneth-liao/agent-profile-kit/issues/364)).
+- Make residual `installation-ownership` Blocker evidence provenance-neutral, stating only what the evidence proves ([#363](https://github.com/kenneth-liao/agent-profile-kit/issues/363), [#364](https://github.com/kenneth-liao/agent-profile-kit/issues/364)).
 
-- Remove the known-safe Claude/OpenCode duplicate-Skill discovery diagnostic at the OpenCode Adapter source: equivalent candidate Skill documents across native discovery roots are Host Resolution, so concise, verbose, and JSON lifecycle output no longer repeat a non-actionable warning; other actionable Adapter warnings remain unchanged ([#363](https://github.com/kenneth-liao/agent-profile-kit/issues/363)).
+- Remove the non-actionable Claude/OpenCode duplicate-Skill discovery warning at the OpenCode Adapter source ([#363](https://github.com/kenneth-liao/agent-profile-kit/issues/363)).
 
 ### Fixed
 

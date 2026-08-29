@@ -1370,7 +1370,7 @@ export async function previewReconciliation(
     const intentionallyDeleted = intentionallyDeletedProjects.has(installation.project);
     const proof = intentionallyDeleted
       ? { owned: true as const }
-      : await proveOwnedInstallation(installation, inspection);
+      : await proveOwnedInstallation(installation, inspection, gitInspection);
     const projectBlockers: ReconciliationBlocker[] = [];
     if (!proof.owned) {
       const remediation = proof.reason?.includes("Installation Marker")

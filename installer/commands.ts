@@ -217,8 +217,11 @@ async function uninstallApplicationLocked(home: string): Promise<UninstallResult
   const installations = ordinaryReceipts(state);
   if (installations.length === 0) return { projects: [] };
   const failures: string[] = [];
+  // One shared Git inspection context for the whole preflight: each owned root
+  // is classified against the live index at most once per uninstall.
+  const gitInspection = createLifecycleGitInspectionContext();
   for (const installation of installations) {
-    const proof = await proveOwnedInstallation(installation);
+    const proof = await proveOwnedInstallation(installation, undefined, gitInspection);
     if (!proof.owned) {
       failures.push(
         `${installation.project}: ${proof.reason ?? "ownership could not be proven"}`,

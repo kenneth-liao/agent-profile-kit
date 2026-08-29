@@ -5554,6 +5554,48 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(repository, "nested", ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
+  test("stale removal blocks a drifted recorded output that Git now tracks", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-stale-tracked-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const tracked = join(repository, ".codex", "hooks.json");
+    writeFileSync(tracked, "user drift\n");
+    execFileSync("git", ["-C", repository, "add", "-f", ".codex/hooks.json"]);
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
+    const stateBefore = readFileSync(statePath(home));
+
+    const result = await runCli(home, "apply");
+
+    expectExitCode(result, 2);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("tracked by Git");
+    expect(existsSync(tracked)).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(readFileSync(statePath(home)).equals(stateBefore)).toBe(true);
+  });
+
+  test("stale removal proceeds when a recorded root is wholly absent", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    rmSync(join(projectPath, ".codex", "hooks.json"));
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
+
+    const result = await runCli(home, "apply");
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(JSON.parse(readFileSync(statePath(home), "utf8")).receipts).toEqual([]);
+  });
+
   test("status ignores an unbound worktree created after apply", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -5917,6 +5959,45 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+  });
+
+  test("uninstall blocks a drifted recorded output that Git now tracks", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-uninstall-tracked-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const tracked = join(repository, ".codex", "hooks.json");
+    writeFileSync(tracked, "user drift\n");
+    execFileSync("git", ["-C", repository, "add", "-f", ".codex/hooks.json"]);
+
+    const result = await runCli(home, "uninstall");
+
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("Uninstall blocked");
+    expect(result.stderr).toContain("tracked by Git");
+    expect(existsSync(tracked)).toBe(true);
+    expect(execFileSync("git", ["-C", repository, "status", "--porcelain"], { encoding: "utf8" }))
+      .toContain("A  .codex/hooks.json");
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
+  test("uninstall removes surviving proven output when one recorded root is wholly absent", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    rmSync(join(projectPath, ".codex", "hooks.json"));
+
+    const result = await runCli(home, "uninstall");
+
+    expectExitCode(result, 0);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(JSON.parse(readFileSync(statePath(home), "utf8")).receipts).toEqual([]);
   });
 
   test("uninstall rejects a symlinked output parent and preserves matching external data", async () => {
