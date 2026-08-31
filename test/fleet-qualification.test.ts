@@ -842,15 +842,14 @@ describe("integrated fleet recovery qualification", () => {
     expect(focusedVerbose.stdout).toContain(".claude/skills/review-pr");
     expect(focusedVerbose.stdout).toContain("working files are preserved");
 
-    // Ordinary verbose retains complete fleet report and Project-nested warnings
+    // Ordinary verbose retains the complete fleet report; equivalent duplicate
+    // Skill candidates are Host Resolution and emit no Agent Profile Kit warning.
     const ordinaryVerbose = await runCli(home, pathWithHosts, "status", "--all", "--verbose");
     expectExitCode(ordinaryVerbose, 2);
     for (const p of [projectA, projectB, projectC, projectD, projectE]) {
       expect(ordinaryVerbose.stdout).toContain(p);
     }
-    expect(humanText(ordinaryVerbose.stdout)).toContain(
-      humanText("OpenCode discovers Skills from both .claude/skills and .agents/skills"),
-    );
+    expect(ordinaryVerbose.stdout).not.toContain("OpenCode discovers Skills from both");
 
     // Machine JSON retains complete fleet report and Project-nested warnings
     const statusJsonResult = await runCli(home, pathWithHosts, "status", "--all", "--json");
@@ -883,24 +882,18 @@ describe("integrated fleet recovery qualification", () => {
     expect(jsonB?.blockers[0]?.affectedItems.length).toBeGreaterThanOrEqual(5);
 
     expect(jsonC?.state.kind).toBe("current");
-    expect(jsonC?.warnings.some((w) => w.message.includes("OpenCode discovers Skills"))).toBe(true);
+    expect(jsonC?.warnings.some((w) => w.message.includes("OpenCode discovers Skills"))).toBe(false);
 
     expect(jsonD?.state.kind).toBe("current");
-    expect(jsonD?.warnings.some((w) => w.message.includes("OpenCode discovers Skills"))).toBe(true);
+    expect(jsonD?.warnings.some((w) => w.message.includes("OpenCode discovers Skills"))).toBe(false);
 
     expect(jsonE?.state.kind).toBe("current");
 
-    // 5. Second status after apply: repaired projects current, blocked project actionable, warning grouping stable
+    // 5. Second status after apply: repaired projects current, blocked project actionable
     const secondStatus = await runCli(home, pathWithHosts, "status", "--all");
     expectExitCode(secondStatus, 2);
     expect(secondStatus.stdout).toContain("Blockers:");
     expect(secondStatus.stdout).toContain(projectB);
-    expect(secondStatus.stdout).toContain("Warnings:");
-    expect(humanText(secondStatus.stdout)).toContain(
-      humanText(
-        "- OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names; candidate Skill documents are identical across both discovery roots (3 Projects)",
-      ),
-    );
-    expect(humanText(secondStatus.stdout).match(/OpenCode discovers Skills/g)).toHaveLength(1);
+    expect(secondStatus.stdout).not.toContain("OpenCode discovers Skills");
   }, 120_000);
 });

@@ -16,7 +16,6 @@ import {
   assertOpenCodeCliVersionSupported,
   assertOpenCodeProjectCapability,
   assertOpenCodeProjectSurface,
-  detectOpenCodeProjectConfigurationWarnings,
   OPENCODE_ADAPTER_VERSION,
   OPENCODE_CONFIG_OCCUPIED_REMEDY,
   OPENCODE_CONFIG_PATH,
@@ -24,13 +23,11 @@ import {
   OPENCODE_HOST_VERSION_WITH_INVOCATION,
   OPENCODE_MINIMUM_CLI_VERSION,
   OPENCODE_PROJECT_SKILLS_ROOT,
-  openCodeClaudeDuplicateSkillDiscoveryWarning,
   parseOpenCodeCliVersion,
   planOpenCodeProject,
   probeOpenCodeMachineCapability,
 } from "../adapters/opencode.js";
 import {
-  CLAUDE_SKILLS_DISCOVERY_ROOT,
   planClaudeProject,
 } from "../adapters/claude.js";
 import { planAntigravityProject } from "../adapters/antigravity.js";
@@ -732,52 +729,6 @@ describe("OpenCode lifecycle: status and apply", () => {
 });
 
 describe("OpenCode and Claude duplicate Skill discovery", () => {
-  test("openCodeClaudeDuplicateSkillDiscoveryWarning names both Host-visible Skill roots and preserves them as copyable values", () => {
-    const warning = openCodeClaudeDuplicateSkillDiscoveryWarning();
-    expect(warning.copyableValues).toEqual([
-      CLAUDE_SKILLS_DISCOVERY_ROOT,
-      OPENCODE_PROJECT_SKILLS_ROOT,
-    ]);
-    expect(warning.copyableValues).toEqual([".claude/skills", ".agents/skills"]);
-    expect(warning.message).toContain(".claude/skills");
-    expect(warning.message).toContain(".agents/skills");
-    expect(warning.message).toContain("duplicate");
-  });
-
-  test("detects duplicate Skill discovery warning only when Claude is co-selected and at least one Skill is present", () => {
-    const sampleSkill: Skill = {
-      dependencies: [],
-      id: "review-pr",
-      modelInvocation: "allowed",
-      path: "/dummy",
-    };
-
-    // Both Claude and OpenCode selected + Skills -> 1 warning
-    const warned = detectOpenCodeProjectConfigurationWarnings(
-      ["claude", "opencode"],
-      [sampleSkill],
-    );
-    expect(warned).toHaveLength(1);
-    expect(warned[0]?.copyableValues).toContain(".claude/skills");
-    expect(warned[0]?.copyableValues).toContain(".agents/skills");
-
-    // Claude not selected -> 0 warnings
-    expect(
-      detectOpenCodeProjectConfigurationWarnings(["opencode"], [sampleSkill]),
-    ).toEqual([]);
-    expect(
-      detectOpenCodeProjectConfigurationWarnings(
-        ["antigravity", "codex", "opencode", "pi"],
-        [sampleSkill],
-      ),
-    ).toEqual([]);
-
-    // Claude selected but no Skills -> 0 warnings
-    expect(
-      detectOpenCodeProjectConfigurationWarnings(["claude", "opencode"], []),
-    ).toEqual([]);
-  });
-
   test("produces identical candidate SKILL.md documents across Claude and OpenCode discovery roots for allowed-invocation Skills", async () => {
     const source = temporaryDirectory("apk-opencode-claude-allowed-src-");
     const skillContent =
@@ -857,7 +808,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     );
   });
 
-  test("emits exactly one diagnostic warning naming both roots when Project selects both Claude and OpenCode with Skills", async () => {
+  test("emits no duplicate-Skill diagnostic when Project selects both Claude and OpenCode with Skills", async () => {
     const home = temporaryDirectory("apk-opencode-claude-warn-home-");
     const project = temporaryDirectory("apk-opencode-claude-warn-proj-");
 
@@ -873,15 +824,9 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     expect(desired.installations).toHaveLength(1);
     const installation = desired.installations[0]!;
 
-    // AC 1: exactly one Adapter diagnostic warning naming both roots
-    expect(installation.warnings).toHaveLength(1);
-    const warning = installation.warnings[0]!;
-    expect(warning.message).toContain(".claude/skills");
-    expect(warning.message).toContain(".agents/skills");
-    expect(warning.copyableValues).toContain(".claude/skills");
-    expect(warning.copyableValues).toContain(".agents/skills");
-
-    // AC 2: no Blocker is raised
+    // Equivalent candidates across the two discovery roots are Host Resolution:
+    // no Agent Profile Kit diagnostic and no Blocker.
+    expect(installation.warnings).toEqual([]);
     expect(installation.blockers).toEqual([]);
 
     // Both outputs are planned
@@ -921,7 +866,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     expect(installation.blockers).toEqual([]);
   });
 
-  test("reconciles Claude and OpenCode co-selected binding, applies cleanly, and status reports current with warning", async () => {
+  test("reconciles Claude and OpenCode co-selected binding, applies cleanly, and status reports current without warnings", async () => {
     const home = temporaryDirectory("apk-opencode-claude-life-home-");
     const project = temporaryDirectory("apk-opencode-claude-life-proj-");
 
@@ -943,7 +888,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.warnings).toHaveLength(1);
+    expect(desired.installations[0]?.warnings).toEqual([]);
     expect(desired.installations[0]?.blockers).toEqual([]);
 
     // AC 2: Apply succeeds without blocking
@@ -967,7 +912,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     expect(reportBlockers(status)).toEqual([]);
   });
 
-  test("fifteen-Project OpenCode and Claude fixture renders duplicate-Skill warning once in human output while retaining 15 Project-nested machine records", async () => {
+  test("fifteen-Project OpenCode and Claude fixture reports current with no duplicate-Skill warnings across human and machine output", async () => {
     const home = temporaryDirectory("apk-opencode-claude-15-home-");
     const projects = Array.from({ length: 15 }, (_, i) =>
       temporaryDirectory(`apk-opencode-claude-15-proj-${i + 1}-`),
@@ -1000,22 +945,18 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     const state = await readInstallationState(home);
     const statusReport = await previewReconciliation(desired.installations, state);
 
-    // 1. Concise human output groups duplicate-Skill warning into one bullet with (15 Projects)
+    // 1. Concise human output carries no duplicate-Skill warning.
     const concise = formatLifecycleReport("status", statusReport);
-    expect(concise).toContain(
-      "Warnings:\n" +
-      "- OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names; candidate Skill documents are identical across both discovery roots (15 Projects)",
-    );
-    expect(concise.match(/OpenCode discovers Skills/g)).toHaveLength(1);
+    expect(concise).not.toContain("OpenCode discovers Skills");
 
-    // 2. Verbose human output renders the duplicate-Skill warning once and lists all 15 Projects
+    // 2. Verbose human output lists all 15 Projects and no warning.
     const verbose = formatLifecycleReport("status", statusReport, { verbose: true });
-    expect(verbose.match(/OpenCode discovers Skills/g)).toHaveLength(1);
+    expect(verbose).not.toContain("OpenCode discovers Skills");
     for (const project of projects) {
       expect(verbose).toContain(project);
     }
 
-    // 3. Machine JSON retains 15 separate Project records, each with the normalized warning and no Project prefix in message
+    // 3. Machine JSON retains 15 separate Project records, each warning-free.
     const json = JSON.parse(formatLifecycleJson("status", statusReport)) as {
       projects: {
         canonicalProject: string;
@@ -1024,15 +965,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     };
     expect(json.projects).toHaveLength(15);
     for (const projectRecord of json.projects) {
-      expect(projectRecord.warnings).toHaveLength(1);
-      const warning = projectRecord.warnings[0]!;
-      expect(warning.kind).toBe("diagnostic");
-      expect(warning.copyableValues).toEqual([".claude/skills", ".agents/skills"]);
-      expect(warning.message).toBe(
-        "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names; candidate Skill documents are identical across both discovery roots",
-      );
-      // Project prefix must NOT be embedded in message
-      expect(warning.message).not.toContain(projectRecord.canonicalProject);
+      expect(projectRecord.warnings).toEqual([]);
     }
   });
 });

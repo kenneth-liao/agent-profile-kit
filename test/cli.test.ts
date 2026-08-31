@@ -4812,9 +4812,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const oldBefore = readFileSync(oldExclude);
     const newBefore = readFileSync(newExclude);
     // Block the sibling Project that shares the recorded target.
-    const rootOutput = join(repository, ".claude", "rules", "agent-profile-kit.md");
-    const rootOutputBefore = readFileSync(rootOutput);
-    writeFileSync(rootOutput, "drifted sibling output\n");
+    const rootMarker = join(repository, ".agent-profile-kit", "installation.json");
+    const rootMarkerBefore = readFileSync(rootMarker, "utf8");
+    writeFileSync(rootMarker, "not json");
 
     const blockedApply = await runCliAt(home, repository, "apply", "--all");
 
@@ -4823,8 +4823,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(newExclude).equals(newBefore)).toBe(true);
     expect(readFileSync(statePath(home)).equals(stateBefore)).toBe(true);
 
-    // Restoring the sibling's output unblocks the coupled move.
-    writeFileSync(rootOutput, rootOutputBefore);
+    // Restoring the sibling's Marker unblocks the coupled move.
+    writeFileSync(rootMarker, rootMarkerBefore);
     expectExitCode(await runCliAt(home, repository, "apply", "--all"), 0);
     const repairedState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       receipts: {
@@ -5017,7 +5017,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(exclude).equals(before)).toBe(true);
   });
 
-  test("a missing Git exclusion contribution with drifted owned output blocks before writes", async () => {
+  test("a missing Git exclusion contribution applies alongside proven-root drift", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-missing-record-drift-");
@@ -5035,11 +5035,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = await runCliAt(home, repository, "status");
 
-    expectExitCode(status, 2);
-    expect(status.stdout).toContain("missing its Git exclusion contribution");
+    expectExitCode(status, 0);
+    expect(status.stdout).toContain("Git exclusions:");
     expect(readFileSync(exclude).equals(before)).toBe(true);
-    expectExitCode(await runCliAt(home, repository, "apply"), 2);
-    expect(readFileSync(exclude).equals(before)).toBe(true);
+    const applied = await runCliAt(home, repository, "apply");
+    expectExitCode(applied, 0);
+    expect(applied.stderr).toBe("");
+    expect(readFileSync(exclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(readFileSync(join(repository, ".agent-profile-kit", "codex", "context.md"), "utf8"))
+      .not.toBe("drifted\n");
   });
 
   test("a contribution repair leaves shared-target bytes and recorded entries unchanged", async () => {
@@ -5539,7 +5543,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 0);
     const exclude = join(repository, ".git", "info", "exclude");
     const before = readFileSync(exclude);
-    writeFileSync(join(repository, "nested", ".codex", "hooks.json"), "drifted\n");
+    rmSync(join(repository, "nested", ".agent-profile-kit", "installation.json"));
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
 
     const failed = await runCli(home, "apply");
@@ -5547,7 +5551,49 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(failed, 2);
     expect(readFileSync(exclude).equals(before)).toBe(true);
     expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
-    expect(existsSync(join(repository, "nested", ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(repository, "nested", ".agent-profile-kit", "installation.json"))).toBe(false);
+  });
+
+  test("stale removal blocks a drifted recorded output that Git now tracks", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-stale-tracked-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const tracked = join(repository, ".codex", "hooks.json");
+    writeFileSync(tracked, "user drift\n");
+    execFileSync("git", ["-C", repository, "add", "-f", ".codex/hooks.json"]);
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
+    const stateBefore = readFileSync(statePath(home));
+
+    const result = await runCli(home, "apply");
+
+    expectExitCode(result, 2);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("tracked by Git");
+    expect(existsSync(tracked)).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(readFileSync(statePath(home)).equals(stateBefore)).toBe(true);
+  });
+
+  test("stale removal proceeds when a recorded root is wholly absent", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    rmSync(join(projectPath, ".codex", "hooks.json"));
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
+
+    const result = await runCli(home, "apply");
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(JSON.parse(readFileSync(statePath(home), "utf8")).receipts).toEqual([]);
   });
 
   test("status ignores an unbound worktree created after apply", async () => {
@@ -5629,7 +5675,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     ].sort());
   });
 
-  test("status distinguishes current, stale source, drifted output, missing output, and malformed ownership", async () => {
+  test("status distinguishes current, stale source, drifted output, repairable missing output, missing output, and malformed ownership", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -5640,21 +5686,35 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(current, 0);
     expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: current`));
 
+    const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
+    const contextBefore = readFileSync(contextPath, "utf8");
+    writeFileSync(contextPath, "drift\n");
+    const drifted = await runCli(home, "status", "--verbose");
+    expect(humanText(drifted.stdout)).toContain(
+      humanText(`${projectPath}: drifted output`),
+    );
+    writeFileSync(contextPath, contextBefore);
+
     writeFileSync(join(workspacePath(home), "context", "team-rules.md"), "---\nid: team-rules\ndependencies: []\n---\nchanged\n");
     const stale = await runCli(home, "status", "--verbose");
     expect(humanText(stale.stdout)).toContain(
       humanText(`${projectPath}: stale source`),
     );
-    writeFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "drift\n");
-    const drifted = await runCli(home, "status", "--verbose");
-    expect(humanText(drifted.stdout)).toContain(
-      humanText(`${projectPath}: drifted output`),
-    );
     rmSync(join(projectPath, ".codex", "hooks.json"));
+    const repairable = await runCli(home, "status", "--verbose");
+    expect(humanText(repairable.stdout)).toContain(
+      humanText(`${projectPath}: repairable missing output`),
+    );
+    // A missing Marker leaves no identity proof at the Project: drift cannot
+    // substitute for it, so the mixed state stays a missing-output Blocker.
+    const markerPath = join(projectPath, ".agent-profile-kit", "installation.json");
+    const markerBefore = readFileSync(markerPath, "utf8");
+    rmSync(markerPath);
     const missing = await runCli(home, "status", "--verbose");
     expect(humanText(missing.stdout)).toContain(
       humanText(`${projectPath}: missing output`),
     );
+    writeFileSync(markerPath, markerBefore);
     writeFileSync(join(projectPath, ".agent-profile-kit", "installation.json"), "not json");
     const malformed = await runCli(home, "status", "--verbose");
     expect(humanText(malformed.stdout)).toContain(
@@ -5662,7 +5722,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("status reports output permission drift and apply preserves it", async () => {
+  test("status reports output permission drift and apply refreshes it", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -5675,18 +5735,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status", "--verbose");
     const applied = await runCli(home, "apply");
 
-    expectExitCode(status, 2);
+    expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: drifted output`));
-    expect(status.stdout).toContain("mode");
-    expectExitCode(applied, 2);
+    expectExitCode(applied, 0);
     expect(applied.stderr).toBe("");
-    expect(humanText(applied.stdout)).toContain(humanText("will not overwrite your edit"));
-    expect(humanText(applied.stdout)).toContain(humanText("Move the change into the Workspace"));
-    expect(humanText(applied.stdout)).toContain(humanText("delete the generated file"));
-    expect(statSync(context).mode & 0o777).toBe(0o600);
+    expect(statSync(context).mode & 0o777).toBe(0o644);
+    const current = await runCli(home, "status");
+    expectExitCode(current, 0);
+    expect(current.stdout).toContain("All Projects are current");
   });
 
-  test("unexpected directory content reports only the generated root with safe drift remedies", async () => {
+  test("unexpected directory content is refreshed by apply without blocking", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -5706,19 +5765,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const unexpected = join(projectPath, ".agents", "skills", "review-pr", "notes.md");
     writeFileSync(unexpected, "user note\n");
 
-    const blocked = await runCli(home, "apply");
+    const driftStatus = await runCli(home, "status", "--verbose");
+    const applied = await runCli(home, "apply");
 
-    expectExitCode(blocked, 2);
-    expect(blocked.stderr).toBe("");
-    expect(blocked.stdout).toContain(".agents/skills/review-pr");
-    expect(blocked.stdout).not.toContain("notes.md");
-    expect(humanText(blocked.stdout)).toContain(humanText("will not overwrite your edit"));
-    expect(humanText(blocked.stdout)).toContain(humanText("Move the change into the Workspace"));
-    expect(humanText(blocked.stdout)).toContain(humanText("delete the generated root"));
-    expect(readFileSync(unexpected, "utf8")).toBe("user note\n");
+    expectExitCode(driftStatus, 0);
+    expect(driftStatus.stdout).toContain(".agents/skills/review-pr");
+    expect(driftStatus.stdout).not.toContain("notes.md");
+    expectExitCode(applied, 0);
+    expect(applied.stderr).toBe("");
+    expect(existsSync(unexpected)).toBe(false);
+    expect(existsSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
   });
 
-  test("drift names both safe recovery routes once and deleting the file restores current state", async () => {
+  test("apply refreshes drifted generated output without manual recovery", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -5728,20 +5787,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const drifted = join(projectPath, ".codex", "hooks.json");
     writeFileSync(drifted, "user edit\n");
 
-    const blocked = await runCli(home, "apply");
-
-    expectExitCode(blocked, 2);
-    expect(blocked.stderr).toBe("");
-    expect(blocked.stdout.match(/Blocker:/g)).toHaveLength(1);
-    expect(humanText(blocked.stdout)).toContain(humanText("will not overwrite your edit"));
-    expect(humanText(blocked.stdout)).toContain(humanText("Move the change into the Workspace"));
-    expect(humanText(blocked.stdout)).toContain(humanText("delete the generated file"));
-
-    rmSync(drifted);
+    const driftStatus = await runCli(home, "status", "--verbose");
     const repaired = await runCli(home, "apply");
     const current = await runCli(home, "status");
 
+    expectExitCode(driftStatus, 0);
+    expect(humanText(driftStatus.stdout)).toContain(humanText(`${projectPath}: drifted output`));
     expectExitCode(repaired, 0);
+    expect(repaired.stderr).toBe("");
+    expect(readFileSync(drifted, "utf8")).not.toBe("user edit\n");
     expectExitCode(current, 0);
     expect(current.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
     expect(current.stdout).not.toContain("Next:");
@@ -5891,7 +5945,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toContain(humanText(`${second}: blocked`));
   });
 
-  test("uninstall refuses to remove drifted output", async () => {
+  test("uninstall removes drifted proven output", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -5902,9 +5956,48 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "uninstall");
 
+    expectExitCode(result, 0);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+  });
+
+  test("uninstall blocks a drifted recorded output that Git now tracks", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-uninstall-tracked-");
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const tracked = join(repository, ".codex", "hooks.json");
+    writeFileSync(tracked, "user drift\n");
+    execFileSync("git", ["-C", repository, "add", "-f", ".codex/hooks.json"]);
+
+    const result = await runCli(home, "uninstall");
+
     expectExitCode(result, 1);
     expect(result.stderr).toContain("Uninstall blocked");
-    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
+    expect(result.stderr).toContain("tracked by Git");
+    expect(existsSync(tracked)).toBe(true);
+    expect(execFileSync("git", ["-C", repository, "status", "--porcelain"], { encoding: "utf8" }))
+      .toContain("A  .codex/hooks.json");
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
+  test("uninstall removes surviving proven output when one recorded root is wholly absent", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    rmSync(join(projectPath, ".codex", "hooks.json"));
+
+    const result = await runCli(home, "uninstall");
+
+    expectExitCode(result, 0);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(JSON.parse(readFileSync(statePath(home), "utf8")).receipts).toEqual([]);
   });
 
   test("uninstall rejects a symlinked output parent and preserves matching external data", async () => {
@@ -5937,14 +6030,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const configuration = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), configuration);
     expectExitCode(await runCli(home, "apply"), 0);
-    writeFileSync(join(second, ".codex", "hooks.json"), "drifted\n");
+    // A missing Marker leaves the second Project's identity unprovable, so its
+    // stale removal stays blocked while Workspace and Project Bindings survive.
+    rmSync(join(second, ".agent-profile-kit", "installation.json"));
 
     const result = await runCli(home, "uninstall");
 
     expectExitCode(result, 1);
     expect(result.stderr).toContain("Uninstall blocked");
     expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
     expect(existsSync(join(workspacePath(home), "profiles", "coding.yaml"))).toBe(true);
   });
@@ -6285,7 +6380,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(obsolete)).toBe(false);
   });
 
-  test("drift in a stale installation leaves it untouched while a healthy Project updates", async () => {
+  test("drift in a stale installation is removed while a healthy Project updates", async () => {
     const home = isolatedHome();
     await initialize(home);
     const retained = project("agent-profile-kit-drift-retained-");
@@ -6307,14 +6402,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCliAt(home, removed, "apply", "--all");
 
-    expectExitCode(result, 2);
-    expect(result.stdout).toContain("Cannot remove stale generated files");
-    expect(result.stdout).not.toContain(removed);
-    expect(result.stdout).not.toContain(realpathSync(removed));
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(readFileSync(retainedContext, "utf8")).not.toBe(before);
     expect(readFileSync(retainedContext, "utf8")).toContain("Would update retained.");
-    expect(readFileSync(join(removed, ".codex", "hooks.json"), "utf8")).toBe("user drift\n");
+    // The stale installation's identity was proven, so its drifted output is
+    // removed instead of blocking the healthy Project's update.
+    expect(existsSync(join(removed, ".codex", "hooks.json"))).toBe(false);
+    expect(existsSync(join(removed, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("stale reconciliation rejects a symlinked output parent and preserves matching external data", async () => {
@@ -6459,7 +6554,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(statSync(join(destination, "scripts", "run.sh")).mode & 0o777).toBe(0o700);
   });
 
-  test("a wholly absent output remains blocking when surviving owned output has drifted", async () => {
+  test("a wholly absent output is repaired alongside drifted surviving output", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -6474,14 +6569,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status", "--verbose");
     const applied = await runCli(home, "apply");
 
-    expectExitCode(status, 2);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: missing output`));
-    expect(humanText(status.stdout)).not.toContain(humanText(`${missing}: repair`));
-    expectExitCode(applied, 2);
-    expect(applied.stdout).toContain("Apply blocked");
+    expectExitCode(status, 0);
+    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: repairable missing output`));
+    expectExitCode(applied, 0);
     expect(applied.stderr).toBe("");
-    expect(existsSync(missing)).toBe(false);
-    expect(readFileSync(drifted, "utf8")).toBe("drifted surviving output\n");
+    expect(existsSync(missing)).toBe(true);
+    expect(readFileSync(drifted, "utf8")).not.toBe("drifted surviving output\n");
   });
 
   test("a copied installation identity is rejected while the original remains", async () => {
@@ -6748,7 +6841,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(blockedContext, "utf8")).toBe(blockedBefore);
   });
 
-  test("a Project blocker freezes every binding that shares its Git exclusion target", async () => {
+  test("Project updates sharing a Git exclusion target proceed past proven-root drift", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-shared-blocker-");
@@ -6766,7 +6859,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     expectExitCode(await runCli(home, "apply", "--all"), 0);
     const rootContext = join(repository, ".agent-profile-kit", "codex", "context.md");
-    const rootBefore = readFileSync(rootContext);
     const exclude = join(repository, ".git", "info", "exclude");
     const excludeBefore = readFileSync(exclude);
     writeFileSync(join(nested, ".codex", "hooks.json"), "user drift\n");
@@ -6777,10 +6869,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "apply", "--all");
 
-    expectExitCode(result, 2);
-    expect(readFileSync(rootContext).equals(rootBefore)).toBe(true);
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(readFileSync(rootContext, "utf8")).toContain("Pending shared update.");
+    expect(readFileSync(join(nested, ".codex", "hooks.json"), "utf8")).not.toBe("user drift\n");
     expect(readFileSync(exclude).equals(excludeBefore)).toBe(true);
-    expect(readFileSync(join(nested, ".codex", "hooks.json"), "utf8")).toBe("user drift\n");
   });
 
   test("apply --all commits a healthy Project around a Project-scoped Host capability blocker", async () => {
@@ -6953,7 +7046,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(original, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("a moved project with edited generated output blocks apply and preserves the edit", async () => {
+  test("a moved project refreshes edited generated output at the new root", async () => {
     const home = isolatedHome();
     await initialize(home);
     const original = project("agent-profile-kit-move-drift-");
@@ -6968,11 +7061,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "apply");
 
-    expectExitCode(result, 2);
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
-    expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
-    expect(humanText(result.stdout)).toContain(humanText("will not overwrite your edit"));
-    expect(readFileSync(edited, "utf8")).toBe("user edit after move\n");
+    // The moved root is identity-proven through its carried Marker, so the
+    // post-move edit is refresh work rather than a lifecycle Blocker.
+    expect(readFileSync(edited, "utf8")).not.toBe("user edit after move\n");
+    expect(parse(readFileSync(statePath(home), "utf8")).receipts[0].project).toBe(realpathSync(moved));
   });
 
   test("a moved Git project carries both Marker and exclusion ownership", async () => {
@@ -7566,7 +7660,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     writeFileSync(envelope, "drifted\n");
     const drift = await runCliWithPath(home, pathWithHosts, "status");
-    expectExitCode(drift, 2);
+    expectExitCode(drift, 0);
     expect(drift.stdout).toMatch(/drifted/i);
     writeFileSync(envelope, envelopeContent);
 
@@ -7745,7 +7839,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const disabledSkillBytes = readFileSync(disabledSkillPath, "utf8");
     writeFileSync(disabledSkillPath, "drifted\n");
     const drift = await runCliWithPath(home, pathWithHosts, "status");
-    expectExitCode(drift, 2);
+    expectExitCode(drift, 0);
     expect(drift.stdout).toMatch(/drifted/i);
     writeFileSync(disabledSkillPath, disabledSkillBytes);
 
@@ -11959,6 +12053,54 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(tempProject, "user-notes.md"), "utf8")).toBe("keep me\n");
+  });
+
+  test("remove-temp blocks a drifted temporary output that Git now tracks", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-tracked-"));
+
+    const install = await runCli(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expectExitCode(install, 0);
+    const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
+
+    const tracked = join(tempProject, ".agent-profile-kit", "codex", "context.md");
+    writeFileSync(tracked, "user drift\n");
+    execFileSync("git", ["-C", tempProject, "add", "-f", ".agent-profile-kit/codex/context.md"]);
+
+    const remove = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+
+    expectExitCode(remove, 2);
+    const blocked = JSON.parse(remove.stdout) as {
+      readonly outcome: string;
+      readonly blockers: readonly { readonly kind: string; readonly message: string }[];
+    };
+    expect(blocked.outcome).toBe("blocked");
+    expect(blocked.blockers.some((blocker) =>
+      blocker.message.includes("tracked by Git") &&
+      blocker.message.includes(".agent-profile-kit/codex/context.md")
+    )).toBe(true);
+    // The tracked output, its index entry, the Marker, and the active temporary
+    // receipt all survive the blocked removal.
+    expect(existsSync(tracked)).toBe(true);
+    expect(execFileSync("git", ["-C", tempProject, "status", "--porcelain"], { encoding: "utf8" }))
+      .toContain("A  .agent-profile-kit/codex/context.md");
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      readonly receipts: readonly { readonly lifetime: string }[];
+    };
+    expect(state.receipts).toHaveLength(1);
+    expect(state.receipts[0]!.lifetime).toBe("temporary");
   });
 
   test("linked worktrees can hold independent temporary installations with contributor-safe exclusions", async () => {

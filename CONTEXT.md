@@ -41,7 +41,7 @@ The mechanism that reads the Workspace and Project Bindings, combines Adapter ou
 _Avoid_: Adapter, runtime router
 
 **Profile Installation**:
-A generated, host-native snapshot of one Workspace Profile installed into one bound project for all Agent Hosts selected by its Project Binding. The Installer exclusively owns its normalized output set; the Profile Installation is disposable output with no authority independent of its Workspace source.
+A generated, host-native snapshot of one Workspace Profile installed into one bound project for all Agent Hosts selected by its Project Binding. The Installer exclusively owns its normalized output set; the Profile Installation is disposable output with no authority independent of its Workspace source. Matching durable installation identity — an active Installation Receipt whose Installation ID the Installation Marker proves — grants the Installer authority over each recorded generated output root; content differences from the recorded output are refreshable drift, not ownership changes, while identity or path-safety failures remain Blockers.
 _Avoid_: Canonical source, live link, Temporary Profile Installation
 
 **Temporary Profile Installation**:

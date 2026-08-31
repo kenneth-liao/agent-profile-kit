@@ -342,11 +342,11 @@ export function installationOwnershipBlocker(options: {
     problem: options.message,
     project: options.project,
     remedy:
-      "Move the change into the Workspace, restore the Installation Marker, or delete the " +
-      "conflicting generated files yourself, then retry",
+      "Restore the Installation Marker linked to this Project's installation record, or " +
+      "remove the conflicting generated files yourself after verifying the paths, then retry",
     requirement:
       "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
-      "installation record, Marker, and recorded hashes",
+      "installation record and Marker identity at safe paths",
   });
 }
 

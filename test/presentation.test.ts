@@ -1431,7 +1431,7 @@ const STATE_ANCHORS: Readonly<Record<(typeof NON_CURRENT_STATE_ORDER)[number], s
   update: "rewrite generated files managed by Agent Profile Kit",
   "stale source": "Workspace source changed",
   "repairable missing output": "ownership is proven",
-  "drifted output": "not treated as a safe automatic rewrite",
+  "drifted output": "replace it from current",
   "malformed ownership state": "cannot prove what it owns",
   blocked: "Sync cannot change this Project",
   removal: "remove proven generated files managed by Agent Profile Kit",

@@ -6,6 +6,16 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Treat identity-proven generated output roots as disposable: drift reports as non-blocking pending `drifted output` work in `status`, `apply` replaces the whole proven root from current Workspace source, and removal paths remove drifted proven roots; identity, path-safety, and Git-ownership boundaries still block (ADR-0019, ADR-0022) ([#363](https://github.com/kenneth-liao/agent-profile-kit/issues/363)).
+
+### Fixed
+
+- Make residual `installation-ownership` Blocker evidence provenance-neutral, stating only what the evidence proves ([#363](https://github.com/kenneth-liao/agent-profile-kit/issues/363), [#364](https://github.com/kenneth-liao/agent-profile-kit/issues/364)).
+
+- Remove the non-actionable Claude/OpenCode duplicate-Skill discovery warning at the OpenCode Adapter source ([#363](https://github.com/kenneth-liao/agent-profile-kit/issues/363)).
+
 ### Fixed
 
 - Sort warning groups deterministically using canonical string comparison across kind, consequence, and JSON-encoded copyable values ([#354](https://github.com/kenneth-liao/agent-profile-kit/issues/354)).

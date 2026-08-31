@@ -49,7 +49,9 @@ import {
 } from "../installer/reconcile.js";
 import { projectConflictBlockers } from "../installer/temporary-installation.js";
 import {
+  compareCanonicalStrings,
   formatInstallationMarker,
+  INSTALLATION_MARKER_PATH,
 } from "../schemas/installation-manifest.js";
 import {
   OWNERSHIP_STATE_LIMITS,
@@ -57,6 +59,8 @@ import {
 } from "../schemas/ownership-state.js";
 import {
   reportBlockers,
+  reportItems,
+  reportOutputs,
 } from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
@@ -634,7 +638,7 @@ describe("structured Installer blocker evidence", () => {
     expect(lifecycleExitCode(report)).toBe(2);
   });
 
-  test("drifted generated output emits structured project-scoped ownership evidence", async () => {
+  test("drifted generated output is non-blocking pending refresh work rather than ownership evidence", async () => {
     const project = temporaryDirectory("apkit-evidence-drift-");
     const home = await prepareHome(project);
     const desired = await buildDesiredState(home, { checkHostCapability: false });
@@ -648,6 +652,7 @@ describe("structured Installer blocker evidence", () => {
       formatInstallationMarker({ installationId, schemaVersion: 1 }),
     );
     for (const output of installation.outputs) {
+      if (output.path === INSTALLATION_MARKER_PATH) continue;
       const destination = join(canonicalProject, output.path);
       mkdirSync(dirname(destination), { recursive: true });
       writeFileSync(destination, "drifted content\n");
@@ -659,25 +664,38 @@ describe("structured Installer blocker evidence", () => {
 
     const report = await previewReconciliation(desired.installations, state);
 
-    const ownership = requireDefined(
-      reportBlockers(report).find(
-        (blocker) => isStructuredBlocker(blocker) && blocker.kind === INSTALLATION_OWNERSHIP,
-      ),
-      "a structured installation-ownership blocker",
-    );
-    expect(ownership).toMatchObject({
-      kind: INSTALLATION_OWNERSHIP,
-      project: canonicalProject,
-      scope: "project",
+    // Identity-proven drift never blocks and never claims a user edit.
+    expect(reportBlockers(report)).toEqual([]);
+    const expectedReason = installation.outputs
+      .filter((output) => output.path !== INSTALLATION_MARKER_PATH)
+      .map((output) => output.path)
+      .sort(compareCanonicalStrings)
+      .join(", ");
+    expect(reportItems(report)).toContainEqual({
+      kind: "drifted output",
+      project: expect.any(String),
+      reason: expectedReason,
     });
-    // Plain value checks: asymmetric matchers in toMatchObject replace the
-    // matched properties on the shared blocker, corrupting later JSON reads.
-    for (const field of ["problem", "remedy", "requirement"] as const) {
-      expect(typeof ownership[field]).toBe("string");
-      expect(ownership[field].length).toBeGreaterThan(0);
+    for (const output of installation.outputs) {
+      if (output.path === INSTALLATION_MARKER_PATH) continue;
+      expect(reportOutputs(report)).toContainEqual({
+        kind: "drifted output",
+        path: output.path,
+        project: expect.any(String),
+      });
     }
-    expect(ownership.message).toMatch(/^Cannot sync the generated file:/);
-    expect(ownership.message).toContain("will not overwrite your edit");
+  });
+
+  test("residual ownership Blocker evidence stays provenance-neutral", () => {
+    const ownership = normalizeBlocker(installationOwnershipBlocker({
+      message: "Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /p/.codex is a symlink parent",
+      project: "/p",
+    }));
+    expect(ownership.problem).not.toMatch(/your edit/i);
+    expect(ownership.remedy).not.toMatch(/Move the change into the Workspace/i);
+    expect(ownership.remedy).not.toMatch(/your edit/i);
+    expect(ownership.message).not.toMatch(/your edit/i);
+    expect(ownership.message).not.toMatch(/Move the change into the Workspace/i);
   });
 
   test("temporary installation conflicts emit structured project-scoped evidence", async () => {

@@ -477,23 +477,15 @@ Gaps: ~~[UJ-32](#uj-32)~~ (shipped across
 **Repairable missing output** — a deleted generated file with proven ownership —
 works well: `status` names the missing paths and `apply` restores them.
 
-**Drifted output** — a hand-edited generated file — is a dead end. `apply`
-refuses, `uninstall` refuses, `status` repeats, and the remedy is stated nowhere:
-
-```
-  State: drifted output (owned output drifted: .claude/rules/agent-profile-kit.md)
-  Blocker: .claude/rules/agent-profile-kit.md is occupied by unowned or drifted output
-  Blocker: Cannot reconcile Profile Installation at <project>: owned output drifted: .claude/rules/agent-profile-kit.md
-…
-Next: Resolve the reported blockers, then run agent-profile-kit preview again.
-agent-profile-kit: Apply blocked before writes:
-- <project>/.claude/rules/agent-profile-kit.md is occupied by unowned or drifted output
-- Cannot reconcile Profile Installation at <project>: owned output drifted: …
-```
-
-Deleting the drifted file and running `apply` restores it as a proven repair.
-Neither the CLI nor `docs/guides/workspace.md` says so — the guide's recovery
-section covers missing/malformed *Installation State*, not drifted output.
+**Drifted output** — a generated file whose bytes, modes, or members differ from
+the recorded installation — is ordinary pending work: `status` reports it as
+non-blocking `drifted output` state and `apply` replaces the whole recorded root
+from current Workspace source, discarding unknown members such as host scratch
+directories. Removal paths (`uninstall`, stale removal, `remove-temp`) may
+remove drifted proven roots without a manual pre-clean. Identity or path-safety
+failures — a missing or foreign Installation Marker, a symlinked root, an unsafe
+parent — remain Blockers, and their evidence states only what was proven, never
+asserting a user edit without provenance.
 
 **Host CLI missing or outdated** is the likeliest first-run failure, and its
 messages are the best-written strings in the tool:

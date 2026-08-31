@@ -396,9 +396,14 @@ A generated file receipt stores its project-relative path, type, mode, and
 content hash. A generated directory receipt stores its path, type, root mode,
 and one deterministic aggregate hash covering every complete member path, type,
 mode, and file byte sequence. Directory inspection computes that same aggregate
-without following symlinks. Missing, unexpected, changed, mode-drifted,
-symlinked, unreadable, or otherwise unsafe content fails ownership proof at the
-generated root; no member tree is persisted or reconstructed.
+without following symlinks. The aggregate hash is freshness evidence, not an
+authority requirement: identity — an active receipt plus a Marker matching its
+Installation ID at safe paths — grants authority over each recorded generated
+output root, and content, mode, or membership differences are ordinary drift
+that `apply` refreshes by replacing the whole proven root. Unsupported entry
+types (such as symlinks) inside a proven root, root type confusion, unreadable
+output, unsafe parents, and missing or foreign Marker identity fail closed and
+remain Blockers; no member tree is persisted or reconstructed.
 
 The minimal `.agent-profile-kit/installation.json` Installation Marker is
 lifecycle metadata, not an Adapter-authored generated output receipt. It travels
@@ -421,8 +426,8 @@ is never persisted as a second ownership fact. Publication still proves the
 marked repository-local section, preserves every unrelated byte, and retains
 entries while any linked-worktree contributor requires them. A missing
 contribution on an otherwise-current installation is a Safe Repair (ADR-0022):
-when the active receipt, Marker, hash-proven owned roots, live Project, untracked
-destinations, and Git target independently prove the exact contribution and the
+when the active receipt, Marker, identity-proven owned roots, live Project,
+untracked destinations, and Git target independently prove the exact contribution and the
 target's owned section is absent or exactly the recorded union plus that
 contribution, `status` reports non-blocking pending work and `apply` records the
 contribution and publishes the resulting union through the ordinary transaction;
@@ -460,9 +465,9 @@ never reconstructed from generated Profile Installation output.
 
 Reconciliation returns global Blockers plus one complete record per Project, ordered by canonical Project identity. A Project record owns desired identity, state, observable output operations and their consuming Hosts, Project Blockers, typed structured warnings and copyable values, Host Setup Steps, and Git exclusion changes. No report consumer joins parallel Project or path collections. Blocker messages are immutable projections derived when structured problem, requirement, remedy, scope, and affected-item evidence is normalized; emitters cannot author a second message field. Focused lifecycle filtering (`--blockers-only`) strictly isolates displayed Blockers and their direct next actions across global and project scopes, deriving footer counts exclusively from displayed Blockers without leaking unblocked project inventories, setup steps, or warnings (ADR-0024). During a focused partial apply, committed apply evidence is preserved in an ordered prefix before remaining Blockers, ensuring writes are never hidden. For Git-tracked output ownership conflicts, verbose focused output publishes exact copyable untracking commands staging removal from Git ownership while preserving working files. Human lifecycle rendering consumes these nested typed records directly, authors task language without semantic regex translation, and renders each Blocker's complete structured evidence. The apply receipt remains the pre-apply work record, while a fresh post-commit reconciliation remains authoritative for resulting state.
 
-When a configured project moves, its marker lets reconciliation update the recorded path. If a copied project creates the same installation ID at two existing roots, reconciliation fails instead of silently adopting either copy. A missing or modified marker is drift. At the receipt's recorded path, `apply` may restore a missing marker only when the record and every remaining output hash independently prove the installation; at a different path, the missing identity cannot prove a move and installation fails.
+When a configured project moves, its marker lets reconciliation update the recorded path. If a copied project creates the same installation ID at two existing roots, reconciliation fails instead of silently adopting either copy. A missing marker is missing identity proof; a marker whose bytes differ but whose Installation ID still matches is refreshable drift. At the receipt's recorded path, `apply` may restore a missing marker only when the record and every remaining output hash independently prove the installation — drift must not substitute for missing identity proof; at a different path, the missing identity cannot prove a move and installation fails.
 
-When a binding, Host, project, or artifact disappears, `apply` removes the no-longer-desired output only after its receipt, Installation Marker, and current hashes prove ownership. For a currently bound installation with a matching Marker, `apply` recreates wholly absent recorded outputs from current Workspace source when every surviving output remains ownership-proven and ordinary path-conflict checks pass. Modified generated files, mode drift, unexpected directory members, and occupied destinations are reported as drift and are never overwritten or removed silently.
+When a binding, Host, project, or artifact disappears, `apply` removes the no-longer-desired output after its receipt, Installation Marker, and path safety prove identity. For a currently bound installation with a matching Marker, `apply` replaces recorded output roots from current Workspace source — recreating wholly absent outputs, refreshing drifted bytes, modes, or members, and never adopting unknown descendants — while occupied unowned destinations and ordinary path-conflict checks still block. Occupied destinations, unsafe paths, and unprovable identity are reported as Blockers and are never overwritten or removed silently.
 
 Generated project paths are owned whole files. A symlink, occupied parent, or
 occupied unowned path blocks installation; shared repository and Host

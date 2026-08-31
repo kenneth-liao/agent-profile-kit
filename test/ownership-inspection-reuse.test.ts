@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -271,7 +272,8 @@ describe("one shared ownership inspection per generated output per pass", () => 
       project,
     });
     expect(reportOutputs(report).every((item) => !item.path.startsWith(`${directory.path}/`))).toBe(true);
-    expect(reportBlockers(report).some((blocker) => blocker.message.includes("owned output"))).toBe(true);
+    // Identity-proven drift is non-blocking pending refresh work.
+    expect(reportBlockers(report)).toEqual([]);
     // Ownership proof and root diagnostics share one directory walk; the
     // ordinary file outputs are each read once by ownership proof.
     expect(instrumentation.counts.inspectDirectory).toBe(1);
@@ -420,7 +422,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
         { ownershipInspection: createLifecycleOwnershipInspectionContext() },
       );
       expect(reportItems(report).some((item) => item.kind === "repairable missing output")).toBe(false);
-      expect(reportItems(report).some((item) => item.kind === "missing output")).toBe(true);
+      expect(reportItems(report).some((item) => item.kind === "drifted output")).toBe(true);
       expect(reportBlockers(report).some((blocker) =>
         blocker.kind === "installation-ownership"
       )).toBe(true);
@@ -509,7 +511,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     expect(reportItems(report.resultingState).every((item) => item.kind === "current")).toBe(true);
   });
 
-  test("stale removal refuses output drifted after preflight by re-proving ownership fresh", async () => {
+  test("stale removal re-proves identity fresh and removes output drifted after preflight", async () => {
     const home = temporaryDirectory("apk-own-inspect-stale-mutate-home-");
     const keep = temporaryDirectory("apk-own-inspect-stale-mutate-keep-");
     const stale = temporaryDirectory("apk-own-inspect-stale-mutate-stale-");
@@ -538,14 +540,13 @@ describe("one shared ownership inspection per generated output per pass", () => 
     if (!keepInstallation) throw new Error("expected keep installation");
     const staleContextPath = join(stale, ".agent-profile-kit", "codex", "context.md");
     const drifted = "# Drifted by a concurrent process after preflight\n";
-    const staleState = await readInstallationState(home);
 
     // The factory is invoked for preflight, the stale-removal pass, and post-commit
     // verification. The stale-removal context mutates the stale output immediately
     // before its fresh proof reads it, modelling a change made after preflight.
     let contextIndex = 0;
     let mutated = false;
-    await expect(applyReconciliation(home, [keepInstallation], {
+    const report = await applyReconciliation(home, [keepInstallation], {
       createOwnershipInspection: () => {
         const index = contextIndex;
         contextIndex += 1;
@@ -568,12 +569,13 @@ describe("one shared ownership inspection per generated output per pass", () => 
         };
         return wrapped;
       },
-    })).rejects.toThrow(/failed project: removal/);
+    });
 
     expect(mutated).toBe(true);
-    // The drifted output survives; the installation is not removed and the
-    // recorded state is untouched.
-    expect(readFileSync(staleContextPath, "utf8")).toBe(drifted);
-    expect((await readInstallationState(home)).receipts).toEqual(staleState.receipts);
+    // The stale-removal pass re-proves identity from fresh evidence; freshness
+    // drift never revokes removal authority, so the drifted output is removed.
+    expect(existsSync(staleContextPath)).toBe(false);
+    expect((await readInstallationState(home)).receipts.map((item) => item.project)).toEqual([keep]);
+    expect(reportItems(report.resultingState).every((item) => item.kind === "current")).toBe(true);
   });
 });

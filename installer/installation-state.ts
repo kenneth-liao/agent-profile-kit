@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
+  compareCanonicalStrings,
   INSTALLATION_MARKER_PATH,
   parseInstallationMarker,
   type InstallationMarker,
@@ -31,6 +32,10 @@ import {
   type LifecycleOwnershipInspection,
   type OwnedOutputInspection,
 } from "./lifecycle-ownership-inspection.js";
+import {
+  createLifecycleGitInspectionContext,
+  type LifecycleGitInspection,
+} from "./lifecycle-git-inspection.js";
 import {
   hashBytes,
   markerPath,
@@ -167,23 +172,32 @@ function proveFileOutput(
   return { drifted: false, missing: true, modeDrifted: false };
 }
 
+/**
+ * Authority-failure classification. `drift` marks recorded identity or path
+ * evidence that differs unrepairably (unsafe parents or roots, unreadable
+ * output, foreign Marker identity) — never content freshness, which the
+ * ordinary refresh path restores without revoking authority.
+ */
 export type OwnershipFailureKind = "drift" | "malformed" | "missing";
-export type OwnershipDriftKind = "generated-file" | "generated-root";
 
 export interface OwnershipProof {
-  readonly driftKind?: OwnershipDriftKind;
   readonly failureKind?: OwnershipFailureKind;
   readonly reason?: string;
   readonly owned: boolean;
 }
 
+/**
+ * Strict hash proof for the missing-Marker Safe Repair: every remaining owned
+ * output must be present and hash-current. This is evidence, not authority —
+ * a missing Marker leaves no identity proof at the Project, so drift must not
+ * substitute for it. The Marker itself is excluded: it is the missing proof.
+ */
 async function proveOutputHashes(
   installation: OwnershipReceipt,
-  includeMarker: boolean,
   inspection: LifecycleOwnershipInspection,
 ): Promise<OwnershipProof> {
   const outputs = installation.outputs.filter(
-    (output) => includeMarker || output.path !== INSTALLATION_MARKER_PATH,
+    (output) => output.path !== INSTALLATION_MARKER_PATH,
   );
   if (outputs.length === 0) {
     return {
@@ -195,7 +209,6 @@ async function proveOutputHashes(
   const missing: string[] = [];
   const drifted: string[] = [];
   const modeDrifted: string[] = [];
-  let directoryDrift = false;
   for (const output of outputs) {
     const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
     if (unsafeParent) {
@@ -219,11 +232,9 @@ async function proveOutputHashes(
     }
     if (result.kind !== "directory" || result.directoryHash !== output.hash) {
       drifted.push(output.path);
-      directoryDrift = true;
     }
     if (result.kind === "directory" && result.mode !== output.mode) {
       modeDrifted.push(output.path);
-      directoryDrift = true;
     }
   }
   if (missing.length > 0 || drifted.length > 0 || modeDrifted.length > 0) {
@@ -233,13 +244,53 @@ async function proveOutputHashes(
       ...(modeDrifted.length > 0 ? [`drifted mode: ${modeDrifted.join(", ")}`] : []),
     ];
     return {
-      ...(drifted.length > 0 || modeDrifted.length > 0
-        ? { driftKind: directoryDrift ? "generated-root" as const : "generated-file" as const }
-        : {}),
       failureKind: missing.length > 0 ? "missing" : "drift",
       owned: false,
       reason: `owned output ${reasons.join("; ")}`,
     };
+  }
+  return { owned: true };
+}
+
+/**
+ * Authority proof for recorded generated output roots: Installation identity
+ * and path-safety evidence only. Content, mode, and membership differences are
+ * freshness drift that the ordinary refresh path restores; they never revoke
+ * authority over a proven root.
+ */
+async function proveRecordedRootAuthority(
+  installation: OwnershipReceipt,
+  inspection: LifecycleOwnershipInspection,
+): Promise<OwnershipProof> {
+  for (const output of installation.outputs) {
+    const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
+    if (unsafeParent) {
+      return {
+        failureKind: "drift",
+        owned: false,
+        reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
+      };
+    }
+    const result = await inspection.inspectOutput(installation.project, output);
+    if (result.kind === "missing") {
+      return { failureKind: "missing", owned: false, reason: `owned output missing: ${output.path}` };
+    }
+    if (result.kind === "unreadable") {
+      return {
+        failureKind: "drift",
+        owned: false,
+        reason: `owned output ${output.path} could not be inspected`,
+      };
+    }
+    if (result.kind !== output.type) {
+      return {
+        failureKind: "drift",
+        owned: false,
+        reason: result.unsupportedMember
+          ? `owned output ${output.path} contains an unsupported entry at ${result.unsupportedMember}`
+          : `owned output ${output.path} is not a ${output.type}`,
+      };
+    }
   }
   return { owned: true };
 }
@@ -249,7 +300,7 @@ export async function proveRemainingOwnedOutputs(
   installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<OwnershipProof> {
-  return proveOutputHashes(installation, false, inspection);
+  return proveOutputHashes(installation, inspection);
 }
 
 export interface InstallationOwnershipInspection extends OwnershipProof {
@@ -331,10 +382,9 @@ export async function inspectInstallationOwnership(
       (output) => !missingPaths.has(output.path),
     ),
   };
-  const proof = await proveOutputHashes(surviving, true, inspection);
+  const proof = await proveRecordedRootAuthority(surviving, inspection);
   if (!proof.owned && repairableMissingOutputs.length > 0) {
     return {
-      ...(proof.driftKind ? { driftKind: proof.driftKind } : {}),
       failureKind: "missing",
       owned: false,
       reason: `owned output missing: ${repairableMissingOutputs.join(", ")}; ${proof.reason ?? "surviving output ownership cannot be proven"}`,
@@ -347,19 +397,57 @@ export async function inspectInstallationOwnership(
   };
 }
 
+/**
+ * Prove removal authority over one recorded installation: Installation identity,
+ * path safety, and repository ownership. Freshness drift and wholly absent
+ * roots never block removal; missing or foreign identity and Git-tracked
+ * recorded roots do — Agent Profile Kit never deletes or untracks
+ * repository-owned material.
+ */
 export async function proveOwnedInstallation(
   installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
+  gitInspection: LifecycleGitInspection = createLifecycleGitInspectionContext(),
 ): Promise<OwnershipProof> {
   const inspectionResult = await inspectInstallationOwnership(installation, inspection);
-  if (inspectionResult.repairableMissingOutputs.length > 0) {
+  if (!inspectionResult.owned) {
     return {
-      failureKind: "missing",
+      ...(inspectionResult.failureKind ? { failureKind: inspectionResult.failureKind } : {}),
+      ...(inspectionResult.reason ? { reason: inspectionResult.reason } : {}),
       owned: false,
-      reason: `owned output missing: ${inspectionResult.repairableMissingOutputs.join(", ")}`,
     };
   }
-  return inspectionResult;
+  const tracked = await trackedRoots(
+    installation.project,
+    installation.outputs.map((output) => output.path),
+    gitInspection,
+  );
+  if (tracked.length > 0) {
+    return {
+      failureKind: "drift",
+      owned: false,
+      reason:
+        `owned output ${tracked.join(", ")} is tracked by Git; ` +
+        "Agent Profile Kit will not delete or untrack repository-owned material",
+    };
+  }
+  return { owned: true };
+}
+
+/**
+ * The one tracked-root reader for every destructive removal surface: the
+ * project-relative recorded roots the live Git index tracks, canonically
+ * ordered. Ordinary and temporary removal share this fact.
+ */
+async function trackedRoots(
+  project: string,
+  paths: readonly string[],
+  gitInspection: LifecycleGitInspection,
+): Promise<readonly string[]> {
+  const gitProject = await gitInspection.findGitProject(project);
+  if (!gitProject) return [];
+  const tracked = await gitInspection.classifyTrackedDestinations(gitProject, paths);
+  return paths.filter((path) => tracked.has(path)).sort(compareCanonicalStrings);
 }
 
 export async function removeProvenInstallation(
@@ -377,8 +465,9 @@ export interface ProvenInstallationRemovalTransaction {
 export async function stageProvenInstallationRemoval(
   installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
+  gitInspection: LifecycleGitInspection = createLifecycleGitInspectionContext(),
 ): Promise<ProvenInstallationRemovalTransaction> {
-  const proof = await proveOwnedInstallation(installation, inspection);
+  const proof = await proveOwnedInstallation(installation, inspection, gitInspection);
   if (!proof.owned) {
     throw new Error(
       `Cannot remove Project at ${installation.project}: ${proof.reason ?? "ownership could not be proven"}`,
@@ -405,6 +494,16 @@ export async function stageProvenInstallationRemoval(
       INSTALLATION_MARKER_PATH,
     ]) {
       const path = join(installation.project, relativePath);
+      // A wholly absent recorded root is proven removal authority, not a
+      // failure: skip it and remove the surviving proven output and Marker.
+      if (relativePath !== INSTALLATION_MARKER_PATH) {
+        try {
+          await lstat(path);
+        } catch (error) {
+          if (hasErrorCode(error, "ENOENT")) continue;
+          throw error;
+        }
+      }
       const staged = join(stage, relativePath);
       await mkdir(dirname(staged), { recursive: true });
       await rename(path, staged);
@@ -455,6 +554,15 @@ export async function removeDisposableOutputs(options: {
   }
 
   if (extantRoots.length > 0) {
+    // Git-tracked recorded roots are repository-owned material: removal never
+    // deletes or untracks them, regardless of proven identity or drift.
+    const tracked = await trackedRoots(project, extantRoots, createLifecycleGitInspectionContext());
+    if (tracked.length > 0) {
+      throw new Error(
+        `Cannot remove Temporary Profile Installation: owned output ${tracked.join(", ")} ` +
+          "is tracked by Git; Agent Profile Kit will not delete or untrack repository-owned material",
+      );
+    }
     if (!marker) {
       throw new Error(
         `Cannot remove Temporary Profile Installation: Installation Marker is missing while owned output still exists (${extantRoots.join(", ")})`,

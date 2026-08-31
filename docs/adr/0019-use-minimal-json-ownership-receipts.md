@@ -36,3 +36,14 @@ The legacy YAML parser and schema projections remain only for the explicit migra
 ### Amendment: close the pre-1.0 YAML migration window
 
 Issue #256 confirmed that the shipped 0.95.0 boundary migrated every known supported Installation State, and issue #257 closed the migration window. Runtime ownership reading now accepts only strict schema-6 `manifest.json`; any leftover `manifest.yaml` fails closed with guidance to use 0.95.0. The legacy YAML readers, compatibility normalizer, transitional serializer, and retired receipt projections no longer exist in production, and ownership is never reconstructed from generated Profile Installation output.
+
+### Amendment: identity, not aggregate-hash equality, grants authority over recorded roots
+
+Issue #363 narrowed this record's rule that inspection fails ownership proof on "any unreadable, unsafe, missing, unexpected, changed, or mode-drifted content". A verified incident showed an Agent Host leaving an empty scratch directory inside an installed Skill root; the aggregate member-set hash changed, and the Project was globally blocked with drift evidence described as a user edit that never happened.
+
+The authority boundary now separates installation identity from content freshness:
+
+- An active Installation Receipt plus an Installation Marker that matches its Installation ID at safe paths proves that each recorded generated output root is Agent Profile Kit-managed disposable output. This identity proof — not current hashes or directory membership — grants authority over the exact recorded roots.
+- Current hashes and directory membership determine only whether that output is current. Content, mode, and membership differences are ordinary drift: `status` reports them as non-blocking pending generated-output work, `apply` atomically replaces the whole recorded root from current Workspace source and freshly verifies the result, and removal operations may remove drifted proven roots through their existing transactional boundaries. Unknown descendants are never adopted as canonical source; reconciliation replaces the whole proven root and never merges unknown members.
+- The fail-closed boundary remains for unreadable or absent authoritative Installation State, missing or foreign Marker identity when it cannot be safely repaired, unsupported entry types such as symlinks inside a proven root, root type confusion, unreadable output, unsafe root or parent paths, Git-tracked generated paths, occupied unowned destinations, and user-managed or shared files.
+- The aggregate hash keeps its freshness role: it distinguishes current from drifted output. It is no longer an authority requirement, and residual ownership Blockers state only what their evidence proves, never asserting a user edit without provenance.

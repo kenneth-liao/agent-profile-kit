@@ -10,6 +10,7 @@ import {
 import { dirname, join } from "node:path";
 
 import {
+  compareCanonicalStrings,
   INSTALLATION_MARKER_PATH,
 } from "../schemas/installation-manifest.js";
 import {
@@ -61,7 +62,6 @@ import {
   type ProjectReadScheduler,
 } from "./project-scheduler.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
-import { COMMAND_NAME } from "./version.js";
 import {
   prepareRepositoryExclusionMovePreflight,
   gitExclusionBlockers,
@@ -518,8 +518,7 @@ async function ownedOutputMatches(
   inspection: LifecycleOwnershipInspection,
 ): Promise<boolean> {
   const result = await inspection.inspectOutput(project, output);
-  if (output.type === "file") return fileOutputMatches(result, output);
-  return directoryOutputMatches(result, output);
+  return recordedOutputMatches(result, output);
 }
 
 export async function desiredOutputConflicts(
@@ -764,18 +763,10 @@ async function installationRetirementSelection(
 }
 
 function ownershipBlocker(project: string, proof: OwnershipProof): ProjectScopedBlockerInput {
-  const reason = proof.reason ?? "ownership could not be proven";
-  let message: string;
-  if (proof.driftKind) {
-    const generatedBoundary = proof.driftKind === "generated-root" ? "root" : "file";
-    message =
-      `Cannot sync the generated ${generatedBoundary}: ${reason}. ` +
-      "Agent Profile Kit will not overwrite your edit. Move the change into the Workspace, " +
-      `or delete the generated ${generatedBoundary}, then run ${COMMAND_NAME} apply to restore it`;
-  } else {
-    message = `Cannot verify generated-file ownership: ${reason}`;
-  }
-  return installationOwnershipBlocker({ message, project });
+  return installationOwnershipBlocker({
+    message: `Cannot verify generated-file ownership: ${proof.reason ?? "ownership could not be proven"}`,
+    project,
+  });
 }
 
 /** Host-agnostic: any Adapter file carrying the canonical Context envelope. */
@@ -792,11 +783,20 @@ function composedContextFromOutputs(outputs: readonly DesiredProjectOutput[]): s
   return "";
 }
 
-function directoryRootRequiresAttention(
+function recordedOutputMatches(
+  inspection: OwnedOutputInspection,
+  output: OwnershipOutputReceipt,
+): boolean {
+  return output.type === "file"
+    ? fileOutputMatches(inspection, output)
+    : directoryOutputMatches(inspection, output);
+}
+
+function recordedOutputRequiresAttention(
   output: OwnershipOutputReceipt,
   inspection: OwnedOutputInspection,
 ): boolean {
-  return inspection.kind !== "missing" && !directoryOutputMatches(inspection, output);
+  return inspection.kind !== "missing" && !recordedOutputMatches(inspection, output);
 }
 
 function nestedReconciliationReport(
@@ -1081,10 +1081,10 @@ export async function previewReconciliation(
           ? "unchanged"
           : "update";
       if (
-        previousOutput?.type === "directory" &&
+        kind === "unchanged" &&
+        previousOutput &&
         previous &&
-        kind !== "repair" &&
-        directoryRootRequiresAttention(
+        recordedOutputRequiresAttention(
           previousOutput,
           await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput),
         )
@@ -1098,18 +1098,9 @@ export async function previewReconciliation(
       });
       previousOutputs.delete(output.path);
     }
-    for (const [path, previousOutput] of previousOutputs) {
-      const kind: OutputReconciliationKind =
-        previousOutput.type === "directory" &&
-          previous &&
-          directoryRootRequiresAttention(
-            previousOutput,
-            await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput),
-          )
-          ? "drifted output"
-          : "removal";
+    for (const [path] of previousOutputs) {
       projectOutputItems.push({
-        kind,
+        kind: "removal",
         path,
         project: installation.binding.project,
       });
@@ -1265,6 +1256,19 @@ export async function previewReconciliation(
           ...safeRepairItemClassification(repair),
           project: installation.binding.project,
         });
+      } else if (projectOutputItems.some((item) => item.kind === "drifted output")) {
+        // Identity-proven freshness drift is ordinary pending generated-output
+        // work: apply replaces the whole recorded root from current Workspace
+        // source. It never blocks the lifecycle or revokes ownership.
+        projectItems.push({
+          kind: "drifted output",
+          project: installation.binding.project,
+          reason: projectOutputItems
+            .filter((item) => item.kind === "drifted output")
+            .map((item) => item.path)
+            .sort(compareCanonicalStrings)
+            .join(", "),
+        });
       } else if (previous.desiredInputDigest !== installation.sourceHash) {
         projectItems.push({
           kind: "stale source",
@@ -1366,7 +1370,7 @@ export async function previewReconciliation(
     const intentionallyDeleted = intentionallyDeletedProjects.has(installation.project);
     const proof = intentionallyDeleted
       ? { owned: true as const }
-      : await proveOwnedInstallation(installation, inspection);
+      : await proveOwnedInstallation(installation, inspection, gitInspection);
     const projectBlockers: ReconciliationBlocker[] = [];
     if (!proof.owned) {
       const remediation = proof.reason?.includes("Installation Marker")
