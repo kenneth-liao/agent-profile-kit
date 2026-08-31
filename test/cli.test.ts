@@ -12055,6 +12055,54 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(readFileSync(join(tempProject, "user-notes.md"), "utf8")).toBe("keep me\n");
   });
 
+  test("remove-temp blocks a drifted temporary output that Git now tracks", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-tracked-"));
+
+    const install = await runCli(
+      home,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expectExitCode(install, 0);
+    const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
+
+    const tracked = join(tempProject, ".agent-profile-kit", "codex", "context.md");
+    writeFileSync(tracked, "user drift\n");
+    execFileSync("git", ["-C", tempProject, "add", "-f", ".agent-profile-kit/codex/context.md"]);
+
+    const remove = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+
+    expectExitCode(remove, 2);
+    const blocked = JSON.parse(remove.stdout) as {
+      readonly outcome: string;
+      readonly blockers: readonly { readonly kind: string; readonly message: string }[];
+    };
+    expect(blocked.outcome).toBe("blocked");
+    expect(blocked.blockers.some((blocker) =>
+      blocker.message.includes("tracked by Git") &&
+      blocker.message.includes(".agent-profile-kit/codex/context.md")
+    )).toBe(true);
+    // The tracked output, its index entry, the Marker, and the active temporary
+    // receipt all survive the blocked removal.
+    expect(existsSync(tracked)).toBe(true);
+    expect(execFileSync("git", ["-C", tempProject, "status", "--porcelain"], { encoding: "utf8" }))
+      .toContain("A  .agent-profile-kit/codex/context.md");
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      readonly receipts: readonly { readonly lifetime: string }[];
+    };
+    expect(state.receipts).toHaveLength(1);
+    expect(state.receipts[0]!.lifetime).toBe("temporary");
+  });
+
   test("linked worktrees can hold independent temporary installations with contributor-safe exclusions", async () => {
     const home = isolatedHome();
     await initialize(home);

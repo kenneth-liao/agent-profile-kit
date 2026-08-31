@@ -417,7 +417,11 @@ export async function proveOwnedInstallation(
       owned: false,
     };
   }
-  const tracked = await trackedOwnedRoots(installation, gitInspection);
+  const tracked = await trackedRoots(
+    installation.project,
+    installation.outputs.map((output) => output.path),
+    gitInspection,
+  );
   if (tracked.length > 0) {
     return {
       failureKind: "drift",
@@ -430,14 +434,18 @@ export async function proveOwnedInstallation(
   return { owned: true };
 }
 
-/** Recorded roots the live Git index tracks, canonically ordered. */
-async function trackedOwnedRoots(
-  installation: OwnershipReceipt,
+/**
+ * The one tracked-root reader for every destructive removal surface: the
+ * project-relative recorded roots the live Git index tracks, canonically
+ * ordered. Ordinary and temporary removal share this fact.
+ */
+async function trackedRoots(
+  project: string,
+  paths: readonly string[],
   gitInspection: LifecycleGitInspection,
 ): Promise<readonly string[]> {
-  const gitProject = await gitInspection.findGitProject(installation.project);
+  const gitProject = await gitInspection.findGitProject(project);
   if (!gitProject) return [];
-  const paths = installation.outputs.map((output) => output.path);
   const tracked = await gitInspection.classifyTrackedDestinations(gitProject, paths);
   return paths.filter((path) => tracked.has(path)).sort(compareCanonicalStrings);
 }
@@ -548,17 +556,12 @@ export async function removeDisposableOutputs(options: {
   if (extantRoots.length > 0) {
     // Git-tracked recorded roots are repository-owned material: removal never
     // deletes or untracks them, regardless of proven identity or drift.
-    const gitInspection = createLifecycleGitInspectionContext();
-    const gitProject = await gitInspection.findGitProject(project);
-    if (gitProject) {
-      const tracked = await gitInspection.classifyTrackedDestinations(gitProject, extantRoots);
-      const trackedRoots = extantRoots.filter((path) => tracked.has(path)).sort(compareCanonicalStrings);
-      if (trackedRoots.length > 0) {
-        throw new Error(
-          `Cannot remove Temporary Profile Installation: owned output ${trackedRoots.join(", ")} ` +
-            "is tracked by Git; Agent Profile Kit will not delete or untrack repository-owned material",
-        );
-      }
+    const tracked = await trackedRoots(project, extantRoots, createLifecycleGitInspectionContext());
+    if (tracked.length > 0) {
+      throw new Error(
+        `Cannot remove Temporary Profile Installation: owned output ${tracked.join(", ")} ` +
+          "is tracked by Git; Agent Profile Kit will not delete or untrack repository-owned material",
+      );
     }
     if (!marker) {
       throw new Error(
