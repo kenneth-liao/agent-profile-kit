@@ -7,12 +7,14 @@ import {
 } from "../adapters/host-catalog.js";
 import { requireArtifactId } from "./dependencies.js";
 import {
-  INSTALLATION_MARKER_PATH,
   compareCanonicalStrings,
   parseFileMode,
 } from "./installation-manifest.js";
 
-export const OWNERSHIP_STATE_SCHEMA_VERSION = 6;
+export const OWNERSHIP_STATE_SCHEMA_VERSION = 7;
+
+/** The one immediately preceding schema version the reader still accepts. */
+export const PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION = 6;
 
 /** Explicit trust-boundary limits for the final ownership-state document. */
 export const OWNERSHIP_STATE_LIMITS = {
@@ -150,9 +152,6 @@ function parseOutput(value: unknown, description: string): OwnershipOutputReceip
     throw new Error(`${description} type must be 'file' or 'directory'`);
   }
   const path = requireOutputPath(output.path, `${description} path`);
-  if (path === INSTALLATION_MARKER_PATH) {
-    throw new Error(`${description} Installation Marker is lifecycle metadata, not a generated output`);
-  }
   return {
     hash: requireHash(output.hash, `${description} hash`),
     mode: parseFileMode(output.mode, `${description} mode`),
@@ -435,7 +434,10 @@ function assertPathBounds(state: OwnershipState): void {
   }
 }
 
-export function parseOwnershipState(source: string): OwnershipState {
+function parseOwnershipStateWithVersion(
+  source: string,
+  acceptedVersions: readonly number[],
+): ParsedOwnershipStateDocument {
   assertJsonSourceBounds(source);
   assertUniqueJsonObjectFields(source);
   let parsed: unknown;
@@ -451,8 +453,13 @@ export function parseOwnershipState(source: string): OwnershipState {
     ["schema_version", "receipts", "removed_temporary_installation_ids"],
     "Ownership State",
   );
-  if (value.schema_version !== OWNERSHIP_STATE_SCHEMA_VERSION) {
-    throw new Error(`Ownership State schema_version must be ${OWNERSHIP_STATE_SCHEMA_VERSION}`);
+  if (
+    typeof value.schema_version !== "number" ||
+    !acceptedVersions.includes(value.schema_version)
+  ) {
+    throw new Error(
+      `Ownership State schema_version must be ${acceptedVersions.join(" or ")}`,
+    );
   }
   if (!Array.isArray(value.receipts)) throw new Error("Ownership State receipts must be an array");
   if (!Array.isArray(value.removed_temporary_installation_ids)) {
@@ -476,13 +483,39 @@ export function parseOwnershipState(source: string): OwnershipState {
   if (removed.some((identity) => receiptIds.includes(identity))) {
     throw new Error("Ownership State active and removed Installation IDs must not collide");
   }
-  const state: OwnershipState = {
+  const state: ParsedOwnershipStateDocument = {
     receipts: [...receipts].sort((left, right) => compareCanonicalStrings(left.project, right.project)),
     removedTemporaryInstallationIds: [...removed].sort(compareCanonicalStrings),
-    schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
+    schemaVersion: value.schema_version as number,
   };
-  assertPathBounds(state);
+  assertPathBounds(state as OwnershipState);
   return state;
+}
+
+/**
+ * The strict current-version Ownership State. The discriminated literal pins
+ * every constructed state to the current schema version.
+ */
+export type ParsedOwnershipStateDocument = Omit<OwnershipState, "schemaVersion"> & {
+  readonly schemaVersion: number;
+};
+
+/** Strict codec for the current schema version: the writer-side and test seam. */
+export function parseOwnershipState(source: string): OwnershipState {
+  const state = parseOwnershipStateWithVersion(source, [OWNERSHIP_STATE_SCHEMA_VERSION]);
+  return state as OwnershipState;
+}
+
+/**
+ * The one on-disk reader: accepts the current schema version and the one
+ * immediately preceding version, preserving the document's version so callers
+ * can normalize version-specific entries at their single ingestion boundary.
+ */
+export function parseOwnershipStateDocument(source: string): ParsedOwnershipStateDocument {
+  return parseOwnershipStateWithVersion(source, [
+    OWNERSHIP_STATE_SCHEMA_VERSION,
+    PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION,
+  ]);
 }
 
 export function formatOwnershipState(state: OwnershipState): string {

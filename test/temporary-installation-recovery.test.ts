@@ -20,7 +20,6 @@ import {
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { nodeFileSystem } from "../installer/reconcile.js";
-import { TEMPORARY_INSTALLATION_REMOVAL } from "../installer/blockers.js";
 import {
   installTemporaryProfile,
   removeTemporaryProfile,
@@ -116,36 +115,6 @@ async function prepareClaudeHome(): Promise<string> {
 }
 
 describe("Temporary Profile Installation recovery", () => {
-  test("remove-temp marker failure emits structured removal evidence", async () => {
-    const home = await prepareHome();
-    const project = gitRepository("agent-profile-kit-temp-structure-");
-    const receipt = await installTemporaryProfile({
-      home,
-      host: "codex",
-      profile: "coding",
-      project,
-    });
-    rmSync(join(project, ".agent-profile-kit", "installation.json"));
-
-    await expect(
-      removeTemporaryProfile({
-        home,
-        temporaryInstallationId: receipt.temporaryInstallationId,
-      }),
-    ).rejects.toMatchObject({
-      name: "TemporaryInstallationBlockedError",
-      blockers: [expect.stringContaining("Cannot remove Temporary Profile Installation")],
-      structured: [
-        expect.objectContaining({
-          kind: TEMPORARY_INSTALLATION_REMOVAL,
-          project: expect.any(String),
-          scope: "project",
-          message: expect.stringContaining("Cannot remove Temporary Profile Installation"),
-        }),
-      ],
-    });
-  });
-
   test("temporary capability blockers project their identity-free structured problem", async () => {
     const home = await prepareHome();
     const project = gitRepository("agent-profile-kit-temp-capability-blocker-");
@@ -351,63 +320,6 @@ describe("Temporary Profile Installation recovery", () => {
     expect(existsSync(join(project, "README.md"))).toBe(true);
   });
 
-  test("remove blocks when extant owned roots lack a matching Installation Marker", async () => {
-    const home = await prepareHome();
-    const project = gitRepository("agent-profile-kit-temp-no-marker-");
-    const receipt = await installTemporaryProfile({
-      home,
-      host: "codex",
-      profile: "coding",
-      project,
-    });
-    rmSync(join(project, ".agent-profile-kit", "installation.json"), { force: true });
-    writeFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), "still here\n");
-
-    await expect(
-      removeTemporaryProfile({
-        home,
-        temporaryInstallationId: receipt.temporaryInstallationId,
-      }),
-    ).rejects.toBeInstanceOf(TemporaryInstallationBlockedError);
-    expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
-  });
-
-  test("ownership token published first allows remove after partial publication failure", async () => {
-    const home = await prepareHome();
-    const project = gitRepository("agent-profile-kit-temp-token-first-");
-
-    let failure: unknown;
-    try {
-      await installTemporaryProfile({
-        home,
-        host: "codex",
-        profile: "coding",
-        project,
-        hooks: {
-          onAfterOwnershipToken: async () => {
-            throw new Error("injected failure after ownership token");
-          },
-        },
-      });
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(TemporaryInstallationRecoverableError);
-    const recoverable = failure as TemporaryInstallationRecoverableError;
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
-    expect(
-      JSON.parse(readFileSync(join(project, ".agent-profile-kit", "installation.json"), "utf8"))
-        .installation_id,
-    ).toBe(recoverable.temporaryInstallationId);
-
-    const removed = await removeTemporaryProfile({
-      home,
-      temporaryInstallationId: recoverable.temporaryInstallationId,
-    });
-    expect(removed.completionState).toBe("removed");
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
-  });
-
   test("linked worktrees hold independent temporary installations and contributor-safe exclusion removal", async () => {
     const home = await prepareHome();
     const primary = gitRepository("agent-profile-kit-temp-primary-");
@@ -427,8 +339,6 @@ describe("Temporary Profile Installation recovery", () => {
       project: second,
     });
     expect(receiptA.temporaryInstallationId).not.toBe(receiptB.temporaryInstallationId);
-    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
 
     const exclude = readFileSync(join(primary, ".git", "info", "exclude"), "utf8");
     expect(exclude).toContain("# BEGIN Agent Profile Kit generated paths");
@@ -437,8 +347,6 @@ describe("Temporary Profile Installation recovery", () => {
       home,
       temporaryInstallationId: receiptA.temporaryInstallationId,
     });
-    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(second, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
 
     const excludeAfter = readFileSync(join(primary, ".git", "info", "exclude"), "utf8");
@@ -448,7 +356,6 @@ describe("Temporary Profile Installation recovery", () => {
       home,
       temporaryInstallationId: receiptB.temporaryInstallationId,
     });
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(primary, ".git", "info", "exclude"), "utf8")).not.toContain(
       "# BEGIN Agent Profile Kit generated paths",
     );
@@ -630,7 +537,6 @@ describe("Temporary Profile Installation Claude Host parity", () => {
     expect(receipt.outputs).not.toContain(".agent-profile-kit/installation.json");
     expect(receipt.repositoryExclusion?.entries).toEqual(
       expect.arrayContaining([
-        "/.agent-profile-kit/installation.json",
         "/.claude/rules/agent-profile-kit.md",
         "/.claude/skills/review-pr",
       ]),

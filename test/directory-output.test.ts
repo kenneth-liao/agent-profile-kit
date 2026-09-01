@@ -336,7 +336,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 6 },
+      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 7 },
     );
     expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("occupied unowned artifact directory")
@@ -388,7 +388,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 6 },
+      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 7 },
     );
     expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("occupied") && blocker.message.includes("parent path")
@@ -525,7 +525,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     })).rejects.toThrow("injected directory publication failure");
 
     expect(readFileSync(join(destination, "SKILL.md"), "utf8")).toBe(priorSkill);
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("proven removal deletes a drifted owned artifact directory without a manual pre-clean", async () => {
@@ -545,7 +545,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(existsSync(join(project, directory.path))).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
 
-    await writeInstallationState(home, { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 6 });
+    await writeInstallationState(home, { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 7 });
   });
 
   test("existing Context-only Codex lifecycle still applies without directory outputs", async () => {
@@ -618,7 +618,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 6 },
+      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 7 },
     );
     expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("tracked project path")
@@ -687,7 +687,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     chmodSync(join(project, directory.path), 0o755);
     chmodSync(join(project, directory.path, "scripts"), 0o755);
     expect(readFileSync(join(project, directory.path, "SKILL.md"), "utf8")).toBe("# Restrictive skill\n");
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("hasTrackedGitDescendants fails closed when Git inspection errors", async () => {

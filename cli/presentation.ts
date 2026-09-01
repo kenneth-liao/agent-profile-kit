@@ -211,7 +211,6 @@ export function capitalize(text: string): string {
  */
 export const NON_CURRENT_STATE_ORDER = [
   "addition",
-  "missing output",
   "update",
   "stale source",
   "repairable missing output",
@@ -258,10 +257,6 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
   removal:
     `No ${DEFAULT_VIEW_LEXICON.projectBinding.singular} remains for this installation; apply will remove proven ` +
     `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`,
-  "missing output":
-    `The ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} is absent or its ` +
-    `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} are missing without proven Agent Profile Kit ownership; ` +
-    "this is not a safe automatic repair.",
 };
 
 interface OutputSummary {
@@ -1999,7 +1994,6 @@ const OUTPUT_ATTENTION_KINDS: ReadonlySet<OutputReconciliationKind> = new Set([
 const EXCEPTION_ITEM_KINDS: ReadonlySet<ReconciliationKind> = new Set([
   "drifted output",
   "malformed ownership state",
-  "missing output",
 ]);
 
 const STALE_SOURCE_KIND: ReconciliationKind = "stale source";

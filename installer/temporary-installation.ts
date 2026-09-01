@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+
 import { dirname } from "node:path";
 
 import {
@@ -12,10 +12,6 @@ import {
   isSupportedHost,
   type SupportedHost,
 } from "../schemas/local-configuration.js";
-import {
-  formatInstallationMarker,
-  INSTALLATION_MARKER_PATH,
-} from "../schemas/installation-manifest.js";
 import type { OwnershipReceipt } from "../schemas/ownership-state.js";
 import { stageGitExclusions } from "./git-exclusions.js";
 import { findGitProject, gitExcludeEntry } from "./git.js";
@@ -30,12 +26,12 @@ import {
   ingestApplication,
   normalizeProject,
 } from "./local-configuration.js";
+import { createLifecycleOwnershipInspectionContext } from "./lifecycle-ownership-inspection.js";
 import { createLifecyclePlanningContext } from "./lifecycle-planning.js";
 import { requireProfile } from "./profile-selection.js";
 import {
   adapterVersionFor,
   appendDiagnosticWarnings,
-  markerPath,
   planRegisteredAdapter,
   normalizeAdapterPlans,
   assertResolvedOutputOrigins,
@@ -149,28 +145,10 @@ export interface TemporaryInstallationHooks {
   readonly lockTimeoutMs?: number;
   readonly onAfterDurableRecord?: () => Promise<void>;
   readonly onAfterExclusionCommit?: () => Promise<void>;
-  readonly onAfterOwnershipToken?: () => Promise<void>;
   readonly onAfterOutputsPublished?: () => Promise<void>;
   readonly onAfterRootDeletes?: () => Promise<void>;
   readonly onBeforeTerminalStateWrite?: () => Promise<void>;
   readonly writeInstallationState?: typeof writeInstallationState;
-}
-
-/** First owned project mutation: durable recovery ownership token (Installation Marker). */
-async function writeTemporaryOwnershipToken(
-  project: string,
-  temporaryInstallationId: string,
-): Promise<void> {
-  const destination = markerPath(project);
-  await mkdir(dirname(destination), { recursive: true });
-  await writeFile(
-    destination,
-    formatInstallationMarker({
-      installationId: temporaryInstallationId,
-      schemaVersion: 1,
-    }),
-    { flag: "wx" },
-  );
 }
 
 function receiptFromRecord(
@@ -370,7 +348,11 @@ export async function installTemporaryProfile(options: {
 
       const temporaryInstallationId = newInstallationId();
       structuredBlockers.push(
-        ...(await desiredOutputConflicts(desired, undefined, temporaryInstallationId)),
+        ...(await desiredOutputConflicts(
+          desired,
+          undefined,
+          createLifecycleOwnershipInspectionContext(),
+        )),
       );
       if (structuredBlockers.length > 0) {
         throw new TemporaryInstallationBlockedError(structuredBlockers, canonicalProject);
@@ -384,12 +366,9 @@ export async function installTemporaryProfile(options: {
           ? {}
           : {
               repositoryExclusion: {
-                entries: [
-                  ...ordinaryShape.outputs.map((output) =>
-                    gitExcludeEntry(desired.gitProject!, output.path)
-                  ),
-                  gitExcludeEntry(desired.gitProject, INSTALLATION_MARKER_PATH),
-                ],
+                entries: ordinaryShape.outputs.map((output) =>
+                  gitExcludeEntry(desired.gitProject!, output.path)
+                ),
                 target: desired.gitProject.excludeFile,
               },
             }),
@@ -402,7 +381,6 @@ export async function installTemporaryProfile(options: {
       ]);
 
       let durableRecorded = false;
-      let ownershipTokenPublished = false;
       let outputsPublished = false;
       let exclusionsCommitted = false;
       let transaction: Awaited<ReturnType<typeof stageProjectOutputs>> | undefined;
@@ -413,12 +391,6 @@ export async function installTemporaryProfile(options: {
         await writeState(options.home, nextState);
         durableRecorded = true;
         await options.hooks?.onAfterDurableRecord?.();
-
-        // First owned project mutation: Installation Marker as recovery ownership token
-        // so later partial publication (or marker-last staging) still proves ownership.
-        await writeTemporaryOwnershipToken(canonicalProject, temporaryInstallationId);
-        ownershipTokenPublished = true;
-        await options.hooks?.onAfterOwnershipToken?.();
 
         const fileSystem: ReconciliationFileSystem = {
           ...nodeFileSystem,
@@ -456,7 +428,9 @@ export async function installTemporaryProfile(options: {
         }
 
         const failureMessage = error instanceof Error ? error.message : String(error);
-        const removalRequired = durableRecorded && ownershipTokenPublished;
+        // The durable state record is the recovery token: once it exists the
+        // partial installation must stay recoverable through remove-temp.
+        const removalRequired = durableRecorded;
         if (removalRequired) {
           throw new TemporaryInstallationRecoverableError(
             temporaryInstallationId,

@@ -242,7 +242,7 @@ describe("Grok project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportBlockers(preview)).toEqual([]);
     expect(
@@ -322,7 +322,7 @@ describe("Grok project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportBlockers(preview).some((blocker) =>
       blocker.message.includes(".grok/skills/review-pr") &&
@@ -512,7 +512,7 @@ describe("Grok project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportBlockers(preview)).toEqual([]);
     await applyReconciliation(home, desired.installations);

@@ -327,12 +327,10 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     const contextFileOnDisk = join(project, ".agent-profile-kit", "opencode", "context.md");
     const configFileOnDisk = join(project, ".opencode", "opencode.jsonc");
     const skillFileOnDisk = join(project, ".agents", "skills", "review-pr", "SKILL.md");
-    const markerFileOnDisk = join(project, ".agent-profile-kit", "installation.json");
 
     expect(existsSync(contextFileOnDisk)).toBe(true);
     expect(existsSync(configFileOnDisk)).toBe(true);
     expect(existsSync(skillFileOnDisk)).toBe(true);
-    expect(existsSync(markerFileOnDisk)).toBe(true);
 
     const contextContent = readFileSync(contextFileOnDisk, "utf8");
     expect(contextContent).toContain("# Agent Profile Kit Context");
@@ -625,7 +623,6 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(receipt.repositoryExclusion?.target).toBe(join(project, ".git", "info", "exclude"));
     expect(receipt.repositoryExclusion?.entries).toEqual(
       expect.arrayContaining([
-        "/.agent-profile-kit/installation.json",
         "/.agent-profile-kit/opencode/context.md",
         "/.agents/skills/review-pr",
         "/.opencode/opencode.jsonc",
@@ -634,7 +631,6 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
 
     const excludeContent = readFileSync(join(project, ".git", "info", "exclude"), "utf8");
     expect(excludeContent).toContain("# BEGIN Agent Profile Kit generated paths");
-    expect(excludeContent).toContain("/.agent-profile-kit/installation.json");
     expect(excludeContent).toContain("/.agent-profile-kit/opencode/context.md");
     expect(excludeContent).toContain("/.agents/skills/review-pr");
     expect(excludeContent).toContain("/.opencode/opencode.jsonc");
@@ -670,7 +666,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(existsSync(join(project, ".agent-profile-kit", "opencode", "context.md"))).toBe(true);
     expect(existsSync(join(project, ".opencode", "opencode.jsonc"))).toBe(true);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(true);
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
 
     const uninstallResult = await uninstallApplication(home);
     expect(uninstallResult.projects).toHaveLength(1);
@@ -778,7 +774,6 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(existsSync(join(tempProject, ".opencode", "opencode.jsonc"))).toBe(true);
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(tempProject, ".agents", "skills", "deploy", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
 
     const configParsed = JSON.parse(
       readFileSync(join(tempProject, ".opencode", "opencode.jsonc"), "utf8"),

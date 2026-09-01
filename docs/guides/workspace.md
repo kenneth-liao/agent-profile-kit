@@ -483,13 +483,13 @@ binding across worktrees are reset and reapplied; the CLI carries no migration
 or compatibility workflow for that development-only state.
 
 Generated output is owned whole: complete files and artifact directories whose
-Installation Marker and hashes prove Agent Profile Kit ownership. Unrelated project files,
+Installation Receipt and hashes prove Agent Profile Kit ownership. Unrelated project files,
 repository-owned instructions, global Host configuration, authentication, trust,
 approvals, plugins, and sessions remain untouched. Agent Profile Kit does not
 merge selected fields into Host or repository configuration, install a watcher or
 Git hook, or modify shared `.gitignore` files.
 
-For a currently bound installation with a matching Marker, `apply` recreates a
+For a currently bound installation, `apply` recreates a
 recorded output that is completely missing when all surviving owned output is
 unchanged and normal path-conflict checks pass. Existing modified output and
 unexpected directory members remain blockers and are never overwritten.
@@ -626,8 +626,8 @@ Agent Profile Kit never adopts surviving generated output or reconstructs
 ownership from it.
 
 Without a backup, stop the CLI and manually remove only project output whose
-ownership you independently verify, including the
-`.agent-profile-kit/installation.json` Marker. In each affected
+ownership you independently verify, including any
+`.agent-profile-kit/installation.json` file left by an older version. In each affected
 `.git/info/exclude`, remove only the marked block between
 `# BEGIN Agent Profile Kit generated paths` and
 `# END Agent Profile Kit generated paths`; preserve every unrelated byte. Then
@@ -686,7 +686,7 @@ reconcile the former installation; after `uninstall`, it omits that no-op step.
 
 To delete generated output directly, use `apkit uninstall`. It names each
 affected project, removed generated path, and cleaned Git exclusion entry. It
-removes only Installation Marker- and hash-proven output and preserves the
+removes only Installation Receipt-proven output and preserves the
 Workspace and Local Configuration, including Project Bindings. It writes no teardown provenance. Because the Project Binding remains, the next
 `status` reports the Project as not installed and eligible for `apply`, rather
 than as unsafe unexplained missing output. `unbind` changes desired state;

@@ -598,7 +598,7 @@ describe("Pi Adapter", () => {
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       projects: readonly {
@@ -676,7 +676,7 @@ describe("Pi Adapter", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
 
     expect(
@@ -796,7 +796,7 @@ describe("Pi Adapter", () => {
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportDiagnosticValues(report)).toContain(canonicalSettingsPath);
   });

@@ -1,10 +1,12 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { hostCatalogEntryFor } from "../adapters/host-catalog.js";
 import { formatLifecycleJson } from "../cli/presentation.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState, hashBytes } from "../installer/project-plan.js";
@@ -63,7 +65,7 @@ describe("nested Project reconciliation report", () => {
     const report = await previewReconciliation(installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
 
     expect(Object.keys(report).sort()).toEqual(["globalBlockers", "projects"]);
@@ -157,7 +159,7 @@ describe("injected project filesystem failures", () => {
     expect((failure as ApplyVerificationError).receipt.projects).toContainEqual(
       expect.objectContaining({ project, state: { kind: "addition" } }),
     );
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("rolls back a mid-update failure and reports non-empty completed, failed, and pending sets", async () => {
@@ -209,7 +211,6 @@ describe("injected project filesystem failures", () => {
           : installation
       ),
     });
-    const secondMarker = readFileSync(join(second, ".agent-profile-kit", "installation.json"), "utf8");
     const secondContextPath = join(second, ".agent-profile-kit", "codex", "context.md");
     const secondContext = readFileSync(secondContextPath, "utf8");
     const thirdContextPath = join(third, ".agent-profile-kit", "codex", "context.md");
@@ -256,7 +257,6 @@ describe("injected project filesystem failures", () => {
       `completed projects: ${firstCanonical}; failed project: ${secondCanonical}; pending projects: ${thirdCanonical}`,
     );
     expect(readFileSync(join(first, ".agent-profile-kit", "codex", "context.md"), "utf8")).toContain("Updated Context.");
-    expect(readFileSync(join(second, ".agent-profile-kit", "installation.json"), "utf8")).toBe(secondMarker);
     expect(readFileSync(secondContextPath, "utf8")).toBe(secondContext);
     expect(readFileSync(obsolete, "utf8")).toBe(obsoleteBytes);
     expect(readFileSync(thirdContextPath, "utf8")).toBe(thirdContext);
@@ -329,8 +329,6 @@ describe("injected project filesystem failures", () => {
     await applyReconciliation(home, desired.installations);
     const canonicalProject = desired.installations[0]!.binding.canonicalProject;
     const context = join(canonicalProject, ".agent-profile-kit", "codex", "context.md");
-    const marker = join(canonicalProject, ".agent-profile-kit", "installation.json");
-    const originalMarker = readFileSync(marker, "utf8");
     const originalState = await readInstallationState(home);
     rmSync(context);
     let outputFailureInjected = false;
@@ -351,7 +349,6 @@ describe("injected project filesystem failures", () => {
       },
     })).rejects.toThrow("injected repair output failure");
     expect(existsSync(context)).toBe(false);
-    expect(readFileSync(marker, "utf8")).toBe(originalMarker);
     expect(await readInstallationState(home)).toEqual(originalState);
     await expect(applyReconciliation(home, desired.installations)).resolves.toBeDefined();
 
@@ -367,7 +364,6 @@ describe("injected project filesystem failures", () => {
       },
     })).rejects.toThrow("injected repair state failure");
     expect(existsSync(context)).toBe(false);
-    expect(readFileSync(marker, "utf8")).toBe(originalMarker);
     expect(await readInstallationState(home)).toEqual(originalState);
 
     await expect(applyReconciliation(home, desired.installations)).resolves.toBeDefined();
@@ -419,5 +415,90 @@ describe("injected project filesystem failures", () => {
         if (stateWrites === 1) writeFileSync(exclude, "concurrent edit\n");
       },
     })).rejects.toThrow(/Installation State restore failed/);
+  });
+});
+
+describe("previous-version Marker migration", () => {
+  test("a leftover Marker from an earlier version is removed by the next apply even when the Project is current", async () => {
+    const home = temporaryDirectory("agent-profile-kit-legacy-home-");
+    const project = realpathSync(temporaryDirectory("agent-profile-kit-legacy-project-"));
+    execFileSync("git", ["init", "-q", project]);
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nLegacy migration boundary.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const installation = desired.installations[0]!;
+    const bytes = new Map(desired.installations[0]!.outputs.map((output) => [
+      output.path,
+      (output as { bytes: string }).bytes,
+    ]));
+    // Simulate the previous product version: generated output installed and a
+    // Marker file on disk, with a v6 receipt that never recorded the Marker.
+    mkdirSync(join(project, ".agent-profile-kit", "codex"), { recursive: true });
+    mkdirSync(join(project, "nested"), { recursive: true });
+    for (const [path, content] of bytes) {
+      mkdirSync(join(project, path, ".."), { recursive: true });
+      writeFileSync(join(project, path), content);
+    }
+    writeFileSync(
+      join(project, ".agent-profile-kit", "installation.json"),
+      JSON.stringify({ installation_id: "v6-installation-id", schema_version: 1 }),
+    );
+    const sha256 = (value: string) =>
+      `sha256:${createHash("sha256").update(value).digest("hex")}`;
+    const previousStateSource = JSON.stringify({
+      schema_version: 6,
+      receipts: [{
+        installation_id: "v6-installation-id",
+        lifetime: "ordinary",
+        project,
+        profile_id: "coding",
+        desired_input_digest: installation.sourceHash,
+        hosts: {
+          codex: {
+            adapter_version: hostCatalogEntryFor("codex").adapterVersion,
+            capability_contract: installation.hostVersions.codex!,
+          },
+        },
+        outputs: [...bytes.entries()].map(([path, content]) => ({
+          path,
+          type: "file",
+          mode: 0o644,
+          hash: sha256(content),
+        })),
+        repository_exclusion: {
+          target: join(project, ".git", "info", "exclude"),
+          entries: ["/.codex/hooks.json", "/.agent-profile-kit/codex/context.md"],
+        },
+      }],
+      removed_temporary_installation_ids: [],
+    }, null, 2);
+    mkdirSync(join(application, "state"), { recursive: true });
+    writeFileSync(join(application, "state", "manifest.json"), previousStateSource);
+
+    // The migrated receipt makes the Project current: apply must still sweep
+    // the leftover ownership-token file from the Project.
+    const preview = await previewReconciliation(
+      desired.installations,
+      await readInstallationState(home),
+    );
+    expect(preview.projects[0]!.state.kind).toBe("current");
+
+    await applyReconciliation(home, desired.installations);
+
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 });

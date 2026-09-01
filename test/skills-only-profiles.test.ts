@@ -364,7 +364,7 @@ describe("Skills-only Profiles", () => {
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportDesired(report)[0]?.setupSteps).toEqual(installation.setupSteps);
 

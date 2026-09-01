@@ -54,7 +54,7 @@ function stateWithAdapterVersion(adapterVersion: string): OwnershipState {
       project: "/repo/a",
     }],
     removedTemporaryInstallationIds: [],
-    schemaVersion: 6,
+    schemaVersion: 7,
   };
 }
 

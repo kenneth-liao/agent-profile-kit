@@ -249,7 +249,7 @@ describe("Codex project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportDesired(preview)[0]?.resolvedArtifacts.some((artifact) => artifact.id === "top-skill")).toBe(
       true,
@@ -317,7 +317,7 @@ describe("Codex project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportBlockers(preview).some((blocker) =>
       blocker.message.includes(".agents/skills/review-pr") &&

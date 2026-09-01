@@ -77,7 +77,7 @@ describe("Host Resolution", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportBlockers(preview)).toEqual([]);
     expect(reportWarnings(preview)).toEqual([]);

@@ -34,7 +34,7 @@ function ordinaryState(): OwnershipState {
       },
     }],
     removedTemporaryInstallationIds: [],
-    schemaVersion: 6,
+    schemaVersion: 7,
   };
 }
 
@@ -43,7 +43,7 @@ describe("final JSON ownership-state codec", () => {
     const source = formatOwnershipState(ordinaryState());
 
     expect(source.startsWith("{\n")).toBe(true);
-    expect(source).toContain('"schema_version": 6');
+    expect(source).toContain('"schema_version": 7');
     expect(source).toContain('"desired_input_digest"');
     expect(parseOwnershipState(source)).toEqual(ordinaryState());
     expect(formatOwnershipState(parseOwnershipState(source))).toBe(source);
@@ -71,7 +71,7 @@ describe("final JSON ownership-state codec", () => {
     const source = formatOwnershipState({
       receipts: [second, state.receipts[0]!],
       removedTemporaryInstallationIds: ["removed-z", "removed-a"],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     const parsed = parseOwnershipState(source);
 
@@ -131,9 +131,6 @@ describe("final JSON ownership-state codec", () => {
 
   test("rejects lifecycle metadata, overlapping roots, and malformed ownership facts", () => {
     const value = JSON.parse(formatOwnershipState(ordinaryState()));
-    value.receipts[0].outputs[0].path = ".agent-profile-kit/installation.json";
-    expect(() => parseOwnershipState(JSON.stringify(value))).toThrow(/Installation Marker.*not a generated output/);
-
     value.receipts[0].outputs = [{
       hash,
       mode: 0o755,
@@ -177,7 +174,7 @@ describe("final JSON ownership-state codec", () => {
     const collectionHeavy = JSON.parse(formatOwnershipState({
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     }));
     collectionHeavy.removed_temporary_installation_ids = Array.from(
       { length: OWNERSHIP_STATE_LIMITS.maxCollectionEntries + 1 },

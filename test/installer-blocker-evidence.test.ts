@@ -11,7 +11,6 @@ import {
 } from "../cli/presentation.js";
 import {
   blockerMessage,
-  INSTALLATION_MARKER,
   INSTALLATION_OWNERSHIP,
   INSTALLATION_STATE_UNREADABLE,
   installationOwnershipBlocker,
@@ -48,10 +47,9 @@ import {
   previewReconciliation,
 } from "../installer/reconcile.js";
 import { projectConflictBlockers } from "../installer/temporary-installation.js";
+import { createLifecycleOwnershipInspectionContext } from "../installer/lifecycle-ownership-inspection.js";
 import {
   compareCanonicalStrings,
-  formatInstallationMarker,
-  INSTALLATION_MARKER_PATH,
 } from "../schemas/installation-manifest.js";
 import {
   OWNERSHIP_STATE_LIMITS,
@@ -104,7 +102,7 @@ function emptyState(): OwnershipState {
   return {
     receipts: [],
     removedTemporaryInstallationIds: [],
-    schemaVersion: 6,
+    schemaVersion: 7,
   };
 }
 
@@ -262,7 +260,15 @@ describe("structured Installer blocker evidence", () => {
     const installation = desired.installations[0]!;
     const canonicalProject = installation.binding.canonicalProject;
     const installationId = "recorded-installation-id";
-    const manifest = manifestFor(installation, installationId);
+    // Project Binding scope alone identifies the recorded installation now
+    // that the Marker is gone, so an otherwise-current receipt proves an
+    // eligible missing-contribution Safe Repair instead of blocking. A stale
+    // recorded desired input keeps the receipt from proving the exact
+    // contribution, so the missing contribution stays a global blocker.
+    const manifest = {
+      ...manifestFor(installation, installationId),
+      desiredInputDigest: "stale-recorded-source-digest",
+    };
     const state: OwnershipState = {
       ...emptyState(),
       receipts: [manifest],
@@ -301,36 +307,6 @@ describe("structured Installer blocker evidence", () => {
     expect(machine.globalBlockers.some((candidate) => (
       candidate.affectedItems as readonly { kind: string; value: string }[]
     ).some((item) => item.kind === "installation-id" && item.value === installationId))).toBe(true);
-  });
-
-  test("a moved installation with a missing Git exclusion contribution stays blocked", async () => {
-    const repository = gitRepository("apkit-evidence-moved-");
-    const home = await prepareHome(repository);
-    const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const installation = desired.installations[0]!;
-    const installationId = "moved-installation-id";
-    const previousRoot = temporaryDirectory("apkit-evidence-moved-old-");
-    const manifest = { ...manifestFor(installation, installationId), project: previousRoot };
-    mkdirSync(join(repository, ".agent-profile-kit"), { recursive: true });
-    writeFileSync(
-      join(repository, ".agent-profile-kit", "installation.json"),
-      formatInstallationMarker({ installationId, schemaVersion: 1 }),
-    );
-    const state: OwnershipState = {
-      ...emptyState(),
-      receipts: [manifest],
-    };
-
-    const report = await previewReconciliation(desired.installations, state);
-
-    const blocker = requireDefined(
-      reportBlockers(report).find(
-        (candidate) => isStructuredBlocker(candidate) && candidate.kind === REPOSITORY_EXCLUSION_CONTRIBUTION,
-      ),
-      "a structured repository-exclusion-contribution blocker",
-    );
-    expect(blocker).toMatchObject({ scope: "global" });
-    expect(lifecycleExitCode(report)).toBe(2);
   });
 
   test("missing-contribution eligibility distinguishes unreadable bytes from mismatched entries", async () => {
@@ -387,7 +363,10 @@ describe("structured Installer blocker evidence", () => {
       installationId: receipt.installationId,
       target: git.excludeFile,
     });
-    expect(eligible.repair.entries).toContain("/.agent-profile-kit/installation.json");
+    expect(eligible.repair.entries).toEqual([
+      "/.agent-profile-kit/codex/context.md",
+      "/.codex/hooks.json",
+    ]);
 
     // A recorded contribution that already equals its receipt's derived entries
     // is not stale, so repeating status stays current.
@@ -438,21 +417,19 @@ describe("structured Installer blocker evidence", () => {
     const git = requireDefined(installation.gitProject, "a desired Git target");
     const exclude = join(repository, ".git", "info", "exclude");
     const currentTarget = join(previousRepository, ".git", "info", "exclude");
-    const current = ["/.agent-profile-kit/installation.json", "/legacy-owned-entry"];
+    const current = ["/legacy-owned-entry"];
     const receipt = {
       ...manifestFor(installation, "move-eligibility-installation-id"),
       repositoryExclusion: { entries: current, target: currentTarget },
     };
     const state: OwnershipState = { ...emptyState(), receipts: [receipt] };
-    const next = [...new Set([
-      ...receipt.outputs.map((output) => `/${output.path}`),
-      "/.agent-profile-kit/installation.json",
-    ])].sort();
+    const next = [...new Set(
+      receipt.outputs.map((output) => `/${output.path}`),
+    )].sort();
 
     writeFileSync(
       currentTarget,
       "# BEGIN Agent Profile Kit generated paths\n" +
-        "/.agent-profile-kit/installation.json\n" +
         "/legacy-owned-entry\n" +
         "# END Agent Profile Kit generated paths\n",
     );
@@ -480,17 +457,15 @@ describe("structured Installer blocker evidence", () => {
     if (!worktreeEligible.eligible) {
       throw new Error("expected an eligible linked-worktree moved-contribution repair");
     }
-    expect(worktreeEligible.repair.next).toEqual([...new Set([
-      ...receipt.outputs.map((output) => `/app/${output.path}`),
-      "/app/.agent-profile-kit/installation.json",
-    ])].sort());
+    expect(worktreeEligible.repair.next).toEqual([...new Set(
+      receipt.outputs.map((output) => `/app/${output.path}`),
+    )].sort());
     expect(worktreeEligible.repair.nextTarget).toBe(git.excludeFile);
 
     // The old target's owned section must match the recorded union exactly.
     writeFileSync(
       currentTarget,
       "# BEGIN Agent Profile Kit generated paths\n" +
-        "/.agent-profile-kit/installation.json\n" +
         "/legacy-owned-entry\n" +
         "/unexpected/entry\n" +
         "# END Agent Profile Kit generated paths\n",
@@ -574,13 +549,13 @@ describe("structured Installer blocker evidence", () => {
     );
     expect(blocker).toMatchObject({ scope: "global" });
     expect(blocker.message).toBe(
-      `${canonicalProject} Git exclusion contribution for Installation ID ${installationId} ` +
-        `targets ${wrongTarget}, expected ${expectedTarget}`,
+      `${expectedTarget} Git exclusion contribution for Installation ID ${installationId} ` +
+        `cannot be moved from ${wrongTarget}: an owned section does not match the ` +
+        "recorded entries; restore the recorded section before retrying",
     );
-    expect(blocker.affectedItems).toEqual([
-      { kind: "path", value: wrongTarget },
-      { kind: "path", value: expectedTarget },
-    ]);
+    expect(blocker.affectedItems).toContainEqual(
+      { kind: "installation-id", value: installationId },
+    );
   });
 
   test("occupied planned output emits structured project-scoped evidence", async () => {
@@ -592,7 +567,11 @@ describe("structured Installer blocker evidence", () => {
     mkdirSync(join(project, ".codex"), { recursive: true });
     writeFileSync(join(project, ".codex", "hooks.json"), "occupied\n");
 
-    const conflicts = await desiredOutputConflicts(installation, undefined, "temporary-id");
+    const conflicts = await desiredOutputConflicts(
+      installation,
+      undefined,
+      createLifecycleOwnershipInspectionContext(),
+    );
     const occupied = requireDefined(
       conflicts
         .map((input) => normalizeBlocker(input, canonicalProject))
@@ -606,38 +585,6 @@ describe("structured Installer blocker evidence", () => {
     expect(occupied.affectedItems).toEqual([{ kind: "path", value: ".codex/hooks.json" }]);
   });
 
-  test("a malformed Installation Marker emits structured project-scoped evidence", async () => {
-    const project = temporaryDirectory("apkit-evidence-marker-");
-    const home = await prepareHome(project);
-    const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const installation = desired.installations[0]!;
-    const canonicalProject = installation.binding.canonicalProject;
-    mkdirSync(join(project, ".agent-profile-kit"), { recursive: true });
-    writeFileSync(join(project, ".agent-profile-kit", "installation.json"), "not a marker\n");
-
-    const report = await previewReconciliation(desired.installations, emptyState());
-
-    const marker = requireDefined(
-      reportBlockers(report).find(
-        (blocker) => isStructuredBlocker(blocker) && blocker.kind === INSTALLATION_MARKER,
-      ),
-      "a structured installation-marker blocker",
-    );
-    expect(marker).toMatchObject({
-      kind: INSTALLATION_MARKER,
-      project: canonicalProject,
-      scope: "project",
-    });
-    // Plain value checks: asymmetric matchers in toMatchObject replace the
-    // matched properties on the shared blocker, corrupting later JSON reads.
-    for (const field of ["problem", "remedy", "requirement"] as const) {
-      expect(typeof marker[field]).toBe("string");
-      expect(marker[field].length).toBeGreaterThan(0);
-    }
-    expect(marker.message).toContain("is malformed");
-    expect(lifecycleExitCode(report)).toBe(2);
-  });
-
   test("drifted generated output is non-blocking pending refresh work rather than ownership evidence", async () => {
     const project = temporaryDirectory("apkit-evidence-drift-");
     const home = await prepareHome(project);
@@ -646,13 +593,7 @@ describe("structured Installer blocker evidence", () => {
     const canonicalProject = installation.binding.canonicalProject;
     const installationId = "evidence-installation-id";
     const manifest = manifestFor(installation, installationId);
-    mkdirSync(join(project, ".agent-profile-kit"), { recursive: true });
-    writeFileSync(
-      join(project, ".agent-profile-kit", "installation.json"),
-      formatInstallationMarker({ installationId, schemaVersion: 1 }),
-    );
     for (const output of installation.outputs) {
-      if (output.path === INSTALLATION_MARKER_PATH) continue;
       const destination = join(canonicalProject, output.path);
       mkdirSync(dirname(destination), { recursive: true });
       writeFileSync(destination, "drifted content\n");
@@ -667,7 +608,6 @@ describe("structured Installer blocker evidence", () => {
     // Identity-proven drift never blocks and never claims a user edit.
     expect(reportBlockers(report)).toEqual([]);
     const expectedReason = installation.outputs
-      .filter((output) => output.path !== INSTALLATION_MARKER_PATH)
       .map((output) => output.path)
       .sort(compareCanonicalStrings)
       .join(", ");
@@ -677,7 +617,6 @@ describe("structured Installer blocker evidence", () => {
       reason: expectedReason,
     });
     for (const output of installation.outputs) {
-      if (output.path === INSTALLATION_MARKER_PATH) continue;
       expect(reportOutputs(report)).toContainEqual({
         kind: "drifted output",
         path: output.path,

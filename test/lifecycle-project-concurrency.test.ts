@@ -129,7 +129,7 @@ function emptyState(): OwnershipState {
   return {
     receipts: [],
     removedTemporaryInstallationIds: [],
-    schemaVersion: 6,
+    schemaVersion: 7,
   };
 }
 
@@ -233,22 +233,14 @@ function gatedOwnershipInspection(projectCount: number): {
       inFlight -= 1;
     });
   };
-  const missingMarker = {
-    content: undefined,
-    kind: "missing" as const,
-    malformed: undefined,
-    mode: undefined,
-    value: undefined,
-  };
   return {
     gates,
     inspection: {
-      inspectMarker: async (project: string) => {
-        await gateOnce(project);
-        return missingMarker;
-      },
       inspectOutput: async () => ({ kind: "missing" as const }),
-      unsafeParent: async () => undefined,
+      unsafeParent: async (project: string) => {
+        await gateOnce(project);
+        return undefined;
+      },
     },
     maxInFlight: () => maxInFlight,
   };
@@ -333,11 +325,15 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
       checkHostCapability: false,
       scheduler: createProjectReadScheduler(DEFAULT_PROJECT_CONCURRENCY),
     });
+    // Establish recorded installations so each Project's ownership proof reads
+    // through the gated inspection context.
+    await applyReconciliation(home, desired.installations);
+    const state = await readInstallationState(home);
     const gated = gatedOwnershipInspection(8);
     const waiter = startWaiter();
     const scheduler = createProjectReadScheduler(DEFAULT_PROJECT_CONCURRENCY, waiter);
 
-    const reportPromise = previewReconciliation(desired.installations, emptyState(), {
+    const reportPromise = previewReconciliation(desired.installations, state, {
       ownershipInspection: gated.inspection,
       scheduler,
     });
@@ -356,7 +352,9 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
     const report = await reportPromise;
     expect(reportBlockers(report)).toEqual([]);
     expect(reportItems(report)).toHaveLength(8);
-    expect(reportItems(report).every((item) => item.kind === "addition")).toBe(true);
+    expect(reportItems(report).every((item) =>
+      item.kind === "current" || item.kind === "repairable missing output"
+    )).toBe(true);
     // Canonical Project ordering is preserved despite concurrent completion.
     expect(reportItems(report).map((item) => item.project)).toEqual(
       [...reportItems(report).map((item) => item.project)].sort(),
@@ -382,7 +380,7 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
     expect(reportItems(report)).toHaveLength(FLEET_HOSTS.length);
     // Planning (12) and reconciliation (retirement + per-Project loop) all ran
     // through the same scheduler instance with one fixed bound.
-    expect(waiter.started()).toBeGreaterThanOrEqual(36);
+    expect(waiter.started()).toBeGreaterThanOrEqual(24);
     expect(reportItems(report).map((item) => item.project)).toEqual(
       [...reportItems(report).map((item) => item.project)].sort(),
     );
@@ -438,18 +436,11 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
       scheduler: createProjectReadScheduler(DEFAULT_PROJECT_CONCURRENCY),
       createOwnershipInspection: () => {
         const inner: LifecycleOwnershipInspection = {
-          inspectMarker: async (project) => ({
-            content: undefined,
-            kind: "missing",
-            malformed: undefined,
-            mode: undefined,
-            value: undefined,
-          }),
+          unsafeParent: async () => undefined,
           inspectOutput: async (project) => {
             if (project === failingProject) throw failure;
             return { kind: "missing" };
           },
-          unsafeParent: async () => undefined,
         };
         return inner;
       },
@@ -457,9 +448,6 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
 
     // No write happened: recorded state and generated output are untouched.
     expect(await readInstallationState(home)).toEqual(stateBefore);
-    for (const project of projects) {
-      expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
-    }
   });
 
   test("a Project blocker leaves that Project untouched while healthy writes stay sequential", async () => {
@@ -486,7 +474,7 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
     )?.blockers.length).toBeGreaterThan(0);
     for (const [index, project] of projects.entries()) {
       const expected = index !== 1;
-      expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(expected);
+      expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(expected);
       expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(expected);
     }
   });

@@ -18,10 +18,7 @@ import {
   type ProjectBinding,
   type SupportedHost,
 } from "../schemas/local-configuration.js";
-import {
-  INSTALLATION_MARKER_PATH,
-  parseFileMode,
-} from "../schemas/installation-manifest.js";
+import { parseFileMode } from "../schemas/installation-manifest.js";
 import type { OwnershipReceipt } from "../schemas/ownership-state.js";
 import {
   ARTIFACT_TYPES,
@@ -314,16 +311,6 @@ function assertNoAncestorCollisions(outputs: readonly DesiredProjectOutput[]): v
         );
       }
     }
-    if (INSTALLATION_MARKER_PATH.startsWith(`${output.path}/`)) {
-      throw new Error(
-        `Adapter output structural collision: ${output.type} '${output.path}' is an ancestor of Agent Profile Kit-managed '${INSTALLATION_MARKER_PATH}'`,
-      );
-    }
-    if (output.path.startsWith(`${INSTALLATION_MARKER_PATH}/`)) {
-      throw new Error(
-        `Adapter output structural collision: Agent Profile Kit-managed file '${INSTALLATION_MARKER_PATH}' is an ancestor of '${output.path}'`,
-      );
-    }
   }
 }
 
@@ -452,11 +439,6 @@ function normalizeProposedOutput(
   host: string,
 ): DesiredProjectOutput {
   const path = normalizedOutputPath(proposed.path);
-  if (path === INSTALLATION_MARKER_PATH) {
-    throw new Error(
-      `Adapter output path '${path}' is reserved for the Agent Profile Kit-managed Installation Marker`,
-    );
-  }
   const requirements = [...new Set(proposed.requirements)].sort();
   const mode = parseFileMode(proposed.mode, `Adapter output '${path}' mode`);
   const origins = normalizeOutputOrigins(proposed.origins, path);
@@ -726,10 +708,6 @@ export function stateManifestPath(home: string): string {
   return join(stateDirectory(home), "manifest.json");
 }
 
-
-export function markerPath(project: string): string {
-  return join(project, ".agent-profile-kit", "installation.json");
-}
 
 export function outputPath(project: string, output: { readonly path: string }): string {
   return join(project, output.path);
