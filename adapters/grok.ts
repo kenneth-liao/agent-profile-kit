@@ -37,14 +37,6 @@ import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
 export { GROK_ADAPTER_VERSION } from "./host-catalog.js";
 import { parseTomlTable } from "./toml.js";
 
-/** Preserve Grok's topology diagnosis behind the Adapter boundary. */
-export function grokClaudeRulesTopologyCapabilityError() {
-  const problem =
-    "Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available";
-  const remedy = "restore `grok inspect --json` or re-apply before trusting status";
-  return capabilityFailure("grok", problem, remedy);
-}
-
 /**
  * Capability-contract token recorded in Installation Manifest host_versions after
  * the installed Grok CLI is proven to support always-scanned project rules under
@@ -915,26 +907,6 @@ export const grokAdapter = {
       } catch (error) {
         capabilityFailures.push(error);
       }
-    } else if (
-      input.resolveHostTopology === true &&
-      requireContext &&
-      input.selectedHosts.includes("claude")
-    ) {
-      try {
-        const version = await services.probeMachineCapability(
-          { resolveVersion: true },
-          () => resolveGrokCliVersion(
-            input.env === undefined ? {} : { env: input.env },
-          ),
-        );
-        inspection = await inspectGrokProject(input.project, {
-          ...(input.env === undefined ? {} : { env: input.env }),
-          home: input.home,
-          resolveVersion: async () => version,
-        });
-      } catch {
-        inspection = undefined;
-      }
     }
 
     const diagnostics = requireSkills
@@ -953,9 +925,6 @@ export const grokAdapter = {
             previous.outputs.map((output) => output.path),
           )
         : undefined;
-      if (claudeRulesEnabled === undefined && input.resolveHostTopology === true) {
-        capabilityFailures.push(grokClaudeRulesTopologyCapabilityError());
-      }
     }
     const effectiveClaudeRulesEnabled = claudeRulesEnabled ?? true;
     const plan = await services.planProjection(

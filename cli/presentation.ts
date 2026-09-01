@@ -3140,7 +3140,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 12 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 13 as const;
 
 /**
  * One version line per JSON command family: every `install-temp`/`remove-temp`

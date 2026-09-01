@@ -748,12 +748,20 @@ function nestedReconciliationReport(
   const warningsByCanonical = new Map<string, ReconciliationWarning[]>();
   for (const installation of desiredInstallations) {
     const key = installation.binding.canonicalProject;
-    warningsByCanonical.set(key, installation.warnings.map((warning) => ({
+    const warnings: ReconciliationWarning[] = installation.warnings.map((warning) => ({
       ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
       copyableValues: [...warning.copyableValues],
       kind: "diagnostic" as const,
       message: warning.message,
-    })));
+    }));
+    for (const entry of installation.capabilityWarnings) {
+      warnings.push({
+        copyableValues: [...entry.warning.copyableValues],
+        kind: "host-attention",
+        message: entry.warning.message,
+      });
+    }
+    warningsByCanonical.set(key, warnings);
   }
   const exclusionsByCanonical = new Map<string, RepositoryExclusionChange[]>();
   for (const change of flat.repositoryExclusions) {
@@ -886,11 +894,7 @@ export async function previewReconciliation(
     desired,
     includedInstallationIds,
   );
-  const blockers: ReconciliationBlocker[] = desired.flatMap((installation) =>
-    installation.blockers.map((input) =>
-      normalizeBlocker(input, installation.binding.canonicalProject)
-    )
-  );
+  const blockers: ReconciliationBlocker[] = [];
   /**
    * Contribution Safe Repairs (missing and stale) proven at the reconciliation
    * boundary. Collected per Project below and passed to the Blocker boundary so

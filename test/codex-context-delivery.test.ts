@@ -21,7 +21,6 @@ import {
   parseCodexCliVersion,
   planCodexProject,
 } from "../adapters/codex.js";
-import { blockerMessage } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
 import { applyReconciliation } from "../installer/reconcile.js";
@@ -177,9 +176,11 @@ describe("Codex complete Context delivery", () => {
     process.env.PATH = `${bin}:${previousPath}`;
     try {
       const desired = await buildDesiredState(home);
-      expect(desired.installations[0]?.blockers.some((blocker) =>
-        blockerMessage(blocker).includes("cannot deliver complete Context"),
-      )).toBe(true);
+      expect(
+        desired.installations[0]?.capabilityWarnings.some((entry) =>
+          entry.warning.message.includes("cannot deliver complete Context"),
+        ),
+      ).toBe(true);
       expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
     } finally {
       process.env.PATH = previousPath;

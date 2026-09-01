@@ -1510,7 +1510,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const structured = emptyReport({
       blockers: [normalizeBlocker({
         affectedItems: [{ kind: "host", value: "codex" }],
-        kind: "host-capability",
+        kind: "installation-ownership",
         problem: "Codex CLI is unavailable",
         remedy: "Install a supported Codex CLI, then retry",
         requirement: "The selected Profile requires Codex project delivery",
@@ -1528,13 +1528,13 @@ describe("formatLifecycleReport concise terminology", () => {
       machineProject("/project-a", { blockers: reportBlockers(structured) }),
     ]);
     expect(JSON.parse(formatLifecycleJson("status", machine))).toMatchObject({
-      schemaVersion: 12,
+      schemaVersion: 13,
       globalBlockers: [],
       projects: [{
         project: "/project-a",
         blockers: [{
           affectedItems: [{ kind: "host", value: "codex" }],
-          kind: "host-capability",
+          kind: "installation-ownership",
           message: "Codex CLI is unavailable",
           problem: "Codex CLI is unavailable",
           project: "/project-a",
@@ -1551,7 +1551,7 @@ describe("formatLifecycleReport concise terminology", () => {
       machineProject("/project-a", {
         blockers: [normalizeBlocker({
           affectedItems: [{ kind: "host", value: "codex" }],
-          kind: "host-capability",
+          kind: "installation-ownership",
           problem: "Codex CLI is unavailable",
           remedy: "Install a supported Codex CLI, then retry",
           requirement: "The selected Profile requires Codex project delivery",
@@ -1698,7 +1698,7 @@ describe("formatLifecycleReport concise terminology", () => {
         })),
         normalizeBlocker({
           affectedItems: [],
-          kind: "host-capability",
+          kind: "installation-ownership",
           problem: "Installation State is unreadable",
           remedy: "Restore or repair Installation State, then retry",
           requirement: "Lifecycle commands require readable Installation State",
@@ -3350,7 +3350,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatLifecycleJson("status", report));
-    expect(payload.schemaVersion).toBe(12);
+    expect(payload.schemaVersion).toBe(13);
     expect(payload.command).toBe("status");
     expect(payload.outcome).toBe("blocked");
     expect(payload.globalBlockers).toEqual([]);
@@ -3454,7 +3454,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatApplyJson(machineApplyResult(receipt, resultingState)));
-    expect(payload.schemaVersion).toBe(12);
+    expect(payload.schemaVersion).toBe(13);
     expect(payload.projects[0].state).toEqual({ kind: "current" });
     expect(payload.applied.projects[0].state).toEqual({ kind: "addition" });
   });
@@ -3465,7 +3465,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatBlockedApplyJson(report));
-    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 12 });
+    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 13 });
     expect(payload).not.toHaveProperty("applied");
     expect(payload.projects[0].blockers).toHaveLength(1);
   });
@@ -3485,7 +3485,7 @@ describe("Machine surface JSON and exit codes", () => {
       command: "apply",
       outcome: "error",
       error: "post-apply verification failed: boom",
-      schemaVersion: 12,
+      schemaVersion: 13,
     });
     expect(payload.projects).toEqual([]);
     expect(payload.applied.projects[0].outputs).toEqual([
@@ -3496,7 +3496,7 @@ describe("Machine surface JSON and exit codes", () => {
   test("tool-error JSON uses the empty nested model", () => {
     for (const command of ["status", "apply"] as const) {
       expect(JSON.parse(formatLifecycleToolErrorJson(command, "missing"))).toEqual({
-        schemaVersion: 12,
+        schemaVersion: 13,
         command,
         outcome: "error",
         error: "missing",
@@ -4596,7 +4596,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(payload).toMatchObject({
       command: "status",
       outcome: "attention",
-      schemaVersion: 12,
+      schemaVersion: 13,
     });
     expect(lifecycleExitCode(report)).toBe(0);
     expect(lifecycleExitCode(emptyReport({
@@ -4802,7 +4802,7 @@ describe("focused blockers-only status view (#351)", () => {
   const blockedFleet = (): ReconciliationReport => {
     const projectBlocker = normalizeBlocker({
       affectedItems: [{ kind: "host", value: "codex" }],
-      kind: "host-capability",
+      kind: "installation-ownership",
       problem: "Codex CLI is unavailable",
       remedy: "Install a supported Codex CLI, then retry",
       requirement: "The selected Profile requires Codex project delivery",
@@ -4977,7 +4977,7 @@ describe("focused blockers-only apply view (#352)", () => {
   const affectedBlocker = () =>
     normalizeBlocker({
       affectedItems: [{ kind: "host", value: "codex" }],
-      kind: "host-capability",
+      kind: "installation-ownership",
       problem: "Claude Code CLI is unavailable",
       remedy: "Install a supported Claude Code CLI, then retry",
       requirement: "The selected Profile requires Claude Code project delivery",

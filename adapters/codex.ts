@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { CODEX_ADAPTER_VERSION } from "./host-catalog.js";
-import { capabilityFailure, isAdapterCapabilityError } from "./capability.js";
+import { capabilityFailure } from "./capability.js";
 import type {
   AdapterHostSetupStep,
   AdapterDiagnosticWarning,
@@ -450,31 +450,28 @@ export const codexAdapter = {
     ].filter((part) => part.length > 0).join("/");
     const requiresBoundRootLaunch =
       input.projectRelativeToGitRoot === undefined && requireContext;
-    let plan: AdapterProjectPlan | undefined;
-    try {
-      plan = await services.planProjection(
+    // Projection refusals (for example an unrepresentable Skill package) throw:
+    // an Adapter that cannot plan valid output must fail the invocation rather
+    // than return a partial plan.
+    const plan = await services.planProjection(
+      {
+        host: "codex",
+        options: { contextPath, requiresBoundRootLaunch },
+        profileId: input.profileId,
+        resolvedContexts: input.resolvedContexts,
+        resolvedSkills: input.resolvedSkills,
+      },
+      () => planCodexProject(
+        input.profileId,
+        input.resolvedContexts,
+        input.resolvedSkills,
         {
-          host: "codex",
-          options: { contextPath, requiresBoundRootLaunch },
-          profileId: input.profileId,
-          resolvedContexts: input.resolvedContexts,
-          resolvedSkills: input.resolvedSkills,
+          contextPath,
+          materials: services.materials,
+          ...(requiresBoundRootLaunch ? { requiresBoundRootLaunch: true } : {}),
         },
-        () => planCodexProject(
-          input.profileId,
-          input.resolvedContexts,
-          input.resolvedSkills,
-          {
-            contextPath,
-            materials: services.materials,
-            ...(requiresBoundRootLaunch ? { requiresBoundRootLaunch: true } : {}),
-          },
-        ),
-      );
-    } catch (error) {
-      if (!isAdapterCapabilityError(error)) throw error;
-      capabilityFailures.push(error);
-    }
+      ),
+    );
     return { capabilityFailures, diagnostics, plan };
   },
 } satisfies CompleteHostAdapter;

@@ -25,7 +25,6 @@ import {
 } from "../adapters/claude.js";
 import { composeContextEnvelope } from "../adapters/context-envelope.js";
 import { CODEX_ADAPTER_VERSION, CODEX_HOST_VERSION } from "../adapters/codex.js";
-import { blockerMessage } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import {
@@ -356,16 +355,21 @@ describe("Claude-only Profile Installation lifecycle", () => {
     process.env.PATH = `${bin}:${previousPath}`;
     try {
       const desired = await buildDesiredState(home);
-      expect(desired.installations[0]?.blockers.some((blocker) =>
-        blockerMessage(blocker).includes("is a file, not a directory")
-      )).toBe(true);
+      expect(
+        desired.installations[0]?.capabilityWarnings.some((entry) =>
+          entry.warning.message.includes("is a file, not a directory"),
+        ),
+      ).toBe(true);
 
       const report = await previewReconciliation(desired.installations, {
         receipts: [],
         removedTemporaryInstallationIds: [],
         schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
       });
-      expect(reportBlockers(report).some((blocker) => blocker.message.includes("is a file, not a directory"))).toBe(true);
+      // The write itself stays blocked by occupied-output ownership, not by probing.
+      expect(
+        reportBlockers(report).some((blocker) => blocker.message.includes("is an occupied other parent path")),
+      ).toBe(true);
       expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
       expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
     } finally {

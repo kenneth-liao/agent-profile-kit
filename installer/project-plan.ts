@@ -52,7 +52,7 @@ import { ENGINE_VERSION } from "./version.js";
 import type { GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
-import { hostCapabilityBlocker, type BlockerInput } from "./blockers.js";
+import { isAdapterCapabilityError } from "../adapters/capability.js";
 
 export type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
 export type { LifecycleGitInspection } from "./lifecycle-git-inspection.js";
@@ -116,12 +116,42 @@ export type DesiredProjectOutput =
   | DesiredProjectDirectoryOutput
   | DesiredProjectFileOutput;
 
+/** Advisory Host capability warning authored from one Adapter's failure evidence. */
+export interface HostCapabilityWarning {
+  readonly host: SupportedHost;
+  readonly warning: AdapterDiagnosticWarning;
+}
+
+/**
+ * Convert one Adapter capability failure into advisory evidence at the Installer
+ * boundary. Probing classifies capability for warning purposes only: it never
+ * gates planning, never gates writing, and never produces a Blocker. The
+ * Adapter remains the sole author of the warning's wording.
+ */
+export function capabilityWarning(host: SupportedHost, failure: unknown): HostCapabilityWarning {
+  const structured = isAdapterCapabilityError(failure) ? failure : undefined;
+  return {
+    host,
+    warning: {
+      copyableValues: structured === undefined
+        ? [host]
+        : structured.affectedItems.map((item) => item.value),
+      message: structured?.message
+        ?? (failure instanceof Error ? failure.message : String(failure)),
+    },
+  };
+}
+
 export interface DesiredInstallation {
   readonly adapterVersion: string;
   /** Normalized canonical source fingerprints for every resolved artifact. */
   readonly artifactFingerprints: readonly ResolvedArtifactFingerprint[];
   readonly binding: ProjectBinding;
-  readonly blockers: readonly BlockerInput[];
+  /**
+   * Advisory Host capability evidence, deduplicated to one warning per Host per
+   * invocation across every Project. Probing failures never block a lifecycle.
+   */
+  readonly capabilityWarnings: readonly HostCapabilityWarning[];
   readonly engineVersion: string;
   readonly gitProject: GitProject | undefined;
   readonly hostVersions: Readonly<Record<string, string>>;
@@ -568,8 +598,9 @@ export interface BuildDesiredStateOptions {
   /** Project Bindings selected before any per-Project planning or inspection. */
   readonly selection?: ProjectBindingSelection;
   /**
-   * When false, skip Host CLI/version/surface capability preflight (status and
-   * validate). Defaults to true for status/apply.
+   * When false, skip Host CLI/version/surface capability probing (status and
+   * validate). Defaults to true for apply and temporary installation, where a
+   * probe failure becomes an advisory warning instead of a Blocker.
    */
   readonly checkHostCapability?: boolean;
   /** Injectable process environment for Host capability probes. */
@@ -594,11 +625,6 @@ export interface BuildDesiredStateOptions {
   readonly scheduler?: ProjectReadScheduler;
   /** Prior Installation Manifests available to Adapters for topology recovery. */
   readonly previousInstallations?: readonly OwnershipReceipt[];
-  /**
-   * When true, let Adapters resolve dynamic multi-Host topology without full
-   * capability preflight. Validate stays probe-free; status prevents guessing.
-   */
-  readonly resolveHostTopology?: boolean;
 }
 
 export async function buildDesiredState(
@@ -637,7 +663,7 @@ export async function buildDesiredState(
     const gitProject = await gitInspection.findGitProject(binding.canonicalProject);
     const { hash: sourceHash, fingerprints: artifactFingerprints } =
       await planning.hashWorkspaceInputs(profile, resolvedProfile);
-    const blockers: BlockerInput[] = [];
+    const capabilityFailures: { readonly failure: unknown; readonly host: SupportedHost }[] = [];
     const plans: AdapterProjectPlan[] = [];
     const hostVersions: Record<string, string> = {};
     const warnings: AdapterDiagnosticWarning[] = [];
@@ -655,23 +681,16 @@ export async function buildDesiredState(
           projectRelativeToGitRoot: gitProject?.relativeProject,
           resolvedContexts: resolvedProfile.contexts,
           resolvedSkills: resolvedProfile.skills,
-          ...(options.resolveHostTopology === undefined
-            ? {}
-            : { resolveHostTopology: options.resolveHostTopology }),
           selectedHosts: binding.hosts,
         },
         planning,
       );
-      for (const error of result.capabilityFailures) {
-        blockers.push(
-          hostCapabilityBlocker(error, host, binding.canonicalProject),
-        );
+      for (const failure of result.capabilityFailures) {
+        capabilityFailures.push({ failure, host });
       }
       appendDiagnosticWarnings(warnings, result.diagnostics);
-      if (result.plan !== undefined) {
-        plans.push(result.plan);
-        hostVersions[host] = result.plan.hostVersion;
-      }
+      plans.push(result.plan);
+      hostVersions[host] = result.plan.hostVersion;
     }
     const outputs = normalizeAdapterPlans(plans);
     assertResolvedOutputOrigins(outputs, resolvedProfile);
@@ -679,7 +698,9 @@ export async function buildDesiredState(
       adapterVersion: adapterVersionFor(binding.hosts),
       artifactFingerprints,
       binding,
-      blockers,
+      capabilityWarnings: capabilityFailures.map((entry) =>
+        capabilityWarning(entry.host, entry.failure)
+      ),
       engineVersion: ENGINE_VERSION,
       gitProject,
       hostVersions,
@@ -693,11 +714,29 @@ export async function buildDesiredState(
       warnings,
     };
   }));
+  const sortedInstallations = [...installations].sort((left, right) =>
+    left.binding.canonicalProject.localeCompare(right.binding.canonicalProject)
+  );
+  // One warning per identical Host capability failure per invocation (DEC-014):
+  // cached machine-level probes fail identically for every Project, so the
+  // first Project in canonical order keeps the warning and the rest drop it,
+  // independent of how many Projects select the Host. Distinct Project-specific
+  // evidence (for example one Project's occupied surface) keeps its warning.
+  const warnedCapability = new Set<string>();
+  const dedupedInstallations = sortedInstallations.map((installation) => {
+    const capabilityWarnings = installation.capabilityWarnings.filter((entry) => {
+      const key = `${entry.host}\0${entry.warning.message}`;
+      if (warnedCapability.has(key)) return false;
+      warnedCapability.add(key);
+      return true;
+    });
+    return capabilityWarnings.length === installation.capabilityWarnings.length
+      ? installation
+      : { ...installation, capabilityWarnings };
+  });
   return {
     bindingCount: configuration.bindings.length,
-    installations: [...installations].sort((left, right) =>
-      left.binding.canonicalProject.localeCompare(right.binding.canonicalProject)
-    ),
+    installations: dedupedInstallations,
     workspace,
   };
 }

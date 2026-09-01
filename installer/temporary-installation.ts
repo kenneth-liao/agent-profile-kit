@@ -45,13 +45,16 @@ import {
   type ReconciliationFileSystem,
 } from "./reconcile.js";
 import {
-  hostCapabilityBlocker,
   normalizeBlocker,
   temporaryInstallationConflictBlocker,
   temporaryInstallationRemovalBlocker,
   type BlockerInput,
   type ReconciliationBlocker,
 } from "./blockers.js";
+import {
+  capabilityWarning,
+  type HostCapabilityWarning,
+} from "./project-plan.js";
 import { ENGINE_VERSION } from "./version.js";
 import {
   ordinaryReceipts,
@@ -204,7 +207,7 @@ async function planTemporaryDesiredInstallation(options: {
   const gitProject = await findGitProject(options.project);
   const { hash: sourceHash, fingerprints: artifactFingerprints } =
     await planning.hashWorkspaceInputs(profile, resolvedProfile);
-  const blockers: BlockerInput[] = [];
+  const capabilityWarnings: HostCapabilityWarning[] = [];
   const warnings: AdapterDiagnosticWarning[] = [];
   const result = await planRegisteredAdapter(
     options.host,
@@ -222,8 +225,8 @@ async function planTemporaryDesiredInstallation(options: {
     },
     planning,
   );
-  for (const error of result.capabilityFailures) {
-    blockers.push(hostCapabilityBlocker(error, options.host, options.project));
+  for (const failure of result.capabilityFailures) {
+    capabilityWarnings.push(capabilityWarning(options.host, failure));
   }
   appendDiagnosticWarnings(warnings, result.diagnostics);
   const adapterPlan = result.plan;
@@ -241,21 +244,17 @@ async function planTemporaryDesiredInstallation(options: {
       profile: profile.id,
       project: options.authoredProject,
     },
-    blockers,
+    capabilityWarnings,
     engineVersion: ENGINE_VERSION,
     gitProject,
-    hostVersions: adapterPlan === undefined
-      ? {}
-      : { [options.host]: adapterPlan.hostVersion },
+    hostVersions: { [options.host]: adapterPlan.hostVersion },
     outputs,
     profile,
     resolvedProfile,
-    setupSteps: adapterPlan === undefined
-      ? []
-      : adapterPlan.setupSteps.map((step) => ({
-          ...step,
-          host: adapterPlan.host,
-        })),
+    setupSteps: adapterPlan.setupSteps.map((step) => ({
+      ...step,
+      host: adapterPlan.host,
+    })),
     sourceHash,
     warnings,
   };
@@ -342,7 +341,6 @@ export async function installTemporaryProfile(options: {
     async () => {
       const state = await readInstallationState(options.home);
       const structuredBlockers: BlockerInput[] = [
-        ...desired.blockers,
         ...projectConflictBlockers(state, canonicalProject),
       ];
 
@@ -457,11 +455,15 @@ export async function installTemporaryProfile(options: {
         temporaryRecord,
         "installed",
         {
-          diagnosticValues: [...new Set(
-            desired.warnings.flatMap((warning) => warning.copyableValues),
-          )].sort(),
+          diagnosticValues: [...new Set([
+            ...desired.warnings.flatMap((warning) => warning.copyableValues),
+            ...desired.capabilityWarnings.flatMap((entry) => entry.warning.copyableValues),
+          ])].sort(),
           setupSteps: desired.setupSteps,
-          warnings: desired.warnings.map((warning) => warning.message),
+          warnings: [
+            ...desired.warnings.map((warning) => warning.message),
+            ...desired.capabilityWarnings.map((entry) => entry.warning.message),
+          ],
         },
       );
     },

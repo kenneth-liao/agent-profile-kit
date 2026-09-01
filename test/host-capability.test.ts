@@ -17,16 +17,9 @@ import { assertGrokProjectCapability, parseGrokInspectDocument } from "../adapte
 import { assertOpenCodeProjectCapability } from "../adapters/opencode.js";
 import { assertPiProjectCapability } from "../adapters/pi.js";
 import {
-  capabilityFailure,
   isAdapterCapabilityError,
   type AdapterCapabilityAffectedItem,
 } from "../adapters/capability.js";
-import {
-  hostCapabilityBlocker,
-  isStructuredBlocker,
-  normalizeBlocker,
-  type StructuredBlockerInput,
-} from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 
@@ -73,8 +66,8 @@ function compileOnlyAdapterCapabilityEvidenceKinds(): void {
 
 void compileOnlyAdapterCapabilityEvidenceKinds;
 
-describe("Host capability blockers", () => {
-  test("preserves the Codex preflight message while carrying structured evidence", async () => {
+describe("Host capability probing", () => {
+  test("outdated Codex probing becomes one advisory warning naming the Host and required version", async () => {
     const home = temporaryDirectory("apkit-host-capability-home-");
     const project = temporaryDirectory("apkit-host-capability-project-");
     await writeContextBinding(home, project, "codex");
@@ -85,23 +78,21 @@ describe("Host capability blockers", () => {
     const desired = await buildDesiredState(home, {
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
     });
-    const input = desired.installations[0]?.blockers[0];
-
-    expect(input).toMatchObject({
-      affectedItems: [{ kind: "host", value: "codex" }],
-      kind: "host-capability",
-      problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
-      project: realpathSync(project),
-      remedy: "upgrade Codex before checking status or applying the Profile",
-      requirement: "The selected Profile requires Codex project delivery",
-      scope: "project",
-    });
-    const blocker = normalizeBlocker(input as StructuredBlockerInput);
-    expect(isStructuredBlocker(blocker)).toBe(true);
-    expect(blocker.message).toBe(blocker.problem);
+    const installation = desired.installations[0];
+    expect(installation?.capabilityWarnings).toEqual([
+      {
+        host: "codex",
+        warning: {
+          copyableValues: ["codex"],
+          message: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile",
+        },
+      },
+    ]);
+    // Planning never gates on probing: the Host's material is still planned.
+    expect(installation?.outputs.length).toBeGreaterThan(0);
   });
 
-  test("registered Antigravity planning preserves project-surface blocker evidence", async () => {
+  test("registered Antigravity planning keeps project-surface evidence as advisory warning values", async () => {
     const home = temporaryDirectory("apkit-antigravity-surface-home-");
     const project = temporaryDirectory("apkit-antigravity-surface-project-");
     await writeContextBinding(home, project, "antigravity");
@@ -115,17 +106,17 @@ describe("Host capability blockers", () => {
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
     });
 
-    expect(desired.installations[0]?.blockers).toEqual([
-      expect.objectContaining({
-        affectedItems: [
-          { kind: "host", value: "antigravity" },
-          { kind: "path", value: join(realpathSync(project), ".agents") },
-        ],
-        kind: "host-capability",
-        problem: expect.stringContaining("Antigravity project surface cannot host Context"),
-        project: realpathSync(project),
-        scope: "project",
-      }),
+    expect(desired.installations[0]?.capabilityWarnings).toEqual([
+      {
+        host: "antigravity",
+        warning: {
+          copyableValues: [
+            "antigravity",
+            join(realpathSync(project), ".agents"),
+          ],
+          message: expect.stringContaining("Antigravity project surface cannot host Context"),
+        },
+      },
     ]);
   });
 
@@ -202,7 +193,7 @@ describe("Host capability blockers", () => {
     }
   });
 
-  test("path capability blockers preserve legacy messages while adding path evidence", async () => {
+  test("path capability failures preserve legacy messages while adding path evidence", async () => {
     const attempts = [
       {
         host: "claude" as const,
@@ -327,20 +318,6 @@ describe("Host capability blockers", () => {
       }
       expect(error).toBe(attempt.failure);
     }
-
-    const unexpected = new Error("injected capability probe failure");
-
-    const input = hostCapabilityBlocker(unexpected, "claude", project);
-    expect(input).toMatchObject({
-      affectedItems: [{ kind: "host", value: "claude" }],
-      kind: "host-capability-unclassified",
-      problem: unexpected.message,
-      project,
-      remedy: "Inspect the underlying error before retrying",
-      requirement: "The selected Profile requires Claude project delivery",
-      scope: "project",
-    });
-    expect(normalizeBlocker(input).message).toBe(unexpected.message);
   });
 
   test("warning-adjacent Codex configuration remains non-blocking", async () => {
@@ -357,43 +334,8 @@ describe("Host capability blockers", () => {
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
     });
     const installation = desired.installations[0];
-    expect(installation?.blockers).toEqual([]);
+    expect(installation?.capabilityWarnings).toEqual([]);
     expect(installation?.warnings).toHaveLength(1);
     expect(installation?.warnings[0]?.message).toContain("SessionStart hooks are not enabled");
-  });
-
-  test("status topology failures use the same project-scoped structured blocker", async () => {
-    const home = temporaryDirectory("apkit-host-topology-home-");
-    const project = temporaryDirectory("apkit-host-topology-project-");
-    await writeContextBinding(home, project, ["claude", "grok"]);
-
-    const emptyBin = temporaryDirectory("apkit-host-topology-bin-");
-    const desired = await buildDesiredState(home, {
-      checkHostCapability: false,
-      env: { ...process.env, PATH: emptyBin },
-      resolveHostTopology: true,
-    });
-    const blocker = desired.installations[0]?.blockers.find(
-      (candidate) => typeof candidate !== "string" && candidate.kind === "host-capability",
-    );
-    expect(blocker).toMatchObject({
-      affectedItems: [{ kind: "host", value: "grok" }],
-      kind: "host-capability",
-      project: realpathSync(project),
-      problem: "Grok Claude rules compatibility could not be inspected and no applied Context delivery topology is available",
-      remedy: "restore `grok inspect --json` or re-apply before trusting status",
-      requirement: "The selected Profile requires Grok project delivery",
-      scope: "project",
-    });
-    expect(normalizeBlocker(blocker!).message).toBe(blocker!.problem);
-  });
-
-  test("hostCapabilityBlocker rejects out-of-vocabulary Adapter evidence at the boundary", () => {
-    const failure = capabilityFailure("codex", "preflight boom", "fix it", [
-      { kind: "not-a-kind" as never, value: "x" },
-    ]);
-    expect(() => hostCapabilityBlocker(failure, "codex", "/project-a")).toThrow(
-      /Adapter capability failure carries unknown affected-item kind "not-a-kind"/,
-    );
   });
 });

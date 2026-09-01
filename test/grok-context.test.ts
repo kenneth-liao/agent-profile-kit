@@ -30,7 +30,6 @@ import {
   planGrokProject,
   resolveGrokContextRulePath,
 } from "../adapters/grok.js";
-import { blockerMessage } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import {
@@ -441,7 +440,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
     expect(readFileSync(join(project, ".grok", "config.toml"), "utf8")).toBe('theme = "dark"\n');
   });
 
-  test("fails capability preflight when .grok is a file without writing", async () => {
+  test("reports an occupied .grok surface as a warning and an occupied-output blocker without writing", async () => {
     const home = temporaryDirectory("apk-grok-blocked-home-");
     const project = temporaryDirectory("apk-grok-blocked-project-");
     writeFileSync(join(project, ".grok"), "occupied\n");
@@ -453,8 +452,8 @@ describe("Grok-only Profile Installation lifecycle", () => {
     try {
       const desired = await buildDesiredState(home);
       expect(
-        desired.installations[0]?.blockers.some((blocker) =>
-          blockerMessage(blocker).includes("is a file, not a directory"),
+        desired.installations[0]?.capabilityWarnings.some((entry) =>
+          entry.warning.message.includes("is a file, not a directory"),
         ),
       ).toBe(true);
 
@@ -463,8 +462,11 @@ describe("Grok-only Profile Installation lifecycle", () => {
         removedTemporaryInstallationIds: [],
         schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
       });
+      // The write itself stays blocked by occupied-output ownership, not by probing.
       expect(
-        reportBlockers(report).some((blocker) => blocker.message.includes("is a file, not a directory")),
+        reportBlockers(report).some((blocker) =>
+          blocker.message.includes("is an occupied other parent path"),
+        ),
       ).toBe(true);
       expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(false);
       expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
@@ -479,7 +481,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
     await writeContextWorkspace(home, project, ["grok"], { skills: ["review-pr"] });
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.blockers).toEqual([]);
+    expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
     const skillPaths = desired.installations[0]?.outputs
       .filter((output) => output.type === "directory")
       .map((output) => output.path)
@@ -581,7 +583,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     process.env.PATH = `${bin}:${previousPath}`;
     try {
       const desired = await buildDesiredState(home);
-      expect(desired.installations[0]?.blockers).toEqual([]);
+      expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
       const paths = desired.installations[0]?.outputs.map((output) => output.path).sort() ?? [];
       expect(paths).toEqual([CLAUDE_CONTEXT_RULE_PATH, GROK_CONTEXT_RULE_PATH].sort());
       const grokOutput = desired.installations[0]?.outputs.find(
@@ -600,7 +602,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     }
   });
 
-  test("status preserves dual-path topology when inspection fails after compatibility-disabled apply", async () => {
+  test("status preserves dual-path topology without probing after compatibility-disabled apply", async () => {
     const home = temporaryDirectory("apk-status-topology-home-");
     const project = temporaryDirectory("apk-status-topology-project-");
     await writeContextWorkspace(home, project, ["claude", "grok"]);
@@ -612,12 +614,13 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     process.env.PATH = `${goodBin}:${previousPath}`;
     try {
       const desired = await buildDesiredState(home);
-      expect(desired.installations[0]?.blockers).toEqual([]);
+      expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
       await applyReconciliation(home, desired.installations);
       expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(true);
       expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(true);
 
-      // Break inspect so status cannot re-read Claude rules compatibility live.
+      // Break inspect so topology inference must come from the applied Manifest
+      // alone; status never probes, so it must stay correct without any Host run.
       writeFileSync(
         join(goodBin, "grok"),
         "#!/bin/sh\nif [ \"$1\" = \"version\" ]; then echo 'grok 0.2.111 (fake) [stable]'; exit 0; fi\necho broken >&2; exit 1\n",
@@ -627,11 +630,11 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
       const status = await statusApplication(home);
       expect(reportBlockers(status)).toEqual([]);
       expect(reportItems(status)).toContainEqual({ kind: "current", project });
-      // Topology is preserved from the applied Manifest, not guessed as coalesced.
+      // Topology is preserved from the applied Manifest, not guessed as coalesced,
+      // and status resolves it without executing any Agent Host process.
       const after = await buildDesiredState(home, {
         checkHostCapability: false,
         previousInstallations: (await readInstallationState(home)).receipts,
-        resolveHostTopology: true,
       });
       const paths = after.installations[0]?.outputs.map((output) => output.path).sort() ?? [];
       expect(paths).toEqual([CLAUDE_CONTEXT_RULE_PATH, GROK_CONTEXT_RULE_PATH].sort());
@@ -650,7 +653,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     try {
       // No Grok/Claude on PATH; validate must remain probe-free.
       const desired = await buildDesiredState(home, { checkHostCapability: false });
-      expect(desired.installations[0]?.blockers).toEqual([]);
+      expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
       expect(desired.installations[0]?.outputs.map((output) => output.path)).toEqual([
         CLAUDE_CONTEXT_RULE_PATH,
       ]);
@@ -687,7 +690,6 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     try {
       const desired = await buildDesiredState(home, {
         checkHostCapability: false,
-        resolveHostTopology: true,
         // Applied Skills-only installation: no Context rule paths to infer.
         previousInstallations: [
           {
@@ -715,11 +717,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
           },
         ],
       });
-      const topologyBlockers =
-        desired.installations[0]?.blockers.filter((blocker) =>
-          blockerMessage(blocker).includes("Claude rules compatibility could not be inspected"),
-        ) ?? [];
-      expect(topologyBlockers).toEqual([]);
+      expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
       expect(desired.installations[0]?.setupSteps).toEqual([]);
       // Skills-only Claude+Grok plans Skill packages without Context rule topology.
       expect(

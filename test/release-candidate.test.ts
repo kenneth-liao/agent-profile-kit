@@ -672,8 +672,8 @@ describe("project-bound release candidate", () => {
     writeBindings(unsupportedHome, [{ project: unsupportedProject, hosts: ["pi"] }]);
     const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
     const oldPreview = await runCli(unsupportedHome, ["status"], { path: oldPath });
-    expectExitCode(oldPreview, 2);
-    expect(humanText(`${oldPreview.stdout}${oldPreview.stderr}`)).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
+    expectExitCode(oldPreview, 0);
+    expect(humanText(`${oldPreview.stdout}${oldPreview.stderr}`)).not.toMatch(/requires 0\.82\.1\+/i);
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
 
     const missingHome = isolatedHome();
@@ -684,8 +684,8 @@ describe("project-bound release candidate", () => {
     installControlledHosts(missingHome);
     const noPiPath = join(missingHome, "bin");
     const missingPreview = await runCli(missingHome, ["status"], { path: noPiPath });
-    expectExitCode(missingPreview, 2);
-    expect(`${missingPreview.stdout}${missingPreview.stderr}`).toMatch(/Pi CLI was not found/i);
+    expectExitCode(missingPreview, 0);
+    expect(`${missingPreview.stdout}${missingPreview.stderr}`).not.toMatch(/Pi CLI was not found/i);
     expect(existsSync(join(missingProject, ".pi"))).toBe(false);
   });
 
@@ -860,8 +860,8 @@ describe("project-bound release candidate", () => {
     writeBindings(unsupportedHome, [{ project: unsupportedProject, hosts: ["pi"] }]);
     const oldPath = installControlledHosts(unsupportedHome, { piVersion: "0.82.0" });
     const oldPreview = await runCli(unsupportedHome, ["status"], { path: oldPath });
-    expectExitCode(oldPreview, 2);
-    expect(humanText(`${oldPreview.stdout}${oldPreview.stderr}`)).toMatch(/Pi CLI.*requires 0\.82\.1\+/i);
+    expectExitCode(oldPreview, 0);
+    expect(humanText(`${oldPreview.stdout}${oldPreview.stderr}`)).not.toMatch(/requires 0\.82\.1\+/i);
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
 
     const malformedHome = isolatedHome();
@@ -918,18 +918,21 @@ describe("project-bound release candidate", () => {
       return `${bin}:${process.env.PATH ?? ""}`;
     })();
     const oldClaude = await runCli(home, ["apply"], { path: oldClaudePath });
-    expectExitCode(oldClaude, 2);
+    expectExitCode(oldClaude, 0);
     expect(`${oldClaude.stdout}${oldClaude.stderr}`).toMatch(
       /does not support unscoped project rules|requires 2\.0\.64/i,
     );
-    expect(existsSync(join(projectPath, ".claude"))).toBe(false);
+    expect(readFileSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"), "utf8"))
+      .toContain("Always preserve the project boundary.");
 
-    // Non-directory Host project surface fails closed before writes.
+    // Non-directory Host project surface stays blocked by occupied-output
+    // ownership, not by capability probing.
+    rmSync(join(projectPath, ".claude"), { recursive: true, force: true });
     writeFileSync(join(projectPath, ".claude"), "not a directory\n");
     const goodClaudePath = installFakeClaude(home);
     const surface = await runCli(home, ["apply"], { path: goodClaudePath });
     expectExitCode(surface, 2);
-    expect(`${surface.stdout}${surface.stderr}`).toMatch(/\.claude/i);
+    expect(`${surface.stdout}${surface.stderr}`).toMatch(/has unsafe parent/i);
     expect(readFileSync(join(projectPath, ".claude"), "utf8")).toBe("not a directory\n");
     expect(existsSync(join(projectPath, ".claude", "rules"))).toBe(false);
   });

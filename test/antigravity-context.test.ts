@@ -147,7 +147,7 @@ describe("Antigravity Context Adapter", () => {
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.blockers).toEqual([]);
+    expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
     expect(desired.installations[0]?.outputs.map((output) => output.path)).toContain(
       ".agents/skills/review-pr",
     );
@@ -286,18 +286,16 @@ describe("Antigravity Context Adapter", () => {
       `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: skills\n    hosts: [antigravity]\n`,
     );
 
-    const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const installation = desired.installations[0];
-    expect(installation?.outputs).toEqual([]);
-    expect(installation?.blockers).toHaveLength(1);
-    expect(installation?.blockers[0]).toMatchObject({
-      affectedItems: [
+    // A Skill package the Adapter cannot represent is a planning refusal: it
+    // fails the invocation instead of degrading to an advisory warning.
+    await expect(
+      buildDesiredState(home, { checkHostCapability: false }),
+    ).rejects.toMatchObject({
+      host: "antigravity",
+      affectedItems: expect.arrayContaining([
         { kind: "host", value: "antigravity" },
         { kind: "path", value: realpathSync(join(skillRoot, "agents", "openai.yaml")) },
-      ],
-      kind: "host-capability",
-      project: realpathSync(project),
-      scope: "project",
+      ]),
     });
   });
 
@@ -416,17 +414,11 @@ describe("Antigravity Context Adapter", () => {
       `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [antigravity]\n`,
     );
 
-    const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.outputs).toEqual([]);
-    expect(desired.installations[0]?.blockers[0]).toMatchObject({
-      affectedItems: [
-        { kind: "host", value: "antigravity" },
-        { kind: "path", value: expect.stringContaining("agent-profile-kit-010-oversized.md") },
-      ],
-      kind: "host-capability",
-      scope: "project",
-      problem: expect.stringContaining("exceeding the 12000-character limit"),
-    });
+    // An oversized Context Module is a planning refusal: it fails the
+    // invocation instead of degrading to an advisory warning.
+    await expect(
+      buildDesiredState(home, { checkHostCapability: false }),
+    ).rejects.toThrow(/exceeding the 12000-character limit/);
   });
 
   test("plans one always-on envelope and one complete rule per Context Module", async () => {

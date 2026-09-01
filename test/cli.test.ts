@@ -403,6 +403,47 @@ function removeScaffoldedExample(home: string): void {
 }
 
 /** Put a controlled Claude Code stub first on PATH for Host capability preflight. */
+/**
+ * Controlled Codex stub that records every invocation to a probe log, so tests
+ * assert process execution objectively rather than through instrumentation.
+ */
+function installRecordingCodex(home: string, version: string): string {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  const log = join(home, "probe.log");
+  writeFileSync(
+    join(bin, "codex"),
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho "codex-cli ${version}"\n`,
+  );
+  chmodSync(join(bin, "codex"), 0o755);
+  return bin;
+}
+
+function readProbeLog(home: string): readonly string[] {
+  if (!existsSync(join(home, "probe.log"))) return [];
+  return readFileSync(join(home, "probe.log"), "utf8")
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0);
+}
+
+/** Host-attention warning messages across the payload's top-level Project records. */
+function readHostAttentionWarnings(payload: string): readonly string[] {
+  const parsed = JSON.parse(payload) as {
+    readonly projects: readonly {
+      readonly warnings: readonly { readonly kind: string; readonly message: string }[];
+    }[];
+  };
+  return parsed.projects.flatMap((projectRecord) =>
+    projectRecord.warnings
+      .filter((warning) => warning.kind === "host-attention")
+      .map((warning) => warning.message)
+  );
+}
+
+function readCodexHostAttentionWarnings(payload: string): readonly string[] {
+  return readHostAttentionWarnings(payload).filter((message) => message.includes("Codex"));
+}
+
 function installFakeClaude(home: string, version = "2.1.0"): string {
   const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });
@@ -2314,7 +2355,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly schemaVersion: number;
       readonly projects: readonly { readonly outputs: readonly { readonly kind: string }[] }[];
     };
-    expect(payload.schemaVersion).toBe(12);
+    expect(payload.schemaVersion).toBe(13);
     expect(payload.projects.flatMap((project) => project.outputs)
       .filter((output) => output.kind === "update")).toHaveLength(12);
 
@@ -2403,12 +2444,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly command: string;
         readonly schemaVersion: number;
       };
-      expect(payload.schemaVersion).toBe(12);
+      expect(payload.schemaVersion).toBe(13);
       expect(payload.command).toBe(command);
 
       const both = await runCli(home, command, "--verbose", "--json");
       expectExitCode(both, 0);
-      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 12 });
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 13 });
 
       const unsupported = await runCli(home, command, "--yaml");
       expectExitCode(unsupported, 1);
@@ -2416,120 +2457,115 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("status reports a predictable Host capability blocker before pending apply without writing", async () => {
+  test("status spawns no Agent Host process and apply writes material when the Host CLI is outdated", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
-    const oldCodexBin = mkdtempSync(join(tmpdir(), "apkit-old-codex-bin-"));
-    temporaryDirectories.push(oldCodexBin);
-    writeFileSync(join(oldCodexBin, "codex"), "#!/bin/sh\necho 'codex-cli 0.144.6'\n");
-    chmodSync(join(oldCodexBin, "codex"), 0o755);
-
-    const status = await runCliWithPath(home, oldCodexBin, "status", "--all", "--json");
-
-    expectExitCode(status, 2);
-    expect(status.stderr).toBe("");
-    expect(JSON.parse(status.stdout)).toMatchObject({
-      command: "status",
-      outcome: "blocked",
-      projects: [{
-        blockers: [{
-          kind: "host-capability",
-          problem: expect.stringContaining("Codex CLI 0.144.6"),
-          scope: "project",
-        }],
-        state: { kind: "blocked" },
-      }],
-    });
-    expect(existsSync(statePath(home))).toBe(false);
-    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
-    expect(existsSync(join(projectPath, ".codex"))).toBe(false);
-
-    const apply = await runCliWithPath(home, oldCodexBin, "apply", "--all", "--json");
-    expectExitCode(apply, 2);
-    expect(JSON.parse(apply.stdout)).toMatchObject({
-      command: "apply",
-      outcome: "blocked",
-      projects: [{ blockers: [{ kind: "host-capability" }] }],
-    });
-    expect(existsSync(statePath(home))).toBe(false);
-    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
-    expect(existsSync(join(projectPath, ".codex"))).toBe(false);
-  });
-
-  test("status reports a downgraded Host as attention for already-current output without writing", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const projectPath = project();
-    writeContextProfile(home);
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "apply"), 0);
-    const stateBefore = readFileSync(statePath(home), "utf8");
-    const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
-    const contextBefore = readFileSync(contextPath, "utf8");
-    const oldCodexBin = mkdtempSync(join(tmpdir(), "apkit-old-codex-bin-"));
-    temporaryDirectories.push(oldCodexBin);
-    writeFileSync(join(oldCodexBin, "codex"), "#!/bin/sh\necho 'codex-cli 0.144.6'\n");
-    chmodSync(join(oldCodexBin, "codex"), 0o755);
+    const oldCodexBin = installRecordingCodex(home, "0.144.6");
 
     const status = await runCliWithPath(home, oldCodexBin, "status", "--all", "--json");
 
     expectExitCode(status, 0);
     expect(status.stderr).toBe("");
-    const payload = JSON.parse(status.stdout) as {
+    expect(JSON.parse(status.stdout)).toMatchObject({
+      command: "status",
+      schemaVersion: 13,
+      projects: [{
+        blockers: [],
+        warnings: [],
+        state: { kind: "addition" },
+      }],
+    });
+    // Probing is apply-only: status must not launch the recorded Host once.
+    expect(readProbeLog(home)).toEqual([]);
+    expect(existsSync(join(projectPath, ".codex"))).toBe(false);
+
+    const apply = await runCliWithPath(home, oldCodexBin, "apply", "--all", "--json");
+    expectExitCode(apply, 0);
+    expect(JSON.parse(apply.stdout)).toMatchObject({
+      command: "apply",
+      projects: [{
+        blockers: [],
+        state: { kind: "current" },
+      }],
+    });
+    expect(
+      readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"),
+    ).toContain("Always preserve the project boundary.");
+    expect(readCodexHostAttentionWarnings(apply.stdout)).toEqual([
+      expect.stringContaining("requires 0.145.0+"),
+    ]);
+    expect(readProbeLog(home)).toEqual(["--version"]);
+
+    // Installing the Host later makes the next apply a no-op for that material.
+    const goodCodexBin = installRecordingCodex(home, "0.145.0");
+    const noopApply = await runCliWithPath(home, goodCodexBin, "apply", "--all", "--json");
+    expectExitCode(noopApply, 0);
+    const noopPayload = JSON.parse(noopApply.stdout) as {
       readonly projects: readonly {
         readonly outputs: readonly { readonly kind: string }[];
       }[];
     };
-    expect(payload).toMatchObject({
-      command: "status",
-      outcome: "attention",
-      projects: [{
-        blockers: [],
-        state: { kind: "current" },
-        warnings: [{
-          kind: "host-attention",
-          message: expect.stringContaining("Codex CLI 0.144.6"),
-        }],
-      }],
-    });
-    expect(payload.projects[0]?.outputs.every((output) => output.kind === "unchanged")).toBe(true);
-    expect(status.stdout).not.toContain("drifted output");
-
-    const humanStatus = await runCliWithPath(home, oldCodexBin, "status", "--all");
-    expectExitCode(humanStatus, 0);
-    expect(humanStatus.stdout).toStartWith("Host attention required\n");
-    expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
-    expect(readFileSync(contextPath, "utf8")).toBe(contextBefore);
+    expect(noopPayload.projects[0]?.outputs.every((output) => output.kind === "unchanged")).toBe(true);
+    expect(readCodexHostAttentionWarnings(noopApply.stdout)).toEqual([]);
   });
 
-  test("status reports a missing Host as attention for already-current output", async () => {
+  test("a missing Host emits one warning per invocation while apply writes every Project", async () => {
     const home = isolatedHome();
     await initialize(home);
-    const projectPath = project();
+    const projectPaths = [project(), project(), project()];
     writeContextProfile(home);
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "apply"), 0);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n${projectPaths.map((projectPath) => `  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n`).join("")}`,
+    );
     const emptyBin = mkdtempSync(join(tmpdir(), "apkit-empty-bin-"));
     temporaryDirectories.push(emptyBin);
 
     const status = await runCliWithPath(home, emptyBin, "status", "--all", "--json");
-
     expectExitCode(status, 0);
-    expect(JSON.parse(status.stdout)).toMatchObject({
-      command: "status",
-      outcome: "attention",
-      projects: [{
+    const statusPayload = JSON.parse(status.stdout) as {
+      readonly projects: readonly { readonly blockers: readonly unknown[] }[];
+    };
+    expect(statusPayload.projects).toHaveLength(3);
+    for (const projectRecord of statusPayload.projects) {
+      expect(projectRecord.blockers).toEqual([]);
+    }
+
+    const apply = await runCliWithPath(home, emptyBin, "apply", "--all", "--json");
+    expectExitCode(apply, 0);
+    for (const projectPath of projectPaths) {
+      expect(
+        readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"),
+      ).toContain("Always preserve the project boundary.");
+    }
+    // One warning per Host per invocation regardless of Project count.
+    expect(readCodexHostAttentionWarnings(apply.stdout)).toEqual([
+      expect.stringContaining("Codex"),
+    ]);
+    expect(JSON.parse(apply.stdout)).toMatchObject({
+      command: "apply",
+      projects: projectPaths.map(() => ({
         blockers: [],
         state: { kind: "current" },
-        warnings: [{
-          kind: "host-attention",
-          message: expect.stringContaining("not found on PATH"),
-        }],
-      }],
+      })),
     });
+
+    // Installing the Host later requires no re-apply: the next apply is a no-op.
+    const goodCodexBin = installRecordingCodex(home, "0.145.0");
+    const noopApply = await runCliWithPath(home, goodCodexBin, "apply", "--all", "--json");
+    expectExitCode(noopApply, 0);
+    const noopPayload = JSON.parse(noopApply.stdout) as {
+      readonly projects: readonly {
+        readonly outputs: readonly { readonly kind: string }[];
+      }[];
+    };
+    for (const projectRecord of noopPayload.projects) {
+      expect(projectRecord.outputs.every((output) => output.kind === "unchanged")).toBe(true);
+    }
+    expect(readCodexHostAttentionWarnings(noopApply.stdout)).toEqual([]);
   });
 
   test("status and apply share a uniform exit-code matrix for clean, blocked, and tool-error states", async () => {
@@ -2548,7 +2584,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
-        schemaVersion: 12,
+        schemaVersion: 13,
       });
     }
 
@@ -2593,7 +2629,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly schemaVersion: number;
       };
       expect(payload).toMatchObject({
-        schemaVersion: 12,
+        schemaVersion: 13,
         command,
         outcome: "error",
       });
@@ -2613,14 +2649,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
-        schemaVersion: 12,
+        schemaVersion: 13,
       });
     }
     const firstApply = await runCli(pendingHome, "apply", "--json");
     expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "apply",
-      schemaVersion: 12,
+      schemaVersion: 13,
     });
     expect(["clean", "attention"]).toContain(
       (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
@@ -3736,7 +3772,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         }[];
       }[];
     };
-    expect(statusJson.schemaVersion).toBe(12);
+    expect(statusJson.schemaVersion).toBe(13);
     expect(statusJson.outcome).toBe("attention");
     expect(statusJson.globalBlockers).toEqual([]);
     const retiringProject = statusJson.projects.find(
@@ -4087,7 +4123,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         }[];
       }[];
     };
-    expect(statusJson.schemaVersion).toBe(12);
+    expect(statusJson.schemaVersion).toBe(13);
     expect(statusJson.outcome).toBe("attention");
     expect(statusJson.globalBlockers).toEqual([]);
     const machineProject = statusJson.projects[0]!;
@@ -4169,7 +4205,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         }[];
       }[];
     };
-    expect(statusJson.schemaVersion).toBe(12);
+    expect(statusJson.schemaVersion).toBe(13);
     expect(statusJson.outcome).toBe("attention");
     expect(statusJson.globalBlockers).toEqual([]);
     const machineProject = statusJson.projects[0]!;
@@ -4500,7 +4536,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         }[];
       }[];
     };
-    expect(statusJson.schemaVersion).toBe(12);
+    expect(statusJson.schemaVersion).toBe(13);
     expect(statusJson.outcome).toBe("attention");
     expect(statusJson.globalBlockers).toEqual([]);
     const machineProject = statusJson.projects[0]!;
@@ -6858,29 +6894,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(exclude).equals(excludeBefore)).toBe(true);
   });
 
-  test("apply --all commits a healthy Project around a Project-scoped Host capability blocker", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const healthy = project("agent-profile-kit-partial-capability-healthy-");
-    const blocked = project("agent-profile-kit-partial-capability-blocked-");
-    writeContextProfile(home);
-    writeFileSync(
-      configPath(home),
-      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
-        `  - project: ${healthy}\n    profile: coding\n    hosts: [codex]\n` +
-        `  - project: ${blocked}\n    profile: coding\n    hosts: [claude]\n`,
-    );
-    const bin = installFakeCodex(home);
-    installFakeClaude(home, "2.0.63");
-
-    const result = await runCliWithPath(home, bin, "apply", "--all");
-
-    expectExitCode(result, 2);
-    expect(existsSync(join(healthy, ".agent-profile-kit", "installation.json"))).toBe(false);
-    expect(existsSync(join(blocked, ".agent-profile-kit", "installation.json"))).toBe(false);
-    expect(result.stdout).toContain("upgrade Claude Code");
-  });
-
   test("apply --all JSON separates committed work from fresh blocked and current Project results", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -7306,14 +7319,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const conflictHome = isolatedHome();
     await initialize(conflictHome);
     writeContextProfile(conflictHome);
-    mkdirSync(join(workspacePath(conflictHome), "skills", "to-spec", "agents"), { recursive: true });
+    mkdirSync(join(workspacePath(conflictHome), "skills", "to-spec"), { recursive: true });
     writeFileSync(
       join(workspacePath(conflictHome), "skills", "to-spec", "SKILL.md"),
       sourceBody,
-    );
-    writeFileSync(
-      join(workspacePath(conflictHome), "skills", "to-spec", "agents", "openai.yaml"),
-      "policy:\n  allow_implicit_invocation: true\n",
     );
     writeFileSync(
       join(workspacePath(conflictHome), "profiles", "coding.yaml"),
@@ -7324,12 +7333,32 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       configPath(conflictHome),
       `schema_version: 2\nworkspace: ${workspacePath(conflictHome)}\nbindings:\n  - project: ${conflictProject}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
+    expectExitCode(await runCli(conflictHome, "apply"), 0);
+    const stateBefore = readFileSync(statePath(conflictHome), "utf8");
+    const installedSkill = join(conflictProject, ".agents", "skills", "to-spec");
+    expect(existsSync(join(installedSkill, "SKILL.md"))).toBe(true);
+
+    // Introduce a Skill the Adapter cannot represent: canonical policy conflicts
+    // with the Skill's own openai.yaml. The invocation fails closed — the
+    // previously healthy installation keeps its outputs and its receipt — instead
+    // of reporting success with no Skill package delivered.
+    mkdirSync(join(workspacePath(conflictHome), "skills", "to-spec", "agents"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(conflictHome), "skills", "to-spec", "agents", "openai.yaml"),
+      "policy:\n  allow_implicit_invocation: true\n",
+    );
     const conflict = await runCli(conflictHome, "status");
-    expectExitCode(conflict, 2);
-    expect(conflict.stdout).toContain("conflicting model-invocation authorities");
-    expect(humanText(conflict.stdout)).toContain("canonical Workspace metadata.agent-profile-kit.model-invocation");
-    expect(conflict.stdout).toContain("agents/openai.yaml policy.allow_implicit_invocation");
-    expect(existsSync(join(conflictProject, ".agents", "skills", "to-spec"))).toBe(false);
+    expectExitCode(conflict, 1);
+    expect(`${conflict.stdout}${conflict.stderr}`).toContain("conflicting model-invocation authorities");
+    expect(`${conflict.stdout}${conflict.stderr}`).toContain("metadata.agent-profile-kit.model-invocation");
+    expect(`${conflict.stdout}${conflict.stderr}`).toContain("agents/openai.yaml policy.allow_implicit_invocation");
+
+    // Apply fails closed too: the healthy installation keeps its recorded
+    // outputs and its receipt, so no empty reconciliation is published.
+    const conflictApply = await runCli(conflictHome, "apply");
+    expectExitCode(conflictApply, 1);
+    expect(existsSync(join(installedSkill, "SKILL.md"))).toBe(true);
+    expect(readFileSync(statePath(conflictHome), "utf8")).toBe(stateBefore);
 
     const status = await runCliWithPath(home, pathValue, "status", "--verbose");
     expectExitCode(status, 0);
@@ -7527,7 +7556,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("packed CLI Claude status fails closed when Claude CLI is missing or too old", async () => {
+  test("packed CLI status stays probe-free for Claude and apply writes material when the CLI is too old", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -7540,18 +7569,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(emptyBin, { recursive: true });
     // PATH with only empty-bin so the real Claude is not discoverable.
     const missing = await runCliWithPath(home, emptyBin, "status");
-    expectExitCode(missing, 2);
-    expect(`${missing.stdout}${missing.stderr}`).toContain("Claude Code CLI was not found");
+    expectExitCode(missing, 0);
+    expect(`${missing.stdout}${missing.stderr}`).not.toContain("Claude Code CLI was not found");
+    expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
 
     const oldBin = installFakeClaude(home, "2.0.63");
-    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "status");
-    expectExitCode(old, 2);
-    expect(old.stdout.startsWith("Cannot apply\n")).toBe(true);
+    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "apply");
+    expectExitCode(old, 0);
     expect(old.stdout).toContain("does not support unscoped project rules");
     expect(humanText(old.stdout)).toContain(humanText("requires 2.0.64+"));
-    expect(old.stdout).toContain("upgrade Claude Code before checking status or applying the Profile");
-    expect(old.stderr).toBe("");
-    expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
+    expect(readFileSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"), "utf8"))
+      .toContain("Always preserve the project boundary.");
 
     const boundaryBin = installFakeClaude(home, "2.0.64");
     const boundary = await runCliWithPath(home, `${boundaryBin}:${process.env.PATH ?? ""}`, "status", "--verbose");
@@ -7851,7 +7879,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   }, 20_000);
 
-  test("packed CLI Antigravity capability preflight blocks missing, unreadable, malformed, and old agy evidence", async () => {
+  test("packed CLI status stays probe-free for Antigravity and apply writes material for old agy evidence", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project("agent-profile-kit-antigravity-capability-");
@@ -7864,28 +7892,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const emptyBin = join(home, "antigravity-empty-bin");
     mkdirSync(emptyBin, { recursive: true });
     const missing = await runCliWithPath(home, emptyBin, "status");
-    expectExitCode(missing, 2);
-    expect(`${missing.stdout}${missing.stderr}`).toContain("Antigravity CLI was not found");
+    expectExitCode(missing, 0);
+    expect(`${missing.stdout}${missing.stderr}`).not.toContain("Antigravity CLI was not found");
     expect(existsSync(join(projectPath, ".agents"))).toBe(false);
-
-    const unreadableBin = join(home, "antigravity-unreadable-bin");
-    mkdirSync(unreadableBin, { recursive: true });
-    writeFileSync(join(unreadableBin, "agy"), "#!/bin/sh\nexit 1\n");
-    execFileSync("chmod", ["+x", join(unreadableBin, "agy")]);
-    const unreadable = await runCliWithPath(home, unreadableBin, "status");
-    expectExitCode(unreadable, 2);
-    expect(`${unreadable.stdout}${unreadable.stderr}`).toMatch(/version could not be detected/i);
-
-    const malformedBin = installFakeAntigravity(home, "not-a-version");
-    const malformed = await runCliWithPath(home, `${malformedBin}:${process.env.PATH ?? ""}`, "status");
-    expectExitCode(malformed, 2);
-    expect(humanText(`${malformed.stdout}${malformed.stderr}`)).toMatch(/version is unreadable/i);
 
     const oldBin = installFakeAntigravity(home, "1.1.12");
-    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "status");
-    expectExitCode(old, 2);
+    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "apply");
+    expectExitCode(old, 0);
     expect(`${old.stdout}${old.stderr}`).toMatch(/requires 1\.1\.13\+/i);
-    expect(existsSync(join(projectPath, ".agents"))).toBe(false);
+    expect(
+      readFileSync(join(projectPath, ".agents", "rules", "agent-profile-kit-000-envelope.md"), "utf8"),
+    ).toContain("# Agent Profile Kit Context — Profile: coding");
 
     const supportedBin = installFakeAntigravity(home, "1.1.13");
     const supported = await runCliWithPath(
@@ -7921,9 +7938,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const antigravityBin = installFakeAntigravity(home);
     const result = await runCliWithPath(home, `${antigravityBin}:${process.env.PATH ?? ""}`, "status");
+    // The obstructed shared Skill surface is unowned material, so the write
+    // stays blocked by occupied-output ownership, not by capability probing.
     expectExitCode(result, 2);
-    expect(`${result.stdout}${result.stderr}`).toContain(".agents/skills");
-    expect(`${result.stdout}${result.stderr}`).toMatch(/not a directory/i);
+    expect(`${result.stdout}${result.stderr}`).toContain(".agents/skills is an occupied file parent path");
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
   });
 
@@ -7980,7 +7998,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("packed CLI Grok status fails closed when Grok CLI is missing or the surface is obstructed, and installs Skills when ready", async () => {
+  test("packed CLI status stays probe-free for Grok, apply warns for missing CLI, and installs Skills when ready", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -7992,20 +8010,22 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const emptyBin = join(home, "empty-bin");
     mkdirSync(emptyBin, { recursive: true });
     const missing = await runCliWithPath(home, emptyBin, "status");
-    expectExitCode(missing, 2);
-    expect(`${missing.stdout}${missing.stderr}`).toContain("Grok CLI was not found");
+    expectExitCode(missing, 0);
+    expect(`${missing.stdout}${missing.stderr}`).not.toContain("Grok CLI was not found");
 
     const oldBin = installFakeGrok(home, { version: "0.1.0" });
-    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "status");
-    expectExitCode(old, 2);
+    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "apply");
+    expectExitCode(old, 0);
     expect(`${old.stdout}${old.stderr}`).toContain("does not support project rules inspection");
-    expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
+    expect(readFileSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"), "utf8"))
+      .toContain("Always preserve the project boundary.");
 
+    rmSync(join(projectPath, ".grok"), { force: true, recursive: true });
     writeFileSync(join(projectPath, ".grok"), "occupied\n");
     const surfaceBin = installFakeGrok(home);
-    const surface = await runCliWithPath(home, `${surfaceBin}:${process.env.PATH ?? ""}`, "status");
+    const surface = await runCliWithPath(home, `${surfaceBin}:${process.env.PATH ?? ""}`, "apply");
     expectExitCode(surface, 2);
-    expect(`${surface.stdout}${surface.stderr}`).toMatch(/\.grok/);
+    expect(`${surface.stdout}${surface.stderr}`).toMatch(/has unsafe parent/);
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
 
     rmSync(join(projectPath, ".grok"), { force: true });
@@ -8035,7 +8055,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(true);
   });
 
-  test("packed fleet status probes each unique machine-level Host requirement once", async () => {
+  test("packed fleet status executes no Agent Host process and apply probes each unique requirement once", async () => {
     const home = isolatedHome();
     await initialize(home);
     removeScaffoldedExample(home);
@@ -8090,6 +8110,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly projects: readonly unknown[];
     };
     expect(payload.projects).toHaveLength(4);
+    // Probing is apply-only: status must not launch any recorded Host.
+    expect(existsSync(join(home, "probe.log"))).toBe(false);
+
+    const apply = await runCliWithPath(home, pathWithHosts, "apply", "--json");
+    expectExitCode(apply, 0);
     const counts = {
       claude: 0,
       codex: 0,
@@ -10130,7 +10155,7 @@ describe("shared presentation boundary", () => {
 });
 
 describe("delayed interactive progress", () => {
-  test("interactive long-running status shows delayed progress cleared before the final report", async () => {
+  test("interactive status never shows delayed progress even when Host CLIs would be slow", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -10145,24 +10170,13 @@ describe("delayed interactive progress", () => {
     );
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(STATUS_PROGRESS_LABEL);
-
-    const reportIndex = result.stdout.indexOf("Updates ready");
-    expect(reportIndex).toBeGreaterThan(-1);
-    const beforeReport = result.stdout.slice(0, reportIndex);
-    const afterReport = result.stdout.slice(reportIndex);
-    expect(afterReport).not.toContain(STATUS_PROGRESS_LABEL);
-    // The raw capture must end with the clear sequence (carriage return,
-    // spaces, carriage return) immediately before the report. This proves the
-    // orchestration cleared progress before rendering: without the finish
-    // wiring, the last redraw would run directly into the report and fail
-    // this match.
-    const lastLabel = beforeReport.lastIndexOf(STATUS_PROGRESS_LABEL);
-    expect(lastLabel).toBeGreaterThan(-1);
-    expect(beforeReport.slice(lastLabel + STATUS_PROGRESS_LABEL.length)).toMatch(/^\.*\r +\r$/);
+    // Probing is apply-only, so the deliberately slow stub never runs and
+    // status renders its report without any progress bytes, even on a PTY.
+    expect(result.stdout).not.toContain(STATUS_PROGRESS_LABEL);
+    expect(result.stdout).toContain("Updates ready");
   });
 
-  test("redirected and JSON status contain no progress bytes even when the operation outlives the threshold", async () => {
+  test("redirected and JSON status contain no progress bytes even when Host CLIs would be slow", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -10186,15 +10200,16 @@ describe("delayed interactive progress", () => {
     expect(json.stdout).not.toMatch(/\r/);
     expect(() => JSON.parse(json.stdout)).not.toThrow();
 
-    // A slow failing probe in a non-interactive run must also stay progress-free.
+    // A slow failing Host stub in a non-interactive run must also stay
+    // progress-free and must never be launched by status.
     const failed = await runCliWithEnvironment(
       home,
       { APKIT_TEST_CODEX_DELAY: "0.6", APKIT_TEST_CODEX_FAIL: "probe failed" },
       "status",
     );
-    expectExitCode(failed, 2);
+    expectExitCode(failed, 0);
     const failedOutput = `${failed.stdout}${failed.stderr}`;
-    expect(failedOutput).toContain("probe failed");
+    expect(failedOutput).not.toContain("probe failed");
     expect(failedOutput).not.toContain(STATUS_PROGRESS_LABEL);
     expect(failedOutput).not.toMatch(/\r/);
     expect(failedOutput).not.toMatch(/\u001b\[/);
@@ -12969,7 +12984,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expect(codexOutputs).not.toContain(".claude/rules/agent-profile-kit.md");
   });
 
-  test("Claude install-temp exit codes: 0 success, 1 tool error, 2 capability blocker", async () => {
+  test("Claude install-temp exit codes: 0 success, 1 tool error, 2 blocked", async () => {
     const home = isolatedHome();
     await prepareClaudeTempWorkspace(home);
     const projectPath = realpathSync(gitRepository("agent-profile-kit-temp-claude-exits-"));
@@ -13000,28 +13015,29 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     const invalidInvocation = await runCliWithClaude(home, "install-temp", "--json");
     expectExitCode(invalidInvocation, 1);
 
-    // Capability blocker: old Claude CLI floor.
+    // Advisory capability warning: old Claude CLI floor does not block install-temp.
     const oldBin = installFakeClaude(home, "2.0.63");
     const pathValue = `${oldBin}:${process.env.PATH ?? ""}`;
-    const blocked = await runProcess({
+    const outdatedProject = gitRepository("agent-profile-kit-temp-claude-old-");
+    const outdated = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [cliPath, "install-temp", "coding", gitRepository("agent-profile-kit-temp-claude-old-"), "--host", "claude", "--json"],
+      arguments_: [cliPath, "install-temp", "coding", outdatedProject, "--host", "claude", "--json"],
       environment: { ...process.env, HOME: home, PATH: pathValue },
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
-    expectExitCode(blocked, 2);
-    const payload = JSON.parse(blocked.stdout) as {
+    expectExitCode(outdated, 0);
+    const payload = JSON.parse(outdated.stdout) as {
       readonly outcome: string;
       readonly schemaVersion: number;
       readonly blockers: readonly Record<string, unknown>[];
+      readonly warnings: readonly string[];
+      readonly outputs: readonly string[];
     };
-    expect(payload.outcome).toBe("blocked");
+    expect(payload.outcome).toBe("success");
     expect(payload.schemaVersion).toBe(8);
-    expect(payload.blockers.some((blocker) => /Claude CLI|requires 2\.0\.64/i.test(String(blocker.message))))
-      .toBe(true);
-    expect(payload.blockers.some((blocker) => blocker.kind === "host-capability" && blocker.scope === "project"))
-      .toBe(true);
+    expect(payload.warnings.some((warning) => /requires 2\.0\.64/i.test(warning))).toBe(true);
+    expect(existsSync(join(outdatedProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
   });
 });
 
@@ -13226,7 +13242,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
     expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
   });
 
-  test("OpenCode install-temp exit codes: 0 success, 1 tool error, 2 capability blocker", async () => {
+  test("OpenCode install-temp exit codes: 0 success, 1 tool error, 2 blocked", async () => {
     const home = isolatedHome();
     await prepareOpenCodeTempWorkspace(home);
     const projectPath = realpathSync(gitRepository("agent-profile-kit-temp-opencode-exits-"));
@@ -13254,27 +13270,28 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
     expectExitCode(missingProfile, 1);
     expect(JSON.parse(missingProfile.stdout).outcome).toBe("error");
 
-    // Capability blocker: old OpenCode CLI floor (1.18.22 vs 1.18.23).
+    // Advisory capability warning: old OpenCode CLI floor does not block install-temp.
     const oldBin = installFakeOpenCode(home, "1.18.22");
     const pathValue = `${oldBin}:${process.env.PATH ?? ""}`;
-    const blocked = await runProcess({
+    const outdatedProject = gitRepository("agent-profile-kit-temp-opencode-old-");
+    const outdated = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [cliPath, "install-temp", "coding", gitRepository("agent-profile-kit-temp-opencode-old-"), "--host", "opencode", "--json"],
+      arguments_: [cliPath, "install-temp", "coding", outdatedProject, "--host", "opencode", "--json"],
       environment: { ...process.env, HOME: home, PATH: pathValue },
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
-    expectExitCode(blocked, 2);
-    const payload = JSON.parse(blocked.stdout) as {
+    expectExitCode(outdated, 0);
+    const payload = JSON.parse(outdated.stdout) as {
       readonly outcome: string;
       readonly schemaVersion: number;
       readonly blockers: readonly Record<string, unknown>[];
+      readonly warnings: readonly string[];
+      readonly outputs: readonly string[];
     };
-    expect(payload.outcome).toBe("blocked");
+    expect(payload.outcome).toBe("success");
     expect(payload.schemaVersion).toBe(8);
-    expect(payload.blockers.some((blocker) => /OpenCode 1\.18\.22 does not support native project instructions or Skills/i.test(String(blocker.message))))
-      .toBe(true);
-    expect(payload.blockers.some((blocker) => blocker.kind === "host-capability" && blocker.scope === "project"))
-      .toBe(true);
+    expect(payload.warnings.some((warning) => /OpenCode 1\.18\.22 does not support native project instructions or Skills/i.test(warning))).toBe(true);
+    expect(existsSync(join(outdatedProject, ".opencode", "opencode.jsonc"))).toBe(true);
   });
 });

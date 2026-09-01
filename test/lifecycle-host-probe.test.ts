@@ -13,10 +13,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
+import { statusApplication } from "../installer/commands.js";
 import {
   buildDesiredState,
   type LifecyclePlanningInstrumentation,
 } from "../installer/project-plan.js";
+import { reportBlockers } from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -198,7 +200,9 @@ function installProbeHosts(
 }
 
 function readProbeLog(home: string): readonly string[] {
-  return readFileSync(join(home, "probe.log"), "utf8")
+  const log = join(home, "probe.log");
+  if (!existsSync(log)) return [];
+  return readFileSync(log, "utf8")
     .split(/\r?\n/)
     .filter((line) => line.length > 0);
 }
@@ -227,7 +231,7 @@ describe("machine-level Host capability probes within one invocation", () => {
     expect(instrumentation.counts.probeHostCapability).toBe(1);
     expect(readProbeLog(home)).toEqual(["codex: --version"]);
     for (const installation of desired.installations) {
-      expect(installation.blockers).toEqual([]);
+      expect(installation.capabilityWarnings).toEqual([]);
     }
   });
 
@@ -261,17 +265,17 @@ describe("machine-level Host capability probes within one invocation", () => {
       (installation) => installation.binding.profile === "context-only",
     );
     expect(contextInstallations).toHaveLength(2);
-    for (const installation of contextInstallations) {
-      expect(installation.blockers).toHaveLength(1);
-      expect(installation.blockers[0]?.problem).toContain(
-        "cannot deliver complete Context",
-      );
-    }
+    // Identical cached probe failures deduplicate to one warning per invocation.
+    expect(contextInstallations[0]?.capabilityWarnings).toHaveLength(1);
+    expect(contextInstallations[0]?.capabilityWarnings[0]?.warning.message).toContain(
+      "cannot deliver complete Context",
+    );
+    expect(contextInstallations[1]?.capabilityWarnings).toEqual([]);
     // The disabled-invocation Project must not reuse the incompatible failure.
     const disabledInstallation = desired.installations.find(
       (installation) => installation.binding.profile === "skills-disabled",
     );
-    expect(disabledInstallation?.blockers).toEqual([]);
+    expect(disabledInstallation?.capabilityWarnings).toEqual([]);
   });
 
   test("Project-specific destination checks still run for every affected Project", async () => {
@@ -304,9 +308,10 @@ describe("machine-level Host capability probes within one invocation", () => {
     );
     const obstructed = byProject.get(realpathSync(projects[1]!));
     const clean = byProject.get(realpathSync(projects[0]!));
-    expect(clean?.blockers).toEqual([]);
-    expect(obstructed?.blockers).toHaveLength(1);
-    expect(obstructed?.blockers[0]?.problem).toContain(
+    expect(clean?.capabilityWarnings).toEqual([]);
+    // Project-surface evidence is Project-specific, so it stays on its own Project.
+    expect(obstructed?.capabilityWarnings).toHaveLength(1);
+    expect(obstructed?.capabilityWarnings[0]?.warning.message).toContain(
       "Pi shared project surface cannot host Skills",
     );
   });
@@ -335,7 +340,7 @@ describe("machine-level Host capability probes within one invocation", () => {
       "grok: inspect --json",
     ]);
     for (const installation of desired.installations) {
-      expect(installation.blockers).toEqual([]);
+      expect(installation.capabilityWarnings).toEqual([]);
     }
   });
 
@@ -415,10 +420,13 @@ describe("machine-level Host capability probes within one invocation", () => {
       expect(desired.installations).toHaveLength(2);
       for (const installation of desired.installations) {
         if (scenario.expected === "") {
-          expect(installation.blockers).toEqual([]);
+          expect(installation.capabilityWarnings).toEqual([]);
+        } else if (installation === desired.installations[0]) {
+          expect(installation.capabilityWarnings).toHaveLength(1);
+          expect(installation.capabilityWarnings[0]?.warning.message).toContain(scenario.expected);
         } else {
-          expect(installation.blockers).toHaveLength(1);
-          expect(installation.blockers[0]?.problem).toContain(scenario.expected);
+          // The identical missing/outdated/malformed failure warns once per invocation.
+          expect(installation.capabilityWarnings).toEqual([]);
         }
       }
     }
@@ -501,7 +509,32 @@ describe("machine-level Host capability probes within one invocation", () => {
       pi: 1,
     });
     for (const installation of desired.installations) {
-      expect(installation.blockers).toEqual([]);
+      expect(installation.capabilityWarnings).toEqual([]);
     }
+  });
+
+  test("status performs no Agent Host process execution and reports Projects without capability blockers", async () => {
+    const home = temporaryDirectory("apk-host-probe-status-");
+    await fleetWorkspace({
+      home,
+      bindings: [
+        { hosts: ["codex"], profile: "context-only" },
+        { hosts: ["codex"], profile: "context-only" },
+      ],
+    });
+    // Controlled Hosts are on PATH and recording; status must not launch them.
+    const bin = installProbeHosts(home, { codex: "0.145.0" });
+
+    const report = await statusApplication(home, {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    });
+
+    expect(report.projects).toHaveLength(2);
+    expect(reportBlockers(report)).toEqual([]);
+    for (const project of report.projects) {
+      expect(project.blockers).toEqual([]);
+      expect(project.warnings).toEqual([]);
+    }
+    expect(readProbeLog(home)).toEqual([]);
   });
 });

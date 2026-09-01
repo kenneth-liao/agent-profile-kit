@@ -32,7 +32,6 @@ import {
   CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION,
 } from "../adapters/codex.js";
 import { emitSharedSkillMarkdown } from "../adapters/shared-skill.js";
-import { blockerMessage } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
   applyReconciliation,
@@ -547,15 +546,23 @@ describe("Skill model-invocation policy", () => {
       const desired = await buildDesiredState(home);
       // Context floor (0.145.0) is checked before the invocation floor (0.99.0)
       // so one upgrade message covers Profiles that need both capabilities.
-      expect(desired.installations[0]?.blockers.some((blocker) =>
-        blockerMessage(blocker).includes("cannot deliver complete Context"),
-      )).toBe(true);
+      expect(
+        desired.installations[0]?.capabilityWarnings.some((entry) =>
+          entry.warning.message.includes("cannot deliver complete Context"),
+        ),
+      ).toBe(true);
       const preview = await previewReconciliation(desired.installations, {
         receipts: [],
         removedTemporaryInstallationIds: [],
         schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
       });
-      expect(reportBlockers(preview).length).toBeGreaterThan(0);
+      // Probing is advisory: the capability case reaches the report as a warning.
+      expect(reportBlockers(preview)).toEqual([]);
+      expect(
+        preview.projects[0]?.warnings.some((warning) =>
+          warning.message.includes("cannot deliver complete Context"),
+        ),
+      ).toBe(true);
       expect(existsSync(join(project, ".agents", "skills", "to-spec"))).toBe(false);
       expect(existsSync(join(home, ".agents", "agent-profile-kit", "state", "manifest.json"))).toBe(
         false,
