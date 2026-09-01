@@ -22,6 +22,7 @@ import {
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { desiredOutputConflicts, previewReconciliation } from "../installer/reconcile.js";
+import { createLifecycleOwnershipInspectionContext } from "../installer/lifecycle-ownership-inspection.js";
 import { TemporaryInstallationBlockedError } from "../installer/temporary-installation.js";
 import {
   reportBlockers,
@@ -165,7 +166,6 @@ describe("shared blocker contract", () => {
       "repository-exclusion-target-unproven",
       "repository-exclusion-invalid",
       "occupied-output",
-      "installation-marker",
       "installation-ownership",
       "temporary-installation-conflict",
       "temporary-installation-removal",
@@ -250,7 +250,7 @@ describe("shared blocker contract", () => {
     const emptyState = {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     } as const;
     const projectBlocker = {
       ...HOST_CAPABILITY_INPUT,
@@ -373,7 +373,7 @@ describe("tracked-output ownership conflicts", () => {
     const emptyState = {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     } as const;
     const report = await previewReconciliation(desired.installations, emptyState);
 
@@ -405,7 +405,7 @@ describe("tracked-output ownership conflicts", () => {
     const conflicts = await desiredOutputConflicts(
       desired.installations[0]!,
       undefined,
-      "temporary-installation-id",
+      createLifecycleOwnershipInspectionContext(),
     );
     expect(conflicts).toHaveLength(1);
     expect(blockerMessage(conflicts[0]!)).toBe(

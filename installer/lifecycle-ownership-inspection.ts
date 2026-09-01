@@ -1,13 +1,8 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import {
-  INSTALLATION_MARKER_PATH,
-  parseInstallationMarker,
-  type InstallationMarker,
-} from "../schemas/installation-manifest.js";
-import type { OwnershipOutputReceipt } from "../schemas/ownership-state.js";
-import { hashBytes, hashDirectoryMembersFromFiles, markerPath } from "./project-plan.js";
+import { type OwnershipOutputReceipt, type OwnershipReceipt, type OwnershipState } from "../schemas/ownership-state.js";
+import { hashBytes, hashDirectoryMembersFromFiles } from "./project-plan.js";
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
@@ -20,7 +15,6 @@ function hasErrorCode(error: unknown, code: string): boolean {
 export interface LifecycleOwnershipInspectionInstrumentation {
   readonly onInspectDirectory?: () => void;
   readonly onInspectFile?: () => void;
-  readonly onInspectMarker?: () => void;
   readonly onUnsafeParent?: () => void;
 }
 
@@ -50,28 +44,32 @@ export interface OwnedOutputInspection {
   readonly unsupportedMember?: string;
 }
 
-/** One normalized Installation Marker evidence snapshot for one project root. */
-export interface MarkerInspection {
-  readonly kind: "file" | "missing" | "other";
-  /** Regular-file bytes when the Marker path is a regular file. */
-  readonly content: string | undefined;
-  /** Root mode when the Marker path is a regular file. */
-  readonly mode: number | undefined;
-  /** Parsed Marker value when the file parses cleanly. */
-  readonly value: InstallationMarker | undefined;
-  /** Parse failure message when the file is a regular file but malformed. */
-  readonly malformed: string | undefined;
+/**
+ * Whether the on-disk root still matches the receipt's recorded hash and mode:
+ * the durable continuity evidence that the extant bytes are Agent Profile
+ * Kit's own published output. One canonical matcher shared by the ownership
+ * proof, the conflict preflight, and the refresh planner.
+ */
+export function recordedOutputMatches(
+  inspection: OwnedOutputInspection,
+  output: OwnershipOutputReceipt,
+): boolean {
+  return output.type === "file"
+    ? inspection.kind === "file" &&
+        inspection.mode === output.mode &&
+        inspection.contentHash === output.hash
+    : inspection.kind === "directory" &&
+        inspection.mode === output.mode &&
+        inspection.directoryHash === output.hash;
 }
 
 /**
- * One invocation-scoped reader for ordinary owned outputs, Installation Marker
- * evidence, and unsafe-parent evidence. Each owned output is read or walked at
- * most once per reconciliation pass; every consumer shares the same root result.
- * Discarded when the lifecycle command exits; never persisted or shared across
- * commands.
+ * One invocation-scoped reader for ordinary owned outputs and unsafe-parent
+ * evidence. Each owned output is read or walked at most once per reconciliation
+ * pass; every consumer shares the same root result. Discarded when the
+ * lifecycle command exits; never persisted or shared across commands.
  */
 export interface LifecycleOwnershipInspection {
-  inspectMarker(project: string): Promise<MarkerInspection>;
   inspectOutput(project: string, output: OwnershipOutputReceipt): Promise<OwnedOutputInspection>;
   unsafeParent(project: string, relativePath: string): Promise<string | undefined>;
 }
@@ -229,34 +227,6 @@ export async function unsafeOutputParent(
   return undefined;
 }
 
-async function inspectMarkerFile(project: string): Promise<MarkerInspection> {
-  const path = markerPath(project);
-  let stats;
-  try {
-    stats = await lstat(path);
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return { content: undefined, kind: "missing", malformed: undefined, mode: undefined, value: undefined };
-    }
-    throw error;
-  }
-  if (stats.isSymbolicLink() || !stats.isFile()) {
-    return { content: undefined, kind: "other", malformed: undefined, mode: undefined, value: undefined };
-  }
-  const content = await readFile(path, "utf8");
-  try {
-    return { content, kind: "file", malformed: undefined, mode: stats.mode & 0o7777, value: parseInstallationMarker(content) };
-  } catch (error) {
-    return {
-      content,
-      kind: "file",
-      malformed: error instanceof Error ? error.message : String(error),
-      mode: stats.mode & 0o7777,
-      value: undefined,
-    };
-  }
-}
-
 /**
  * Options for one invocation-scoped ownership inspection context. Production
  * callers omit these; tests may inject a deterministic directory walker to
@@ -277,20 +247,7 @@ export function createLifecycleOwnershipInspectionContext(
 ): LifecycleOwnershipInspection {
   const walk = options.walkDirectory ?? listRelativeEntries;
   const outputs = new Map<string, Promise<OwnedOutputInspection>>();
-  const markers = new Map<string, Promise<MarkerInspection>>();
   const unsafeParents = new Map<string, Promise<string | undefined>>();
-
-  function inspectMarker(project: string): Promise<MarkerInspection> {
-    const existing = markers.get(project);
-    if (existing) return existing;
-    instrumentation.onInspectMarker?.();
-    const pending = inspectMarkerFile(project);
-    markers.set(project, pending);
-    return pending.catch((error) => {
-      markers.delete(project);
-      throw error;
-    });
-  }
 
   function inspectOutput(project: string, output: OwnershipOutputReceipt): Promise<OwnedOutputInspection> {
     // The cache key includes the canonical expected root identity. Legacy
@@ -300,36 +257,16 @@ export function createLifecycleOwnershipInspectionContext(
     const key = `${project}\0${output.path}\0${expected}`;
     const existing = outputs.get(key);
     if (existing) return existing;
-    // The Installation Marker is an owned file output whose content is already
-    // normalized by the Marker reader; reuse it so the Marker file is read once.
-    const pending =
-      output.path === INSTALLATION_MARKER_PATH
-        ? markerOutputInspection(project)
-        : output.type === "file"
-          ? inspectFileOutput(project, output)
-          : inspectDirectoryOutput(project, output, walk);
-    if (output.path !== INSTALLATION_MARKER_PATH) {
-      if (output.type === "file") instrumentation.onInspectFile?.();
-      else instrumentation.onInspectDirectory?.();
-    }
+    const pending = output.type === "file"
+      ? inspectFileOutput(project, output)
+      : inspectDirectoryOutput(project, output, walk);
+    if (output.type === "file") instrumentation.onInspectFile?.();
+    else instrumentation.onInspectDirectory?.();
     outputs.set(key, pending);
     return pending.catch((error) => {
       outputs.delete(key);
       throw error;
     });
-  }
-
-  async function markerOutputInspection(project: string): Promise<OwnedOutputInspection> {
-    const marker = await inspectMarker(project);
-    if (marker.kind === "file" && marker.content !== undefined && marker.mode !== undefined) {
-      return {
-        content: marker.content,
-        contentHash: hashBytes(marker.content),
-        kind: "file",
-        mode: marker.mode,
-      };
-    }
-    return { kind: marker.kind };
   }
 
   function unsafeParentEvidence(
@@ -349,7 +286,6 @@ export function createLifecycleOwnershipInspectionContext(
   }
 
   return {
-    inspectMarker,
     inspectOutput,
     unsafeParent: unsafeParentEvidence,
   };

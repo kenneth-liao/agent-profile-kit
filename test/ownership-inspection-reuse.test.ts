@@ -32,7 +32,6 @@ import {
   type LifecycleOwnershipInspection,
   type LifecycleOwnershipInspectionInstrumentation,
 } from "../installer/lifecycle-ownership-inspection.js";
-import { INSTALLATION_MARKER_PATH } from "../schemas/installation-manifest.js";
 import {
   reportBlockers,
   reportItems,
@@ -57,14 +56,12 @@ function emptyInstrumentation(): LifecycleOwnershipInspectionInstrumentation & {
   readonly counts: {
     inspectDirectory: number;
     inspectFile: number;
-    inspectMarker: number;
     unsafeParent: number;
   };
 } {
   const counts = {
     inspectDirectory: 0,
     inspectFile: 0,
-    inspectMarker: 0,
     unsafeParent: 0,
   };
   return {
@@ -74,9 +71,6 @@ function emptyInstrumentation(): LifecycleOwnershipInspectionInstrumentation & {
     },
     onInspectFile: () => {
       counts.inspectFile += 1;
-    },
-    onInspectMarker: () => {
-      counts.inspectMarker += 1;
     },
     onUnsafeParent: () => {
       counts.unsafeParent += 1;
@@ -188,7 +182,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     const { desired } = await appliedDirectoryInstallation(home, project);
     const installation = desired[0]!;
     const expectedFiles = installation.outputs.filter(
-      (output) => output.path !== INSTALLATION_MARKER_PATH && output.type === "file",
+      (output) => output.type === "file",
     ).length;
     const expectedDirectories = installation.outputs.filter(
       (output) => output.type === "directory",
@@ -210,41 +204,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     // ownership proof and repairable detection both consult it.
     expect(instrumentation.counts.inspectFile).toBe(expectedFiles);
     expect(instrumentation.counts.inspectDirectory).toBe(expectedDirectories);
-    expect(instrumentation.counts.inspectMarker).toBe(1);
     expect(instrumentation.counts.unsafeParent).toBe(installation.outputs.length);
-  });
-
-  test("missing-Marker repair reuses the same per-output inspection instead of re-walking outputs", async () => {
-    const home = temporaryDirectory("apk-own-inspect-repair-home-");
-    const project = temporaryDirectory("apk-own-inspect-repair-project-");
-    const { desired } = await appliedDirectoryInstallation(home, project);
-    const installation = desired[0]!;
-    const expectedFiles = installation.outputs.filter(
-      (output) => output.path !== INSTALLATION_MARKER_PATH && output.type === "file",
-    ).length;
-    const expectedDirectories = installation.outputs.filter(
-      (output) => output.type === "directory",
-    ).length;
-    rmSync(join(project, INSTALLATION_MARKER_PATH));
-
-    const instrumentation = emptyInstrumentation();
-    const ownershipInspection = createLifecycleOwnershipInspectionContext(instrumentation);
-    const report = await previewReconciliation(
-      desired,
-      await readInstallationState(home),
-      { ownershipInspection },
-    );
-
-    expect(reportItems(report)).toContainEqual({
-      kind: "update",
-      project,
-      reason: "Installation Marker is missing and repairable",
-    });
-    // Ownership proof of the remaining outputs and the repairable-Marker
-    // remaining-output proof share one inspection per output.
-    expect(instrumentation.counts.inspectFile).toBe(expectedFiles);
-    expect(instrumentation.counts.inspectDirectory).toBe(expectedDirectories);
-    expect(instrumentation.counts.inspectMarker).toBe(1);
   });
 
   test("directory drift reports one generated root while sharing one directory walk", async () => {
@@ -279,61 +239,9 @@ describe("one shared ownership inspection per generated output per pass", () => 
     expect(instrumentation.counts.inspectDirectory).toBe(1);
     expect(instrumentation.counts.inspectFile).toBe(
       desired[0]!.outputs.filter(
-        (output) => output.path !== INSTALLATION_MARKER_PATH && output.type === "file",
+        (output) => output.type === "file",
       ).length,
     );
-  });
-
-  test("conflict detection for a copied installation reads each owned output through the shared context", async () => {
-    const home = temporaryDirectory("apk-own-inspect-copied-home-");
-    const firstProject = temporaryDirectory("apk-own-inspect-copied-origin-");
-    const base = await contextInstallation(home, firstProject);
-    const directory = normalizedDirectory();
-    await applyReconciliation(home, [withDirectoryOutput(base, directory)]);
-    const previousState = await readInstallationState(home);
-    const recorded = previousState.receipts.find(
-      (installation) => installation.project === firstProject,
-    );
-    if (!recorded) throw new Error("expected one recorded installation");
-    const expectedFiles = recorded.outputs.filter(
-      (output) => output.path !== INSTALLATION_MARKER_PATH && output.type === "file",
-    ).length;
-    const expectedDirectories = recorded.outputs.filter(
-      (output) => output.type === "directory",
-    ).length;
-
-    // The project folder moves to a new root without its Installation Marker;
-    // conflict detection must prove the copied outputs at the new root.
-    const movedProject = temporaryDirectory("apk-own-inspect-copied-moved-");
-    execFileSync("cp", ["-R", join(firstProject, ".agent-profile-kit"), join(movedProject, ".agent-profile-kit")]);
-    execFileSync("cp", ["-R", join(firstProject, ".codex"), join(movedProject, ".codex")]);
-    execFileSync("cp", ["-R", join(firstProject, ".agents"), join(movedProject, ".agents")]);
-    rmSync(join(movedProject, INSTALLATION_MARKER_PATH));
-    rmSync(firstProject, { recursive: true, force: true });
-    const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
-    writeFileSync(
-      join(application, "config.yaml"),
-      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${movedProject}\n    profile: coding\n    hosts: [codex]\n`,
-    );
-    const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const moved = desired.installations[0];
-    if (!moved) throw new Error("expected one desired installation");
-
-    const instrumentation = emptyInstrumentation();
-    const ownershipInspection = createLifecycleOwnershipInspectionContext(instrumentation);
-    const report = await previewReconciliation(
-      [withDirectoryOutput(moved, directory)],
-      previousState,
-      { ownershipInspection },
-    );
-
-    expect(reportBlockers(report).some((blocker) =>
-      blocker.message.includes("Installation Marker is missing; if this project moved")
-    )).toBe(true);
-    // Conflict detection reads each copied owned output once at the moved root.
-    expect(instrumentation.counts.inspectFile).toBe(expectedFiles);
-    expect(instrumentation.counts.inspectDirectory).toBe(expectedDirectories);
   });
 
   test("apply preflight and post-commit verification each use a fresh ownership inspection pass", async () => {
@@ -552,7 +460,6 @@ describe("one shared ownership inspection per generated output per pass", () => 
         contextIndex += 1;
         const inner = createLifecycleOwnershipInspectionContext();
         const wrapped: LifecycleOwnershipInspection = {
-          inspectMarker: (project) => inner.inspectMarker(project),
           unsafeParent: (project, relativePath) => inner.unsafeParent(project, relativePath),
           inspectOutput: async (project, output) => {
             if (

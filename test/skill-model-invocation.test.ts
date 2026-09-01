@@ -347,7 +347,7 @@ describe("Skill model-invocation policy", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportBlockers(preview)).toEqual([]);
     await applyReconciliation(home, desired.installations);
@@ -552,7 +552,7 @@ describe("Skill model-invocation policy", () => {
       const preview = await previewReconciliation(desired.installations, {
         receipts: [],
         removedTemporaryInstallationIds: [],
-        schemaVersion: 6,
+        schemaVersion: 7,
       });
       expect(reportBlockers(preview).length).toBeGreaterThan(0);
       expect(existsSync(join(project, ".agents", "skills", "to-spec"))).toBe(false);

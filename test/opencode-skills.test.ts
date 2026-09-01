@@ -513,7 +513,7 @@ describe("OpenCode lifecycle: status and apply", () => {
 
     expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".agents", "skills", "deploy", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
 
     const state = await readInstallationState(home);
     const receipt = state.receipts[0];

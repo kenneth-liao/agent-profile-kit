@@ -226,7 +226,7 @@ describe("Claude project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportItems(preview).some((item) => item.kind === "addition")).toBe(true);
     expect(
@@ -310,7 +310,7 @@ describe("Claude project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportBlockers(preview).some((blocker) =>
       blocker.message.includes(".claude/skills/review-pr") &&
@@ -466,7 +466,7 @@ describe("Claude project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     expect(reportBlockers(preview)).toEqual([]);
     await applyReconciliation(home, desired.installations);

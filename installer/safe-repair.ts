@@ -14,7 +14,6 @@ import type { OwnershipState } from "../schemas/ownership-state.js";
  */
 export type SafeRepairClass =
   | "absent-output"
-  | "missing-marker"
   | "exclusion-section"
   | "missing-contribution"
   | "stale-contribution"
@@ -23,7 +22,7 @@ export type SafeRepairClass =
 
 /**
  * One proven Safe Repair. `missing-contribution` carries the exact entries the
- * active Installation Receipt, Marker, owned roots, live Project, untracked
+ * active Installation Receipt, owned roots, live Project, untracked
  * destinations, and Git target independently prove; `stale-contribution` carries
  * the exact stale recorded entries plus the one replacement those proofs derive
  * at the unchanged Git target; `moved-contribution` carries the exact
@@ -37,7 +36,6 @@ export type SafeRepairClass =
  */
 export type SafeRepair =
   | { readonly class: "absent-output"; readonly paths: readonly string[] }
-  | { readonly class: "missing-marker" }
   | {
       readonly class: "exclusion-section";
       readonly target: string;
@@ -155,7 +153,7 @@ export interface SafeRepairItemClassification {
 /** Repair classes that surface through a Project state item. */
 export type SafeRepairWithProjectItem = Extract<
   SafeRepair,
-  { readonly class: "absent-output" | "missing-marker" | "missing-contribution" }
+  { readonly class: "absent-output" | "missing-contribution" }
 >;
 
 /**
@@ -169,8 +167,6 @@ export function safeRepairItemClassification(
   switch (repair.class) {
     case "absent-output":
       return { kind: "repairable missing output", reason: repair.paths.join(", ") };
-    case "missing-marker":
-      return { kind: "update", reason: "Installation Marker is missing and repairable" };
     case "missing-contribution":
       return { kind: "current" };
   }

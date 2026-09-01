@@ -4,7 +4,6 @@ import { dirname, join, relative, sep } from "node:path";
 import {
   canonicalRepositoryExclusionRecord,
   compareCanonicalStrings,
-  INSTALLATION_MARKER_PATH,
 } from "../schemas/installation-manifest.js";
 import type {
   RepositoryExclusionContribution,
@@ -18,7 +17,6 @@ import type {
 import { assertRealDirectoryPath, findGitProject, gitExcludeEntry, type GitProject } from "./git.js";
 import type { LifecycleGitInspection } from "./lifecycle-git-inspection.js";
 import type { DesiredInstallation } from "./project-plan.js";
-import { readMarker } from "./installation-state.js";
 import {
   ordinaryReceipts,
   repositoryExclusionRecords,
@@ -509,35 +507,6 @@ export function repositoryExclusionChanges(
   }));
 }
 
-export async function relocateRepositoryExclusionsForDesired(
-  state: OwnershipState,
-  desired: readonly DesiredInstallation[],
-): Promise<OwnershipState> {
-  let inspectionState = state;
-  for (const installation of desired) {
-    const git = installation.gitProject;
-    if (!git) continue;
-    const marker = await readMarker(installation.binding.canonicalProject).catch(() => undefined);
-    const previous = marker
-      ? ordinaryReceipts(state).find((candidate) => candidate.installationId === marker.installationId)
-      : undefined;
-    if (
-      previous?.repositoryExclusion !== undefined &&
-      previous.project !== installation.binding.canonicalProject
-    ) {
-      inspectionState = withReceipts(
-        inspectionState,
-        withRepositoryExclusion(
-          inspectionState.receipts,
-          previous.installationId,
-          { ...previous.repositoryExclusion, target: git.excludeFile },
-        ),
-      );
-    }
-  }
-  return inspectionState;
-}
-
 export function repositoryExclusionTargetsForInstallations(
   state: OwnershipState,
   desired: readonly DesiredInstallation[],
@@ -562,19 +531,18 @@ async function inspectionTargets(
   retiringInstallationIds: ReadonlySet<string> = new Set(),
   includedInstallationIds?: ReadonlySet<string>,
 ): Promise<readonly InspectionTarget[]> {
-  const inspectionState = await relocateRepositoryExclusionsForDesired(state, desired);
   const currentByTarget = recordsByTarget(repositoryExclusionRecords(state));
-  const relocatedByTarget = recordsByTarget(repositoryExclusionRecords(inspectionState));
+  const relocatedByTarget = currentByTarget;
   // The post-retirement projection removes the retiring receipts from the
-  // relocation-projected state, so `afterRetirement` derives from the same
+  // current state, so `afterRetirement` derives from the same
   // `repositoryExclusionRecords(next)` reader apply's retirement staging uses.
   const afterRetirementByTarget = retiringInstallationIds.size === 0
     ? undefined
     : recordsByTarget(
       repositoryExclusionRecords(
         withReceipts(
-          inspectionState,
-          inspectionState.receipts.filter(
+          state,
+          state.receipts.filter(
             (receipt) => !retiringInstallationIds.has(receipt.installationId),
           ),
         ),
@@ -657,8 +625,8 @@ async function exclusionSectionGate(
  * Decide whether a desired installation whose active receipt lacks its
  * Repository Exclusion Contribution is an eligible missing-contribution Safe
  * Repair. The caller establishes the remaining proof set at the reconciliation
- * boundary: an active receipt, a present Marker with matching identity and
- * hash-proven owned roots (ownership proof), a live Project with a resolved Git
+ * boundary: an active receipt, path-safe hash-proven owned roots (ownership
+ * proof), a live Project with a resolved Git
  * target, untracked destinations without conflicts, and an otherwise-current
  * desired write set, so the receipt can prove the exact contribution. This
  * function owns the byte-level gate: the target's owned section must be absent
@@ -701,8 +669,8 @@ export async function missingContributionRepairEligibility(
  * Decide whether a desired installation whose active receipt records stale
  * Repository Exclusion Contribution entries is an eligible stale-contribution
  * Safe Repair. The caller establishes the same proof set as the
- * missing-contribution class — an active receipt, a present Marker with
- * matching identity and hash-proven owned roots, a live Project with an
+ * missing-contribution class — an active receipt, path-safe hash-proven owned
+ * roots, a live Project with an
  * unchanged resolved Git target, untracked destinations without conflicts, and
  * an otherwise-current desired write set — plus the staleness itself: recorded
  * entries that differ from the entries the receipt's owned outputs derive. This
@@ -764,8 +732,8 @@ export async function staleContributionRepairEligibility(
  * Decide whether a desired installation whose active receipt records its
  * Repository Exclusion Contribution at a target other than the live Git target
  * is an eligible moved-contribution Safe Repair. The caller establishes the
- * same proof set as the sibling contribution classes — an active receipt, a
- * present Marker with matching identity and hash-proven owned roots, a live
+ * same proof set as the sibling contribution classes — an active receipt,
+ * path-safe hash-proven owned roots, a live
  * Project with untracked destinations without conflicts, and an
  * otherwise-current desired write set — plus one exact two-target result: the
  * old target derives only from the active receipt and must independently pass
@@ -807,6 +775,9 @@ export async function movedContributionRepairEligibility(
     eligible: false,
   };
   try {
+    // Both targets are read before any eligibility decision, so a read,
+    // safety, or parse failure on either proven target surfaces as unreadable
+    // bytes instead of being masked by the other target's readable drift.
     // Old-target proof: the receipt derives the target; the section must
     // carry the recorded union exactly.
     const currentGate = await exclusionSectionGate(
@@ -815,7 +786,6 @@ export async function movedContributionRepairEligibility(
       recordedUnionEntries(state, repair.currentTarget),
       gitInspection,
     );
-    if (currentGate.kind !== "matches") return incoherentBytes;
     // New-target proof: live Git topology derives the target; its owned
     // section must be absent or match the recorded union there exactly.
     const nextGate = await exclusionSectionGate(
@@ -824,6 +794,7 @@ export async function movedContributionRepairEligibility(
       recordedUnionEntries(state, repair.nextTarget),
       gitInspection,
     );
+    if (currentGate.kind !== "matches") return incoherentBytes;
     return nextGate.kind === "mismatched" ? incoherentBytes : { eligible: true, repair };
   } catch {
     // Read, safety, and parse failures are a distinct diagnosis from readable
@@ -902,10 +873,7 @@ function expectedContributionEntries(
   relativeProject: string,
 ): readonly string[] {
   return sortedUniqueEntries(
-    [
-      ...installation.outputs.map((output) => gitExcludeEntry({ relativeProject }, output.path)),
-      gitExcludeEntry({ relativeProject }, INSTALLATION_MARKER_PATH),
-    ],
+    installation.outputs.map((output) => gitExcludeEntry({ relativeProject }, output.path)),
   );
 }
 
@@ -941,18 +909,13 @@ function hasKnownExclusionTargetForProject(
     .some((target) => targetContainsProject(target, project));
 }
 
-async function existingInstallationForDesired(
+function existingInstallationForDesired(
   state: OwnershipState,
   desired: DesiredInstallation,
-): Promise<OwnershipReceipt | undefined> {
-  const direct = ordinaryReceipts(state).find(
-    (installation) => installation.project === desired.binding.canonicalProject,
-  );
-  if (direct) return direct;
-  const marker = await readMarker(desired.binding.canonicalProject).catch(() => undefined);
-  if (!marker) return undefined;
+): OwnershipReceipt | undefined {
+  // Project Binding scope alone decides which recorded installation applies.
   return ordinaryReceipts(state).find(
-    (installation) => installation.installationId === marker.installationId,
+    (installation) => installation.project === desired.binding.canonicalProject,
   );
 }
 
@@ -1033,7 +996,7 @@ async function repositoryExclusionOwnershipBlockers(
   for (const installation of desired) {
     const git = installation.gitProject;
     if (!git) continue;
-    const previous = await existingInstallationForDesired(state, installation);
+    const previous = existingInstallationForDesired(state, installation);
     if (!previous) continue;
     const contribution = contributionFor(repositoryExclusionRecords(state), previous.installationId);
     if (!contribution) {
@@ -1057,6 +1020,7 @@ async function repositoryExclusionOwnershipBlockers(
       if (!eligibleMovedContributionIds.has(previous.installationId)) {
         blockers.push(repositoryExclusionContributionBlocker({
           affectedItems: [
+            { kind: "installation-id", value: previous.installationId },
             { kind: "path", value: contribution.record.target },
             { kind: "path", value: git.excludeFile },
           ],

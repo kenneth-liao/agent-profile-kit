@@ -3,7 +3,6 @@ import {
   mkdir,
   mkdtemp,
   open,
-  readFile,
   rename,
   rm,
   writeFile,
@@ -11,23 +10,29 @@ import {
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import {
-  compareCanonicalStrings,
-  INSTALLATION_MARKER_PATH,
-  parseInstallationMarker,
-  type InstallationMarker,
-} from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+
 import {
   formatOwnershipState,
   OWNERSHIP_STATE_LIMITS,
   OWNERSHIP_STATE_SCHEMA_VERSION,
   parseOwnershipState,
+  parseOwnershipStateDocument,
+  PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION,
   type OwnershipOutputReceipt,
   type OwnershipReceipt,
   type OwnershipState,
+  type ParsedOwnershipStateDocument,
 } from "../schemas/ownership-state.js";
 import {
+  readVerifiedLegacyInstallationMarker,
+  recordsLegacyInstallationMarkerPath,
+  LEGACY_INSTALLATION_MARKER_PATH,
+  withoutLegacyInstallationMarkerOutputs,
+} from "./legacy-installation-marker.js";
+import {
   createLifecycleOwnershipInspectionContext,
+  recordedOutputMatches,
   unsafeOutputParent,
   type LifecycleOwnershipInspection,
   type OwnedOutputInspection,
@@ -37,8 +42,6 @@ import {
   type LifecycleGitInspection,
 } from "./lifecycle-git-inspection.js";
 import {
-  hashBytes,
-  markerPath,
   stateManifestPath,
   stateDirectory,
 } from "./project-plan.js";
@@ -107,13 +110,37 @@ async function rejectRetiredInstallationState(home: string): Promise<void> {
 export async function readInstallationState(home: string): Promise<OwnershipState> {
   await rejectRetiredInstallationState(home);
   try {
-    return parseOwnershipState(
-      await readInstallationStateSource(stateManifestPath(home)),
+    return normalizePreviousVersionState(
+      parseOwnershipStateDocument(
+        await readInstallationStateSource(stateManifestPath(home)),
+      ),
     );
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) return emptyInstallationState();
     throw error;
   }
+}
+
+/**
+ * The single ingestion boundary for previous-version documents: legacy
+ * ownership-token output entries are ignored here, so every downstream reader
+ * sees the current shape. Any later successful write publishes the current
+ * schema version.
+ */
+function normalizePreviousVersionState(state: ParsedOwnershipStateDocument): OwnershipState {
+  if (state.schemaVersion !== PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION) {
+    return state as OwnershipState;
+  }
+  const receipts = state.receipts.map((receipt) => {
+    const normalized = withoutLegacyInstallationMarkerOutputs(receipt);
+    if (normalized.outputs.length === 0) {
+      throw new Error(
+        `Installation State receipts record no generated outputs for the installation at ${receipt.project}`,
+      );
+    }
+    return normalized;
+  });
+  return { ...state, receipts, schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION };
 }
 
 export async function readTemporaryInstallations(
@@ -145,40 +172,17 @@ export async function writeInstallationState(
   }
 }
 
-export async function readMarker(project: string): Promise<InstallationMarker | undefined> {
-  try {
-    return parseInstallationMarker(await readFile(markerPath(project), "utf8"));
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return undefined;
-    throw error;
-  }
-}
-
 export function newInstallationId(): string {
   return randomUUID();
 }
 
-function proveFileOutput(
-  inspection: OwnedOutputInspection,
-  output: OwnershipOutputReceipt,
-): { readonly drifted: boolean; readonly missing: boolean; readonly modeDrifted: boolean } {
-  if (inspection.kind === "file") {
-    return {
-      drifted: inspection.contentHash !== output.hash,
-      missing: false,
-      modeDrifted: inspection.mode !== output.mode,
-    };
-  }
-  return { drifted: false, missing: true, modeDrifted: false };
-}
-
 /**
- * Authority-failure classification. `drift` marks recorded identity or path
- * evidence that differs unrepairably (unsafe parents or roots, unreadable
- * output, foreign Marker identity) — never content freshness, which the
- * ordinary refresh path restores without revoking authority.
+ * Authority-failure classification: recorded identity or path evidence that
+ * differs unrepairably (unsafe parents or roots, unreadable output) — never
+ * content freshness, which the ordinary refresh path restores without revoking
+ * authority, and never wholly absent roots, which are repairable pending work.
  */
-export type OwnershipFailureKind = "drift" | "malformed" | "missing";
+export type OwnershipFailureKind = "drift";
 
 export interface OwnershipProof {
   readonly failureKind?: OwnershipFailureKind;
@@ -186,181 +190,31 @@ export interface OwnershipProof {
   readonly owned: boolean;
 }
 
-/**
- * Strict hash proof for the missing-Marker Safe Repair: every remaining owned
- * output must be present and hash-current. This is evidence, not authority —
- * a missing Marker leaves no identity proof at the Project, so drift must not
- * substitute for it. The Marker itself is excluded: it is the missing proof.
- */
-async function proveOutputHashes(
-  installation: OwnershipReceipt,
-  inspection: LifecycleOwnershipInspection,
-): Promise<OwnershipProof> {
-  const outputs = installation.outputs.filter(
-    (output) => output.path !== INSTALLATION_MARKER_PATH,
-  );
-  if (outputs.length === 0) {
-    return {
-      failureKind: "missing",
-      owned: false,
-      reason: "no remaining owned output proves the installation",
-    };
-  }
-  const missing: string[] = [];
-  const drifted: string[] = [];
-  const modeDrifted: string[] = [];
-  for (const output of outputs) {
-    const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
-    if (unsafeParent) {
-      return {
-        failureKind: "drift",
-        owned: false,
-        reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
-      };
-    }
-    const result = await inspection.inspectOutput(installation.project, output);
-    if (output.type === "file") {
-      const proof = proveFileOutput(result, output);
-      if (proof.missing) missing.push(output.path);
-      if (proof.drifted) drifted.push(output.path);
-      if (proof.modeDrifted) modeDrifted.push(output.path);
-      continue;
-    }
-    if (result.kind === "missing") {
-      missing.push(output.path);
-      continue;
-    }
-    if (result.kind !== "directory" || result.directoryHash !== output.hash) {
-      drifted.push(output.path);
-    }
-    if (result.kind === "directory" && result.mode !== output.mode) {
-      modeDrifted.push(output.path);
-    }
-  }
-  if (missing.length > 0 || drifted.length > 0 || modeDrifted.length > 0) {
-    const reasons = [
-      ...(missing.length > 0 ? [`missing: ${missing.join(", ")}`] : []),
-      ...(drifted.length > 0 ? [`drifted: ${drifted.join(", ")}`] : []),
-      ...(modeDrifted.length > 0 ? [`drifted mode: ${modeDrifted.join(", ")}`] : []),
-    ];
-    return {
-      failureKind: missing.length > 0 ? "missing" : "drift",
-      owned: false,
-      reason: `owned output ${reasons.join("; ")}`,
-    };
-  }
-  return { owned: true };
-}
-
-/**
- * Authority proof for recorded generated output roots: Installation identity
- * and path-safety evidence only. Content, mode, and membership differences are
- * freshness drift that the ordinary refresh path restores; they never revoke
- * authority over a proven root.
- */
-async function proveRecordedRootAuthority(
-  installation: OwnershipReceipt,
-  inspection: LifecycleOwnershipInspection,
-): Promise<OwnershipProof> {
-  for (const output of installation.outputs) {
-    const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
-    if (unsafeParent) {
-      return {
-        failureKind: "drift",
-        owned: false,
-        reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
-      };
-    }
-    const result = await inspection.inspectOutput(installation.project, output);
-    if (result.kind === "missing") {
-      return { failureKind: "missing", owned: false, reason: `owned output missing: ${output.path}` };
-    }
-    if (result.kind === "unreadable") {
-      return {
-        failureKind: "drift",
-        owned: false,
-        reason: `owned output ${output.path} could not be inspected`,
-      };
-    }
-    if (result.kind !== output.type) {
-      return {
-        failureKind: "drift",
-        owned: false,
-        reason: result.unsupportedMember
-          ? `owned output ${output.path} contains an unsupported entry at ${result.unsupportedMember}`
-          : `owned output ${output.path} is not a ${output.type}`,
-      };
-    }
-  }
-  return { owned: true };
-}
-
-/** Prove ownership from non-marker output hashes, for safe marker repair. */
-export async function proveRemainingOwnedOutputs(
-  installation: OwnershipReceipt,
-  inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
-): Promise<OwnershipProof> {
-  return proveOutputHashes(installation, inspection);
-}
-
 export interface InstallationOwnershipInspection extends OwnershipProof {
   readonly repairableMissingOutputs: readonly string[];
 }
 
 /**
- * Inspect the Installation Marker and every recorded output once, distinguishing
- * whole-output absence from ambiguous partial absence or drift. Reads are routed
- * through one shared ownership inspection result when a context is supplied.
+ * Authority proof for recorded generated output roots against the active
+ * Installation Receipt. The durable continuity evidence is the receipt's own
+ * recorded hashes: at least one extant recorded root must still match its
+ * recorded hash, or every recorded root must be wholly absent. Wholly absent
+ * roots are repairable pending work that `apply` restores; extant roots that
+ * match prove continuity, so remaining content, mode, and membership
+ * differences are freshness drift that the ordinary refresh path restores.
+ * Changed extant roots with no matching anchor cannot be distinguished from a
+ * different Project later created at the same path, so they fail closed;
+ * unsafe parents, unreadable output, and type mismatches also revoke
+ * authority.
  */
 export async function inspectInstallationOwnership(
   installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<InstallationOwnershipInspection> {
-  const marker = await inspection.inspectMarker(installation.project);
-  if (marker.kind === "other") {
-    return {
-      failureKind: "drift",
-      owned: false,
-      reason: "Installation Marker is not a regular file",
-      repairableMissingOutputs: [],
-    };
-  }
-  if (marker.kind === "missing") {
-    return {
-      failureKind: "missing",
-      owned: false,
-      reason: "Installation Marker is missing",
-      repairableMissingOutputs: [],
-    };
-  }
-  if (marker.malformed !== undefined) {
-    return {
-      failureKind: "malformed",
-      owned: false,
-      reason: `Installation Marker is malformed: ${marker.malformed}`,
-      repairableMissingOutputs: [],
-    };
-  }
-  if (!marker.value) {
-    return {
-      failureKind: "missing",
-      owned: false,
-      reason: "Installation Marker is missing",
-      repairableMissingOutputs: [],
-    };
-  }
-  if (marker.value.installationId !== installation.installationId) {
-    return {
-      failureKind: "drift",
-      owned: false,
-      reason: "Installation Marker identity does not match the Manifest",
-      repairableMissingOutputs: [],
-    };
-  }
-
   const repairableMissingOutputs: string[] = [];
+  const driftedPaths: string[] = [];
+  let matchingRoots = 0;
   for (const output of installation.outputs) {
-    if (output.path === INSTALLATION_MARKER_PATH) continue;
     const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
     if (unsafeParent) {
       return {
@@ -373,27 +227,43 @@ export async function inspectInstallationOwnership(
     const result = await inspection.inspectOutput(installation.project, output);
     if (result.kind === "missing") {
       repairableMissingOutputs.push(output.path);
+      continue;
     }
+    if (result.kind === "unreadable") {
+      return {
+        failureKind: "drift",
+        owned: false,
+        reason: `owned output ${output.path} could not be inspected`,
+        repairableMissingOutputs: [],
+      };
+    }
+    if (result.kind !== output.type) {
+      return {
+        failureKind: "drift",
+        owned: false,
+        reason: result.unsupportedMember
+          ? `owned output ${output.path} contains an unsupported entry at ${result.unsupportedMember}`
+          : `owned output ${output.path} is not a ${output.type}`,
+        repairableMissingOutputs: [],
+      };
+    }
+    if (recordedOutputMatches(result, output)) matchingRoots += 1;
+    else driftedPaths.push(output.path);
   }
-  const missingPaths = new Set(repairableMissingOutputs);
-  const surviving: OwnershipReceipt = {
-    ...installation,
-    outputs: installation.outputs.filter(
-      (output) => !missingPaths.has(output.path),
-    ),
-  };
-  const proof = await proveRecordedRootAuthority(surviving, inspection);
-  if (!proof.owned && repairableMissingOutputs.length > 0) {
+  if (driftedPaths.length > 0 && matchingRoots === 0) {
     return {
-      failureKind: "missing",
+      failureKind: "drift",
       owned: false,
-      reason: `owned output missing: ${repairableMissingOutputs.join(", ")}; ${proof.reason ?? "surviving output ownership cannot be proven"}`,
+      reason:
+        `recorded output ${driftedPaths[0]} does not match the recorded installation and ` +
+        "no other recorded root proves ownership continuity; restore the recorded " +
+        "output or remove the generated files, then retry",
       repairableMissingOutputs: [],
     };
   }
   return {
-    ...proof,
-    repairableMissingOutputs: proof.owned ? repairableMissingOutputs : [],
+    owned: true,
+    repairableMissingOutputs,
   };
 }
 
@@ -489,22 +359,34 @@ export async function stageProvenInstallationRemoval(
     await cleanup();
   };
   try {
-    for (const relativePath of [
-      ...installation.outputs.map((output) => output.path),
-      INSTALLATION_MARKER_PATH,
-    ]) {
+    for (const relativePath of installation.outputs.map((output) => output.path)) {
       const path = join(installation.project, relativePath);
       // A wholly absent recorded root is proven removal authority, not a
-      // failure: skip it and remove the surviving proven output and Marker.
-      if (relativePath !== INSTALLATION_MARKER_PATH) {
-        try {
-          await lstat(path);
-        } catch (error) {
-          if (hasErrorCode(error, "ENOENT")) continue;
-          throw error;
-        }
+      // failure: skip it and remove the surviving proven output.
+      try {
+        await lstat(path);
+      } catch (error) {
+        if (hasErrorCode(error, "ENOENT")) continue;
+        throw error;
       }
       const staged = join(stage, relativePath);
+      await mkdir(dirname(staged), { recursive: true });
+      await rename(path, staged);
+      moved.push(path);
+    }
+    // Migration: a leftover ownership-token file from an earlier version leaves
+    // with the recorded installation it belonged to — only when the receipt
+    // does not record a legitimate output at the path and the bytes verify as
+    // the previous version's token. Unknown content is preserved.
+    if (
+      !recordsLegacyInstallationMarkerPath(installation.outputs) &&
+      (await readVerifiedLegacyInstallationMarker(
+        installation.project,
+        installation.installationId,
+      )) !== undefined
+    ) {
+      const path = join(installation.project, LEGACY_INSTALLATION_MARKER_PATH);
+      const staged = join(stage, LEGACY_INSTALLATION_MARKER_PATH);
       await mkdir(dirname(staged), { recursive: true });
       await rename(path, staged);
       moved.push(path);
@@ -534,11 +416,11 @@ async function pathExistsAt(project: string, relativePath: string): Promise<bool
 }
 
 /**
- * Idempotently delete complete recorded temporary-owned roots without hash-strict
- * ownership proof and without a process-private staging tree. Extant roots require
- * a matching Installation Marker (the durable recovery ownership token). Missing
- * roots converge so interrupted deletes can finish on retry. Never traverses
- * outside recorded project-relative roots.
+ * Idempotently delete complete recorded temporary-owned roots without a
+ * process-private staging tree. Removal authority is the active receipt this
+ * output set was planned from; wholly missing roots converge so interrupted
+ * deletes can finish on retry. Never traverses outside recorded
+ * project-relative roots.
  */
 export async function removeDisposableOutputs(options: {
   readonly installationId: string;
@@ -546,7 +428,6 @@ export async function removeDisposableOutputs(options: {
   readonly project: string;
 }): Promise<void> {
   const project = options.project;
-  const marker = await readMarker(project);
 
   const extantRoots: string[] = [];
   for (const output of options.outputs) {
@@ -563,20 +444,6 @@ export async function removeDisposableOutputs(options: {
           "is tracked by Git; Agent Profile Kit will not delete or untrack repository-owned material",
       );
     }
-    if (!marker) {
-      throw new Error(
-        `Cannot remove Temporary Profile Installation: Installation Marker is missing while owned output still exists (${extantRoots.join(", ")})`,
-      );
-    }
-    if (marker.installationId !== options.installationId) {
-      throw new Error(
-        `Cannot remove Temporary Profile Installation: Installation Marker identity does not match the temporary installation`,
-      );
-    }
-  } else if (marker && marker.installationId !== options.installationId) {
-    throw new Error(
-      `Cannot remove Temporary Profile Installation: Installation Marker identity does not match the temporary installation`,
-    );
   }
 
   // Deepest paths first so nested owned roots are removed before ancestors when both are listed.
@@ -609,5 +476,4 @@ export async function removeDisposableOutputs(options: {
     }
     await rm(path, { recursive: true, force: true });
   }
-  await rm(markerPath(project), { force: true });
 }

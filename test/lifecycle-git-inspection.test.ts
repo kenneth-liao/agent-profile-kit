@@ -181,7 +181,7 @@ async function previewWithInspection(
     state = {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     } as const;
   }
   const report = await previewReconciliation(desired.installations, state, { gitInspection });
@@ -264,7 +264,7 @@ describe("lifecycle Git inspection batching", () => {
     const report = await previewReconciliation([installation], {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     }, { gitInspection });
 
     expect(instrumentation.counts.classifyTrackedPaths).toBe(1);

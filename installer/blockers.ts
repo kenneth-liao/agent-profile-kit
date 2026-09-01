@@ -5,10 +5,7 @@ import {
 } from "../adapters/capability.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
 import { join } from "node:path";
-import {
-  compareCanonicalStrings,
-  INSTALLATION_MARKER_PATH,
-} from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
 /** A blocker scope retains the legacy project identity as a separate projection. */
 export type BlockerScope = "global" | "project";
@@ -132,9 +129,6 @@ export const REPOSITORY_EXCLUSION_INVALID = "repository-exclusion-invalid" as co
 /** Typed blocker class for planned output whose destination or parent is occupied by unowned material. */
 export const OCCUPIED_OUTPUT = "occupied-output" as const;
 
-/** Typed blocker class for a missing, malformed, or foreign Installation Marker. */
-export const INSTALLATION_MARKER = "installation-marker" as const;
-
 /** Typed blocker class for Profile Installation ownership that cannot be proven or reconciled. */
 export const INSTALLATION_OWNERSHIP = "installation-ownership" as const;
 
@@ -158,7 +152,6 @@ export const BLOCKER_KINDS = [
   REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
   REPOSITORY_EXCLUSION_INVALID,
   OCCUPIED_OUTPUT,
-  INSTALLATION_MARKER,
   INSTALLATION_OWNERSHIP,
   TEMPORARY_INSTALLATION_CONFLICT,
   TEMPORARY_INSTALLATION_REMOVAL,
@@ -313,24 +306,6 @@ export function occupiedOutputBlocker(options: {
   });
 }
 
-/** Build one complete structured blocker for a missing, malformed, or foreign Installation Marker. */
-export function installationMarkerBlocker(options: {
-  readonly message: string;
-  readonly project: string;
-}): ProjectScopedBlockerInput {
-  return projectBlocker({
-    affectedItems: [{ kind: "path", value: INSTALLATION_MARKER_PATH }],
-    kind: INSTALLATION_MARKER,
-    problem: options.message,
-    project: options.project,
-    remedy:
-      "Restore the Installation Marker linked to this Project's installation record, or " +
-      "remove the unowned generated paths, then retry",
-    requirement:
-      "The Installation Marker must prove one installation-record identity at the Project root",
-  });
-}
-
 /** Build one complete structured blocker for unprovable Profile Installation ownership. */
 export function installationOwnershipBlocker(options: {
   readonly message: string;
@@ -342,11 +317,10 @@ export function installationOwnershipBlocker(options: {
     problem: options.message,
     project: options.project,
     remedy:
-      "Restore the Installation Marker linked to this Project's installation record, or " +
-      "remove the conflicting generated files yourself after verifying the paths, then retry",
+      "Remove the conflicting generated files yourself after verifying the paths, then retry",
     requirement:
       "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
-      "installation record and Marker identity at safe paths",
+      "active installation record at safe paths",
   });
 }
 
@@ -384,8 +358,7 @@ export function temporaryInstallationRemovalBlocker(options: {
     problem: options.message,
     project: options.project,
     remedy:
-      "Restore the Installation Marker matching the temporary installation identity, or " +
-      "remove the owned output yourself after verifying the paths, then retry remove-temp",
+      "Remove the owned output yourself after verifying the paths, then retry remove-temp",
     requirement:
       "remove-temp removes only ownership-proven temporary-owned roots and never " +
       "traverses outside recorded project-relative roots",

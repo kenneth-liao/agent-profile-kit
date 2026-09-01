@@ -1113,7 +1113,7 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(codexProject, ".agents", "skills", "review-pr"))).toBe(true);
     expect(existsSync(join(codexAltProject, ".agents", "skills", "review-pr"))).toBe(true);
     expect(existsSync(join(claudeProject, ".claude", "skills", "review-pr"))).toBe(true);
-    expect(existsSync(join(codexProject, ".agent-profile-kit"))).toBe(true);
+    expect(existsSync(join(codexProject, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(claudeProject, ".claude", "rules"))).toBe(false);
 
     // Global roots untouched (APK never mutates them).
@@ -1303,7 +1303,7 @@ describe("project-bound release candidate", () => {
     const uninstall = await runCli(home, ["uninstall"], { path: pathWithHosts });
     expectExitCode(uninstall, 0);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
-    expect(existsSync(join(temporaryProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(temporaryProject, ".agent-profile-kit", "installation.json"))).toBe(false);
     const temporaryOnlyState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       readonly receipts: readonly {
         readonly installation_id: string;
@@ -1500,7 +1500,7 @@ describe("project-bound release candidate", () => {
       { path: pathWithHosts },
     );
     expectExitCode(readyStatus, 0);
-    expect(readyStatus.stdout).toContain("Updates ready for 1 project (3 file additions).");
+    expect(readyStatus.stdout).toContain("Updates ready for 1 project (2 file additions).");
     expect(humanText(readyStatus.stdout)).toContain(
       humanText(`Next: apkit apply ${boundProject}`),
     );
@@ -1518,7 +1518,7 @@ describe("project-bound release candidate", () => {
     );
     expectExitCode(apply, 0);
     expect(apply.stdout).toContain("Apply complete");
-    expect(apply.stdout).toContain("Applied:\n  + 3 generated file additions in 1 project");
+    expect(apply.stdout).toContain("Applied:\n  + 2 generated file additions in 1 project");
     expect(apply.stdout).toContain("First use:");
     expect(humanText(apply.stdout)).toContain(
       humanText(
@@ -1536,7 +1536,7 @@ describe("project-bound release candidate", () => {
     expect(apply.stdout).not.toContain("already current");
     expect(existsSync(join(boundProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(boundProject, ".codex", "hooks.json"))).toBe(true);
-    expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(statePath(home))).toBe(true);
 
     // 7. Current status: clean status states that fact once with no next action.

@@ -1427,7 +1427,6 @@ test("terminal styling follows lifecycle labels emitted by the formatter", () =>
 /** Distinctive anchor phrases — not a second home for the full gloss table. */
 const STATE_ANCHORS: Readonly<Record<(typeof NON_CURRENT_STATE_ORDER)[number], string>> = {
   addition: "not installed yet",
-  "missing output": "not a safe automatic repair",
   update: "rewrite generated files managed by Agent Profile Kit",
   "stale source": "Workspace source changed",
   "repairable missing output": "ownership is proven",

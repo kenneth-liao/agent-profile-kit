@@ -108,7 +108,7 @@ Use this workflow when helping a person author their Workspace and bind projects
    installations and inspect exact Git exclusion paths in the complete report.
    `apkit unbind` removes desired
    Project Binding state but leaves generated output for fleet `status --all` and
-   `apply --all`. `apkit uninstall` instead removes only output whose Installation Marker
+   `apply --all`. `apkit uninstall` instead removes only output whose Installation Receipt
    and hashes prove Agent Profile Kit ownership; it preserves the Workspace,
    Local Configuration, global Host configuration, and repository-owned files.
    Never use `uninstall` as a substitute for removing a binding, or `unbind` as

@@ -24,10 +24,8 @@ export interface LifecycleOperationCounts {
   readonly hashWorkspaceInputs: number;
   /** Owned directory outputs inspected. */
   readonly inspectDirectory: number;
-  /** Owned file outputs inspected (excluding the Installation Marker). */
+  /** Owned file outputs inspected. */
   readonly inspectFile: number;
-  /** Installation Markers inspected. */
-  readonly inspectMarker: number;
   /** Unique Host projection work. */
   readonly planHost: number;
   /** Unique machine-level Host capability probes. */
@@ -65,7 +63,6 @@ export function createLifecycleInstrumentation(): LifecycleInstrumentation {
     hashWorkspaceInputs: 0,
     inspectDirectory: 0,
     inspectFile: 0,
-    inspectMarker: 0,
     planHost: 0,
     probeHostCapability: 0,
     readExcludeSnapshot: 0,
@@ -110,9 +107,6 @@ export function createLifecycleInstrumentation(): LifecycleInstrumentation {
     },
     onInspectFile: () => {
       counts.inspectFile += 1;
-    },
-    onInspectMarker: () => {
-      counts.inspectMarker += 1;
     },
     onUnsafeParent: () => {
       counts.unsafeParent += 1;

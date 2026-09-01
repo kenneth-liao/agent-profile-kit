@@ -8,6 +8,14 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Read Ownership State at the previous schema version and ignore recorded legacy ownership-token output entries, republishing the current schema version on the next successful write without re-binding or re-applying. Downgrade note: a successful write republishes `schema_version: 7`, which the prior v6-only release cannot read — back up `~/.agents/agent-profile-kit/state/manifest.json` (and any Project's `~/.agents/agent-profile-kit/` state you moved) before running this version, and restore that backup before downgrading ([#374](https://github.com/kenneth-liao/agent-profile-kit/issues/374)).
+
+### Changed
+
+- BREAKING: remove the Installation Marker so the Installation Receipt is the sole ownership home. `apply` writes no Marker into any Project, removes a leftover Marker from an earlier version on the next `apply`, proves ownership from the active receipt's Project Binding scope alone, and adopts byte-identical output at planned destinations so a re-bound Project applies cleanly after a move; the `installation-marker` Blocker class no longer exists. Ownership continuity is anchored in the receipt's recorded hashes: changed extant roots with no recorded root still matching its recorded hash fail closed instead of being refreshed or removed, and Temporary Profile Installations block on any extant destination (including byte-identical ones) because their durable Receipt precedes publication ([#374](https://github.com/kenneth-liao/agent-profile-kit/issues/374)).
+
+### Added
+
 - Add Pi parity for Temporary Profile Installations: `install-temp ... --host pi` accepts Pi through the canonical Host registry and the existing receipt-owned temporary lifecycle, preserving the Pi Adapter plan, Capability Contract, Repository Exclusion contribution, `trust-required` Host Setup Step, and idempotent `remove-temp` removal by durable identity ([#369](https://github.com/kenneth-liao/agent-profile-kit/issues/369)).
 
 ### Changed

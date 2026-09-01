@@ -24,7 +24,6 @@ import {
   writeInstallationState,
 } from "../installer/installation-state.js";
 import { uninstallApplication } from "../installer/commands.js";
-import { formatInstallationMarker } from "../schemas/installation-manifest.js";
 import type {
   DesiredInstallation,
   DesiredProjectDirectoryOutput,
@@ -132,11 +131,6 @@ describe("Pi shared Skill migration", () => {
     writeDesiredDirectory(project, old.desiredOutput, oldPath);
     mkdirSync(join(project, ".pi", "skills", "unrelated"), { recursive: true });
     writeFileSync(join(project, ".pi", "skills", "unrelated", "README.md"), "keep\n");
-    mkdirSync(join(project, ".agent-profile-kit"), { recursive: true });
-    writeFileSync(
-      join(project, ".agent-profile-kit", "installation.json"),
-      formatInstallationMarker({ installationId: oldId, schemaVersion: 1 }),
-    );
     await writeInstallationState(home, {
       ...emptyInstallationState(),
       receipts: [old.manifest],
@@ -164,7 +158,7 @@ describe("Pi shared Skill migration", () => {
     expect(readFileSync(join(home, ".agents", "agent-profile-kit", "config.yaml"), "utf8")).toContain(project);
   });
 
-  test("does not adopt an identical unowned shared destination during migration", async () => {
+  test("adopts a byte-identical shared destination during migration", async () => {
     const home = temporaryDirectory("apk-pi-migration-occupied-home-");
     const project = temporaryDirectory("apk-pi-migration-occupied-project-");
     await writePiSkillWorkspace(home, project);
@@ -177,11 +171,6 @@ describe("Pi shared Skill migration", () => {
     const old = oldPiManifest(installation, oldId, oldPath);
     writeDesiredDirectory(project, old.desiredOutput, oldPath);
     writeDesiredDirectory(project, old.desiredOutput);
-    mkdirSync(join(project, ".agent-profile-kit"), { recursive: true });
-    writeFileSync(
-      join(project, ".agent-profile-kit", "installation.json"),
-      formatInstallationMarker({ installationId: oldId, schemaVersion: 1 }),
-    );
     await writeInstallationState(home, {
       ...emptyInstallationState(),
       receipts: [old.manifest],
@@ -190,17 +179,12 @@ describe("Pi shared Skill migration", () => {
     const beforeState = readFileSync(statePath, "utf8");
     const sharedSkill = join(project, ".agents", "skills", "review-pr", "SKILL.md");
 
-    let caught: unknown;
-    try {
-      await applyReconciliation(home, desired.installations);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(ApplyBlockedError);
-    expect(String(reportBlockers((caught as ApplyBlockedError).report)[0]?.message)).toContain(".agents/skills/review-pr");
+    // Byte-identical bytes at the planned destination are adopted — the write
+    // is a byte-identical no-op — while the proven old root still migrates.
+    await applyReconciliation(home, desired.installations);
     expect(readFileSync(sharedSkill, "utf8")).toContain("name: review-pr");
-    expect(existsSync(join(project, oldPath))).toBe(true);
-    expect(readFileSync(statePath, "utf8")).toBe(beforeState);
+    expect(existsSync(join(project, oldPath))).toBe(false);
+    expect(readFileSync(statePath, "utf8")).not.toBe(beforeState);
   });
 
   test("migrates a modified old Pi package by removing the drifted proven old root", async () => {
@@ -215,11 +199,6 @@ describe("Pi shared Skill migration", () => {
     const oldId = "old-pi-drift-installation";
     const old = oldPiManifest(installation, oldId, oldPath);
     writeDesiredDirectory(project, old.desiredOutput, oldPath);
-    mkdirSync(join(project, ".agent-profile-kit"), { recursive: true });
-    writeFileSync(
-      join(project, ".agent-profile-kit", "installation.json"),
-      formatInstallationMarker({ installationId: oldId, schemaVersion: 1 }),
-    );
     await writeInstallationState(home, {
       ...emptyInstallationState(),
       receipts: [old.manifest],
@@ -228,15 +207,21 @@ describe("Pi shared Skill migration", () => {
     const beforeState = readFileSync(statePath, "utf8");
     writeFileSync(join(project, oldPath, "SKILL.md"), "user edit\n");
 
-    // The old package is an identity-proven generated output root: its drift is
-    // refresh work, so migration removes it instead of blocking on the edit.
-    await applyReconciliation(home, desired.installations);
-
-    expect(existsSync(join(project, oldPath))).toBe(false);
-    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(true);
-    expect((await readInstallationState(home)).receipts[0]?.outputs.some(
-      (output) => output.path === oldPath,
-    )).toBe(false);
-    expect(readFileSync(statePath, "utf8")).not.toBe(beforeState);
+    // With the Marker gone, the modified old root has no continuity anchor:
+    // its bytes no longer match the old receipt's recorded hash and no other
+    // recorded root proves the package is Agent Profile Kit's, so migration
+    // fails closed instead of removing user-modified material.
+    let blocked: unknown;
+    try {
+      await applyReconciliation(home, desired.installations);
+    } catch (error) {
+      blocked = error;
+    }
+    expect(blocked).toBeInstanceOf(ApplyBlockedError);
+    expect(String(reportBlockers((blocked as ApplyBlockedError).report)[0]?.message))
+      .toContain("ownership continuity");
+    expect(readFileSync(join(project, oldPath, "SKILL.md"), "utf8")).toBe("user edit\n");
+    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(readFileSync(statePath, "utf8")).toBe(beforeState);
   });
 });

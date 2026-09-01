@@ -37,7 +37,7 @@ function installationState(project: string): OwnershipState {
       repositoryExclusion: { entries: ["/.codex/hooks.json"], target },
     }],
     removedTemporaryInstallationIds: [],
-    schemaVersion: 6,
+    schemaVersion: 7,
   };
 }
 
@@ -50,7 +50,7 @@ describe("Git exclusion transaction", () => {
     const empty: OwnershipState = {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     };
 
     const transaction = await stageGitExclusions(empty, installationState(repository));
@@ -179,7 +179,7 @@ describe("Git exclusion transaction", () => {
         },
       ],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     };
     const after: OwnershipState = {
       ...before,
@@ -254,7 +254,7 @@ describe("Git exclusion transaction", () => {
     const before: OwnershipState = {
       receipts: [receipt],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     };
     const after: OwnershipState = {
       ...before,
@@ -323,7 +323,7 @@ describe("Git exclusion transaction", () => {
     const before: OwnershipState = {
       receipts: [{ ...receipt, project: oldRepository, repositoryExclusion: { entries: ["/.codex/hooks.json"], target: oldExclude } }],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
     };
     const after: OwnershipState = {
       ...before,

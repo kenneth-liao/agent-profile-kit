@@ -28,7 +28,6 @@ import {
 } from "./ownership-state.js";
 import { blockerMessage } from "./blockers.js";
 import type { ProjectBindingSelection } from "./local-configuration.js";
-import { INSTALLATION_MARKER_PATH } from "../schemas/installation-manifest.js";
 
 export interface ValidationResult {
   readonly bindings: number;
@@ -238,10 +237,7 @@ async function uninstallApplicationLocked(home: string): Promise<UninstallResult
   const transactions: Awaited<ReturnType<typeof stageProvenInstallationRemoval>>[] = [];
   const result: UninstallResult = {
     projects: installations.map((installation) => ({
-      outputs: [
-        ...installation.outputs.map((output) => output.path),
-        INSTALLATION_MARKER_PATH,
-      ].sort(),
+      outputs: installation.outputs.map((output) => output.path).sort(),
       project: installation.project,
       repositoryExclusions: installation.repositoryExclusion === undefined
         ? []

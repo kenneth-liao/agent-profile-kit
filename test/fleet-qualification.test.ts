@@ -188,7 +188,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(initialJson.projects.every((project) => project.state.kind === "current")).toBe(true);
     // Every Project carries its Installation Marker and owned output.
     for (const project of projects) {
-      expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
+      expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
     }
 
     // The qualification change: one shared Skill update plus a Host addition.
@@ -328,8 +328,6 @@ describe("fleet-wide synchronization qualification", () => {
     // Each owned generated output is inspected once per pass.
     expect(steady.counts.inspectFile).toBe(expected.files);
     expect(steady.counts.inspectDirectory).toBe(expected.directories);
-    // One Marker read per Project per pass, shared by identity and ownership.
-    expect(steady.counts.inspectMarker).toBe(12);
     // One batched tracked-path query per Git worktree root; the six Git
     // Projects each resolve topology once.
     expect(steady.counts.classifyTrackedPaths).toBe(6);
@@ -401,9 +399,8 @@ describe("fleet-wide synchronization qualification", () => {
     // Project writes never overlap while reads stay concurrent.
     expect(maxWriteInFlight).toBe(1);
     // Post-commit verification re-proves every Project: the preflight and
-    // verification passes each inspect every owned file, directory, and Marker.
+    // verification passes each inspect every owned file and directory.
     const expected = ownedOutputCounts(changed.installations);
-    expect(instrumentation.counts.inspectMarker).toBe(24);
     expect(instrumentation.counts.inspectFile).toBe(2 * expected.files);
     expect(instrumentation.counts.inspectDirectory).toBe(2 * expected.directories);
     expect(reportBlockers(applied.resultingState)).toEqual([]);
@@ -639,7 +636,7 @@ describe("integrated fleet recovery qualification", () => {
     ]);
     const initialApplyA = await runCli(home, pathWithHosts, "apply", projectA);
     expectExitCode(initialApplyA, 0);
-    expect(existsSync(join(projectA, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(projectA, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(true);
 
     // In projectB (Git), create and track multiple planned output paths across directory prefixes

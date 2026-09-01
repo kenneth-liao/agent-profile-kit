@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
@@ -329,10 +329,7 @@ function makeContributionStale(
     ? state.receipts[0]!
     : state.receipts.find((entry) => entry.project === realpathSync(project))!;
   const desired = [...receipt.repository_exclusion!.entries];
-  const stale = [
-    ...desired.filter((entry) => entry !== "/.agent-profile-kit/installation.json"),
-    "/stale-generated",
-  ];
+  const stale = [...desired, "/stale-generated"];
   receipt.repository_exclusion!.entries = stale;
   writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
   const exclude = join(repository, ".git", "info", "exclude");
@@ -369,7 +366,6 @@ function makeContributionMoved(
   const current = [...receipt.repository_exclusion!.entries];
   const next = [...new Set([
     ...receipt.outputs.map((output) => `/${output.path}`),
-    "/.agent-profile-kit/installation.json",
   ])].sort();
   return { current, next, newExclude, oldExclude };
 }
@@ -1773,7 +1769,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const apply = await runCliAt(home, join(selected, "."), "apply");
     expectExitCode(apply, 0);
-    expect(existsSync(join(selected, ".agent-profile-kit", "installation.json"))).toBe(true);
+    // apply writes no Installation Marker; the Installation Receipt is the
+    // sole ownership home.
+    expect(existsSync(join(selected, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(unrelated, ".agent-profile-kit"))).toBe(false);
 
     const status = await runCliAt(home, selected, "status", "--json");
@@ -1810,14 +1808,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
 
     expectExitCode(await runCli(home, "apply", absolute), 0);
-    expect(existsSync(join(absolute, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(absolute, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(homeRelative, ".agent-profile-kit"))).toBe(false);
 
     expectExitCode(
       await runCli(home, "apply", "~/projects/home-relative-project"),
       0,
     );
-    expect(existsSync(join(homeRelative, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(homeRelative, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("--all explicitly selects the complete Project fleet", async () => {
@@ -1835,8 +1833,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
 
     expectExitCode(await runCli(home, "apply", "--all"), 0);
-    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
 
     const status = await runCli(home, "status", "--all", "--json");
     expectExitCode(status, 0);
@@ -1933,7 +1931,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const apply = await runCli(home, "apply", selected);
     expectExitCode(apply, 0);
-    expect(existsSync(join(selected, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(selected, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(missingUnrelated)).toBe(false);
   });
 
@@ -2031,7 +2029,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status");
 
     expectExitCode(result, 0);
-    expect(result.stdout.startsWith("Updates ready for 1 project (3 file additions).\n")).toBe(true);
+    expect(result.stdout.startsWith("Updates ready for 1 project (2 file additions).\n")).toBe(true);
     expect(result.stdout).not.toContain("Projects: 1");
     expect(result.stdout).not.toContain("Changes:");
     expect(result.stdout).not.toContain(".agent-profile-kit/codex/context.md");
@@ -2629,7 +2627,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
-  test("apply creates the marker, manifest, composed Context, and native SessionStart hook", async () => {
+  test("apply creates the manifest, composed Context, and native SessionStart hook", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -2659,7 +2657,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("State: current");
     expect(result.stdout).not.toContain("State: addition");
     expect(result.stdout).toContain("Applied:");
-    expect(result.stdout).toContain("+ 3 generated file additions in 1 project");
+    expect(result.stdout).toContain("+ 2 generated file additions in 1 project");
     expect(result.stdout).toContain("First use:");
     expect(result.stdout).not.toContain("Host setup:");
     expect(result.stdout).not.toContain("Standing Host setup:");
@@ -2683,7 +2681,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Selected setup:");
     const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     const hookPath = join(projectPath, ".codex", "hooks.json");
-    const markerPath = join(projectPath, ".agent-profile-kit", "installation.json");
     expect(readFileSync(contextPath, "utf8")).toContain("Profile: coding");
     expect(readFileSync(contextPath, "utf8")).toContain("Always preserve the project boundary.");
     expect(readFileSync(contextPath, "utf8")).not.toContain("<!-- Context Module:");
@@ -2692,13 +2689,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(hook.hooks.SessionStart[0]?.matcher).toBe("startup|clear|compact");
     expect(hook.hooks.SessionStart[0]?.hooks[0]?.command).toContain("git rev-parse --show-toplevel");
     expect(hook.hooks.SessionStart[0]?.hooks[0]?.command).not.toContain(projectPath);
-    const marker = JSON.parse(readFileSync(markerPath, "utf8")) as Record<string, unknown>;
-    expect(Object.keys(marker).sort()).toEqual(["installation_id", "schema_version"]);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       schema_version: number;
       receipts: Array<{ outputs: Array<{ mode: number; type: string }> }>;
     };
-    expect(state.schema_version).toBe(6);
+    expect(state.schema_version).toBe(7);
     expect(state).toHaveProperty("removed_temporary_installation_ids");
     expect(state.receipts).toHaveLength(1);
     expect(state.receipts[0]!.outputs.every((output) =>
@@ -2866,7 +2862,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 0);
     const paths = [
       join(projectPath, ".agent-profile-kit", "codex", "context.md"),
-      join(projectPath, ".agent-profile-kit", "installation.json"),
       join(projectPath, ".codex", "hooks.json"),
       statePath(home),
     ];
@@ -3346,7 +3341,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "apply");
 
     expectExitCode(result, 0);
-    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(repository, ".codex", "hooks.json"))).toBe(true);
     expect(existsSync(join(worktree, ".agent-profile-kit"))).toBe(false);
@@ -3366,7 +3361,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const installedExclude = readFileSync(exclude, "utf8");
     expect(installedExclude.startsWith(unrelated)).toBe(true);
     expect(installedExclude).toContain("# BEGIN Agent Profile Kit generated paths");
-    expect(installedExclude).toContain("/.agent-profile-kit/installation.json");
+    expect(installedExclude).not.toContain("/.agent-profile-kit/installation.json");
     expect(installedExclude).toContain("/.codex/hooks.json");
     expect(readFileSync(join(repository, ".gitignore"), "utf8")).toBe(sharedIgnore);
     expect(existsSync(join(repository, ".git", "hooks", "agent-profile-kit"))).toBe(false);
@@ -3471,10 +3466,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(installed.receipts.flatMap((receipt) => receipt.repository_exclusion.entries).sort())
       .toEqual([
         "/.agent-profile-kit/codex/context.md",
-        "/.agent-profile-kit/installation.json",
         "/.codex/hooks.json",
         "/nested/.agent-profile-kit/codex/context.md",
-        "/nested/.agent-profile-kit/installation.json",
         "/nested/.codex/hooks.json",
       ]);
 
@@ -3490,7 +3483,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(afterRemoval.receipts).toHaveLength(1);
     expect(afterRemoval.receipts[0]?.repository_exclusion.entries).toEqual([
       "/.agent-profile-kit/codex/context.md",
-      "/.agent-profile-kit/installation.json",
       "/.codex/hooks.json",
     ]);
     expect(readFileSync(target, "utf8")).not.toContain("/nested/");
@@ -3532,7 +3524,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(applied, 0);
     expect(existsSync(repository)).toBe(true);
-    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(nested)).toBe(false);
     expect(readFileSync(exclude, "utf8")).toContain(unrelated);
     expect(readFileSync(exclude, "utf8")).not.toContain("/nested/");
@@ -3571,7 +3563,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     };
     expect(state.receipts).toHaveLength(1);
     expect(state.receipts[0]?.project).toBe(realpathSync(second));
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(second, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("retires a deleted Git root when its exclusion target disappears with the root", async () => {
@@ -4143,7 +4136,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(status, 0);
     expect(status.stdout).toContain("Git exclusions:");
-    expect(status.stdout).toContain("1 entry to add");
+    expect(status.stdout).not.toContain("1 entry to add");
     expect(status.stdout).toContain("1 entry to remove");
     expect(status.stdout).not.toContain(
       "does not match the entries recorded by its installation record",
@@ -4322,29 +4315,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(exclude, "utf8")).toBe(foreign);
   });
 
-  test("a stale Git exclusion contribution with a missing Installation Marker blocks before writes", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const repository = gitRepository("agent-profile-kit-stale-marker-");
-    writeContextProfile(home);
-    bind(home, repository);
-    expectExitCode(await runCli(home, "apply"), 0);
-    const exclude = join(repository, ".git", "info", "exclude");
-    makeContributionStale(home, repository);
-    const before = readFileSync(exclude);
-    rmSync(join(repository, ".agent-profile-kit", "installation.json"));
-
-    const status = await runCliAt(home, repository, "status");
-
-    expectExitCode(status, 2);
-    expect(humanText(status.stdout)).toContain(
-      "does not match the entries recorded by its installation record",
-    );
-    expect(readFileSync(exclude).equals(before)).toBe(true);
-    expectExitCode(await runCliAt(home, repository, "apply"), 2);
-    expect(readFileSync(exclude).equals(before)).toBe(true);
-  });
-
   test("a stale Git exclusion contribution with a changing desired write set blocks before writes", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -4502,8 +4472,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(status, 0);
     expect(status.stdout).toContain("Git exclusions:");
-    expect(status.stdout).toContain(`${next.length} entries to add`);
-    expect(status.stdout).toContain(`${current.length} entries to remove`);
+    expect(status.stdout).toContain(`${next.length} ${next.length === 1 ? "entry" : "entries"} to add`);
+    expect(status.stdout).toContain(`${current.length} ${current.length === 1 ? "entry" : "entries"} to remove`);
     expect(status.stdout).not.toContain("Git exclusion contribution for Installation ID");
     expect(readFileSync(oldExclude).equals(oldBefore)).toBe(true);
     const stateAfterStatus = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -4751,7 +4721,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const nestedNext = [...new Set([
       ...state.receipts.find((receipt) => receipt.project === realpathSync(nested))!
         .outputs.map((output) => `/${output.path}`),
-      "/.agent-profile-kit/installation.json",
     ])].sort();
 
     const status = await runCliAt(home, repository, "status", "--all");
@@ -4811,10 +4780,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const stateBefore = readFileSync(statePath(home));
     const oldBefore = readFileSync(oldExclude);
     const newBefore = readFileSync(newExclude);
-    // Block the sibling Project that shares the recorded target.
-    const rootMarker = join(repository, ".agent-profile-kit", "installation.json");
-    const rootMarkerBefore = readFileSync(rootMarker, "utf8");
-    writeFileSync(rootMarker, "not json");
+    // Block the sibling Project that shares the recorded target: an unsafe
+    // output parent is unrepairable drift that revokes ownership authority.
+    const rootOutputs = (JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: { project: string; outputs: { path: string }[] }[];
+    }).receipts.find((receipt) => receipt.project === realpathSync(repository))!.outputs;
+    const ownedOutput = rootOutputs[0]!;
+    const external = project("agent-profile-kit-move-external-");
+    writeFileSync(join(external, basename(ownedOutput.path)), "external output\n");
+    rmSync(join(repository, dirname(ownedOutput.path)), { recursive: true });
+    symlinkSync(external, join(repository, dirname(ownedOutput.path)));
 
     const blockedApply = await runCliAt(home, repository, "apply", "--all");
 
@@ -4823,8 +4798,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(newExclude).equals(newBefore)).toBe(true);
     expect(readFileSync(statePath(home)).equals(stateBefore)).toBe(true);
 
-    // Restoring the sibling's Marker unblocks the coupled move.
-    writeFileSync(rootMarker, rootMarkerBefore);
+    // Removing the unsafe sibling parent unblocks the coupled move; the
+    // missing owned output is repairable pending work.
+    rmSync(join(repository, dirname(ownedOutput.path)));
     expectExitCode(await runCliAt(home, repository, "apply", "--all"), 0);
     const repairedState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       receipts: {
@@ -4839,7 +4815,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(oldExclude, "utf8")).not.toContain("/nested/.agent-profile-kit/installation.json");
     const movedNew = readFileSync(newExclude, "utf8");
     expect(movedNew).toContain("# BEGIN Agent Profile Kit generated paths");
-    expect(movedNew).toContain("/.agent-profile-kit/installation.json");
+    expect(movedNew).not.toContain("/.agent-profile-kit/installation.json");
 
     const finalStatus = await runCliAt(home, repository, "status", "--all");
 
@@ -4870,7 +4846,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const current = [...state.receipts[0]!.repository_exclusion!.entries];
     const next = [...new Set([
       ...state.receipts[0]!.outputs.map((output) => `/${output.path}`),
-      "/.agent-profile-kit/installation.json",
     ])].sort();
     expect(current.every((entry) => entry.startsWith("/app/"))).toBe(true);
 
@@ -4992,7 +4967,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(exclude).equals(before)).toBe(true);
   });
 
-  test("a missing Git exclusion contribution with a missing Marker blocks before writes", async () => {
+  test("a missing Git exclusion contribution with a changing desired write set blocks before writes", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-missing-record-marker-");
@@ -5006,7 +4981,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     };
     delete state.receipts[0]!.repository_exclusion;
     writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
-    rmSync(join(repository, ".agent-profile-kit", "installation.json"));
+    // A changing desired write set keeps the receipt from proving the exact
+    // contribution, so the missing contribution stays a blocker instead of a
+    // Safe Repair.
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated project boundary rules.\n",
+    );
 
     const status = await runCliAt(home, repository, "status");
 
@@ -5270,7 +5251,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 1);
     expect(result.stderr).toContain("targets");
     expect(result.stderr).toContain(join(repository, ".git", "info", "exclude"));
-    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("an explicitly bound linked checkout gets its own Profile Installation", async () => {
@@ -5455,7 +5436,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expectExitCode(result, command === "apply" ? 2 : 1);
       expect(humanText(`${result.stdout}${result.stderr}`)).toContain("exclusion section is modified");
       if (command === "apply") expect(result.stderr).toBe("");
-      expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+      expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
     }
   });
 
@@ -5472,7 +5453,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const command of ["status"]) {
       const result = await runCli(home, command);
       expectExitCode(result, 0);
-      expect(result.stdout).toContain("Git exclusions: 3 recorded entries to restore.");
+      expect(result.stdout).toContain("Git exclusions: 2 recorded entries to restore.");
       expect(result.stdout).toContain("Details: apkit status --all --verbose");
       expect(result.stdout).not.toContain(exclude);
     }
@@ -5488,7 +5469,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const verboseRepaired = await runCli(home, "apply", "--verbose");
     expectExitCode(verboseRepaired, 0);
     expect(verboseRepaired.stdout).not.toContain("apply will restore");
-    expect(verboseRepaired.stdout).toContain("restored 3 recorded Git exclusion entries");
+    expect(verboseRepaired.stdout).toContain("restored 2 recorded Git exclusion entries");
     expect(readFileSync(exclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
     const afterStatus = await runCli(home, "status");
     expect(afterStatus.stdout).not.toContain("is missing its Agent Profile Kit exclusion section");
@@ -5519,7 +5500,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(failed, 1);
     expect(readFileSync(firstExclude, "utf8")).toContain("# BEGIN Agent Profile Kit generated paths");
     expect(readFileSync(secondExclude).equals(secondBefore)).toBe(true);
-    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(first, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
 
     const converged = await runCli(home, "apply");
@@ -5543,14 +5524,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 0);
     const exclude = join(repository, ".git", "info", "exclude");
     const before = readFileSync(exclude);
-    rmSync(join(repository, "nested", ".agent-profile-kit", "installation.json"));
+    // A Git-tracked recorded output keeps the nested Project's stale removal
+    // blocked while the same-repository exclusion ownership is retained.
+    execFileSync("git", ["-C", repository, "add", "-f", "nested/.codex/hooks.json"]);
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
 
     const failed = await runCli(home, "apply");
 
     expectExitCode(failed, 2);
     expect(readFileSync(exclude).equals(before)).toBe(true);
-    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(repository, "nested", ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
@@ -5573,7 +5556,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("tracked by Git");
     expect(existsSync(tracked)).toBe(true);
-    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(statePath(home)).equals(stateBefore)).toBe(true);
   });
 
@@ -5628,7 +5611,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "apply");
 
     expectExitCode(result, 0);
-    expect(existsSync(join(repository, "packages", "tool", ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(repository, "packages", "tool", ".agent-profile-kit", "installation.json"))).toBe(false);
     const hook = readFileSync(join(repository, "packages", "tool", ".codex", "hooks.json"), "utf8");
     expect(hook).toContain("packages/tool/.agent-profile-kit/codex/context.md");
     expect(existsSync(join(worktree, "packages", "tool", ".agent-profile-kit"))).toBe(false);
@@ -5675,7 +5658,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     ].sort());
   });
 
-  test("status distinguishes current, stale source, drifted output, repairable missing output, missing output, and malformed ownership", async () => {
+  test("status distinguishes current, stale source, drifted output, and repairable missing output", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -5704,21 +5687,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const repairable = await runCli(home, "status", "--verbose");
     expect(humanText(repairable.stdout)).toContain(
       humanText(`${projectPath}: repairable missing output`),
-    );
-    // A missing Marker leaves no identity proof at the Project: drift cannot
-    // substitute for it, so the mixed state stays a missing-output Blocker.
-    const markerPath = join(projectPath, ".agent-profile-kit", "installation.json");
-    const markerBefore = readFileSync(markerPath, "utf8");
-    rmSync(markerPath);
-    const missing = await runCli(home, "status", "--verbose");
-    expect(humanText(missing.stdout)).toContain(
-      humanText(`${projectPath}: missing output`),
-    );
-    writeFileSync(markerPath, markerBefore);
-    writeFileSync(join(projectPath, ".agent-profile-kit", "installation.json"), "not json");
-    const malformed = await runCli(home, "status", "--verbose");
-    expect(humanText(malformed.stdout)).toContain(
-      humanText(`${projectPath}: malformed ownership state`),
     );
   });
 
@@ -5845,14 +5813,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const uninstall = await runCli(home, "uninstall");
 
     expectExitCode(status, 2);
-    expect(status.stdout).toContain("schema_version must be 6");
+    expect(status.stdout).toContain("schema_version must be 7 or 6");
     expectExitCode(apply, 2);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
-    expect(apply.stdout).toContain("schema_version must be 6");
+    expect(apply.stdout).toContain("schema_version must be 7 or 6");
     expectExitCode(uninstall, 1);
-    expect(uninstall.stderr).toContain("schema_version must be 6");
-    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(uninstall.stderr).toContain("schema_version must be 7 or 6");
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
   });
 
@@ -5980,7 +5948,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(tracked)).toBe(true);
     expect(execFileSync("git", ["-C", repository, "status", "--porcelain"], { encoding: "utf8" }))
       .toContain("A  .codex/hooks.json");
-    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("uninstall removes surviving proven output when one recorded root is wholly absent", async () => {
@@ -6018,7 +5986,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 1);
     expect(result.stderr).toContain("symlink parent");
     expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
-    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("uninstall preflights every project before removal and preserves Workspace and Project Bindings", async () => {
@@ -6030,15 +5998,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const configuration = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), configuration);
     expectExitCode(await runCli(home, "apply"), 0);
-    // A missing Marker leaves the second Project's identity unprovable, so its
-    // stale removal stays blocked while Workspace and Project Bindings survive.
-    rmSync(join(second, ".agent-profile-kit", "installation.json"));
+    // An unsafe output parent keeps the second Project's stale removal blocked
+    // while Workspace and Project Bindings survive.
+    rmSync(join(second, ".codex"), { recursive: true });
+    symlinkSync(first, join(second, ".codex"));
 
     const result = await runCli(home, "uninstall");
 
     expectExitCode(result, 1);
     expect(result.stderr).toContain("Uninstall blocked");
-    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
     expect(existsSync(join(workspacePath(home), "profiles", "coding.yaml"))).toBe(true);
@@ -6106,7 +6075,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.removed_temporary_installation_ids).toEqual([]);
     expectExitCode(result, 0);
     expect(result.stdout).not.toContain("State: addition");
-    expect(result.stdout).toContain("Updates ready for 1 project (3 file additions).");
+    expect(result.stdout).toContain("Updates ready for 1 project (2 file additions).");
     expect(result.stdout).not.toContain("intended teardown");
     expect(result.stdout).not.toContain("not a safe automatic repair");
   });
@@ -6164,7 +6133,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(after.receipts.map((receipt) => receipt.installation_id)).toEqual([activeId]);
     expect(after.removed_temporary_installation_ids).toEqual([removedId]);
     expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
-    expect(existsSync(join(activeProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(activeProject, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(removedProject, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
@@ -6184,7 +6153,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toContain(humanText(`Project: ${realpathSync(projectPath)}`));
     expect(result.stdout).toContain("Removed generated paths:");
     expect(result.stdout).toContain("- .agent-profile-kit/codex/context.md");
-    expect(result.stdout).toContain("- .agent-profile-kit/installation.json");
     expect(result.stdout).toContain("- .codex/hooks.json");
     expect(result.stdout).toContain("Cleaned Git exclusions:");
     expect(result.stdout).toContain("- /.agent-profile-kit/codex/context.md");
@@ -6221,11 +6189,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(status, 0);
     expect(status.stdout).not.toContain("State: addition");
-    expect(status.stdout).toContain("Updates ready for 1 project (3 file additions).");
+    expect(status.stdout).toContain("Updates ready for 1 project (2 file additions).");
     expect(status.stdout).not.toContain("intended teardown");
   });
 
-  test("apply does not recreate an installation after all owned proof disappears", async () => {
+  test("apply recreates generated output after the user deletes it by hand", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -6235,13 +6203,21 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(join(projectPath, ".agent-profile-kit"), { recursive: true });
     rmSync(join(projectPath, ".codex"), { recursive: true });
 
+    // Wholly absent owned roots are repairable pending work, not lost
+    // authority: status reports the Project as pending and apply restores it.
+    const status = await runCli(home, "status", "--verbose");
+    expectExitCode(status, 0);
+    expect(humanText(status.stdout)).toContain(
+      humanText(`${projectPath}: repairable missing output`),
+    );
+
     const result = await runCli(home, "apply");
 
-    expectExitCode(result, 2);
-    expect(result.stdout).toContain("owned output");
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
-    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
-    expect(existsSync(join(projectPath, ".codex"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("apply removes a no-longer-bound installation only when ownership is proven", async () => {
@@ -6263,7 +6239,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toContain(humanText(`${removed}: removal`));
     expect(existsSync(join(removed, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(removed, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
-    expect(existsSync(join(retained, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(retained, ".agent-profile-kit", "installation.json"))).toBe(false);
     const state = parse(readFileSync(statePath(home), "utf8")) as { receipts: readonly unknown[] };
     expect(state.receipts).toHaveLength(1);
   });
@@ -6343,7 +6319,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(restored.receipts).toHaveLength(1);
     expect(restored.receipts[0]?.project).toBe(realpathSync(projectPath));
     expect(restored.receipts[0]?.installation_id).not.toBe(initialId);
-    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("apply removes a no-longer-desired Adapter output whose recorded hash still proves ownership", async () => {
@@ -6432,42 +6408,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("symlink parent");
     expect(result.stderr).toBe("");
     expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
-    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
-  });
-
-  test("apply repairs only a missing marker when remaining outputs prove ownership", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const projectPath = project();
-    writeContextProfile(home);
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "apply"), 0);
-    rmSync(join(projectPath, ".agent-profile-kit", "installation.json"));
-
-    const result = await runCli(home, "apply");
-
-    expectExitCode(result, 0);
-    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(true);
-  });
-
-  test("a repairable missing marker preserves the underlying stale-source status", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const projectPath = project();
-    writeContextProfile(home);
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "apply"), 0);
-    rmSync(join(projectPath, ".agent-profile-kit", "installation.json"));
-    writeFileSync(
-      join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nChanged while marker is repairable.\n",
-    );
-
-    const status = await runCli(home, "status", "--verbose");
-
-    expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: stale source`));
-    expect(humanText(status.stdout)).not.toContain(humanText(`${projectPath}: missing output`));
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
@@ -6554,7 +6494,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(statSync(join(destination, "scripts", "run.sh")).mode & 0o777).toBe(0o700);
   });
 
-  test("a wholly absent output is repaired alongside drifted surviving output", async () => {
+  test("changed extant roots with no matching recorded anchor fail closed", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -6566,18 +6506,52 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(missing);
     writeFileSync(drifted, "drifted surviving output\n");
 
-    const status = await runCli(home, "status", "--verbose");
+    // With no recorded root still matching its recorded hash, the extant
+    // changed bytes cannot be distinguished from a different Project later
+    // created at the same path, so ownership continuity fails closed and the
+    // bytes are never overwritten or deleted by Agent Profile Kit.
+    const status = await runCli(home, "status");
     const applied = await runCli(home, "apply");
 
-    expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: repairable missing output`));
-    expectExitCode(applied, 0);
-    expect(applied.stderr).toBe("");
-    expect(existsSync(missing)).toBe(true);
-    expect(readFileSync(drifted, "utf8")).not.toBe("drifted surviving output\n");
+    expectExitCode(status, 2);
+    expect(status.stdout).toContain("ownership continuity");
+    expectExitCode(applied, 2);
+    expect(readFileSync(drifted, "utf8")).toBe("drifted surviving output\n");
+    expect(existsSync(missing)).toBe(false);
   });
 
-  test("a copied installation identity is rejected while the original remains", async () => {
+  test("a different checkout later created at the same path cannot be claimed by the old receipt", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const foreignHooks = join(projectPath, ".codex", "hooks.json");
+
+    // The installed Project is deleted and a different checkout later occupies
+    // the same canonical path with user material at a recorded same-type root.
+    rmSync(projectPath, { recursive: true });
+    mkdirSync(join(projectPath, ".codex"), { recursive: true });
+    writeFileSync(foreignHooks, "foreign checkout material\n");
+
+    // The recorded root is extant but does not match the recorded hash and no
+    // other recorded root proves continuity, so the old receipt fails closed
+    // instead of gaining destructive authority over the foreign bytes.
+    const status = await runCli(home, "status");
+    expectExitCode(status, 2);
+    expect(status.stdout).toContain("ownership continuity");
+
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 2);
+    expect(readFileSync(foreignHooks, "utf8")).toBe("foreign checkout material\n");
+
+    const uninstalled = await runCli(home, "uninstall");
+    expectExitCode(uninstalled, 1);
+    expect(readFileSync(foreignHooks, "utf8")).toBe("foreign checkout material\n");
+  });
+
+  test("a copied Project directory installs cleanly at its new binding while the original is removed", async () => {
     const home = isolatedHome();
     await initialize(home);
     const original = project("agent-profile-kit-copy-");
@@ -6590,14 +6564,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "apply");
 
-    expectExitCode(result, 2);
-    expect(humanText(result.stdout)).toContain(humanText("copies Installation Marker identity"));
-    expect(result.stdout).toContain("Still pending:");
-    expect(humanText(result.stdout)).toContain(humanText(realpathSync(original)));
+    // The copy carries no Installation Marker and no receipt claims it, but
+    // its byte-identical generated output is adopted at the new binding; the
+    // original Project is no longer bound, so its proven output is removed.
+    expectExitCode(result, 0);
     expect(result.stderr).toBe("");
-    expect(readFileSync(join(original, ".agent-profile-kit", "installation.json"), "utf8")).toContain(
-      "installation_id",
-    );
+    expect(existsSync(join(copied, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(copied, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(original, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(original, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("a machine-state write failure rolls back the current project transaction", async () => {
@@ -6695,7 +6670,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("Applied:");
     expect(result.stdout).toContain("Freshly current:");
     expect(humanText(result.stdout)).toContain(humanText(realpathSync(healthy)));
-    expect(existsSync(join(healthy, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(healthy, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(blocked, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(blocked, ".codex", "hooks.json"), "utf8")).toBe("project-owned\n");
   });
@@ -6732,7 +6707,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Files:");
     expect(result.stdout).not.toContain("Host Setup:");
     // The filter concealed no writes.
-    expect(existsSync(join(healthy, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(healthy, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(blocked, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(blocked, ".codex", "hooks.json"), "utf8")).toBe("project-owned\n");
   });
@@ -6785,7 +6760,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stderr)).toContain(humanText(realpathSync(committed)));
     expect(result.stderr).toContain("Applied:");
     expect(result.stderr).toContain("Freshly current:");
-    expect(existsSync(join(committed, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(committed, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(failed, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
@@ -6894,7 +6869,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCliWithPath(home, bin, "apply", "--all");
 
     expectExitCode(result, 2);
-    expect(existsSync(join(healthy, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(healthy, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(blocked, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(result.stdout).toContain("upgrade Claude Code");
   });
@@ -6971,7 +6946,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(failed.stderr.replace(/\s+/g, " ")).toContain("pending projects: (none)");
     expect(failed.stderr).toContain("Applied:");
     expect(failed.stderr).toContain("Freshly current:");
-    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
 
     const rerun = await runCli(home, "apply");
@@ -7027,7 +7002,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     )?.state.kind).toBe("current");
   });
 
-  test("a moved project carries its marker identity to the new binding", async () => {
+  test("a moved project applies cleanly at its re-bound root", async () => {
     const home = isolatedHome();
     await initialize(home);
     const original = project("agent-profile-kit-move-");
@@ -7040,13 +7015,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "apply");
 
+    // The carried generated output is byte-identical to the desired write set,
+    // so the re-bound root adopts it and applies cleanly.
     expectExitCode(result, 0);
     expect(parse(readFileSync(statePath(home), "utf8")).receipts[0].project).toBe(realpathSync(moved));
-    expect(existsSync(join(moved, ".agent-profile-kit", "installation.json"))).toBe(true);
-    expect(existsSync(join(original, ".agent-profile-kit"))).toBe(false);
+    expect(existsSync(join(moved, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(moved, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("a moved project refreshes edited generated output at the new root", async () => {
+  test("a moved project blocks on edited generated output at the new root", async () => {
     const home = isolatedHome();
     await initialize(home);
     const original = project("agent-profile-kit-move-drift-");
@@ -7061,15 +7038,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "apply");
 
-    expectExitCode(result, 0);
-    expect(result.stderr).toBe("");
-    // The moved root is identity-proven through its carried Marker, so the
-    // post-move edit is refresh work rather than a lifecycle Blocker.
-    expect(readFileSync(edited, "utf8")).not.toBe("user edit after move\n");
-    expect(parse(readFileSync(statePath(home), "utf8")).receipts[0].project).toBe(realpathSync(moved));
+    // With the Marker gone there is no identity proof at the new root, so the
+    // post-move edit is unowned occupied material that is never overwritten.
+    expectExitCode(result, 2);
+    expect(result.stdout).toContain("occupied by unowned or drifted output");
+    expect(readFileSync(edited, "utf8")).toBe("user edit after move\n");
   });
 
-  test("a moved Git project carries both Marker and exclusion ownership", async () => {
+  test("a moved Git project fails closed on its carried exclusion section", async () => {
     const home = isolatedHome();
     await initialize(home);
     const original = gitRepository("agent-profile-kit-git-move-");
@@ -7082,9 +7058,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "apply");
 
-    expectExitCode(result, 0);
-    expect(parse(readFileSync(statePath(home), "utf8")).receipts[0].project).toBe(realpathSync(moved));
-    expect(readFileSync(join(moved, ".git", "info", "exclude"), "utf8")).toContain("/.codex/hooks.json");
+    // The recorded exclusion target moved with the repository and nothing
+    // proves the carried section, so apply fails closed on the exclusion
+    // bytes. Making this best-effort and non-blocking is #379's work.
+    expectExitCode(result, 2);
+    expect(result.stdout).toContain("exclusion section is modified");
+    // The no-longer-bound original Project's proven output is removed, while
+    // the moved root stays blocked on its carried exclusion section.
+    const state = parse(readFileSync(statePath(home), "utf8")) as { receipts: readonly unknown[] };
+    expect(state.receipts).toEqual([]);
   });
 
   test("a moved Git project converges when its destination shares another repository exclusion contribution", async () => {
@@ -7115,7 +7097,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "apply");
 
-    expectExitCode(result, 0);
+    // The carried output was generated for the original repository root, so
+    // its bytes differ from the desired output at the nested destination and
+    // apply fails closed instead of overwriting it.
+    expectExitCode(result, 2);
+    expect(result.stdout).toContain("occupied by unowned or drifted output");
+
+    // Deleting the moved Project's generated files makes the re-bound root
+    // apply cleanly next to the destination repository's own contribution.
+    rmSync(join(moved, ".agent-profile-kit"), { recursive: true });
+    rmSync(join(moved, ".codex"), { recursive: true });
+    const clean = await runCli(home, "apply");
+
+    expectExitCode(clean, 0);
     const exclude = readFileSync(join(destinationRepository, ".git", "info", "exclude"), "utf8");
     expect(exclude).toContain("/moved/.codex/hooks.json");
     expect(exclude).toContain("/.codex/hooks.json");
@@ -7127,7 +7121,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       .toBe(1);
   });
 
-  test("a nested Git project move transfers exact old exclusions to the Marker-proven new root", async () => {
+  test("a nested Git project move blocks on its carried generated output and converges after cleanup", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-nested-git-move-");
@@ -7140,48 +7134,31 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, oldProject);
     expectExitCode(await runCli(home, "apply"), 0);
-    const oldMarker = JSON.parse(
-      readFileSync(join(oldProject, ".agent-profile-kit", "installation.json"), "utf8"),
-    ) as { installation_id: string };
     execFileSync("mv", [oldProject, newProject]);
     bind(home, newProject);
 
     const result = await runCli(home, "apply");
 
-    expectExitCode(result, 0);
-    const newMarker = JSON.parse(
-      readFileSync(join(newProject, ".agent-profile-kit", "installation.json"), "utf8"),
-    ) as { installation_id: string };
-    expect(newMarker.installation_id).toBe(oldMarker.installation_id);
+    // The derived SessionStart hook names the new project-relative path, and
+    // with the Marker gone the carried output is unowned drifted material, so
+    // apply fails closed instead of overwriting it.
+    expectExitCode(result, 2);
+    expect(result.stdout).toContain("occupied by unowned or drifted output");
+
+    // Deleting the moved Project's generated files — the obvious way to start
+    // over — makes the re-bound root apply cleanly and transfers exclusions.
+    rmSync(join(newProject, ".agent-profile-kit"), { recursive: true });
+    rmSync(join(newProject, ".codex"), { recursive: true });
+    const clean = await runCli(home, "apply");
+
+    expectExitCode(clean, 0);
     const state = parse(readFileSync(statePath(home), "utf8")) as { receipts: Array<{ project: string }> };
     expect(state.receipts[0]!.project).toBe(realpathSync(newProject));
     const exclude = readFileSync(join(repository, ".git", "info", "exclude"), "utf8");
     expect(exclude).toContain("/new/.codex/hooks.json");
-    expect(exclude).toContain("/new/.agent-profile-kit/installation.json");
-    expect(exclude).not.toContain("/old/.codex/hooks.json");
-    expect(exclude).not.toContain("/old/.agent-profile-kit/installation.json");
-  });
-
-  test("a missing marker at a different root cannot prove a project move", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const original = project("agent-profile-kit-unproven-move-");
-    const moved = join(home, "unproven-moved-project");
-    writeContextProfile(home);
-    bind(home, original);
-    expectExitCode(await runCli(home, "apply"), 0);
-    execFileSync("mv", [original, moved]);
-    rmSync(join(moved, ".agent-profile-kit", "installation.json"));
-    bind(home, moved);
-
-    const result = await runCli(home, "apply");
-
-    expectExitCode(result, 2);
-    expect(humanText(result.stdout)).toContain(
-      humanText("restore its Manifest-linked Installation Marker at the new root"),
-    );
-    expect(result.stderr).toBe("");
-    expect(existsSync(join(moved, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(exclude).toContain("/new/.agent-profile-kit/codex/context.md");
+    expect(exclude).not.toContain("/old/");
+    expect(exclude).not.toContain("installation.json");
   });
 
   test("Profiles selecting Skills install portable packages into Codex project discovery", async () => {
@@ -11762,7 +11739,6 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(receipt.repositoryExclusion!.entries).toEqual(
       expect.arrayContaining([
         "/.agent-profile-kit/codex/context.md",
-        "/.agent-profile-kit/installation.json",
         "/.agents/skills/review-pr",
         "/.codex/hooks.json",
       ]),
@@ -11774,7 +11750,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(Array.isArray(receipt.warnings)).toBe(true);
 
     expect(existsSync(join(tempProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
-    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(readFileSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"), "utf8"))
       .toContain("Review the change carefully.");
@@ -11828,7 +11804,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       ),
     ).toBe(true);
     // Ordinary Profile Installation remains after temporary lifecycle.
-    expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("install-temp / remove-temp complete Pi lifecycle with a versioned receipt and isolation", async () => {
@@ -11917,7 +11893,6 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(receipt.repositoryExclusion!.entries).toEqual(
       expect.arrayContaining([
         "/.pi/APPEND_SYSTEM.md",
-        "/.agent-profile-kit/installation.json",
         "/.agents/skills/review-pr",
       ]),
     );
@@ -11937,7 +11912,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     expect(readFileSync(join(tempProject, ".pi", "APPEND_SYSTEM.md"), "utf8"))
       .toContain("Always preserve the project boundary.");
-    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(readFileSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"), "utf8"))
       .toContain("Review the change carefully.");
@@ -11986,7 +11961,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(removedAgain.completionState).toBe("removed");
 
     // Ordinary Profile Installation remains after temporary lifecycle.
-    expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("install-temp for Pi fails closed on tracked destinations before writes", async () => {
@@ -12289,7 +12264,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(existsSync(tracked)).toBe(true);
     expect(execFileSync("git", ["-C", tempProject, "status", "--porcelain"], { encoding: "utf8" }))
       .toContain("A  .agent-profile-kit/codex/context.md");
-    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
     const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       readonly receipts: readonly { readonly lifetime: string }[];
     };
@@ -12313,13 +12288,13 @@ describe("apkit temporary Profile installation (Codex)", () => {
     const idA = JSON.parse(installA.stdout).temporaryInstallationId as string;
     const idB = JSON.parse(installB.stdout).temporaryInstallationId as string;
     expect(idA).not.toBe(idB);
-    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
 
     const removeA = await runCli(home, "remove-temp", idA, "--json");
     expectExitCode(removeA, 0);
     expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(primary, ".git", "info", "exclude"), "utf8")).toContain(
       "# BEGIN Agent Profile Kit generated paths",
     );
@@ -12543,7 +12518,6 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expect(receipt.repositoryExclusion).not.toBeNull();
     expect(receipt.repositoryExclusion!.entries).toEqual(
       expect.arrayContaining([
-        "/.agent-profile-kit/installation.json",
         "/.claude/rules/agent-profile-kit.md",
         "/.claude/skills/review-pr",
       ]),
@@ -12553,7 +12527,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
 
     expect(existsSync(join(tempProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     expect(existsSync(join(tempProject, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(tempProject, ".gitignore"))).toBe(false);
     expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
     expect(
@@ -12934,7 +12908,6 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
     expect(receipt.repositoryExclusion).not.toBeNull();
     expect(receipt.repositoryExclusion!.entries).toEqual(
       expect.arrayContaining([
-        "/.agent-profile-kit/installation.json",
         "/.agent-profile-kit/opencode/context.md",
         "/.opencode/opencode.jsonc",
         "/.agents/skills/review-pr",
@@ -12956,7 +12929,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
     expect(existsSync(join(tempProject, ".agent-profile-kit", "opencode", "context.md"))).toBe(true);
     expect(existsSync(join(tempProject, ".opencode", "opencode.jsonc"))).toBe(true);
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(configPath(home)).equals(configBefore)).toBe(true);
     expect(
       readFileSync(join(boundProject, ".agent-profile-kit", "opencode", "context.md")).equals(

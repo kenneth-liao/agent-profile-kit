@@ -20,7 +20,6 @@ import {
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { nodeFileSystem } from "../installer/reconcile.js";
-import { TEMPORARY_INSTALLATION_REMOVAL } from "../installer/blockers.js";
 import {
   installTemporaryProfile,
   removeTemporaryProfile,
@@ -38,6 +37,10 @@ function temporaryDirectory(prefix: string): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   temporaryDirectories.push(directory);
   return directory;
+}
+
+function statePath(home: string): string {
+  return join(home, ".agents", "agent-profile-kit", "state", "manifest.json");
 }
 
 function gitRepository(prefix: string): string {
@@ -116,36 +119,6 @@ async function prepareClaudeHome(): Promise<string> {
 }
 
 describe("Temporary Profile Installation recovery", () => {
-  test("remove-temp marker failure emits structured removal evidence", async () => {
-    const home = await prepareHome();
-    const project = gitRepository("agent-profile-kit-temp-structure-");
-    const receipt = await installTemporaryProfile({
-      home,
-      host: "codex",
-      profile: "coding",
-      project,
-    });
-    rmSync(join(project, ".agent-profile-kit", "installation.json"));
-
-    await expect(
-      removeTemporaryProfile({
-        home,
-        temporaryInstallationId: receipt.temporaryInstallationId,
-      }),
-    ).rejects.toMatchObject({
-      name: "TemporaryInstallationBlockedError",
-      blockers: [expect.stringContaining("Cannot remove Temporary Profile Installation")],
-      structured: [
-        expect.objectContaining({
-          kind: TEMPORARY_INSTALLATION_REMOVAL,
-          project: expect.any(String),
-          scope: "project",
-          message: expect.stringContaining("Cannot remove Temporary Profile Installation"),
-        }),
-      ],
-    });
-  });
-
   test("temporary capability blockers project their identity-free structured problem", async () => {
     const home = await prepareHome();
     const project = gitRepository("agent-profile-kit-temp-capability-blocker-");
@@ -204,6 +177,76 @@ describe("Temporary Profile Installation recovery", () => {
       temporaryInstallationId: receipt.temporaryInstallationId,
     });
     expect(again.completionState).toBe("removed");
+  });
+
+  test("a byte-identical pre-existing output blocks install-temp before the durable record", async () => {
+    const home = await prepareHome();
+    const project = gitRepository("agent-profile-kit-temp-adopt-");
+
+    // A first install captures the exact published bytes, then cleans up.
+    const first = await installTemporaryProfile({
+      home,
+      host: "codex",
+      profile: "coding",
+      project,
+    });
+    const skillBytes = readFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), "utf8");
+    await removeTemporaryProfile({ home, temporaryInstallationId: first.temporaryInstallationId });
+
+    // Recreate one planned destination byte-identical to the desired output.
+    mkdirSync(join(project, ".agents", "skills", "review-pr"), { recursive: true });
+    writeFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), skillBytes);
+    const stateBefore = readFileSync(statePath(home), "utf8");
+
+    // Temporary installs never adopt byte-identical occupied destinations:
+    // the durable Receipt precedes publication, so adoption would hand the
+    // recovery removal authority over bytes the install never published.
+    let blocked: unknown;
+    try {
+      await installTemporaryProfile({ home, host: "codex", profile: "coding", project });
+    } catch (error) {
+      blocked = error;
+    }
+    expect(blocked).toBeInstanceOf(TemporaryInstallationBlockedError);
+    expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
+    expect(readFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toBe(skillBytes);
+  });
+
+  test("a failure after the durable record claims no pre-existing bytes and remove-temp finishes recovery", async () => {
+    const home = await prepareHome();
+    const project = gitRepository("agent-profile-kit-temp-durable-");
+    writeFileSync(join(project, "adjacent-user-file.txt"), "user owns this\n");
+
+    let recovered: unknown;
+    try {
+      await installTemporaryProfile({
+        home,
+        host: "codex",
+        profile: "coding",
+        project,
+        hooks: {
+          onAfterDurableRecord: async () => {
+            throw new Error("injected crash after durable record");
+          },
+        },
+      });
+    } catch (error) {
+      recovered = error;
+    }
+    expect(recovered).toBeInstanceOf(TemporaryInstallationRecoverableError);
+    const identity = (recovered as TemporaryInstallationRecoverableError).temporaryInstallationId;
+
+    // Every planned destination was proven absent at the preflight, so the
+    // failure window claims only roots the install itself published. Recovery
+    // removes those recorded roots and preserves adjacent unowned files.
+    const removed = await removeTemporaryProfile({
+      home,
+      temporaryInstallationId: identity,
+    });
+    expect(removed.completionState).toBe("removed");
+    expect(existsSync(join(project, "adjacent-user-file.txt"))).toBe(true);
+    expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
   });
 
   test("failure after outputs are published returns a recoverable identity that remove-temp can finish", async () => {
@@ -351,63 +394,6 @@ describe("Temporary Profile Installation recovery", () => {
     expect(existsSync(join(project, "README.md"))).toBe(true);
   });
 
-  test("remove blocks when extant owned roots lack a matching Installation Marker", async () => {
-    const home = await prepareHome();
-    const project = gitRepository("agent-profile-kit-temp-no-marker-");
-    const receipt = await installTemporaryProfile({
-      home,
-      host: "codex",
-      profile: "coding",
-      project,
-    });
-    rmSync(join(project, ".agent-profile-kit", "installation.json"), { force: true });
-    writeFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), "still here\n");
-
-    await expect(
-      removeTemporaryProfile({
-        home,
-        temporaryInstallationId: receipt.temporaryInstallationId,
-      }),
-    ).rejects.toBeInstanceOf(TemporaryInstallationBlockedError);
-    expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
-  });
-
-  test("ownership token published first allows remove after partial publication failure", async () => {
-    const home = await prepareHome();
-    const project = gitRepository("agent-profile-kit-temp-token-first-");
-
-    let failure: unknown;
-    try {
-      await installTemporaryProfile({
-        home,
-        host: "codex",
-        profile: "coding",
-        project,
-        hooks: {
-          onAfterOwnershipToken: async () => {
-            throw new Error("injected failure after ownership token");
-          },
-        },
-      });
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(TemporaryInstallationRecoverableError);
-    const recoverable = failure as TemporaryInstallationRecoverableError;
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(true);
-    expect(
-      JSON.parse(readFileSync(join(project, ".agent-profile-kit", "installation.json"), "utf8"))
-        .installation_id,
-    ).toBe(recoverable.temporaryInstallationId);
-
-    const removed = await removeTemporaryProfile({
-      home,
-      temporaryInstallationId: recoverable.temporaryInstallationId,
-    });
-    expect(removed.completionState).toBe("removed");
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
-  });
-
   test("linked worktrees hold independent temporary installations and contributor-safe exclusion removal", async () => {
     const home = await prepareHome();
     const primary = gitRepository("agent-profile-kit-temp-primary-");
@@ -427,8 +413,6 @@ describe("Temporary Profile Installation recovery", () => {
       project: second,
     });
     expect(receiptA.temporaryInstallationId).not.toBe(receiptB.temporaryInstallationId);
-    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(true);
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
 
     const exclude = readFileSync(join(primary, ".git", "info", "exclude"), "utf8");
     expect(exclude).toContain("# BEGIN Agent Profile Kit generated paths");
@@ -437,8 +421,6 @@ describe("Temporary Profile Installation recovery", () => {
       home,
       temporaryInstallationId: receiptA.temporaryInstallationId,
     });
-    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(true);
     expect(existsSync(join(second, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
 
     const excludeAfter = readFileSync(join(primary, ".git", "info", "exclude"), "utf8");
@@ -448,7 +430,6 @@ describe("Temporary Profile Installation recovery", () => {
       home,
       temporaryInstallationId: receiptB.temporaryInstallationId,
     });
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(primary, ".git", "info", "exclude"), "utf8")).not.toContain(
       "# BEGIN Agent Profile Kit generated paths",
     );
@@ -630,7 +611,6 @@ describe("Temporary Profile Installation Claude Host parity", () => {
     expect(receipt.outputs).not.toContain(".agent-profile-kit/installation.json");
     expect(receipt.repositoryExclusion?.entries).toEqual(
       expect.arrayContaining([
-        "/.agent-profile-kit/installation.json",
         "/.claude/rules/agent-profile-kit.md",
         "/.claude/skills/review-pr",
       ]),
