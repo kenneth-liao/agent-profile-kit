@@ -414,27 +414,24 @@ export const antigravityAdapter = {
       }
     }
 
-    let plan: AdapterProjectPlan | undefined;
-    try {
-      plan = await services.planProjection(
-        {
-          host: "antigravity",
-          options: {},
-          profileId: input.profileId,
-          resolvedContexts: input.resolvedContexts,
-          resolvedSkills: input.resolvedSkills,
-        },
-        () => planAntigravityProject(
-          input.profileId,
-          input.resolvedContexts,
-          input.resolvedSkills,
-          { materials: services.materials },
-        ),
-      );
-    } catch (error) {
-      if (!isAdapterCapabilityError(error)) throw error;
-      capabilityFailures.push(error);
-    }
+    // Projection refusals (for example an oversized Context Module) throw: an
+    // Adapter that cannot plan valid output must fail the invocation rather
+    // than return a partial plan.
+    const plan = await services.planProjection(
+      {
+        host: "antigravity",
+        options: {},
+        profileId: input.profileId,
+        resolvedContexts: input.resolvedContexts,
+        resolvedSkills: input.resolvedSkills,
+      },
+      () => planAntigravityProject(
+        input.profileId,
+        input.resolvedContexts,
+        input.resolvedSkills,
+        { materials: services.materials },
+      ),
+    );
 
     return { capabilityFailures, diagnostics: [], plan };
   },

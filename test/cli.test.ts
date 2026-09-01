@@ -7319,14 +7319,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const conflictHome = isolatedHome();
     await initialize(conflictHome);
     writeContextProfile(conflictHome);
-    mkdirSync(join(workspacePath(conflictHome), "skills", "to-spec", "agents"), { recursive: true });
+    mkdirSync(join(workspacePath(conflictHome), "skills", "to-spec"), { recursive: true });
     writeFileSync(
       join(workspacePath(conflictHome), "skills", "to-spec", "SKILL.md"),
       sourceBody,
-    );
-    writeFileSync(
-      join(workspacePath(conflictHome), "skills", "to-spec", "agents", "openai.yaml"),
-      "policy:\n  allow_implicit_invocation: true\n",
     );
     writeFileSync(
       join(workspacePath(conflictHome), "profiles", "coding.yaml"),
@@ -7337,12 +7333,32 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       configPath(conflictHome),
       `schema_version: 2\nworkspace: ${workspacePath(conflictHome)}\nbindings:\n  - project: ${conflictProject}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
+    expectExitCode(await runCli(conflictHome, "apply"), 0);
+    const stateBefore = readFileSync(statePath(conflictHome), "utf8");
+    const installedSkill = join(conflictProject, ".agents", "skills", "to-spec");
+    expect(existsSync(join(installedSkill, "SKILL.md"))).toBe(true);
+
+    // Introduce a Skill the Adapter cannot represent: canonical policy conflicts
+    // with the Skill's own openai.yaml. The invocation fails closed — the
+    // previously healthy installation keeps its outputs and its receipt — instead
+    // of reporting success with no Skill package delivered.
+    mkdirSync(join(workspacePath(conflictHome), "skills", "to-spec", "agents"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(conflictHome), "skills", "to-spec", "agents", "openai.yaml"),
+      "policy:\n  allow_implicit_invocation: true\n",
+    );
     const conflict = await runCli(conflictHome, "status");
-    expectExitCode(conflict, 0);
-    expect(conflict.stdout).toContain("conflicting model-invocation authorities");
-    expect(humanText(conflict.stdout)).toContain("canonical Workspace metadata.agent-profile-kit.model-invocation");
-    expect(conflict.stdout).toContain("agents/openai.yaml policy.allow_implicit_invocation");
-    expect(existsSync(join(conflictProject, ".agents", "skills", "to-spec"))).toBe(false);
+    expectExitCode(conflict, 1);
+    expect(`${conflict.stdout}${conflict.stderr}`).toContain("conflicting model-invocation authorities");
+    expect(`${conflict.stdout}${conflict.stderr}`).toContain("metadata.agent-profile-kit.model-invocation");
+    expect(`${conflict.stdout}${conflict.stderr}`).toContain("agents/openai.yaml policy.allow_implicit_invocation");
+
+    // Apply fails closed too: the healthy installation keeps its recorded
+    // outputs and its receipt, so no empty reconciliation is published.
+    const conflictApply = await runCli(conflictHome, "apply");
+    expectExitCode(conflictApply, 1);
+    expect(existsSync(join(installedSkill, "SKILL.md"))).toBe(true);
+    expect(readFileSync(statePath(conflictHome), "utf8")).toBe(stateBefore);
 
     const status = await runCliWithPath(home, pathValue, "status", "--verbose");
     expectExitCode(status, 0);

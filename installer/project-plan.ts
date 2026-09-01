@@ -689,10 +689,8 @@ export async function buildDesiredState(
         capabilityFailures.push({ failure, host });
       }
       appendDiagnosticWarnings(warnings, result.diagnostics);
-      if (result.plan !== undefined) {
-        plans.push(result.plan);
-        hostVersions[host] = result.plan.hostVersion;
-      }
+      plans.push(result.plan);
+      hostVersions[host] = result.plan.hostVersion;
     }
     const outputs = normalizeAdapterPlans(plans);
     assertResolvedOutputOrigins(outputs, resolvedProfile);

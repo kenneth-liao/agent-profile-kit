@@ -52,11 +52,20 @@ export interface AdapterInvocationServices {
   ): Promise<string>;
 }
 
-/** Complete Adapter result retained before Installer-specific blocker normalization. */
+/** Complete Adapter result retained before Installer-specific warning normalization. */
 export interface AdapterProjectResult {
+  /**
+   * Advisory probe and Project-surface evidence (Host CLI missing, outdated,
+   * unreadable, or an obstructed surface). The Adapter authored a complete plan
+   * despite these; the Installer routes them to warnings. Projection and
+   * portable-semantics refusals are not carried here: they throw, because an
+   * Adapter that cannot plan valid output must fail the invocation rather than
+   * return a partial one.
+   */
   readonly capabilityFailures: readonly unknown[];
   readonly diagnostics: readonly AdapterDiagnosticWarning[];
-  readonly plan: AdapterProjectPlan | undefined;
+  /** The complete plan. Adapters that cannot plan valid output throw instead. */
+  readonly plan: AdapterProjectPlan;
 }
 
 /**

@@ -140,7 +140,7 @@ describe("shared .agents Skill projector", () => {
     }
   });
 
-  test("turns a Codex policy conflict into one project-scoped blocker before reconciliation", async () => {
+  test("turns a Codex policy conflict into a planning refusal instead of a warning", async () => {
     const home = temporaryDirectory("apk-shared-skill-blocker-home-");
     const project = temporaryDirectory("apk-shared-skill-blocker-project-");
     await initializeWorkspace(home);
@@ -165,23 +165,17 @@ describe("shared .agents Skill projector", () => {
       `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const installation = desired.installations[0];
-    if (!installation) throw new Error("expected desired installation");
-    expect(installation.outputs.some((output) => output.path === ".agents/skills/review-pr")).toBe(false);
-    expect(installation.capabilityWarnings).toHaveLength(1);
-    expect(installation.capabilityWarnings[0]).toMatchObject({
+    // The Workspace itself is inconsistent, so planning refuses: buildDesiredState
+    // fails closed instead of reporting success with no Skill package delivered.
+    await expect(
+      buildDesiredState(home, { checkHostCapability: false }),
+    ).rejects.toMatchObject({
       host: "codex",
-      warning: {
-        copyableValues: [
-          "codex",
-          join(realpathSync(skillRoot), "agents", "openai.yaml"),
-        ],
-      },
+      affectedItems: expect.arrayContaining([
+        { kind: "host", value: "codex" },
+        { kind: "path", value: join(realpathSync(skillRoot), "agents", "openai.yaml") },
+      ]),
     });
-    expect(installation.capabilityWarnings[0]?.warning.message).toContain("canonical Workspace metadata.agent-profile-kit.model-invocation");
-    expect(installation.capabilityWarnings[0]?.warning.message).toContain("agents/openai.yaml policy.allow_implicit_invocation");
-    expect(installation.capabilityWarnings[0]?.warning.message).toContain("Repair the canonical Workspace Skill 'review-pr'");
   });
 
   test("allowed invocation preserves the portable package without generated restrictions", async () => {

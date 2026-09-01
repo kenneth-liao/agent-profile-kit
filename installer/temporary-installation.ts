@@ -247,18 +247,14 @@ async function planTemporaryDesiredInstallation(options: {
     capabilityWarnings,
     engineVersion: ENGINE_VERSION,
     gitProject,
-    hostVersions: adapterPlan === undefined
-      ? {}
-      : { [options.host]: adapterPlan.hostVersion },
+    hostVersions: { [options.host]: adapterPlan.hostVersion },
     outputs,
     profile,
     resolvedProfile,
-    setupSteps: adapterPlan === undefined
-      ? []
-      : adapterPlan.setupSteps.map((step) => ({
-          ...step,
-          host: adapterPlan.host,
-        })),
+    setupSteps: adapterPlan.setupSteps.map((step) => ({
+      ...step,
+      host: adapterPlan.host,
+    })),
     sourceHash,
     warnings,
   };

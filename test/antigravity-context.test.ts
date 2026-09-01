@@ -286,18 +286,16 @@ describe("Antigravity Context Adapter", () => {
       `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: skills\n    hosts: [antigravity]\n`,
     );
 
-    const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const installation = desired.installations[0];
-    expect(installation?.outputs).toEqual([]);
-    expect(installation?.capabilityWarnings).toHaveLength(1);
-    expect(installation?.capabilityWarnings[0]).toMatchObject({
+    // A Skill package the Adapter cannot represent is a planning refusal: it
+    // fails the invocation instead of degrading to an advisory warning.
+    await expect(
+      buildDesiredState(home, { checkHostCapability: false }),
+    ).rejects.toMatchObject({
       host: "antigravity",
-      warning: {
-        copyableValues: [
-          "antigravity",
-          realpathSync(join(skillRoot, "agents", "openai.yaml")),
-        ],
-      },
+      affectedItems: expect.arrayContaining([
+        { kind: "host", value: "antigravity" },
+        { kind: "path", value: realpathSync(join(skillRoot, "agents", "openai.yaml")) },
+      ]),
     });
   });
 
@@ -416,11 +414,11 @@ describe("Antigravity Context Adapter", () => {
       `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [antigravity]\n`,
     );
 
-    const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.outputs).toEqual([]);
-    expect(desired.installations[0]?.capabilityWarnings[0]?.warning.message).toContain(
-      "exceeding the 12000-character limit",
-    );
+    // An oversized Context Module is a planning refusal: it fails the
+    // invocation instead of degrading to an advisory warning.
+    await expect(
+      buildDesiredState(home, { checkHostCapability: false }),
+    ).rejects.toThrow(/exceeding the 12000-character limit/);
   });
 
   test("plans one always-on envelope and one complete rule per Context Module", async () => {

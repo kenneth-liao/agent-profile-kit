@@ -119,6 +119,35 @@ async function prepareClaudeHome(): Promise<string> {
 }
 
 describe("Temporary Profile Installation recovery", () => {
+  test("a planning refusal fails install-temp without publishing a receipt or any output", async () => {
+    const home = await prepareHome();
+    const project = gitRepository("agent-profile-kit-temp-capability-refusal-");
+    // Make the canonical Workspace Skill unrepresentable: its own openai.yaml
+    // policy conflicts with the canonical disabled-invocation metadata.
+    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review the change carefully.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\nReview the change carefully.\n",
+    );
+    mkdirSync(join(workspace, "skills", "review-pr", "agents"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "agents", "openai.yaml"),
+      "policy:\n  allow_implicit_invocation: true\n",
+    );
+
+    await expect(
+      installTemporaryProfile({
+        home,
+        host: "codex",
+        profile: "coding",
+        project,
+      }),
+    ).rejects.toThrow(/conflicting model-invocation authorities/);
+    expect(existsSync(statePath(home))).toBe(false);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+  });
+
   test("temporary capability failures project advisory warnings on the receipt", async () => {
     const home = await prepareHome();
     const project = gitRepository("agent-profile-kit-temp-capability-warning-");

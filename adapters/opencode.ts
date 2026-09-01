@@ -428,15 +428,14 @@ export async function planOpenCodeProject(
 export const opencodeAdapter = {
   host: "opencode",
   async planProject(input, services) {
-    const profileFailures = openCodeProfileCapabilityFailures(
-      input.resolvedContexts,
-      input.resolvedSkills,
-    );
+    // Profile-policy refusals throw: an Adapter that cannot plan valid output
+    // must fail the invocation rather than return a partial plan.
+    assertOpenCodeProfileSupported(input.resolvedContexts, input.resolvedSkills);
     const requireContext = input.resolvedContexts.length > 0;
     const requireSkills = input.resolvedSkills.length > 0;
     const requireConfig =
       requireContext || skillsRequireDisabledModelInvocation(input.resolvedSkills);
-    const capabilityFailures: unknown[] = [...profileFailures];
+    const capabilityFailures: unknown[] = [];
 
     if (input.checkHostCapability) {
       try {
@@ -458,29 +457,21 @@ export const opencodeAdapter = {
       }
     }
 
-    let plan: OpenCodeProjectPlan | undefined;
-    if (profileFailures.length === 0) {
-      try {
-        plan = await services.planProjection(
-          {
-            host: "opencode",
-            options: {},
-            profileId: input.profileId,
-            resolvedContexts: input.resolvedContexts,
-            resolvedSkills: input.resolvedSkills,
-          },
-          () => planOpenCodeProject(
-            input.profileId,
-            input.resolvedContexts,
-            input.resolvedSkills,
-            { materials: services.materials },
-          ),
-        );
-      } catch (error) {
-        if (!isAdapterCapabilityError(error)) throw error;
-        capabilityFailures.push(error);
-      }
-    }
+    const plan = await services.planProjection(
+      {
+        host: "opencode",
+        options: {},
+        profileId: input.profileId,
+        resolvedContexts: input.resolvedContexts,
+        resolvedSkills: input.resolvedSkills,
+      },
+      () => planOpenCodeProject(
+        input.profileId,
+        input.resolvedContexts,
+        input.resolvedSkills,
+        { materials: services.materials },
+      ),
+    );
 
     return { capabilityFailures, diagnostics: [], plan };
   },
