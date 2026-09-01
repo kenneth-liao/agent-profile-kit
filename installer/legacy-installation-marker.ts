@@ -17,27 +17,36 @@ export function isLegacyInstallationMarkerOutput(
 }
 
 /**
- * Whether the bytes at the legacy pathname are exactly the previous version's
- * ownership token: one JSON object with exactly `installation_id` (non-empty
- * string) and `schema_version` 1, matching the removed parser's accepted
- * shape. Anything else is unknown user content that migration must preserve.
+ * Parse the bytes at the legacy pathname as the previous version's ownership
+ * token: one JSON object with exactly `installation_id` (non-empty string) and
+ * `schema_version` 1, matching the removed parser's accepted shape. Returns
+ * undefined for anything else — unknown user content that migration must
+ * preserve. Shape alone is not authority: callers must additionally match the
+ * parsed `installationId` against the authoritative Installation Receipt.
  */
-export function isLegacyInstallationMarkerSource(content: string): boolean {
+export function parseLegacyInstallationMarkerSource(
+  content: string,
+): { readonly installationId: string } | undefined {
   let value: unknown;
   try {
     value = JSON.parse(content);
   } catch {
-    return false;
+    return undefined;
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   const fields = Object.keys(record).sort();
   if (fields.length !== 2 || fields[0] !== "installation_id" || fields[1] !== "schema_version") {
-    return false;
+    return undefined;
   }
-  return typeof record.installation_id === "string" &&
-    record.installation_id.length > 0 &&
-    record.schema_version === 1;
+  if (
+    typeof record.installation_id !== "string" ||
+    record.installation_id.length === 0 ||
+    record.schema_version !== 1
+  ) {
+    return undefined;
+  }
+  return { installationId: record.installation_id };
 }
 
 /**
@@ -53,20 +62,28 @@ export function recordsLegacyInstallationMarkerPath(
 
 /**
  * Read and verify the bytes at the legacy ownership-token pathname under one
- * Project. Returns the verified legacy-token content, or undefined when the
- * path is absent, unreadable, or holds unknown user content that migration
- * must preserve.
+ * Project. The token is authoritative only when its parsed `installation_id`
+ * matches the expected id of the Installation Receipt that owns this Project —
+ * a token naming any other installation (or a copy of one) is not this
+ * Project's cleanup evidence. Returns the verified token content, or
+ * undefined when the path is absent, unreadable, holds unknown user content,
+ * names a different installation, or no authoritative Receipt id is given.
  */
 export async function readVerifiedLegacyInstallationMarker(
   project: string,
+  expectedInstallationId: string | undefined,
 ): Promise<string | undefined> {
+  if (expectedInstallationId === undefined) return undefined;
   let content: string;
   try {
     content = await readFile(join(project, LEGACY_INSTALLATION_MARKER_PATH), "utf8");
   } catch {
     return undefined;
   }
-  return isLegacyInstallationMarkerSource(content) ? content : undefined;
+  const token = parseLegacyInstallationMarkerSource(content);
+  return token !== undefined && token.installationId === expectedInstallationId
+    ? content
+    : undefined;
 }
 
 /** Drop legacy ownership-token output entries recorded by the previous version. */

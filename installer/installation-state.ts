@@ -380,7 +380,10 @@ export async function stageProvenInstallationRemoval(
     // the previous version's token. Unknown content is preserved.
     if (
       !recordsLegacyInstallationMarkerPath(installation.outputs) &&
-      (await readVerifiedLegacyInstallationMarker(installation.project)) !== undefined
+      (await readVerifiedLegacyInstallationMarker(
+        installation.project,
+        installation.installationId,
+      )) !== undefined
     ) {
       const path = join(installation.project, LEGACY_INSTALLATION_MARKER_PATH);
       const staged = join(stage, LEGACY_INSTALLATION_MARKER_PATH);

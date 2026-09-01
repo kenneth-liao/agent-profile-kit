@@ -419,6 +419,40 @@ describe("injected project filesystem failures", () => {
 });
 
 describe("previous-version Marker migration", () => {
+  /** One bound Project with the shipped coding Profile and no state written yet. */
+  async function prepareLegacyFixture(prefix: string) {
+    const home = temporaryDirectory(`${prefix}-home-`);
+    const project = temporaryDirectory(`${prefix}-project-`);
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nLegacy migration boundary.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    return {
+      home,
+      project,
+      application,
+      desired: (await buildDesiredState(home, { checkHostCapability: false })).installations,
+    };
+  }
+
+  function writeToken(project: string, installationId: string): void {
+    writeFileSync(
+      join(project, ".agent-profile-kit", "installation.json"),
+      JSON.stringify({ installation_id: installationId, schema_version: 1 }),
+    );
+  }
+
   test("a leftover Marker from an earlier version is removed by the next apply even when the Project is current", async () => {
     const home = temporaryDirectory("agent-profile-kit-legacy-home-");
     const project = realpathSync(temporaryDirectory("agent-profile-kit-legacy-project-"));
@@ -574,5 +608,55 @@ describe("previous-version Marker migration", () => {
     const second = await applyReconciliation(home, desired);
     expect(second.resultingState.projects[0]!.state.kind).toBe("current");
     expect(existsSync(adapterOutput)).toBe(true);
+  });
+
+  test("a legacy token naming a different installation is preserved on apply and uninstall", async () => {
+    const { home, project, desired } = await prepareLegacyFixture("agent-profile-kit-legacy-mismatch");
+    await applyReconciliation(home, desired);
+    // Valid token shape, but its id belongs to no receipt that owns this
+    // Project: neither the current-apply sweep nor the removal staging may
+    // treat it as cleanup evidence.
+    writeToken(project, "some-other-installation");
+    const token = join(project, ".agent-profile-kit", "installation.json");
+
+    await applyReconciliation(home, desired);
+    expect(readFileSync(token, "utf8")).toContain("some-other-installation");
+
+    await applyReconciliation(home, []);
+    expect(readFileSync(token, "utf8")).toContain("some-other-installation");
+    expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
+  });
+
+  test("a shape-valid legacy token with no previous Receipt is never cleaned up", async () => {
+    const { home, project, desired } = await prepareLegacyFixture("agent-profile-kit-legacy-orphan");
+    mkdirSync(join(project, ".agent-profile-kit"), { recursive: true });
+    writeToken(project, "unclaimed-installation");
+    const token = join(project, ".agent-profile-kit", "installation.json");
+
+    // First apply: no previous Receipt exists, so nothing authorizes cleanup.
+    await applyReconciliation(home, desired);
+    expect(readFileSync(token, "utf8")).toContain("unclaimed-installation");
+
+    // Changed apply: the token id still matches no authoritative Receipt, so
+    // the staged transaction preserves it too.
+    writeFileSync(
+      join(home, ".agents", "agent-profile-kit", "workspace", "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nChanged legacy boundary.\n",
+    );
+    const changed = (await buildDesiredState(home, { checkHostCapability: false })).installations;
+    await applyReconciliation(home, changed);
+    expect(readFileSync(token, "utf8")).toContain("unclaimed-installation");
+  });
+
+  test("uninstall removes a legacy token that matches its authoritative Receipt", async () => {
+    const { home, project, desired } = await prepareLegacyFixture("agent-profile-kit-legacy-match");
+    await applyReconciliation(home, desired);
+    const receiptId = (await readInstallationState(home)).receipts[0]!.installationId;
+    writeToken(project, receiptId);
+    const token = join(project, ".agent-profile-kit", "installation.json");
+
+    await applyReconciliation(home, []);
+
+    expect(existsSync(token)).toBe(false);
   });
 });

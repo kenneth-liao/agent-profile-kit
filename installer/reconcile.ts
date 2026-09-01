@@ -1354,7 +1354,8 @@ export async function stageProjectOutputs(
     ]);
     if (
       !recordedOrDesiredPaths.has(LEGACY_INSTALLATION_MARKER_PATH) &&
-      (await readVerifiedLegacyInstallationMarker(project)) !== undefined
+      previous !== undefined &&
+      (await readVerifiedLegacyInstallationMarker(project, previous.installationId)) !== undefined
     ) {
       const legacyDestination = join(project, LEGACY_INSTALLATION_MARKER_PATH);
       if ((await pathKind(legacyDestination)) !== "missing") {
@@ -1684,13 +1685,17 @@ async function applyReconciliationLocked(
       // leaves with the next apply even when the Project is otherwise current.
       // The sweep skips the path when this installation records or desires an
       // output there (the path is no longer reserved), and removes only bytes
-      // that verify as the previous version's token — unknown content stays.
+      // that verify as the previous version's token naming this Project's own
+      // Installation Receipt — unknown content and foreign tokens stay.
       const claimsLegacyPath =
         recordsLegacyInstallationMarkerPath(item.outputs) ||
         (previous !== undefined && recordsLegacyInstallationMarkerPath(previous.outputs));
       if (
         !claimsLegacyPath &&
-        (await readVerifiedLegacyInstallationMarker(item.binding.canonicalProject)) !== undefined
+        (await readVerifiedLegacyInstallationMarker(
+          item.binding.canonicalProject,
+          previous?.installationId,
+        )) !== undefined
       ) {
         await fileSystem.rm(
           join(item.binding.canonicalProject, LEGACY_INSTALLATION_MARKER_PATH),
