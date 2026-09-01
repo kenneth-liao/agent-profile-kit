@@ -27,7 +27,6 @@ export interface AdapterProjectInput {
   readonly projectRelativeToGitRoot: string | undefined;
   readonly resolvedContexts: readonly ContextModuleSource[];
   readonly resolvedSkills: readonly Skill[];
-  readonly resolveHostTopology?: boolean;
   readonly selectedHosts: readonly SupportedHost[];
 }
 

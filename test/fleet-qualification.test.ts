@@ -233,7 +233,7 @@ describe("fleet-wide synchronization qualification", () => {
       readonly projects: readonly { readonly state: { readonly kind: string } }[];
       readonly schemaVersion: number;
     };
-    expect(payload.schemaVersion).toBe(12);
+    expect(payload.schemaVersion).toBe(13);
     expect(payload.projects).toHaveLength(12);
 
     // Apply reconciles the fleet and reports the receipt without a repeated
@@ -344,12 +344,24 @@ describe("fleet-wide synchronization qualification", () => {
       instrumentation,
     });
     expect(reportBlockers(report)).toEqual([]);
-    // One machine-level probe per supported Host requirement set for the
-    // Context+Skill Profile.
-    expect(instrumentation.counts.probeHostCapability).toBe(5);
+    // Probing is apply-only: status performs no machine-level Host probes.
+    expect(instrumentation.counts.probeHostCapability).toBe(0);
     expect(instrumentation.counts.resolveProfile).toBe(1);
     expect(instrumentation.counts.findGitProject).toBe(12);
     expect(reportItems(report)).toHaveLength(12);
+
+    const applyInstrumentation = createLifecycleInstrumentation();
+    const desired = await buildDesiredState(home, {
+      env: { ...process.env, PATH: pathWithHosts },
+      planningInstrumentation: applyInstrumentation.planning,
+      scheduler: createProjectReadScheduler(),
+    });
+    for (const installation of desired.installations) {
+      expect(installation.capabilityWarnings).toEqual([]);
+    }
+    // One machine-level probe per supported Host requirement set for the
+    // Context+Skill Profile during apply's planning.
+    expect(applyInstrumentation.counts.probeHostCapability).toBe(5);
   });
 
   test("apply still performs fresh post-commit verification while writes, state, and receipts stay sequential", async () => {
@@ -432,12 +444,12 @@ describe("fleet-wide synchronization qualification", () => {
     expect(readFileSync(statePath, "utf8")).toBe(published);
   });
 
-  test("existing delayed progress integrates with the packed fleet without flicker and never emits in non-interactive modes", async () => {
+  test("delayed progress never flickers on the packed fleet because status never probes, and non-interactive modes stay progress-free", async () => {
     const home = isolatedHome();
     const { pathWithHosts } = createPackedFleet(home);
 
-    // A genuinely slow inspection on the interactive fleet shows delayed
-    // progress cleared immediately before the grouped report.
+    // A deliberately slow Host stub is on PATH; status never launches it, so
+    // the interactive fleet report renders without any progress bytes.
     const pty = await runCliInPtyRaw(
       home,
       80,
@@ -447,17 +459,9 @@ describe("fleet-wide synchronization qualification", () => {
       "--all",
     );
     expectExitCode(pty, 0);
-    expect(pty.stdout).toContain(STATUS_PROGRESS_LABEL);
-    const reportIndex = pty.stdout.indexOf("Updates ready");
-    expect(reportIndex).toBeGreaterThan(-1);
-    const beforeReport = pty.stdout.slice(0, reportIndex);
-    const afterReport = pty.stdout.slice(reportIndex);
-    expect(afterReport).not.toContain(STATUS_PROGRESS_LABEL);
-    const lastLabel = beforeReport.lastIndexOf(STATUS_PROGRESS_LABEL);
-    expect(lastLabel).toBeGreaterThan(-1);
-    expect(beforeReport.slice(lastLabel + STATUS_PROGRESS_LABEL.length)).toMatch(/^\.*\r +\r$/);
-    // The concise fleet report follows the clear, not a repeated matrix.
-    expect(afterReport).toContain("Updates ready");
+    expect(pty.stdout).not.toContain(STATUS_PROGRESS_LABEL);
+    // The concise fleet report follows without a progress line or matrix flicker.
+    expect(pty.stdout).toContain("Updates ready");
 
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({
@@ -861,7 +865,7 @@ describe("integrated fleet recovery qualification", () => {
         warnings: { kind: string; message: string; copyableValues: string[] }[];
       }[];
     };
-    expect(jsonPayload.schemaVersion).toBe(12);
+    expect(jsonPayload.schemaVersion).toBe(13);
     expect(jsonPayload.outcome).toBe("blocked");
     expect(jsonPayload.projects).toHaveLength(5);
 

@@ -1,9 +1,3 @@
-import {
-  capabilityRequirement,
-  isAdapterCapabilityError,
-  type AdapterCapabilityAffectedItem,
-} from "../adapters/capability.js";
-import type { SupportedHost } from "../schemas/local-configuration.js";
 import { join } from "node:path";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
@@ -66,51 +60,6 @@ export type ReconciliationBlocker = StructuredReconciliationBlocker;
 
 export type BlockerInput = StructuredBlockerInput;
 
-/** Convert one Adapter capability failure to the shared structured contract. */
-export function hostCapabilityBlocker(
-  error: unknown,
-  host: SupportedHost,
-  project: string,
-): StructuredBlockerInput {
-  const failure = isAdapterCapabilityError(error) ? error : undefined;
-  const message = failure?.message ?? (error instanceof Error ? error.message : String(error));
-  return projectBlocker({
-    affectedItems: failure === undefined
-      ? [{ kind: "host", value: host }]
-      : capabilityAffectedItems(failure.affectedItems),
-    kind: failure === undefined ? HOST_CAPABILITY_UNCLASSIFIED : HOST_CAPABILITY,
-    problem: failure?.problem ?? message,
-    project,
-    remedy: failure?.remedy ?? "Inspect the underlying error before retrying",
-    requirement: failure?.requirement ?? capabilityRequirement(host),
-  });
-}
-
-/**
- * Translate Adapter-owned capability evidence (host/path) into the shared
- * blocker affected-item vocabulary at the boundary where Adapter failures
- * become blocker evidence, rejecting anything outside that vocabulary loudly
- * instead of letting it flow downstream.
- */
-function capabilityAffectedItems(
-  items: readonly AdapterCapabilityAffectedItem[],
-): BlockerAffectedItem[] {
-  return items.map((item) => {
-    if (!(AFFECTED_ITEM_KINDS as readonly string[]).includes(item.kind)) {
-      throw new TypeError(
-        `Adapter capability failure carries unknown affected-item kind ${JSON.stringify(item.kind)}`,
-      );
-    }
-    return { kind: item.kind, value: item.value };
-  });
-}
-
-/** Typed blocker class for a detected Agent Host capability failure. */
-export const HOST_CAPABILITY = "host-capability" as const;
-
-/** Typed blocker class for an unclassified Host capability preflight failure. */
-export const HOST_CAPABILITY_UNCLASSIFIED = "host-capability-unclassified" as const;
-
 /** Typed blocker class for planned output that conflicts with Git-tracked repository ownership. */
 export const OUTPUT_OWNERSHIP_CONFLICT = "output-ownership-conflict" as const;
 
@@ -144,8 +93,6 @@ export const TEMPORARY_INSTALLATION_REMOVAL = "temporary-installation-removal" a
  * this list so the type-level union stays exhaustive.
  */
 export const BLOCKER_KINDS = [
-  HOST_CAPABILITY,
-  HOST_CAPABILITY_UNCLASSIFIED,
   OUTPUT_OWNERSHIP_CONFLICT,
   INSTALLATION_STATE_UNREADABLE,
   REPOSITORY_EXCLUSION_CONTRIBUTION,

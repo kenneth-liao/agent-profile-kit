@@ -147,7 +147,7 @@ describe("Antigravity Context Adapter", () => {
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.blockers).toEqual([]);
+    expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
     expect(desired.installations[0]?.outputs.map((output) => output.path)).toContain(
       ".agents/skills/review-pr",
     );
@@ -289,15 +289,15 @@ describe("Antigravity Context Adapter", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     expect(installation?.outputs).toEqual([]);
-    expect(installation?.blockers).toHaveLength(1);
-    expect(installation?.blockers[0]).toMatchObject({
-      affectedItems: [
-        { kind: "host", value: "antigravity" },
-        { kind: "path", value: realpathSync(join(skillRoot, "agents", "openai.yaml")) },
-      ],
-      kind: "host-capability",
-      project: realpathSync(project),
-      scope: "project",
+    expect(installation?.capabilityWarnings).toHaveLength(1);
+    expect(installation?.capabilityWarnings[0]).toMatchObject({
+      host: "antigravity",
+      warning: {
+        copyableValues: [
+          "antigravity",
+          realpathSync(join(skillRoot, "agents", "openai.yaml")),
+        ],
+      },
     });
   });
 
@@ -418,15 +418,9 @@ describe("Antigravity Context Adapter", () => {
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     expect(desired.installations[0]?.outputs).toEqual([]);
-    expect(desired.installations[0]?.blockers[0]).toMatchObject({
-      affectedItems: [
-        { kind: "host", value: "antigravity" },
-        { kind: "path", value: expect.stringContaining("agent-profile-kit-010-oversized.md") },
-      ],
-      kind: "host-capability",
-      scope: "project",
-      problem: expect.stringContaining("exceeding the 12000-character limit"),
-    });
+    expect(desired.installations[0]?.capabilityWarnings[0]?.warning.message).toContain(
+      "exceeding the 12000-character limit",
+    );
   });
 
   test("plans one always-on envelope and one complete rule per Context Module", async () => {

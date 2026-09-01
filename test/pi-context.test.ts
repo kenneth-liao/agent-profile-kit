@@ -482,7 +482,7 @@ describe("Pi Adapter", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected Pi installation");
-    expect(installation.blockers).toEqual([]);
+    expect(installation.capabilityWarnings).toEqual([]);
     expect(installation.hostVersions.pi).toBe("native-project-append-system-shared-skills-v1");
     expect(installation.outputs.map((output) => output.path)).toEqual([
       ".agents/skills/left-skill",
@@ -646,7 +646,7 @@ describe("Pi Adapter", () => {
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.blockers).toEqual([]);
+    expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
     expect(desired.installations[0]?.hostVersions.pi).toBe(PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION);
     expect(desired.installations[0]?.outputs.map((output) => output.path)).toEqual([
       ".agents/skills/review-pr",
@@ -719,12 +719,12 @@ describe("Pi Adapter", () => {
     const piInstallation = desired.installations.find(
       (installation) => installation.binding.project === project,
     );
-    expect(piInstallation?.blockers).toEqual([]);
+    expect(piInstallation?.capabilityWarnings).toEqual([]);
     expect(piInstallation?.outputs.map((output) => output.path)).toEqual([".agents/skills/review-pr", ".pi/APPEND_SYSTEM.md"]);
     const unrelatedInstallation = desired.installations.find(
       (installation) => installation.binding.project === unrelatedProject,
     );
-    expect(unrelatedInstallation?.blockers).toEqual([]);
+    expect(unrelatedInstallation?.capabilityWarnings).toEqual([]);
     expect(unrelatedInstallation?.outputs.map((output) => output.path)).toEqual([
       ".claude/rules/agent-profile-kit.md",
     ]);
@@ -750,7 +750,7 @@ describe("Pi Adapter", () => {
     const installation = desired.installations.find(
       (candidate) => candidate.binding.project === project,
     );
-    expect(installation?.blockers).toEqual([]);
+    expect(installation?.capabilityWarnings).toEqual([]);
     expect(installation?.warnings).toEqual([]);
   });
 
@@ -768,7 +768,7 @@ describe("Pi Adapter", () => {
     const installation = desired.installations.find(
       (candidate) => candidate.binding.project === project,
     );
-    expect(installation?.blockers).toEqual([]);
+    expect(installation?.capabilityWarnings).toEqual([]);
     expect(installation?.warnings).toEqual([]);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(readFileSync(settingsPath, "utf8")).toBe('{"extensions":["./dynamic.ts"]}\n');
@@ -788,7 +788,7 @@ describe("Pi Adapter", () => {
     const installation = desired.installations.find(
       (candidate) => candidate.binding.project === project,
     );
-    expect(installation?.blockers).toEqual([]);
+    expect(installation?.capabilityWarnings).toEqual([]);
     expect(installation?.warnings.some((warning) =>
       /project settings.*JSON/i.test(warning.message)
     )).toBe(true);
@@ -817,7 +817,7 @@ describe("Pi Adapter", () => {
     const installation = desired.installations.find(
       (candidate) => candidate.binding.project === project,
     );
-    expect(installation?.blockers).toEqual([]);
+    expect(installation?.capabilityWarnings).toEqual([]);
     expect(installation?.warnings).toEqual([]);
   });
 

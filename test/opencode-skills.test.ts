@@ -590,7 +590,7 @@ describe("OpenCode lifecycle: status and apply", () => {
 
     expect(desired.installations).toHaveLength(1);
     const installation = desired.installations[0]!;
-    expect(installation.blockers).toEqual([]);
+    expect(installation.capabilityWarnings).toEqual([]);
     expect(installation.outputs.map((o) => o.path).sort()).toEqual([
       ".agents/skills/deploy",
       ".opencode/opencode.jsonc",
@@ -825,9 +825,9 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     const installation = desired.installations[0]!;
 
     // Equivalent candidates across the two discovery roots are Host Resolution:
-    // no Agent Profile Kit diagnostic and no Blocker.
+    // no Agent Profile Kit diagnostic and no capability warning.
     expect(installation.warnings).toEqual([]);
-    expect(installation.blockers).toEqual([]);
+    expect(installation.capabilityWarnings).toEqual([]);
 
     // Both outputs are planned
     const outputPaths = installation.outputs.map((o) => o.path).sort();
@@ -863,7 +863,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     const installation = desired.installations[0]!;
 
     expect(installation.warnings).toEqual([]);
-    expect(installation.blockers).toEqual([]);
+    expect(installation.capabilityWarnings).toEqual([]);
   });
 
   test("reconciles Claude and OpenCode co-selected binding, applies cleanly, and status reports current without warnings", async () => {
@@ -889,7 +889,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     expect(desired.installations[0]?.warnings).toEqual([]);
-    expect(desired.installations[0]?.blockers).toEqual([]);
+    expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
 
     // AC 2: Apply succeeds without blocking
     const applied = await applyReconciliation(home, desired.installations);

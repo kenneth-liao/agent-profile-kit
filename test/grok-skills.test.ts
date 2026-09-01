@@ -753,7 +753,7 @@ exit 2
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.blockers).toEqual([]);
+    expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
     expect(
       desired.installations[0]?.warnings.some((warning) =>
         /Grok.*review-pr.*disabled.*may not load/i.test(warning.message),

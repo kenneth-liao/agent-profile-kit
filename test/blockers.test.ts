@@ -6,8 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  formatLifecycleJson,
-  formatLifecycleReport,
   formatTemporaryInstallationBlockedJson,
   lifecycleExitCode,
 } from "../cli/presentation.js";
@@ -39,26 +37,26 @@ function compileOnlyPartialBlocker(): void {
   // @ts-expect-error Structured blockers require every evidence field.
   normalizeBlocker({
     affectedItems: [],
-    kind: "host-capability",
+    kind: "occupied-output",
     scope: "global",
   });
 }
 
 void compileOnlyPartialBlocker;
 
-const HOST_CAPABILITY_INPUT = {
+const GLOBAL_BLOCKER_INPUT = {
   affectedItems: [{ kind: "host", value: "codex" }],
-  kind: "host-capability",
-  problem: "Codex CLI is unavailable",
-  remedy: "Install a supported Codex CLI, then retry",
-  requirement: "The selected Profile requires Codex project delivery",
+  kind: "installation-ownership",
+  problem: "Generated file ownership cannot be proven",
+  remedy: "Remove the conflicting generated files yourself, then retry",
+  requirement: "Ownership must be proven before writes",
   scope: "global",
 } as const;
 
 describe("shared blocker contract", () => {
   test("normalizes complete structured evidence into a scoped blocker", () => {
     const input = {
-      ...HOST_CAPABILITY_INPUT,
+      ...GLOBAL_BLOCKER_INPUT,
       project: "/project-a",
       scope: "project",
     } as const;
@@ -67,16 +65,16 @@ describe("shared blocker contract", () => {
     expect(isStructuredBlocker(blocker)).toBe(true);
     expect(blocker).toMatchObject({
       affectedItems: [{ kind: "host", value: "codex" }],
-      kind: "host-capability",
-      message: "Codex CLI is unavailable",
-      problem: "Codex CLI is unavailable",
-      remedy: "Install a supported Codex CLI, then retry",
-      requirement: "The selected Profile requires Codex project delivery",
+      kind: "installation-ownership",
+      message: "Generated file ownership cannot be proven",
+      problem: "Generated file ownership cannot be proven",
+      remedy: "Remove the conflicting generated files yourself, then retry",
+      requirement: "Ownership must be proven before writes",
       project: "/project-a",
       scope: "project",
     });
     expect(() => normalizeBlocker({ ...input, project: "/project-b" }, "/project-a"))
-      .toThrow(/fallback project.*kind="host-capability".*project="\/project-b"/);
+      .toThrow(/fallback project.*kind="installation-ownership".*project="\/project-b"/);
   });
 
   test("message-only blockers can no longer be represented or normalized", () => {
@@ -92,15 +90,15 @@ describe("shared blocker contract", () => {
 
   test("rejects partially populated structured evidence at runtime", () => {
     expect(() => normalizeBlocker({
-      kind: "host-capability",
-      message: "Codex CLI is unavailable",
+      kind: "installation-ownership",
+      message: "Ownership cannot be proven",
       scope: "global",
     } as never)).toThrow("Structured blocker problem must be a non-empty string");
     expect(() => normalizeBlocker({
-      kind: "host-capability",
-      message: "Codex CLI is unavailable",
+      kind: "installation-ownership",
+      message: "Ownership cannot be proven",
       scope: "global",
-    } as never)).toThrow(/kind=\"host-capability\"/);
+    } as never)).toThrow(/kind=\"installation-ownership\"/);
     expect(() => normalizeBlocker({
       affectedItems: [],
       message: "Codex CLI is unavailable",
@@ -114,11 +112,11 @@ describe("shared blocker contract", () => {
   test("rejects an unknown structured blocker scope at runtime", () => {
     expect(() => normalizeBlocker({
       affectedItems: [],
-      kind: "host-capability",
-      message: "Codex CLI is unavailable",
-      problem: "Codex CLI is unavailable",
-      remedy: "Install a supported Codex CLI, then retry",
-      requirement: "The selected Profile requires Codex project delivery",
+      kind: "installation-ownership",
+      message: "Ownership cannot be proven",
+      problem: "Ownership cannot be proven",
+      remedy: "Remove the conflicting generated files yourself, then retry",
+      requirement: "Ownership must be proven before writes",
       scope: "workspace",
     } as never)).toThrow("Structured blocker scope must be 'global' or 'project'");
   });
@@ -126,11 +124,11 @@ describe("shared blocker contract", () => {
   test("project-scoped blocker problems cannot duplicate their Project identity", () => {
     expect(() => normalizeBlocker({
       affectedItems: [{ kind: "host", value: "codex" }],
-      kind: "host-capability",
-      problem: "/project-a: Codex CLI is unavailable",
+      kind: "installation-ownership",
+      problem: "/project-a: ownership cannot be proven",
       project: "/project-a",
-      remedy: "Install a supported Codex CLI, then retry",
-      requirement: "The selected Profile requires Codex project delivery",
+      remedy: "Remove the conflicting generated files yourself, then retry",
+      requirement: "Ownership must be proven before writes",
       scope: "project",
     })).toThrow("Structured blocker problem must not duplicate its project identity");
   });
@@ -139,28 +137,26 @@ describe("shared blocker contract", () => {
     expect(() => normalizeBlocker({
       affectedItems: [],
       kind: "unknown-kind",
-      message: "Codex CLI is unavailable",
-      problem: "Codex CLI is unavailable",
-      remedy: "Install a supported Codex CLI, then retry",
-      requirement: "The selected Profile requires Codex project delivery",
+      message: "Ownership cannot be proven",
+      problem: "Ownership cannot be proven",
+      remedy: "Remove the conflicting generated files yourself, then retry",
+      requirement: "Ownership must be proven before writes",
       scope: "global",
     } as never)).toThrow(/Unknown structured blocker kind "unknown-kind"/);
 
     expect(() => normalizeBlocker({
       affectedItems: [{ kind: "unknown-item", value: "codex" }],
-      kind: "host-capability",
-      message: "Codex CLI is unavailable",
-      problem: "Codex CLI is unavailable",
-      remedy: "Install a supported Codex CLI, then retry",
-      requirement: "The selected Profile requires Codex project delivery",
+      kind: "installation-ownership",
+      message: "Ownership cannot be proven",
+      problem: "Ownership cannot be proven",
+      remedy: "Remove the conflicting generated files yourself, then retry",
+      requirement: "Ownership must be proven before writes",
       scope: "global",
     } as never)).toThrow(/Unknown structured blocker affected-item kind "unknown-item"/);
   });
 
   test("blocker kinds form one exhaustive typed vocabulary", () => {
     expect(BLOCKER_KINDS).toEqual([
-      "host-capability",
-      "host-capability-unclassified",
       "output-ownership-conflict",
       "installation-state-unreadable",
       "repository-exclusion-contribution",
@@ -186,7 +182,7 @@ describe("shared blocker contract", () => {
   });
 
   test("temporary-installation blocked JSON publishes structured evidence at the family schema version", () => {
-    const structured = normalizeBlocker(HOST_CAPABILITY_INPUT);
+    const structured = normalizeBlocker(GLOBAL_BLOCKER_INPUT);
 
     const payload = JSON.parse(
       formatTemporaryInstallationBlockedJson("install-temp", [structured]),
@@ -196,19 +192,19 @@ describe("shared blocker contract", () => {
       command: "install-temp",
       outcome: "blocked",
       blockers: [{
-        kind: "host-capability",
+        kind: "installation-ownership",
         scope: "global",
-        message: "Codex CLI is unavailable",
-        problem: "Codex CLI is unavailable",
-        requirement: "The selected Profile requires Codex project delivery",
-        remedy: "Install a supported Codex CLI, then retry",
+        message: "Generated file ownership cannot be proven",
+        problem: "Generated file ownership cannot be proven",
+        requirement: "Ownership must be proven before writes",
+        remedy: "Remove the conflicting generated files yourself, then retry",
         affectedItems: [{ kind: "host", value: "codex" }],
       }],
     });
   });
 
   test("TemporaryInstallationBlockedError derives projections from one canonical structured collection", () => {
-    const structured = normalizeBlocker(HOST_CAPABILITY_INPUT);
+    const structured = normalizeBlocker(GLOBAL_BLOCKER_INPUT);
     const removal = normalizeBlocker({
       affectedItems: [],
       kind: "temporary-installation-conflict",
@@ -223,103 +219,14 @@ describe("shared blocker contract", () => {
     // Error.message must both derive from it, so they cannot diverge.
     const error = new TemporaryInstallationBlockedError([structured, removal], "/project-a");
     expect(error.blockers).toEqual([
-      "Codex CLI is unavailable",
+      "Generated file ownership cannot be proven",
       "An installation already owns generated files",
     ]);
     expect(error.structured).toEqual([structured, removal]);
     expect(error.message).toBe(
-      "Codex CLI is unavailable\nAn installation already owns generated files",
+      "Generated file ownership cannot be proven\nAn installation already owns generated files",
     );
     expect(error.blockers.join("\n")).toBe(error.message);
-  });
-
-  test("reconciliation normalizes structured evidence before public reports", async () => {
-    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-blocker-home-"));
-    const project = mkdtempSync(join(tmpdir(), "agent-profile-kit-blocker-project-"));
-    temporaryDirectories.push(home, project);
-    await initializeWorkspace(home);
-    const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
-    writeFileSync(
-      join(application, "config.yaml"),
-      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: example\n    hosts: [codex]\n`,
-    );
-    const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const installation = desired.installations[0];
-    if (!installation) throw new Error("expected one desired installation");
-    const canonicalProject = installation.binding.canonicalProject;
-    const emptyState = {
-      receipts: [],
-      removedTemporaryInstallationIds: [],
-      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
-    } as const;
-    const projectBlocker = {
-      ...HOST_CAPABILITY_INPUT,
-      project: canonicalProject,
-      scope: "project",
-    } as const;
-
-    const report = await previewReconciliation(
-      [{ ...installation, blockers: [projectBlocker] }],
-      emptyState,
-    );
-
-    expect(reportBlockers(report)[0]).toMatchObject({
-      affectedItems: [{ kind: "host", value: "codex" }],
-      kind: "host-capability",
-      project: canonicalProject,
-      scope: "project",
-    });
-    expect(formatLifecycleReport("status", report)).toContain(
-      "Blocker: Codex CLI is unavailable",
-    );
-    const machine = JSON.parse(formatLifecycleJson("status", report)) as {
-      readonly projects: readonly { readonly blockers: readonly Record<string, unknown>[] }[];
-      readonly schemaVersion: number;
-    };
-    expect(machine.schemaVersion).toBe(12);
-    expect(machine.projects[0]!.blockers).toEqual([{
-      kind: "host-capability",
-      scope: "project",
-      project: canonicalProject,
-      message: "Codex CLI is unavailable",
-      problem: "Codex CLI is unavailable",
-      requirement: "The selected Profile requires Codex project delivery",
-      remedy: "Install a supported Codex CLI, then retry",
-      affectedItems: [{ kind: "host", value: "codex" }],
-    }]);
-
-    const globalReport = await previewReconciliation(
-      [{ ...installation, blockers: [HOST_CAPABILITY_INPUT] }],
-      emptyState,
-    );
-    expect(reportBlockers(globalReport)[0]).toMatchObject({
-      kind: "host-capability",
-      scope: "global",
-    });
-    expect(reportBlockers(globalReport)[0]?.project).toBeUndefined();
-    const globalMachine = JSON.parse(
-      formatLifecycleJson("status", globalReport),
-    ) as { readonly globalBlockers: readonly Record<string, unknown>[] };
-    expect(globalMachine.globalBlockers[0]).not.toHaveProperty("project");
-
-    // Identical structured evidence deduplicates on message and Project identity.
-    const deduplicatedReport = await previewReconciliation(
-      [{ ...installation, blockers: [projectBlocker, projectBlocker] }],
-      emptyState,
-    );
-    expect(reportBlockers(deduplicatedReport)).toHaveLength(1);
-    expect(isStructuredBlocker(reportBlockers(deduplicatedReport)[0])).toBe(true);
-
-    // Malformed internal blockers fail fast instead of degrading to messages.
-    await expect(previewReconciliation(
-      [{ ...installation, blockers: [{
-        kind: "host-capability",
-        message: "Codex CLI is unavailable",
-        scope: "global",
-      } as never] }],
-      emptyState,
-    )).rejects.toThrow("Structured blocker problem must be a non-empty string");
   });
 });
 

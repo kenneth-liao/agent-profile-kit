@@ -151,14 +151,15 @@ export async function statusApplication(
     });
     return unreadableInstallationStateReport(home, desired.installations, error);
   }
-  // Let each Adapter resolve dynamic topology from live evidence when possible,
-  // otherwise preserve its applied delivery topology from the prior Manifest.
+  // Let each Adapter resolve its topology from the prior Manifest and keep
+  // desired-state planning probe-free: status performs no Agent Host process
+  // execution (DEC-015), and probing happens only during apply.
   const desired = await buildDesiredState(home, {
+    checkHostCapability: false,
     ...(options.env === undefined ? {} : { env: options.env }),
     gitInspection,
     ...planningInstrumentation(instrumentation),
     previousInstallations: ordinaryReceipts(state),
-    resolveHostTopology: true,
     scheduler,
     ...(options.selection === undefined ? {} : { selection: options.selection }),
   });
@@ -171,39 +172,15 @@ export async function statusApplication(
   return reconciliationReportWithProjects(
     report,
     report.projects.map((project) => {
-      const applicationPending =
-        project.state.kind !== "current" ||
-        project.outputs.some((output) => output.kind !== "unchanged") ||
-        project.repositoryExclusions.length > 0 ||
-        project.repositoryExclusionRepairs.length > 0;
-      const hostAttention = applicationPending
-        ? []
-        : project.blockers.filter((blocker) => blocker.kind === "host-capability");
-      const hostAttentionSet = new Set(hostAttention);
-      const blockers = project.blockers.filter((blocker) => !hostAttentionSet.has(blocker));
-      const warnings = [
-        ...project.warnings,
-        ...hostAttention.map((blocker) => ({
-          copyableValues: blocker.affectedItems.map((item) => item.value),
-          kind: "host-attention" as const,
-          message: `Host attention: ${blocker.problem}; ${blocker.remedy}.`,
-        })),
-      ];
-      const blocked = blockers.length > 0;
       // Only remap otherwise-healthy states. Drift, ownership, and malformed kinds
       // already diagnose the problem and must keep their precise status labels.
       if (
-        blocked &&
+        project.blockers.length > 0 &&
         (project.state.kind === "addition" || project.state.kind === "current")
       ) {
-        return {
-          ...project,
-          blockers,
-          state: { ...project.state, kind: "blocked" as const },
-          warnings,
-        };
+        return { ...project, state: { ...project.state, kind: "blocked" as const } };
       }
-      return { ...project, blockers, warnings };
+      return project;
     }),
   );
 }

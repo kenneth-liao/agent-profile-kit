@@ -119,24 +119,22 @@ async function prepareClaudeHome(): Promise<string> {
 }
 
 describe("Temporary Profile Installation recovery", () => {
-  test("temporary capability blockers project their identity-free structured problem", async () => {
+  test("temporary capability failures project advisory warnings on the receipt", async () => {
     const home = await prepareHome();
-    const project = gitRepository("agent-profile-kit-temp-capability-blocker-");
+    const project = gitRepository("agent-profile-kit-temp-capability-warning-");
     writeFileSync(join(home, "bin", "codex"), "#!/bin/sh\necho \"codex-cli 0.144.6\"\n");
 
-    await expect(
-      installTemporaryProfile({
-        home,
-        host: "codex",
-        profile: "coding",
-        project,
-      }),
-    ).rejects.toMatchObject({
-      name: "TemporaryInstallationBlockedError",
-      blockers: [
-        "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
-      ],
+    const receipt = await installTemporaryProfile({
+      home,
+      host: "codex",
+      profile: "coding",
+      project,
     });
+    expect(receipt.completionState).toBe("installed");
+    expect(receipt.warnings).toEqual([
+      "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile",
+    ]);
+    expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
   test("removal discards modifications inside owned directories and preserves adjacent unowned files", async () => {

@@ -169,19 +169,19 @@ describe("shared .agents Skill projector", () => {
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected desired installation");
     expect(installation.outputs.some((output) => output.path === ".agents/skills/review-pr")).toBe(false);
-    expect(installation.blockers).toHaveLength(1);
-    expect(installation.blockers[0]).toMatchObject({
-      affectedItems: [
-        { kind: "host", value: "codex" },
-        { kind: "path", value: join(realpathSync(skillRoot), "agents", "openai.yaml") },
-      ],
-      kind: "host-capability",
-      project: realpathSync(project),
-      scope: "project",
+    expect(installation.capabilityWarnings).toHaveLength(1);
+    expect(installation.capabilityWarnings[0]).toMatchObject({
+      host: "codex",
+      warning: {
+        copyableValues: [
+          "codex",
+          join(realpathSync(skillRoot), "agents", "openai.yaml"),
+        ],
+      },
     });
-    expect(installation.blockers[0]?.problem).toContain("canonical Workspace metadata.agent-profile-kit.model-invocation");
-    expect(installation.blockers[0]?.problem).toContain("agents/openai.yaml policy.allow_implicit_invocation");
-    expect(installation.blockers[0]?.remedy).toContain("Repair the canonical Workspace Skill 'review-pr'");
+    expect(installation.capabilityWarnings[0]?.warning.message).toContain("canonical Workspace metadata.agent-profile-kit.model-invocation");
+    expect(installation.capabilityWarnings[0]?.warning.message).toContain("agents/openai.yaml policy.allow_implicit_invocation");
+    expect(installation.capabilityWarnings[0]?.warning.message).toContain("Repair the canonical Workspace Skill 'review-pr'");
   });
 
   test("allowed invocation preserves the portable package without generated restrictions", async () => {
