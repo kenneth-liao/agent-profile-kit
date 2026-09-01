@@ -20,7 +20,10 @@ import {
   normalizeProject,
   requireExistingDirectory,
 } from "./local-configuration.js";
-import { readInstallationState } from "./installation-state.js";
+import { readInstallationState, writeInstallationState } from "./installation-state.js";
+import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
+import { stageGitExclusions } from "./git-exclusions.js";
+import { withReceipts } from "./ownership-state.js";
 import { MissingProfileError } from "./profile-selection.js";
 
 interface UnbindTarget {
@@ -169,6 +172,7 @@ export type UnbindProjectResult =
       readonly profile: string;
       readonly hosts: readonly string[];
       readonly recovery: "canonical";
+      readonly generatedOutputSurvives: boolean;
     }
   | {
       readonly outcome: "removed";
@@ -178,6 +182,7 @@ export type UnbindProjectResult =
       readonly profile: string;
       readonly hosts: readonly string[];
       readonly recovery: "authored-path";
+      readonly generatedOutputSurvives: boolean;
     }
   | {
       readonly outcome: "unchanged";
@@ -186,29 +191,54 @@ export type UnbindProjectResult =
       readonly canonicalProject?: string;
     };
 
-export async function generatedOutputSurvivesUnbind(
-  home: string,
-  result: Extract<UnbindProjectResult, { outcome: "removed" }>,
-): Promise<boolean> {
-  try {
-    const project = result.recovery === "canonical"
-      ? result.canonicalProject
-      : await canonicalizePathForComparison(
-          expandConfiguredPath(result.project, home, "Project Binding", "project"),
-        );
+/**
+ * Retire the active ordinary Installation Receipt naming one canonical Project,
+ * recording only what ordinary teardown records: the receipt leaves
+ * Installation State and its recorded Repository Exclusion Contribution leaves
+ * the exclusion target, preserving unrelated bytes. Temporary receipts and
+ * removed-temporary identities are preserved. Serialized against apply and
+ * uninstall through the installation lifecycle lock; unbind already holds the
+ * Local Configuration lock and no command acquires the two locks in the
+ * opposite order.
+ *
+ * Returns whether an active receipt named the Project — the generated-output
+ * survival fact for unbind's next-step guidance, read at the only moment it is
+ * still observable.
+ */
+async function retireOrdinaryReceipt(home: string, project: string): Promise<boolean> {
+  return withInstallationLifecycleLock(home, "unbind", async () => {
     const state = await readInstallationState(home);
-    return state.receipts.some(
-      (receipt) => receipt.lifetime === "ordinary" && receipt.project === project,
+    const remaining = state.receipts.filter(
+      (receipt) => !(receipt.lifetime === "ordinary" && receipt.project === project),
     );
-  } catch {
-    // Binding removal remains independent from readable installation state.
-    // Status will surface malformed state; uncertain output cannot justify a next step here.
-    return false;
-  }
+    if (remaining.length === state.receipts.length) return false;
+    const after = withReceipts(state, remaining);
+    const exclusions = await stageGitExclusions(state, after);
+    try {
+      await writeInstallationState(home, after);
+      await exclusions.commit();
+    } catch (error) {
+      await exclusions.rollback().catch(() => undefined);
+      try {
+        await writeInstallationState(home, state);
+      } catch (restoreFailure) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `${detail}\nInstallation State restore failed: ${
+            restoreFailure instanceof Error ? restoreFailure.message : String(restoreFailure)
+          }`,
+        );
+      }
+      throw error;
+    }
+    return true;
+  });
 }
 
 /**
- * Remove one Project Binding from Local Configuration without reconciling output.
+ * Remove one Project Binding from Local Configuration and retire that Project's
+ * active Installation Receipt in the same operation, so no receipt can outlive
+ * the binding that created it (DEC-006). Generated output is never reconciled.
  * Existing paths match by canonical identity; a missing path matches only its
  * exact authored spelling already present in Local Configuration.
  */
@@ -310,6 +340,16 @@ export async function unbindProject(
       if (!isSeq(bindingsNode)) {
         throw new Error(`${description} bindings must be an array`);
       }
+      // Retire the receipt before publishing the binding replacement: a failure
+      // from here on can leave a binding without a receipt (the next apply
+      // re-creates it) but never a receipt outliving its binding. Malformed
+      // Installation State fails unbind before any mutation.
+      const receiptProject = match.recovery === "canonical"
+        ? match.canonicalProject
+        : await canonicalizePathForComparison(
+            expandConfiguredPath(match.project, options.home, "Project Binding", "project"),
+          );
+      const generatedOutputSurvives = await retireOrdinaryReceipt(options.home, receiptProject);
       const nextSource = removeBindingSource(source, bindingsNode, match.index);
       const sourceStats = await fileSystem.stat(configurationPath);
       const mode = sourceStats.mode & 0o777;
@@ -333,6 +373,7 @@ export async function unbindProject(
           profile: match.profile,
           hosts: match.hosts,
           recovery: "canonical",
+          generatedOutputSurvives,
         };
       }
       return {
@@ -343,6 +384,7 @@ export async function unbindProject(
         profile: match.profile,
         hosts: match.hosts,
         recovery: "authored-path",
+        generatedOutputSurvives,
       };
     },
   );

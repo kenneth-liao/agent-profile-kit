@@ -49,7 +49,6 @@ import {
 import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
 import { bindProject, hostsEqual } from "../installer/bind-project.js";
 import {
-  generatedOutputSurvivesUnbind,
   unbindProject,
 } from "../installer/unbind-project.js";
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
@@ -856,8 +855,7 @@ async function main(): Promise<void> {
     const recoveryCopyable = result.recovery === "authored-path"
       ? [recoveryExplanation, `Local Configuration: ${result.configurationPath}`]
       : [];
-    const generatedOutputSurvives = await generatedOutputSurvivesUnbind(home, result);
-    const survival = generatedOutputSurvives
+    const survival = result.generatedOutputSurvives
       ? "Generated files remain until apply\n" +
         `Next: ${COMMAND_NAME} status --all\n`
       : "";
