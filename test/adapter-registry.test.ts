@@ -55,7 +55,7 @@ describe("canonical Host registry", () => {
     expect(hostRegistrationFor("pi")).toMatchObject({
       adapterVersion: "pi-project-v2",
       host: "pi",
-      supportsTemporaryProfileInstallation: false,
+      supportsTemporaryProfileInstallation: true,
     });
     expect(() => hostRegistrationFor("unknown" as "claude")).toThrow(
       "Unsupported Agent Host 'unknown'",

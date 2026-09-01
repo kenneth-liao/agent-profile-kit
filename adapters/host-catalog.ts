@@ -32,7 +32,7 @@ export const HOST_CATALOG = [
   {
     adapterVersion: "pi-project-v2",
     host: "pi",
-    supportsTemporaryProfileInstallation: false,
+    supportsTemporaryProfileInstallation: true,
   },
 ] as const;
 

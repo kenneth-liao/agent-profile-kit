@@ -10719,7 +10719,7 @@ describe("apkit list", () => {
         { host: "codex", supportsTemporaryProfileInstallation: true },
         { host: "grok", supportsTemporaryProfileInstallation: false },
         { host: "opencode", supportsTemporaryProfileInstallation: true },
-        { host: "pi", supportsTemporaryProfileInstallation: false },
+        { host: "pi", supportsTemporaryProfileInstallation: true },
       ],
     });
     expect(existsSync(join(home, ".agents"))).toBe(false);
@@ -11829,6 +11829,200 @@ describe("apkit temporary Profile installation (Codex)", () => {
     ).toBe(true);
     // Ordinary Profile Installation remains after temporary lifecycle.
     expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
+  test("install-temp / remove-temp complete Pi lifecycle with a versioned receipt and isolation", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const skillSource = join(workspacePath(home), "skills", "review-pr");
+    mkdirSync(skillSource, { recursive: true });
+    writeFileSync(
+      join(skillSource, "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\nReview the change carefully.\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\n",
+    );
+    const piBin = installFakePi(home);
+    const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-pi-"));
+    const boundProject = realpathSync(gitRepository("agent-profile-kit-bound-pi-"));
+    bind(home, boundProject);
+    const applyBound = await runCli(home, "apply");
+    expectExitCode(applyBound, 0);
+    const boundContextBefore = readFileSync(
+      join(boundProject, ".agent-profile-kit", "codex", "context.md"),
+    );
+    const unrelated = join(tempProject, "keep.txt");
+    writeFileSync(unrelated, "user-owned\n");
+    // Malformed Pi settings produce a non-blocking diagnostic that must appear on the live receipt.
+    mkdirSync(join(tempProject, ".pi"), { recursive: true });
+    writeFileSync(join(tempProject, ".pi", "settings.json"), "{ not json");
+
+    const install = await runCliWithPath(
+      home,
+      `${piBin}:${process.env.PATH ?? ""}`,
+      "install-temp",
+      "coding",
+      tempProject,
+      "--host",
+      "pi",
+      "--json",
+    );
+    expectExitCode(install, 0);
+    const receipt = JSON.parse(install.stdout) as {
+      readonly schemaVersion: number;
+      readonly command: string;
+      readonly outcome: string;
+      readonly temporaryInstallationId: string;
+      readonly profileId: string;
+      readonly host: string;
+      readonly project: string;
+      readonly workspaceInputHash: string;
+      readonly engineVersion: string;
+      readonly adapterVersion: string;
+      readonly hostVersion: string;
+      readonly outputs: readonly string[];
+      readonly repositoryExclusion:
+        | { readonly target: string; readonly entries: readonly string[] }
+        | null;
+      readonly completionState: string;
+      readonly setupSteps: readonly {
+        readonly host: string;
+        readonly kind: string;
+        readonly message: string;
+        readonly consequence?: string;
+        readonly provenance?: string;
+      }[];
+      readonly warnings: readonly string[];
+    };
+    expect(receipt.schemaVersion).toBe(8);
+    expect(receipt.command).toBe("install-temp");
+    expect(receipt.outcome).toBe("success");
+    expect(receipt.profileId).toBe("coding");
+    expect(receipt.host).toBe("pi");
+    expect(receipt.project).toBe(tempProject);
+    expect(receipt.completionState).toBe("installed");
+    expect(receipt.temporaryInstallationId.length).toBeGreaterThan(0);
+    expect(receipt.workspaceInputHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(receipt.engineVersion).toBeTruthy();
+    expect(receipt.adapterVersion).toBe("pi-project-v2");
+    expect(receipt.hostVersion).toBe("native-project-append-system-shared-skills-v1");
+    expect(receipt.outputs).not.toContain(".agent-profile-kit/installation.json");
+    expect(receipt.outputs).toContain(".pi/APPEND_SYSTEM.md");
+    expect(receipt.outputs).toContain(".agents/skills/review-pr");
+    expect(receipt.repositoryExclusion).not.toBeNull();
+    expect(receipt.repositoryExclusion!.entries).toEqual(
+      expect.arrayContaining([
+        "/.pi/APPEND_SYSTEM.md",
+        "/.agent-profile-kit/installation.json",
+        "/.agents/skills/review-pr",
+      ]),
+    );
+    expect(receipt.setupSteps).toEqual([
+      {
+        host: "pi",
+        kind: "trust-required",
+        message: "Trust the bound project in Pi.",
+        consequence: "The Profile does not load until the project is trusted.",
+        provenance: "standing",
+      },
+    ]);
+    expect(Array.isArray(receipt.warnings)).toBe(true);
+    expect(receipt.warnings.some((warning) =>
+      /Pi project settings relevant to planned Skills .* could not be read or parsed/.test(warning)
+    )).toBe(true);
+
+    expect(readFileSync(join(tempProject, ".pi", "APPEND_SYSTEM.md"), "utf8"))
+      .toContain("Always preserve the project boundary.");
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+    expect(existsSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    expect(readFileSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"), "utf8"))
+      .toContain("Review the change carefully.");
+    const exclude = join(tempProject, ".git", "info", "exclude");
+    const excludeText = readFileSync(exclude, "utf8");
+    expect(excludeText).toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(excludeText).toContain("/.pi/APPEND_SYSTEM.md");
+    expect(existsSync(join(tempProject, ".gitignore"))).toBe(false);
+
+    expect(readFileSync(unrelated, "utf8")).toBe("user-owned\n");
+    expect(
+      readFileSync(join(boundProject, ".agent-profile-kit", "codex", "context.md")).equals(
+        boundContextBefore,
+      ),
+    ).toBe(true);
+
+    const remove = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    expectExitCode(remove, 0);
+    const removed = JSON.parse(remove.stdout) as {
+      readonly outcome: string;
+      readonly completionState: string;
+      readonly temporaryInstallationId: string;
+      readonly outputs: readonly string[];
+      readonly setupSteps: readonly unknown[];
+      readonly warnings: readonly unknown[];
+    };
+    expect(removed.outcome).toBe("success");
+    expect(removed.completionState).toBe("removed");
+    expect(removed.temporaryInstallationId).toBe(receipt.temporaryInstallationId);
+    expect(removed.outputs).toEqual([]);
+    expect(removed.setupSteps).toEqual([]);
+    expect(removed.warnings).toEqual([]);
+    expect(existsSync(join(tempProject, ".pi", "APPEND_SYSTEM.md"))).toBe(false);
+    expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(readFileSync(exclude, "utf8")).not.toContain("# BEGIN Agent Profile Kit generated paths");
+    expect(readFileSync(unrelated, "utf8")).toBe("user-owned\n");
+
+    const removeAgain = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    expectExitCode(removeAgain, 0);
+    const removedAgain = JSON.parse(removeAgain.stdout) as {
+      readonly outcome: string;
+      readonly completionState: string;
+    };
+    expect(removedAgain.outcome).toBe("success");
+    expect(removedAgain.completionState).toBe("removed");
+
+    // Ordinary Profile Installation remains after temporary lifecycle.
+    expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(true);
+  });
+
+  test("install-temp for Pi fails closed on tracked destinations before writes", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const piBin = installFakePi(home);
+    const projectPath = realpathSync(gitRepository("agent-profile-kit-temp-pi-block-"));
+    mkdirSync(join(projectPath, ".pi"), { recursive: true });
+    writeFileSync(join(projectPath, ".pi", "APPEND_SYSTEM.md"), "tracked\n");
+    execFileSync("git", ["-C", projectPath, "add", ".pi/APPEND_SYSTEM.md"]);
+    execFileSync("git", ["-C", projectPath, "commit", "-qm", "track destination"]);
+
+    const tracked = await runCliWithPath(
+      home,
+      `${piBin}:${process.env.PATH ?? ""}`,
+      "install-temp",
+      "coding",
+      projectPath,
+      "--host",
+      "pi",
+      "--json",
+    );
+    expectExitCode(tracked, 2);
+    const blocked = JSON.parse(tracked.stdout) as {
+      readonly outcome: string;
+      readonly schemaVersion: number;
+      readonly blockers: readonly Record<string, unknown>[];
+    };
+    expect(blocked.outcome).toBe("blocked");
+    expect(blocked.schemaVersion).toBe(8);
+    expect(blocked.blockers.some((blocker) => /tracked project path/i.test(String(blocker.message)))).toBe(true);
+    expect(blocked.blockers.some((blocker) => blocker.kind === "output-ownership-conflict" && blocker.scope === "project")).toBe(true);
+    // Marker must not be published when blocked.
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("install-temp surfaces Codex Host Setup Steps and hooks-disabled warnings", async () => {
