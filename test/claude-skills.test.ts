@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
   chmodSync,
   existsSync,
@@ -226,7 +227,7 @@ describe("Claude project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportItems(preview).some((item) => item.kind === "addition")).toBe(true);
     expect(
@@ -310,7 +311,7 @@ describe("Claude project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportBlockers(preview).some((blocker) =>
       blocker.message.includes(".claude/skills/review-pr") &&
@@ -466,7 +467,7 @@ describe("Claude project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportBlockers(preview)).toEqual([]);
     await applyReconciliation(home, desired.installations);

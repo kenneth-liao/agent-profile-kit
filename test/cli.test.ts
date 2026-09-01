@@ -2694,7 +2694,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       schema_version: number;
       receipts: Array<{ outputs: Array<{ mode: number; type: string }> }>;
     };
-    expect(state.schema_version).toBe(7);
+    expect(state.schema_version).toBe(8);
     expect(state).toHaveProperty("removed_temporary_installation_ids");
     expect(state.receipts).toHaveLength(1);
     expect(state.receipts[0]!.outputs.every((output) =>
@@ -5813,13 +5813,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const uninstall = await runCli(home, "uninstall");
 
     expectExitCode(status, 2);
-    expect(status.stdout).toContain("schema_version must be 7 or 6");
+    expect(status.stdout).toContain("schema_version must be 8 or 7");
     expectExitCode(apply, 2);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
-    expect(apply.stdout).toContain("schema_version must be 7 or 6");
+    expect(apply.stdout).toContain("schema_version must be 8 or 7");
     expectExitCode(uninstall, 1);
-    expect(uninstall.stderr).toContain("schema_version must be 7 or 6");
+    expect(uninstall.stderr).toContain("schema_version must be 8 or 7");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
   });
@@ -6258,6 +6258,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(unbound, 0);
     expect(unbound.stdout).toContain("Generated files remain until apply");
     expect(unbound.stdout).toContain("Next: apkit status --all");
+    // The receipt is retired by unbind itself: no active receipt remains and
+    // the retiring record carries exactly its previously recorded detail.
+    const retired = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { installation_id: string; retired?: boolean }[];
+    };
+    expect(retired.receipts).toHaveLength(1);
+    expect(retired.receipts[0]?.retired).toBe(true);
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: removal`));
@@ -8778,16 +8785,25 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
 
-  test("unbind leaves reconciliation of former output to global status and apply", async () => {
+  test("unbind retires the Project's active Installation Receipt in the same operation", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     bind(home, projectPath);
-
     const applied = await runCli(home, "apply");
     expectExitCode(applied, 0);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
+    const before = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly {
+        installation_id: string;
+        outputs: readonly { path: string }[];
+        retired?: boolean;
+      }[];
+      removed_temporary_installation_ids: readonly string[];
+    };
+    expect(before.receipts).toHaveLength(1);
+    expect(before.receipts[0]?.retired).toBeUndefined();
 
     const removed = await runCli(home, "unbind", projectPath);
     expectExitCode(removed, 0);
@@ -8796,18 +8812,223 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expect(removed.stdout).not.toContain(configPath(home));
     expect(removed.stdout).toContain("Generated files remain until apply");
     expect(removed.stdout).toContain("Next: apkit status --all");
-    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
 
+    // Retirement records only what the receipt already recorded: it is marked
+    // retired in the same operation and no tombstone or ownership detail is
+    // added, while apply keeps the teardown authority over surviving output.
+    const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly {
+        installation_id: string;
+        retired?: boolean;
+        outputs: readonly { path: string }[];
+      }[];
+      removed_temporary_installation_ids: readonly string[];
+    };
+    expect(after.receipts).toHaveLength(1);
+    expect(after.receipts[0]?.retired).toBe(true);
+    expect(after.receipts[0]?.installation_id).toBe(before.receipts[0]?.installation_id);
+    expect(after.receipts[0]?.outputs).toEqual(before.receipts[0]?.outputs);
+    expect(after.removed_temporary_installation_ids).toEqual(
+      before.removed_temporary_installation_ids,
+    );
+
+    // Generated files remain on disk and status reports the pending removal.
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
     expect(status.stdout).toContain(projectPath);
     expect(status.stdout).toMatch(/removal/i);
 
+    // apply keeps its teardown authority: the surviving Host-active files are
+    // removed and the retiring record is consumed in the same run.
     const reconciled = await runCli(home, "apply");
     expectExitCode(reconciled, 0);
-    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+    const consumed = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly unknown[];
+    };
+    expect(consumed.receipts).toHaveLength(0);
+  });
+
+  test("re-binding an unbound Project and applying starts a clean lifetime", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const initial = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { installation_id: string }[];
+    };
+    const initialId = initial.receipts[0]!.installation_id;
+
+    expectExitCode(await runCli(home, "unbind", projectPath), 0);
+    expectExitCode(await runCli(home, "bind", "coding", projectPath, "--host", "codex"), 0);
+    const rebound = await runCli(home, "apply");
+
+    expectExitCode(rebound, 0);
+    expect(rebound.stderr).toBe("");
+    const restored = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { installation_id: string; project: string; retired?: boolean }[];
+    };
+    expect(restored.receipts).toHaveLength(1);
+    expect(restored.receipts[0]?.retired).toBeUndefined();
+    expect(restored.receipts[0]?.project).toBe(realpathSync(projectPath));
+    expect(restored.receipts[0]?.installation_id).not.toBe(initialId);
+  });
+
+  test("apply rejects a stale desired-state snapshot after a concurrent unbind", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const { buildDesiredState } = await import("../installer/project-plan.js");
+    const { applyReconciliation } = await import("../installer/reconcile.js");
+    const desired = await buildDesiredState(home);
+    expect(desired.installations).toHaveLength(1);
+
+    // A concurrent unbind retires the receipt and removes the binding between
+    // desired-state planning and the lifecycle lock.
+    expectExitCode(await runCli(home, "unbind", projectPath), 0);
+
+    await expect(applyReconciliation(home, desired.installations)).rejects
+      .toThrow(/Local Configuration changed while apply was planning/);
+
+    // Fail closed: the retired receipt survives unchanged for the next apply.
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { installation_id: string; retired?: boolean }[];
+    };
+    expect(state.receipts).toHaveLength(1);
+    expect(state.receipts[0]?.retired).toBe(true);
+    expectExitCode(await runCli(home, "apply"), 0);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
+  });
+
+  test("unbind rolls the retirement back when binding publication fails", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const before = readFileSync(statePath(home), "utf8");
+
+    const { unbindProject } = await import("../installer/unbind-project.js");
+    const {
+      mkdir,
+      readdir,
+      readFile,
+      rename,
+      rm,
+      stat,
+      unlink,
+      writeFile,
+    } = await import("node:fs/promises");
+    await expect(
+      unbindProject({
+        home,
+        project: projectPath,
+        fileSystem: {
+          mkdir,
+          readdir,
+          rename,
+          rm,
+          stat,
+          unlink,
+          writeFile: async (path, data, options) => {
+            if (typeof path === "string" && path.includes(".config-") && path.endsWith(".tmp")) {
+              throw new Error("simulated Local Configuration staging failure");
+            }
+            return writeFile(path, data, options);
+          },
+          readFile,
+        },
+      }),
+    ).rejects.toThrow(/simulated Local Configuration staging failure/);
+
+    // The failed unbind mutated nothing: the receipt is active again.
+    expect(readFileSync(statePath(home), "utf8")).toBe(before);
+    expect(readFileSync(configPath(home), "utf8")).toContain(projectPath);
+  });
+
+  test("uninstall is unaffected by a previously unbound Project", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const unbound = project("agent-profile-kit-unbound-");
+    const retained = project("agent-profile-kit-retained-");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${unbound}\n    profile: coding\n    hosts: [codex]\n  - project: ${retained}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply"), 0);
+    expectExitCode(await runCli(home, "unbind", unbound), 0);
+
+    const result = await runCli(home, "uninstall");
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("Removed proven Agent Profile Kit-owned output from 1 Project.");
+    expect(existsSync(join(retained, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    // The unbound Project's surviving generated files are nobody's teardown business.
+    expect(existsSync(join(unbound, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+  });
+
+  test("retiring an ordinary receipt at unbind preserves Temporary Profile Installations", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const temporaryProject = project("agent-profile-kit-temporary-");
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const active = await runCli(
+      home,
+      "install-temp",
+      "coding",
+      temporaryProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expectExitCode(active, 0);
+    const activeId = (JSON.parse(active.stdout) as { temporaryInstallationId: string })
+      .temporaryInstallationId;
+    const removedTempProject = join(temporaryProject, "removed");
+    mkdirSync(removedTempProject, { recursive: true });
+    const removed = await runCli(
+      home,
+      "install-temp",
+      "coding",
+      removedTempProject,
+      "--host",
+      "codex",
+      "--json",
+    );
+    expectExitCode(removed, 0);
+    const removedId = (JSON.parse(removed.stdout) as { temporaryInstallationId: string })
+      .temporaryInstallationId;
+    expectExitCode(await runCli(home, "remove-temp", removedId, "--json"), 0);
+
+    expectExitCode(await runCli(home, "unbind", projectPath), 0);
+
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { lifetime: string; installation_id: string; retired?: boolean }[];
+      removed_temporary_installation_ids: readonly string[];
+    };
+    // The active Temporary receipt, its identity, and its generated output all
+    // survive the ordinary retirement untouched; the tombstone is unchanged.
+    expect(state.receipts).toHaveLength(2);
+    const survivingActive = state.receipts.find(
+      (receipt) => receipt.installation_id === activeId,
+    );
+    expect(survivingActive?.lifetime).toBe("temporary");
+    expect(survivingActive?.retired).toBeUndefined();
+    expect(state.removed_temporary_installation_ids).toEqual([removedId]);
+    expect(existsSync(join(temporaryProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
   test("unbind omits reconciliation guidance when uninstall already removed generated output", async () => {

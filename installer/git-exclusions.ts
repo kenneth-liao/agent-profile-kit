@@ -19,6 +19,7 @@ import type { LifecycleGitInspection } from "./lifecycle-git-inspection.js";
 import type { DesiredInstallation } from "./project-plan.js";
 import {
   ordinaryReceipts,
+  retiredReceipts,
   repositoryExclusionRecords,
   withReceipts,
   withRepositoryExclusion,
@@ -1071,7 +1072,7 @@ async function retiringInstallationOwnershipBlockers(
 ): Promise<readonly BlockerInput[]> {
   if (retiringInstallationIds.size === 0) return [];
   const blockers: BlockerInput[] = [];
-  for (const installation of ordinaryReceipts(state)) {
+  for (const installation of [...ordinaryReceipts(state), ...retiredReceipts(state)]) {
     if (!retiringInstallationIds.has(installation.installationId)) continue;
     const contributionLinks = repositoryExclusionRecords(state).flatMap((record) =>
       record.contributions
@@ -1202,7 +1203,7 @@ function projectsForExclusionTarget(
   target: string,
 ): readonly string[] {
   const projectByInstallationId = new Map(
-    ordinaryReceipts(state).map((installation) => [
+    [...ordinaryReceipts(state), ...retiredReceipts(state)].map((installation) => [
       installation.installationId,
       installation.project,
     ] as const),

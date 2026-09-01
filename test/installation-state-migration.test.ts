@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
-import { parseOwnershipState } from "../schemas/ownership-state.js";
+import { OWNERSHIP_STATE_SCHEMA_VERSION, parseOwnershipState } from "../schemas/ownership-state.js";
 import { stateManifestPath } from "../installer/project-plan.js";
 
 const hash = `sha256:${"0".repeat(64)}`;
@@ -30,7 +30,7 @@ afterEach(() => {
 function previousVersionStateSource(home: string): string {
   const project = join(home, "project");
   return JSON.stringify({
-    schema_version: 6,
+    schema_version: 7,
     receipts: [{
       installation_id: "installation-a",
       lifetime: "ordinary",
@@ -72,7 +72,7 @@ test("reads the previous schema version and ignores recorded Marker output entri
 
   const state = await readInstallationState(home);
 
-  expect(state.schemaVersion).toBe(7);
+  expect(state.schemaVersion).toBe(OWNERSHIP_STATE_SCHEMA_VERSION);
   expect(state.receipts).toHaveLength(1);
   expect(state.receipts[0]!.outputs.map((output) => output.path)).toEqual([".codex/hooks.json"]);
   expect(state.receipts[0]!.installationId).toBe("installation-a");
@@ -86,10 +86,10 @@ test("the next successful write publishes the current schema version without re-
   await writeInstallationState(home, state);
 
   const raw = JSON.parse(readFileSync(stateManifestPath(home), "utf8")) as Record<string, unknown>;
-  expect(raw.schema_version).toBe(7);
+  expect(raw.schema_version).toBe(OWNERSHIP_STATE_SCHEMA_VERSION);
   expect(JSON.stringify(raw)).not.toContain("installation.json");
   const reread = await readInstallationState(home);
-  expect(reread.schemaVersion).toBe(7);
+  expect(reread.schemaVersion).toBe(OWNERSHIP_STATE_SCHEMA_VERSION);
   expect(reread.receipts[0]!.installationId).toBe("installation-a");
 });
 
@@ -100,7 +100,7 @@ test("reading the current schema version is unchanged", async () => {
   const republished = readFileSync(stateManifestPath(home), "utf8");
 
   const state = await readInstallationState(home);
-  expect(state.schemaVersion).toBe(7);
+  expect(state.schemaVersion).toBe(OWNERSHIP_STATE_SCHEMA_VERSION);
   // The republished bytes are strict current-version documents.
   expect(parseOwnershipState(republished).receipts).toEqual(state.receipts);
 });

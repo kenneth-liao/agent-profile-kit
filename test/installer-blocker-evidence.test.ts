@@ -54,6 +54,7 @@ import {
 import {
   OWNERSHIP_STATE_LIMITS,
   type OwnershipState,
+  OWNERSHIP_STATE_SCHEMA_VERSION,
 } from "../schemas/ownership-state.js";
 import {
   reportBlockers,
@@ -102,7 +103,7 @@ function emptyState(): OwnershipState {
   return {
     receipts: [],
     removedTemporaryInstallationIds: [],
-    schemaVersion: 7,
+    schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
   };
 }
 

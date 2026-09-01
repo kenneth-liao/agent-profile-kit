@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -65,7 +66,7 @@ describe("nested Project reconciliation report", () => {
     const report = await previewReconciliation(installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
 
     expect(Object.keys(report).sort()).toEqual(["globalBlockers", "projects"]);
@@ -479,7 +480,8 @@ describe("previous-version Marker migration", () => {
       (output as { bytes: string }).bytes,
     ]));
     // Simulate the previous product version: generated output installed and a
-    // Marker file on disk, with a v6 receipt that never recorded the Marker.
+    // Marker file on disk, with a previous-version receipt that never recorded
+    // the Marker.
     mkdirSync(join(project, ".agent-profile-kit", "codex"), { recursive: true });
     mkdirSync(join(project, "nested"), { recursive: true });
     for (const [path, content] of bytes) {
@@ -488,14 +490,14 @@ describe("previous-version Marker migration", () => {
     }
     writeFileSync(
       join(project, ".agent-profile-kit", "installation.json"),
-      JSON.stringify({ installation_id: "v6-installation-id", schema_version: 1 }),
+      JSON.stringify({ installation_id: "previous-installation-id", schema_version: 1 }),
     );
     const sha256 = (value: string) =>
       `sha256:${createHash("sha256").update(value).digest("hex")}`;
     const previousStateSource = JSON.stringify({
-      schema_version: 6,
+      schema_version: 7,
       receipts: [{
-        installation_id: "v6-installation-id",
+        installation_id: "previous-installation-id",
         lifetime: "ordinary",
         project,
         profile_id: "coding",
@@ -566,6 +568,10 @@ describe("previous-version Marker migration", () => {
 
     // The removal staging must preserve the unknown bytes too while removing
     // the proven owned output.
+    // Retire the receipt the way unbind does: the removal pass then consumes
+    // the retiring record without a desired plan.
+    const { unbindProject } = await import("../installer/unbind-project.js");
+    await unbindProject({ home, project });
     await applyReconciliation(home, []);
     expect(readFileSync(foreign, "utf8")).toBe("user data unknown to Agent Profile Kit\n");
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
@@ -622,6 +628,10 @@ describe("previous-version Marker migration", () => {
     await applyReconciliation(home, desired);
     expect(readFileSync(token, "utf8")).toContain("some-other-installation");
 
+    // Retire the receipt the way unbind does: the removal pass then consumes
+    // the retiring record without a desired plan.
+    const { unbindProject } = await import("../installer/unbind-project.js");
+    await unbindProject({ home, project });
     await applyReconciliation(home, []);
     expect(readFileSync(token, "utf8")).toContain("some-other-installation");
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
@@ -655,6 +665,10 @@ describe("previous-version Marker migration", () => {
     writeToken(project, receiptId);
     const token = join(project, ".agent-profile-kit", "installation.json");
 
+    // Retire the receipt the way unbind does: the removal pass then consumes
+    // the retiring record without a desired plan.
+    const { unbindProject } = await import("../installer/unbind-project.js");
+    await unbindProject({ home, project });
     await applyReconciliation(home, []);
 
     expect(existsSync(token)).toBe(false);

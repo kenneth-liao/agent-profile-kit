@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   OWNERSHIP_STATE_LIMITS,
+  OWNERSHIP_STATE_SCHEMA_VERSION,
   formatOwnershipState,
   parseOwnershipState,
   type OwnershipState,
@@ -34,7 +35,7 @@ function ordinaryState(): OwnershipState {
       },
     }],
     removedTemporaryInstallationIds: [],
-    schemaVersion: 7,
+    schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
   };
 }
 
@@ -43,7 +44,7 @@ describe("final JSON ownership-state codec", () => {
     const source = formatOwnershipState(ordinaryState());
 
     expect(source.startsWith("{\n")).toBe(true);
-    expect(source).toContain('"schema_version": 7');
+    expect(source).toContain('"schema_version": 8');
     expect(source).toContain('"desired_input_digest"');
     expect(parseOwnershipState(source)).toEqual(ordinaryState());
     expect(formatOwnershipState(parseOwnershipState(source))).toBe(source);
@@ -71,7 +72,7 @@ describe("final JSON ownership-state codec", () => {
     const source = formatOwnershipState({
       receipts: [second, state.receipts[0]!],
       removedTemporaryInstallationIds: ["removed-z", "removed-a"],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     const parsed = parseOwnershipState(source);
 
@@ -174,7 +175,7 @@ describe("final JSON ownership-state codec", () => {
     const collectionHeavy = JSON.parse(formatOwnershipState({
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     }));
     collectionHeavy.removed_temporary_installation_ids = Array.from(
       { length: OWNERSHIP_STATE_LIMITS.maxCollectionEntries + 1 },

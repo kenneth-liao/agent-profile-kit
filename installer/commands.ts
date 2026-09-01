@@ -23,6 +23,7 @@ import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js"
 import type { LifecycleInstrumentation } from "./qualification-instrumentation.js";
 import {
   ordinaryReceipts,
+  retiredReceipts,
   temporaryReceipts,
   withReceipts,
 } from "./ownership-state.js";
@@ -250,8 +251,13 @@ async function uninstallApplicationLocked(home: string): Promise<UninstallResult
     for (const installation of installations) {
       transactions.push(await stageProvenInstallationRemoval(installation));
     }
-    // Ordinary uninstall preserves Temporary Profile Installation receipts and tombstones.
-    const afterOrdinaryUninstall = withReceipts(state, temporaryReceipts(state));
+    // Ordinary uninstall ignores retired receipts (they belong to unbound
+    // Projects) and preserves Temporary receipts, tombstones, and retired
+    // records alike: teardown of retired output belongs to the next apply.
+    const afterOrdinaryUninstall = withReceipts(state, [
+      ...temporaryReceipts(state),
+      ...retiredReceipts(state),
+    ]);
     exclusions = await stageGitExclusions(state, afterOrdinaryUninstall);
     stateWriteAttempted = true;
     await writeInstallationState(home, afterOrdinaryUninstall);

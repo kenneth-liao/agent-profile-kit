@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
   chmodSync,
   existsSync,
@@ -347,7 +348,7 @@ describe("Skill model-invocation policy", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportBlockers(preview)).toEqual([]);
     await applyReconciliation(home, desired.installations);
@@ -552,7 +553,7 @@ describe("Skill model-invocation policy", () => {
       const preview = await previewReconciliation(desired.installations, {
         receipts: [],
         removedTemporaryInstallationIds: [],
-        schemaVersion: 7,
+        schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
       });
       expect(reportBlockers(preview).length).toBeGreaterThan(0);
       expect(existsSync(join(project, ".agents", "skills", "to-spec"))).toBe(false);

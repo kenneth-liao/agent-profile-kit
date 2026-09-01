@@ -527,7 +527,7 @@ export async function ingestProjectBindingsFromSource(
   return normalizeProjectBindings(home, parsed.bindings, path, { kind: "inventory" });
 }
 
-async function readLocalConfigurationSource(
+export async function readLocalConfigurationSource(
   home: string,
 ): Promise<{ readonly path: string; readonly source: string }> {
   const path = localConfigurationPath(home);

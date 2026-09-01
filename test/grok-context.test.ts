@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
   chmodSync,
   existsSync,
@@ -389,7 +390,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportBlockers(preview)).toEqual([]);
     expect(reportDesired(preview)[0]?.outputs).toContain(GROK_CONTEXT_RULE_PATH);
@@ -460,7 +461,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
       const report = await previewReconciliation(desired.installations, {
         receipts: [],
         removedTemporaryInstallationIds: [],
-        schemaVersion: 7,
+        schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
       });
       expect(
         reportBlockers(report).some((blocker) => blocker.message.includes("is a file, not a directory")),
@@ -493,7 +494,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportBlockers(report)).toEqual([]);
     await applyReconciliation(home, desired.installations);

@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
@@ -181,7 +182,7 @@ async function previewWithInspection(
     state = {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     } as const;
   }
   const report = await previewReconciliation(desired.installations, state, { gitInspection });
@@ -264,7 +265,7 @@ describe("lifecycle Git inspection batching", () => {
     const report = await previewReconciliation([installation], {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     }, { gitInspection });
 
     expect(instrumentation.counts.classifyTrackedPaths).toBe(1);

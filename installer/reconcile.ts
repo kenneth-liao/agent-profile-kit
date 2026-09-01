@@ -44,8 +44,14 @@ import {
 } from "./installation-state.js";
 import { gitExcludeEntry, type GitProject } from "./git.js";
 import {
+  ingestApplicationModelFromSource,
+  readLocalConfigurationSource,
+} from "./local-configuration.js";
+import {
   ordinaryReceipts,
   repositoryExclusionRecords,
+  retiredReceipts,
+  temporaryReceipts,
   withReceipts,
   withRepositoryExclusion,
 } from "./ownership-state.js";
@@ -618,12 +624,17 @@ async function installationRetirementSelection(
   scope: ReconciliationScope = { kind: "all" },
 ): Promise<InstallationRetirementSelection> {
   const desiredProjects = new Set(desired.map((installation) => installation.binding.canonicalProject));
-  // Local Configuration is the sole canonical desired-state record. A successful
-  // exact-path `unbind` (or an equivalent supported hand edit) is represented by
-  // the binding's absence; no second retirement tombstone is persisted.
+  // Local Configuration is the sole canonical desired-state record, and a
+  // successful `unbind` retires the Project's active receipt in the same
+  // operation: the retired receipt keeps its recorded detail as the one
+  // teardown authority until apply proves and removes the surviving output.
+  // Both status and apply use this same reader so deletion intent cannot
+  // silently lose its exclusion-ownership safeguards. Independent per-Project
+  // reads run through the shared bounded scheduler; the deletion-intent
+  // selection folds in canonical order afterwards.
   const intentionallyDeletedProjects = new Set<string>();
   const retiredCandidates = scope.kind === "all"
-    ? ordinaryReceipts(state).filter((installation) =>
+    ? [...ordinaryReceipts(state), ...retiredReceipts(state)].filter((installation) =>
         !desiredProjects.has(installation.project)
       )
     : [];
@@ -637,7 +648,7 @@ async function installationRetirementSelection(
   }
   return {
     intentionallyDeletedInstallationIds: new Set(
-      ordinaryReceipts(state)
+      [...ordinaryReceipts(state), ...retiredReceipts(state)]
         .filter((installation) => intentionallyDeletedProjects.has(installation.project))
         .map((installation) => installation.installationId),
     ),
@@ -1157,10 +1168,25 @@ export async function previewReconciliation(
       ? {}
       : { ineligibleContributionEvidence }),
   })));
-  const staleCandidates = scope.kind === "all" ? ordinaryReceipts(state) : [];
+  // Retired receipts (from unbind) join the stale candidates: apply consumes
+  // their recorded detail to prove and remove the surviving output, exactly as
+  // it consumes receipts orphaned by a supported hand edit. A retired receipt
+  // whose Project is desired again is consumed by the ordinary install pass
+  // below instead: the fresh binding owns a clean lifetime.
+  const staleCandidates = scope.kind === "all"
+    ? [...ordinaryReceipts(state), ...retiredReceipts(state)]
+      .sort((left, right) => compareCanonicalStrings(left.project, right.project))
+    : [];
   const staleResults = await scheduler.run(staleCandidates.map((installation) => async () => {
     if (desiredProjects.has(installation.project)) {
-      return undefined;
+      return installation.retired === true
+        ? {
+          blockers: [],
+          installationId: installation.installationId,
+          items: [],
+          outputItems: [],
+        }
+        : undefined;
     }
     const intentionallyDeleted = intentionallyDeletedProjects.has(installation.project);
     const proof = intentionallyDeleted
@@ -1247,7 +1273,9 @@ export async function previewReconciliation(
     ])].sort(),
   };
   const projectByInstallationId = new Map(
-    ordinaryReceipts(state).map((installation) => [installation.installationId, installation.project]),
+    [...ordinaryReceipts(state), ...retiredReceipts(state)].map(
+      (installation) => [installation.installationId, installation.project],
+    ),
   );
   desiredResults.forEach((result, index) => {
     projectByInstallationId.set(result.id, desired[index]!.binding.project);
@@ -1546,6 +1574,50 @@ async function applyReconciliationLocked(
     options.createOwnershipInspection ?? createLifecycleOwnershipInspectionContext;
   const scheduler = options.scheduler ?? createProjectReadScheduler();
   const scope = options.scope ?? { kind: "all" };
+  // Serialize the desired-state snapshot with lifecycle mutation: Local
+  // Configuration is re-ingested under the lifecycle lock and must still match
+  // the bindings `desired` was planned from, or a concurrent bind/unbind could
+  // resurrect an active Installation Receipt after its binding was removed.
+  // Fail closed; the retry re-plans from the current configuration. Bindings
+  // are matched by authored path so a missing unrelated root in a scoped run
+  // stays irrelevant while any desired binding drift fails the run.
+  const configurationSource = await readLocalConfigurationSource(home);
+  const freshModel = await ingestApplicationModelFromSource(
+    home,
+    configurationSource.source,
+    configurationSource.path,
+    { allowMissingProjects: true },
+  );
+  const bindingTuple = (binding: {
+    readonly canonicalProject?: string;
+    readonly hosts: readonly string[];
+    readonly profile: string;
+    readonly project: string;
+  }): string =>
+    JSON.stringify([
+      binding.project,
+      binding.canonicalProject ?? null,
+      binding.profile,
+      binding.hosts,
+    ]);
+  const expectedBindings = new Map(
+    desired.map((installation) => [installation.binding.project, bindingTuple(installation.binding)]),
+  );
+  const freshBindings = new Map(
+    freshModel.bindings
+      .filter((binding) => expectedBindings.has(binding.project))
+      .map((binding) => [binding.project, bindingTuple(binding)]),
+  );
+  const configurationMismatch = scope.kind === "all"
+    ? expectedBindings.size !== freshModel.bindings.length ||
+      freshModel.bindings.some((binding) => !expectedBindings.has(binding.project)) ||
+      [...expectedBindings].some(([project, tuple]) => freshBindings.get(project) !== tuple)
+    : [...expectedBindings].some(([project, tuple]) => freshBindings.get(project) !== tuple);
+  if (configurationMismatch) {
+    throw new Error(
+      "Local Configuration changed while apply was planning; retry apply",
+    );
+  }
   let before;
   try {
     before = await readInstallationState(home);
@@ -1613,10 +1685,12 @@ async function applyReconciliationLocked(
   );
   let workingState = before;
   const stale = scope.kind === "all"
-    ? ordinaryReceipts(before).filter(
+    ? [...ordinaryReceipts(before), ...retiredReceipts(before)]
+      .filter(
         (installation) =>
           !desired.some((item) => item.binding.canonicalProject === installation.project)
       )
+      .sort((left, right) => compareCanonicalStrings(left.project, right.project))
     : [];
   const completed: string[] = [];
   const appliedProjects = new Set<string>();
@@ -1628,7 +1702,12 @@ async function applyReconciliationLocked(
         .filter((project) => appliedProjects.has(project.canonicalProject))
         .map((project) => {
           const installationIds = new Set(
-            [...ordinaryReceipts(before), ...ordinaryReceipts(workingState)]
+            [
+              ...ordinaryReceipts(before),
+              ...retiredReceipts(before),
+              ...ordinaryReceipts(workingState),
+              ...retiredReceipts(workingState),
+            ]
               .filter((installation) => installation.project === project.canonicalProject)
               .map((installation) => installation.installationId),
           );
@@ -1712,9 +1791,16 @@ async function applyReconciliationLocked(
       const manifest = manifestFor(item, installationId);
       transaction = await stageProjectOutputs(item, manifest, previous, fileSystem);
       installationsByProject.set(manifest.project, manifest);
+      // A retired receipt whose Project is desired again is consumed here: the
+      // fresh binding starts a clean lifetime, so its record leaves with this
+      // state write instead of pending a stale-removal pass against fresh
+      // output it no longer describes.
+      const remainingRetired = retiredReceipts(workingState)
+        .filter((receipt) => receipt.project !== item.binding.canonicalProject);
       const nextState = stateWithInstallationExclusion(
         withReceipts(workingState, [
-          ...workingState.receipts.filter((receipt) => receipt.lifetime === "temporary"),
+          ...temporaryReceipts(workingState),
+          ...remainingRetired,
           ...installationsByProject.values(),
         ]),
         manifest,

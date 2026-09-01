@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Make `unbind` retire the Project's active Installation Receipt in the same operation as the Project Binding, so no active receipt can outlive its binding. The retiring record keeps exactly the detail the receipt already held — nothing is added — while `apply` keeps its teardown authority: generated files remain until the next `apply`, which proves and removes them as it does for receipts orphaned by a supported hand edit, cleans the recorded exclusion contribution, and consumes the record. `status` reports the pending removal; `uninstall` ignores retired records, so it is unaffected by previously unbound Projects; re-binding then applying starts a clean lifetime without manual state editing. Installation State gains an optional `retired` receipt flag and publishes `schema_version: 8` on the next write; the prior release cannot read that version — back up `~/.agents/agent-profile-kit/state/manifest.json` before running this version and restore that backup before downgrading. `apply` also re-ingests Local Configuration under the lifecycle lock and fails closed when bindings changed while it was planning, so a concurrent `bind`/`unbind` can never resurrect an active receipt after its binding was removed ([#375](https://github.com/kenneth-liao/agent-profile-kit/issues/375)).
+
 ### Added
 
 - Read Ownership State at the previous schema version and ignore recorded legacy ownership-token output entries, republishing the current schema version on the next successful write without re-binding or re-applying. Downgrade note: a successful write republishes `schema_version: 7`, which the prior v6-only release cannot read — back up `~/.agents/agent-profile-kit/state/manifest.json` (and any Project's `~/.agents/agent-profile-kit/` state you moved) before running this version, and restore that backup before downgrading ([#374](https://github.com/kenneth-liao/agent-profile-kit/issues/374)).
