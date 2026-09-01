@@ -218,15 +218,33 @@ async function retireOrdinaryReceipt(home: string, project: string): Promise<boo
       await writeInstallationState(home, after);
       await exclusions.commit();
     } catch (error) {
-      await exclusions.rollback().catch(() => undefined);
+      let rollbackFailure: unknown;
+      try {
+        await exclusions.rollback();
+      } catch (failure) {
+        rollbackFailure = failure;
+      }
+      let stateRestoreFailure: unknown;
       try {
         await writeInstallationState(home, state);
-      } catch (restoreFailure) {
-        const detail = error instanceof Error ? error.message : String(error);
+      } catch (failure) {
+        stateRestoreFailure = failure;
+      }
+      const recoveryMessages = [
+        ...(rollbackFailure === undefined
+          ? []
+          : [`Exclusion rollback failed: ${
+              rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)
+            }`]),
+        ...(stateRestoreFailure === undefined
+          ? []
+          : [`Installation State restore failed: ${
+              stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)
+            }`]),
+      ];
+      if (recoveryMessages.length > 0) {
         throw new Error(
-          `${detail}\nInstallation State restore failed: ${
-            restoreFailure instanceof Error ? restoreFailure.message : String(restoreFailure)
-          }`,
+          `${error instanceof Error ? error.message : String(error)}\n${recoveryMessages.join("\n")}`,
         );
       }
       throw error;
