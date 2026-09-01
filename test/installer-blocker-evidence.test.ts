@@ -598,6 +598,14 @@ describe("structured Installer blocker evidence", () => {
       mkdirSync(dirname(destination), { recursive: true });
       writeFileSync(destination, "drifted content\n");
     }
+    // Keep one recorded root byte-identical to the receipt's recorded hash:
+    // it is the continuity anchor that proves the drifted sibling is Agent
+    // Profile Kit's own output rather than a different Project's material.
+    for (const output of installation.outputs) {
+      const destination = join(canonicalProject, output.path);
+      mkdirSync(dirname(destination), { recursive: true });
+      writeFileSync(destination, output.path.endsWith("hooks.json") ? (output as { bytes: string }).bytes : "drifted content\n");
+    }
     const state: OwnershipState = {
       ...emptyState(),
       receipts: [manifest],
@@ -605,24 +613,23 @@ describe("structured Installer blocker evidence", () => {
 
     const report = await previewReconciliation(desired.installations, state);
 
-    // Identity-proven drift never blocks and never claims a user edit.
+    // Continuity-anchored drift never blocks and never claims a user edit.
     expect(reportBlockers(report)).toEqual([]);
-    const expectedReason = installation.outputs
-      .map((output) => output.path)
-      .sort(compareCanonicalStrings)
-      .join(", ");
     expect(reportItems(report)).toContainEqual({
       kind: "drifted output",
       project: expect.any(String),
-      reason: expectedReason,
+      reason: ".agent-profile-kit/codex/context.md",
     });
-    for (const output of installation.outputs) {
-      expect(reportOutputs(report)).toContainEqual({
-        kind: "drifted output",
-        path: output.path,
-        project: expect.any(String),
-      });
-    }
+    expect(reportOutputs(report)).toContainEqual({
+      kind: "drifted output",
+      path: ".agent-profile-kit/codex/context.md",
+      project: expect.any(String),
+    });
+    expect(reportOutputs(report)).not.toContainEqual({
+      kind: "drifted output",
+      path: ".codex/hooks.json",
+      project: expect.any(String),
+    });
   });
 
   test("residual ownership Blocker evidence stays provenance-neutral", () => {

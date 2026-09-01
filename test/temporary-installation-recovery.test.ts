@@ -39,6 +39,10 @@ function temporaryDirectory(prefix: string): string {
   return directory;
 }
 
+function statePath(home: string): string {
+  return join(home, ".agents", "agent-profile-kit", "state", "manifest.json");
+}
+
 function gitRepository(prefix: string): string {
   const repository = temporaryDirectory(prefix);
   execFileSync("git", ["init", "-q", repository]);
@@ -173,6 +177,76 @@ describe("Temporary Profile Installation recovery", () => {
       temporaryInstallationId: receipt.temporaryInstallationId,
     });
     expect(again.completionState).toBe("removed");
+  });
+
+  test("a byte-identical pre-existing output blocks install-temp before the durable record", async () => {
+    const home = await prepareHome();
+    const project = gitRepository("agent-profile-kit-temp-adopt-");
+
+    // A first install captures the exact published bytes, then cleans up.
+    const first = await installTemporaryProfile({
+      home,
+      host: "codex",
+      profile: "coding",
+      project,
+    });
+    const skillBytes = readFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), "utf8");
+    await removeTemporaryProfile({ home, temporaryInstallationId: first.temporaryInstallationId });
+
+    // Recreate one planned destination byte-identical to the desired output.
+    mkdirSync(join(project, ".agents", "skills", "review-pr"), { recursive: true });
+    writeFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), skillBytes);
+    const stateBefore = readFileSync(statePath(home), "utf8");
+
+    // Temporary installs never adopt byte-identical occupied destinations:
+    // the durable Receipt precedes publication, so adoption would hand the
+    // recovery removal authority over bytes the install never published.
+    let blocked: unknown;
+    try {
+      await installTemporaryProfile({ home, host: "codex", profile: "coding", project });
+    } catch (error) {
+      blocked = error;
+    }
+    expect(blocked).toBeInstanceOf(TemporaryInstallationBlockedError);
+    expect(readFileSync(statePath(home), "utf8")).toBe(stateBefore);
+    expect(readFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toBe(skillBytes);
+  });
+
+  test("a failure after the durable record claims no pre-existing bytes and remove-temp finishes recovery", async () => {
+    const home = await prepareHome();
+    const project = gitRepository("agent-profile-kit-temp-durable-");
+    writeFileSync(join(project, "adjacent-user-file.txt"), "user owns this\n");
+
+    let recovered: unknown;
+    try {
+      await installTemporaryProfile({
+        home,
+        host: "codex",
+        profile: "coding",
+        project,
+        hooks: {
+          onAfterDurableRecord: async () => {
+            throw new Error("injected crash after durable record");
+          },
+        },
+      });
+    } catch (error) {
+      recovered = error;
+    }
+    expect(recovered).toBeInstanceOf(TemporaryInstallationRecoverableError);
+    const identity = (recovered as TemporaryInstallationRecoverableError).temporaryInstallationId;
+
+    // Every planned destination was proven absent at the preflight, so the
+    // failure window claims only roots the install itself published. Recovery
+    // removes those recorded roots and preserves adjacent unowned files.
+    const removed = await removeTemporaryProfile({
+      home,
+      temporaryInstallationId: identity,
+    });
+    expect(removed.completionState).toBe("removed");
+    expect(existsSync(join(project, "adjacent-user-file.txt"))).toBe(true);
+    expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
   });
 
   test("failure after outputs are published returns a recoverable identity that remove-temp can finish", async () => {

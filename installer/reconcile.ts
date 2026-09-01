@@ -21,7 +21,8 @@ import {
 import { hostCatalogEntryFor } from "../adapters/host-catalog.js";
 import { CONTEXT_ENVELOPE_PREFIX } from "../adapters/context-envelope.js";
 import {
-  isLegacyInstallationMarkerOutput,
+  readVerifiedLegacyInstallationMarker,
+  recordsLegacyInstallationMarkerPath,
   LEGACY_INSTALLATION_MARKER_PATH,
 } from "./legacy-installation-marker.js";
 import {
@@ -56,6 +57,7 @@ import {
   createLifecycleOwnershipInspectionContext,
   type LifecycleOwnershipInspection,
   type OwnedOutputInspection,
+  recordedOutputMatches,
 } from "./lifecycle-ownership-inspection.js";
 import {
   createProjectReadScheduler,
@@ -466,28 +468,6 @@ async function parentConflicts(project: string, path: string): Promise<readonly 
   return blockers;
 }
 
-function fileOutputMatches(
-  inspection: OwnedOutputInspection,
-  output: OwnershipOutputReceipt,
-): boolean {
-  return (
-    inspection.kind === "file" &&
-    inspection.mode === output.mode &&
-    inspection.contentHash === output.hash
-  );
-}
-
-function directoryOutputMatches(
-  inspection: OwnedOutputInspection,
-  output: OwnershipOutputReceipt,
-): boolean {
-  return (
-    inspection.kind === "directory" &&
-    inspection.mode === output.mode &&
-    inspection.directoryHash === output.hash
-  );
-}
-
 async function ownedOutputMatches(
   project: string,
   output: OwnershipOutputReceipt,
@@ -502,6 +482,16 @@ export async function desiredOutputConflicts(
   previous: OwnershipReceipt | undefined,
   inspection: LifecycleOwnershipInspection,
   gitInspection: LifecycleGitInspection = createLifecycleGitInspectionContext(),
+  options: {
+    /**
+     * Whether a byte-identical extant destination is adopted instead of
+     * blocking. The ordinary apply adopts it so a re-bound Project at a moved
+     * path installs cleanly. Temporary installations must not adopt: their
+     * durable Receipt precedes publication, so adoption would give the
+     * recovery removal authority over pre-existing bytes it never published.
+     */
+    readonly adoptByteIdentical?: boolean;
+  } = {},
 ): Promise<readonly BlockerInput[]> {
   const blockers: BlockerInput[] = [];
   const project = desired.binding.canonicalProject;
@@ -539,10 +529,10 @@ export async function desiredOutputConflicts(
     blockers.push(...await parentConflicts(project, absolute));
     const kind = await pathKind(absolute);
     if (kind === "missing") continue;
-    // Byte-identical existing output is not occupied: the write is a
-    // byte-identical no-op, so nothing not created by Agent Profile Kit can be
-    // lost. Any other extant content still blocks.
-    if (await outputMatchesDesired(project, output, inspection)) continue;
+    // Byte-identical existing output is not occupied when adoption applies:
+    // the write is a byte-identical no-op, so nothing not created by Agent
+    // Profile Kit can be lost. Any other extant content still blocks.
+    if (options.adoptByteIdentical !== false && await outputMatchesDesired(project, output, inspection)) continue;
     const remedy = remedies.get(output.path);
     if (output.type === "file") {
       if (kind !== "file") {
@@ -674,15 +664,6 @@ function composedContextFromOutputs(outputs: readonly DesiredProjectOutput[]): s
     if (bytes.startsWith(CONTEXT_ENVELOPE_PREFIX)) return bytes;
   }
   return "";
-}
-
-function recordedOutputMatches(
-  inspection: OwnedOutputInspection,
-  output: OwnershipOutputReceipt,
-): boolean {
-  return output.type === "file"
-    ? fileOutputMatches(inspection, output)
-    : directoryOutputMatches(inspection, output);
 }
 
 function recordedOutputRequiresAttention(
@@ -1364,12 +1345,17 @@ export async function stageProjectOutputs(
       }
     }
     // Migration: a leftover ownership-token file from an earlier version
-    // leaves with this transaction unless the current outputs record it.
+    // leaves with this transaction unless the current outputs record it and
+    // only when the bytes verify as the previous version's token. Unknown
+    // content at the legacy pathname is user material — preserve it.
     const recordedOrDesiredPaths = new Set([
       ...outputs.map((output) => output.path),
       ...manifest.outputs.map((output) => output.path),
     ]);
-    if (!recordedOrDesiredPaths.has(LEGACY_INSTALLATION_MARKER_PATH)) {
+    if (
+      !recordedOrDesiredPaths.has(LEGACY_INSTALLATION_MARKER_PATH) &&
+      (await readVerifiedLegacyInstallationMarker(project)) !== undefined
+    ) {
       const legacyDestination = join(project, LEGACY_INSTALLATION_MARKER_PATH);
       if ((await pathKind(legacyDestination)) !== "missing") {
         const prior = join(backup, LEGACY_INSTALLATION_MARKER_PATH);
@@ -1696,9 +1682,20 @@ async function applyReconciliationLocked(
     if (currentProjects.has(item.binding.project)) {
       // Migration: a leftover ownership-token file from an earlier version
       // leaves with the next apply even when the Project is otherwise current.
-      const legacyDestination = join(item.binding.canonicalProject, LEGACY_INSTALLATION_MARKER_PATH);
-      if ((await pathKind(legacyDestination)) !== "missing") {
-        await fileSystem.rm(legacyDestination, { force: true });
+      // The sweep skips the path when this installation records or desires an
+      // output there (the path is no longer reserved), and removes only bytes
+      // that verify as the previous version's token — unknown content stays.
+      const claimsLegacyPath =
+        recordsLegacyInstallationMarkerPath(item.outputs) ||
+        (previous !== undefined && recordsLegacyInstallationMarkerPath(previous.outputs));
+      if (
+        !claimsLegacyPath &&
+        (await readVerifiedLegacyInstallationMarker(item.binding.canonicalProject)) !== undefined
+      ) {
+        await fileSystem.rm(
+          join(item.binding.canonicalProject, LEGACY_INSTALLATION_MARKER_PATH),
+          { force: true },
+        );
       }
       continue;
     }

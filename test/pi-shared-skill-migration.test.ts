@@ -207,15 +207,21 @@ describe("Pi shared Skill migration", () => {
     const beforeState = readFileSync(statePath, "utf8");
     writeFileSync(join(project, oldPath, "SKILL.md"), "user edit\n");
 
-    // The old package is an identity-proven generated output root: its drift is
-    // refresh work, so migration removes it instead of blocking on the edit.
-    await applyReconciliation(home, desired.installations);
-
-    expect(existsSync(join(project, oldPath))).toBe(false);
-    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(true);
-    expect((await readInstallationState(home)).receipts[0]?.outputs.some(
-      (output) => output.path === oldPath,
-    )).toBe(false);
-    expect(readFileSync(statePath, "utf8")).not.toBe(beforeState);
+    // With the Marker gone, the modified old root has no continuity anchor:
+    // its bytes no longer match the old receipt's recorded hash and no other
+    // recorded root proves the package is Agent Profile Kit's, so migration
+    // fails closed instead of removing user-modified material.
+    let blocked: unknown;
+    try {
+      await applyReconciliation(home, desired.installations);
+    } catch (error) {
+      blocked = error;
+    }
+    expect(blocked).toBeInstanceOf(ApplyBlockedError);
+    expect(String(reportBlockers((blocked as ApplyBlockedError).report)[0]?.message))
+      .toContain("ownership continuity");
+    expect(readFileSync(join(project, oldPath, "SKILL.md"), "utf8")).toBe("user edit\n");
+    expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
+    expect(readFileSync(statePath, "utf8")).toBe(beforeState);
   });
 });

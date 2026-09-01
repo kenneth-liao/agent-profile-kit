@@ -25,11 +25,14 @@ import {
   type ParsedOwnershipStateDocument,
 } from "../schemas/ownership-state.js";
 import {
+  readVerifiedLegacyInstallationMarker,
+  recordsLegacyInstallationMarkerPath,
   LEGACY_INSTALLATION_MARKER_PATH,
   withoutLegacyInstallationMarkerOutputs,
 } from "./legacy-installation-marker.js";
 import {
   createLifecycleOwnershipInspectionContext,
+  recordedOutputMatches,
   unsafeOutputParent,
   type LifecycleOwnershipInspection,
   type OwnedOutputInspection,
@@ -192,19 +195,25 @@ export interface InstallationOwnershipInspection extends OwnershipProof {
 }
 
 /**
- * Authority proof for recorded generated output roots: path-safety evidence
- * only, against the active Installation Receipt. Wholly absent roots are
- * repairable pending work that `apply` restores; unsafe parents, unreadable
- * output, and type mismatches are unrepairable drift that revokes authority.
- * Content, mode, and membership differences are freshness drift that the
- * ordinary refresh path restores; they never revoke authority over a proven
- * root.
+ * Authority proof for recorded generated output roots against the active
+ * Installation Receipt. The durable continuity evidence is the receipt's own
+ * recorded hashes: at least one extant recorded root must still match its
+ * recorded hash, or every recorded root must be wholly absent. Wholly absent
+ * roots are repairable pending work that `apply` restores; extant roots that
+ * match prove continuity, so remaining content, mode, and membership
+ * differences are freshness drift that the ordinary refresh path restores.
+ * Changed extant roots with no matching anchor cannot be distinguished from a
+ * different Project later created at the same path, so they fail closed;
+ * unsafe parents, unreadable output, and type mismatches also revoke
+ * authority.
  */
 export async function inspectInstallationOwnership(
   installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
 ): Promise<InstallationOwnershipInspection> {
   const repairableMissingOutputs: string[] = [];
+  const driftedPaths: string[] = [];
+  let matchingRoots = 0;
   for (const output of installation.outputs) {
     const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
     if (unsafeParent) {
@@ -238,6 +247,19 @@ export async function inspectInstallationOwnership(
         repairableMissingOutputs: [],
       };
     }
+    if (recordedOutputMatches(result, output)) matchingRoots += 1;
+    else driftedPaths.push(output.path);
+  }
+  if (driftedPaths.length > 0 && matchingRoots === 0) {
+    return {
+      failureKind: "drift",
+      owned: false,
+      reason:
+        `recorded output ${driftedPaths[0]} does not match the recorded installation and ` +
+        "no other recorded root proves ownership continuity; restore the recorded " +
+        "output or remove the generated files, then retry",
+      repairableMissingOutputs: [],
+    };
   }
   return {
     owned: true,
@@ -337,12 +359,7 @@ export async function stageProvenInstallationRemoval(
     await cleanup();
   };
   try {
-    for (const relativePath of [
-      ...installation.outputs.map((output) => output.path),
-      // Migration: a leftover ownership-token file from an earlier version
-      // leaves with the recorded installation it belonged to.
-      LEGACY_INSTALLATION_MARKER_PATH,
-    ]) {
+    for (const relativePath of installation.outputs.map((output) => output.path)) {
       const path = join(installation.project, relativePath);
       // A wholly absent recorded root is proven removal authority, not a
       // failure: skip it and remove the surviving proven output.
@@ -353,6 +370,20 @@ export async function stageProvenInstallationRemoval(
         throw error;
       }
       const staged = join(stage, relativePath);
+      await mkdir(dirname(staged), { recursive: true });
+      await rename(path, staged);
+      moved.push(path);
+    }
+    // Migration: a leftover ownership-token file from an earlier version leaves
+    // with the recorded installation it belonged to — only when the receipt
+    // does not record a legitimate output at the path and the bytes verify as
+    // the previous version's token. Unknown content is preserved.
+    if (
+      !recordsLegacyInstallationMarkerPath(installation.outputs) &&
+      (await readVerifiedLegacyInstallationMarker(installation.project)) !== undefined
+    ) {
+      const path = join(installation.project, LEGACY_INSTALLATION_MARKER_PATH);
+      const staged = join(stage, LEGACY_INSTALLATION_MARKER_PATH);
       await mkdir(dirname(staged), { recursive: true });
       await rename(path, staged);
       moved.push(path);

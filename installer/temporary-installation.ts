@@ -352,6 +352,12 @@ export async function installTemporaryProfile(options: {
           desired,
           undefined,
           createLifecycleOwnershipInspectionContext(),
+          undefined,
+          // The durable Receipt precedes Project mutation, so every recorded
+          // destination must be proven absent here: adopting pre-existing
+          // byte-identical bytes would give the recovery removal authority
+          // over material this install never published.
+          { adoptByteIdentical: false },
         )),
       );
       if (structuredBlockers.length > 0) {

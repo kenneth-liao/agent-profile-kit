@@ -6494,7 +6494,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(statSync(join(destination, "scripts", "run.sh")).mode & 0o777).toBe(0o700);
   });
 
-  test("a wholly absent output is repaired alongside drifted surviving output", async () => {
+  test("changed extant roots with no matching recorded anchor fail closed", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -6506,15 +6506,49 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(missing);
     writeFileSync(drifted, "drifted surviving output\n");
 
-    const status = await runCli(home, "status", "--verbose");
+    // With no recorded root still matching its recorded hash, the extant
+    // changed bytes cannot be distinguished from a different Project later
+    // created at the same path, so ownership continuity fails closed and the
+    // bytes are never overwritten or deleted by Agent Profile Kit.
+    const status = await runCli(home, "status");
     const applied = await runCli(home, "apply");
 
-    expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: repairable missing output`));
-    expectExitCode(applied, 0);
-    expect(applied.stderr).toBe("");
-    expect(existsSync(missing)).toBe(true);
-    expect(readFileSync(drifted, "utf8")).not.toBe("drifted surviving output\n");
+    expectExitCode(status, 2);
+    expect(status.stdout).toContain("ownership continuity");
+    expectExitCode(applied, 2);
+    expect(readFileSync(drifted, "utf8")).toBe("drifted surviving output\n");
+    expect(existsSync(missing)).toBe(false);
+  });
+
+  test("a different checkout later created at the same path cannot be claimed by the old receipt", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const foreignHooks = join(projectPath, ".codex", "hooks.json");
+
+    // The installed Project is deleted and a different checkout later occupies
+    // the same canonical path with user material at a recorded same-type root.
+    rmSync(projectPath, { recursive: true });
+    mkdirSync(join(projectPath, ".codex"), { recursive: true });
+    writeFileSync(foreignHooks, "foreign checkout material\n");
+
+    // The recorded root is extant but does not match the recorded hash and no
+    // other recorded root proves continuity, so the old receipt fails closed
+    // instead of gaining destructive authority over the foreign bytes.
+    const status = await runCli(home, "status");
+    expectExitCode(status, 2);
+    expect(status.stdout).toContain("ownership continuity");
+
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 2);
+    expect(readFileSync(foreignHooks, "utf8")).toBe("foreign checkout material\n");
+
+    const uninstalled = await runCli(home, "uninstall");
+    expectExitCode(uninstalled, 1);
+    expect(readFileSync(foreignHooks, "utf8")).toBe("foreign checkout material\n");
   });
 
   test("a copied Project directory installs cleanly at its new binding while the original is removed", async () => {

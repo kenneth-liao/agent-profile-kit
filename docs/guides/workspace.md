@@ -483,16 +483,20 @@ binding across worktrees are reset and reapplied; the CLI carries no migration
 or compatibility workflow for that development-only state.
 
 Generated output is owned whole: complete files and artifact directories whose
-Installation Receipt and hashes prove Agent Profile Kit ownership. Unrelated project files,
+Installation Receipt proves Agent Profile Kit ownership, with the receipt's
+recorded hashes providing the continuity evidence that extant material is what
+Agent Profile Kit last published. Unrelated project files,
 repository-owned instructions, global Host configuration, authentication, trust,
 approvals, plugins, and sessions remain untouched. Agent Profile Kit does not
 merge selected fields into Host or repository configuration, install a watcher or
 Git hook, or modify shared `.gitignore` files.
 
 For a currently bound installation, `apply` recreates a
-recorded output that is completely missing when all surviving owned output is
-unchanged and normal path-conflict checks pass. Existing modified output and
-unexpected directory members remain blockers and are never overwritten.
+recorded output that is completely missing when normal path-conflict checks
+pass. Modified output is ordinary refresh work while at least one recorded root
+still matches its recorded hash; when no recorded root matches, ownership
+continuity cannot be proven and `status` blocks until you restore or remove the
+generated files. Unexpected directory members are never overwritten.
 
 ## Use Hosts natively
 

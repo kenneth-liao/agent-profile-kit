@@ -1,7 +1,7 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { OwnershipOutputReceipt } from "../schemas/ownership-state.js";
+import { type OwnershipOutputReceipt, type OwnershipReceipt, type OwnershipState } from "../schemas/ownership-state.js";
 import { hashBytes, hashDirectoryMembersFromFiles } from "./project-plan.js";
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -42,6 +42,25 @@ export interface OwnedOutputInspection {
   readonly mode?: number;
   /** Recorded-root-relative path of the first unsupported member entry. */
   readonly unsupportedMember?: string;
+}
+
+/**
+ * Whether the on-disk root still matches the receipt's recorded hash and mode:
+ * the durable continuity evidence that the extant bytes are Agent Profile
+ * Kit's own published output. One canonical matcher shared by the ownership
+ * proof, the conflict preflight, and the refresh planner.
+ */
+export function recordedOutputMatches(
+  inspection: OwnedOutputInspection,
+  output: OwnershipOutputReceipt,
+): boolean {
+  return output.type === "file"
+    ? inspection.kind === "file" &&
+        inspection.mode === output.mode &&
+        inspection.contentHash === output.hash
+    : inspection.kind === "directory" &&
+        inspection.mode === output.mode &&
+        inspection.directoryHash === output.hash;
 }
 
 /**

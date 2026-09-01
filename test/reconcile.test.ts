@@ -501,4 +501,78 @@ describe("previous-version Marker migration", () => {
     expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
+
+  test("unknown content at the legacy pathname is never removed by apply or uninstall", async () => {
+    const home = temporaryDirectory("agent-profile-kit-legacy-foreign-home-");
+    const project = temporaryDirectory("agent-profile-kit-legacy-foreign-project-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nLegacy foreign bytes.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, desired.installations);
+    const foreign = join(project, ".agent-profile-kit", "installation.json");
+    writeFileSync(foreign, "user data unknown to Agent Profile Kit\n");
+
+    // The current-Project migration sweep runs on every apply and must
+    // preserve bytes that do not verify as the previous version's token.
+    await applyReconciliation(home, desired.installations);
+    expect(readFileSync(foreign, "utf8")).toBe("user data unknown to Agent Profile Kit\n");
+
+    // The removal staging must preserve the unknown bytes too while removing
+    // the proven owned output.
+    await applyReconciliation(home, []);
+    expect(readFileSync(foreign, "utf8")).toBe("user data unknown to Agent Profile Kit\n");
+    expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
+  });
+
+  test("an Adapter output at the legacy pathname is not swept as a leftover token", async () => {
+    const home = temporaryDirectory("agent-profile-kit-legacy-desired-home-");
+    const project = temporaryDirectory("agent-profile-kit-legacy-desired-project-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nLegacy desired-path boundary.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desiredState = await buildDesiredState(home, { checkHostCapability: false });
+    const desired = desiredState.installations.map((installation) => ({
+      ...installation,
+      outputs: installation.outputs.map((output) =>
+        output.path === ".agent-profile-kit/codex/context.md"
+          ? { ...output, path: ".agent-profile-kit/installation.json" }
+          : output,
+      ),
+    }));
+
+    await applyReconciliation(home, desired);
+    const adapterOutput = join(project, ".agent-profile-kit", "installation.json");
+    expect(existsSync(adapterOutput)).toBe(true);
+
+    // The second apply is current and its migration sweep must skip the path:
+    // it is a recorded and desired Adapter output, not a leftover token.
+    const second = await applyReconciliation(home, desired);
+    expect(second.resultingState.projects[0]!.state.kind).toBe("current");
+    expect(existsSync(adapterOutput)).toBe(true);
+  });
 });
