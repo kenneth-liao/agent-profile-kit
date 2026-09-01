@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- Add Pi parity for Temporary Profile Installations: `install-temp ... --host pi` accepts Pi through the canonical Host registry and the existing receipt-owned temporary lifecycle, preserving the Pi Adapter plan, Capability Contract, Repository Exclusion contribution, `trust-required` Host Setup Step, and idempotent `remove-temp` removal by durable identity ([#369](https://github.com/kenneth-liao/agent-profile-kit/issues/369)).
+
 ### Changed
 
 - Treat identity-proven generated output roots as disposable: drift reports as non-blocking pending `drifted output` work in `status`, `apply` replaces the whole proven root from current Workspace source, and removal paths remove drifted proven roots; identity, path-safety, and Git-ownership boundaries still block (ADR-0019, ADR-0022) ([#363](https://github.com/kenneth-liao/agent-profile-kit/issues/363)).
