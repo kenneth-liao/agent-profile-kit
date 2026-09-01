@@ -22,8 +22,6 @@ import {
 } from "./local-configuration.js";
 import { readInstallationState, writeInstallationState } from "./installation-state.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
-import { stageGitExclusions } from "./git-exclusions.js";
-import { withReceipts } from "./ownership-state.js";
 import { MissingProfileError } from "./profile-selection.js";
 
 interface UnbindTarget {
@@ -192,65 +190,38 @@ export type UnbindProjectResult =
     };
 
 /**
- * Retire the active ordinary Installation Receipt naming one canonical Project,
- * recording only what ordinary teardown records: the receipt leaves
- * Installation State and its recorded Repository Exclusion Contribution leaves
- * the exclusion target, preserving unrelated bytes. Temporary receipts and
- * removed-temporary identities are preserved. Serialized against apply and
- * uninstall through the installation lifecycle lock; unbind already holds the
- * Local Configuration lock and no command acquires the two locks in the
- * opposite order.
+ * Retire the active ordinary Installation Receipt naming one canonical Project:
+ * the receipt keeps exactly its previously recorded detail but is marked
+ * retired, so no active receipt can outlive its binding while a later `apply`
+ * keeps the teardown authority it needs to prove and remove the surviving
+ * generated output. Temporary receipts and removed-temporary identities are
+ * preserved. Serialized against apply and uninstall through the installation
+ * lifecycle lock; unbind already holds the Local Configuration lock and no
+ * command acquires the two locks in the opposite order.
  *
  * Returns whether an active receipt named the Project — the generated-output
  * survival fact for unbind's next-step guidance, read at the only moment it is
  * still observable.
  */
-async function retireOrdinaryReceipt(home: string, project: string): Promise<boolean> {
-  return withInstallationLifecycleLock(home, "unbind", async () => {
-    const state = await readInstallationState(home);
-    const remaining = state.receipts.filter(
-      (receipt) => !(receipt.lifetime === "ordinary" && receipt.project === project),
-    );
-    if (remaining.length === state.receipts.length) return false;
-    const after = withReceipts(state, remaining);
-    const exclusions = await stageGitExclusions(state, after);
-    try {
-      await writeInstallationState(home, after);
-      await exclusions.commit();
-    } catch (error) {
-      let rollbackFailure: unknown;
-      try {
-        await exclusions.rollback();
-      } catch (failure) {
-        rollbackFailure = failure;
-      }
-      let stateRestoreFailure: unknown;
-      try {
-        await writeInstallationState(home, state);
-      } catch (failure) {
-        stateRestoreFailure = failure;
-      }
-      const recoveryMessages = [
-        ...(rollbackFailure === undefined
-          ? []
-          : [`Exclusion rollback failed: ${
-              rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)
-            }`]),
-        ...(stateRestoreFailure === undefined
-          ? []
-          : [`Installation State restore failed: ${
-              stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)
-            }`]),
-      ];
-      if (recoveryMessages.length > 0) {
-        throw new Error(
-          `${error instanceof Error ? error.message : String(error)}\n${recoveryMessages.join("\n")}`,
-        );
-      }
-      throw error;
-    }
-    return true;
-  });
+async function retireActiveReceipt(
+  home: string,
+  project: string,
+): Promise<{ readonly generatedOutputSurvives: boolean }> {
+  const state = await readInstallationState(home);
+  const retiredIds = new Set(
+    state.receipts
+      .filter((receipt) => receipt.lifetime === "ordinary" && receipt.project === project)
+      .map((receipt) => receipt.installationId),
+  );
+  if (retiredIds.size === 0) return { generatedOutputSurvives: false };
+  const after = {
+    ...state,
+    receipts: state.receipts.map((receipt) =>
+      retiredIds.has(receipt.installationId) ? { ...receipt, retired: true as const } : receipt
+    ),
+  };
+  await writeInstallationState(home, after);
+  return { generatedOutputSurvives: true };
 }
 
 /**
@@ -358,52 +329,76 @@ export async function unbindProject(
       if (!isSeq(bindingsNode)) {
         throw new Error(`${description} bindings must be an array`);
       }
-      // Retire the receipt before publishing the binding replacement: a failure
-      // from here on can leave a binding without a receipt (the next apply
-      // re-creates it) but never a receipt outliving its binding. Malformed
+      // Retirement and binding publication share one lifecycle-serialized
+      // transaction, retired before published: a failure from here on can
+      // leave a binding whose receipt is retired (the next apply reconciles
+      // it) but never an active receipt outliving its binding. Malformed
       // Installation State fails unbind before any mutation.
       const receiptProject = match.recovery === "canonical"
         ? match.canonicalProject
         : await canonicalizePathForComparison(
             expandConfiguredPath(match.project, options.home, "Project Binding", "project"),
           );
-      const generatedOutputSurvives = await retireOrdinaryReceipt(options.home, receiptProject);
-      const nextSource = removeBindingSource(source, bindingsNode, match.index);
-      const sourceStats = await fileSystem.stat(configurationPath);
-      const mode = sourceStats.mode & 0o777;
-      await publishConfigurationReplacement(
-        configurationPath,
-        source,
-        nextSource,
-        mode,
-        fileSystem,
-        description,
-        "unbind",
-      );
-
-      if (match.recovery === "canonical") {
+      return withInstallationLifecycleLock(options.home, "unbind", async () => {
+        const original = await readInstallationState(options.home);
+        const { generatedOutputSurvives } = await retireActiveReceipt(options.home, receiptProject);
+        try {
+          const nextSource = removeBindingSource(source, bindingsNode, match.index);
+          const sourceStats = await fileSystem.stat(configurationPath);
+          const mode = sourceStats.mode & 0o777;
+          await publishConfigurationReplacement(
+            configurationPath,
+            source,
+            nextSource,
+            mode,
+            fileSystem,
+            description,
+            "unbind",
+          );
+        } catch (error) {
+          // Roll the retirement back so a failed unbind mutates nothing.
+          let stateRestoreFailure: unknown;
+          try {
+            await writeInstallationState(options.home, original);
+          } catch (failure) {
+            stateRestoreFailure = failure;
+          }
+          const failureMessage = error instanceof Error ? error.message : String(error);
+          if (stateRestoreFailure !== undefined) {
+            throw new Error(
+              `${failureMessage}\nInstallation State restore failed: ${
+                stateRestoreFailure instanceof Error
+                  ? stateRestoreFailure.message
+                  : String(stateRestoreFailure)
+              }`,
+            );
+          }
+          throw error;
+        }
+        if (match.recovery === "canonical") {
+          return {
+            outcome: "removed",
+            configurationPath,
+            requestedProject: target.requested,
+            project: match.project,
+            canonicalProject: match.canonicalProject,
+            profile: match.profile,
+            hosts: match.hosts,
+            recovery: "canonical",
+            generatedOutputSurvives,
+          };
+        }
         return {
           outcome: "removed",
           configurationPath,
           requestedProject: target.requested,
           project: match.project,
-          canonicalProject: match.canonicalProject,
           profile: match.profile,
           hosts: match.hosts,
-          recovery: "canonical",
+          recovery: "authored-path",
           generatedOutputSurvives,
         };
-      }
-      return {
-        outcome: "removed",
-        configurationPath,
-        requestedProject: target.requested,
-        project: match.project,
-        profile: match.profile,
-        hosts: match.hosts,
-        recovery: "authored-path",
-        generatedOutputSurvives,
-      };
+      });
     },
   );
 }

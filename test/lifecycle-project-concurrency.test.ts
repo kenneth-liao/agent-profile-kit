@@ -30,7 +30,7 @@ import {
   createProjectReadScheduler,
   DEFAULT_PROJECT_CONCURRENCY,
 } from "../installer/project-scheduler.js";
-import type { OwnershipState } from "../schemas/ownership-state.js";
+import { OWNERSHIP_STATE_SCHEMA_VERSION, type OwnershipState } from "../schemas/ownership-state.js";
 import {
   reportBlockers,
   reportDesired,
@@ -129,7 +129,7 @@ function emptyState(): OwnershipState {
   return {
     receipts: [],
     removedTemporaryInstallationIds: [],
-    schemaVersion: 7,
+    schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
   };
 }
 

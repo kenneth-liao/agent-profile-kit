@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { stageGitExclusions } from "../installer/git-exclusions.js";
-import type { OwnershipState } from "../schemas/ownership-state.js";
+import { OWNERSHIP_STATE_SCHEMA_VERSION, type OwnershipState } from "../schemas/ownership-state.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -37,7 +37,7 @@ function installationState(project: string): OwnershipState {
       repositoryExclusion: { entries: ["/.codex/hooks.json"], target },
     }],
     removedTemporaryInstallationIds: [],
-    schemaVersion: 7,
+    schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
   };
 }
 
@@ -50,7 +50,7 @@ describe("Git exclusion transaction", () => {
     const empty: OwnershipState = {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     };
 
     const transaction = await stageGitExclusions(empty, installationState(repository));
@@ -179,7 +179,7 @@ describe("Git exclusion transaction", () => {
         },
       ],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     };
     const after: OwnershipState = {
       ...before,
@@ -254,7 +254,7 @@ describe("Git exclusion transaction", () => {
     const before: OwnershipState = {
       receipts: [receipt],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     };
     const after: OwnershipState = {
       ...before,
@@ -323,7 +323,7 @@ describe("Git exclusion transaction", () => {
     const before: OwnershipState = {
       receipts: [{ ...receipt, project: oldRepository, repositoryExclusion: { entries: ["/.codex/hooks.json"], target: oldExclude } }],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     };
     const after: OwnershipState = {
       ...before,

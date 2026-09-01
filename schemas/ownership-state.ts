@@ -11,10 +11,10 @@ import {
   parseFileMode,
 } from "./installation-manifest.js";
 
-export const OWNERSHIP_STATE_SCHEMA_VERSION = 7;
+export const OWNERSHIP_STATE_SCHEMA_VERSION = 8;
 
 /** The one immediately preceding schema version the reader still accepts. */
-export const PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION = 6;
+export const PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION = 7;
 
 /** Explicit trust-boundary limits for the final ownership-state document. */
 export const OWNERSHIP_STATE_LIMITS = {
@@ -47,6 +47,13 @@ export interface OwnershipReceipt {
   readonly hosts: Readonly<Partial<Record<SupportedHost, OwnershipHostReceipt>>>;
   readonly installationId: string;
   readonly lifetime: "ordinary" | "temporary";
+  /**
+   * Retired by `unbind`: the receipt no longer proves active ownership and is
+   * invisible to uninstall, but keeps exactly its previously recorded detail
+   * as the one teardown authority while a later `apply` proves and removes its
+   * output. No detail is added or derived at retirement.
+   */
+  readonly retired?: true;
   readonly outputs: readonly OwnershipOutputReceipt[];
   readonly profileId: string;
   readonly project: string;
@@ -218,7 +225,7 @@ function parseReceipt(value: unknown, index: number): OwnershipReceipt {
     "hosts",
     "outputs",
   ] as const;
-  const allowed = [...required, "repository_exclusion"];
+  const allowed = [...required, "repository_exclusion", "retired"];
   const unknown = Object.keys(receipt).filter((field) => !allowed.includes(field as typeof allowed[number]));
   if (unknown.length > 0) {
     throw new Error(`${description} does not allow fields: ${unknown.join(", ")}`);
@@ -251,6 +258,12 @@ function parseReceipt(value: unknown, index: number): OwnershipReceipt {
   if (receipt.lifetime === "temporary" && Object.keys(hosts).length !== 1) {
     throw new Error(`${description} temporary receipt must contain exactly one Host`);
   }
+  if (receipt.retired !== undefined && receipt.retired !== true) {
+    throw new Error(`${description} retired must be true when present`);
+  }
+  if (receipt.retired === true && receipt.lifetime !== "ordinary") {
+    throw new Error(`${description} only ordinary receipts can be retired`);
+  }
   return {
     desiredInputDigest: requireHash(
       receipt.desired_input_digest,
@@ -262,6 +275,7 @@ function parseReceipt(value: unknown, index: number): OwnershipReceipt {
     outputs: [...outputs].sort((left, right) => compareCanonicalStrings(left.path, right.path)),
     profileId: requireArtifactId(receipt.profile_id, `${description} profile_id`),
     project: requireProject(receipt.project, `${description} project`),
+    ...(receipt.retired === true ? { retired: true as const } : {}),
     ...(receipt.repository_exclusion === undefined ? {} : {
       repositoryExclusion: parseRepositoryExclusion(
         receipt.repository_exclusion,
@@ -293,6 +307,7 @@ function ownershipStateValue(state: OwnershipState): Record<string, unknown> {
         mode: output.mode,
         hash: output.hash,
       })),
+      ...(receipt.retired === true ? { retired: true } : {}),
       ...(receipt.repositoryExclusion === undefined ? {} : {
         repository_exclusion: {
           target: receipt.repositoryExclusion.target,
@@ -470,7 +485,12 @@ function parseOwnershipStateWithVersion(
   if (new Set(receiptIds).size !== receiptIds.length) {
     throw new Error("Ownership State must not contain an Installation ID more than once");
   }
-  const projects = receipts.map((receipt) => receipt.project);
+  // Project uniqueness holds among active receipts only: a retired receipt
+  // keeps its recorded detail until apply consumes it, and a re-bound Project
+  // transiently owns a fresh active receipt for the same canonical path.
+  const projects = receipts
+    .filter((receipt) => receipt.retired !== true)
+    .map((receipt) => receipt.project);
   if (new Set(projects).size !== projects.length) {
     throw new Error("Ownership State must not contain an active Project more than once");
   }

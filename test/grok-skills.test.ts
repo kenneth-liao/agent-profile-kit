@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
   chmodSync,
   existsSync,
@@ -242,7 +243,7 @@ describe("Grok project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportBlockers(preview)).toEqual([]);
     expect(
@@ -322,7 +323,7 @@ describe("Grok project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportBlockers(preview).some((blocker) =>
       blocker.message.includes(".grok/skills/review-pr") &&
@@ -512,7 +513,7 @@ describe("Grok project Skill packages", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportBlockers(preview)).toEqual([]);
     await applyReconciliation(home, desired.installations);

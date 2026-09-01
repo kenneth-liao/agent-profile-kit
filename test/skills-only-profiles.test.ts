@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
   existsSync,
   mkdirSync,
@@ -364,7 +365,7 @@ describe("Skills-only Profiles", () => {
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportDesired(report)[0]?.setupSteps).toEqual(installation.setupSteps);
 

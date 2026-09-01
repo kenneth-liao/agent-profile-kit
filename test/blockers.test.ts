@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -250,7 +251,7 @@ describe("shared blocker contract", () => {
     const emptyState = {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     } as const;
     const projectBlocker = {
       ...HOST_CAPABILITY_INPUT,
@@ -373,7 +374,7 @@ describe("tracked-output ownership conflicts", () => {
     const emptyState = {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     } as const;
     const report = await previewReconciliation(desired.installations, emptyState);
 

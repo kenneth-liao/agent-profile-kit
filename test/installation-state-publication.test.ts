@@ -7,6 +7,7 @@ import {
   OWNERSHIP_STATE_LIMITS,
   parseOwnershipState,
   type OwnershipState,
+  OWNERSHIP_STATE_SCHEMA_VERSION,
 } from "../schemas/ownership-state.js";
 import {
   emptyInstallationState,
@@ -54,7 +55,7 @@ function stateWithAdapterVersion(adapterVersion: string): OwnershipState {
       project: "/repo/a",
     }],
     removedTemporaryInstallationIds: [],
-    schemaVersion: 7,
+    schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
   };
 }
 

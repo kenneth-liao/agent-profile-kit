@@ -391,6 +391,11 @@ describe("one shared ownership inspection per generated output per pass", () => 
       (item) => item.binding.canonicalProject === keep,
     );
     if (!keepInstallation) throw new Error("expected keep installation");
+    // Retire the stale Project's receipt the way unbind does, so the stale
+    // removal pass below consumes a retiring record under the current
+    // desired-state serialization contract.
+    const { unbindProject } = await import("../installer/unbind-project.js");
+    await unbindProject({ home, project: stale });
 
     const contexts: LifecycleOwnershipInspection[] = [];
     const readsByContext: number[] = [];
@@ -446,6 +451,11 @@ describe("one shared ownership inspection per generated output per pass", () => 
       (item) => item.binding.canonicalProject === keep,
     );
     if (!keepInstallation) throw new Error("expected keep installation");
+    // Retire the stale Project's receipt the way unbind does, so the stale
+    // removal pass below consumes a retiring record under the current
+    // desired-state serialization contract.
+    const { unbindProject } = await import("../installer/unbind-project.js");
+    await unbindProject({ home, project: stale });
     const staleContextPath = join(stale, ".agent-profile-kit", "codex", "context.md");
     const drifted = "# Drifted by a concurrent process after preflight\n";
 

@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -598,7 +599,7 @@ describe("Pi Adapter", () => {
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       projects: readonly {
@@ -676,7 +677,7 @@ describe("Pi Adapter", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
 
     expect(
@@ -796,7 +797,7 @@ describe("Pi Adapter", () => {
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportDiagnosticValues(report)).toContain(canonicalSettingsPath);
   });

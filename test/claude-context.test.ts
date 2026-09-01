@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
   chmodSync,
   existsSync,
@@ -294,7 +295,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
-      schemaVersion: 7,
+      schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportBlockers(preview)).toEqual([]);
     expect(reportDesired(preview)[0]?.hosts).toEqual(["claude"]);
@@ -362,7 +363,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
       const report = await previewReconciliation(desired.installations, {
         receipts: [],
         removedTemporaryInstallationIds: [],
-        schemaVersion: 7,
+        schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
       });
       expect(reportBlockers(report).some((blocker) => blocker.message.includes("is a file, not a directory"))).toBe(true);
       expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);

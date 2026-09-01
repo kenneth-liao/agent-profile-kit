@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -336,7 +337,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 7 },
+      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION },
     );
     expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("occupied unowned artifact directory")
@@ -388,7 +389,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 7 },
+      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION },
     );
     expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("occupied") && blocker.message.includes("parent path")
@@ -545,7 +546,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(existsSync(join(project, directory.path))).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
 
-    await writeInstallationState(home, { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 7 });
+    await writeInstallationState(home, { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION });
   });
 
   test("existing Context-only Codex lifecycle still applies without directory outputs", async () => {
@@ -618,7 +619,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const report = await previewReconciliation(
       [withDirectoryOutput(base, directory)],
-      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: 7 },
+      { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION },
     );
     expect(reportBlockers(report).some((blocker) =>
       blocker.message.includes("tracked project path")
