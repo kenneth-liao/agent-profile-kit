@@ -9,7 +9,7 @@ The open-source tool and format that composes reusable agent material into Profi
 _Avoid_: Monorepo, universal agent runtime
 
 **Agent Profile Kit Workspace**:
-The user's single canonical source of Profiles, Context, Skills, Agents, Hooks, and Tools consumed by Agent Profile Kit. It may own both Profile-selected artifacts and unselected universal artifacts; selection controls managed project delivery, not whether material is valid Workspace source. The fixed default path is `~/.agents/agent-profile-kit/workspace/`; current Local Configuration explicitly selects either that path or one existing absolute or home-relative Workspace path on this machine. `init <workspace>` may provision a missing or empty non-symlink destination before recording it, or adopt an existing valid Workspace. It may be a Git repository version-controlled independently of the tool.
+The user's single canonical source of Profiles, Context, and Skills consumed by Agent Profile Kit. It may own both Profile-selected artifacts and unselected universal artifacts; selection controls managed project delivery, not whether material is valid Workspace source. The fixed default path is `~/.agents/agent-profile-kit/workspace/`; current Local Configuration explicitly selects either that path or one existing absolute or home-relative Workspace path on this machine. `init <workspace>` may provision a missing or empty non-symlink destination before recording it, or adopt an existing valid Workspace. It may be a Git repository version-controlled independently of the tool.
 _Avoid_: Open-source tool repository, Profile Installation, Host-global second source
 
 **Workspace Manifest**:
@@ -41,7 +41,7 @@ The mechanism that reads the Workspace and Project Bindings, combines Adapter ou
 _Avoid_: Adapter, runtime router
 
 **Profile Installation**:
-A generated, host-native snapshot of one Workspace Profile installed into one bound project for all Agent Hosts selected by its Project Binding. The Installer exclusively owns its normalized output set; the Profile Installation is disposable output with no authority independent of its Workspace source. Matching durable installation identity — an active Installation Receipt whose Installation ID the Installation Marker proves — grants the Installer authority over each recorded generated output root; content differences from the recorded output are refreshable drift, not ownership changes, while identity or path-safety failures remain Blockers.
+A generated, host-native snapshot of one Workspace Profile installed into one bound project for all Agent Hosts selected by its Project Binding. The Installer exclusively owns its normalized output set; the Profile Installation is disposable output with no authority independent of its Workspace source. Matching durable installation identity — an active Installation Receipt — grants the Installer authority over each recorded generated output root; content differences from the recorded output are refreshable drift, not ownership changes, while identity or path-safety failures remain Blockers.
 _Avoid_: Canonical source, live link, Temporary Profile Installation
 
 **Temporary Profile Installation**:
@@ -55,10 +55,6 @@ _Avoid_: Host Skill collision, precedence conflict
 **Blocker**:
 A condition that prevents a lifecycle operation from proceeding. A Blocker is one exhaustively typed structured record (`kind`, `problem`, `requirement`, `remedy`, `scope`, and `affectedItems`) normalized at the Installer boundary, with a derived `message` projection retained for machine JSON. `scope: global` applies independently of one project; `scope: project` carries one canonical project identity that `problem` does not duplicate. Machine JSON publishes the structured evidence and derived message directly; human views render the structured fields and derive grouping and verbose completeness from the same record.
 _Avoid_: Warning, reconciliation item, Output Ownership Conflict
-
-**Safe Repair**:
-The deterministic restoration of Agent Profile Kit-owned output or lifecycle metadata from existing durable ownership evidence when no user-managed bytes or repository ownership change. It uses the ordinary `status` → `apply` lifecycle, performs no writes from `status`, and is not a general repair command. A condition that lacks sufficient evidence or authority remains a Blocker.
-_Avoid_: Adoption, ownership transfer, best-effort recovery, repair command
 
 **Apply Receipt**:
 The pre-apply ReconciliationReport retained after a successful apply. It represents `Applied` generated-output and Repository Exclusion work; a separate post-commit reconciliation snapshot is authoritative for the resulting Profile Installation state and represents `Pending` work.
@@ -79,10 +75,6 @@ _Avoid_: Installation Manifest, presentation history, selected Context, generate
 **Repository Exclusion Contribution**:
 One active Installation Receipt's exact repository-local exclusion target and entries, owned by that receipt rather than by any separately persisted record. The Installer derives the deterministic shared-target union at planning time, represented in code by the `RepositoryExclusionRecord` planning type (`repositoryExclusionRecords()`); that type names the derived union only and persists nothing. Structured Blockers use the `repository-exclusion-contribution` kind for this evidence.
 _Avoid_: Repository Exclusion Record (as a separately persisted record), shared `.gitignore`, persisted target union, one exclusion owner per Profile Installation
-
-**Installation Marker**:
-The minimal Installer-owned file that travels with a project and links its Profile Installation to the machine-local Installation Receipt through an opaque installation ID. It proves continuity across a project-folder move, is lifecycle metadata rather than a generated output receipt, and contains no desired state.
-_Avoid_: Installation Receipt, Project Binding, Profile
 
 **Artifact ID**:
 The stable identity of a canonical Agent Profile Kit artifact, unique within its artifact type and independent of its organizational path or display name. A Skill's Agent Skills `name` is its Artifact ID.
@@ -112,18 +104,6 @@ _Avoid_: Skill, procedure
 An independently reusable unit of Context organized around one reason to change. Profiles select Context Modules, and Adapters compose them for an Agent Host.
 _Avoid_: Profile, generated host instructions
 
-**Tool**:
-Independently reusable executable functionality owned by Agent Profile Kit and shared across Skills, Agents, or Hooks.
-_Avoid_: Skill Resource, External Capability
-
-**Agent Tool**:
-A Tool that an agent can discover and invoke directly. Agent Tools use MCP as their default portable interface.
-_Avoid_: Internal Utility, Agent Host built-in tool
-
-**Internal Utility**:
-A Tool invoked by Skills, Hooks, Adapters, or Installers rather than selected directly by an agent.
-_Avoid_: Agent Tool, Skill Resource
-
 **Skill Resource**:
 A script, reference, or asset owned and used exclusively by one Skill.
 _Avoid_: Tool
@@ -131,14 +111,6 @@ _Avoid_: Tool
 **External Capability**:
 Functionality supplied by an Agent Host or the surrounding system that Agent Profile Kit material may require but does not own.
 _Avoid_: Tool, Skill Resource
-
-**Agent**:
-A reusable delegated worker that applies a defined role, perspective, and execution boundary to a task assigned by another agent.
-_Avoid_: Agent Host, Profile, Skill
-
-**Execution Requirement**:
-A host-independent behavioral or safety constraint that an Agent requires. Every Adapter must enforce the requirement in the Agent Host or reject the installation.
-_Avoid_: Host setting, model preference
 
 **Profile**:
 An explicit named selection containing exactly an Artifact ID, Context, and Skills suited to a kind of work and reusable across projects. A Project Binding selects one Profile for a project, and Adapters add its material without replacing user-managed Host or project configuration. Agents, Hooks, and Tools are not implemented Profile selection categories.
@@ -155,7 +127,3 @@ _Avoid_: Skill, installation, source update
 **Command**:
 An Agent Host-specific, user-facing entrypoint that explicitly activates a Skill. A Command does not own workflow instructions independently of the Skill it activates.
 _Avoid_: Skill, canonical workflow
-
-**Hook**:
-A deterministic response that runs automatically at a lifecycle event and declares whether its required effect is observational, advisory, enforcing, or transforming. Adapters must preserve that effect or reject installation.
-_Avoid_: Skill, Command, manual workflow

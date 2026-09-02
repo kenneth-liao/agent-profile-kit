@@ -1,7 +1,7 @@
 # Agent Profile Kit
 
-Agent Profile Kit is a user-agnostic CLI and format for composing a user's Skills,
-Context, Agents, Hooks, and Tools into portable Profiles. Host Adapters generate
+Agent Profile Kit is a user-agnostic CLI and format for composing a user's Skills
+and Context into portable Profiles. Host Adapters generate
 native Profile output for supported agent products without overwriting their
 existing configuration or capabilities.
 

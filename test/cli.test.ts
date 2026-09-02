@@ -993,8 +993,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     });
     expect(existsSync(workspacePath(home))).toBe(false);
     expect(readFileSync(join(custom, "workspace.yaml"), "utf8")).toBe("schema_version: 1\n");
-    for (const directory of ["profiles", "context", "skills", "agents", "hooks", "tools"]) {
+    for (const directory of ["profiles", "context", "skills"]) {
       expect(existsSync(join(custom, directory, ".gitkeep"))).toBe(true);
+    }
+    for (const directory of ["agents", "hooks", "tools"]) {
+      expect(existsSync(join(custom, directory))).toBe(false);
     }
     expect(existsSync(join(custom, "README.md"))).toBe(true);
     expect(existsSync(join(custom, "AGENTS.md"))).toBe(true);
