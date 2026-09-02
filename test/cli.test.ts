@@ -4224,6 +4224,70 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(exclude).equals(before)).toBe(true);
   });
 
+  test("an unprovable common directory keeps the nested Project's Adapter topology", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-git-common-symlink-");
+    const nested = join(repository, "nested");
+    mkdirSync(nested);
+    const external = project("agent-profile-kit-external-common-");
+    const externalGit = join(external, "gitdir");
+    execFileSync("mv", [join(repository, ".git"), externalGit]);
+    symlinkSync(externalGit, join(repository, ".git"));
+    writeContextProfile(home);
+    bind(home, nested);
+
+    const result = await runCli(home, "apply");
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("non-directory or symlink component");
+    // The proven worktree-relative Project path still reaches the Adapter: the
+    // SessionStart hook reads the nested Project's Context, and the non-Git
+    // bound-root launch constraint is not emitted.
+    const hooks = JSON.parse(readFileSync(join(nested, ".codex", "hooks.json"), "utf8")) as {
+      hooks: { SessionStart: readonly { hooks: readonly { command: string }[] }[] };
+    };
+    expect(hooks.hooks.SessionStart[0]!.hooks[0]!.command)
+      .toContain("nested/.agent-profile-kit/codex/context.md");
+    expect(result.stdout).not.toContain("Launch Codex from the exact bound project root");
+  });
+
+  test("unprovable topology still blocks writing and removing a Git-tracked generated root", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const repository = gitRepository("agent-profile-kit-git-common-symlink-");
+    const external = project("agent-profile-kit-external-common-");
+    const externalGit = join(external, "gitdir");
+    execFileSync("mv", [join(repository, ".git"), externalGit]);
+    symlinkSync(externalGit, join(repository, ".git"));
+    writeContextProfile(home);
+    bind(home, repository);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const generated = join(repository, ".agent-profile-kit", "codex", "context.md");
+    const installed = readFileSync(generated);
+    execFileSync("git", ["-C", repository, "add", "-f", ".agent-profile-kit/codex/context.md"]);
+    // A changed Workspace source would change the desired bytes on re-apply.
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nChanged boundary rules.\n",
+    );
+
+    const applied = await runCli(home, "apply");
+
+    // Tracked-output protection stays fail-closed under unprovable topology.
+    expectExitCode(applied, 2);
+    expect(applied.stdout).toContain("These generated paths are tracked by Git");
+    expect(readFileSync(generated).equals(installed)).toBe(true);
+
+    const uninstall = await runCli(home, "uninstall");
+
+    expectExitCode(uninstall, 0);
+    expect(uninstall.stdout).toContain("Kept 1 Project whose owned output could not be fully removed");
+    expect(uninstall.stdout).toContain("tracked by Git");
+    expect(readFileSync(generated).equals(installed)).toBe(true);
+  });
+
   test("a corrupt Git boundary fails closed instead of becoming a non-Git project", async () => {
     const home = isolatedHome();
     await initialize(home);

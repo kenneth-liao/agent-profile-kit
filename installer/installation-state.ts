@@ -45,7 +45,7 @@ import {
   createLifecycleGitInspectionContext,
   type LifecycleGitInspection,
 } from "./lifecycle-git-inspection.js";
-import { UnprovableGitTopologyError, type GitProject } from "./git.js";
+import { type GitProject, type GitWorktree } from "./git.js";
 import {
   stateManifestPath,
   stateDirectory,
@@ -286,22 +286,18 @@ export async function proveOwnedInstallation(
 /**
  * The one tracked-root reader for every destructive removal surface: the
  * project-relative recorded roots the live Git index tracks, canonically
- * ordered. Ordinary and temporary removal share this fact. Unprovable Git
- * topology (DEC-009) cannot classify trackedness; removal proceeds best-effort
- * with no tracked roots rather than stalling teardown.
+ * ordered. Ordinary and temporary removal share this fact. Removal authority
+ * stays fail-closed (ADR-0025): an inspection failure is a tool error, and
+ * Git-tracked recorded roots block removal — including under unprovable Git
+ * topology, where the worktree is still provable and classification runs.
  */
 async function trackedRoots(
   project: string,
   paths: readonly string[],
   gitInspection: LifecycleGitInspection,
 ): Promise<readonly string[]> {
-  let gitProject: GitProject | undefined;
-  try {
-    gitProject = await gitInspection.findGitProject(project);
-  } catch (error) {
-    if (!(error instanceof UnprovableGitTopologyError)) throw error;
-    return [];
-  }
+  const gitProject: GitWorktree | undefined =
+    await gitInspection.findGitWorktree(project);
   if (!gitProject) return [];
   const tracked = await gitInspection.classifyTrackedDestinations(gitProject, paths);
   return paths.filter((path) => tracked.has(path)).sort(compareCanonicalStrings);

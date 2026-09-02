@@ -43,7 +43,7 @@ import {
   writeInstallationState,
   type OwnershipProof,
 } from "./installation-state.js";
-import { gitExcludeEntry, UnprovableGitTopologyError, type GitProject } from "./git.js";
+import { gitExcludeEntry, type GitProject, type GitWorktree } from "./git.js";
 import {
   ingestApplicationModelFromSource,
   readLocalConfigurationSource,
@@ -471,19 +471,14 @@ export async function desiredOutputConflicts(
   ]);
   const outputs: OwnershipOutputReceipt[] = desired.outputs.map(ownedOutputFromDesired);
   // Prefer the topology already proven for this Desired Installation; fall back
-  // only when a caller constructed desired state without Git evidence. Real
-  // tracked-index inspection failures stay fail-closed: such a failure is a
-  // tool error, never a silent "untracked". Unprovable Git topology (DEC-009)
-  // is the one tolerated case — classification is skipped under the warning
-  // already emitted by the exclusion derivation.
-  let gitProject: GitProject | undefined = desired.gitProject;
-  if (gitProject === undefined) {
-    try {
-      gitProject = await gitInspection.findGitProject(project);
-    } catch (error) {
-      if (!(error instanceof UnprovableGitTopologyError)) throw error;
-    }
-  }
+  // only when a caller constructed desired state without Git evidence. Tracked
+  // classification stays fail-closed: an inspection failure is a tool error,
+  // never a silent "untracked". Unprovable Git topology (DEC-009) only removes
+  // the exclusion target's proof — worktree identity is still proven, so this
+  // classification runs for that topology too and Git-tracked generated paths
+  // remain a Blocker (ADR-0025).
+  const gitProject: GitWorktree | undefined = desired.gitProject ??
+    await gitInspection.findGitWorktree(project);
   const trackedPathSet = gitProject === undefined
     ? new Set<string>()
     : await gitInspection.classifyTrackedDestinations(

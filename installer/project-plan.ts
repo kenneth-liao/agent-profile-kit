@@ -50,7 +50,7 @@ import {
 import { requireProfile } from "./profile-selection.js";
 import { type ResolvedProfile } from "./resolve-dependencies.js";
 import { ENGINE_VERSION } from "./version.js";
-import { UnprovableGitTopologyError, type GitProject } from "./git.js";
+import { type GitWorktree, type GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
 import type { AdapterCapabilityFailure } from "../adapters/capability.js";
@@ -168,7 +168,7 @@ export interface DesiredInstallation {
    */
   readonly capabilityWarnings: readonly HostCapabilityWarning[];
   readonly engineVersion: string;
-  readonly gitProject: GitProject | undefined;
+  readonly gitProject: GitWorktree | undefined;
   readonly hostVersions: Readonly<Record<string, string>>;
   readonly outputs: readonly DesiredProjectOutput[];
   readonly profile: Profile;
@@ -675,15 +675,12 @@ export async function buildDesiredState(
       binding.profile,
     );
     const resolvedProfile = planning.resolveProfile(profile);
-    // Unprovable Git topology (DEC-009) never blocks planning: the installation
-    // proceeds without topology evidence and the exclusion derivation warning
-    // (the sole warning site) names the condition.
-    let gitProject: GitProject | undefined;
-    try {
-      gitProject = await gitInspection.findGitProject(binding.canonicalProject);
-    } catch (error) {
-      if (!(error instanceof UnprovableGitTopologyError)) throw error;
-    }
+    // Worktree identity (root, relative Project path) is provable independently
+    // of the exclusion target: it reaches Adapters and tracked-path
+    // classification even when the common directory is unprovable (DEC-009),
+    // so the Project is never reclassified as non-Git. A corrupt boundary
+    // fails closed here.
+    const gitProject = await gitInspection.findGitWorktree(binding.canonicalProject);
     const { hash: sourceHash, fingerprints: artifactFingerprints } =
       await planning.hashWorkspaceInputs(profile, resolvedProfile);
     const capabilityFailures: { readonly failure: AdapterCapabilityFailure; readonly host: SupportedHost }[] = [];
