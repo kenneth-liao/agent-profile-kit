@@ -13,7 +13,6 @@ import type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
 import { createProjectReadScheduler } from "./project-scheduler.js";
 import { buildDesiredState } from "./project-plan.js";
 import {
-  proveOwnedInstallation,
   readInstallationState,
   stageProvenInstallationRemoval,
   writeInstallationState,
@@ -73,6 +72,11 @@ export interface UninstallResult {
       readonly entries: readonly string[];
       readonly target: string;
     }[];
+  }[];
+  /** Projects whose owned output could not be fully removed; every other Project was still removed. */
+  readonly kept: readonly {
+    readonly project: string;
+    readonly reason: string;
   }[];
   /** Best-effort exclusion bookkeeping failures; teardown itself never stalls. */
   readonly warnings: readonly string[];
@@ -207,43 +211,55 @@ async function uninstallApplicationLocked(
   const writeState = options.writeInstallationState ?? writeInstallationState;
   const state = await readInstallationState(home);
   const installations = ordinaryReceipts(state);
-  if (installations.length === 0) return { projects: [], warnings: [] };
+  if (installations.length === 0) return { projects: [], kept: [], warnings: [] };
   let stateWriteAttempted = false;
-  const failures: string[] = [];
-  // One shared Git inspection context for the whole preflight: each owned root
-  // is classified against the live index at most once per uninstall.
+  // One shared Git inspection context for the whole run: each owned root is
+  // classified against the live index at most once per uninstall.
   const gitInspection = createLifecycleGitInspectionContext();
-  for (const installation of installations) {
-    const proof = await proveOwnedInstallation(installation, undefined, gitInspection);
-    if (!proof.owned) {
-      failures.push(
-        `${installation.project}: ${proof.reason ?? "ownership could not be proven"}`,
-      );
-    }
-  }
-  if (failures.length > 0) {
-    throw new Error(
-      `Uninstall blocked; generated files were not removed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`,
-    );
-  }
+  // Each Project is evaluated and removed independently (DEC-007): a Project
+  // whose owned output cannot be fully removed is reported and skipped, and
+  // never prevents removal for the other Projects.
   const transactions: Awaited<ReturnType<typeof stageProvenInstallationRemoval>>[] = [];
+  const removed = new Set<string>();
+  const kept: { project: string; reason: string }[] = [];
   const contributions = new Map<string, { readonly entries: readonly string[]; readonly target: string } | undefined>();
   for (const installation of installations) {
-    contributions.set(
-      installation.project,
-      await receiptExclusionContribution(installation.project, installation.outputs, { gitInspection }),
-    );
+    try {
+      transactions.push(
+        await stageProvenInstallationRemoval(installation, undefined, gitInspection),
+      );
+    } catch (error) {
+      kept.push({
+        project: installation.project,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+    removed.add(installation.project);
+    // Bookkeeping derivation is best-effort (DEC-009): a failure only
+    // forfeits this Project's "cleaned exclusions" claim, never the removal.
+    try {
+      contributions.set(
+        installation.project,
+        await receiptExclusionContribution(installation.project, installation.outputs, { gitInspection }),
+      );
+    } catch {
+      contributions.set(installation.project, undefined);
+    }
+  }
+  if (removed.size === 0) {
+    return { projects: [], kept, warnings: [] };
   }
   const exclusionWarnings: string[] = [];
   const cleanedByProject = new Map<string, readonly string[]>();
   try {
-    for (const installation of installations) {
-      transactions.push(await stageProvenInstallationRemoval(installation));
-    }
-    // Ordinary uninstall ignores retired receipts (they belong to unbound
-    // Projects) and preserves Temporary receipts, tombstones, and retired
-    // records alike: teardown of retired output belongs to the next apply.
+    // Ordinary uninstall retires only the receipts it removed; kept Projects
+    // stay installed and their exclusion entries survive publication. Retired
+    // receipts (they belong to unbound Projects), Temporary receipts,
+    // tombstones, and retired records are preserved alike: teardown of
+    // retired output belongs to the next apply.
     const afterOrdinaryUninstall = withReceipts(state, [
+      ...installations.filter((installation) => !removed.has(installation.project)),
       ...temporaryReceipts(state),
       ...retiredReceipts(state),
     ]);
@@ -266,7 +282,7 @@ async function uninstallApplicationLocked(
       publication.changes.map((change) => [change.target, new Set(change.next)]),
     );
     for (const [project, contribution] of contributions) {
-      if (contribution === undefined) continue;
+      if (contribution === undefined || !removed.has(project)) continue;
       const surviving = survivingByTarget.get(contribution.target);
       cleanedByProject.set(
         project,
@@ -298,7 +314,8 @@ async function uninstallApplicationLocked(
     throw error;
   }
   return {
-    projects: installations.map((installation) => ({
+    kept,
+    projects: installations.filter((installation) => removed.has(installation.project)).map((installation) => ({
       outputs: installation.outputs.map((output) => output.path).sort(),
       project: installation.project,
       repositoryExclusions: (cleanedByProject.get(installation.project) ?? []).length === 0

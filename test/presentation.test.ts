@@ -1451,6 +1451,7 @@ function explanationLines(reportText: string): string[] {
 describe("formatLifecycleReport concise terminology", () => {
   test("renders the uninstall receipt from removed ownership facts", () => {
     const receipt = formatUninstallResult({
+      kept: [],
       projects: [{
         outputs: [".agent-profile-kit/installation.json", ".codex/hooks.json"],
         project: "/project-a",
@@ -1473,6 +1474,24 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(receipt).toContain("Cleaned Git exclusions:");
     expect(receipt.match(/Cleaned Git exclusions:/g)).toHaveLength(1);
     expect(receipt).toContain("Configured Projects preserved.");
+  });
+
+  test("renders kept Projects with their reasons when nothing could be removed", () => {
+    const receipt = formatUninstallResult({
+      projects: [],
+      kept: [{
+        project: "/project-a",
+        reason: "Cannot remove Project at /project-a: owned output .codex/hooks.json has unsafe parent: /project-a/.codex is a symlink parent",
+      }],
+      warnings: [],
+    });
+
+    expect(receipt).toContain("Removed no Agent Profile Kit-owned output; kept 1 Project below.");
+    expect(receipt).toContain("Kept 1 Project whose owned output could not be fully removed:");
+    expect(receipt).toContain("Project: /project-a");
+    expect(receipt).toContain("  - Cannot remove Project at /project-a");
+    expect(receipt).toContain("Configured Projects preserved.");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(receipt).not.toMatch(term);
   });
 
   test("blocked lifecycle reports lead with the blocker and suppress planned changes", () => {
@@ -3666,6 +3685,7 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
 
   test("uninstall wraps prose at the selected width, keeps paths whole, and preserves the empty state", () => {
     const output = formatUninstallResult({
+      kept: [],
       projects: [{
         outputs: [".agent-profile-kit/codex/context.md"],
         project: "/home/projects/api",
@@ -3679,10 +3699,10 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     expect(prose).toBeDefined();
     expect(prose!.length).toBeLessThanOrEqual(40);
 
-    expect(formatUninstallResult({ projects: [], warnings: [] })).toBe(
+    expect(formatUninstallResult({ projects: [], kept: [], warnings: [] })).toBe(
       "No ordinary Agent Profile Kit-owned output is installed.\n\nConfigured Projects preserved.\n",
     );
-    const wrappedEmpty = formatUninstallResult({ projects: [], warnings: [] }, { context: context(40) });
+    const wrappedEmpty = formatUninstallResult({ projects: [], kept: [], warnings: [] }, { context: context(40) });
     for (const line of wrappedEmpty.split("\n")) {
       expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
     }
@@ -4688,6 +4708,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
 
   test("routine teardown receipts preserve configured Projects in user-facing vocabulary", () => {
     const uninstall = formatUninstallResult({
+      kept: [],
       projects: [{
         outputs: [".agent-profile-kit/installation.json", ".codex/hooks.json"],
         project: "/project-a",
@@ -4702,6 +4723,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
 
   test("uninstall renders best-effort exclusion warnings and claims only cleaned entries", () => {
     const result = formatUninstallResult({
+      kept: [],
       projects: [{
         outputs: [".codex/hooks.json"],
         project: "/project-a",
