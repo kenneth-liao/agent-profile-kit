@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+
   chmodSync,
   existsSync,
   mkdirSync,
@@ -32,6 +33,7 @@ import {
   reportBlockers,
   reportItems,
 } from "./support/reconciliation-report.js";
+import { blockerWording } from "../cli/blocker-wording.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -218,7 +220,7 @@ describe("Pi shared Skill migration", () => {
       blocked = error;
     }
     expect(blocked).toBeInstanceOf(ApplyBlockedError);
-    expect(String(reportBlockers((blocked as ApplyBlockedError).report)[0]?.message))
+    expect(blockerWording(reportBlockers((blocked as ApplyBlockedError).report)[0]!).message)
       .toContain("ownership continuity");
     expect(readFileSync(join(project, oldPath, "SKILL.md"), "utf8")).toBe("user edit\n");
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);

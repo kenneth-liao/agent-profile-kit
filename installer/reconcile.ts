@@ -39,6 +39,7 @@ import {
   proveOwnedInstallation,
   readInstallationState,
   stageProvenInstallationRemoval,
+  StateReadFailureError,
   writeInstallationState,
   type OwnershipProof,
 } from "./installation-state.js";
@@ -80,7 +81,9 @@ import {
   occupiedOutputBlocker,
   outputOwnershipConflictBlocker,
   type BlockerInput,
+  type OwnershipFailureFact,
   type ProjectScopedBlockerInput,
+  type StateReadFailureFact,
   type ReconciliationBlocker,
 } from "./blockers.js";
 
@@ -117,7 +120,8 @@ export type ReconciliationKind =
 export interface ReconciliationItem {
   readonly kind: ReconciliationKind;
   readonly project: string;
-  readonly reason?: string;
+  /** A diagnostic string, or a typed ownership/state-read failure fact presentation renders. */
+  readonly reason?: OwnershipFailureFact | StateReadFailureFact | string;
 }
 
 export type OutputReconciliationKind =
@@ -302,16 +306,26 @@ export async function unreadableInstallationStateReport(
     removedTemporaryInstallationIds: [],
     schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
   });
+  // Installer-classified state-read failures cross as typed facts; foreign
+  // diagnostics (fs and parse errors) stay plain detail facts. The same fact
+  // rides on every Project state so no Installer-authored sentence leaks.
+  const statePath = stateManifestPath(home);
+  const cause = error instanceof StateReadFailureError
+    ? { stateFailure: error.failure as StateReadFailureFact }
+    : { detail: message as string };
+  const blocker = "stateFailure" in cause
+    ? installationStateUnreadableBlocker({ stateFailure: cause.stateFailure, statePath })
+    : installationStateUnreadableBlocker({ detail: cause.detail, statePath });
   return {
-    globalBlockers: [normalizeBlocker(installationStateUnreadableBlocker({
-      message,
-      statePath: stateManifestPath(home),
-    }))],
+    globalBlockers: [normalizeBlocker(blocker)],
     // Ownership cannot be read, so planned Project states and output changes
     // are not trustworthy diagnostics. Keep desired identity plus the boundary failure.
     projects: desiredReport.projects.map((project) => ({
       ...project,
-      state: { kind: "malformed ownership state", reason: message },
+      state: {
+        kind: "malformed ownership state" as const,
+        reason: cause.stateFailure ?? cause.detail,
+      },
       outputs: [],
       blockers: [],
     })),
@@ -414,7 +428,7 @@ async function parentConflicts(project: string, path: string): Promise<readonly 
     if (kind !== "missing" && kind !== "directory") {
       const relativeParent = parent.slice(project.length + 1);
       blockers.push(occupiedOutputBlocker({
-        message: `${relativeParent} is an occupied ${kind} parent path`,
+        occupied: { case: "occupied-parent", occupation: kind },
         path: relativeParent,
         project,
       }));
@@ -468,8 +482,8 @@ export async function desiredOutputConflicts(
       gitProject,
       outputs.map((output) => output.path),
     );
-  const remedies = new Map(
-    desired.outputs.map((output) => [output.path, output.remedy]),
+  const remedyKeys = new Map(
+    desired.outputs.map((output) => [output.path, output.remedyKey]),
   );
   const trackedPaths: string[] = [];
   for (const output of outputs) {
@@ -492,39 +506,39 @@ export async function desiredOutputConflicts(
     // the write is a byte-identical no-op, so nothing not created by Agent
     // Profile Kit can be lost. Any other extant content still blocks.
     if (options.adoptByteIdentical !== false && await outputMatchesDesired(project, output, inspection)) continue;
-    const remedy = remedies.get(output.path);
+    const remedyKey = remedyKeys.get(output.path);
     if (output.type === "file") {
       if (kind !== "file") {
         blockers.push(occupiedOutputBlocker({
-          message: `${output.path} is an occupied ${kind} path`,
+          occupied: { case: "occupied-destination", occupation: kind },
           path: output.path,
           project,
-          ...(remedy === undefined ? {} : { remedy }),
+          ...(remedyKey === undefined ? {} : { remedyKey }),
         }));
         continue;
       }
       blockers.push(occupiedOutputBlocker({
-        message: `${output.path} is occupied by unowned or drifted output`,
+        occupied: { case: "drifted-output" },
         path: output.path,
         project,
-        ...(remedy === undefined ? {} : { remedy }),
+        ...(remedyKey === undefined ? {} : { remedyKey }),
       }));
       continue;
     }
     if (kind !== "directory") {
       blockers.push(occupiedOutputBlocker({
-        message: `${output.path} is an occupied ${kind} path`,
+        occupied: { case: "occupied-destination", occupation: kind },
         path: output.path,
         project,
-        ...(remedy === undefined ? {} : { remedy }),
+        ...(remedyKey === undefined ? {} : { remedyKey }),
       }));
       continue;
     }
     blockers.push(occupiedOutputBlocker({
-      message: `${output.path} is an occupied unowned artifact directory`,
+      occupied: { case: "unowned-artifact-directory" },
       path: output.path,
       project,
-      ...(remedy === undefined ? {} : { remedy }),
+      ...(remedyKey === undefined ? {} : { remedyKey }),
     }));
   }
   if (trackedPaths.length > 0) {
@@ -611,7 +625,8 @@ async function installationRetirementSelection(
 
 function ownershipBlocker(project: string, proof: OwnershipProof): ProjectScopedBlockerInput {
   return installationOwnershipBlocker({
-    message: `Cannot verify generated-file ownership: ${proof.reason ?? "ownership could not be proven"}`,
+    action: "verify",
+    failure: proof.failure ?? { case: "unproven" },
     project,
   });
 }
@@ -669,7 +684,7 @@ function nestedReconciliationReport(
       globalBlockers.push(blocker);
       continue;
     }
-    const key = canonicalProject(blocker.project);
+    const key = canonicalProject(blocker.project!);
     const records = projectBlockers.get(key) ?? [];
     records.push(blocker);
     projectBlockers.set(key, records);
@@ -936,7 +951,7 @@ export async function previewReconciliation(
         projectItems.push({
           kind: "drifted output",
           project: installation.binding.project,
-          ...(proof.reason ? { reason: proof.reason } : {}),
+          ...(proof.failure ? { reason: proof.failure } : {}),
         });
       // Surface safe recreation ahead of stale source because apply restores from
       // that current source.
@@ -1039,9 +1054,8 @@ export async function previewReconciliation(
     if (!proof.owned) {
       projectBlockers.push(normalizeBlocker(
         installationOwnershipBlocker({
-          message:
-            "Cannot remove stale generated files: " +
-            (proof.reason ?? "ownership could not be proven"),
+          action: "remove",
+          failure: proof.failure ?? { case: "unproven" },
           project: installation.project,
         }),
         installation.project,
@@ -1055,8 +1069,8 @@ export async function previewReconciliation(
         project: installation.project,
         ...(intentionallyDeleted
           ? { reason: "project intentionally deleted" }
-          : proof.reason
-            ? { reason: proof.reason }
+          : proof.failure
+            ? { reason: proof.failure }
             : {}),
       }],
       outputItems: installation.outputs.map((output) => ({
@@ -1084,20 +1098,14 @@ export async function previewReconciliation(
   });
   const deduplicated = new Map<string, ReconciliationBlocker>();
   for (const blocker of blockers) {
-    const key = JSON.stringify({
-      affectedItems: blocker.affectedItems,
-      kind: blocker.kind,
-      problem: blocker.problem,
-      project: blocker.project,
-      remedy: blocker.remedy,
-      requirement: blocker.requirement,
-      scope: blocker.scope,
-    });
+    const key = JSON.stringify(blocker);
     if (!deduplicated.has(key)) deduplicated.set(key, blocker);
   }
   const flat: ReconciliationAccumulator = {
     blockers: [...deduplicated.values()].sort((left, right) =>
-      (left.project ?? "").localeCompare(right.project ?? "") || left.message.localeCompare(right.message)
+      (left.project ?? "").localeCompare(right.project ?? "") ||
+      left.kind.localeCompare(right.kind) ||
+      JSON.stringify(left.affectedItems).localeCompare(JSON.stringify(right.affectedItems))
     ),
     desired: desiredReport,
     items,

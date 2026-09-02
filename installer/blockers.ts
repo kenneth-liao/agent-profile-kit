@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { OUTPUT_REMEDY_KEYS, type OutputRemedyKey } from "../adapters/project-plan.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
 /** A blocker scope retains the legacy project identity as a separate projection. */
@@ -15,44 +15,166 @@ export interface BlockerAffectedItem {
   readonly value: string;
 }
 
-interface StructuredBlockerCommon {
+/** Which lifecycle action an Installation-ownership blocker is preventing. */
+export type OwnershipBlockerAction = "remove" | "verify";
+
+/** The exhaustive path-kind facts an occupied planned output can report. */
+export type OutputOccupation = "directory" | "file" | "other" | "symlink";
+
+/**
+ * Typed evidence for why one planned output destination is occupied. Each case
+ * maps to one presentation-owned problem template keyed by the blocker kind;
+ * the Installer never authors the sentence.
+ */
+export type OccupiedOutputFact =
+  | { readonly case: "drifted-output" }
+  | { readonly case: "occupied-destination"; readonly occupation: OutputOccupation }
+  | { readonly case: "occupied-parent"; readonly occupation: OutputOccupation }
+  | { readonly case: "unowned-artifact-directory" };
+
+/** The exhaustive typed fact cases an occupied-output blocker can carry. */
+export const OCCUPIED_OUTPUT_CASES = [
+  "drifted-output",
+  "occupied-destination",
+  "occupied-parent",
+  "unowned-artifact-directory",
+] as const;
+
+/**
+ * The exhaustive typed Installation State read-failure facts the Installer
+ * classifies. Foreign diagnostics (fs and parse errors) stay plain `detail`
+ * facts; everything the Installer itself authors is rendered by presentation
+ * from these discriminants.
+ */
+export const STATE_READ_FAILURE_CASES = [
+  "legacy-yaml-state-expired",
+  "oversize-state",
+  "receipt-records-no-outputs",
+] as const;
+
+export type StateReadFailureFact =
+  | { readonly case: "legacy-yaml-state-expired"; readonly retiredPath: string }
+  | { readonly case: "oversize-state"; readonly limitBytes: number }
+  | { readonly case: "receipt-records-no-outputs"; readonly project: string };
+
+/**
+ * The exhaustive typed Profile Installation ownership-failure facts. The
+ * Installer classifies the failure; presentation owns every rendered sentence
+ * keyed by the discriminant.
+ */
+export const OWNERSHIP_FAILURE_CASES = [
+  "git-tracked-output",
+  "no-ownership-continuity",
+  "type-mismatch",
+  "unsafe-parent",
+  "unreadable-output",
+  "unproven",
+  "unsupported-entry",
+] as const;
+
+export type OwnershipFailureFact =
+  | { readonly case: "git-tracked-output"; readonly outputs: readonly string[] }
+  | { readonly case: "no-ownership-continuity"; readonly output: string }
+  | { readonly case: "type-mismatch"; readonly expected: "directory" | "file"; readonly output: string }
+  | { readonly case: "unsafe-parent"; readonly output: string; readonly parent: string }
+  | { readonly case: "unreadable-output"; readonly output: string }
+  | { readonly case: "unproven" }
+  | { readonly case: "unsupported-entry"; readonly member: string; readonly output: string };
+
+/**
+ * The exhaustive typed Temporary Profile Installation removal-failure facts.
+ * The Installer classifies the failure; presentation owns every rendered
+ * sentence keyed by the discriminant.
+ */
+export const TEMPORARY_REMOVAL_FAILURE_CASES = [
+  "git-tracked-output",
+  "symlink-output",
+  "unsafe-parent",
+] as const;
+
+export type TemporaryRemovalFailureFact =
+  | { readonly case: "git-tracked-output"; readonly outputs: readonly string[] }
+  | { readonly case: "symlink-output"; readonly output: string }
+  | { readonly case: "unsafe-parent"; readonly output: string; readonly parent: string };
+
+/** Common evidence every blocker carries. */
+interface StructuredBlockerEvidence {
   readonly affectedItems: readonly BlockerAffectedItem[];
-  /** Typed blocker class; the exhaustive vocabulary is {@link BLOCKER_KINDS}. */
-  readonly kind: BlockerKind;
-  readonly problem: string;
-  readonly remedy: string;
-  readonly requirement: string;
-  readonly scope: BlockerScope;
 }
 
+/**
+ * Exhaustive typed blocker evidence, discriminated by `kind`. Every member
+ * carries exactly the facts its presentation templates need; foreign fields are
+ * `never`, so a partial or cross-contaminated blocker cannot compile. Every
+ * field is a typed fact — kind, affected Project, affected paths, affected
+ * Agent Host, plus the per-kind non-prose evidence. User-facing sentences do
+ * not exist on this type: presentation owns every problem, requirement, and
+ * remedy string keyed by {@link BlockerKind}, and runtime normalization still
+ * rejects malformed untrusted input loudly.
+ */
 export type StructuredBlockerInput =
-  | (StructuredBlockerCommon & {
-      readonly project?: never;
+  | (StructuredBlockerEvidence & {
+      readonly kind: typeof INSTALLATION_STATE_UNREADABLE;
+      /** Installer-classified state-read failure; presentation owns the sentence. */
+      readonly stateFailure: StateReadFailureFact;
       readonly scope: "global";
     })
-  | (StructuredBlockerCommon & {
-      readonly project: string;
+    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly occupied?: never; readonly project?: never; readonly remedyKey?: never }
+  | (StructuredBlockerEvidence & {
+      /** Foreign diagnostic detail fact (for example an fs or parse error message). Never Installer-authored. */
+      readonly detail: string;
+      readonly kind: typeof INSTALLATION_STATE_UNREADABLE;
+      readonly scope: "global";
+    })
+    & { readonly action?: never; readonly failure?: never; readonly occupied?: never; readonly project?: never; readonly remedyKey?: never; readonly stateFailure?: never }
+  | (StructuredBlockerEvidence & {
+      readonly kind: typeof OCCUPIED_OUTPUT;
+      readonly occupied: OccupiedOutputFact;
+      /** Adapter remedy identity; presentation owns the remedy sentence it resolves to. */
+      readonly remedyKey?: OutputRemedyKey;
       readonly scope: "project";
-    });
+    })
+    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly project: string; readonly stateFailure?: never }
+  | (StructuredBlockerEvidence & {
+      readonly action: OwnershipBlockerAction;
+      readonly failure: OwnershipFailureFact;
+      readonly kind: typeof INSTALLATION_OWNERSHIP;
+      readonly scope: "project";
+    })
+    & { readonly detail?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never; readonly stateFailure?: never }
+  | (StructuredBlockerEvidence & {
+      readonly kind: typeof OUTPUT_OWNERSHIP_CONFLICT;
+      readonly scope: "project";
+    })
+    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never; readonly stateFailure?: never }
+  | (StructuredBlockerEvidence & {
+      readonly kind: typeof TEMPORARY_INSTALLATION_CONFLICT;
+      readonly scope: "project";
+    })
+    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never; readonly stateFailure?: never }
+  | (StructuredBlockerEvidence & {
+      readonly failure: TemporaryRemovalFailureFact;
+      readonly kind: typeof TEMPORARY_INSTALLATION_REMOVAL;
+      readonly scope: "project";
+    })
+    & { readonly action?: never; readonly detail?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never; readonly stateFailure?: never };
 
 /** The project-scoped variant of a structured blocker input. */
-export type ProjectScopedBlockerInput = StructuredBlockerInput & {
-  readonly project: string;
-  readonly scope: "project";
-};
+export type ProjectScopedBlockerInput = Extract<
+  StructuredBlockerInput,
+  { readonly scope: "project" }
+>;
 
 /** The global-scoped variant of a structured blocker input. */
-export type GlobalScopedBlockerInput = StructuredBlockerInput & {
-  readonly project?: never;
-  readonly scope: "global";
-};
+export type GlobalScopedBlockerInput = Extract<
+  StructuredBlockerInput,
+  { readonly scope: "global" }
+>;
 
 const STRUCTURED_BLOCKER: unique symbol = Symbol("structured blocker");
 
 /** A complete structured blocker returned by the normalization boundary. */
 export type StructuredReconciliationBlocker = StructuredBlockerInput & {
-  /** Human wording derived from canonical structured evidence at normalization. */
-  readonly message: string;
   readonly [STRUCTURED_BLOCKER]: true;
 };
 
@@ -95,151 +217,99 @@ export const BLOCKER_KINDS = [
 /** Exhaustive typed blocker class. */
 export type BlockerKind = (typeof BLOCKER_KINDS)[number];
 
-function globalBlocker(input: {
-  readonly affectedItems: readonly BlockerAffectedItem[];
-  readonly kind: BlockerKind;
-  readonly problem: string;
-  readonly remedy: string;
-  readonly requirement: string;
+/** Build one complete structured blocker for an Installer-classified state-read failure. */
+export function installationStateUnreadableBlocker(options: {
+  readonly stateFailure: StateReadFailureFact;
+  readonly statePath: string;
+}): GlobalScopedBlockerInput;
+/** Build one complete structured blocker for a foreign state-read diagnostic. */
+export function installationStateUnreadableBlocker(options: {
+  readonly detail: string;
+  readonly statePath: string;
+}): GlobalScopedBlockerInput;
+export function installationStateUnreadableBlocker(options: {
+  readonly detail?: string;
+  readonly stateFailure?: StateReadFailureFact;
+  readonly statePath: string;
 }): GlobalScopedBlockerInput {
+  const affectedItems = [{ kind: "path" as const, value: options.statePath }];
+  if (options.stateFailure !== undefined) {
+    return {
+      affectedItems,
+      kind: INSTALLATION_STATE_UNREADABLE,
+      scope: "global" as const,
+      stateFailure: options.stateFailure,
+    };
+  }
   return {
-    affectedItems: input.affectedItems,
-    kind: input.kind,
-    problem: input.problem,
-    remedy: input.remedy,
-    requirement: input.requirement,
+    affectedItems,
+    detail: options.detail!,
+    kind: INSTALLATION_STATE_UNREADABLE,
     scope: "global" as const,
   };
 }
 
-/** Relocate the current Project identity into scope at the Installer boundary. */
-function identityFreeProjectProblem(problem: string, project: string): string {
-  if (problem === project) return "This Project";
-  return problem
-    .replaceAll(`${project}/`, "")
-    .replaceAll(`${project}: `, "");
-}
-
-function duplicatesProjectIdentity(problem: string, project: string): boolean {
-  return problem === project ||
-    (project !== "/" && (
-      problem.includes(`${project}/`) || problem.includes(`${project}:`)
-    ));
-}
-
-function projectBlocker(input: {
-  readonly affectedItems: readonly BlockerAffectedItem[];
-  readonly kind: BlockerKind;
-  readonly problem: string;
+/** Build one complete structured blocker for a planned output destination that is occupied. */
+export function occupiedOutputBlocker(options: {
+  readonly occupied: OccupiedOutputFact;
+  readonly path: string;
   readonly project: string;
-  readonly remedy: string;
-  readonly requirement: string;
+  readonly remedyKey?: OutputRemedyKey;
 }): ProjectScopedBlockerInput {
   return {
-    affectedItems: input.affectedItems,
-    kind: input.kind,
-    problem: identityFreeProjectProblem(input.problem, input.project),
-    project: input.project,
-    remedy: input.remedy,
-    requirement: input.requirement,
+    affectedItems: [{ kind: "path", value: options.path }],
+    kind: OCCUPIED_OUTPUT,
+    occupied: options.occupied,
+    project: options.project,
+    ...(options.remedyKey === undefined ? {} : { remedyKey: options.remedyKey }),
     scope: "project" as const,
   };
 }
 
-/** Build one complete structured blocker for unreadable Installation State. */
-export function installationStateUnreadableBlocker(options: {
-  readonly message: string;
-  readonly statePath: string;
-}): GlobalScopedBlockerInput {
-  return globalBlocker({
-    affectedItems: [{ kind: "path", value: options.statePath }],
-    kind: INSTALLATION_STATE_UNREADABLE,
-    problem: options.message,
-    remedy: "Restore or repair the Installation State file, then retry",
-    requirement: "Lifecycle commands require readable Installation State",
-  });
-}
-
-/** Build one complete structured blocker for a planned output destination that is occupied. */
-export function occupiedOutputBlocker(options: {
-  readonly message: string;
-  readonly path: string;
-  readonly project: string;
-  readonly remedy?: string;
-}): ProjectScopedBlockerInput {
-  return projectBlocker({
-    affectedItems: [{ kind: "path", value: options.path }],
-    kind: OCCUPIED_OUTPUT,
-    problem: options.message,
-    project: options.project,
-    remedy:
-      options.remedy ??
-      ("Remove, move, or adopt the occupying material yourself, or change the Project " +
-      "Binding or Host selection so Agent Profile Kit does not plan output at that path, " +
-      "then retry"),
-    requirement:
-      "Generated files are installed only at new or Agent Profile Kit-managed destinations; " +
-      "occupied unowned material is never overwritten or adopted",
-  });
-}
-
 /** Build one complete structured blocker for unprovable Profile Installation ownership. */
 export function installationOwnershipBlocker(options: {
-  readonly message: string;
+  readonly action: OwnershipBlockerAction;
+  readonly failure: OwnershipFailureFact;
   readonly project: string;
 }): ProjectScopedBlockerInput {
-  return projectBlocker({
+  return {
+    action: options.action,
     affectedItems: [],
+    failure: options.failure,
     kind: INSTALLATION_OWNERSHIP,
-    problem: options.message,
     project: options.project,
-    remedy:
-      "Remove the conflicting generated files yourself after verifying the paths, then retry",
-    requirement:
-      "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
-      "active installation record at safe paths",
-  });
+    scope: "project" as const,
+  };
 }
 
 /** Build one complete structured blocker for a Temporary Profile Installation lifetime conflict. */
 export function temporaryInstallationConflictBlocker(options: {
-  readonly message: string;
   readonly project: string;
   readonly temporaryInstallationId?: string;
 }): ProjectScopedBlockerInput {
-  return projectBlocker({
+  return {
     affectedItems: options.temporaryInstallationId === undefined
       ? []
       : [{ kind: "installation-id", value: options.temporaryInstallationId }],
     kind: TEMPORARY_INSTALLATION_CONFLICT,
-    problem: options.message,
     project: options.project,
-    remedy:
-      "Remove the existing Project Binding-managed files or the active Temporary Profile " +
-      "Installation, then retry install-temp",
-    requirement:
-      "A Project hosts at most one managed installation at a time; temporary lifetime is " +
-      "receipt-owned under ADR-0015",
-  });
+    scope: "project" as const,
+  };
 }
 
 /** Build one complete structured blocker for a Temporary Profile Installation that cannot be removed safely. */
 export function temporaryInstallationRemovalBlocker(options: {
-  readonly message: string;
+  readonly failure: TemporaryRemovalFailureFact;
   readonly outputs: readonly string[];
   readonly project: string;
 }): ProjectScopedBlockerInput {
-  return projectBlocker({
+  return {
     affectedItems: options.outputs.map((output) => ({ kind: "path" as const, value: output })),
+    failure: options.failure,
     kind: TEMPORARY_INSTALLATION_REMOVAL,
-    problem: options.message,
     project: options.project,
-    remedy:
-      "Remove the owned output yourself after verifying the paths, then retry remove-temp",
-    requirement:
-      "remove-temp removes only ownership-proven temporary-owned roots and never " +
-      "traverses outside recorded project-relative roots",
-  });
+    scope: "project" as const,
+  };
 }
 
 /**
@@ -251,7 +321,7 @@ export function temporaryInstallationRemovalBlocker(options: {
 export function outputOwnershipConflictBlocker(options: {
   readonly paths: readonly string[];
   readonly project: string;
-}): StructuredBlockerInput {
+}): ProjectScopedBlockerInput {
   if (options.paths.length === 0) {
     throw new TypeError("Output ownership conflict requires at least one conflicting path");
   }
@@ -259,19 +329,8 @@ export function outputOwnershipConflictBlocker(options: {
   return {
     affectedItems: paths.map((path) => ({ kind: "path", value: path })),
     kind: OUTPUT_OWNERSHIP_CONFLICT,
-    problem:
-      "These generated paths are tracked by Git, so Agent Profile Kit cannot write to them " +
-      "without conflicting with repository ownership.",
-    remedy:
-      "Choose one: keep repository ownership and change the Project Binding or its Host " +
-      "selection so Agent Profile Kit does not plan output at these paths, or intentionally " +
-      "remove the conflicting paths from repository ownership yourself before retrying. " +
-      "Agent Profile Kit will not delete, untrack, adopt, or overwrite repository-owned material.",
-    requirement:
-      "Generated files must be exclusively managed by Agent Profile Kit; repository-owned " +
-      "paths cannot be replaced.",
     project: options.project,
-    scope: "project",
+    scope: "project" as const,
   };
 }
 
@@ -282,8 +341,7 @@ export function isStructuredBlocker(input: unknown): input is StructuredReconcil
 /** Classify untrusted raw input before normalization; consumers use the brand predicate above. */
 function isStructuredInput(input: unknown): input is StructuredBlockerInput {
   if (input === null || typeof input !== "object") return false;
-  return ["affectedItems", "kind", "problem", "remedy", "requirement", "scope"]
-    .some((key) => key in input);
+  return ["affectedItems", "kind", "scope"].some((key) => key in input);
 }
 
 function blockerContext(input: unknown): string {
@@ -311,11 +369,238 @@ function requireText(
   }
 }
 
+/** Prose fields are unrepresentable; their presence is rejected, never ignored. */
+const PROHIBITED_PROSE_FIELDS = ["message", "problem", "remedy", "requirement"] as const;
+
+function rejectProseFields(input: unknown): void {
+  if (input === null || typeof input !== "object") return;
+  const record = input as Record<string, unknown>;
+  for (const field of PROHIBITED_PROSE_FIELDS) {
+    if (field in record) {
+      throw new TypeError(
+        `Structured blockers carry typed facts only; "${field}" is presentation-owned wording` +
+          `${blockerContext(input)}`,
+      );
+    }
+  }
+}
+
+function validateOccupiedFact(value: unknown, input: unknown): asserts value is OccupiedOutputFact {
+  if (value === null || typeof value !== "object") {
+    throw new TypeError(
+      `Structured blocker occupied fact must be an object${blockerContext(input)}`,
+    );
+  }
+  const fact = value as Record<string, unknown>;
+  if (!(OCCUPIED_OUTPUT_CASES as readonly string[]).includes(fact.case as string)) {
+    throw new TypeError(
+      `Unknown structured blocker occupied case ${JSON.stringify(fact.case)}${blockerContext(input)}`,
+    );
+  }
+  if (fact.case === "occupied-destination" || fact.case === "occupied-parent") {
+    if (
+      typeof fact.occupation !== "string" ||
+      !["directory", "file", "other", "symlink"].includes(fact.occupation)
+    ) {
+      throw new TypeError(
+        `Structured blocker occupied fact requires a known occupation` +
+          `${blockerContext(input)}`,
+      );
+    }
+  }
+}
+
+function requireFailureCase(
+  value: unknown,
+  cases: readonly string[],
+  field: string,
+  input: unknown,
+): Record<string, unknown> {
+  if (value === null || typeof value !== "object") {
+    throw new TypeError(
+      `Structured blocker ${field} must be an object${blockerContext(input)}`,
+    );
+  }
+  const fact = value as Record<string, unknown>;
+  if (!cases.includes(fact.case as string)) {
+    throw new TypeError(
+      `Unknown structured blocker ${field} case ${JSON.stringify(fact.case)}${blockerContext(input)}`,
+    );
+  }
+  return fact;
+}
+
+function requireTextProperty(
+  fact: Record<string, unknown>,
+  property: string,
+  field: string,
+  input: unknown,
+): void {
+  if (typeof fact[property] !== "string" || (fact[property] as string).length === 0) {
+    throw new TypeError(
+      `Structured blocker ${field} requires a non-empty ${property}${blockerContext(input)}`,
+    );
+  }
+}
+
+function validateStateReadFailure(
+  value: unknown,
+  input: unknown,
+): asserts value is StateReadFailureFact {
+  const fact = requireFailureCase(value, STATE_READ_FAILURE_CASES, "state-read failure", input);
+  if (fact.case === "oversize-state") {
+    if (typeof fact.limitBytes !== "number" || !Number.isInteger(fact.limitBytes) || fact.limitBytes <= 0) {
+      throw new TypeError(
+        `Structured blocker state-read failure requires a positive limitBytes${blockerContext(input)}`,
+      );
+    }
+    return;
+  }
+  requireTextProperty(
+    fact,
+    fact.case === "legacy-yaml-state-expired" ? "retiredPath" : "project",
+    "state-read failure",
+    input,
+  );
+}
+
+function validateOwnershipFailure(
+  value: unknown,
+  input: unknown,
+): asserts value is OwnershipFailureFact {
+  const fact = requireFailureCase(value, OWNERSHIP_FAILURE_CASES, "ownership failure", input);
+  switch (fact.case) {
+    case "git-tracked-output":
+      if (
+        !Array.isArray(fact.outputs) ||
+        fact.outputs.length === 0 ||
+        !fact.outputs.every((output) => typeof output === "string" && output.length > 0)
+      ) {
+        throw new TypeError(
+          `Structured blocker ownership failure requires non-empty outputs${blockerContext(input)}`,
+        );
+      }
+      return;
+    case "unproven":
+      return;
+    case "type-mismatch":
+      if (fact.expected !== "file" && fact.expected !== "directory") {
+        throw new TypeError(
+          `Structured blocker ownership failure requires a known expected type${blockerContext(input)}`,
+        );
+      }
+      requireTextProperty(fact, "output", "ownership failure", input);
+      return;
+    default:
+      requireTextProperty(fact, "output", "ownership failure", input);
+  }
+  if (fact.case === "unsafe-parent") {
+    requireTextProperty(fact, "parent", "ownership failure", input);
+  }
+  if (fact.case === "unsupported-entry") {
+    requireTextProperty(fact, "member", "ownership failure", input);
+  }
+}
+
+function validateTemporaryRemovalFailure(
+  value: unknown,
+  input: unknown,
+): asserts value is TemporaryRemovalFailureFact {
+  const fact = requireFailureCase(
+    value,
+    TEMPORARY_REMOVAL_FAILURE_CASES,
+    "temporary-removal failure",
+    input,
+  );
+  if (fact.case === "git-tracked-output") {
+    if (
+      !Array.isArray(fact.outputs) ||
+      fact.outputs.length === 0 ||
+      !fact.outputs.every((output) => typeof output === "string" && output.length > 0)
+    ) {
+      throw new TypeError(
+        `Structured blocker temporary-removal failure requires non-empty outputs${blockerContext(input)}`,
+      );
+    }
+    return;
+  }
+  requireTextProperty(fact, "output", "temporary-removal failure", input);
+  if (fact.case === "unsafe-parent") {
+    requireTextProperty(fact, "parent", "temporary-removal failure", input);
+  }
+}
+
+function validateTypedFacts(input: StructuredBlockerInput): void {
+  switch (input.kind) {
+    case INSTALLATION_STATE_UNREADABLE:
+      if (input.stateFailure !== undefined && input.detail !== undefined) {
+        throw new TypeError(
+          `Structured blocker state-read cause must be either a stateFailure fact or a foreign detail, not both${blockerContext(input)}`,
+        );
+      }
+      if (input.stateFailure === undefined && input.detail === undefined) {
+        throw new TypeError(
+          `Structured blocker state-read cause requires a stateFailure fact or a foreign detail${blockerContext(input)}`,
+        );
+      }
+      if (input.detail !== undefined) {
+        requireText(input.detail, "detail", input);
+        return;
+      }
+      validateStateReadFailure(input.stateFailure, input);
+      return;
+    case OCCUPIED_OUTPUT:
+      validateOccupiedFact(input.occupied, input);
+      if (
+        input.remedyKey !== undefined &&
+        !(OUTPUT_REMEDY_KEYS as readonly string[]).includes(input.remedyKey)
+      ) {
+        throw new TypeError(
+          `Unknown structured blocker remedy key ${JSON.stringify(input.remedyKey)}${blockerContext(input)}`,
+        );
+      }
+      return;
+    case INSTALLATION_OWNERSHIP:
+      if (input.action !== "remove" && input.action !== "verify") {
+        throw new TypeError(
+          `Structured blocker ownership action must be 'remove' or 'verify'${blockerContext(input)}`,
+        );
+      }
+      validateOwnershipFailure(input.failure, input);
+      return;
+    case TEMPORARY_INSTALLATION_REMOVAL:
+      validateTemporaryRemovalFailure(input.failure, input);
+      return;
+    case OUTPUT_OWNERSHIP_CONFLICT:
+    case TEMPORARY_INSTALLATION_CONFLICT:
+      return;
+  }
+}
+
+/**
+ * Facts each blocker kind must never carry. `project` for the global kind is
+ * handled by the dedicated global guard so its rejection message stays stable;
+ * everything else is swept here whatever its value.
+ */
+const FORBIDDEN_BLOCKER_FIELDS: Readonly<Record<BlockerKind, readonly string[]>> = {
+  [INSTALLATION_OWNERSHIP]: ["detail", "occupied", "remedyKey", "stateFailure"],
+  [INSTALLATION_STATE_UNREADABLE]: ["action", "failure", "occupied", "remedyKey"],
+  [OCCUPIED_OUTPUT]: ["action", "detail", "failure", "stateFailure"],
+  [OUTPUT_OWNERSHIP_CONFLICT]: ["action", "detail", "failure", "occupied", "remedyKey", "stateFailure"],
+  [TEMPORARY_INSTALLATION_CONFLICT]: [
+    "action",
+    "detail",
+    "failure",
+    "occupied",
+    "remedyKey",
+    "stateFailure",
+  ],
+  [TEMPORARY_INSTALLATION_REMOVAL]: ["action", "detail", "occupied", "remedyKey", "stateFailure"],
+};
+
 function validateStructuredInput(input: StructuredBlockerInput): void {
+  rejectProseFields(input);
   requireText(input.kind, "kind", input);
-  requireText(input.problem, "problem", input);
-  requireText(input.requirement, "requirement", input);
-  requireText(input.remedy, "remedy", input);
   if (!(BLOCKER_KINDS as readonly string[]).includes(input.kind)) {
     throw new TypeError(
       `Unknown structured blocker kind ${JSON.stringify(input.kind)}${blockerContext(input)}`,
@@ -326,18 +611,36 @@ function validateStructuredInput(input: StructuredBlockerInput): void {
       `Structured blocker scope must be 'global' or 'project'${blockerContext(input)}`,
     );
   }
+  const blockerKind: string = input.kind;
+  if (blockerKind === INSTALLATION_STATE_UNREADABLE && input.scope !== "global") {
+    throw new TypeError(
+      `Structured blocker kind ${blockerKind} is always global-scoped${blockerContext(input)}`,
+    );
+  }
+  if (blockerKind !== INSTALLATION_STATE_UNREADABLE && input.scope !== "project") {
+    throw new TypeError(
+      `Structured blocker kind ${blockerKind} is always project-scoped${blockerContext(input)}`,
+    );
+  }
   if (input.scope === "project") {
     requireText(input.project, "project", input);
-    if (duplicatesProjectIdentity(input.problem, input.project)) {
-      throw new TypeError(
-        `Structured blocker problem must not duplicate its project identity${blockerContext(input)}`,
-      );
-    }
   }
-  if (input.scope === "global" && input.project !== undefined) {
+  // Cross-kind facts are forbidden on every kind by own-property presence:
+  // an explicitly `undefined` contaminant is rejected exactly like a value,
+  // so the boundary never silently drops forbidden fields (poka-yoke).
+  const record = input as unknown as Record<string, unknown>;
+  const hasOwn = (field: string): boolean => Object.prototype.hasOwnProperty.call(record, field);
+  if (input.scope === "global" && hasOwn("project")) {
     throw new TypeError(
       `Global structured blockers cannot carry a project${blockerContext(input)}`,
     );
+  }
+  for (const field of FORBIDDEN_BLOCKER_FIELDS[blockerKind as BlockerKind]) {
+    if (hasOwn(field)) {
+      throw new TypeError(
+        `Structured blocker kind ${blockerKind} must not carry "${field}"${blockerContext(input)}`,
+      );
+    }
   }
   if (!Array.isArray(input.affectedItems)) {
     throw new TypeError(
@@ -353,52 +656,70 @@ function validateStructuredInput(input: StructuredBlockerInput): void {
       );
     }
   }
-}
-
-/** Derive the human projection from canonical structured evidence. */
-function derivedBlockerMessage(input: StructuredBlockerInput): string {
-  if (input.kind === OUTPUT_OWNERSHIP_CONFLICT && input.scope === "project") {
-    const paths = input.affectedItems
-      .filter((item) => item.kind === "path")
-      .map((item) => item.value)
-      .sort(compareCanonicalStrings);
-    if (paths.length > 0) {
-      const first = join(input.project, paths[0]!);
-      return paths.length === 1
-        ? `${first} is a tracked project path`
-        : `${first} and ${paths.length - 1} more tracked project ` +
-          `${paths.length === 2 ? "path" : "paths"}`;
-    }
-  }
-  return input.problem;
+  validateTypedFacts(input);
 }
 
 function canonicalStructuredBlocker(input: StructuredBlockerInput): StructuredReconciliationBlocker {
   const affectedItems = Object.freeze(
     input.affectedItems.map((item) => Object.freeze({ kind: item.kind, value: item.value })),
   );
-  const common = {
-    affectedItems,
-    kind: input.kind,
-    message: derivedBlockerMessage(input),
-    problem: input.problem,
-    remedy: input.remedy,
-    requirement: input.requirement,
-    scope: input.scope,
-  };
-  if (input.scope === "global") {
-    return Object.freeze({
-      ...common,
-      scope: "global" as const,
-      [STRUCTURED_BLOCKER]: true as const,
-    });
+  switch (input.kind) {
+    case INSTALLATION_STATE_UNREADABLE:
+      if ("stateFailure" in input) {
+        return Object.freeze({
+          affectedItems,
+          kind: INSTALLATION_STATE_UNREADABLE,
+          scope: "global" as const,
+          stateFailure: Object.freeze({ ...input.stateFailure }),
+          [STRUCTURED_BLOCKER]: true as const,
+        });
+      }
+      return Object.freeze({
+        affectedItems,
+        detail: input.detail,
+        kind: INSTALLATION_STATE_UNREADABLE,
+        scope: "global" as const,
+        [STRUCTURED_BLOCKER]: true as const,
+      });
+    case OCCUPIED_OUTPUT:
+      return Object.freeze({
+        affectedItems,
+        kind: OCCUPIED_OUTPUT,
+        occupied: Object.freeze({ ...input.occupied }),
+        project: input.project,
+        ...(input.remedyKey === undefined ? {} : { remedyKey: input.remedyKey }),
+        scope: "project" as const,
+        [STRUCTURED_BLOCKER]: true as const,
+      });
+    case INSTALLATION_OWNERSHIP:
+      return Object.freeze({
+        action: input.action,
+        affectedItems,
+        failure: Object.freeze({ ...input.failure }),
+        kind: INSTALLATION_OWNERSHIP,
+        project: input.project,
+        scope: "project" as const,
+        [STRUCTURED_BLOCKER]: true as const,
+      });
+    case TEMPORARY_INSTALLATION_REMOVAL:
+      return Object.freeze({
+        affectedItems,
+        failure: Object.freeze({ ...input.failure }),
+        kind: TEMPORARY_INSTALLATION_REMOVAL,
+        project: input.project,
+        scope: "project" as const,
+        [STRUCTURED_BLOCKER]: true as const,
+      });
+    case OUTPUT_OWNERSHIP_CONFLICT:
+    case TEMPORARY_INSTALLATION_CONFLICT:
+      return Object.freeze({
+        affectedItems,
+        kind: input.kind,
+        project: input.project,
+        scope: "project" as const,
+        [STRUCTURED_BLOCKER]: true as const,
+      });
   }
-  return Object.freeze({
-    ...common,
-    project: input.project,
-    scope: "project" as const,
-    [STRUCTURED_BLOCKER]: true as const,
-  });
 }
 
 function scopeMismatch(input: StructuredBlockerInput, fallbackProject: string): never {
@@ -409,9 +730,9 @@ function scopeMismatch(input: StructuredBlockerInput, fallbackProject: string): 
 
 /**
  * Normalize every blocker at the boundary where it enters a report or error.
- * The blocker contract is exhaustively structured; message-only blockers can
- * no longer be represented, and malformed structured evidence is rejected
- * loudly rather than degraded to a message.
+ * The blocker contract is exhaustively typed-fact evidence; prose-carrying and
+ * message-only blockers cannot be represented, and malformed evidence is
+ * rejected loudly rather than degraded to a message.
  */
 export function normalizeBlocker(
   input: BlockerInput,
@@ -435,8 +756,4 @@ export function normalizeBlocker(
     scopeMismatch(input, fallbackProject);
   }
   return isStructuredBlocker(input) ? input : canonicalStructuredBlocker(input);
-}
-
-export function blockerMessage(input: BlockerInput): string {
-  return normalizeBlocker(input).message;
 }

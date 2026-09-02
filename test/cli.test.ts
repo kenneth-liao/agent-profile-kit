@@ -34,6 +34,12 @@ import {
   inventoryTopicNames,
 } from "../cli/inventory-topics.js";
 import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
+
+/** One combined pattern for asserting no internal term reaches a guarded surface. */
+const INTERNAL_TERM_PATTERN = new RegExp(
+  INTERNAL_ONLY_DEFAULT_TERMS.map((pattern) => `(${pattern.source})`).join("|"),
+  "i",
+);
 import { STATUS_PROGRESS_LABEL } from "../cli/progress.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installation.js";
@@ -1941,6 +1947,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const missing = join(home, "missing-project");
     const invalid = join(home, "not-a-project.txt");
     writeFileSync(invalid, "not a directory\n");
+    // A final symlink to a bound directory is a valid target (regression:
+    // the typed classifier must test the followed stat result).
+    const alias = join(home, "target-alias");
+    symlinkSync(bound, alias);
 
     const cases = [
       { cwd: undefined, target: unbound, pattern: /not a bound Project/i },
@@ -1948,7 +1958,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       { cwd: undefined, target: "relative/project", pattern: /absolute path or home-relative/i },
       { cwd: undefined, target: "~/projects/*", pattern: /without wildcards/i },
       { cwd: undefined, target: invalid, pattern: /must be an existing directory/i },
-      { cwd: nested, target: undefined, pattern: /ambiguous.*multiple Project Bindings/i },
+      { cwd: nested, target: undefined, pattern: /ambiguous.*multiple configured Projects/i },
     ] as const;
 
     for (const command of ["apply", "status"] as const) {
@@ -1961,8 +1971,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         expect(result.stderr).toContain(`Usage: apkit ${command}`);
       }
     }
+
+    // Tool-error JSON preserves the canonical composed sentence; human stderr
+    // renders newcomer wording (scope Follow-up, DEC-014/TEST-012).
+    const ambiguousJson = await runCliAt(home, nested, "apply", "--json");
+    expectExitCode(ambiguousJson, 1);
+    const ambiguousPayload = JSON.parse(ambiguousJson.stdout) as { readonly error: string };
+    expect(ambiguousPayload.error).toContain("matches multiple Project Bindings");
+    const ambiguousHuman = await runCliAt(home, nested, "apply");
+    expectExitCode(ambiguousHuman, 1);
+    expect(humanText(ambiguousHuman.stderr)).toContain("matches multiple configured Projects");
     expect(existsSync(join(bound, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(nested, ".agent-profile-kit"))).toBe(false);
+
+    for (const command of ["apply", "status"] as const) {
+      const aliasResult = await runCli(home, command, alias);
+      expectExitCode(aliasResult, 0);
+    }
   });
 
   test("status reports desired additions without writing project, state, or host configuration", async () => {
@@ -2341,12 +2366,29 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout.startsWith("Apply blocked\n")).toBe(true);
+    // The extended vocabulary guard covers blocked human output (TEST-012, DEC-021).
+    expect(humanText(result.stdout)).not.toMatch(INTERNAL_TERM_PATTERN);
     expect(humanText(result.stdout).split(blocker)).toHaveLength(2);
     expect(humanText(result.stdout)).toContain(
       humanText(`Next:\n- ${projectPath}: Resolve the reported blocker, then run apkit apply again.`),
     );
     expect(result.stderr).toBe("");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("tool-error human output stays free of internal terms (TEST-012, DEC-021)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+
+    const unbound = join(home, "unbound");
+    mkdirSync(unbound, { recursive: true });
+    const failed = await runCli(home, "apply", unbound);
+    expectExitCode(failed, 1);
+    expect(failed.stderr).toContain("is not a bound Project");
+    expect(humanText(failed.stderr)).not.toMatch(INTERNAL_TERM_PATTERN);
   });
 
   test("blocked default output does not repeat the working-directory project root", async () => {
@@ -2547,6 +2589,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       const blocked = await runCli(blockedHome, command);
       expectExitCode(blocked, 2);
       expect(blocked.stdout).toMatch(/Blocker:|blocked/i);
+      // Blocked views stay free of internal vocabulary across every command (TEST-012).
+      expect(blocked.stdout).not.toMatch(INTERNAL_TERM_PATTERN);
       const blockedJson = await runCli(blockedHome, command, "--json");
       expectExitCode(blockedJson, 2);
       const payload = JSON.parse(blockedJson.stdout) as {
@@ -2831,9 +2875,35 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const output = humanText(result.stdout);
     expect(output).toContain("migration window is closed");
     expect(output).toContain("Agent Profile Kit 0.95.0");
-    expect(output).toContain("never reconstructs ownership from generated output");
+    // The foreign diagnostic rides as a fact; human rendering substitutes the
+    // internal "generated output" term with newcomer vocabulary (TEST-012).
+    expect(output).toContain("never reconstructs ownership from generated file");
     expect(existsSync(join(stateDirectory(home), "manifest.yaml"))).toBe(true);
     expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("machine list temporary renders state-read failures through presentation on both surfaces", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    mkdirSync(stateDirectory(home), { recursive: true });
+    writeFileSync(join(stateDirectory(home), "manifest.yaml"), "schema_version: 5\n");
+
+    const human = await runCli(home, "machine", "list", "temporary");
+    expectExitCode(human, 1);
+    const humanText_ = humanText(human.stderr);
+    // Human output is newcomer-worded presentation composition, not the typed
+    // error summary or the canonical internal wording.
+    expect(humanText_).toContain("Legacy YAML installation record");
+    expect(humanText_).toContain("never reconstructs ownership from generated file");
+    expect(humanText_).not.toContain("installation state read failed");
+    expect(humanText_).not.toContain("Legacy YAML Installation State");
+
+    const machine = await runCli(home, "machine", "list", "temporary", "--json");
+    expectExitCode(machine, 1);
+    const payload = JSON.parse(machine.stdout) as { readonly error: string };
+    // Machine JSON preserves the canonical carried sentence.
+    expect(payload.error).toContain("Legacy YAML Installation State");
+    expect(payload.error).toContain("never reconstructs ownership from generated output");
   });
 
   test("apply leaves current installation outputs and state untouched", async () => {
@@ -3220,7 +3290,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(focusedVerbose.stdout).toContain("'.agents/skills/s12'");
     expect(focusedVerbose.stdout).toContain("'.codex/hooks.json'");
     expect(focusedVerbose.stdout).toContain("working files are preserved");
-    expect(focusedVerbose.stdout).toContain("change or remove the Project Binding");
+    expect(focusedVerbose.stdout).toContain("change or remove the configured Project.");
+
+    // The extended vocabulary guard covers Blocker and error surfaces: no
+    // internal term may reach the blocked human view (TEST-012, DEC-021).
+    expect(focusedVerbose.stdout).not.toMatch(INTERNAL_TERM_PATTERN);
 
     const apply = await runCli(home, "apply");
 
@@ -4520,13 +4594,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout).toContain("Global blockers:");
-    expect(result.stdout).toContain("Installation State");
+    expect(result.stdout).toContain("installation record");
     expect(result.stdout).toContain("Blockers: 1");
     expectExitCode(apply, 2);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
     expect(apply.stdout).toContain("Global blockers:");
-    expect(apply.stdout).toContain("Installation State");
+    expect(apply.stdout).toContain("installation record");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
@@ -8833,8 +8907,15 @@ describe("shared presentation boundary", () => {
     expectExitCode(blockedTemp, 2);
     const blockedTempOutput = `${blockedTemp.stdout}${blockedTemp.stderr}`;
     expect(blockedTempOutput.replace(/\s+/g, " ")).toContain(
-      "Generated files are already managed through a Project Binding",
+      "Generated files are already managed through a configured Project",
     );
+    // The blocked view renders the remedy with its runnable command (US-027).
+    expect(blockedTempOutput.replace(/\s+/g, " ")).toContain(
+      "Remedy: Remove the existing configured Project-managed files or the active temporary Profile, " +
+        "then retry apkit machine install-temp",
+    );
+    // Blocked temporary-installation output stays free of internal terms (TEST-012).
+    expect(humanText(blockedTempOutput)).not.toMatch(INTERNAL_TERM_PATTERN);
     for (const line of blockedTempOutput.split("\n")) {
       // Occupied-output lines carry project-relative path tokens that are
       // unbreakable by design (DEC-003).
@@ -11312,6 +11393,11 @@ describe("apkit temporary Profile installation (Codex)", () => {
       blocker.message.includes("tracked by Git") &&
       blocker.message.includes(".agent-profile-kit/codex/context.md")
     )).toBe(true);
+    // The human blocked view renders the remedy with its runnable command (US-027).
+    const humanRemoval = await runCli(home, "machine", "remove-temp", receipt.temporaryInstallationId);
+    expectExitCode(humanRemoval, 2);
+    expect(humanText(humanRemoval.stderr)).toContain("Remedy:");
+    expect(humanText(humanRemoval.stderr)).toContain("apkit machine remove-temp");
     // The tracked output, its index entry, the Marker, and the active temporary
     // receipt all survive the blocked removal.
     expect(existsSync(tracked)).toBe(true);
@@ -11400,7 +11486,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expectExitCode(result, 2);
     expect(result.stdout).toBe("");
     expect(humanText(result.stderr)).toContain(
-      "Generated files are already managed through a Project Binding",
+      "Generated files are already managed through a configured Project",
     );
     expect(result.stderr).not.toContain(projectPath);
   });

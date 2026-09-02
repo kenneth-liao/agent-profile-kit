@@ -13,6 +13,7 @@ import {
   emptyInstallationState,
   readInstallationState,
   readTemporaryInstallations,
+  StateReadFailureError,
   writeInstallationState,
 } from "../installer/installation-state.js";
 import { stateManifestPath } from "../installer/project-plan.js";
@@ -85,9 +86,10 @@ describe("Installation State publication", () => {
     mkdirSync(join(legacyPath, ".."), { recursive: true });
     writeFileSync(legacyPath, "schema_version: 5\n");
 
-    await expect(readInstallationState(home)).rejects.toThrow(
-      /legacy YAML Installation State.*migration window is closed.*0\.95\.0.*never reconstructs ownership from generated output/i,
-    );
+    await expect(readInstallationState(home)).rejects.toThrow(StateReadFailureError);
+    await expect(readInstallationState(home)).rejects.toMatchObject({
+      failure: { case: "legacy-yaml-state-expired", retiredPath: legacyPath },
+    });
     expect(existsSync(legacyPath)).toBe(true);
     expect(existsSync(stateManifestPath(home))).toBe(false);
   });
@@ -98,7 +100,7 @@ describe("Installation State publication", () => {
     const legacyPath = join(home, ".agents", "agent-profile-kit", "state", "manifest.yaml");
     writeFileSync(legacyPath, "schema_version: 5\n");
 
-    await expect(readInstallationState(home)).rejects.toThrow(/migration window is closed/i);
+    await expect(readInstallationState(home)).rejects.toThrow(StateReadFailureError);
     expect(parseOwnershipState(readFileSync(stateManifestPath(home), "utf8"))).toEqual(
       stateWithAdapterVersion("current"),
     );
@@ -110,9 +112,9 @@ describe("Installation State publication", () => {
     mkdirSync(join(legacyPath, ".."), { recursive: true });
     writeFileSync(legacyPath, "schema_version: 5\n");
 
-    await expect(readTemporaryInstallations(home)).rejects.toThrow(
-      /legacy YAML Installation State.*migration window is closed.*0\.95\.0.*never reconstructs ownership from generated output/i,
-    );
+    await expect(readTemporaryInstallations(home)).rejects.toMatchObject({
+      failure: { case: "legacy-yaml-state-expired", retiredPath: legacyPath },
+    });
   });
 
   test("keeps prior state when exact serialized bytes exceed production reader bounds", async () => {

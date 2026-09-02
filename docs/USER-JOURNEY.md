@@ -556,8 +556,8 @@ Blockers:
   them without conflicting with repository ownership.
   Requirement: Generated files must be exclusively managed by Agent Profile
     Kit; repository-owned paths cannot be replaced.
-  Remedy: Choose one: keep repository ownership and change the Project Binding
-    or its Host selection so Agent Profile Kit does not plan output at these
+  Remedy: Choose one: keep repository ownership and change the configured
+    Project or its Host selection so Agent Profile Kit does not plan output at these
     paths, or intentionally remove the conflicting paths from repository
     ownership yourself before retrying. Agent Profile Kit will not delete,
     untrack, adopt, or overwrite repository-owned material.
@@ -577,7 +577,7 @@ Blockers:
     it. It stages removal of these paths from Git ownership (the Git index)
     while the working files are preserved:
     git -C '<project-b>' rm -r --cached -- '.agents/skills/deploy-helper' '.agents/skills/review-pr' '.claude/rules/agent-profile-kit.md' '.claude/skills/deploy-helper' '.claude/skills/review-pr'
-  Alternatively, change or remove the Project Binding.
+  Alternatively, change or remove the configured Project.
 
 Blockers: 1 · Affected Projects: 1
 ```

@@ -9,8 +9,8 @@ import {
   formatLifecycleReport,
   lifecycleExitCode,
 } from "../cli/presentation.js";
+import { blockerWording, humanBlockerWording } from "../cli/blocker-wording.js";
 import {
-  blockerMessage,
   INSTALLATION_OWNERSHIP,
   INSTALLATION_STATE_UNREADABLE,
   installationOwnershipBlocker,
@@ -23,6 +23,7 @@ import {
   TEMPORARY_INSTALLATION_REMOVAL,
   temporaryInstallationConflictBlocker,
   temporaryInstallationRemovalBlocker,
+  type StateReadFailureFact,
 } from "../installer/blockers.js";
 import { statusApplication } from "../installer/commands.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
@@ -117,29 +118,60 @@ describe("structured Installer blocker evidence", () => {
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
     });
-    // Plain value checks: asymmetric matchers in toMatchObject replace the
-    // matched properties on the shared blocker, corrupting later JSON reads.
-    for (const field of ["problem", "remedy", "requirement"] as const) {
-      expect(typeof blocker[field]).toBe("string");
-      expect(blocker[field].length).toBeGreaterThan(0);
-    }
+    // The Installer-classified oversize failure crosses as a typed fact and
+    // every sentence is composed by presentation.
+    expect(blocker.stateFailure).toEqual({
+      case: "oversize-state",
+      limitBytes: OWNERSHIP_STATE_LIMITS.maxBytes,
+    });
+    expect(blocker.detail).toBeUndefined();
     expect(blocker.project).toBeUndefined();
-    expect(blocker.message).toContain("Installation State");
+    expect("problem" in blocker).toBe(false);
     expect(blocker.affectedItems).toEqual([{ kind: "path", value: statePath }]);
+
+    const wording = blockerWording(blocker);
+    const humanWording = humanBlockerWording(blocker);
+    expect(wording.problem).toBe(
+      `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,
+    );
+    expect(wording.remedy).toBe("Restore or repair the Installation State file, then retry");
+    expect(humanWording.remedy).toBe(
+      "Restore or repair the installation record file, then retry. Run apkit status to retry.",
+    );
+    for (const term of [/Installation State/i]) {
+      expect(humanWording.problem).not.toMatch(term);
+      expect(humanWording.requirement).not.toMatch(term);
+      expect(humanWording.remedy).not.toMatch(term);
+    }
 
     const human = formatLifecycleReport("status", report);
     expect(human).toContain("Global blockers:");
-    expect(human).toContain(blocker.message);
+    expect(human).toContain(humanWording.problem);
+    // The typed fact rides on every Project state; presentation composes the
+    // same carried sentence it published before the fact conversion.
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    expect(verbose).toContain("installation record exceeds the 8388608 byte limit");
+    expect(verbose).not.toContain("installation state read failed");
+
     const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       readonly globalBlockers: readonly Record<string, unknown>[];
+      readonly projects: readonly {
+        readonly state: { readonly kind: string; readonly reason?: string };
+      }[];
       readonly schemaVersion: number;
     };
     expect(machine.schemaVersion).toBe(14);
+    expect(machine.projects[0]!.state).toEqual({
+      kind: "malformed ownership state",
+      reason: `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,
+    });
+    // The machine payload keeps its field shape; the message/problem values are
+    // presentation-composed from the typed fact.
     expect(machine.globalBlockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
-      message: blocker.message,
-      problem: blocker.problem,
+      message: `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,
+      problem: `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,
       requirement: "Lifecycle commands require readable Installation State",
       remedy: "Restore or repair the Installation State file, then retry",
       affectedItems: [{ kind: "path", value: statePath }],
@@ -147,79 +179,87 @@ describe("structured Installer blocker evidence", () => {
     expect(lifecycleExitCode(report)).toBe(2);
   });
 
-  test("blocker builders emit complete structured evidence with preserved messages", () => {
+  test("blocker builders emit complete typed-fact evidence without prose", () => {
     const stateBlocker = normalizeBlocker(installationStateUnreadableBlocker({
-      message: "Installation State is unreadable",
+      detail: "EACCES: permission denied",
       statePath: "/home/state/manifest.yaml",
     }));
     expect(stateBlocker).toMatchObject({
+      detail: "EACCES: permission denied",
       kind: INSTALLATION_STATE_UNREADABLE,
-      message: "Installation State is unreadable",
       scope: "global",
     });
     expect(stateBlocker.project).toBeUndefined();
     expect(stateBlocker.affectedItems).toEqual([{ kind: "path", value: "/home/state/manifest.yaml" }]);
+    expect(blockerWording(stateBlocker).problem).toBe("EACCES: permission denied");
 
     const occupied = normalizeBlocker(occupiedOutputBlocker({
-      message: ".codex/hooks.json is occupied by unowned or drifted output",
+      occupied: { case: "drifted-output" },
       path: ".codex/hooks.json",
       project: "/p",
     }));
     expect(occupied).toMatchObject({
       kind: OCCUPIED_OUTPUT,
-      message: ".codex/hooks.json is occupied by unowned or drifted output",
+      occupied: { case: "drifted-output" },
       project: "/p",
       scope: "project",
     });
     expect(occupied.affectedItems).toEqual([{ kind: "path", value: ".codex/hooks.json" }]);
+    expect(blockerWording(occupied).problem).toBe(
+      ".codex/hooks.json is occupied by unowned or drifted output",
+    );
 
     const ownership = normalizeBlocker(installationOwnershipBlocker({
-      message: "Cannot sync the generated file: drifted",
+      action: "verify",
+      failure: { case: "type-mismatch", expected: "file", output: ".codex/hooks.json" },
       project: "/p",
     }));
     expect(ownership).toMatchObject({
+      action: "verify",
+      failure: { case: "type-mismatch", expected: "file", output: ".codex/hooks.json" },
       kind: INSTALLATION_OWNERSHIP,
-      message: "Cannot sync the generated file: drifted",
       project: "/p",
       scope: "project",
     });
+    expect(blockerWording(ownership).problem).toBe(
+      "Cannot verify generated-file ownership: owned output .codex/hooks.json is not a file",
+    );
 
     const conflict = normalizeBlocker(temporaryInstallationConflictBlocker({
-      message: "An active Temporary Profile Installation already owns generated files (temp-1)",
       project: "/p",
       temporaryInstallationId: "temp-1",
     }));
     expect(conflict).toMatchObject({
       kind: TEMPORARY_INSTALLATION_CONFLICT,
-      message: "An active Temporary Profile Installation already owns generated files (temp-1)",
       project: "/p",
       scope: "project",
     });
     expect(conflict.affectedItems).toEqual([{ kind: "installation-id", value: "temp-1" }]);
+    expect(blockerWording(conflict).problem).toBe(
+      "An active Temporary Profile Installation already owns generated files (temp-1)",
+    );
+    expect(humanBlockerWording(conflict).problem).toBe(
+      "An active temporary Profile already owns generated files (temp-1)",
+    );
 
     const unproven = normalizeBlocker(occupiedOutputBlocker({
-      message: ".codex/second.json is occupied by unowned or drifted output",
+      occupied: { case: "occupied-parent", occupation: "symlink" },
       path: ".codex/second.json",
       project: "/p",
     }));
-    // Plain value checks: asymmetric matchers in toMatchObject replace the
-    // matched properties on the shared blocker, corrupting later JSON reads.
-    for (const field of ["problem", "remedy", "requirement"] as const) {
-      expect(typeof unproven[field]).toBe("string");
-      expect(unproven[field].length).toBeGreaterThan(0);
-    }
     expect(unproven.project).toBe("/p");
     expect(unproven.affectedItems).toEqual([{ kind: "path", value: ".codex/second.json" }]);
+    expect(blockerWording(unproven).problem).toBe(
+      ".codex/second.json is an occupied symlink parent path",
+    );
 
     const removal = temporaryInstallationRemovalBlocker({
-      message: "Cannot remove Temporary Profile Installation: Installation Marker is missing",
-      outputs: ["/p/.agents/skills/review-pr"],
+      failure: { case: "symlink-output", output: ".agents/skills/review-pr" },
+      outputs: [".agents/skills/review-pr"],
       project: "/p",
     });
-    expect(blockerMessage(removal)).toBe(
-      "Cannot remove Temporary Profile Installation: Installation Marker is missing",
-    );
     expect(normalizeBlocker(removal)).toMatchObject({
+      failure: { case: "symlink-output", output: ".agents/skills/review-pr" },
       kind: TEMPORARY_INSTALLATION_REMOVAL,
       project: "/p",
       scope: "project",
@@ -246,8 +286,12 @@ describe("structured Installer blocker evidence", () => {
         .find((blocker) => isStructuredBlocker(blocker) && blocker.kind === OCCUPIED_OUTPUT),
       "a structured occupied-output blocker",
     );
-    expect(occupied).toMatchObject({ scope: "project", project: canonicalProject });
-    expect(occupied.message).toBe(
+    expect(occupied).toMatchObject({
+      occupied: { case: "drifted-output" },
+      scope: "project",
+      project: canonicalProject,
+    });
+    expect(blockerWording(occupied).message).toBe(
       ".codex/hooks.json is occupied by unowned or drifted output",
     );
     expect(occupied.affectedItems).toEqual([{ kind: "path", value: ".codex/hooks.json" }]);
@@ -302,14 +346,19 @@ describe("structured Installer blocker evidence", () => {
 
   test("residual ownership Blocker evidence stays provenance-neutral", () => {
     const ownership = normalizeBlocker(installationOwnershipBlocker({
-      message: "Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /p/.codex is a symlink parent",
+      action: "verify",
+      failure: {
+        case: "unsafe-parent",
+        output: ".codex/hooks.json",
+        parent: "/p/.codex is a symlink parent",
+      },
       project: "/p",
     }));
-    expect(ownership.problem).not.toMatch(/your edit/i);
-    expect(ownership.remedy).not.toMatch(/Move the change into the Workspace/i);
-    expect(ownership.remedy).not.toMatch(/your edit/i);
-    expect(ownership.message).not.toMatch(/your edit/i);
-    expect(ownership.message).not.toMatch(/Move the change into the Workspace/i);
+    const wording = blockerWording(ownership);
+    expect(wording.problem).not.toMatch(/your edit/i);
+    expect(wording.remedy).not.toMatch(/Move the change into the Workspace/i);
+    expect(wording.message).not.toMatch(/your edit/i);
+    expect(wording.message).not.toMatch(/Move the change into the Workspace/i);
   });
 
   test("temporary installation conflicts emit structured project-scoped evidence", async () => {
@@ -327,14 +376,14 @@ describe("structured Installer blocker evidence", () => {
     const blockers = projectConflictBlockers(state, canonicalProject);
 
     expect(blockers).toHaveLength(1);
-    expect(normalizeBlocker(blockers[0]!)).toMatchObject({
+    const blocker = normalizeBlocker(blockers[0]!);
+    expect(blocker).toMatchObject({
       kind: TEMPORARY_INSTALLATION_CONFLICT,
-      message: "Generated files are already managed through a Project Binding; " +
-        "remove them before installing a temporary Profile",
       project: canonicalProject,
       scope: "project",
     });
-    expect(blockerMessage(blockers[0]!)).toBe(
+    expect(blocker.affectedItems).toEqual([]);
+    expect(blockerWording(blocker).problem).toBe(
       "Generated files are already managed through a Project Binding; " +
         "remove them before installing a temporary Profile",
     );

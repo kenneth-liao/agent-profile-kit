@@ -34,7 +34,8 @@ export interface ProposedProjectFileOutput {
    */
   readonly origins: readonly ArtifactReference[];
   readonly path: string;
-  readonly remedy?: string;
+  /** Adapter remedy identity; presentation owns the remedy sentence this key resolves to. */
+  readonly remedyKey?: OutputRemedyKey;
   readonly requirements: readonly string[];
   readonly type: "file";
 }
@@ -49,10 +50,21 @@ export interface ProposedProjectDirectoryOutput {
   /** Canonical Artifact references that generated this output. */
   readonly origins: readonly ArtifactReference[];
   readonly path: string;
-  readonly remedy?: string;
+  /** Adapter remedy identity; presentation owns the remedy sentence this key resolves to. */
+  readonly remedyKey?: OutputRemedyKey;
   readonly requirements: readonly string[];
   readonly type: "directory";
 }
+
+/**
+ * Exhaustive adapter remedy identities. An Adapter names *which* occupied-output
+ * remedy applies to one of its outputs; the remedy sentence itself is
+ * presentation-owned and keyed by this identity.
+ */
+export const OUTPUT_REMEDY_KEYS = ["opencode-config-occupied"] as const;
+
+/** Exhaustive adapter remedy identity. */
+export type OutputRemedyKey = (typeof OUTPUT_REMEDY_KEYS)[number];
 
 export type ProposedProjectOutput =
   | ProposedProjectDirectoryOutput

@@ -41,9 +41,17 @@ import {
 } from "../cli/terminal-presentation.js";
 import {
   normalizeBlocker,
+  occupiedOutputBlocker,
   outputOwnershipConflictBlocker,
+  temporaryInstallationConflictBlocker,
+  temporaryInstallationRemovalBlocker,
   type ReconciliationBlocker,
 } from "../installer/blockers.js";
+import {
+  blockerWording,
+  humanBlockerWording,
+  OPENCODE_CONFIG_OCCUPIED_REMEDY,
+} from "../cli/blocker-wording.js";
 import type {
   OutputConsumerEvidence,
   OutputReconciliationItem,
@@ -80,24 +88,36 @@ function fixtureBlocker(message: string, project?: string): ReconciliationBlocke
   return project === undefined
     ? normalizeBlocker({
         affectedItems: [],
+        detail: message,
         kind: "installation-state-unreadable",
-        problem: message,
-        remedy: "Resolve the reported blocker, then retry",
-        requirement: "Lifecycle commands cannot proceed while blocked",
         scope: "global",
       })
     : normalizeBlocker({
+        action: "verify",
         affectedItems: [],
-        kind: "occupied-output",
-        problem: message
-          .replaceAll(`${project}/`, "")
-          .replaceAll(`${project}: `, "")
-          .replaceAll(project, "this Project"),
-        remedy: "Resolve the reported blocker, then retry",
-        requirement: "Lifecycle commands cannot proceed while blocked",
+        failure: {
+          case: "no-ownership-continuity",
+          output: message
+            .replaceAll(`${project}/`, "")
+            .replaceAll(`${project}: `, "")
+            .replaceAll(project, "this Project"),
+        },
+        kind: "installation-ownership",
         project,
         scope: "project",
       });
+}
+
+/** One installation-ownership fixture blocker whose failure fact carries long evidence. */
+function fixtureOwnershipBlocker(output: string, project: string): ReconciliationBlocker {
+  return normalizeBlocker({
+    action: "verify",
+    affectedItems: [],
+    failure: { case: "no-ownership-continuity", output },
+    kind: "installation-ownership",
+    project,
+    scope: "project",
+  });
 }
 
 type DesiredFixture = Omit<NonNullable<ReconciliationProjectRecord["desired"]>, "hosts"> & {
@@ -181,7 +201,7 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
           path: output.path,
         })),
         blockers: fixture.blockers.filter((blocker) =>
-          blocker.scope === "project" && canonicalProject(blocker.project) === key
+          blocker.scope === "project" && canonicalProject(blocker.project!) === key
         ),
         warnings: key === firstProject ? fixture.warnings.map((message) => ({
           copyableValues: fixture.diagnosticValues,
@@ -977,7 +997,7 @@ describe("responsive lifecycle presentation", () => {
     const attention = identityReport("/project-a");
     const blocked = emptyReport({
       blockers: [
-        fixtureBlocker(
+        fixtureOwnershipBlocker(
           "The selected generated output cannot be replaced until ownership is resolved.",
           "/project-a",
         ),
@@ -1322,13 +1342,24 @@ describe("temporary-installation Project identity presentation", () => {
     const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
     try {
       const canonical = join(home, "projects", "alpha");
-      const messages = [
-        `${canonical} already has an ordinary Profile Installation; remove it before installing a temporary Profile`,
-        `Cannot remove Temporary Profile Installation at ${canonical}: owned output .codex/hooks.json is a symlink`,
+      const blockers = [
+        normalizeBlocker({
+          affectedItems: [],
+          detail:
+            `${canonical} already has an ordinary Profile Installation; remove it ` +
+            "before installing a temporary Profile",
+          kind: "installation-state-unreadable",
+          scope: "global",
+        }),
+        normalizeBlocker(temporaryInstallationRemovalBlocker({
+          failure: { case: "symlink-output", output: ".codex/hooks.json" },
+          outputs: [".codex/hooks.json"],
+          project: canonical,
+        })),
       ];
 
       const { presented, text: rendered } = presentTemporaryBlockedMessages(
-        messages,
+        blockers,
         canonical,
         "~/projects/alpha",
         process.cwd(),
@@ -1340,7 +1371,7 @@ describe("temporary-installation Project identity presentation", () => {
         "~/projects/alpha already has an ordinary Profile Installation",
       );
       expect(rendered).toContain(
-        "Cannot remove Temporary Profile Installation at ~/projects/alpha:",
+        "Cannot remove temporary Profile: owned output .codex/hooks.json is a symlink",
       );
       expect(rendered).not.toContain(canonical);
     } finally {
@@ -1352,12 +1383,19 @@ describe("temporary-installation Project identity presentation", () => {
     const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
     try {
       const canonical = join(home, "projects", "alpha");
-      const messages = [
-        `${canonical} already has an ordinary Profile Installation; remove it before installing a temporary Profile`,
+      const blockers = [
+        normalizeBlocker({
+          affectedItems: [],
+          detail:
+            `${canonical} already has an ordinary Profile Installation; remove it ` +
+            "before installing a temporary Profile",
+          kind: "installation-state-unreadable",
+          scope: "global",
+        }),
       ];
 
       const rendered = presentTemporaryBlockedMessages(
-        messages,
+        blockers,
         canonical,
         canonical,
         canonical,
@@ -1379,12 +1417,17 @@ describe("temporary-installation Project identity presentation", () => {
     try {
       const canonical = join(home, "real-project");
       const authored = join(home, "alias-project");
-      const messages = [
-        `${authored} cannot be resolved: the authored spelling differs from ${canonical}`,
+      const blockers = [
+        normalizeBlocker({
+          affectedItems: [],
+          detail: `${authored} cannot be resolved: the authored spelling differs from ${canonical}`,
+          kind: "installation-state-unreadable",
+          scope: "global",
+        }),
       ];
 
       const rendered = presentTemporaryBlockedMessages(
-        messages,
+        blockers,
         canonical,
         authored,
         process.cwd(),
@@ -1525,20 +1568,19 @@ describe("formatLifecycleReport concise terminology", () => {
   test("structured blocker evidence drives human and machine views from one record", () => {
     const structured = emptyReport({
       blockers: [normalizeBlocker({
+        action: "verify",
         affectedItems: [{ kind: "host", value: "codex" }],
+        failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/project-a/.codex" },
         kind: "installation-ownership",
-        problem: "Codex CLI is unavailable",
-        remedy: "Install a supported Codex CLI, then retry",
-        requirement: "The selected Profile requires Codex project delivery",
         project: "/project-a",
         scope: "project",
       })],
     });
 
-    // Human views keep the message projection; machine JSON publishes the
-    // complete structured evidence without parsing rendered prose.
+    // Human views render presentation-owned wording keyed by the typed kind;
+    // machine JSON publishes the verbatim stored sentences from one lexicon.
     expect(formatLifecycleReport("status", structured)).toContain(
-      "Blocker: Codex CLI is unavailable",
+      "Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex",
     );
     const machine = machineReport([
       machineProject("/project-a", { blockers: reportBlockers(structured) }),
@@ -1551,11 +1593,13 @@ describe("formatLifecycleReport concise terminology", () => {
         blockers: [{
           affectedItems: [{ kind: "host", value: "codex" }],
           kind: "installation-ownership",
-          message: "Codex CLI is unavailable",
-          problem: "Codex CLI is unavailable",
+          message: "Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex",
+          problem: "Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex",
           project: "/project-a",
-          remedy: "Install a supported Codex CLI, then retry",
-          requirement: "The selected Profile requires Codex project delivery",
+          remedy: "Remove the conflicting generated files yourself after verifying the paths, then retry",
+          requirement:
+            "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
+            "active installation record at safe paths",
           scope: "project",
         }],
       }],
@@ -1566,11 +1610,10 @@ describe("formatLifecycleReport concise terminology", () => {
     const report = machineReport([
       machineProject("/project-a", {
         blockers: [normalizeBlocker({
+          action: "verify",
           affectedItems: [{ kind: "host", value: "codex" }],
+          failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/project-a/.codex" },
           kind: "installation-ownership",
-          problem: "Codex CLI is unavailable",
-          remedy: "Install a supported Codex CLI, then retry",
-          requirement: "The selected Profile requires Codex project delivery",
           project: "/project-a",
           scope: "project",
         })],
@@ -1580,9 +1623,15 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("status", report);
 
-    expect(concise).toContain("Blocker: Codex CLI is unavailable");
-    expect(concise).toContain("Requirement: The selected Profile requires Codex project delivery");
-    expect(concise).toContain("Remedy: Install a supported Codex CLI, then retry");
+    expect(concise).toContain("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex");
+    expect(concise).toContain(
+      "Requirement: Agent Profile Kit syncs or removes only files whose ownership is " +
+      "proven by the active installation record at safe paths",
+    );
+    expect(concise).toContain(
+      "Remedy: Remove the conflicting generated files yourself after verifying the paths, " +
+      "then retry. Run apkit apply to retry.",
+    );
     expect(concise).toContain("Scope: Project /project-a");
     expect(concise).toContain("Affected host: codex");
   });
@@ -1714,10 +1763,8 @@ describe("formatLifecycleReport concise terminology", () => {
         })),
         normalizeBlocker({
           affectedItems: [],
-          kind: "installation-ownership",
-          problem: "Installation State is unreadable",
-          remedy: "Restore or repair Installation State, then retry",
-          requirement: "Lifecycle commands require readable Installation State",
+          detail: "Installation State is unreadable",
+          kind: "installation-state-unreadable",
           scope: "global",
         }),
       ],
@@ -1726,7 +1773,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("Global blockers:");
-    expect(concise).toContain("Blocker: Installation State is unreadable");
+    expect(concise).toContain("Blocker: installation record is unreadable");
     expect(concise.indexOf("Project: /project-a")).toBeGreaterThan(-1);
     expect(concise.indexOf("Project: /project-a")).toBeLessThan(
       concise.indexOf("Global blockers:"),
@@ -1845,7 +1892,7 @@ describe("formatLifecycleReport concise terminology", () => {
     );
     expect(verbose).toContain("working files are preserved");
     expect(verbose).toContain("Git ownership");
-    expect(verbose).toContain("change or remove the Project Binding");
+    expect(verbose).toContain("change or remove the configured Project.");
   });
 
   test("ordinary concise, focused concise, and ordinary verbose point to focused diagnostics without the command (#353)", () => {
@@ -2458,7 +2505,9 @@ describe("formatLifecycleReport concise terminology", () => {
       const concise = formatLifecycleReport("status", report);
       expect(concise).not.toContain("State explanations:");
       if (kind === "blocked") {
-        expect(concise).toContain("Blocker: hooks disabled");
+        expect(concise).toContain(
+        "Blocker: Cannot verify generated-file ownership: recorded output hooks disabled does not match",
+      );
         expect(concise).not.toContain("State:");
       } else if (["drifted output", "malformed ownership state", "missing output", "stale source"].includes(kind)) {
         expect(concise).toContain(`State: ${kind}`);
@@ -2552,14 +2601,16 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).not.toContain("State explanations:");
     expect(concise).not.toContain("Changes:");
     expect(concise).toMatch(
-      /Project: \/project-b\n  Profile: coding\n  Hosts: codex\n  Blocker: hooks disabled\n/,
+      /Project: \/project-b\n  Profile: coding\n  Hosts: codex\n  Blocker: Cannot verify generated-file ownership: recorded output hooks disabled does not match/,
     );
 
     for (const command of ["status", "apply"] as const) {
       const verbose = command === "apply"
         ? formatBlockedApplyReport(asBlockedReport(report), { verbose: true })
         : formatLifecycleReport(command, report, { verbose: true });
-      expect(verbose.indexOf("Blockers:\n- hooks disabled")).toBeGreaterThan(-1);
+      expect(verbose.indexOf(
+        "Blockers:\n- Cannot verify generated-file ownership: recorded output hooks disabled does not match",
+      )).toBeGreaterThan(-1);
       expect(verbose).toContain("Scope: Project /project-b");
       expect(verbose.indexOf("Blockers:\n- /project-b: hooks disabled")).toBeLessThan(
         verbose.indexOf("Projects:"),
@@ -2662,7 +2713,9 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("status", report);
 
-    expect(concise).toContain("Blocker: occupied output");
+    expect(concise).toContain(
+        "Blocker: Cannot verify generated-file ownership: recorded output occupied output does not match",
+      );
     expect(concise).toContain("Git exclusions: 1 entry to add.");
     expect(concise).not.toContain("/repo/.git/info/exclude");
   });
@@ -2723,7 +2776,9 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("Warnings:");
     expect(verbose).toContain("example warning");
     expect(verbose).toContain("Blockers:");
-    expect(verbose).toContain("- example blocker");
+    expect(verbose).toContain(
+        "- Cannot verify generated-file ownership: recorded output example blocker does not match",
+      );
     expect(verbose).toContain("Scope: Project /project-a");
     expect(verbose).toContain("State explanations:");
     expect(verbose).not.toContain("generated-output");
@@ -3365,12 +3420,18 @@ describe("Machine surface JSON and exit codes", () => {
       outputs: [{ kind: "addition", path: "a.md", consumingHosts: ["codex"] }],
       blockers: [{
         affectedItems: [],
-        kind: "occupied-output",
-        message: "CLI missing",
-        problem: "CLI missing",
+        kind: "installation-ownership",
+        message: "Cannot verify generated-file ownership: recorded output CLI missing does not " +
+          "match the recorded installation and no other recorded root proves ownership " +
+          "continuity; restore the recorded output or remove the generated files, then retry",
+        problem: "Cannot verify generated-file ownership: recorded output CLI missing does not " +
+          "match the recorded installation and no other recorded root proves ownership " +
+          "continuity; restore the recorded output or remove the generated files, then retry",
         project,
-        remedy: "Resolve the reported blocker, then retry",
-        requirement: "Lifecycle commands cannot proceed while blocked",
+        remedy: "Remove the conflicting generated files yourself after verifying the paths, then retry",
+        requirement:
+          "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
+          "active installation record at safe paths",
         scope: "project",
       }],
       warnings: [{ message: "Review /copy/me", copyableValues: ["/copy/me"], kind: "diagnostic" }],
@@ -4825,11 +4886,10 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
 describe("focused blockers-only status view (#351)", () => {
   const blockedFleet = (): ReconciliationReport => {
     const projectBlocker = normalizeBlocker({
+      action: "verify",
       affectedItems: [{ kind: "host", value: "codex" }],
+      failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/project-a/.codex" },
       kind: "installation-ownership",
-      problem: "Codex CLI is unavailable",
-      remedy: "Install a supported Codex CLI, then retry",
-      requirement: "The selected Profile requires Codex project delivery",
       project: "/project-a",
       scope: "project",
     });
@@ -4857,10 +4917,8 @@ describe("focused blockers-only status view (#351)", () => {
         projectBlocker,
         normalizeBlocker({
           affectedItems: [],
+          detail: "Installation State is unreadable",
           kind: "installation-state-unreadable",
-          problem: "Installation State is unreadable",
-          remedy: "Restore the reported evidence, then retry",
-          requirement: "Lifecycle commands cannot proceed while blocked",
           scope: "global",
         }),
       ],
@@ -4872,9 +4930,9 @@ describe("focused blockers-only status view (#351)", () => {
 
     expect(output).toStartWith("Cannot apply\n");
     expect(output).toContain("Project: /project-a");
-    expect(output).toContain("Blocker: Codex CLI is unavailable");
+    expect(output).toContain("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex");
     expect(output).toContain("Global blockers:");
-    expect(output).toContain("Blocker: Installation State is unreadable");
+    expect(output).toContain("Blocker: installation record is unreadable");
     expect(output).toContain("Next:");
     expect(output).toContain("/project-a: Resolve the reported blocker, then run apkit status again.");
     expect(output).toContain("Resolve the reported global blocker, then run apkit status again.");
@@ -4951,12 +5009,18 @@ describe("focused blockers-only status view (#351)", () => {
   test("focused verbose view retains complete Blocker fields and affected items without unrelated sections", () => {
     const output = formatLifecycleReport("status", blockedFleet(), { blockersOnly: true, verbose: true });
 
-    expect(output).toContain("- Codex CLI is unavailable");
-    expect(output).toContain("Requirement: The selected Profile requires Codex project delivery");
-    expect(output).toContain("Remedy: Install a supported Codex CLI, then retry");
+    expect(output).toContain("- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex");
+    expect(output).toContain(
+      "Requirement: Agent Profile Kit syncs or removes only files whose ownership is " +
+      "proven by the active installation record at safe paths",
+    );
+    expect(output).toContain(
+      "Remedy: Remove the conflicting generated files yourself after verifying the paths, " +
+      "then retry. Run apkit apply to retry.",
+    );
     expect(output).toContain("Scope: Project /project-a");
     expect(output).toContain("Affected host: codex");
-    expect(output).toContain("- Installation State is unreadable");
+    expect(output).toContain("- installation record is unreadable");
     expect(output).toContain("Scope: Global");
     expect(output).toContain("Blockers: 2 · Affected Projects: 1");
     expect(output).not.toMatch(/^Projects:/m);
@@ -5000,11 +5064,10 @@ describe("focused blockers-only status view (#351)", () => {
 describe("focused blockers-only apply view (#352)", () => {
   const affectedBlocker = () =>
     normalizeBlocker({
+      action: "verify",
       affectedItems: [{ kind: "host", value: "codex" }],
+      failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/project-b/.codex" },
       kind: "installation-ownership",
-      problem: "Claude Code CLI is unavailable",
-      remedy: "Install a supported Claude Code CLI, then retry",
-      requirement: "The selected Profile requires Claude Code project delivery",
       project: "/project-b",
       scope: "project",
     });
@@ -5067,16 +5130,16 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(output).toContain("+ 1 generated file addition in /project-a");
     expect(output).toContain("Freshly current: /project-a");
     expect(output).toContain("Still pending: /project-c");
-    expect(output).toContain("Blocker: Claude Code CLI is unavailable");
+    expect(output).toContain("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex");
     expect(output).toContain("Blockers: 1 · Affected Projects: 1");
     // Safety evidence is an ordered prefix before the focused Blocker section,
     // rendered exactly once.
     expect(output.indexOf("Applied:")).toBeLessThan(
-      output.indexOf("Blocker: Claude Code CLI is unavailable"),
+      output.indexOf("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex"),
     );
     expect(output.split("Applied:")).toHaveLength(2);
     expect(output.indexOf("Still pending:")).toBeLessThan(
-      output.indexOf("Blocker: Claude Code CLI is unavailable"),
+      output.indexOf("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex"),
     );
     expect(output.split("Still pending:")).toHaveLength(2);
     expect(output).not.toContain("Warnings:");
@@ -5097,9 +5160,15 @@ describe("focused blockers-only apply view (#352)", () => {
     );
 
     expect(output).toStartWith("Apply completed with blockers\n");
-    expect(output).toContain("- Claude Code CLI is unavailable");
-    expect(output).toContain("Requirement: The selected Profile requires Claude Code project delivery");
-    expect(output).toContain("Remedy: Install a supported Claude Code CLI, then retry");
+    expect(output).toContain("- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex");
+    expect(output).toContain(
+      "Requirement: Agent Profile Kit syncs or removes only files whose ownership is " +
+      "proven by the active installation record at safe paths",
+    );
+    expect(output).toContain(
+      "Remedy: Remove the conflicting generated files yourself after verifying the paths, " +
+      "then retry. Run apkit apply to retry.",
+    );
     expect(output).toContain("Scope: Project /project-b");
     expect(output).toContain("Affected host: codex");
     expect(output).toContain("Applied:");
@@ -5107,7 +5176,7 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(output).toContain("Still pending: /project-c");
     expect(output).toContain("Blockers: 1 · Affected Projects: 1");
     expect(output.indexOf("Applied:")).toBeLessThan(
-      output.indexOf("- Claude Code CLI is unavailable"),
+      output.indexOf("- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex"),
     );
     expect(output).not.toMatch(/^Projects:/m);
     expect(output).not.toContain("Outputs:");
@@ -5142,13 +5211,13 @@ describe("focused blockers-only apply view (#352)", () => {
 
     expect(concise).toStartWith("Apply blocked\n");
     expect(concise).toContain("Global blockers:");
-    expect(concise).toContain("Blocker: Installation State is unreadable");
+    expect(concise).toContain("Blocker: installation record is unreadable");
     expect(concise).toContain("Blockers: 1");
     expect(concise).not.toContain("Applied:");
     expect(concise).not.toContain("Still pending:");
     expect(concise).not.toContain("Warnings:");
     expect(verbose).toStartWith("Apply blocked\n");
-    expect(verbose).toContain("- Installation State is unreadable");
+    expect(verbose).toContain("- installation record is unreadable");
     expect(verbose).toContain("Blockers: 1");
     expect(verbose).not.toContain("Applied:");
     expect(verbose).not.toContain("Next:");
@@ -5171,9 +5240,9 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(output).toContain("Still pending: /project-c");
     expect(output).toContain("Applied:");
     expect(output).toContain("Freshly current: /project-a");
-    expect(output).toContain("Blocker: Claude Code CLI is unavailable");
+    expect(output).toContain("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex");
     expect(output.indexOf("Applied:")).toBeLessThan(
-      output.indexOf("Blocker: Claude Code CLI is unavailable"),
+      output.indexOf("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex"),
     );
   });
 
@@ -5207,12 +5276,12 @@ describe("focused blockers-only apply view (#352)", () => {
 
     const concise = formatApplyExecutionFailure(failure, { blockersOnly: true });
     expect(concise).toContain(
-      "Freshly current: /project-a\n\nProject: /project-b\n  Blocker: Claude Code CLI is unavailable",
+      "Freshly current: /project-a\n\nProject: /project-b\n  Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex",
     );
 
     const verbose = formatApplyExecutionFailure(failure, { blockersOnly: true, verbose: true });
     expect(verbose).toContain(
-      "Freshly current: /project-a\n\nBlockers:\n- Claude Code CLI is unavailable",
+      "Freshly current: /project-a\n\nBlockers:\n- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex",
     );
   });
 });
@@ -5445,3 +5514,138 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
 });
 
 
+
+describe("blocker wording lives in presentation (DEC-020, US-026, US-027)", () => {
+  const project = "/project-a";
+
+  const kindFixtures: readonly {
+    readonly label: string;
+    readonly blocker: ReconciliationBlocker;
+  }[] = [
+    {
+      blocker: normalizeBlocker({
+        affectedItems: [{ kind: "path", value: "state/manifest.json" }],
+        detail: "EACCES: permission denied, open 'state/manifest.json'",
+        kind: "installation-state-unreadable",
+        scope: "global",
+      }),
+      label: "installation-state-unreadable",
+    },
+    {
+      blocker: normalizeBlocker({
+        affectedItems: [{ kind: "path", value: ".codex/hooks.json" }],
+        kind: "occupied-output",
+        occupied: { case: "drifted-output" },
+        project,
+        scope: "project",
+      }),
+      label: "occupied-output",
+    },
+    {
+      blocker: normalizeBlocker({
+        action: "verify",
+        affectedItems: [],
+        failure: { case: "no-ownership-continuity", output: ".agent-profile-kit/codex/context.md" },
+        kind: "installation-ownership",
+        project,
+        scope: "project",
+      }),
+      label: "installation-ownership",
+    },
+    {
+      blocker: normalizeBlocker(outputOwnershipConflictBlocker({
+        paths: [".codex/hooks.json"],
+        project,
+      })),
+      label: "output-ownership-conflict",
+    },
+    {
+      blocker: normalizeBlocker(temporaryInstallationConflictBlocker({
+        project,
+        temporaryInstallationId: "temp-123",
+      })),
+      label: "temporary-installation-conflict",
+    },
+    {
+      blocker: normalizeBlocker(temporaryInstallationRemovalBlocker({
+        failure: { case: "symlink-output", output: ".codex/hooks.json" },
+        outputs: [".codex/hooks.json"],
+        project,
+      })),
+      label: "temporary-installation-removal",
+    },
+  ];
+
+  const blockedReport = (blocker: ReconciliationBlocker): ReconciliationReport => {
+    const scoped = blocker.scope === "project";
+    const affected = scoped ? blocker.project! : project;
+    return emptyReport({
+      blockers: [blocker],
+      desired: [{
+        canonicalProject: affected,
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: affected,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: affected }],
+      outputs: [{ kind: "addition", path: "a.md", project: affected }],
+    });
+  };
+
+  test.each(kindFixtures.map((fixture) => [fixture.label, fixture.blocker] as const))(
+    "%s renders human wording free of internal terms with a runnable remedy command",
+    (_label, blocker) => {
+      for (const options of [{ verbose: false }, { verbose: true }] as const) {
+        const view = formatLifecycleReport("status", blockedReport(blocker), {
+          blockersOnly: true,
+          ...options,
+        });
+        for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(view).not.toMatch(term);
+      }
+
+      const wording = humanBlockerWording(blocker);
+      if (_label === "output-ownership-conflict") {
+        // The rendered recovery lines carry the runnable untrack command.
+        const view = formatLifecycleReport("status", blockedReport(blocker), {
+          blockersOnly: true,
+        });
+        expect(view).toMatch(/Recovery command: run apkit |git -C /);
+        return;
+      }
+      expect(wording.remedy).toMatch(/apkit [a-z-]+/);
+    },
+  );
+
+  test.each(kindFixtures.map((fixture) => [fixture.label, fixture.blocker] as const))(
+    "%s publishes the verbatim stored wording on the machine surface",
+    (_label, blocker) => {
+      const payload = JSON.parse(
+        formatLifecycleJson("status", blockedReport(blocker)),
+      ) as {
+        readonly globalBlockers: readonly Record<string, string>[];
+        readonly projects: readonly { readonly blockers: readonly Record<string, string>[] }[];
+      };
+      const published = [...payload.globalBlockers, ...payload.projects[0]!.blockers][0]!;
+      const wording = blockerWording(blocker);
+      expect(published.message).toBe(wording.message);
+      expect(published.problem).toBe(wording.problem);
+      expect(published.requirement).toBe(wording.requirement);
+      expect(published.remedy).toBe(wording.remedy);
+    },
+  );
+
+  test("occupied-output renders the adapter remedy key with its carried sentence", () => {
+    const blocker = normalizeBlocker(occupiedOutputBlocker({
+      occupied: { case: "occupied-destination", occupation: "directory" },
+      path: ".opencode/opencode.json",
+      project,
+      remedyKey: "opencode-config-occupied",
+    }));
+    const wording = blockerWording(blocker);
+    expect(wording.problem).toBe(".opencode/opencode.json is an occupied directory path");
+    expect(wording.remedy).toBe(OPENCODE_CONFIG_OCCUPIED_REMEDY);
+    expect(wording.remedy).toContain("opencode.json or .opencode/opencode.json");
+  });
+});

@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
+
   chmodSync,
   existsSync,
   mkdirSync,
@@ -32,6 +33,7 @@ import {
   reportItems,
   reportOutputs,
 } from "./support/reconciliation-report.js";
+import { blockerWording } from "../cli/blocker-wording.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -314,8 +316,8 @@ describe("Claude project Skill packages", () => {
       schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
     expect(reportBlockers(preview).some((blocker) =>
-      blocker.message.includes(".claude/skills/review-pr") &&
-      blocker.message.toLowerCase().includes("unowned")
+      blockerWording(blocker).message.includes(".claude/skills/review-pr") &&
+      blockerWording(blocker).message.toLowerCase().includes("unowned")
     )).toBe(true);
     expect(readFileSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"), "utf8")).toBe(
       "foreign skill\n",

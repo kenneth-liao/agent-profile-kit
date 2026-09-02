@@ -2,6 +2,24 @@ import { homedir } from "node:os";
 import { realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 
+import {
+  applyNewcomerSubstitutions,
+  blockerWording,
+  describeOwnershipFailure,
+  describeStateReadFailure,
+  humanBlockerWording,
+} from "./blocker-wording.js";
+import {
+  STATE_READ_FAILURE_CASES,
+  type StateReadFailureFact,
+} from "../installer/blockers.js";
+
+export {
+  applyNewcomerSubstitutions,
+  describeStateReadFailure,
+  formatProjectTargetError,
+  formatProjectTargetErrorForHuman,
+} from "./blocker-wording.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,
@@ -815,7 +833,11 @@ export function formatUninstallResult(
     );
     for (const kept of result.kept) {
       const presentedProject = displayProjectPath(kept.project);
-      lines.push("", `Project: ${presentedProject}`, `  - ${kept.reason}`);
+      lines.push(
+        "",
+        `Project: ${presentedProject}`,
+        `  - ${renderItemReason(kept.reason)}`,
+      );
       copyable.push(`Project: ${presentedProject}`, presentedProject, kept.project);
     }
   }
@@ -971,8 +993,28 @@ function repositoryExclusionClause(
     : `${capitalize(DEFAULT_VIEW_LEXICON.repositoryExclusion.plural)}: ${parts.join(", ")}.`;
 }
 
+function isStateReadFailureFact(
+  reason: NonNullable<ReconciliationItem["reason"]>,
+): reason is StateReadFailureFact {
+  return typeof reason === "object" &&
+    (STATE_READ_FAILURE_CASES as readonly string[]).includes(reason.case);
+}
+
+/** Machine projection: diagnostic strings pass through; typed facts compose canonically. */
+function renderMachineItemReason(reason: NonNullable<ReconciliationItem["reason"]>): string {
+  if (typeof reason === "string") return reason;
+  return isStateReadFailureFact(reason)
+    ? describeStateReadFailure(reason)
+    : describeOwnershipFailure(reason);
+}
+
+/** Human projection: typed facts compose through the newcomer vocabulary. */
+function renderItemReason(reason: NonNullable<ReconciliationItem["reason"]>): string {
+  return applyNewcomerSubstitutions(renderMachineItemReason(reason));
+}
+
 function itemText(item: ReconciliationItem): string {
-  return `${item.kind}${item.reason ? ` (${item.reason})` : ""}`;
+  return `${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}`;
 }
 
 function isNonCurrentKind(kind: ReconciliationKind): kind is NonCurrentKind {
@@ -1159,7 +1201,7 @@ function untrackRecoveryLines(
     `${indent}  Recovery: run the command below yourself; Agent Profile Kit never executes it. ` +
       "It stages removal of these paths from Git ownership (the Git index) while the working files are preserved:",
     `${indent}    ${trackedPathUntrackCommand(project, paths)}`,
-    `${indent}  Alternatively, change or remove the Project Binding.`,
+    `${indent}  Alternatively, change or remove the configured Project.`,
   ];
 }
 
@@ -1173,18 +1215,19 @@ function conciseOwnershipConflictLines(
   untrackRecovery: UntrackRecovery,
 ): readonly string[] {
   const paths = outputOwnershipConflictPaths(blocker);
-  const displayProject = displayProjectPath(blocker.project);
+  const wording = humanBlockerWording(blocker);
+  const displayProject = displayProjectPath(blocker.project!);
   const lines = [
-    `${indent}Blocker: ${shortenProjectReferences(blocker.problem, groups)}`,
-    `${indent}  Requirement: ${blocker.requirement}`,
-    `${indent}  Remedy: ${blocker.remedy}`,
+    `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups)}`,
+    `${indent}  Requirement: ${wording.requirement}`,
+    `${indent}  Remedy: ${wording.remedy}`,
     `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`,
   ];
   if (paths.length > 0) {
     lines.push(`${indent}  Affected paths (${paths.length}):`);
     lines.push(...trackedPathGroupLines(paths, indent));
   }
-  lines.push(...untrackRecoveryLines(blocker.project, paths, indent, untrackRecovery));
+  lines.push(...untrackRecoveryLines(blocker.project!, paths, indent, untrackRecovery));
   return lines;
 }
 
@@ -1198,10 +1241,11 @@ function conciseBlockerLines(
   if (isOutputOwnershipConflict(blocker)) {
     return conciseOwnershipConflictLines(blocker, groups, indent, untrackRecovery);
   }
+  const wording = humanBlockerWording(blocker);
   const lines = [
-    `${indent}Blocker: ${shortenProjectReferences(blocker.problem, groups)}`,
-    `${indent}  Requirement: ${blocker.requirement}`,
-    `${indent}  Remedy: ${blocker.remedy}`,
+    `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups)}`,
+    `${indent}  Requirement: ${wording.requirement}`,
+    `${indent}  Remedy: ${wording.remedy}`,
     `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`,
   ];
   for (const item of blocker.affectedItems) {
@@ -1215,22 +1259,23 @@ function verboseBlockerLines(
   shorten: (text: string) => string,
   untrackRecovery: UntrackRecovery,
 ): readonly string[] {
-  const project = blocker.scope === "project" ? displayProjectPath(blocker.project) : undefined;
+  const project = blocker.scope === "project" ? displayProjectPath(blocker.project!) : undefined;
+  const wording = humanBlockerWording(blocker);
   const lines = [
-    `- ${shorten(blocker.problem)}`,
-    `  Requirement: ${blocker.requirement}`,
-    `  Remedy: ${blocker.remedy}`,
+    `- ${shorten(wording.problem)}`,
+    `  Requirement: ${wording.requirement}`,
+    `  Remedy: ${wording.remedy}`,
     `  Scope: ${blockerScopeText(blocker, project)}`,
   ];
   for (const item of blocker.affectedItems) {
     const value = blocker.scope === "project" && item.kind === "path"
-      ? shorten(`${blocker.project}/${item.value}`)
+      ? shorten(`${blocker.project!}/${item.value}`)
       : item.value;
     lines.push(`  ${affectedItemLabel({ ...item, value })}`);
   }
   if (isOutputOwnershipConflict(blocker)) {
     lines.push(...untrackRecoveryLines(
-      blocker.project,
+      blocker.project!,
       outputOwnershipConflictPaths(blocker),
       "",
       untrackRecovery,
@@ -2590,7 +2635,7 @@ function lifecycleCopyableValues(
       // must never split it (#353).
       if (isOutputOwnershipConflict(blocker)) {
         const paths = outputOwnershipConflictPaths(blocker);
-        if (paths.length > 0) values.add(trackedPathUntrackCommand(blocker.project, paths));
+        if (paths.length > 0) values.add(trackedPathUntrackCommand(blocker.project!, paths));
       }
     }
     for (const exclusion of reportRepositoryExclusions(report)) {
@@ -2694,7 +2739,7 @@ function verboseSections(
   const items = reportItems(report).length === 0
     ? "(no projects)"
     : reportItems(report)
-        .map((item) => shorten(`${item.project}: ${item.kind}${item.reason ? ` (${item.reason})` : ""}`))
+        .map((item) => shorten(`${item.project}: ${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}`))
         .join("\n");
   const desired = reportDesired(report).length === 0
     ? "(none)"
@@ -3136,14 +3181,15 @@ const LIFECYCLE_MACHINE_SCHEMA_VERSION = 14 as const;
 const TEMPORARY_INSTALLATION_MACHINE_SCHEMA_VERSION = 9 as const;
 
 function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
+  const wording = blockerWording(blocker);
   return {
     kind: blocker.kind,
     scope: blocker.scope,
     ...(blocker.scope === "project" ? { project: blocker.project } : {}),
-    message: blocker.message,
-    problem: blocker.problem,
-    requirement: blocker.requirement,
-    remedy: blocker.remedy,
+    message: wording.message,
+    problem: wording.problem,
+    requirement: wording.requirement,
+    remedy: wording.remedy,
     affectedItems: blocker.affectedItems.map((item) => ({ kind: item.kind, value: item.value })),
   };
 }
@@ -3191,7 +3237,12 @@ function canonicalMachineProject(project: ReconciliationProjectRecord): unknown 
         profile: project.desired.profile,
       },
     }),
-    state: { ...project.state },
+    state: {
+      kind: project.state.kind,
+      ...(project.state.reason === undefined
+        ? {}
+        : { reason: renderMachineItemReason(project.state.reason) }),
+    },
     outputs: project.outputs.map((output) => ({
       consumingHosts: [...output.consumingHosts],
       kind: output.kind,
@@ -3473,7 +3524,7 @@ export function formatTemporaryInstallationHuman(
  * command-name prefix counts toward the width measure.
  */
 export function presentTemporaryBlockedMessages(
-  messages: readonly string[],
+  blockers: readonly ReconciliationBlocker[],
   canonicalProject: string,
   authoredProject = canonicalProject,
   cwd = process.cwd(),
@@ -3488,10 +3539,19 @@ export function presentTemporaryBlockedMessages(
   }
   const references = [...new Set([canonicalProject, absoluteAuthoredPath(authoredProject, home)])]
     .sort((left, right) => right.length - left.length || left.localeCompare(right));
-  const text = messages
-    .map((message) => references.reduce(
+  const text = blockers
+    .flatMap((blocker) => {
+      const wording = humanBlockerWording(blocker);
+      // Every blocked temporary-installation Blocker renders its problem and
+      // its remedy, so recovery always names a runnable command (US-027).
+      return [
+        wording.problem,
+        `Remedy: ${wording.remedy}`,
+      ];
+    })
+    .map((line) => references.reduce(
       (reduced, project) => replaceProjectReference(reduced, project, presented),
-      message,
+      line,
     ))
     .join("\n");
   return { presented, text };
