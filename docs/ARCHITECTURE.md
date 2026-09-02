@@ -438,8 +438,12 @@ failed write self-heals on the next apply.
 
 The pre-1.0 YAML migration window is closed. Runtime Installation State reading
 accepts strict `state/manifest.json` at the current ownership schema version
-(`9`) and migrates the immediately previous version (`8`) on read, republishing
-the new version on the next successful state write; no YAML parser, compatibility
+(`9`) and migrates every earlier version published from the v0.132.0 spec
+baseline (`8`, `7`, and `6`) on read, dropping stored `repository_exclusion`
+fields and recorded legacy Marker output entries at the single ingestion
+boundary and republishing the current version on the next successful state
+write, so a direct upgrade from v0.132.0 keeps existing receipts working without
+re-binding or re-applying; no YAML parser, compatibility
 normalizer, or transitional receipt projection remains in production. A leftover
 `state/manifest.yaml` fails with focused guidance to use the shipped 0.95.0
 migration boundary. Missing state still starts empty, while unreadable state is

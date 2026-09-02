@@ -13,8 +13,12 @@ import {
 
 export const OWNERSHIP_STATE_SCHEMA_VERSION = 9;
 
-/** The one immediately preceding schema version the reader still accepts. */
-export const PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION = 8;
+/**
+ * Every Ownership State schema version the on-disk reader accepts: the current
+ * version plus every version published from the v0.132.0 spec baseline onward,
+ * so a direct upgrade keeps existing receipts without re-binding or re-applying.
+ */
+export const ACCEPTED_OWNERSHIP_STATE_SCHEMA_VERSIONS = [9, 8, 7, 6] as const;
 
 /** Explicit trust-boundary limits for the final ownership-state document. */
 export const OWNERSHIP_STATE_LIMITS = {
@@ -462,15 +466,13 @@ export function parseOwnershipState(source: string): OwnershipState {
 }
 
 /**
- * The one on-disk reader: accepts the current schema version and the one
- * immediately preceding version, preserving the document's version so callers
- * can normalize version-specific entries at their single ingestion boundary.
+ * The one on-disk reader: accepts the current schema version and every schema
+ * version the v0.132.0 baseline and successors published, preserving the
+ * document's version so callers can normalize version-specific entries at
+ * their single ingestion boundary.
  */
 export function parseOwnershipStateDocument(source: string): ParsedOwnershipStateDocument {
-  return parseOwnershipStateWithVersion(source, [
-    OWNERSHIP_STATE_SCHEMA_VERSION,
-    PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION,
-  ]);
+  return parseOwnershipStateWithVersion(source, ACCEPTED_OWNERSHIP_STATE_SCHEMA_VERSIONS);
 }
 
 export function formatOwnershipState(state: OwnershipState): string {
