@@ -56,12 +56,6 @@ export function reportRepositoryExclusions(
   return deduplicate(report.projects.flatMap((project) => project.repositoryExclusions));
 }
 
-export function reportRepositoryExclusionRepairs(
-  report: ReconciliationReport,
-): readonly ReconciliationProjectRecord["repositoryExclusionRepairs"][number][] {
-  return deduplicate(report.projects.flatMap((project) => project.repositoryExclusionRepairs));
-}
-
 function deduplicate<T>(records: readonly T[]): readonly T[] {
   return [...new Map(records.map((record) => [JSON.stringify(record), record])).values()];
 }

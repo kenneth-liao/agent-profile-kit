@@ -159,9 +159,6 @@ describe("shared blocker contract", () => {
     expect(BLOCKER_KINDS).toEqual([
       "output-ownership-conflict",
       "installation-state-unreadable",
-      "repository-exclusion-contribution",
-      "repository-exclusion-target-unproven",
-      "repository-exclusion-invalid",
       "occupied-output",
       "installation-ownership",
       "temporary-installation-conflict",
@@ -179,6 +176,21 @@ describe("shared blocker contract", () => {
       requirement: "Git exclusion contributions must match their receipts",
       scope: "global",
     } as never)).toThrow(/Unknown structured blocker kind "repository-exclusion-record"/);
+
+    for (const removedKind of [
+      "repository-exclusion-contribution",
+      "repository-exclusion-target-unproven",
+      "repository-exclusion-invalid",
+    ]) {
+      expect(() => normalizeBlocker({
+        affectedItems: [],
+        kind: removedKind,
+        problem: "Exclusion evidence does not match",
+        remedy: "Retry",
+        requirement: "Exclusion bookkeeping must match",
+        scope: "global",
+      } as never)).toThrow(new RegExp(`Unknown structured blocker kind "${removedKind}"`));
+    }
   });
 
   test("temporary-installation blocked JSON publishes structured evidence at the family schema version", () => {
@@ -188,7 +200,7 @@ describe("shared blocker contract", () => {
       formatTemporaryInstallationBlockedJson("install-temp", [structured]),
     ) as Record<string, unknown>;
     expect(payload).toEqual({
-      schemaVersion: 8,
+      schemaVersion: 9,
       command: "install-temp",
       outcome: "blocked",
       blockers: [{

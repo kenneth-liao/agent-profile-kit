@@ -1,149 +1,25 @@
-import { withRepositoryExclusion } from "./ownership-state.js";
-import type { OwnershipState } from "../schemas/ownership-state.js";
-
 /**
  * Exhaustive typed Safe Repair eligibility boundary (ADR-0022).
  *
  * Every supported Safe Repair class constructs a `SafeRepair` member at its
- * actual decision site and is classified through `safeRepairItemClassification`
- * or `SafeRepairEligibility`. Adding a repair class requires extending this
- * union and every exhaustive consumer, so a repair can never surface through an
- * ad-hoc inline branch. Evidence capture and presentation stay at each class's
- * existing seam; this boundary owns only the class vocabulary and the
- * eligible-versus-Blocker decision shape.
+ * actual decision site and is classified through `safeRepairItemClassification`.
+ * Adding a repair class requires extending this union and every exhaustive
+ * consumer, so a repair can never surface through an ad-hoc inline branch.
+ * Evidence capture and presentation stay at each class's existing seam; this
+ * boundary owns only the class vocabulary.
+ *
+ * Repository-local exclusion bookkeeping is not a Safe Repair class: it is
+ * derived, best-effort output that `apply` publishes unconditionally and that
+ * can never block or require repair.
  */
-export type SafeRepairClass =
-  | "absent-output"
-  | "exclusion-section"
-  | "missing-contribution"
-  | "stale-contribution"
-  | "moved-contribution"
-  | "retiring-exclusion-section";
+export type SafeRepairClass = "absent-output";
 
 /**
- * One proven Safe Repair. `missing-contribution` carries the exact entries the
- * active Installation Receipt, owned roots, live Project, untracked
- * destinations, and Git target independently prove; `stale-contribution` carries
- * the exact stale recorded entries plus the one replacement those proofs derive
- * at the unchanged Git target; `moved-contribution` carries the exact
- * two-target transition — the recorded entries at the receipt-derived old
- * target plus the re-derived entries at the topology-derived new target — that
- * both targets independently prove; `exclusion-section` carries the recorded
- * union a damaged exclude file must be restored to; `retiring-exclusion-section`
- * carries the exact post-retirement union the active receipts and live target
- * prove during intentional-deletion retirement — empty entries mean the
- * Agent Profile Kit section is removed.
+ * One proven Safe Repair. Wholly absent recorded output roots are repairable
+ * pending work that `apply` restores from the receipt and the Workspace.
  */
 export type SafeRepair =
-  | { readonly class: "absent-output"; readonly paths: readonly string[] }
-  | {
-      readonly class: "exclusion-section";
-      readonly target: string;
-      readonly entries: readonly string[];
-    }
-  | {
-      readonly class: "missing-contribution";
-      readonly installationId: string;
-      readonly target: string;
-      readonly entries: readonly string[];
-    }
-  | {
-      readonly class: "stale-contribution";
-      readonly installationId: string;
-      readonly target: string;
-      readonly currentEntries: readonly string[];
-      readonly entries: readonly string[];
-    }
-  | {
-      readonly class: "moved-contribution";
-      readonly installationId: string;
-      /** Old target, derived only from the active Installation Receipt. */
-      readonly currentTarget: string;
-      /** New target, derived from live Git topology. */
-      readonly nextTarget: string;
-      /** Recorded entries the active receipt owns at the old target. */
-      readonly current: readonly string[];
-      /** Derived entries the receipt proves at the new target. */
-      readonly next: readonly string[];
-    }
-  | {
-      readonly class: "retiring-exclusion-section";
-      readonly target: string;
-      /** Exact post-retirement union; empty means the section is removed. */
-      readonly entries: readonly string[];
-    };
-
-/** Repository-local exclusion repair classes carried by reconciliation reports. */
-export type SafeRepairExclusionRepair = Extract<
-  SafeRepair,
-  {
-    readonly class:
-      | "exclusion-section"
-      | "missing-contribution"
-      | "stale-contribution"
-      | "moved-contribution"
-      | "retiring-exclusion-section";
-  }
->;
-
-/** One proven retirement-time missing exclusion section, file, or safe parent. */
-export type RetiringSectionRepair = Extract<
-  SafeRepair,
-  { readonly class: "retiring-exclusion-section" }
->;
-
-export function isRetiringSectionRepair(
-  repair: SafeRepair,
-): repair is RetiringSectionRepair {
-  return repair.class === "retiring-exclusion-section";
-}
-
-/** One provably missing receipt-owned Repository Exclusion Contribution. */
-export type MissingContributionRepair = Extract<
-  SafeRepair,
-  { readonly class: "missing-contribution" }
->;
-
-/** One provably stale receipt-owned Repository Exclusion Contribution. */
-export type StaleContributionRepair = Extract<
-  SafeRepair,
-  { readonly class: "stale-contribution" }
->;
-
-/**
- * The typed reason one candidate Safe Repair condition was found ineligible.
- * `unreadable-exclusion-bytes` marks a target that could not be read or parsed
- * (including unsafe paths); `incoherent-exclusion-bytes` marks a readable owned
- * section whose entries are not exactly the bytes the recorded contributions
- * prove — the recorded union plus the proven contribution for a missing
- * contribution, the recorded union itself for a stale contribution, or the
- * recorded union at either target for a moved contribution;
- * `unchanged-contribution` marks a recorded contribution that already equals
- * the entries its receipt derives, so no stale correction is pending, or an
- * owned section that is present so no retirement absence repair is pending;
- * `wrong-target` marks a recorded contribution whose target differs from the
- * live Git target — for the stale gate always a caller-contract violation,
- * since the gates require the unchanged-target proof at the reconciliation
- * boundary; for the moved gate a same-target receipt is equally a caller
- * contract violation because the boundary dispatches stale candidates first.
- */
-export type SafeRepairIneligibilityCause =
-  | "incoherent-exclusion-bytes"
-  | "unreadable-exclusion-bytes"
-  | "unchanged-contribution"
-  | "wrong-target";
-
-/**
- * Eligibility decision for one candidate Safe Repair condition. Ineligible
- * candidates remain typed Blockers at the condition's existing Blocker site,
- * and the cause is surfaced as distinct Blocker evidence at that site.
- */
-export type SafeRepairEligibility<R extends SafeRepair = SafeRepair> =
-  | { readonly eligible: true; readonly repair: R }
-  | {
-      readonly eligible: false;
-      readonly cause: SafeRepairIneligibilityCause;
-    };
+  | { readonly class: "absent-output"; readonly paths: readonly string[] };
 
 export interface SafeRepairItemClassification {
   readonly kind: "current" | "repairable missing output" | "update";
@@ -151,15 +27,10 @@ export interface SafeRepairItemClassification {
 }
 
 /** Repair classes that surface through a Project state item. */
-export type SafeRepairWithProjectItem = Extract<
-  SafeRepair,
-  { readonly class: "absent-output" | "missing-contribution" }
->;
+export type SafeRepairWithProjectItem = SafeRepair;
 
 /**
  * Classify one Project-item Safe Repair into its existing Project state item.
- * Exclusion-local classes surface through repository exclusion repairs and the
- * exclusion clause instead of a Project state item.
  */
 export function safeRepairItemClassification(
   repair: SafeRepairWithProjectItem,
@@ -167,104 +38,5 @@ export function safeRepairItemClassification(
   switch (repair.class) {
     case "absent-output":
       return { kind: "repairable missing output", reason: repair.paths.join(", ") };
-    case "missing-contribution":
-      return { kind: "current" };
   }
-}
-
-export function isMissingContributionRepair(
-  repair: SafeRepair,
-): repair is Extract<SafeRepair, { readonly class: "missing-contribution" }> {
-  return repair.class === "missing-contribution";
-}
-
-export function isStaleContributionRepair(
-  repair: SafeRepair,
-): repair is StaleContributionRepair {
-  return repair.class === "stale-contribution";
-}
-
-/** One provably moved receipt-owned Repository Exclusion Contribution. */
-export type MovedContributionRepair = Extract<
-  SafeRepair,
-  { readonly class: "moved-contribution" }
->;
-
-export function isMovedContributionRepair(
-  repair: SafeRepair,
-): repair is MovedContributionRepair {
-  return repair.class === "moved-contribution";
-}
-
-/** Repair classes owned by the contribution pass and the contribution overlay. */
-export function isContributionRepair(
-  repair: SafeRepair,
-): repair is MissingContributionRepair | StaleContributionRepair | MovedContributionRepair {
-  return (
-    repair.class === "missing-contribution" ||
-    repair.class === "stale-contribution" ||
-    repair.class === "moved-contribution"
-  );
-}
-
-/** The receipt-owned contribution one proven contribution repair publishes. */
-export function publishedContribution(
-  repair: MissingContributionRepair | StaleContributionRepair | MovedContributionRepair,
-): { readonly entries: readonly string[]; readonly target: string } {
-  return repair.class === "moved-contribution"
-    ? { entries: repair.next, target: repair.nextTarget }
-    : { entries: repair.entries, target: repair.target };
-}
-
-/** Every target one exclusion repair's evidence and byte plan covers. */
-export function safeRepairTargets(repair: SafeRepairExclusionRepair): readonly string[] {
-  return repair.class === "moved-contribution"
-    ? [repair.currentTarget, repair.nextTarget]
-    : [repair.target];
-}
-
-function overlayContributionRepairs(
-  state: OwnershipState,
-  repairs: readonly SafeRepairExclusionRepair[],
-): OwnershipState {
-  return {
-    ...state,
-    receipts: repairs.filter(isContributionRepair).reduce(
-      (receipts, repair) =>
-        withRepositoryExclusion(receipts, repair.installationId, publishedContribution(repair)),
-      state.receipts,
-    ),
-  };
-}
-
-/**
- * Overlay every proven contribution repair (missing, stale, and moved) onto
- * Installation State so the receipts carry the exact contributions the proofs
- * derive. This full projection is apply's staged next state and the state
- * apply persists through the ordinary `writeState` call.
- */
-export function withProvenContributions(
-  state: OwnershipState,
-  repairs: readonly SafeRepairExclusionRepair[],
-): OwnershipState {
-  return overlayContributionRepairs(state, repairs);
-}
-
-/**
- * Overlay only the proven missing contributions onto Installation State. This
- * projection is byte-level validation's expected state and apply's staged
- * current state: a stale target's live section must still match the
- * un-overlaid recorded union exactly, and a moved contribution's receipt stays
- * un-overlaid so both of its targets gate against their recorded unions
- * exactly; only this function may project validation and staging-current
- * expectations and the caller cannot pass the wrong subset.
- */
-export function withStagedCurrentContributions(
-  state: OwnershipState,
-  repairs: readonly SafeRepairExclusionRepair[],
-): OwnershipState {
-  return overlayContributionRepairs(
-    state,
-    repairs.filter(isMissingContributionRepair),
-  );
 }

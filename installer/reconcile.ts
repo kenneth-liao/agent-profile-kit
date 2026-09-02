@@ -49,11 +49,9 @@ import {
 } from "./local-configuration.js";
 import {
   ordinaryReceipts,
-  repositoryExclusionRecords,
   retiredReceipts,
   temporaryReceipts,
   withReceipts,
-  withRepositoryExclusion,
 } from "./ownership-state.js";
 import {
   createLifecycleGitInspectionContext,
@@ -71,20 +69,10 @@ import {
 } from "./project-scheduler.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import {
-  prepareRepositoryExclusionMovePreflight,
-  gitExclusionBlockers,
-  gitExclusionDiagnostics,
-  missingContributionRepairEligibility,
-  movedContributionRepairEligibility,
-  replaceRepositoryExclusionContribution,
-  staleContributionRepairEligibility,
-  repositoryExclusionChanges,
-  repositoryExclusionTargetsForInstallations,
-  REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX,
-  REPOSITORY_EXCLUSION_RETIREMENT_REPAIR_WARNING_SUFFIX,
-  stageGitExclusions,
+  inspectRepositoryExclusions,
+  publishRepositoryExclusions,
   type RepositoryExclusionChange,
-  type RepositoryExclusionRepair,
+  type RepositoryExclusionWarning,
 } from "./git-exclusions.js";
 import {
   installationOwnershipBlocker,
@@ -97,15 +85,9 @@ import {
   type ReconciliationBlocker,
 } from "./blockers.js";
 import {
-  isContributionRepair,
   safeRepairItemClassification,
-  safeRepairTargets,
-  withProvenContributions,
-  withStagedCurrentContributions,
-  type SafeRepairExclusionRepair,
   type SafeRepairWithProjectItem,
 } from "./safe-repair.js";
-import type { IneligibleContributionEvidence } from "./git-exclusions.js";
 
 export type { ReconciliationBlocker } from "./blockers.js";
 
@@ -204,7 +186,6 @@ export interface ReconciliationProjectRecord {
   readonly blockers: readonly ReconciliationBlocker[];
   readonly warnings: readonly ReconciliationWarning[];
   readonly setupSteps: DesiredInstallation["setupSteps"];
-  readonly repositoryExclusionRepairs: readonly RepositoryExclusionRepair[];
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
 }
 
@@ -234,10 +215,9 @@ interface ReconciliationAccumulator {
   readonly items: readonly ReconciliationItem[];
   readonly outputs: readonly OutputReconciliationItem[];
   readonly outputConsumers: readonly OutputConsumerEvidence[];
-  readonly repositoryExclusionRepairs: readonly RepositoryExclusionRepair[];
+  readonly exclusionWarnings: readonly RepositoryExclusionWarning[];
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
   readonly diagnosticValues: readonly string[];
-  readonly warnings: readonly string[];
 }
 
 export type BlockedReconciliationReport = ReconciliationReport;
@@ -420,27 +400,6 @@ export function manifestFor(
   };
 }
 
-function stateWithInstallationExclusion(
-  state: OwnershipState,
-  installation: OwnershipReceipt,
-  gitProject: DesiredInstallation["gitProject"],
-): OwnershipState {
-  const repositoryExclusion = gitProject === undefined
-    ? undefined
-    : {
-        entries: installation.outputs.map((output) => gitExcludeEntry(gitProject, output.path)),
-        target: gitProject.excludeFile,
-      };
-  return withReceipts(
-    state,
-    withRepositoryExclusion(
-      state.receipts,
-      installation.installationId,
-      repositoryExclusion,
-    ),
-  );
-}
-
 async function pathKind(path: string): Promise<"missing" | "file" | "directory" | "symlink" | "other"> {
   try {
     const stats = await lstat(path);
@@ -506,9 +465,11 @@ export async function desiredOutputConflicts(
   ]);
   const outputs: OwnershipOutputReceipt[] = desired.outputs.map(ownedOutputFromDesired);
   // Prefer the topology already proven for this Desired Installation; fall back
-  // only when a caller constructed desired state without Git evidence.
+  // only when a caller constructed desired state without Git evidence. An
+  // unresolvable topology degrades to untracked: planning has already surfaced
+  // the advisory warning (DEC-009).
   const gitProject: GitProject | undefined = desired.gitProject ??
-    await gitInspection.findGitProject(project);
+    await gitInspection.findGitProject(project).catch(() => undefined);
   const trackedPathSet = gitProject === undefined
     ? new Set<string>()
     : await gitInspection.classifyTrackedDestinations(
@@ -772,33 +733,27 @@ function nestedReconciliationReport(
       exclusionsByCanonical.set(key, records);
     }
   }
-  const repairsByCanonical = new Map<string, RepositoryExclusionRepair[]>();
-  for (const repair of flat.repositoryExclusionRepairs) {
-    for (const target of safeRepairTargets(repair)) {
-      for (const project of exclusionProjects.get(target) ?? []) {
-        const key = canonicalProject(project);
-        const records = repairsByCanonical.get(key) ?? [];
-        // One moved repair covers two targets whose Project sets can overlap;
-        // each Project record carries the repair once.
-        if (records.includes(repair)) continue;
-        records.push(repair);
-        repairsByCanonical.set(key, records);
-        const warningSuffix =
-          repair.class === "exclusion-section"
-            ? REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX
-            : repair.class === "retiring-exclusion-section"
-              ? REPOSITORY_EXCLUSION_RETIREMENT_REPAIR_WARNING_SUFFIX
-              : undefined;
-        if (warningSuffix === undefined) continue;
-        const repairTarget = safeRepairTargets(repair)[0]!;
-        const warnings = warningsByCanonical.get(key) ?? [];
-        warnings.push({
-          copyableValues: [repairTarget],
-          kind: "diagnostic",
-          message: `${repairTarget}${warningSuffix}`,
-        });
-        warningsByCanonical.set(key, warnings);
+  // Exclusion inspection warnings attach to every Project record whose
+  // receipts contribute to the affected target, so the warning set stays the
+  // single home for advisory diagnostics while each Project keeps its own view.
+  for (const warning of flat.exclusionWarnings) {
+    const affectedProjects = new Set<string>(warning.project === undefined ? [] : [warning.project]);
+    for (const target of warning.targets) {
+      for (const contributor of exclusionProjects.get(target) ?? []) {
+        affectedProjects.add(contributor);
       }
+    }
+    for (const project of affectedProjects) {
+      const key = canonicalProject(project);
+      const warnings = warningsByCanonical.get(key) ?? [];
+      if (!warnings.some((entry) => entry.message === warning.message)) {
+        warnings.push({
+          copyableValues: [...warning.targets],
+          kind: "diagnostic",
+          message: warning.message,
+        });
+      }
+      warningsByCanonical.set(key, warnings);
     }
   }
   const projectKeys = new Set([
@@ -807,7 +762,6 @@ function nestedReconciliationReport(
     ...projectBlockers.keys(),
     ...outputsByCanonical.keys(),
     ...exclusionsByCanonical.keys(),
-    ...repairsByCanonical.keys(),
   ]);
   return {
     globalBlockers: [...globalBlockers],
@@ -837,7 +791,6 @@ function nestedReconciliationReport(
         blockers: projectBlockers.get(key) ?? [],
         warnings: warningsByCanonical.get(key) ?? [],
         setupSteps: desired?.setupSteps ?? [],
-        repositoryExclusionRepairs: repairsByCanonical.get(key) ?? [],
         repositoryExclusions: exclusionsByCanonical.get(key) ?? [],
       };
     }),
@@ -889,20 +842,7 @@ export async function previewReconciliation(
     state,
     scope,
   );
-  const includedExclusionTargets = repositoryExclusionTargetsForInstallations(
-    state,
-    desired,
-    includedInstallationIds,
-  );
   const blockers: ReconciliationBlocker[] = [];
-  /**
-   * Contribution Safe Repairs (missing and stale) proven at the reconciliation
-   * boundary. Collected per Project below and passed to the Blocker boundary so
-   * the proven contributions suppress their Blocker and validate exclusion
-   * bytes.
-   */
-  const eligibleContributionRepairs: SafeRepairExclusionRepair[] = [];
-  const ineligibleContributionEvidence = new Map<string, IneligibleContributionEvidence>();
   const desiredReport = desired.map((installation) => {
     return {
       canonicalProject: installation.binding.canonicalProject,
@@ -1014,48 +954,6 @@ export async function previewReconciliation(
         ));
       }
       const repairableMissingOutput = repairableMissingOutputs.size > 0;
-      // Contribution Safe Repair candidate: the receipt can prove the exact
-      // contribution this lifecycle operation will publish only when every
-      // remaining proof holds — ownership proof, no destination conflicts, and
-      // an otherwise-current desired write set — and the recorded contribution
-      // is missing, stale at the unchanged live Git target, or moved between
-      // two independently proven targets. A changing desired source, Profile,
-      // Host set, or output set keeps the contribution blocking rather than
-      // proving one write set and applying another through the ordinary
-      // update.
-      const contributionRepairProof =
-        installation.gitProject !== undefined &&
-        proof.owned &&
-        outputConflicts.length === 0 &&
-        previous.desiredInputDigest === installation.sourceHash &&
-        previous.profileId === installation.profile.id &&
-        hostReceiptsEqual(previous, installation) &&
-        previous.outputs.length === projectedManifest.outputs.length &&
-        projectedManifest.outputs.every((output) => {
-          const previousOutput = previous.outputs.find((entry) => entry.path === output.path);
-          return previousOutput !== undefined &&
-            previousOutput.hash === output.hash &&
-            previousOutput.mode === output.mode &&
-            previousOutput.type === output.type;
-        });
-      let contributionRepair: SafeRepairExclusionRepair | undefined;
-      if (contributionRepairProof) {
-        const git = installation.gitProject!;
-        const eligibility = previous.repositoryExclusion === undefined
-          ? await missingContributionRepairEligibility(previous, git, state, gitInspection)
-          : previous.repositoryExclusion.target === git.excludeFile
-            ? await staleContributionRepairEligibility(previous, git, state, gitInspection)
-            : await movedContributionRepairEligibility(previous, git, state, gitInspection);
-        if (eligibility.eligible) {
-          contributionRepair = eligibility.repair;
-          eligibleContributionRepairs.push(eligibility.repair);
-        } else {
-          ineligibleContributionEvidence.set(previous.installationId, {
-            cause: eligibility.cause,
-            target: git.excludeFile,
-          });
-        }
-      }
       if (!proof.owned && !repairableMissingOutput) {
         projectItems.push({
           kind: "drifted output",
@@ -1092,19 +990,15 @@ export async function previewReconciliation(
           project: installation.binding.project,
         });
       } else if (
-        contributionRepair === undefined &&
-        (
-          !hostReceiptsEqual(previous, installation) ||
-          previous.profileId !== installation.profile.id ||
-          (previous.repositoryExclusion !== undefined) !== (installation.gitProject !== undefined) ||
-          previous.outputs.length !== projectedManifest.outputs.length ||
+        !hostReceiptsEqual(previous, installation) ||
+        previous.profileId !== installation.profile.id ||
+        previous.outputs.length !== projectedManifest.outputs.length ||
           projectedManifest.outputs.some((output) => {
             const previousOutput = previous.outputs.find((entry) => entry.path === output.path);
             return previousOutput?.hash !== output.hash ||
               previousOutput.mode !== output.mode ||
               previousOutput.type !== output.type;
           })
-        )
       ) {
         projectItems.push({
           kind: "update",
@@ -1128,50 +1022,27 @@ export async function previewReconciliation(
       receipt: projectedManifest,
     };
   }));
-  // Active receipts are the sole contribution authority. Deterministic target
-  // unions are derived only when planning or publishing the exclusion file.
+  // Desired receipts replace prior records; exclusion entries are derived
+  // from the projected receipts' recorded output roots at write time and are
+  // never stored.
   let projectedReceipts = state.receipts;
   for (const result of desiredResults) {
     projectedReceipts = [
       ...projectedReceipts.filter((receipt) => receipt.installationId !== result.id),
       result.receipt,
     ];
-    projectedReceipts = withRepositoryExclusion(
-      projectedReceipts,
-      result.id,
-      result.gitProject === undefined
-        ? undefined
-        : {
-            entries: result.outputs.map((output) => gitExcludeEntry(result.gitProject!, output.path)),
-            target: result.gitProject.excludeFile,
-          },
-    );
     items.push(...result.items);
     outputItems.push(...result.outputItems);
     blockers.push(...result.blockers);
   }
-  // Exclusion Blockers and diagnostics run after per-Project planning so
-  // proven contribution Safe Repairs suppress their Blocker, validate bytes,
-  // and subsume any recorded-section repair at their target.
-  const exclusionDiagnostics = await gitExclusionDiagnostics(state, desired, {
-    gitInspection,
-    retiringInstallationIds: intentionallyDeletedInstallationIds,
-    ...(includedInstallationIds === undefined ? {} : { includedInstallationIds }),
-    ...(eligibleContributionRepairs.length === 0
-      ? {}
-      : { eligibleContributionRepairs }),
-  });
-  blockers.push(...(await gitExclusionBlockers(state, desired, {
-    gitInspection,
-    retiringInstallationIds: intentionallyDeletedInstallationIds,
-    ...(includedInstallationIds === undefined ? {} : { includedInstallationIds }),
-    ...(eligibleContributionRepairs.length === 0
-      ? {}
-      : { eligibleContributionRepairs }),
-    ...(ineligibleContributionEvidence.size === 0
-      ? {}
-      : { ineligibleContributionEvidence }),
-  })));
+  // Exclusion inspection runs over the projected state after per-Project
+  // planning: published entries derive from the receipts that will exist after
+  // this operation. It is advisory only — no exclusion condition can block.
+  const includedProjects = scope.kind === "all"
+    ? undefined
+    : new Set([
+      ...desired.map((installation) => installation.binding.canonicalProject),
+    ]);
   // Retired receipts (from unbind) join the stale candidates: apply consumes
   // their recorded detail to prove and remove the surviving output, exactly as
   // it consumes receipts orphaned by a supported hand edit. A retired receipt
@@ -1237,6 +1108,12 @@ export async function previewReconciliation(
     blockers.push(...result.blockers);
   }
   const projectedState = withReceipts(state, projectedReceipts);
+  const exclusionInspection = await inspectRepositoryExclusions(projectedState, {
+    gitInspection,
+    markerState: state,
+    ...(includedProjects === undefined ? {} : { includedProjects }),
+    installedProjects: new Set(ordinaryReceipts(state).map((receipt) => receipt.project)),
+  });
   const deduplicated = new Map<string, ReconciliationBlocker>();
   for (const blocker of blockers) {
     const key = JSON.stringify({
@@ -1260,21 +1137,13 @@ export async function previewReconciliation(
       left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
     ),
     outputConsumers,
-    repositoryExclusionRepairs: [...exclusionDiagnostics.repairs, ...eligibleContributionRepairs],
-    repositoryExclusions: repositoryExclusionChanges(
-      state,
-      projectedState,
-      includedExclusionTargets,
-    ),
+    exclusionWarnings: exclusionInspection.warnings,
+    repositoryExclusions: exclusionInspection.changes,
     diagnosticValues: [...new Set(
       desired.flatMap((installation) =>
         installation.warnings.flatMap((warning) => warning.copyableValues)
       ),
     )].sort(),
-    warnings: [...new Set([
-      ...desired.flatMap((installation) => installation.warnings.map((warning) => warning.message)),
-      ...exclusionDiagnostics.warnings,
-    ])].sort(),
   };
   const projectByInstallationId = new Map(
     [...ordinaryReceipts(state), ...retiredReceipts(state)].map(
@@ -1291,18 +1160,12 @@ export async function previewReconciliation(
         installation.binding.project,
         installation.binding.canonicalProject,
       ]));
-  for (const record of [...repositoryExclusionRecords(state), ...repositoryExclusionRecords(projectedState)]) {
-    const projects = exclusionProjects.get(record.target) ?? new Set<string>();
-    for (const contribution of record.contributions) {
-      const project = projectByInstallationId.get(contribution.installationId);
-      if (
-        project !== undefined &&
-        (includedReportProjects === undefined || includedReportProjects.has(project))
-      ) {
-        projects.add(project);
-      }
-    }
-    exclusionProjects.set(record.target, projects);
+  for (const [target, projects] of exclusionInspection.targetProjects) {
+    const included = includedReportProjects === undefined
+      ? [...projects]
+      : projects.filter((project) => includedReportProjects.has(project));
+    if (included.length === 0) continue;
+    exclusionProjects.set(target, new Set(included));
   }
   return nestedReconciliationReport(flat, desired, exclusionProjects);
 }
@@ -1460,53 +1323,14 @@ export async function stageProjectOutputs(
 
 async function blockedProjectMutationSet(
   report: ReconciliationReport,
-  desired: readonly DesiredInstallation[],
-  state: OwnershipState,
-  scheduler: ProjectReadScheduler,
 ): Promise<Set<string>> {
-  const blockedProjects = new Set(
+  // Exclusion bookkeeping is best-effort and can never block, so the blocked
+  // set is exactly the Projects whose own report carries Blockers.
+  return new Set(
     report.projects
       .filter((project) => project.blockers.length > 0)
       .map((project) => project.canonicalProject),
   );
-  // A blocked destination can still share one physical Git exclusion target
-  // with another Project record. Keep that complete coupled ownership boundary
-  // untouched rather than retiring or republishing one side.
-  const installationProjectById = new Map(
-    ordinaryReceipts(state).map((installation) => [installation.installationId, installation.project]),
-  );
-  const blockedExclusionTargets = new Set(
-    repositoryExclusionRecords(state)
-      .filter((record) => record.contributions.some((contribution) => {
-        const project = installationProjectById.get(contribution.installationId);
-        return project !== undefined && blockedProjects.has(project);
-      }))
-      .map((record) => record.target),
-  );
-  for (const installation of desired) {
-    if (
-      blockedProjects.has(installation.binding.canonicalProject) &&
-      installation.gitProject !== undefined
-    ) {
-      blockedExclusionTargets.add(installation.gitProject.excludeFile);
-    }
-  }
-  for (const record of repositoryExclusionRecords(state)) {
-    if (!blockedExclusionTargets.has(record.target)) continue;
-    for (const contribution of record.contributions) {
-      const project = installationProjectById.get(contribution.installationId);
-      if (project !== undefined) blockedProjects.add(project);
-    }
-  }
-  for (const installation of desired) {
-    if (
-      installation.gitProject !== undefined &&
-      blockedExclusionTargets.has(installation.gitProject.excludeFile)
-    ) {
-      blockedProjects.add(installation.binding.canonicalProject);
-    }
-  }
-  return blockedProjects;
 }
 
 export async function applyReconciliation(
@@ -1649,18 +1473,13 @@ async function applyReconciliationLocked(
     scheduler,
     scope,
   );
-  const blockedProjects = await blockedProjectMutationSet(
-    report,
-    desired,
-    before,
-    scheduler,
-  );
+  const blockedProjects = await blockedProjectMutationSet(report);
   const applicableProjects = report.projects.filter((project) =>
     !blockedProjects.has(project.canonicalProject) &&
     (
       project.state.kind !== "current" ||
       project.outputs.some((output) => output.kind !== "unchanged") ||
-      project.repositoryExclusionRepairs.length > 0
+      project.repositoryExclusions.length > 0
     )
   );
   if (
@@ -1678,15 +1497,6 @@ async function applyReconciliationLocked(
   const installationsByProject = new Map(
     ordinaryReceipts(before).map((installation) => [installation.project, installation]),
   );
-  // Contribution Safe Repairs publish their exclusion work through the
-  // dedicated contribution pass so the complete proven union is staged once.
-  const pendingContributionInstallationIds = new Set(
-    report.projects
-      .filter((project) => !blockedProjects.has(project.canonicalProject))
-      .flatMap((project) => project.repositoryExclusionRepairs)
-      .filter(isContributionRepair)
-      .map((repair) => repair.installationId),
-  );
   let workingState = before;
   const stale = scope.kind === "all"
     ? [...ordinaryReceipts(before), ...retiredReceipts(before)]
@@ -1698,35 +1508,34 @@ async function applyReconciliationLocked(
     : [];
   const completed: string[] = [];
   const appliedProjects = new Set<string>();
+  /** Best-effort publication result; filled by the final publication pass. */
+  let publication: Awaited<ReturnType<typeof publishRepositoryExclusions>> | undefined;
+  /** Inverse of the publication's target→Projects map, for report attachment. */
+  let publicationProjects = new Map<string, readonly string[]>();
   const appliedReceipt = (): ReconciliationReport => {
-    const actualExclusionChanges = repositoryExclusionChanges(before, workingState);
     return reconciliationReportWithProjects(
       report,
       report.projects
         .filter((project) => appliedProjects.has(project.canonicalProject))
         .map((project) => {
-          const installationIds = new Set(
-            [
-              ...ordinaryReceipts(before),
-              ...retiredReceipts(before),
-              ...ordinaryReceipts(workingState),
-              ...retiredReceipts(workingState),
-            ]
-              .filter((installation) => installation.project === project.canonicalProject)
-              .map((installation) => installation.installationId),
-          );
-          const targets = new Set(
-            [...repositoryExclusionRecords(before), ...repositoryExclusionRecords(workingState)]
-              .filter((record) => record.contributions.some((contribution) =>
-                installationIds.has(contribution.installationId)
-              ))
-              .map((record) => record.target),
+          const targets = publicationProjects.get(project.canonicalProject);
+          if (publication === undefined || targets === undefined) return project;
+          const attached = publication.changes.filter((change) => targets.includes(change.target));
+          const warnings = publication.warnings.filter((warning) =>
+            warning.targets.some((target) => targets.includes(target)) ||
+            warning.project === project.canonicalProject
           );
           return {
             ...project,
-            repositoryExclusions: actualExclusionChanges.filter((change) =>
-              targets.has(change.target)
-            ),
+            repositoryExclusions: attached,
+            warnings: [
+              ...project.warnings,
+              ...warnings.map((warning) => ({
+                copyableValues: [...warning.targets],
+                kind: "diagnostic" as const,
+                message: warning.message,
+              })),
+            ],
           };
         }),
     );
@@ -1788,7 +1597,6 @@ async function applyReconciliationLocked(
       continue;
     }
     let transaction: { readonly commit: () => Promise<void>; readonly rollback: () => Promise<void> } | undefined;
-    let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
     let stateWriteAttempted = false;
     try {
       const installationId = previous?.installationId ?? newInstallationId();
@@ -1801,38 +1609,19 @@ async function applyReconciliationLocked(
       // output it no longer describes.
       const remainingRetired = retiredReceipts(workingState)
         .filter((receipt) => receipt.project !== item.binding.canonicalProject);
-      const nextState = stateWithInstallationExclusion(
-        withReceipts(workingState, [
-          ...temporaryReceipts(workingState),
-          ...remainingRetired,
-          ...installationsByProject.values(),
-        ]),
-        manifest,
-        item.gitProject,
-      );
+      const nextState = withReceipts(workingState, [
+        ...temporaryReceipts(workingState),
+        ...remainingRetired,
+        ...installationsByProject.values(),
+      ]);
       installationsByProject.set(
         manifest.project,
         ordinaryReceipts(nextState).find(
           (receipt) => receipt.installationId === manifest.installationId,
         )!,
       );
-      const projectExclusionTargets = repositoryExclusionTargetsForInstallations(
-        workingState,
-        [item],
-        new Set(previous === undefined ? [] : [previous.installationId]),
-      );
-      if (!pendingContributionInstallationIds.has(installationId)) {
-        exclusions = await stageGitExclusions(
-          workingState,
-          nextState,
-          { includedTargets: projectExclusionTargets ?? new Set() },
-        );
-      }
       stateWriteAttempted = true;
       await writeState(home, nextState);
-      // Publish bytes first; GitExclusionTransaction can restore them if the
-      // following project commit reports a failure.
-      if (exclusions) await exclusions.commit();
       await transaction.commit();
       byProject.clear();
       for (const installation of ordinaryReceipts(nextState)) {
@@ -1842,14 +1631,6 @@ async function applyReconciliationLocked(
       completed.push(item.binding.canonicalProject);
       appliedProjects.add(item.binding.canonicalProject);
     } catch (error) {
-      let rollbackFailure: unknown;
-      if (exclusions) {
-        try {
-          await exclusions.rollback();
-        } catch (failure) {
-          rollbackFailure = failure;
-        }
-      }
       if (transaction) await transaction.rollback();
       let stateRestoreFailure: unknown;
       if (stateWriteAttempted) {
@@ -1873,9 +1654,6 @@ async function applyReconciliationLocked(
         );
       const failureMessage = error instanceof Error ? error.message : String(error);
       const recoveryMessages = [
-        ...(rollbackFailure === undefined
-          ? []
-          : [`Exclusion rollback failed: ${rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)}`]),
         ...(stateRestoreFailure === undefined
           ? []
           : [`Installation State restore failed: ${stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)}`]),
@@ -1901,7 +1679,6 @@ async function applyReconciliationLocked(
   for (const [index, previous] of stale.entries()) {
     if (blockedProjects.has(previous.project)) continue;
     let transaction: Awaited<ReturnType<typeof stageProvenInstallationRemoval>> | undefined;
-    let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
     let stateWriteAttempted = false;
     try {
       const intentionallyDeleted = retirement.intentionallyDeletedProjects.has(previous.project);
@@ -1915,35 +1692,14 @@ async function applyReconciliationLocked(
           (receipt) => receipt.installationId !== previous.installationId,
         ),
       );
-      const projectExclusionTargets = repositoryExclusionTargetsForInstallations(
-        workingState,
-        [],
-        new Set([previous.installationId]),
-      );
-      exclusions = await stageGitExclusions(
-        workingState,
-        nextState,
-        { includedTargets: projectExclusionTargets ?? new Set() },
-      );
       stateWriteAttempted = true;
       await writeState(home, nextState);
-      // The exclusion transaction remains reversible until the removal commit
-      // succeeds, keeping state, bytes, and output ownership retryable together.
-      await exclusions.commit();
       if (transaction) await transaction.commit();
       byProject.delete(previous.project);
       workingState = nextState;
       completed.push(`removal ${previous.project}`);
       appliedProjects.add(previous.project);
     } catch (error) {
-      let rollbackFailure: unknown;
-      if (exclusions) {
-        try {
-          await exclusions.rollback();
-        } catch (failure) {
-          rollbackFailure = failure;
-        }
-      }
       if (transaction) await transaction.rollback();
       let stateRestoreFailure: unknown;
       if (stateWriteAttempted) {
@@ -1959,9 +1715,6 @@ async function applyReconciliationLocked(
         .map((entry) => entry.project);
       const failureMessage = error instanceof Error ? error.message : String(error);
       const recoveryMessages = [
-        ...(rollbackFailure === undefined
-          ? []
-          : [`Exclusion rollback failed: ${rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)}`]),
         ...(stateRestoreFailure === undefined
           ? []
           : [`Installation State restore failed: ${stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)}`]),
@@ -1976,116 +1729,31 @@ async function applyReconciliationLocked(
       });
     }
   }
-  // Contribution Safe Repair pass (missing, stale, and moved): record every
-  // proven contribution in Installation State and publish the resulting union
-  // in one transaction. The staged current state carries only the
-  // missing-contribution overlay — a stale target's live section must still
-  // match its un-overlaid recorded union, and a moved contribution's receipt
-  // stays un-overlaid so both of its targets gate against their recorded
-  // unions — while the staged next state carries the full proven overlay, so
-  // the byte plan only ever publishes the exact proven delta and never
-  // disturbs unrelated repository-local bytes.
-  const pendingContributionRepairs = report.projects
-    .filter((project) => !blockedProjects.has(project.canonicalProject))
-    .flatMap((project) => project.repositoryExclusionRepairs)
-    .filter(isContributionRepair);
-  const contributionTargets = new Set(pendingContributionRepairs.flatMap(safeRepairTargets));
-  if (contributionTargets.size > 0) {
-    const stagedCurrentState = withStagedCurrentContributions(workingState, pendingContributionRepairs);
-    const contributionState = withProvenContributions(workingState, pendingContributionRepairs);
-    let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
-    let stateWriteAttempted = false;
-    try {
-      exclusions = await stageGitExclusions(
-        stagedCurrentState,
-        contributionState,
-        { includedTargets: contributionTargets },
-      );
-      stateWriteAttempted = true;
-      await writeState(home, contributionState);
-      await exclusions.commit();
-      workingState = contributionState;
-      for (const project of report.projects) {
-        if (
-          !blockedProjects.has(project.canonicalProject) &&
-          project.repositoryExclusionRepairs.some(isContributionRepair)
-        ) {
-          appliedProjects.add(project.canonicalProject);
-        }
-      }
-    } catch (error) {
-      let rollbackFailure: unknown;
-      if (exclusions) {
-        try {
-          await exclusions.rollback();
-        } catch (failure) {
-          rollbackFailure = failure;
-        }
-      }
-      let stateRestoreFailure: unknown;
-      if (stateWriteAttempted) {
-        try {
-          await writeState(home, workingState);
-        } catch (failure) {
-          stateRestoreFailure = failure;
-        }
-      }
-      const pendingProjects = report.projects
-        .filter((project) =>
-          !blockedProjects.has(project.canonicalProject) &&
-          project.repositoryExclusionRepairs.some(isContributionRepair) &&
-          !appliedProjects.has(project.canonicalProject)
-        )
-        .map((project) => project.canonicalProject);
-      const failureMessage = error instanceof Error ? error.message : String(error);
-      const recoveryMessages = [
-        ...(rollbackFailure === undefined
-          ? []
-          : [`Exclusion rollback failed: ${rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)}`]),
-        ...(stateRestoreFailure === undefined
-          ? []
-          : [`Installation State restore failed: ${stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)}`]),
-      ];
-      await failExecution({
-        cause: new Error(
-          `Apply failed; completed projects: ${completed.join(", ") || "(none)"}; pending projects: ${pendingProjects.join(", ") || "(none)"}\n${failureMessage}${recoveryMessages.length > 0 ? `\n${recoveryMessages.join("\n")}` : ""}`,
-        ),
-        pendingProjects,
-      });
+
+  // One best-effort exclusion publication pass after all state and output
+  // writes: every derived target's owned section is rewritten from the final
+  // receipts' recorded output roots, preserving unrelated bytes. A failure to
+  // read, derive, or write any target produces one warning for that target and
+  // never affects the outcome of the installation. Exclusions are a cache, so
+  // there is no rollback: a superseded or failed write self-heals on the next
+  // apply.
+  const includedPublicationProjects = scope.kind === "all"
+    ? undefined
+    : new Set(desired.map((installation) => installation.binding.canonicalProject));
+  publication = await publishRepositoryExclusions(workingState, {
+    gitInspection: createGitInspection(),
+    previousState: before,
+    ...(includedPublicationProjects === undefined ? {} : { includedProjects: includedPublicationProjects }),
+  });
+  publicationProjects = new Map(
+    [...publication.targetProjects].flatMap(([target, projects]) =>
+      projects.map((project) => [project, [target] as const] as const),
+    ),
+  );
+  for (const project of report.projects) {
+    if (publicationProjects.has(project.canonicalProject)) {
+      appliedProjects.add(project.canonicalProject);
     }
-  }
-  try {
-    const repairTargets = new Set(
-      report.projects
-        .filter((project) => !blockedProjects.has(project.canonicalProject))
-        .flatMap((project) => project.repositoryExclusionRepairs)
-        .filter((repair) => repair.class === "exclusion-section")
-        .filter((repair) => !contributionTargets.has(repair.target))
-        .map((repair) => repair.target),
-    );
-    const repairedExclusions = await stageGitExclusions(
-      workingState,
-      workingState,
-      { includedTargets: repairTargets },
-    );
-    await repairedExclusions.commit();
-    for (const project of report.projects) {
-      if (
-        !blockedProjects.has(project.canonicalProject) &&
-        project.repositoryExclusionRepairs.length > 0
-      ) {
-        appliedProjects.add(project.canonicalProject);
-      }
-    }
-  } catch (error) {
-    const pendingProjects = report.projects
-      .filter((project) =>
-        !blockedProjects.has(project.canonicalProject) &&
-        project.repositoryExclusionRepairs.length > 0 &&
-        !appliedProjects.has(project.canonicalProject)
-      )
-      .map((project) => project.canonicalProject);
-    await failExecution({ cause: error, pendingProjects });
   }
   const receipt = appliedReceipt();
   let resultingState: ReconciliationReport;

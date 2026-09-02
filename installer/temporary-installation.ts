@@ -13,8 +13,8 @@ import {
   type SupportedHost,
 } from "../schemas/local-configuration.js";
 import type { OwnershipReceipt } from "../schemas/ownership-state.js";
-import { stageGitExclusions } from "./git-exclusions.js";
-import { findGitProject, gitExcludeEntry } from "./git.js";
+import { publishRepositoryExclusions } from "./git-exclusions.js";
+import { findGitProject } from "./git.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import {
   newInstallationId,
@@ -126,12 +126,6 @@ export interface TemporaryInstallationReceipt {
   readonly outputs: readonly string[];
   readonly profileId?: string;
   readonly project?: string;
-  readonly repositoryExclusion:
-    | {
-        readonly entries: readonly string[];
-        readonly target: string;
-      }
-    | undefined;
   /** Adapter-authored Host Setup Steps required after successful temporary install. */
   readonly setupSteps: readonly HostSetupStep[];
   readonly temporaryInstallationId: string;
@@ -174,22 +168,12 @@ function receiptFromRecord(
     outputs: completionState === "installed" ? record.outputs.map((output) => output.path) : [],
     profileId: record.profileId,
     project: record.project,
-    repositoryExclusion: completionState === "installed" ? record.repositoryExclusion : undefined,
     setupSteps: options.setupSteps ?? [],
     temporaryInstallationId: record.installationId,
     diagnosticValues: options.diagnosticValues ?? [],
     warnings: options.warnings ?? [],
     workspaceInputHash: record.desiredInputDigest,
   };
-}
-
-function exclusionContributionFor(
-  state: Awaited<ReturnType<typeof readInstallationState>>,
-  installationId: string,
-): TemporaryInstallationReceipt["repositoryExclusion"] {
-  return state.receipts.find(
-    (receipt) => receipt.installationId === installationId,
-  )?.repositoryExclusion;
 }
 
 async function planTemporaryDesiredInstallation(options: {
@@ -362,20 +346,9 @@ export async function installTemporaryProfile(options: {
         throw new TemporaryInstallationBlockedError(structuredBlockers, canonicalProject);
       }
 
-      const ordinaryShape = manifestFor(desired, temporaryInstallationId);
       const temporaryRecord: OwnershipReceipt = {
-        ...ordinaryShape,
+        ...manifestFor(desired, temporaryInstallationId),
         lifetime: "temporary",
-        ...(desired.gitProject === undefined
-          ? {}
-          : {
-              repositoryExclusion: {
-                entries: ordinaryShape.outputs.map((output) =>
-                  gitExcludeEntry(desired.gitProject!, output.path)
-                ),
-                target: desired.gitProject.excludeFile,
-              },
-            }),
       };
       const nextState = withReceipts(state, [
         ...state.receipts.filter(
@@ -386,9 +359,8 @@ export async function installTemporaryProfile(options: {
 
       let durableRecorded = false;
       let outputsPublished = false;
-      let exclusionsCommitted = false;
+      const publicationWarnings: string[] = [];
       let transaction: Awaited<ReturnType<typeof stageProjectOutputs>> | undefined;
-      let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
 
       try {
         // Durable recovery identity before any owned project mutation can be orphaned.
@@ -409,20 +381,17 @@ export async function installTemporaryProfile(options: {
         outputsPublished = true;
         await options.hooks?.onAfterOutputsPublished?.();
 
-        exclusions = await stageGitExclusions(state, nextState);
-        await exclusions.commit();
-        exclusionsCommitted = true;
+        // Best-effort exclusion publication from the temporary receipt's
+        // recorded output roots; a failure is a warning, never a Blocker.
+        const publication = await publishRepositoryExclusions(nextState, {
+          includedProjects: new Set([canonicalProject]),
+          previousState: state,
+        });
+        publicationWarnings.push(...publication.warnings.map((warning) => warning.message));
         await options.hooks?.onAfterExclusionCommit?.();
 
         await transaction.commit();
       } catch (error) {
-        if (exclusions && !exclusionsCommitted) {
-          try {
-            await exclusions.rollback();
-          } catch {
-            // Preserve the primary failure; exclusion rollback is best-effort.
-          }
-        }
         if (transaction && outputsPublished) {
           try {
             await transaction.rollback();
@@ -463,6 +432,7 @@ export async function installTemporaryProfile(options: {
           warnings: [
             ...desired.warnings.map((warning) => warning.message),
             ...desired.capabilityWarnings.map((entry) => entry.warning.message),
+            ...publicationWarnings,
           ],
         },
       );
@@ -503,7 +473,6 @@ export async function removeTemporaryProfile(options: {
           return {
             completionState: "removed",
             outputs: [],
-            repositoryExclusion: undefined,
             setupSteps: [],
             temporaryInstallationId,
             diagnosticValues: [],
@@ -527,8 +496,7 @@ export async function removeTemporaryProfile(options: {
         ],
       };
 
-      let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
-      let exclusionsCommitted = false;
+      const publicationWarnings: string[] = [];
       try {
         // Direct idempotent deletes — no process-private stage that can be orphaned.
         await removeDisposableOutputs({
@@ -537,21 +505,16 @@ export async function removeTemporaryProfile(options: {
           project: existing.project,
         });
         await options.hooks?.onAfterRootDeletes?.();
-        exclusions = await stageGitExclusions(state, nextState);
-        // Commit exclusion cleanup before the terminal state write so an interrupted
-        // remove leaves an `installed` record that retry can finish.
-        await exclusions.commit();
-        exclusionsCommitted = true;
+        // Best-effort exclusion cleanup before the terminal state write so an
+        // interrupted remove leaves an `installed` record that retry can finish.
+        const publication = await publishRepositoryExclusions(nextState, {
+          includedProjects: new Set([existing.project]),
+          previousState: state,
+        });
+        publicationWarnings.push(...publication.warnings.map((warning) => warning.message));
         await options.hooks?.onBeforeTerminalStateWrite?.();
         await writeState(options.home, nextState);
       } catch (error) {
-        if (exclusions && !exclusionsCommitted) {
-          try {
-            await exclusions.rollback();
-          } catch {
-            // Preserve the primary failure.
-          }
-        }
         if (error instanceof Error && error.message.startsWith("Cannot remove Temporary")) {
           throw new TemporaryInstallationBlockedError([
             temporaryInstallationRemovalBlocker({
@@ -564,7 +527,7 @@ export async function removeTemporaryProfile(options: {
         throw error;
       }
 
-      return receiptFromRecord(existing, "removed");
+      return receiptFromRecord(existing, "removed", { warnings: publicationWarnings });
     },
     options.hooks?.lockTimeoutMs === undefined
       ? {}

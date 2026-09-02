@@ -661,6 +661,7 @@ describe("integrated fleet recovery qualification", () => {
     // Create an eligible Safe Repair on projectA: remove .git/info/exclude
     rmSync(join(projectA, ".git", "info", "exclude"), { force: true });
 
+    const stateManifest = join(home, ".agents", "agent-profile-kit", "state", "manifest.json");
     // Update fleet bindings:
     // projectA: [codex] (Safe Repair candidate)
     // projectB: [claude, opencode] (Project Blocker with many tracked paths)
@@ -675,44 +676,13 @@ describe("integrated fleet recovery qualification", () => {
       { project: projectE, hosts: ["antigravity", "codex"], profile: "engineering" },
     ]);
 
-    // Create a Global Blocker: add a recorded exclusion contribution targeting a nonexistent repository
-    const stateManifest = join(home, ".agents", "agent-profile-kit", "state", "manifest.json");
-    const validStateContent = readFileSync(stateManifest, "utf8");
-    const stateData = JSON.parse(validStateContent) as {
-      receipts: unknown[];
-    };
-    stateData.receipts.push({
-      desired_input_digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      hosts: (stateData.receipts[0] as { hosts: unknown }).hosts,
-      installation_id: "orphan-global-blocker-id",
-      lifetime: "ordinary",
-      outputs: [
-        {
-          hash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-          mode: 420,
-          path: ".agent-profile-kit/codex/context.md",
-          type: "file",
-        },
-      ],
-      profile_id: "engineering",
-      project: "/nonexistent/orphan-project",
-      repository_exclusion: {
-        entries: ["/.agent-profile-kit"],
-        target: "/nonexistent/orphan-project/.git/info/exclude",
-      },
-    });
-    writeFileSync(stateManifest, JSON.stringify(stateData, null, 2));
-
-    // 1. Focused status under Global + Project Blockers
+    // 1. Focused status under a Project Blocker
     const focusedStatusGlobalBlocked = await runCli(home, pathWithHosts, "status", "--all", "--blockers-only");
     expectExitCode(focusedStatusGlobalBlocked, 2);
-    expect(focusedStatusGlobalBlocked.stdout).toContain("Global blockers:");
-    expect(humanText(focusedStatusGlobalBlocked.stdout)).toContain(
-      humanText("Git exclusion contribution for Installation ID orphan-global-blocker-id does not match"),
-    );
+    expect(focusedStatusGlobalBlocked.stdout).not.toContain("Global blockers:");
     expect(focusedStatusGlobalBlocked.stdout).toContain("Blockers:");
     expect(focusedStatusGlobalBlocked.stdout).toContain("These generated paths are tracked by Git");
-    expect(focusedStatusGlobalBlocked.stdout).toMatch(/Blockers:\s*2\s*·\s*Affected Projects:\s*1/);
+    expect(focusedStatusGlobalBlocked.stdout).toMatch(/Blockers:\s*1\s*·\s*Affected Projects:\s*1/);
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Updates ready");
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Applied:");
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Host setup:");
@@ -732,38 +702,11 @@ describe("integrated fleet recovery qualification", () => {
     expect(repeatFocusedStatus.stdout).toBe(focusedStatusGlobalBlocked.stdout);
 
     // Snapshot complete directory trees for Projects A-E, Git exclude files, and Installation State (INT-2)
-    const preGlobalBlockedState = readFileSync(stateManifest, "utf8");
-    const preSnapA = snapshotProjectTree(projectA);
     const preSnapB = snapshotProjectTree(projectB);
-    const preSnapC = snapshotProjectTree(projectC);
-    const preSnapD = snapshotProjectTree(projectD);
-    const preSnapE = snapshotProjectTree(projectE);
-    const preExcludeA = existsSync(join(projectA, ".git", "info", "exclude"))
-      ? readFileSync(join(projectA, ".git", "info", "exclude"), "utf8")
-      : undefined;
     const preExcludeBContent = readFileSync(join(projectB, ".git", "info", "exclude"), "utf8");
 
-    // 2. Global blocker halts all apply writes
-    const applyGlobalBlocked = await runCli(home, pathWithHosts, "apply", "--all", "--blockers-only");
-    expectExitCode(applyGlobalBlocked, 2);
-    expect(readFileSync(stateManifest, "utf8")).toBe(preGlobalBlockedState);
-    expect(snapshotProjectTree(projectA)).toEqual(preSnapA);
-    expect(snapshotProjectTree(projectB)).toEqual(preSnapB);
-    expect(snapshotProjectTree(projectC)).toEqual(preSnapC);
-    expect(snapshotProjectTree(projectD)).toEqual(preSnapD);
-    expect(snapshotProjectTree(projectE)).toEqual(preSnapE);
-    if (preExcludeA !== undefined) {
-      expect(readFileSync(join(projectA, ".git", "info", "exclude"), "utf8")).toBe(preExcludeA);
-    } else {
-      expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(false);
-    }
-    expect(readFileSync(join(projectB, ".git", "info", "exclude"), "utf8")).toBe(preExcludeBContent);
-
-    // Resolve the Global Blocker by restoring the valid state manifest
-    writeFileSync(stateManifest, validStateContent);
-
-    // 3. Focused partial apply commits healthy Safe Repairs, leaves blocked Project untouched,
-    //    retains pending and Applied evidence, and exits with code 2.
+    // 2. Focused partial apply commits healthy Projects, leaves the blocked
+    //    Project untouched, and exits with code 2.
     const partialApply = await runCli(home, pathWithHosts, "apply", "--all", "--blockers-only");
     expectExitCode(partialApply, 2);
 
@@ -794,7 +737,7 @@ describe("integrated fleet recovery qualification", () => {
     expect(blockerSection).toContain("These generated paths are tracked by Git");
     expect(blockerSection).toContain("Blockers: 1 · Affected Projects: 1");
 
-    // projectA Safe Repair applied
+    // projectA exclusion publication applied
     expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(true);
     expect(readFileSync(join(projectA, ".git", "info", "exclude"), "utf8")).toContain(
       "# BEGIN Agent Profile Kit generated paths",
@@ -820,6 +763,7 @@ describe("integrated fleet recovery qualification", () => {
     expect(existsSync(join(projectB, ".agent-profile-kit"))).toBe(false);
     expect(readFileSync(join(projectB, ".git", "info", "exclude"), "utf8")).toBe(preExcludeBContent);
     expect(preExcludeBContent).not.toContain("Agent Profile Kit");
+    expect(snapshotProjectTree(projectB)).toEqual(preSnapB);
     expect(execFileSync("git", ["-C", projectB, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
     expect(execFileSync("git", ["-C", projectB, "diff", "--cached"], { encoding: "utf8" })).toBe("");
     expect(execFileSync("git", ["-C", projectB, "diff"], { encoding: "utf8" })).toBe("");

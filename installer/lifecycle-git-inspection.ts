@@ -31,14 +31,11 @@ export interface LifecycleGitInspection {
     projectRelativePaths: readonly string[],
   ): Promise<TrackedPathClassification>;
   findGitProject(project: string): Promise<GitProject | undefined>;
-  readExcludeSnapshot(
-    git: GitProject,
-    allowMissingTarget?: boolean,
-  ): Promise<GitExcludeSnapshot>;
+  readExcludeSnapshot(git: GitProject): Promise<GitExcludeSnapshot>;
 }
 
-function excludeSnapshotKey(excludeFile: string, allowMissingTarget: boolean): string {
-  return `${excludeFile}\0${allowMissingTarget ? "1" : "0"}`;
+function excludeSnapshotKey(excludeFile: string): string {
+  return excludeFile;
 }
 
 /**
@@ -86,15 +83,12 @@ export function createLifecycleGitInspectionContext(
     return classifyPathsAgainstGitIndex(gitProject, projectRelativePaths, indexedPaths);
   }
 
-  function readExcludeSnapshot(
-    git: GitProject,
-    allowMissingTarget = false,
-  ): Promise<GitExcludeSnapshot> {
-    const key = excludeSnapshotKey(git.excludeFile, allowMissingTarget);
+  function readExcludeSnapshot(git: GitProject): Promise<GitExcludeSnapshot> {
+    const key = excludeSnapshotKey(git.excludeFile);
     const existing = excludeSnapshots.get(key);
     if (existing) return existing;
     instrumentation.onReadExcludeSnapshot?.();
-    const pending = readGitExcludeSnapshot(git, allowMissingTarget);
+    const pending = readGitExcludeSnapshot(git);
     excludeSnapshots.set(key, pending);
     return pending.catch((error) => {
       excludeSnapshots.delete(key);

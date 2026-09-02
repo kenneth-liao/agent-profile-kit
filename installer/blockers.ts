@@ -66,15 +66,6 @@ export const OUTPUT_OWNERSHIP_CONFLICT = "output-ownership-conflict" as const;
 /** Typed blocker class for unreadable machine-local Installation State. */
 export const INSTALLATION_STATE_UNREADABLE = "installation-state-unreadable" as const;
 
-/** Typed blocker class for a receipt-owned Git exclusion contribution that does not match live ownership. */
-export const REPOSITORY_EXCLUSION_CONTRIBUTION = "repository-exclusion-contribution" as const;
-
-/** Typed blocker class for a Git project or repository-local target that cannot be proven. */
-export const REPOSITORY_EXCLUSION_TARGET_UNPROVEN = "repository-exclusion-target-unproven" as const;
-
-/** Typed blocker class for unreadable, unsafe, or modified repository-local exclusion state. */
-export const REPOSITORY_EXCLUSION_INVALID = "repository-exclusion-invalid" as const;
-
 /** Typed blocker class for planned output whose destination or parent is occupied by unowned material. */
 export const OCCUPIED_OUTPUT = "occupied-output" as const;
 
@@ -95,9 +86,6 @@ export const TEMPORARY_INSTALLATION_REMOVAL = "temporary-installation-removal" a
 export const BLOCKER_KINDS = [
   OUTPUT_OWNERSHIP_CONFLICT,
   INSTALLATION_STATE_UNREADABLE,
-  REPOSITORY_EXCLUSION_CONTRIBUTION,
-  REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
-  REPOSITORY_EXCLUSION_INVALID,
   OCCUPIED_OUTPUT,
   INSTALLATION_OWNERSHIP,
   TEMPORARY_INSTALLATION_CONFLICT,
@@ -169,64 +157,6 @@ export function installationStateUnreadableBlocker(options: {
     problem: options.message,
     remedy: "Restore or repair the Installation State file, then retry",
     requirement: "Lifecycle commands require readable Installation State",
-  });
-}
-
-/** Build one complete structured blocker for receipt-owned Git exclusion evidence that does not match. */
-export function repositoryExclusionContributionBlocker(options: {
-  readonly affectedItems: readonly BlockerAffectedItem[];
-  readonly message: string;
-}): GlobalScopedBlockerInput {
-  return globalBlocker({
-    affectedItems: options.affectedItems,
-    kind: REPOSITORY_EXCLUSION_CONTRIBUTION,
-    problem: options.message,
-    remedy:
-      "Restore Installation State from a known-good backup so each receipt-owned Git " +
-      "exclusion contribution matches its installation record, installation ID, and " +
-      "live repository-local target, then retry",
-    requirement:
-      "Receipt-owned Git exclusion contributions must remain the machine-local ownership " +
-      "source for repository exclusion sections",
-  });
-}
-
-/** Build one complete structured blocker for a recorded Git target that cannot be proven. */
-export function repositoryExclusionTargetUnprovenBlocker(options: {
-  readonly message: string;
-  readonly project: string;
-}): ProjectScopedBlockerInput {
-  return projectBlocker({
-    affectedItems: [{ kind: "path", value: options.project }],
-    kind: REPOSITORY_EXCLUSION_TARGET_UNPROVEN,
-    problem: options.message,
-    project: options.project,
-    remedy:
-      "Restore the Project root or Git repository at the recorded path, or restore " +
-      "Installation State from a known-good backup, then retry",
-    requirement:
-      "Git exclusion ownership validation requires a provable Project root and live Git " +
-      "repository-local exclusion target",
-  });
-}
-
-/** Build one complete structured blocker for unreadable or unsafe repository-local exclusion state. */
-export function repositoryExclusionInvalidBlocker(options: {
-  readonly message: string;
-  readonly project: string;
-  readonly target: string;
-}): ProjectScopedBlockerInput {
-  return projectBlocker({
-    affectedItems: [{ kind: "path", value: options.target }],
-    kind: REPOSITORY_EXCLUSION_INVALID,
-    problem: options.message,
-    project: options.project,
-    remedy:
-      "Repair the repository-local exclusion file to match the recorded Agent Profile Kit " +
-      "ownership, or restore a backup, then retry",
-    requirement:
-      "Git exclusion preflight fails closed on unreadable, unsafe, or modified " +
-      "repository-local exclusion state",
   });
 }
 

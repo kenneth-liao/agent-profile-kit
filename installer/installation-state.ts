@@ -314,7 +314,7 @@ async function trackedRoots(
   paths: readonly string[],
   gitInspection: LifecycleGitInspection,
 ): Promise<readonly string[]> {
-  const gitProject = await gitInspection.findGitProject(project);
+  const gitProject = await gitInspection.findGitProject(project).catch(() => undefined);
   if (!gitProject) return [];
   const tracked = await gitInspection.classifyTrackedDestinations(gitProject, paths);
   return paths.filter((path) => tracked.has(path)).sort(compareCanonicalStrings);

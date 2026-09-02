@@ -373,8 +373,8 @@ describe("injected project filesystem failures", () => {
 
   test("surfaces installation-state restore failures after an apply error", async () => {
     const home = temporaryDirectory("agent-profile-kit-state-restore-home-");
-    const project = temporaryDirectory("agent-profile-kit-state-restore-project-");
-    execFileSync("git", ["init", "-q", project]);
+    const firstProject = temporaryDirectory("agent-profile-kit-state-restore-a-");
+    const secondProject = temporaryDirectory("agent-profile-kit-state-restore-b-");
     await initializeWorkspace(home);
     const application = join(home, ".agents", "agent-profile-kit");
     const workspace = join(application, "workspace");
@@ -388,7 +388,9 @@ describe("injected project filesystem failures", () => {
     );
     writeFileSync(
       join(application, "config.yaml"),
-      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n` +
+        `  - project: ${firstProject}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${secondProject}\n    profile: coding\n    hosts: [codex]\n`,
     );
     const initial = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, initial.installations);
@@ -396,24 +398,14 @@ describe("injected project filesystem failures", () => {
       join(workspace, "context", "team-rules.md"),
       "---\nid: team-rules\ndependencies: []\n---\nUpdated Context.\n",
     );
-    const desiredState = await buildDesiredState(home, { checkHostCapability: false });
-    const desired = desiredState.installations.map((installation) => ({
-      ...installation,
-      outputs: installation.outputs.map((output) =>
-        output.path.endsWith("context.md")
-          ? { ...output, path: ".agent-profile-kit/codex/context-v2.md" }
-          : output,
-      ),
-    }));
-    let stateWrites = 0;
-    const exclude = join(project, ".git", "info", "exclude");
+    const desired = (await buildDesiredState(home, { checkHostCapability: false })).installations;
 
+    let stateWrites = 0;
     await expect(applyReconciliation(home, desired, {
       writeInstallationState: async (targetHome, state) => {
         stateWrites += 1;
-        if (stateWrites === 2) throw new Error("injected state restore failure");
+        if (stateWrites >= 2) throw new Error("injected state restore failure");
         await writeInstallationState(targetHome, state);
-        if (stateWrites === 1) writeFileSync(exclude, "concurrent edit\n");
       },
     })).rejects.toThrow(/Installation State restore failed/);
   });
@@ -495,7 +487,7 @@ describe("previous-version Marker migration", () => {
     const sha256 = (value: string) =>
       `sha256:${createHash("sha256").update(value).digest("hex")}`;
     const previousStateSource = JSON.stringify({
-      schema_version: 7,
+      schema_version: 8,
       receipts: [{
         installation_id: "previous-installation-id",
         lifetime: "ordinary",
@@ -514,10 +506,6 @@ describe("previous-version Marker migration", () => {
           mode: 0o644,
           hash: sha256(content),
         })),
-        repository_exclusion: {
-          target: join(project, ".git", "info", "exclude"),
-          entries: ["/.codex/hooks.json", "/.agent-profile-kit/codex/context.md"],
-        },
       }],
       removed_temporary_installation_ids: [],
     }, null, 2);
