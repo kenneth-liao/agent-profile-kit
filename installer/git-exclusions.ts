@@ -451,7 +451,12 @@ export interface ExclusionPublication {
   readonly targetProjects: ReadonlyMap<string, readonly string[]>;
 }
 
-async function writeExcludeFile(git: GitProject, source: Buffer, mode: number): Promise<void> {
+async function writeExcludeFile(
+  git: GitProject,
+  source: Buffer,
+  mode: number,
+  snapshot: GitExcludeSnapshot,
+): Promise<void> {
   const { infoExists } = await assertSafeExcludePath(git);
   const info = dirname(git.excludeFile);
   if (!infoExists) await mkdir(info);
@@ -459,6 +464,20 @@ async function writeExcludeFile(git: GitProject, source: Buffer, mode: number): 
   try {
     await writeFile(temporary, source, { flag: "wx", mode });
     await chmod(temporary, mode);
+    // Compare-before-swap: revalidate safety and re-read the live target
+    // immediately before the rename. Concurrent edits to unrelated bytes are
+    // never overwritten — the publication is skipped and surfaces as the
+    // caller's best-effort warning instead.
+    const current = await readGitExcludeSnapshot(git);
+    if (
+      current.exists !== snapshot.exists ||
+      current.mode !== snapshot.mode ||
+      !current.bytes.equals(snapshot.bytes)
+    ) {
+      throw new Error(
+        `${git.excludeFile} changed during exclusion publication; skipping to preserve unrelated bytes`,
+      );
+    }
     await rename(temporary, git.excludeFile);
   } catch (error) {
     if (!infoExists) await rmdir(info).catch(() => undefined);
@@ -482,6 +501,8 @@ export async function publishRepositoryExclusions(
     readonly gitInspection?: LifecycleGitInspection;
     readonly includedProjects?: ReadonlySet<string>;
     readonly previousState?: OwnershipState;
+    /** Test-only seam: runs after the snapshot read, before the write. */
+    readonly beforeWrite?: (target: string) => Promise<void>;
   } = {},
 ): Promise<ExclusionPublication> {
   const derivation = await deriveTargetUnions([state], {
@@ -508,7 +529,8 @@ export async function publishRepositoryExclusions(
       const current = section === undefined
         ? []
         : [...sectionEntries(snapshot.bytes, section)].sort(compareCanonicalStrings);
-      await writeExcludeFile(git, updated, snapshot.exists ? snapshot.mode : 0o644);
+      await options.beforeWrite?.(target);
+      await writeExcludeFile(git, updated, snapshot.exists ? snapshot.mode : 0o644, snapshot);
       changes.push({ current, installed: derived.installed, next: sortedEntries(derived.entries), target });
     } catch (error) {
       warnings.push({

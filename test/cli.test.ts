@@ -4045,7 +4045,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
-  test("a symlinked authored common directory degrades to one advisory warning", async () => {
+  test("Git discovery rejects a symlinked authored common directory", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-git-common-symlink-");
@@ -4060,13 +4060,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "apply");
 
-    expectExitCode(result, 0);
-    expect(result.stdout).toContain("Git could not be inspected at");
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("Git common directory");
+    expect(result.stderr).toContain("non-directory or symlink component");
     expect(readFileSync(exclude).equals(before)).toBe(true);
-    expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit"))).toBe(false);
   });
 
-  test("a corrupt Git boundary degrades to one advisory warning instead of failing", async () => {
+  test("a corrupt Git boundary fails closed instead of becoming a non-Git project", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project("agent-profile-kit-corrupt-git-");
@@ -4076,8 +4077,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "validate");
 
-    expectExitCode(result, 0);
-    expect(result.stdout).toContain("Warning: Git could not be inspected at");
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("Cannot inspect Git worktree");
     expect(result.stdout).not.toContain("not a Git worktree");
   });
 
@@ -12209,24 +12210,29 @@ describe("repository exclusion contribution is best-effort bookkeeping (#379)", 
     expect(ownedSectionEntries(readFileSync(exclude, "utf8"))).toEqual(derived);
   });
 
-  test("unprovable Git topology warns once and installs without exclusion entries", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const repository = project("agent-profile-kit-broken-git-");
-    // A .git boundary that Git itself cannot resolve: previously a permanent
-    // exclusion-target Blocker, now one advisory warning.
-    mkdirSync(join(repository, ".git", "objects"), { recursive: true });
-    writeFileSync(join(repository, ".git", "HEAD"), "ref: refs/heads/nope\n");
-    writeContextProfile(home);
-    bind(home, repository);
+  test("a Project that stops being a Git repository installs without exclusion bookkeeping", async () => {
+    const { home, repository, exclude } = await installIntoGitRepository(
+      "agent-profile-kit-degitized-",
+    );
+    // Removing the Git boundary was previously a repository-exclusion-target-unproven
+    // Blocker (exit 2); exclusion bookkeeping now simply stops applying, and the
+    // exclude file disappears together with the boundary that owned it.
+    rmSync(join(repository, ".git"), { recursive: true, force: true });
 
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toContain("Warnings:");
 
     const apply = await runCli(home, "apply");
     expectExitCode(apply, 0);
     expect(existsSync(join(repository, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(exclude)).toBe(false);
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { repository_exclusion?: unknown }[];
+    };
+    for (const receipt of state.receipts) {
+      expect(receipt.repository_exclusion).toBeUndefined();
+    }
   });
 
   test("a non-Git Project installs identically apart from exclusion entries", async () => {
@@ -12281,6 +12287,11 @@ describe("repository exclusion contribution is best-effort bookkeeping (#379)", 
     const uninstall = await runCli(home, "uninstall");
     expectExitCode(uninstall, 0);
     expect(existsSync(join(repository, ".codex", "hooks.json"))).toBe(false);
+    // The failed publication surfaces as a warning, and the failure is never
+    // reported as a "Cleaned Git exclusions" success.
+    expect(uninstall.stdout).toContain("Warnings:");
+    expect(uninstall.stdout).toContain(exclude);
+    expect(uninstall.stdout).not.toContain("Cleaned Git exclusions");
 
     // Teardown continued: outputs are gone even though the section could not
     // be cleaned. With the receipts retired, no later apply recreates or

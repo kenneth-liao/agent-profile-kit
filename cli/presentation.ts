@@ -812,6 +812,11 @@ export function formatUninstallResult(
       );
     }
   }
+  if (result.warnings.length > 0) {
+    lines.push("", "Warnings:");
+    for (const warning of result.warnings) lines.push(`- ${warning}`);
+    copyable.push(...result.warnings);
+  }
   lines.push("", `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.plural)} preserved.`);
   if (projectCount > 0) {
     lines.push(

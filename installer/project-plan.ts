@@ -660,27 +660,13 @@ export async function buildDesiredState(
       binding.profile,
     );
     const resolvedProfile = planning.resolveProfile(profile);
-    // Git is an advisory project surface for tracked-path classification and
-    // exclusion bookkeeping. An unresolvable topology is one warning: it never
-    // blocks planning, writing, or the outcome of the installation (DEC-009).
-    const warnings: AdapterDiagnosticWarning[] = [];
-    let gitProject: GitProject | undefined;
-    try {
-      gitProject = await gitInspection.findGitProject(binding.canonicalProject);
-    } catch (error) {
-      warnings.push({
-        copyableValues: [],
-        message:
-          `Git could not be inspected at ${binding.canonicalProject}: ` +
-          `${error instanceof Error ? error.message : String(error)}; ` +
-          "repository tracking and exclusion bookkeeping were skipped",
-      });
-    }
+    const gitProject = await gitInspection.findGitProject(binding.canonicalProject);
     const { hash: sourceHash, fingerprints: artifactFingerprints } =
       await planning.hashWorkspaceInputs(profile, resolvedProfile);
     const capabilityFailures: { readonly failure: unknown; readonly host: SupportedHost }[] = [];
     const plans: AdapterProjectPlan[] = [];
     const hostVersions: Record<string, string> = {};
+    const warnings: AdapterDiagnosticWarning[] = [];
     for (const host of binding.hosts) {
       const result = await planRegisteredAdapter(
         host,

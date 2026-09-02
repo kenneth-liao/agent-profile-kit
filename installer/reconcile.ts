@@ -465,11 +465,11 @@ export async function desiredOutputConflicts(
   ]);
   const outputs: OwnershipOutputReceipt[] = desired.outputs.map(ownedOutputFromDesired);
   // Prefer the topology already proven for this Desired Installation; fall back
-  // only when a caller constructed desired state without Git evidence. An
-  // unresolvable topology degrades to untracked: planning has already surfaced
-  // the advisory warning (DEC-009).
+  // only when a caller constructed desired state without Git evidence. Tracked
+  // classification stays fail-closed: an inspection failure is a tool error,
+  // never a silent "untracked" (DEC-009 covers exclusion bookkeeping only).
   const gitProject: GitProject | undefined = desired.gitProject ??
-    await gitInspection.findGitProject(project).catch(() => undefined);
+    await gitInspection.findGitProject(project);
   const trackedPathSet = gitProject === undefined
     ? new Set<string>()
     : await gitInspection.classifyTrackedDestinations(

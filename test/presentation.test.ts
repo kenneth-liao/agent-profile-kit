@@ -4710,6 +4710,22 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(uninstall).not.toMatch(term);
   });
 
+  test("uninstall renders best-effort exclusion warnings and claims only cleaned entries", () => {
+    const result = formatUninstallResult({
+      projects: [{
+        outputs: [".codex/hooks.json"],
+        project: "/project-a",
+        repositoryExclusions: [],
+      }],
+      warnings: [
+        "/project-a/.git/info/exclude changed during exclusion publication; skipping to preserve unrelated bytes",
+      ],
+    });
+    expect(result).toContain("Warnings:");
+    expect(result).toContain("changed during exclusion publication");
+    expect(result).not.toContain("Cleaned Git exclusions");
+  });
+
   test("empty status references configured Projects in next guidance", () => {
     const empty = formatLifecycleReport("status", emptyReport());
     expect(empty).toContain("No Projects are configured.");
