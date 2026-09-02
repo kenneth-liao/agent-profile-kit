@@ -1,9 +1,10 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { rename } from "node:fs/promises";
+import * as actualFsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,7 +17,12 @@ import {
   applyReconciliation,
   previewReconciliation,
 } from "../installer/reconcile.js";
-import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
+import {
+  readInstallationState,
+  stageProvenInstallationRemoval,
+  StagedRollbackFailureError,
+  writeInstallationState,
+} from "../installer/installation-state.js";
 import { publishRepositoryExclusions } from "../installer/git-exclusions.js";
 import { uninstallApplication } from "../installer/commands.js";
 
@@ -797,5 +803,142 @@ describe("uninstall failure safety and exclusion publication races", () => {
     expect(publication.warnings).toHaveLength(1);
     expect(publication.warnings[0]!.message).toContain("changed during exclusion publication");
     expect(readFileSync(exclude, "utf8")).toBe(concurrentBytes);
+  });
+
+  describe("uninstall staging rollback fault injection", () => {
+    // Passthrough rename with injectable faults: every call delegates to the
+    // real node:fs/promises rename unless a fault matches. Faults are cleared
+    // after each test, and the wrapper itself is behavior-neutral when empty.
+    const renameFaults: { readonly match: (from: string, to: string) => boolean }[] = [];
+    // Captured before mock.module so the wrapper delegates to the real
+    // function instead of recursing into itself once the export is replaced.
+    const realFsRename = actualFsPromises.rename;
+    mock.module("node:fs/promises", () => ({
+      ...actualFsPromises,
+      rename: (from: Parameters<typeof realFsRename>[0], to: Parameters<typeof realFsRename>[1]) => {
+        const fromPath = String(from);
+        const toPath = String(to);
+        if (renameFaults.some(({ match }) => match(fromPath, toPath))) {
+          return Promise.reject(
+            Object.assign(
+              new Error(`EACCES: permission denied, rename '${fromPath}' -> '${toPath}'`),
+              { code: "EACCES" },
+            ),
+          );
+        }
+        return realFsRename(from, to);
+      },
+    }));
+    afterEach(() => {
+      renameFaults.length = 0;
+    });
+
+    /** Fail the nth rename of an output into a staging tree under `project`. */
+    function failNthStagedMove(project: string, nth: number): void {
+      // Receipts record canonical project paths; scope faults against the
+      // canonical form so the fault matches the paths the staging code uses.
+      const canonical = realpathSync(project);
+      let stageMoves = 0;
+      renameFaults.push({
+        match: (from, to) => {
+          if (!to.includes(".agent-profile-kit-remove-") || !from.startsWith(canonical)) return false;
+          stageMoves += 1;
+          return stageMoves === nth;
+        },
+      });
+    }
+
+    /** Fail every restore rename out of a staging tree under `project`. */
+    function failRestoreFromStage(project: string): void {
+      const canonical = realpathSync(project);
+      renameFaults.push({
+        match: (from) =>
+          from.startsWith(join(canonical, ".agent-profile-kit-remove-")),
+      });
+    }
+
+    function retainedStageDirectories(project: string): string[] {
+      return readdirSync(project)
+        .filter((name) => name.startsWith(".agent-profile-kit-remove-"))
+        .map((name) => join(project, name));
+    }
+
+    test("a mid-stage failure with confirmed rollback is reported as a kept Project, never a tool error", async () => {
+      const { home, project } = await prepareGitProject("agent-profile-kit-uninstall-rollback-ok-");
+      failNthStagedMove(project, 2);
+
+      const result = await uninstallApplication(home);
+
+      expect(result.projects).toEqual([]);
+      expect(result.kept).toHaveLength(1);
+      expect(result.kept[0]!.project).toBe(realpathSync(project));
+      expect(result.kept[0]!.reason).toContain("EACCES");
+      // The confirmed rollback restored every moved root; no staging tree survives.
+      const receipt = (await readInstallationState(home)).receipts[0]!;
+      for (const output of receipt.outputs) {
+        expect(existsSync(join(project, output.path))).toBe(true);
+      }
+      expect(retainedStageDirectories(project)).toEqual([]);
+    });
+
+    test("a mid-stage failure whose restore also fails is a global tool error retaining staged bytes", async () => {
+      const { home, project } = await prepareGitProject("agent-profile-kit-uninstall-rollback-ok-");
+      const second = temporaryDirectory("agent-profile-kit-uninstall-rollback-fail-project-");
+      execFileSync("git", ["init", "-q", second]);
+      const application = join(home, ".agents", "agent-profile-kit");
+      writeFileSync(
+        join(application, "config.yaml"),
+        `schema_version: 2\nworkspace: ${join(application, "workspace")}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+      );
+      const desired = await buildDesiredState(home, { checkHostCapability: false });
+      await applyReconciliation(home, desired.installations);
+      failNthStagedMove(second, 2);
+      failRestoreFromStage(second);
+
+      const failure: Error = await uninstallApplication(home).then(
+        () => expect.unreachable("uninstall was expected to fail with a staged rollback failure") as never,
+        (error: unknown) => error as Error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure!.message).toContain("staged output restore failed");
+      expect(failure!.message).toContain("Cannot remove Project at");
+
+      // The failing Project keeps its receipt and its staged bytes: the staging
+      // tree survives with the moved output inside it.
+      const receipts = (await readInstallationState(home)).receipts;
+      expect(receipts).toHaveLength(2);
+      const failingReceipt = receipts.find((candidate) => candidate.project === realpathSync(second))!;
+      const stagedRoot = retainedStageDirectories(second);
+      expect(stagedRoot).toHaveLength(1);
+      expect(existsSync(join(stagedRoot[0]!, failingReceipt.outputs[0]!.path))).toBe(true);
+      expect(existsSync(join(second, failingReceipt.outputs[0]!.path))).toBe(false);
+      // The healthy Project staged earlier was rolled back by the same tool error.
+      const healthyReceipt = receipts.find((candidate) => candidate.project === realpathSync(project))!;
+      for (const output of healthyReceipt.outputs) {
+        expect(existsSync(join(project, output.path))).toBe(true);
+      }
+      expect(retainedStageDirectories(project)).toEqual([]);
+    });
+
+    test("stageProvenInstallationRemoval surfaces original and restore failures and retains the staging tree", async () => {
+      const { home, project } = await prepareGitProject("agent-profile-kit-uninstall-rollback-ok-");
+      const receipt = (await readInstallationState(home)).receipts[0]!;
+      failNthStagedMove(project, 2);
+      failRestoreFromStage(project);
+
+      const failure: StagedRollbackFailureError = await stageProvenInstallationRemoval(receipt).then(
+        () => expect.unreachable("staging was expected to fail with a rollback failure") as never,
+        (error: unknown) => error as StagedRollbackFailureError,
+      );
+
+      expect(failure).toBeInstanceOf(StagedRollbackFailureError);
+      expect(failure!.message).toContain(`Cannot remove Project at ${receipt.project}`);
+      expect(failure!.message).toContain("EACCES");
+      expect(failure!.message).toContain("staged output restore failed; staged bytes retained at");
+      expect(failure!.failures).toHaveLength(1);
+      const stagedRoot = retainedStageDirectories(project);
+      expect(stagedRoot).toHaveLength(1);
+      expect(existsSync(join(stagedRoot[0]!, receipt.outputs[0]!.path))).toBe(true);
+    });
   });
 });

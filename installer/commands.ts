@@ -14,6 +14,7 @@ import { createProjectReadScheduler } from "./project-scheduler.js";
 import { buildDesiredState } from "./project-plan.js";
 import {
   readInstallationState,
+  StagedRollbackFailureError,
   stageProvenInstallationRemoval,
   writeInstallationState,
 } from "./installation-state.js";
@@ -216,43 +217,54 @@ async function uninstallApplicationLocked(
   // One shared Git inspection context for the whole run: each owned root is
   // classified against the live index at most once per uninstall.
   const gitInspection = createLifecycleGitInspectionContext();
-  // Each Project is evaluated and removed independently (DEC-007): a Project
-  // whose owned output cannot be fully removed is reported and skipped, and
-  // never prevents removal for the other Projects.
   const transactions: Awaited<ReturnType<typeof stageProvenInstallationRemoval>>[] = [];
   const removed = new Set<string>();
   const kept: { project: string; reason: string }[] = [];
   const contributions = new Map<string, { readonly entries: readonly string[]; readonly target: string } | undefined>();
-  for (const installation of installations) {
-    try {
-      transactions.push(
-        await stageProvenInstallationRemoval(installation, undefined, gitInspection),
-      );
-    } catch (error) {
-      kept.push({
-        project: installation.project,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-      continue;
-    }
-    removed.add(installation.project);
-    // Bookkeeping derivation is best-effort (DEC-009): a failure only
-    // forfeits this Project's "cleaned exclusions" claim, never the removal.
-    try {
-      contributions.set(
-        installation.project,
-        await receiptExclusionContribution(installation.project, installation.outputs, { gitInspection }),
-      );
-    } catch {
-      contributions.set(installation.project, undefined);
-    }
-  }
-  if (removed.size === 0) {
-    return { projects: [], kept, warnings: [] };
-  }
   const exclusionWarnings: string[] = [];
   const cleanedByProject = new Map<string, readonly string[]>();
+  // Each Project is evaluated and removed independently (DEC-007): a Project
+  // whose owned output cannot be fully removed is reported and skipped, and
+  // never prevents removal for the other Projects. A rollback failure is the
+  // one per-Project staging outcome that is not skippable: it rethrows into
+  // this transactional shell so every staged transaction is rolled back and
+  // the run fails as a tool error.
   try {
+    for (const installation of installations) {
+      try {
+        transactions.push(
+          await stageProvenInstallationRemoval(installation, undefined, gitInspection),
+        );
+      } catch (error) {
+        if (error instanceof StagedRollbackFailureError) {
+          // Restoration of an already-moved root failed: the Project's output
+          // is partially staged while its receipt still claims it installed.
+          // That is a tool error, not a skippable removal condition — the
+          // outer handler rolls back every staged transaction and surfaces it.
+          throw error;
+        }
+        // Rollback is confirmed, so the Project is safely skipped (DEC-007).
+        kept.push({
+          project: installation.project,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+      removed.add(installation.project);
+      // Bookkeeping derivation is best-effort (DEC-009): a failure only
+      // forfeits this Project's "cleaned exclusions" claim, never the removal.
+      try {
+        contributions.set(
+          installation.project,
+          await receiptExclusionContribution(installation.project, installation.outputs, { gitInspection }),
+        );
+      } catch {
+        contributions.set(installation.project, undefined);
+      }
+    }
+    if (removed.size === 0) {
+      return { projects: [], kept, warnings: [] };
+    }
     // Ordinary uninstall retires only the receipts it removed; kept Projects
     // stay installed and their exclusion entries survive publication. Retired
     // receipts (they belong to unbound Projects), Temporary receipts,
@@ -293,7 +305,16 @@ async function uninstallApplicationLocked(
     }
     for (const transaction of transactions) await transaction.commit();
   } catch (error) {
-    for (const transaction of transactions.reverse()) await transaction.rollback();
+    const rollbackFailures: string[] = [];
+    for (const transaction of transactions.reverse()) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackFailure) {
+        rollbackFailures.push(
+          rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure),
+        );
+      }
+    }
     // The durable record precedes the removal commit: restore the prior state
     // whenever this run attempted the write, so staged root rollbacks can never
     // strand output whose receipts were already deleted.
@@ -305,12 +326,19 @@ async function uninstallApplicationLocked(
         stateRestoreFailure = failure;
       }
     }
+    const message = error instanceof Error ? error.message : String(error);
+    const rollbackFailureNote = rollbackFailures.length > 0
+      ? `
+Staged output restore failed; staged bytes retained:
+${rollbackFailures.map((failure) => `- ${failure}`).join("\n")}`
+      : "";
     if (stateRestoreFailure !== undefined) {
       throw new Error(
-        `${error instanceof Error ? error.message : String(error)}\n` +
+        `${message}${rollbackFailureNote}\n` +
         `Installation State restore failed: ${stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)}`,
       );
     }
+    if (rollbackFailureNote !== "") throw new Error(`${message}${rollbackFailureNote}`);
     throw error;
   }
   return {
