@@ -187,7 +187,8 @@ function gatedGitInspection(projectCount: number): {
     gates: gates.map((gate) => gate.release),
     inspection: {
       classifyTrackedDestinations: async () => new Set(),
-      findGitProject: async () => {
+      findGitProject: async () => undefined,
+      findGitWorktree: async () => {
         const gate = gates[call]!;
         call += 1;
         inFlight += 1;

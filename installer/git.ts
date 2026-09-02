@@ -5,13 +5,21 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const execFileAsync = promisify(execFile);
 
-export interface GitProject {
-  readonly commonDirectory: string;
-  /** Repository-local exclude file shared by every worktree. */
-  readonly excludeFile: string;
+/**
+ * Worktree facts provable from the bound Project alone: the worktree root and
+ * the bound project path relative to it. These never depend on the exclusion
+ * target and stay available when only the common directory is unprovable.
+ */
+export interface GitWorktree {
   readonly root: string;
   /** The bound project path relative to the Git worktree root. */
   readonly relativeProject: string;
+}
+
+export interface GitProject extends GitWorktree {
+  readonly commonDirectory: string;
+  /** Repository-local exclude file shared by every worktree. */
+  readonly excludeFile: string;
 }
 
 function slashPath(path: string): string {
@@ -40,6 +48,21 @@ async function hasGitBoundary(project: string): Promise<boolean> {
   }
 }
 
+/**
+ * Git is present but its topology cannot be proven: the authored common
+ * directory resolves through a symlink or non-directory component. Per DEC-009
+ * this failure never blocks an installation — callers treat Git topology as
+ * unavailable, skip Repository Exclusion Contribution, and surface one
+ * warning. It is distinct from a corrupt Git boundary, which still fails
+ * closed.
+ */
+export class UnprovableGitTopologyError extends Error {
+  constructor(message: string, options?: { readonly cause?: unknown }) {
+    super(message, options);
+    this.name = "UnprovableGitTopologyError";
+  }
+}
+
 export async function assertRealDirectoryPath(path: string, description: string): Promise<void> {
   const root = resolve(path, "/");
   let current = root;
@@ -57,8 +80,13 @@ export async function assertRealDirectoryPath(path: string, description: string)
  * Return the Git worktree containing a project, or undefined for non-Git
  * projects. Git is an optional project surface, so an ordinary directory with
  * no Git boundary is not an ingestion error; a broken boundary fails closed.
+ * Worktree identity is provable independently of the exclusion target: the
+ * root and relative Project path stay available when the authored common
+ * directory is unprovable (DEC-009), so tracked-path classification and
+ * Adapter topology keep working while Repository Exclusion Contribution is
+ * skipped.
  */
-export async function findGitProject(project: string): Promise<GitProject | undefined> {
+export async function findGitWorktree(project: string): Promise<GitWorktree | undefined> {
   let topLevel;
   try {
     topLevel = await execFileAsync(
@@ -71,28 +99,55 @@ export async function findGitProject(project: string): Promise<GitProject | unde
     const failure = commandFailure(error);
     throw new Error(`Cannot inspect Git worktree at ${project}: ${failure.message}`);
   }
-  const commonDirectory = await execFileAsync(
-    "git",
-    ["-C", project, "rev-parse", "--git-common-dir"],
-    { encoding: "utf8" },
-  );
   const root = await realpath(topLevel.stdout.trim());
   const relativeProject = slashPath(relative(root, project));
   if (relativeProject === ".." || relativeProject.startsWith("../")) {
     throw new Error(`Git reported project root ${root} outside bound project ${project}`);
   }
+  return { root, relativeProject };
+}
+
+/** Prove the exclusion target from a resolved worktree: common directory plus exclude file. */
+export async function proveGitExclusionTarget(project: string): Promise<{
+  readonly commonDirectory: string;
+  readonly excludeFile: string;
+}> {
+  const commonDirectory = await execFileAsync(
+    "git",
+    ["-C", project, "rev-parse", "--git-common-dir"],
+    { encoding: "utf8" },
+  );
   const authoredCommonDirectory = commonDirectory.stdout.trim();
   const commonPath = isAbsolute(authoredCommonDirectory)
     ? authoredCommonDirectory
     : resolve(project, authoredCommonDirectory);
-  await assertRealDirectoryPath(commonPath, `Git common directory for ${project}`);
+  try {
+    await assertRealDirectoryPath(commonPath, `Git common directory for ${project}`);
+  } catch (error) {
+    throw new UnprovableGitTopologyError(
+      error instanceof Error ? error.message : String(error),
+      { cause: error },
+    );
+  }
   const common = await realpath(commonPath);
   return {
     commonDirectory: common,
     excludeFile: join(common, "info", "exclude"),
-    root,
-    relativeProject,
   };
+}
+
+/**
+ * Return the Git worktree with a proven exclusion target, or undefined for
+ * non-Git projects. Throws UnprovableGitTopologyError when only the common
+ * directory is unprovable; callers in the exclusion path treat that as one
+ * warning, while every worktree/index consumer resolves findGitWorktree
+ * instead so tracked classification stays fail-closed.
+ */
+export async function findGitProject(project: string): Promise<GitProject | undefined> {
+  const worktree = await findGitWorktree(project);
+  if (worktree === undefined) return undefined;
+  const target = await proveGitExclusionTarget(project);
+  return { ...worktree, ...target };
 }
 
 export function gitExcludeEntry(
