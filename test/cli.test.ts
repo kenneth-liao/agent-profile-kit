@@ -4494,10 +4494,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(driftStatus.stdout)).toContain(humanText(`${projectPath}: drifted output`));
     expectExitCode(repaired, 0);
     expect(repaired.stderr).toBe("");
-    // The replacement is a recorded write: even concise output names the work
-    // performed on the working tree, never silently (#380).
+    // The replacement is a recorded write: even concise output names the
+    // affected file and Project, never silently (#380).
     expect(repaired.stdout).toContain("Applied:");
-    expect(repaired.stdout).toContain("~ 1 generated file update in 1 project");
+    expect(humanText(repaired.stdout)).toContain("~ 1 generated file update in 1 project");
+    expect(humanText(repaired.stdout)).toContain(`~ .codex/hooks.json (${projectPath})`);
     expect(readFileSync(drifted, "utf8")).not.toBe("user edit\n");
     expectExitCode(current, 0);
     expect(current.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);

@@ -11,6 +11,7 @@ import {
   type ReconciliationBlocker,
   type ReconciliationItem,
   type ReconciliationKind,
+  type ReconciliationProjectOutput,
   type ReconciliationProjectRecord,
   type ReconciliationReport,
   type ReconciliationWarning,
@@ -2130,12 +2131,49 @@ function operationReceiptLines(
   const groups = groupOutputOperations(receipt);
   const exclusionClause = includeExclusions ? repositoryExclusionClause(receipt, true) : undefined;
   if (groups.length === 0 && exclusionClause === undefined) return [];
+  // Every applied write names its file: affected paths sit beneath the counted
+  // operation lines, attributed to their Project, capped like every concise
+  // path list so no change to a working tree is silent (#380).
+  const pathLines = operationReceiptPathLines(receipt);
   const lines = [
     "Applied:",
     ...groups.map((group) => `  ${operationGroupLine(group, fleetScope)}`),
+    ...pathLines,
   ];
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
   return lines;
+}
+
+/**
+ * One named path line per affected generated file in the Apply Receipt, with
+ * its Project attribution, ordered by operation, Project, then path, and
+ * capped at the shared concise path limit with one overflow pointer.
+ */
+function operationReceiptPathLines(receipt: ReconciliationReport): readonly string[] {
+  const lines = receipt.projects
+    .slice()
+    .sort((left, right) => compareCanonicalStrings(left.canonicalProject, right.canonicalProject))
+    .flatMap((project) =>
+      project.outputs
+        .filter((output): output is ReconciliationProjectOutput & { readonly kind: PlannedOutputOperation } =>
+          isPlannedOutputOperation(output.kind)
+        )
+        .flatMap((output) => {
+          const path = outputPathLine(output);
+          return path === undefined ? [] : [{
+            operation: PLANNED_OUTPUT_OPERATION_ORDER.indexOf(output.kind),
+            line: `  ${path} (${displayProjectPath(project.canonicalProject, project.project)})`,
+          }];
+        }),
+    )
+    .sort((left, right) =>
+      left.operation - right.operation || compareCanonicalStrings(left.line, right.line)
+    )
+    .map((entry) => entry.line);
+  const overflow = lines.length - DEFAULT_OUTPUT_PATH_LIMIT;
+  return overflow > 0
+    ? [...lines.slice(0, DEFAULT_OUTPUT_PATH_LIMIT), overflowPointer(overflow, "file")]
+    : lines;
 }
 
 function applyReceiptLines(

@@ -771,8 +771,10 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(apply).toContain("- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.\n");
     expect(apply).toContain("- Trust the bound project in Codex so the Profile can load.\n");
     expect(apply).toContain("- Trust the bound project in Pi so the Profile can load.\n");
-    expect(apply).not.toContain("/p-1");
-    expect(apply).not.toContain("/p-2");
+    // Named Apply Receipt paths list per Project, but the setup guidance stays
+    // deduplicated with no per-Project setup matrix.
+    expect(apply).not.toContain("Project: /p-1");
+    expect(apply).not.toContain("Project: /p-2");
     expect(apply.match(/- Trust the bound project in Codex/g)).toHaveLength(1);
     expect(apply.match(/- Trust the bound project in Pi/g)).toHaveLength(1);
   });
