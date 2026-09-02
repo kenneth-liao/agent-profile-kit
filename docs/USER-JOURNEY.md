@@ -87,8 +87,8 @@ alongside either path.
 the same selected scope and normalized desired plan as `apply` and performs no
 Agent Host process execution (ADR-0025): Host capability probing happens only
 during `apply`, where a missing or outdated Host CLI produces one advisory
-warning per Host per invocation — naming the Host and the version it needs,
-regardless of Project count or distinct requirement messages — and never blocks
+warning per Host per invocation — naming the Host and the strictest version it
+requires, regardless of Project count or distinct requirement messages — and never blocks
 planning or writing. The
 former separate plan command was removed before 1.0.
 
@@ -492,8 +492,8 @@ asserting a user edit without provenance.
 
 **Host CLI missing or outdated** no longer blocks anything (ADR-0025): during
 `apply`, a missing or outdated Host CLI produces one advisory warning per Host
-per invocation, naming the Host and its required version, regardless of how
-many Projects select it and how many distinct requirement messages it
+per invocation, naming the Host and the strictest version it requires,
+regardless of how many Projects select it and how many distinct requirement messages it
 produced, and the
 Host's material is written regardless. `status`,
 `validate`, and `uninstall` never probe. The historical excerpt below showed

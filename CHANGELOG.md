@@ -12,7 +12,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
-- Deduplicate Host capability warnings to one per Host per invocation, restoring spec #371's DEC-014 rule. A missing or outdated Host CLI now emits exactly one warning naming the Host and its required version, regardless of how many Projects select it and how many distinct requirement messages it produced; Project-specific surface failures (an occupied Host surface on one Project, for example) keep their distinct warnings per affected Project. Scope is classified once at the Installer boundary from the Adapter's typed evidence (a path affected item means Project-specific), ADR-0025 and the living architecture and user-journey sentences no longer describe Host-plus-message cardinality ([#403](https://github.com/kenneth-liao/agent-profile-kit/issues/403)).
+- Deduplicate Host capability warnings to one per Host per invocation: a missing or outdated Host CLI emits exactly one warning naming the Host and the strictest version it requires, regardless of Project count or distinct requirement messages, while Project-specific surface failures keep their distinct warnings per affected Project ([#403](https://github.com/kenneth-liao/agent-profile-kit/issues/403)).
 
 - Read Ownership State at schema versions 6 and 7 — every version published from the v0.132.0 baseline — so upgrading directly from v0.132.0 keeps existing Installation Receipts working without re-binding or re-applying. Recorded legacy Marker output entries and stored `repository_exclusion` fields are ignored at the single ingestion boundary, and the next successful write publishes `schema_version: 9` ([#402](https://github.com/kenneth-liao/agent-profile-kit/issues/402)).
 

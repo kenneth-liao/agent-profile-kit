@@ -1,4 +1,5 @@
 import type { ContextModuleSource } from "./context-envelope.js";
+import type { AdapterCapabilityFailure } from "./capability.js";
 import type {
   AdapterDiagnosticWarning,
   AdapterProjectPlan,
@@ -56,13 +57,16 @@ export interface AdapterInvocationServices {
 export interface AdapterProjectResult {
   /**
    * Advisory probe and Project-surface evidence (Host CLI missing, outdated,
-   * unreadable, or an obstructed surface). The Adapter authored a complete plan
-   * despite these; the Installer routes them to warnings. Projection and
-   * portable-semantics refusals are not carried here: they throw, because an
-   * Adapter that cannot plan valid output must fail the invocation rather than
-   * return a partial one.
+   * unreadable, or an obstructed surface). Every entry is typed capability
+   * evidence carrying the scope its phase authored — machine-level for the
+   * Host CLI probe, Project-scope for per-Project surface and inspection
+   * checks — so the Installer never infers scope. The Adapter authored a
+   * complete plan despite these; the Installer routes them to warnings.
+   * Projection and portable-semantics refusals are not carried here: they
+   * throw, because an Adapter that cannot plan valid output must fail the
+   * invocation rather than return a partial one.
    */
-  readonly capabilityFailures: readonly unknown[];
+  readonly capabilityFailures: readonly AdapterCapabilityFailure[];
   readonly diagnostics: readonly AdapterDiagnosticWarning[];
   /** The complete plan. Adapters that cannot plan valid output throw instead. */
   readonly plan: AdapterProjectPlan;

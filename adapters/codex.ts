@@ -3,7 +3,12 @@ import { join, resolve } from "node:path";
 import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { CODEX_ADAPTER_VERSION } from "./host-catalog.js";
-import { capabilityFailure } from "./capability.js";
+import {
+  caughtCapabilityFailure,
+  capabilityFailure,
+  versionFloorCapabilityFailure,
+  type AdapterCapabilityFailure,
+} from "./capability.js";
 import type {
   AdapterHostSetupStep,
   AdapterDiagnosticWarning,
@@ -148,6 +153,7 @@ export function parseCodexCliVersion(source: string): string {
   }
   throw capabilityFailure(
     "codex",
+    "host",
     `Codex CLI version is unreadable from '${source.trim()}'`,
     "install a supported Codex release",
   );
@@ -161,10 +167,11 @@ export function assertCodexCliVersionSupportsDisabledModelInvocation(version: st
       CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION,
     ) < 0
   ) {
-    throw capabilityFailure(
+    throw versionFloorCapabilityFailure(
       "codex",
       `Codex CLI ${version} cannot enforce disabled model invocation via agents/openai.yaml policy.allow_implicit_invocation (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION}+)`,
       "upgrade Codex before checking status or applying the Profile",
+      CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION,
     );
   }
 }
@@ -187,6 +194,7 @@ async function resolveCodexCliVersion(
     if (hasErrorCode(error, "ENOENT")) {
       throw capabilityFailure(
         "codex",
+        "host",
         "Codex CLI was not found on PATH",
         "install Codex and ensure `codex --version` works before checking status or applying Profiles that require Codex Host capabilities",
       );
@@ -204,6 +212,7 @@ async function resolveCodexCliVersion(
     }
     throw capabilityFailure(
       "codex",
+      "host",
       `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
       "install a supported Codex release before checking status or applying Profiles that require Codex Host capabilities",
     );
@@ -270,10 +279,11 @@ export function assertCodexCliVersionSupportsCompleteContext(version: string): v
       CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT,
     ) < 0
   ) {
-    throw capabilityFailure(
+    throw versionFloorCapabilityFailure(
       "codex",
       `Codex CLI ${version} cannot deliver complete Context through SessionStart hooks (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT}+)`,
       "upgrade Codex before checking status or applying the Profile",
+      CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT,
     );
   }
 }
@@ -419,7 +429,7 @@ export const codexAdapter = {
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
       input.resolvedSkills,
     );
-    const capabilityFailures: unknown[] = [];
+    const capabilityFailures: AdapterCapabilityFailure[] = [];
     if (input.checkHostCapability && (requireContext || requireDisabledModelInvocation)) {
       try {
         const requirements = codexMachineRequirements({
@@ -435,7 +445,7 @@ export const codexAdapter = {
           }),
         );
       } catch (error) {
-        capabilityFailures.push(error);
+        capabilityFailures.push(caughtCapabilityFailure("codex", "host", error));
       }
     }
 

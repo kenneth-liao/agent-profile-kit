@@ -346,6 +346,99 @@ describe("machine-level Host capability probes within one invocation", () => {
     );
   });
 
+  test("host-scope dedup keeps the strictest required version across mixed floors", async () => {
+    const home = temporaryDirectory("apk-host-probe-mixed-floor-");
+    await initializeWorkspace(home);
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    );
+    writeSkill(workspace, "ops-run", "disabled");
+    writeFileSync(
+      join(workspace, "profiles", "context-only.yaml"),
+      "id: context-only\ncontext: [team-rules]\nskills: []\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "skills-disabled.yaml"),
+      "id: skills-disabled\ncontext: []\nskills: [ops-run]\n",
+    );
+    // Projects under the HOME keep canonical order deterministic: the 0.99.0
+    // floor (disabled invocation) sorts first, the 0.145.0 floor (Context) second.
+    const skillsProject = join(home, "fleet", "a-skills");
+    const contextProject = join(home, "fleet", "b-context");
+    mkdirSync(skillsProject, { recursive: true });
+    mkdirSync(contextProject, { recursive: true });
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n` +
+        `  - project: ${skillsProject}\n    profile: skills-disabled\n    hosts: [codex]\n` +
+        `  - project: ${contextProject}\n    profile: context-only\n    hosts: [codex]\n`,
+    );
+    // 0.98.0 misses both floors, so each requirement set fails with its own
+    // floor message: 0.99.0+ first in canonical order, 0.145.0+ second.
+    const bin = installProbeHosts(home, { codex: "0.98.0" });
+    const instrumentation = emptyInstrumentation();
+
+    const desired = await buildDesiredState(home, {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+      planningInstrumentation: instrumentation,
+    });
+
+    expect(desired.installations).toHaveLength(2);
+    expect(instrumentation.counts.probeHostCapability).toBe(2);
+    const codexWarnings = desired.installations.flatMap((installation) =>
+      installation.capabilityWarnings.filter((entry) => entry.host === "codex"),
+    );
+    // One warning per Host per invocation, and it names the strictest floor:
+    // the surviving 0.145.0+ warning is sufficient guidance for every Project,
+    // while the first-in-order 0.99.0+ warning alone would not be.
+    expect(codexWarnings).toHaveLength(1);
+    expect(codexWarnings[0]?.warning.message).toContain("requires 0.145.0+");
+    expect(codexWarnings[0]?.warning.message).not.toContain("0.99.0");
+  });
+
+  test("Project-specific Grok inspection failures stay distinct across Projects", async () => {
+    const home = temporaryDirectory("apk-host-probe-grok-inspect-");
+    await fleetWorkspace({
+      home,
+      bindings: [
+        { hosts: ["grok"], profile: "context-only" },
+        { hosts: ["grok"], profile: "context-only" },
+      ],
+    });
+    // The version probe succeeds but per-Project `grok inspect --json` fails in
+    // every bound Project: the failure evidence is Project-specific even though
+    // it carries no path affected item.
+    const bin = join(home, "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(
+      join(bin, "grok"),
+      '#!/bin/sh\nif [ "$1" = "version" ]; then\n  echo "grok 0.2.111 (fake) [stable]"\n  exit 0\nfi\nexit 3\n',
+    );
+    chmodSync(join(bin, "grok"), 0o755);
+
+    const desired = await buildDesiredState(home, {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    });
+
+    expect(desired.installations).toHaveLength(2);
+    // One distinct warning per affected Project, not one collapsed Host warning.
+    const warned = desired.installations.filter(
+      (installation) => installation.capabilityWarnings.length > 0,
+    );
+    expect(warned).toHaveLength(2);
+    for (const installation of warned) {
+      expect(installation.capabilityWarnings[0]?.host).toBe("grok");
+      expect(installation.capabilityWarnings[0]?.warning.message).toContain(
+        "Grok project inspection failed",
+      );
+    }
+  });
+
   test("Grok topology inspection stays Project-specific while the version probe runs once", async () => {
     const home = temporaryDirectory("apk-host-probe-grok-topology-");
     await fleetWorkspace({

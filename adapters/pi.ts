@@ -7,7 +7,12 @@ import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { PI_ADAPTER_VERSION } from "./host-catalog.js";
 import { type ContextModuleSource } from "./context-envelope.js";
-import { capabilityFailure } from "./capability.js";
+import {
+  caughtCapabilityFailure,
+  capabilityFailure,
+  versionFloorCapabilityFailure,
+  type AdapterCapabilityFailure,
+} from "./capability.js";
 import {
   planSharedSkillPackageDirectory,
   SHARED_SKILLS_DISCOVERY_ROOT,
@@ -145,6 +150,7 @@ export function parsePiCliVersion(source: string): string {
   if (!match) {
     throw capabilityFailure(
       "pi",
+      "host",
       `Pi CLI version is unreadable from '${source.trim()}'`,
       `install Pi ${PI_MINIMUM_CLI_VERSION}+ and ensure \`pi --version\` works before checking status or applying the Profile`,
     );
@@ -168,16 +174,18 @@ export function assertPiCliVersionSupported(
 ): void {
   if (compareSemver(version, PI_MINIMUM_CLI_VERSION) < 0) {
     if (options.requireDisabledModelInvocation) {
-      throw capabilityFailure(
+      throw versionFloorCapabilityFailure(
         "pi",
         `Pi CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${PI_MINIMUM_CLI_VERSION}+)`,
         "upgrade Pi before checking status or applying the Profile",
+        PI_MINIMUM_CLI_VERSION,
       );
     }
-    throw capabilityFailure(
+    throw versionFloorCapabilityFailure(
       "pi",
       `Pi CLI ${version} does not support project APPEND_SYSTEM.md Context discovery (requires ${PI_MINIMUM_CLI_VERSION}+)`,
       "upgrade Pi before checking status or applying the Profile",
+      PI_MINIMUM_CLI_VERSION,
     );
   }
 }
@@ -195,6 +203,7 @@ async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string
     if (hasErrorCode(error, "ENOENT")) {
       throw capabilityFailure(
         "pi",
+        "host",
         "Pi CLI was not found on PATH",
         "install Pi and ensure `pi --version` works before checking status or applying the Profile",
       );
@@ -212,6 +221,7 @@ async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string
     }
     throw capabilityFailure(
       "pi",
+      "host",
       `Pi CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
       `install Pi ${PI_MINIMUM_CLI_VERSION}+ before checking status or applying the Profile`,
     );
@@ -269,6 +279,7 @@ export async function assertPiProjectSurface(
       const problem = `Pi shared project surface cannot host Skills: ${agentsPath} is a ${agentsKind}, not a directory`;
       throw capabilityFailure(
         "pi",
+        "project",
         problem,
         "ensure the shared .agents project surface is a directory, then retry",
         [{ kind: "path", value: agentsPath }],
@@ -281,6 +292,7 @@ export async function assertPiProjectSurface(
       const problem = `Pi shared project surface cannot host Skills: ${skillsPath} is a ${skillsKind}, not a directory`;
       throw capabilityFailure(
         "pi",
+        "project",
         problem,
         "ensure the shared .agents/skills surface is a directory, then retry",
         [{ kind: "path", value: skillsPath }],
@@ -296,6 +308,7 @@ export async function assertPiProjectSurface(
       const problem = `Pi project surface cannot host outputs: ${piPath} is a ${piKind}, not a directory`;
       throw capabilityFailure(
         "pi",
+        "project",
         problem,
         "ensure the Pi project surface is a directory, then retry",
         [{ kind: "path", value: piPath }],
@@ -309,6 +322,7 @@ export async function assertPiProjectSurface(
         `Pi append-system destination cannot host Context: ${contextPath} is a ${contextKind}, not a regular file`;
       throw capabilityFailure(
         "pi",
+        "project",
         problem,
         "ensure the Pi Context destination is a regular file, then retry",
         [{ kind: "path", value: contextPath }],
@@ -404,7 +418,7 @@ export const piAdapter = {
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
       input.resolvedSkills,
     );
-    const capabilityFailures: unknown[] = [];
+    const capabilityFailures: AdapterCapabilityFailure[] = [];
     if (input.checkHostCapability) {
       try {
         await services.probeMachineCapability(
@@ -417,12 +431,18 @@ export const piAdapter = {
             requireSkills,
           }),
         );
+      } catch (error) {
+        capabilityFailures.push(caughtCapabilityFailure("pi", "host", error));
+      }
+      // The Project surface is independent of the CLI probe: an obstructed
+      // surface is Project-specific evidence even when the CLI also failed.
+      try {
         await assertPiProjectSurface(input.project, {
           requireContext,
           requireSkills,
         });
       } catch (error) {
-        capabilityFailures.push(error);
+        capabilityFailures.push(caughtCapabilityFailure("pi", "project", error));
       }
     }
 
