@@ -1291,7 +1291,7 @@ describe("project-bound release candidate", () => {
     const temporaryProject = addWorktree(projectPath, "qualification-temporary");
     const installTemp = await runCli(
       home,
-      ["install-temp", "coding", temporaryProject, "--host", "codex", "--json"],
+      ["machine", "install-temp", "coding", temporaryProject, "--host", "codex", "--json"],
       { path: pathWithHosts },
     );
     expectExitCode(installTemp, 0);
@@ -1299,7 +1299,7 @@ describe("project-bound release candidate", () => {
       readonly temporaryInstallationId: string;
     };
 
-    const listTemporary = await runCli(home, ["list", "temporary"], { path: pathWithHosts });
+    const listTemporary = await runCli(home, ["machine", "list", "temporary"], { path: pathWithHosts });
     expectExitCode(listTemporary, 0);
     expect(listTemporary.stdout).toContain(receipt.temporaryInstallationId);
 
@@ -1336,12 +1336,12 @@ describe("project-bound release candidate", () => {
 
     const removeTemp = await runCli(
       home,
-      ["remove-temp", receipt.temporaryInstallationId, "--json"],
+      ["machine", "remove-temp", receipt.temporaryInstallationId, "--json"],
       { path: pathWithHosts },
     );
     expectExitCode(removeTemp, 0);
 
-    const emptyTemporary = await runCli(home, ["list", "temporary"], { path: pathWithHosts });
+    const emptyTemporary = await runCli(home, ["machine", "list", "temporary"], { path: pathWithHosts });
     expectExitCode(emptyTemporary, 0);
     expect(emptyTemporary.stdout).toContain("No temporary Profiles are active.");
     const finalState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -1557,7 +1557,7 @@ describe("project-bound release candidate", () => {
     // 8. Temporary install: install temporary Profile to non-Git Project.
     const installTemp = await runCli(
       home,
-      ["install-temp", "example", temporaryProject, "--host", "codex"],
+      ["machine", "install-temp", "example", temporaryProject, "--host", "codex"],
       { path: pathWithHosts },
     );
     expectExitCode(installTemp, 0);
@@ -1568,7 +1568,7 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(temporaryProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
 
     // 9. Exact printed remove command: parse and execute the printed Next command.
-    const printed = installTemp.stdout.match(/^Next: (apkit remove-temp (\S+))$/m);
+    const printed = installTemp.stdout.match(/^Next: (apkit machine remove-temp (\S+))$/m);
     expect(printed?.[2]).toBeTruthy();
     const tempId = printed![2]!;
     expect(tempId).toMatch(/^[0-9a-f-]+$/);

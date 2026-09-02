@@ -111,7 +111,12 @@ import {
   type TerminalPresentationContext,
 } from "./terminal-presentation.js";
 import { COMMANDS } from "./command-help.js";
-import { INVENTORY_TOPICS, type InventoryTopic } from "./inventory-topics.js";
+import {
+  INVENTORY_TOPICS,
+  MACHINE_INVENTORY_TOPICS,
+  type InventoryTopic,
+  type MachineInventoryTopic,
+} from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
 export type LifecycleCommand = "apply" | "status";
@@ -459,6 +464,20 @@ export function formatInventoryIndex(
   return responsiveHumanText(`${lines.join("\n")}\n`, options.context);
 }
 
+/** Index view for the machine-namespaced inventory command (DEC-019). */
+export function formatMachineInventoryIndex(
+  options: { readonly context?: TerminalPresentationContext } = {},
+): string {
+  const lines = ["Inventory topics:"];
+  for (const topic of MACHINE_INVENTORY_TOPICS) {
+    lines.push(
+      `  ${COMMAND_NAME} machine list ${topic.name}`,
+      `    ${topic.description}`,
+    );
+  }
+  return responsiveHumanText(`${lines.join("\n")}\n`, options.context);
+}
+
 export function formatProjectInventoryHuman(
   projects: readonly ProjectInventoryRecord[],
   options: { readonly context?: TerminalPresentationContext } = {},
@@ -501,7 +520,7 @@ export function formatProjectInventoryHuman(
   return responsiveHumanText(`${lines.join("\n")}\n`, options.context, copyable);
 }
 
-interface ListInventoryMachineBase<Topic extends InventoryTopic> {
+interface ListInventoryMachineBase<Topic extends InventoryTopic | MachineInventoryTopic> {
   readonly command: "list";
   readonly engineVersion: string;
   readonly schemaVersion: 1;
@@ -511,7 +530,7 @@ interface ListInventoryMachineBase<Topic extends InventoryTopic> {
 type ListInventoryMachineOutcome = "error" | "success";
 
 function listInventoryMachinePayload<
-  Topic extends InventoryTopic,
+  Topic extends InventoryTopic | MachineInventoryTopic,
   Outcome extends ListInventoryMachineOutcome,
   Payload extends object,
 >(
@@ -671,7 +690,7 @@ export function formatTemporaryInventoryHuman(
   if (installations.length === 0) {
     return responsiveHumanText(
       `No ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.plural} are active.\n` +
-        `Use ${COMMAND_NAME} install-temp <profile> <project> --host <host> to create one.\n`,
+        `Create one with ${COMMAND_NAME} machine install-temp <profile> <project> --host <host>.\n`,
       options.context,
     );
   }
@@ -696,7 +715,7 @@ export function formatTemporaryInventoryHuman(
   }
   lines.push(
     "",
-    `Use ${COMMAND_NAME} remove-temp <temporary-installation-id> to remove one when finished.`,
+    `Use ${COMMAND_NAME} machine remove-temp <temporary-installation-id> to remove one.`,
   );
   return responsiveHumanText(`${lines.join("\n")}\n`, options.context, copyable);
 }
@@ -2410,7 +2429,14 @@ function conciseReport(
 }
 
 const COMMAND_NAMES = new Set(COMMANDS.map((command) => command.name));
-const INVENTORY_TOPIC_NAMES = new Set<string>(INVENTORY_TOPICS.map((topic) => topic.name));
+const INVENTORY_TOPIC_NAMES = new Set<string>([
+  ...INVENTORY_TOPICS,
+  ...MACHINE_INVENTORY_TOPICS,
+].map((topic) => topic.name));
+/** Namespace tokens that may introduce one namespaced command invocation. */
+const COMMAND_NAMESPACE_TOKENS = new Set<string>(
+  COMMANDS.flatMap((command) => (command.namespace === undefined ? [] : [command.namespace])),
+);
 
 interface CopyableValueProtector {
   readonly pattern: RegExp | undefined;
@@ -2440,7 +2466,8 @@ function protectCommandInvocations(text: string, marker: string): string {
   let protectedText = "";
   for (const match of text.matchAll(pattern)) {
     const start = match.index ?? 0;
-    if (start < cursor || !COMMAND_NAMES.has(match[1]!)) continue;
+    const namespacePrefix = COMMAND_NAMESPACE_TOKENS.has(match[1]!);
+    if (start < cursor || !(namespacePrefix || COMMAND_NAMES.has(match[1]!))) continue;
     let end = start + match[0].length;
     while (true) {
       const argument = text.slice(end).match(/^\s+(\S+)/);
@@ -2450,7 +2477,8 @@ function protectCommandInvocations(text: string, marker: string): string {
         if (
           /^<[^>]+>$/.test(syntaxToken) ||
           /^--[\w-]+$/.test(syntaxToken) ||
-          INVENTORY_TOPIC_NAMES.has(syntaxToken)
+          INVENTORY_TOPIC_NAMES.has(syntaxToken) ||
+          (namespacePrefix && COMMAND_NAMES.has(syntaxToken))
         ) {
           end += argument[0].length;
           continue;
@@ -3470,7 +3498,7 @@ export function formatTemporaryInstallationHuman(
     ? undefined
     : displayProjectPath(receipt.project, receipt.project, cwd, home);
   if (command === "install-temp") {
-    const removalCommand = `${COMMAND_NAME} remove-temp ${receipt.temporaryInstallationId}`;
+    const removalCommand = `${COMMAND_NAME} machine remove-temp ${receipt.temporaryInstallationId}`;
     const warningLines = receipt.warnings.length === 0
       ? []
       : [

@@ -51,7 +51,6 @@ const HEADING_PREFIXES = [
   "Inventory:",
   "Teardown:",
   "Machine details:",
-  "Temporary installations:",
   "Discovery:",
   "Usage:",
   "Purpose:",

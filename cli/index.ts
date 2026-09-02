@@ -25,6 +25,7 @@ import {
   formatHostInventoryHuman,
   formatHostInventoryJson,
   formatInventoryIndex,
+  formatMachineInventoryIndex,
   formatProjectInventoryHuman,
   formatProjectInventoryJson,
   formatProjectInventoryToolErrorJson,
@@ -86,16 +87,23 @@ import {
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
   COMMAND_HELP_ALIASES,
+  commandInvocationStarters,
   COMMANDS,
   COMMAND_GROUPS,
+  defaultCommands,
+  findMachineCommand,
   HELP_COMMAND,
+  machineCommands,
   ROOT_HELP_ALIASES,
   type CommandHelp,
 } from "./command-help.js";
 import {
   inventoryTopicNames,
   isInventoryTopic,
+  isMachineInventoryTopic,
+  machineInventoryTopicNames,
   type InventoryTopic,
+  type MachineInventoryTopic,
 } from "./inventory-topics.js";
 import {
   agentProfileKitWordmark,
@@ -109,7 +117,7 @@ import {
   STATUS_PROGRESS_LABEL,
 } from "./progress.js";
 
-const COMMAND_NAMES = COMMANDS.map((command) => command.name);
+const COMMAND_NAMES = commandInvocationStarters();
 
 /**
  * One trusted terminal-presentation context per human stream, read once at the
@@ -162,20 +170,58 @@ function commandUsage(name: string): string {
   return `${usageLine(command)}\n`;
 }
 
-function findCommand(name: string): CommandHelp {
-  const command = COMMANDS.find((candidate) => candidate.name === name);
-  if (!command) throw new Error(`no canonical help for command '${name}'`);
+/**
+ * Resolves one command by its display token: a bare name for default commands,
+ * or a `machine <name>` token for machine-namespaced commands (DEC-019).
+ */
+function findCommand(token: string): CommandHelp {
+  const [namespace, ...rest] = token.split(" ");
+  const command = namespace === MACHINE_NAMESPACE && rest.length === 1
+    ? findMachineCommand(rest[0]!)
+    : COMMANDS.find((candidate) => candidate.name === token && candidate.namespace === undefined);
+  if (!command) throw new Error(`no canonical help for command '${token}'`);
   return command;
 }
 
 type FocusedHelpRequest =
   | { readonly kind: "root" }
+  | { readonly kind: "machine" }
   | { readonly kind: "command"; readonly command: CommandHelp }
+  | { readonly kind: "removedTemporary"; readonly name: string }
   | { readonly kind: "unknown"; readonly token: string };
 
+function removedTemporaryRequest(token: string): FocusedHelpRequest | undefined {
+  return REMOVED_TEMPORARY_COMMANDS.some((name) => name === token)
+    ? { kind: "removedTemporary", name: token }
+    : undefined;
+}
+
+const MACHINE_NAMESPACE = "machine" as const;
+
+/** Top-level temporary installation command names removed by DEC-019. */
+const REMOVED_TEMPORARY_COMMANDS = ["install-temp", "remove-temp"] as const;
+
 function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest | undefined {
+  if (
+    arguments_.length === 4 &&
+    arguments_[0] === HELP_COMMAND &&
+    arguments_[1] === MACHINE_NAMESPACE &&
+    COMMAND_HELP_ALIASES.some((alias) => alias === arguments_[3])
+  ) {
+    const machineCommand = findMachineCommand(arguments_[2]!);
+    return machineCommand === undefined
+      ? { kind: "unknown", token: arguments_[2]! }
+      : { kind: "command", command: machineCommand };
+  }
   if (arguments_.length === 3 && arguments_[0] === HELP_COMMAND) {
     const commandToken = arguments_[1]!;
+    if (commandToken === MACHINE_NAMESPACE) {
+      const machineCommand = findMachineCommand(arguments_[2]!);
+      if (machineCommand !== undefined) return { kind: "command", command: machineCommand };
+      return { kind: "unknown", token: arguments_[2]! };
+    }
+    const removed = removedTemporaryRequest(commandToken);
+    if (removed !== undefined) return removed;
     if (!COMMAND_HELP_ALIASES.some((alias) => alias === arguments_[2])) return undefined;
     const command = COMMANDS.find((candidate) => candidate.name === commandToken);
     return command === undefined
@@ -189,17 +235,54 @@ function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest |
     if (ROOT_HELP_ALIASES.some((alias) => alias === second) || second === "--version") {
       return { kind: "root" };
     }
-    const command = COMMANDS.find((candidate) => candidate.name === second);
+    if (second === MACHINE_NAMESPACE) {
+      return { kind: "machine" };
+    }
+    const removed = removedTemporaryRequest(second);
+    if (removed !== undefined) return removed;
+    const command = COMMANDS.find(
+      (candidate) => candidate.name === second && candidate.namespace === undefined,
+    );
     return command === undefined
       ? { kind: "unknown", token: second }
       : { kind: "command", command };
   }
-  const command = COMMANDS.find((candidate) => candidate.name === first);
+  if (first === MACHINE_NAMESPACE) {
+    if (ROOT_HELP_ALIASES.some((alias) => alias === second)) {
+      return { kind: "machine" };
+    }
+    return undefined;
+  }
+  const removed = removedTemporaryRequest(first);
+  if (removed !== undefined) return removed;
+  const command = COMMANDS.find(
+    (candidate) => candidate.name === first && candidate.namespace === undefined,
+  );
   if (command !== undefined && COMMAND_HELP_ALIASES.some((alias) => alias === second)) {
     return { kind: "command", command };
   }
   if (COMMAND_HELP_ALIASES.some((alias) => alias === second)) {
     return { kind: "unknown", token: first };
+  }
+  return undefined;
+}
+
+/** Focused help inside the machine namespace: `machine [<name>] --help`. */
+function focusedMachineHelpRequest(arguments_: readonly string[]):
+  | { readonly kind: "command"; readonly command: CommandHelp }
+  | undefined {
+  const [first, second, third] = arguments_;
+  if (first !== undefined && second !== undefined && COMMAND_HELP_ALIASES.some((alias) => alias === second)) {
+    const command = findMachineCommand(first);
+    return command === undefined ? undefined : { kind: "command", command };
+  }
+  if (
+    first === HELP_COMMAND &&
+    second !== undefined &&
+    (third === undefined || COMMAND_HELP_ALIASES.some((alias) => alias === third))
+  ) {
+    const command = findMachineCommand(second);
+    return command === undefined ? undefined : { kind: "command", command };
   }
   return undefined;
 }
@@ -223,7 +306,7 @@ function editDistance(left: string, right: string): number {
 }
 
 function suggestedCommand(unknown: string): string | undefined {
-  return COMMANDS
+  return defaultCommands()
     .map((command) => ({
       distance: editDistance(unknown, command.name),
       name: command.name,
@@ -253,6 +336,33 @@ function unknownCommandHelp(unknown: string, context: TerminalPresentationContex
   const lines = [unknownLine];
   if (suggestion !== undefined) lines.push(`Did you mean: ${COMMAND_NAME} ${suggestion}?`);
   lines.push("", `Run ${COMMAND_NAME} --help for available commands.`);
+  return lines
+    .map((line) => line === "" ? "" : wrapErrorLine(line, context.width))
+    .join("\n") + "\n";
+}
+
+/** Unknown-command help inside the machine-facing namespace (DEC-019). */
+function unknownMachineCommandHelp(
+  unknown: string,
+  context: TerminalPresentationContext,
+): string {
+  const safeUnknown = sanitizeCommandToken(unknown);
+  const suggestion = machineCommands()
+    .map((command) => ({
+      distance: editDistance(safeUnknown, command.name),
+      name: command.name,
+    }))
+    .filter(({ distance }) => distance <= MAX_COMMAND_SUGGESTION_DISTANCE)
+    .sort((left, right) => {
+      if (left.distance !== right.distance) return left.distance - right.distance;
+      return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
+    })[0]
+    ?.name;
+  const lines = [`${COMMAND_NAME}: unknown machine command '${safeUnknown}'`];
+  if (suggestion !== undefined) {
+    lines.push(`Did you mean: ${COMMAND_NAME} machine ${suggestion}?`);
+  }
+  lines.push("", `Run ${COMMAND_NAME} machine --help for available machine commands.`);
   return lines
     .map((line) => line === "" ? "" : wrapErrorLine(line, context.width))
     .join("\n") + "\n";
@@ -288,8 +398,10 @@ function perCommandHelp(
 function rootHelp(context: TerminalPresentationContext): string {
   const wordmark = context.interactive ? agentProfileKitWordmark(context.width) : [];
   const proseWidth = Math.max(1, context.width - 4);
+  const listedCommands = defaultCommands();
   const commandLines = (group: CommandHelp["group"]): string[] =>
-    COMMANDS.filter((candidate) => candidate.group === group)
+    listedCommands
+      .filter((candidate) => candidate.group === group)
       .flatMap((command) => [
         `  ${command.syntax}`,
         ...wrapPresentationText(command.summary, proseWidth)
@@ -300,7 +412,10 @@ function rootHelp(context: TerminalPresentationContext): string {
   const commonCommandLines = commandLines("common");
   const secondaryCommandLines = COMMAND_GROUPS
     .filter(([group]) => group !== "common")
-    .flatMap(([group, label]) => [`  ${label}:`, ...commandLines(group)]);
+    .flatMap(([group, label]) => {
+      const lines = commandLines(group);
+      return lines.length === 0 ? [] : [`  ${label}:`, ...lines];
+    });
   const intro = wrapPresentationText(
     "Agent Profile Kit composes reusable agent material into host-native projects.",
     context.width,
@@ -328,6 +443,27 @@ function rootHelp(context: TerminalPresentationContext): string {
     "More commands:\n" +
     `${secondaryCommandLines.join("\n")}\n\n` +
     `${guidance}\n`;
+}
+
+/**
+ * Help for the machine-facing namespace (DEC-019): the only place its commands
+ * are listed, deliberately absent from the default command list.
+ */
+function machineHelp(context: TerminalPresentationContext): string {
+  const proseWidth = Math.max(1, context.width - 4);
+  const commandLines = machineCommands()
+    .flatMap((command) => [
+      `  ${command.syntax}`,
+      ...wrapPresentationText(command.summary, proseWidth)
+        .map((line) => `    ${line}`),
+    ]);
+  const intro = wrapPresentationText(
+    "Machine-facing commands for external runners and automation. Temporary Profile Installation behavior, JSON payloads, and exit codes are unchanged from their documented contract.",
+    context.width,
+  ).join("\n");
+  return `${intro}\n\n` +
+    `Usage: ${COMMAND_NAME} machine <command> [arguments]\n\n` +
+    `${commandLines.join("\n")}\n`;
 }
 
 /** Runs a command-argument parser and, on failure, reports the error with that command's usage. */
@@ -420,17 +556,20 @@ function parseUnbindArguments(arguments_: readonly string[]): { readonly project
     : { project: positionalArgument("unbind", "a project path", arguments_[0]!) };
 }
 
-function parseInstallTempArguments(arguments_: readonly string[]): {
+function parseInstallTempArguments(
+  arguments_: readonly string[],
+  label: string,
+): {
   readonly host: string;
   readonly json: boolean;
   readonly profile: string;
   readonly project: string;
 } {
   if (arguments_.length < 2) {
-    throw new Error("install-temp requires a Profile name and a Project path");
+    throw new Error(`${label} requires a Profile name and a Project path`);
   }
-  const profile = positionalArgument("install-temp", "a Profile", arguments_[0]!);
-  const project = positionalArgument("install-temp", "a Project path", arguments_[1]!);
+  const profile = positionalArgument(label, "a Profile", arguments_[0]!);
+  const project = positionalArgument(label, "a Project path", arguments_[1]!);
   let host: string | undefined;
   let json = false;
   let index = 2;
@@ -439,10 +578,10 @@ function parseInstallTempArguments(arguments_: readonly string[]): {
     if (flag === "--host") {
       const value = arguments_[index + 1];
       if (value === undefined || value.startsWith("-")) {
-        throw new Error("install-temp --host requires an Agent Host name");
+        throw new Error(`${label} --host requires an Agent Host name`);
       }
       if (host !== undefined) {
-        throw new Error("install-temp accepts exactly one --host value");
+        throw new Error(`${label} accepts exactly one --host value`);
       }
       host = value;
       index += 2;
@@ -453,25 +592,28 @@ function parseInstallTempArguments(arguments_: readonly string[]): {
       index += 1;
       continue;
     }
-    throw new Error(`install-temp does not accept argument '${flag}'`);
+    throw new Error(`${label} does not accept argument '${flag}'`);
   }
   if (host === undefined) {
     throw new Error(
-      `install-temp requires --host <host>; temporary installation supports: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
+      `${label} requires --host <host>; temporary installation supports: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
     );
   }
   return { host, json, profile, project };
 }
 
-function parseRemoveTempArguments(arguments_: readonly string[]): {
+function parseRemoveTempArguments(
+  arguments_: readonly string[],
+  label: string,
+): {
   readonly json: boolean;
   readonly temporaryInstallationId: string;
 } {
   if (arguments_.length === 0) {
-    throw new Error("remove-temp requires a temporary installation identity");
+    throw new Error(`${label} requires a temporary installation identity`);
   }
   const temporaryInstallationId = positionalArgument(
-    "remove-temp",
+    label,
     "a temporary installation identity",
     arguments_[0]!,
   );
@@ -481,7 +623,7 @@ function parseRemoveTempArguments(arguments_: readonly string[]): {
       json = true;
       continue;
     }
-    throw new Error(`remove-temp does not accept argument '${argument}'`);
+    throw new Error(`${label} does not accept argument '${argument}'`);
   }
   return { json, temporaryInstallationId };
 }
@@ -548,6 +690,11 @@ function parseListArguments(
   | { readonly json: boolean; readonly kind: "topic"; readonly topic: InventoryTopic } {
   if (arguments_.length === 0) return { kind: "index" };
   const topic = positionalArgument("list", "an inventory topic", arguments_[0]!);
+  if (isMachineInventoryTopic(topic)) {
+    throw new Error(
+      `${COMMAND_NAME} list ${topic} moved behind the machine namespace; use ${COMMAND_NAME} machine list ${topic}`,
+    );
+  }
   if (!isInventoryTopic(topic)) {
     throw new Error(
       `list does not support topic '${topic}'; available topics: ${inventoryTopicNames().join(", ")}`,
@@ -556,6 +703,25 @@ function parseListArguments(
   return {
     kind: "topic",
     json: parseOptionalFlag("list", arguments_.slice(1), "--json"),
+    topic,
+  };
+}
+
+function parseMachineListArguments(
+  arguments_: readonly string[],
+):
+  | { readonly kind: "index" }
+  | { readonly json: boolean; readonly kind: "topic"; readonly topic: MachineInventoryTopic } {
+  if (arguments_.length === 0) return { kind: "index" };
+  const topic = positionalArgument("machine list", "an inventory topic", arguments_[0]!);
+  if (!isMachineInventoryTopic(topic)) {
+    throw new Error(
+      `machine list does not support topic '${topic}'; available topics: ${machineInventoryTopicNames().join(", ")}`,
+    );
+  }
+  return {
+    kind: "topic",
+    json: parseOptionalFlag("machine list", arguments_.slice(1), "--json"),
     topic,
   };
 }
@@ -686,6 +852,21 @@ async function main(): Promise<void> {
   if (focusedHelp?.kind === "root") {
     const context = stdoutPresentationContext;
     writeHuman(process.stdout, rootHelp(context), context);
+    return;
+  }
+  if (focusedHelp?.kind === "machine") {
+    writeHuman(process.stdout, machineHelp(stdoutPresentationContext), stdoutPresentationContext);
+    return;
+  }
+  if (focusedHelp?.kind === "removedTemporary") {
+    writeHuman(
+      process.stderr,
+      humanError(
+        `${COMMAND_NAME}: ${focusedHelp.name} moved behind the machine namespace\nUse ${COMMAND_NAME} machine ${focusedHelp.name}\n`,
+      ),
+      stderrPresentationContext,
+    );
+    process.exitCode = 1;
     return;
   }
   if (focusedHelp?.kind === "command") {
@@ -981,31 +1162,6 @@ async function main(): Promise<void> {
           }
         }
         return;
-      case "temporary":
-        try {
-          const installations = await listTemporaryInstallations(home);
-          if (parsed.json) {
-            process.stdout.write(formatTemporaryInventoryJson(installations));
-          } else {
-            writeHuman(
-              process.stdout,
-              formatTemporaryInventoryHuman(
-                installations,
-                { context: stdoutPresentationContext },
-                home,
-              ),
-              stdoutPresentationContext,
-            );
-          }
-        } catch (error) {
-          if (parsed.json) {
-            process.stdout.write(formatTemporaryInventoryToolErrorJson(formatError(error)));
-          } else {
-            writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
-          }
-          process.exitCode = 1;
-        }
-        return;
       default:
         return assertNever(parsed.topic);
     }
@@ -1134,134 +1290,209 @@ async function main(): Promise<void> {
     );
     return;
   }
-  if (arguments_.length >= 1 && arguments_[0] === "install-temp") {
-    const parsed = parseOrExit("install-temp", () => parseInstallTempArguments(arguments_.slice(1)));
-    if (parsed === undefined) return;
-    const context = stdoutPresentationContext;
-    try {
-      const receipt = await installTemporaryProfile({
-        home,
-        host: parsed.host,
-        profile: parsed.profile,
-        project: parsed.project,
-      });
-      if (parsed.json) {
-        process.stdout.write(formatTemporaryInstallationJson("install-temp", receipt));
-      } else {
-        writeHuman(
-          process.stdout,
-          formatTemporaryInstallationHuman("install-temp", receipt, { context }),
-          context,
-        );
-      }
-      process.exitCode = 0;
-    } catch (error) {
-      if (error instanceof TemporaryInstallationBlockedError) {
-        if (parsed.json) {
-          process.stdout.write(
-            formatTemporaryInstallationBlockedJson("install-temp", error.structured),
-          );
-        } else {
-          const blocked = presentTemporaryBlockedMessages(
-            error.blockers,
-            error.canonicalProject,
-          );
-          writeHuman(
-            process.stderr,
-            humanError(
-              `${COMMAND_NAME}: ${blocked.text}\n`,
-              [blocked.presented, error.canonicalProject],
-            ),
-            stderrPresentationContext,
-          );
-        }
-        process.exitCode = 2;
-        return;
-      }
-      if (error instanceof TemporaryInstallationRecoverableError) {
-        if (parsed.json) {
-          process.stdout.write(
-            formatTemporaryInstallationToolErrorJson("install-temp", formatError(error), {
-              removalRequired: true,
-              temporaryInstallationId: error.temporaryInstallationId,
-            }),
-          );
-        } else {
-          writeHuman(
-            process.stderr,
-            humanError(
-              `${COMMAND_NAME}: ${formatError(error)}\n` +
-                `${COMMAND_NAME}: removal is required; run ${COMMAND_NAME} remove-temp ${error.temporaryInstallationId}\n`,
-              [error.temporaryInstallationId],
-            ),
-            stderrPresentationContext,
-          );
-        }
-        process.exitCode = 1;
-        return;
-      }
-      if (parsed.json) {
-        process.stdout.write(
-          formatTemporaryInstallationToolErrorJson("install-temp", formatError(error)),
-        );
-      } else {
-        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
-      }
-      process.exitCode = 1;
-    }
+  if (arguments_.length >= 1 && REMOVED_TEMPORARY_COMMANDS.some((name) => name === arguments_[0])) {
+    const removed = arguments_[0]!;
+    writeHuman(
+      process.stderr,
+      humanError(
+        `${COMMAND_NAME}: ${removed} moved behind the machine namespace\nUse ${COMMAND_NAME} machine ${removed}\n`,
+      ),
+      stderrPresentationContext,
+    );
+    process.exitCode = 1;
     return;
   }
-  if (arguments_.length >= 1 && arguments_[0] === "remove-temp") {
-    const parsed = parseOrExit("remove-temp", () => parseRemoveTempArguments(arguments_.slice(1)));
-    if (parsed === undefined) return;
-    const context = stdoutPresentationContext;
-    try {
-      const receipt = await removeTemporaryProfile({
-        home,
-        temporaryInstallationId: parsed.temporaryInstallationId,
-      });
-      if (parsed.json) {
-        process.stdout.write(formatTemporaryInstallationJson("remove-temp", receipt));
-      } else {
-        writeHuman(
-          process.stdout,
-          formatTemporaryInstallationHuman("remove-temp", receipt, { context }),
-          context,
-        );
-      }
-      process.exitCode = 0;
-    } catch (error) {
-      if (error instanceof TemporaryInstallationBlockedError) {
+  if (arguments_.length >= 1 && arguments_[0] === MACHINE_NAMESPACE) {
+    const rest = arguments_.slice(1);
+    if (rest.length === 0) {
+      writeHuman(process.stdout, machineHelp(stdoutPresentationContext), stdoutPresentationContext);
+      return;
+    }
+    const machineFocusedHelp = focusedMachineHelpRequest(rest);
+    if (machineFocusedHelp?.kind === "command") {
+      writeHuman(
+        process.stdout,
+        perCommandHelp(machineFocusedHelp.command, stdoutPresentationContext),
+        stdoutPresentationContext,
+      );
+      return;
+    }
+    const subcommand = rest[0] ?? "";
+    if (subcommand === "install-temp") {
+      const parsed = parseOrExit(
+        "machine install-temp",
+        () => parseInstallTempArguments(rest.slice(1), "machine install-temp"),
+      );
+      if (parsed === undefined) return;
+      const context = stdoutPresentationContext;
+      try {
+        const receipt = await installTemporaryProfile({
+          home,
+          host: parsed.host,
+          profile: parsed.profile,
+          project: parsed.project,
+        });
         if (parsed.json) {
-          process.stdout.write(
-            formatTemporaryInstallationBlockedJson("remove-temp", error.structured),
-          );
+          process.stdout.write(formatTemporaryInstallationJson("install-temp", receipt));
         } else {
-          const blocked = presentTemporaryBlockedMessages(
-            error.blockers,
-            error.canonicalProject,
-          );
           writeHuman(
-            process.stderr,
-            humanError(
-              `${COMMAND_NAME}: ${blocked.text}\n`,
-              [blocked.presented, error.canonicalProject],
-            ),
-            stderrPresentationContext,
+            process.stdout,
+            formatTemporaryInstallationHuman("install-temp", receipt, { context }),
+            context,
           );
         }
-        process.exitCode = 2;
+        process.exitCode = 0;
+      } catch (error) {
+        if (error instanceof TemporaryInstallationBlockedError) {
+          if (parsed.json) {
+            process.stdout.write(
+              formatTemporaryInstallationBlockedJson("install-temp", error.structured),
+            );
+          } else {
+            const blocked = presentTemporaryBlockedMessages(
+              error.blockers,
+              error.canonicalProject,
+            );
+            writeHuman(
+              process.stderr,
+              humanError(
+                `${COMMAND_NAME}: ${blocked.text}\n`,
+                [blocked.presented, error.canonicalProject],
+              ),
+              stderrPresentationContext,
+            );
+          }
+          process.exitCode = 2;
+          return;
+        }
+        if (error instanceof TemporaryInstallationRecoverableError) {
+          if (parsed.json) {
+            process.stdout.write(
+              formatTemporaryInstallationToolErrorJson("install-temp", formatError(error), {
+                removalRequired: true,
+                temporaryInstallationId: error.temporaryInstallationId,
+              }),
+            );
+          } else {
+            writeHuman(
+              process.stderr,
+              humanError(
+                `${COMMAND_NAME}: ${formatError(error)}\n` +
+                  `${COMMAND_NAME}: removal is required; run ${COMMAND_NAME} machine remove-temp ${error.temporaryInstallationId}\n`,
+                [error.temporaryInstallationId],
+              ),
+              stderrPresentationContext,
+            );
+          }
+          process.exitCode = 1;
+          return;
+        }
+        if (parsed.json) {
+          process.stdout.write(
+            formatTemporaryInstallationToolErrorJson("install-temp", formatError(error)),
+          );
+        } else {
+          writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
+        }
+        process.exitCode = 1;
+      }
+      return;
+    }
+    if (subcommand === "remove-temp") {
+      const parsed = parseOrExit(
+        "machine remove-temp",
+        () => parseRemoveTempArguments(rest.slice(1), "machine remove-temp"),
+      );
+      if (parsed === undefined) return;
+      const context = stdoutPresentationContext;
+      try {
+        const receipt = await removeTemporaryProfile({
+          home,
+          temporaryInstallationId: parsed.temporaryInstallationId,
+        });
+        if (parsed.json) {
+          process.stdout.write(formatTemporaryInstallationJson("remove-temp", receipt));
+        } else {
+          writeHuman(
+            process.stdout,
+            formatTemporaryInstallationHuman("remove-temp", receipt, { context }),
+            context,
+          );
+        }
+        process.exitCode = 0;
+      } catch (error) {
+        if (error instanceof TemporaryInstallationBlockedError) {
+          if (parsed.json) {
+            process.stdout.write(
+              formatTemporaryInstallationBlockedJson("remove-temp", error.structured),
+            );
+          } else {
+            const blocked = presentTemporaryBlockedMessages(
+              error.blockers,
+              error.canonicalProject,
+            );
+            writeHuman(
+              process.stderr,
+              humanError(
+                `${COMMAND_NAME}: ${blocked.text}\n`,
+                [blocked.presented, error.canonicalProject],
+              ),
+              stderrPresentationContext,
+            );
+          }
+          process.exitCode = 2;
+          return;
+        }
+        if (parsed.json) {
+          process.stdout.write(
+            formatTemporaryInstallationToolErrorJson("remove-temp", formatError(error)),
+          );
+        } else {
+          writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
+        }
+        process.exitCode = 1;
+      }
+      return;
+    }
+    if (subcommand === "list") {
+      const parsed = parseOrExit("machine list", () => parseMachineListArguments(rest.slice(1)));
+      if (parsed === undefined) return;
+      if (parsed.kind === "index") {
+        writeHuman(
+          process.stdout,
+          formatMachineInventoryIndex({ context: stdoutPresentationContext }),
+          stdoutPresentationContext,
+        );
         return;
       }
-      if (parsed.json) {
-        process.stdout.write(
-          formatTemporaryInstallationToolErrorJson("remove-temp", formatError(error)),
-        );
-      } else {
-        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
+      try {
+        const installations = await listTemporaryInstallations(home);
+        if (parsed.json) {
+          process.stdout.write(formatTemporaryInventoryJson(installations));
+        } else {
+          writeHuman(
+            process.stdout,
+            formatTemporaryInventoryHuman(
+              installations,
+              { context: stdoutPresentationContext },
+              home,
+            ),
+            stdoutPresentationContext,
+          );
+        }
+      } catch (error) {
+        if (parsed.json) {
+          process.stdout.write(formatTemporaryInventoryToolErrorJson(formatError(error)));
+        } else {
+          writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatError(error)}\n`), stderrPresentationContext);
+        }
+        process.exitCode = 1;
       }
-      process.exitCode = 1;
+      return;
     }
+    const context = stderrPresentationContext;
+    writeHuman(process.stderr, unknownMachineCommandHelp(subcommand, context), context);
+    process.exitCode = 1;
     return;
   }
 

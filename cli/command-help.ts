@@ -2,8 +2,8 @@ import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { COMMAND_NAME } from "../installer/version.js";
 import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installation.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
-import { COMMAND_EXAMPLES } from "./examples.js";
-import { inventoryCommandSyntax } from "./inventory-topics.js";
+import { COMMAND_EXAMPLES, MACHINE_LIST_EXAMPLES } from "./examples.js";
+import { inventoryCommandSyntax, machineInventoryCommandSyntax } from "./inventory-topics.js";
 
 export const HELP_COMMAND = "help" as const;
 export const ROOT_HELP_ALIASES = ["--help", "-h", HELP_COMMAND] as const;
@@ -17,6 +17,11 @@ export const COMMAND_HELP_ALIASES = ["-h", "--help"] as const;
 export interface CommandHelp {
   readonly name: string;
   readonly group: CommandGroup;
+  /**
+   * Commands behind a machine-facing namespace (DEC-019) carry it here; they are
+   * omitted from the default command list and invoked through their namespace.
+   */
+  readonly namespace?: "machine";
   readonly syntax: string;
   readonly summary: string;
   readonly examples: readonly string[];
@@ -141,20 +146,62 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "install-temp",
     group: "temporary",
-    syntax: "install-temp <profile> <project> --host <host> [--json]",
+    namespace: "machine",
+    syntax: "machine install-temp <profile> <project> --host <host> [--json]",
     summary: "Install a temporary Profile into one Project",
     examples: COMMAND_EXAMPLES["install-temp"],
     supportedHosts: TEMPORARY_INSTALLATION_HOSTS,
     writes: "Writes temporary Agent Profile Kit-owned project files and machine-local temporary installation records; does not change settings or configured Projects.",
-    next: `Run ${COMMAND_NAME} remove-temp <temporary-installation-id> when finished.`,
+    next: `Run ${COMMAND_NAME} machine remove-temp <temporary-installation-id> when finished.`,
   },
   {
     name: "remove-temp",
     group: "temporary",
-    syntax: "remove-temp <temporary-installation-id> [--json]",
+    namespace: "machine",
+    syntax: "machine remove-temp <temporary-installation-id> [--json]",
     summary: "Remove one temporary Profile",
     examples: COMMAND_EXAMPLES["remove-temp"],
     writes: "Removes only the receipt-owned temporary project files and exclusion contribution.",
     next: "Nothing further is required for this temporary installation.",
   },
+  {
+    name: "list",
+    group: "inventory",
+    namespace: "machine",
+    syntax: `machine ${machineInventoryCommandSyntax()}`,
+    summary: "List active temporary Profile inventory for external runners",
+    examples: MACHINE_LIST_EXAMPLES,
+    writes: "Nothing; this command is read-only.",
+    next: `Run ${COMMAND_NAME} machine remove-temp <temporary-installation-id> to remove one.`,
+  },
 ];
+
+/**
+ * Commands shown in the default command list: every command outside a
+ * machine-facing namespace (DEC-019).
+ */
+export function defaultCommands(): readonly CommandHelp[] {
+  return COMMANDS.filter((command) => command.namespace === undefined);
+}
+
+/** Commands invoked through one machine-facing namespace (DEC-019). */
+export function machineCommands(): readonly CommandHelp[] {
+  return COMMANDS.filter((command) => command.namespace === "machine");
+}
+
+/** Resolves one machine-namespaced command by its bare name. */
+export function findMachineCommand(name: string): CommandHelp | undefined {
+  return machineCommands().find((command) => command.name === name);
+}
+
+/**
+ * The token that starts one command's human invocation line: the bare name for
+ * default commands, the namespace-qualified form for machine-facing commands
+ * (DEC-019). One canonical home so semantic command styling cannot drift from
+ * the command table.
+ */
+export function commandInvocationStarters(): readonly string[] {
+  return COMMANDS.map((command) =>
+    command.namespace === undefined ? command.name : `${command.namespace} ${command.name}`,
+  );
+}

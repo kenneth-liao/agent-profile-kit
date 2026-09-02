@@ -14,6 +14,7 @@ import {
   formatBlockedApplyJson,
   formatInfoHuman,
   formatInventoryIndex,
+  formatMachineInventoryIndex,
   formatLifecycleJson,
   formatLifecycleReport,
   formatLifecycleToolErrorJson,
@@ -1192,7 +1193,7 @@ describe("responsive lifecycle presentation", () => {
     expect(output.split("\n").some((line) => line.includes(receipt.project!))).toBe(true);
     expect(output).toContain("- Trust the bound project in Codex.");
     expect(output.split("\n")).toContain(`    ${receipt.temporaryInstallationId}`);
-    expect(output).toContain(`apkit remove-temp ${receipt.temporaryInstallationId}`);
+    expect(output).toContain(`apkit machine remove-temp ${receipt.temporaryInstallationId}`);
     expect(output).toContain("  Consequence: Profile Context does");
     expect(output).toContain(diagnosticValue);
     expect(output).not.toContain("generated diagnostic path with\n");
@@ -1200,7 +1201,7 @@ describe("responsive lifecycle presentation", () => {
       "Consequence: Profile Context does not load until the project is trusted.",
     );
     for (const line of output.trimEnd().split("\n")) {
-      if (line.includes(receipt.project!) || line.includes("apkit remove-temp")) continue;
+      if (line.includes(receipt.project!) || line.includes("apkit machine remove-temp")) continue;
       expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
     }
   });
@@ -3563,8 +3564,11 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
         "  apkit list profiles\n" +
         "    Profile inventory from the selected Workspace.\n" +
         "  apkit list hosts\n" +
-        "    Supported Agent Hosts for configured Projects.\n" +
-        "  apkit list temporary\n" +
+        "    Supported Agent Hosts for configured Projects.\n",
+    );
+    expect(formatMachineInventoryIndex()).toBe(
+      "Inventory topics:\n" +
+        "  apkit machine list temporary\n" +
         "    Active temporary Profile inventory.\n",
     );
   });
@@ -3643,12 +3647,12 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     }
     expect(temporary).toContain("Project: ~/projects/temporary-project");
     expect(temporary.replace(/\s+/g, " ")).toContain(
-      "Use apkit remove-temp <temporary-installation-id> to remove one when finished.",
+      "Use apkit machine remove-temp <temporary-installation-id> to remove one.",
     );
     expect(temporary).not.toContain("Next:");
     expect(formatTemporaryInventoryHuman([], {}, "/home", "/work")).toBe(
       "No temporary Profiles are active.\n" +
-        "Use apkit install-temp <profile> <project> --host <host> to create one.\n",
+        "Create one with apkit machine install-temp <profile> <project> --host <host>.\n",
     );
   });
 
@@ -4676,13 +4680,16 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
   test("routine inventory topics and temporary inventory use newcomer lexicon", () => {
     const index = formatInventoryIndex();
     expect(index).toContain("Configured Project inventory from settings.");
-    expect(index).toContain("Active temporary Profile inventory.");
     expect(index).not.toContain("Installation State");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(index).not.toMatch(term);
 
+    const machineIndex = formatMachineInventoryIndex();
+    expect(machineIndex).toContain("Active temporary Profile inventory.");
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(machineIndex).not.toMatch(term);
+
     const emptyTemp = formatTemporaryInventoryHuman([]);
     expect(emptyTemp).toContain("No temporary Profiles are active.");
-    expect(emptyTemp).toContain("Use apkit install-temp <profile> <project> --host <host> to create one.");
+    expect(emptyTemp).toContain("Create one with apkit machine install-temp <profile> <project> --host <host>.");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(emptyTemp).not.toMatch(term);
 
     const activeTemp = formatTemporaryInventoryHuman([
@@ -4695,7 +4702,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     ]);
     expect(activeTemp).toContain("Temporary Profiles (1):");
     expect(activeTemp).toContain("Temporary installation: temp-12345");
-    expect(activeTemp).toContain("Use apkit remove-temp <temporary-installation-id> to remove one when finished.");
+    expect(activeTemp).toContain("Use apkit machine remove-temp <temporary-installation-id> to remove one.");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(activeTemp).not.toMatch(term);
   });
 
@@ -4734,7 +4741,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     });
     expect(install).toContain("Installed temporary Profile");
     expect(install).toContain("Temporary installation: temp-987");
-    expect(install).toContain("Next: apkit remove-temp temp-987");
+    expect(install).toContain("Next: apkit machine remove-temp temp-987");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(install).not.toMatch(term);
 
     const remove = formatTemporaryInstallationHuman("remove-temp", {

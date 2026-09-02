@@ -45,7 +45,7 @@ A generated, host-native snapshot of one Workspace Profile installed into one bo
 _Avoid_: Canonical source, live link, Temporary Profile Installation
 
 **Temporary Profile Installation**:
-Generated Host-native output for one Profile, one Host, and one explicit Project whose desired lifetime is owned by a temporary Installation Receipt rather than a Project Binding. It uses the same receipt shape, Adapter planning, output ownership, and Repository Exclusion Contribution machinery as an ordinary installation, creates no Local Configuration change, and is removed only through `remove-temp` by durable temporary installation identity.
+Generated Host-native output for one Profile, one Host, and one explicit Project whose desired lifetime is owned by a temporary Installation Receipt rather than a Project Binding. It uses the same receipt shape, Adapter planning, output ownership, and Repository Exclusion Contribution machinery as an ordinary installation, creates no Local Configuration change, and is removed only through `apkit machine remove-temp` by durable temporary installation identity.
 _Avoid_: Project Binding, ordinary Profile Installation, global apply
 
 **Output Ownership Conflict**:
