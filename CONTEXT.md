@@ -53,7 +53,7 @@ A condition where reconciling a planned Profile Installation output would overwr
 _Avoid_: Host Skill collision, precedence conflict
 
 **Blocker**:
-A condition that prevents a lifecycle operation from proceeding. A Blocker is one exhaustively typed structured record (`kind`, `problem`, `requirement`, `remedy`, `scope`, and `affectedItems`) normalized at the Installer boundary, with a derived `message` projection retained for machine JSON. `scope: global` applies independently of one project; `scope: project` carries one canonical project identity that `problem` does not duplicate. Machine JSON publishes the structured evidence and derived message directly; human views render the structured fields and derive grouping and verbose completeness from the same record.
+A condition that prevents a lifecycle operation from proceeding. A Blocker is one exhaustively typed structured record (`kind`, `scope`, and `affectedItems`, plus per-kind non-prose evidence such as occupation type, ownership action, or foreign diagnostic detail) normalized at the Installer boundary, carrying facts only; the Installer emits no user-facing sentence. Presentation owns every `problem`, `requirement`, and `remedy` sentence, keyed by the typed kind. `scope: global` applies independently of one project; `scope: project` carries one canonical project identity that no sentence duplicates. Machine JSON publishes the structured record and its presentation-owned wording verbatim; human views render the same record and derive grouping and verbose completeness from it.
 _Avoid_: Warning, reconciliation item, Output Ownership Conflict
 
 **Apply Receipt**:

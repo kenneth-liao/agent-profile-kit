@@ -84,10 +84,11 @@ the CLI never speaks to. Stage 13 is the receipt-owned temporary flow, usable
 alongside either path.
 
 `status` is the single authoritative read-only Project lifecycle plan. It uses
-the same selected scope, normalized desired plan, and predictable Host capability
-evidence as `apply`; capability problems block pending application, while a
-missing or downgraded Host for already-current output is Host attention without
-output drift. The former separate plan command was removed before 1.0.
+the same selected scope and normalized desired plan as `apply` and performs no
+Agent Host process execution (ADR-0025): Host capability probing happens only
+during `apply`, where a missing or outdated Host CLI produces one advisory
+warning per Host per invocation and never blocks planning or writing. The
+former separate plan command was removed before 1.0.
 
 ---
 
@@ -313,9 +314,10 @@ Gaps: ~~[UJ-32](#uj-32)~~ (shipped across
 `apply` defaults to the bound Project containing the current working directory,
 accepts one explicit existing absolute or home-relative bound Project root, and
 requires `--all` for the complete fleet. Scoped apply does not plan, probe,
-inspect, report, or write unrelated Projects; it may update a shared Git
-exclusion target only for the selected installation's contribution while
-preserving the complete union. `apply --all` stops every write for a global
+inspect, report, or write unrelated Projects; it rewrites the owned section of a
+shared Git exclusion target from the receipts that will exist after the
+operation, preserving unrelated bytes (best-effort bookkeeping, ADR-0025).
+`apply --all` stops every write for a global
 Blocker, but leaves Project-scoped blocked Projects untouched while committing
 and freshly verifying healthy Projects sequentially. A partial blocker result
 exits `2`; a tool or verification failure exits `1` and identifies committed,
@@ -328,8 +330,8 @@ $ apkit apply
 ```
 
 `apply` performs atomic reconciliation across all selected Projects: it writes
-Host configuration files, manages ignore rules, creates markers, and prints
-the summary:
+Host configuration files, rewrites the Agent Profile Kit-owned Git exclusion
+section as a cache, and prints the summary:
 
 ```
 $ apkit apply <project>
@@ -428,15 +430,13 @@ Setup guidance is reported conditionally by Host *and* by what was installed:
 | Pi | Native project trust; `--skill` / `--no-skills` runtime overrides fall outside the guarantee. |
 | Antigravity | `agy` 1.1.13+ and native project trust. Profile Context loads from deterministic always-on `.agents/rules/` files and Skills from the qualified shared `.agents/skills/` packages. |
 
-**Codex Context floor (0.145.0+).** Context-bearing Codex installs probe
-`codex --version` on `preview`/`apply` and refuse writes below the floor (or when
-`codex` is missing from `PATH`). Skills-only Codex bindings do not probe. A Project-scoped `apply` isolates that
-capability check to its selected binding; `apply --all` leaves a
-capability-blocked Codex Project untouched while healthy Projects commit.
-`status`,
-`validate`, and `uninstall` do not re-probe the CLI, so a
-post-apply Codex downgrade is not reported there — upgrade back or re-apply after
-restoring a supported CLI if Context stops loading.
+**Codex Context floor (0.145.0+).** Context-bearing Codex plans probe
+`codex --version` during `apply`; a missing, unreadable, or older CLI produces
+one advisory warning per invocation naming Codex and the required floor, and
+the material is written regardless (ADR-0025). Skills-only Codex plans do not
+probe. `status`, `validate`, and `uninstall` do not probe, so a post-apply
+Codex downgrade is not reported there — Context stops loading until a supported
+CLI is restored, and the next `apply` warns again.
 
 Verified: a four-Host `api` project produced `.codex/hooks.json`, and its
 `.grok/` directory contained `skills/` **only** — no `rules/`. A Skills-only
@@ -475,8 +475,8 @@ Gaps: ~~[UJ-32](#uj-32)~~ (shipped across
 
 ### 11. Recover
 
-**Repairable missing output** — a deleted generated file with proven ownership —
-works well: `status` names the missing paths and `apply` restores them.
+**Missing output** — a deleted generated file — is ordinary pending work:
+`status` names the missing paths and `apply` restores them.
 
 **Drifted output** — a generated file whose bytes, modes, or members differ from
 the recorded installation — is ordinary pending work: `status` reports it as
@@ -484,12 +484,17 @@ non-blocking `drifted output` state and `apply` replaces the whole recorded root
 from current Workspace source, discarding unknown members such as host scratch
 directories. Removal paths (`uninstall`, stale removal, `machine remove-temp`) may
 remove drifted proven roots without a manual pre-clean. Identity or path-safety
-failures — a missing or foreign Installation Marker, a symlinked root, an unsafe
+failures — changed extant roots with no continuity anchor, a symlinked root, an unsafe
 parent — remain Blockers, and their evidence states only what was proven, never
 asserting a user edit without provenance.
 
-**Host CLI missing or outdated** is the likeliest first-run failure, and its
-messages are the best-written strings in the tool:
+**Host CLI missing or outdated** no longer blocks anything (ADR-0025): during
+`apply`, one advisory warning per Host per invocation names the Host and its
+required version, and the Host's material is written regardless. `status`,
+`validate`, and `uninstall` never probe. The historical excerpt below showed
+these conditions as Blockers with problem/requirement/remedy prose; that
+gating and the Installer-authored prose no longer exist — presentation owns
+every Blocker and warning sentence, keyed by the typed kind:
 
 ```
 Blocker: Claude Code CLI was not found on PATH; install Claude Code and ensure
@@ -498,12 +503,6 @@ Blocker: Claude Code CLI was not found on PATH; install Claude Code and ensure
 Blocker: Claude CLI 1.0.0 does not support unscoped project rules (requires
 2.0.64+); upgrade Claude Code before previewing or applying the Profile
 ```
-
-Problem, requirement, remedy — the target shape for every blocker. The frame
-buries them: the same screen still leads with `Changes: 2 generated-output
-additions`, lists exclusions that will never be written, and glosses a state that
-cannot be reached, leaving the one actionable line in eighth position
-(~~[UJ-19](#uj-19)~~, shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)).
 
 **Mixed states across projects** now retain per-project guidance. With pending
 work for `api` and `web` blocked, the run preserves `api`'s next step after the

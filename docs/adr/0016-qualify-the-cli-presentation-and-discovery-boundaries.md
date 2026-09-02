@@ -75,3 +75,17 @@ and is translated to the shared vocabulary at the Installer boundary.
   `apkit`, `--json`, uniform exit codes), and ADR-0015 (receipt-owned temporary
   lifetime) remain in force; this ADR records the boundaries they rely on rather
   than rewriting them.
+
+### Amendment: typed-blocker boundary superseded by ADR-0025
+
+Spec #371 (ticket #382) removed the prose-carrying blocker record this ADR
+accepted. Blockers are now exhaustively typed records carrying facts only —
+closed `kind` and affected-item vocabularies, `scope`, Project identity when
+scoped, and affected-item evidence — with no `problem`, `requirement`, or
+`remedy` fields; message-only or prose-carrying input is still rejected loudly
+at the normalization boundary. Presentation (`cli/blocker-wording.ts`) owns
+every user-facing problem, requirement, and remedy sentence, keyed by the typed
+kind, and machine JSON publishes that stored wording verbatim. The closed
+vocabularies and the one-trusted-normalization-boundary shape are unchanged.
+ADR-0025 records the reduction; this ADR's terminal-presentation and read-only
+discovery boundaries remain in force.

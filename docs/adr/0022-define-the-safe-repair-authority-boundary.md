@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0025
 ---
 
 # Define the Safe Repair authority boundary
