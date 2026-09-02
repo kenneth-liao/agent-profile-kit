@@ -304,7 +304,7 @@ export async function unreadableInstallationStateReport(
   });
   return {
     globalBlockers: [normalizeBlocker(installationStateUnreadableBlocker({
-      message,
+      detail: message,
       statePath: stateManifestPath(home),
     }))],
     // Ownership cannot be read, so planned Project states and output changes
@@ -414,7 +414,7 @@ async function parentConflicts(project: string, path: string): Promise<readonly 
     if (kind !== "missing" && kind !== "directory") {
       const relativeParent = parent.slice(project.length + 1);
       blockers.push(occupiedOutputBlocker({
-        message: `${relativeParent} is an occupied ${kind} parent path`,
+        occupied: { case: "occupied-parent", occupation: kind },
         path: relativeParent,
         project,
       }));
@@ -468,8 +468,8 @@ export async function desiredOutputConflicts(
       gitProject,
       outputs.map((output) => output.path),
     );
-  const remedies = new Map(
-    desired.outputs.map((output) => [output.path, output.remedy]),
+  const remedyKeys = new Map(
+    desired.outputs.map((output) => [output.path, output.remedyKey]),
   );
   const trackedPaths: string[] = [];
   for (const output of outputs) {
@@ -492,39 +492,39 @@ export async function desiredOutputConflicts(
     // the write is a byte-identical no-op, so nothing not created by Agent
     // Profile Kit can be lost. Any other extant content still blocks.
     if (options.adoptByteIdentical !== false && await outputMatchesDesired(project, output, inspection)) continue;
-    const remedy = remedies.get(output.path);
+    const remedyKey = remedyKeys.get(output.path);
     if (output.type === "file") {
       if (kind !== "file") {
         blockers.push(occupiedOutputBlocker({
-          message: `${output.path} is an occupied ${kind} path`,
+          occupied: { case: "occupied-destination", occupation: kind },
           path: output.path,
           project,
-          ...(remedy === undefined ? {} : { remedy }),
+          ...(remedyKey === undefined ? {} : { remedyKey }),
         }));
         continue;
       }
       blockers.push(occupiedOutputBlocker({
-        message: `${output.path} is occupied by unowned or drifted output`,
+        occupied: { case: "drifted-output" },
         path: output.path,
         project,
-        ...(remedy === undefined ? {} : { remedy }),
+        ...(remedyKey === undefined ? {} : { remedyKey }),
       }));
       continue;
     }
     if (kind !== "directory") {
       blockers.push(occupiedOutputBlocker({
-        message: `${output.path} is an occupied ${kind} path`,
+        occupied: { case: "occupied-destination", occupation: kind },
         path: output.path,
         project,
-        ...(remedy === undefined ? {} : { remedy }),
+        ...(remedyKey === undefined ? {} : { remedyKey }),
       }));
       continue;
     }
     blockers.push(occupiedOutputBlocker({
-      message: `${output.path} is an occupied unowned artifact directory`,
+      occupied: { case: "unowned-artifact-directory" },
       path: output.path,
       project,
-      ...(remedy === undefined ? {} : { remedy }),
+      ...(remedyKey === undefined ? {} : { remedyKey }),
     }));
   }
   if (trackedPaths.length > 0) {
@@ -611,7 +611,8 @@ async function installationRetirementSelection(
 
 function ownershipBlocker(project: string, proof: OwnershipProof): ProjectScopedBlockerInput {
   return installationOwnershipBlocker({
-    message: `Cannot verify generated-file ownership: ${proof.reason ?? "ownership could not be proven"}`,
+    action: "verify",
+    detail: proof.reason ?? "ownership could not be proven",
     project,
   });
 }
@@ -669,7 +670,7 @@ function nestedReconciliationReport(
       globalBlockers.push(blocker);
       continue;
     }
-    const key = canonicalProject(blocker.project);
+    const key = canonicalProject(blocker.project!);
     const records = projectBlockers.get(key) ?? [];
     records.push(blocker);
     projectBlockers.set(key, records);
@@ -1039,9 +1040,8 @@ export async function previewReconciliation(
     if (!proof.owned) {
       projectBlockers.push(normalizeBlocker(
         installationOwnershipBlocker({
-          message:
-            "Cannot remove stale generated files: " +
-            (proof.reason ?? "ownership could not be proven"),
+          action: "remove",
+          detail: proof.reason ?? "ownership could not be proven",
           project: installation.project,
         }),
         installation.project,
@@ -1084,20 +1084,14 @@ export async function previewReconciliation(
   });
   const deduplicated = new Map<string, ReconciliationBlocker>();
   for (const blocker of blockers) {
-    const key = JSON.stringify({
-      affectedItems: blocker.affectedItems,
-      kind: blocker.kind,
-      problem: blocker.problem,
-      project: blocker.project,
-      remedy: blocker.remedy,
-      requirement: blocker.requirement,
-      scope: blocker.scope,
-    });
+    const key = JSON.stringify(blocker);
     if (!deduplicated.has(key)) deduplicated.set(key, blocker);
   }
   const flat: ReconciliationAccumulator = {
     blockers: [...deduplicated.values()].sort((left, right) =>
-      (left.project ?? "").localeCompare(right.project ?? "") || left.message.localeCompare(right.message)
+      (left.project ?? "").localeCompare(right.project ?? "") ||
+      left.kind.localeCompare(right.kind) ||
+      JSON.stringify(left.affectedItems).localeCompare(JSON.stringify(right.affectedItems))
     ),
     desired: desiredReport,
     items,

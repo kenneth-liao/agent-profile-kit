@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+
   assertPiCliVersionSupported,
   assertPiProjectCapability,
   PI_ADAPTER_VERSION,
@@ -31,6 +32,7 @@ import {
   reportDiagnosticValues,
   reportItems,
 } from "./support/reconciliation-report.js";
+import { blockerWording } from "../cli/blocker-wording.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -683,8 +685,8 @@ describe("Pi Adapter", () => {
     expect(
       reportBlockers(preview).some(
         (blocker) =>
-          blocker.message.includes(".agents/skills/review-pr") &&
-          blocker.message.toLowerCase().includes("unowned"),
+          blockerWording(blocker).message.includes(".agents/skills/review-pr") &&
+          blockerWording(blocker).message.toLowerCase().includes("unowned"),
       ),
     ).toBe(true);
     expect(readFileSync(join(destination, "SKILL.md"), "utf8")).toBe("foreign skill\n");

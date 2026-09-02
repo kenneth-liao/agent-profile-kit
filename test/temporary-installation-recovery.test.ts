@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
+
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -26,6 +27,7 @@ import {
   TemporaryInstallationBlockedError,
   TemporaryInstallationRecoverableError,
 } from "../installer/temporary-installation.js";
+import { blockerWording } from "../cli/blocker-wording.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -484,9 +486,11 @@ describe("Temporary Profile Installation recovery", () => {
       failure = error;
     }
     expect(failure).toBeInstanceOf(TemporaryInstallationBlockedError);
-    expect((failure as TemporaryInstallationBlockedError).blockers.join("\n")).toMatch(
-      /active Temporary Profile Installation already owns generated files/i,
-    );
+    expect(
+      (failure as TemporaryInstallationBlockedError)
+        .structured.map((blocker) => blockerWording(blocker).problem)
+        .join("\n"),
+    ).toMatch(/active Temporary Profile Installation already owns generated files/i);
   });
 
   test("lifecycle lock rejects concurrent install-temp while another operation holds the lock", async () => {

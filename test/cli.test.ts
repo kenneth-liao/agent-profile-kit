@@ -34,6 +34,12 @@ import {
   inventoryTopicNames,
 } from "../cli/inventory-topics.js";
 import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
+
+/** One combined pattern for asserting no internal term reaches a guarded surface. */
+const INTERNAL_TERM_PATTERN = new RegExp(
+  INTERNAL_ONLY_DEFAULT_TERMS.map((pattern) => `(${pattern.source})`).join("|"),
+  "i",
+);
 import { STATUS_PROGRESS_LABEL } from "../cli/progress.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installation.js";
@@ -2341,12 +2347,29 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout.startsWith("Apply blocked\n")).toBe(true);
+    // The extended vocabulary guard covers blocked human output (TEST-012, DEC-021).
+    expect(humanText(result.stdout)).not.toMatch(INTERNAL_TERM_PATTERN);
     expect(humanText(result.stdout).split(blocker)).toHaveLength(2);
     expect(humanText(result.stdout)).toContain(
       humanText(`Next:\n- ${projectPath}: Resolve the reported blocker, then run apkit apply again.`),
     );
     expect(result.stderr).toBe("");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("tool-error human output stays free of internal terms (TEST-012, DEC-021)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+
+    const unbound = join(home, "unbound");
+    mkdirSync(unbound, { recursive: true });
+    const failed = await runCli(home, "apply", unbound);
+    expectExitCode(failed, 1);
+    expect(failed.stderr).toContain("is not a bound Project");
+    expect(humanText(failed.stderr)).not.toMatch(INTERNAL_TERM_PATTERN);
   });
 
   test("blocked default output does not repeat the working-directory project root", async () => {
@@ -2547,6 +2570,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       const blocked = await runCli(blockedHome, command);
       expectExitCode(blocked, 2);
       expect(blocked.stdout).toMatch(/Blocker:|blocked/i);
+      // Blocked views stay free of internal vocabulary across every command (TEST-012).
+      expect(blocked.stdout).not.toMatch(INTERNAL_TERM_PATTERN);
       const blockedJson = await runCli(blockedHome, command, "--json");
       expectExitCode(blockedJson, 2);
       const payload = JSON.parse(blockedJson.stdout) as {
@@ -3220,7 +3245,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(focusedVerbose.stdout).toContain("'.agents/skills/s12'");
     expect(focusedVerbose.stdout).toContain("'.codex/hooks.json'");
     expect(focusedVerbose.stdout).toContain("working files are preserved");
-    expect(focusedVerbose.stdout).toContain("change or remove the Project Binding");
+    expect(focusedVerbose.stdout).toContain("change or remove the configured Project.");
+
+    // The extended vocabulary guard covers Blocker and error surfaces: no
+    // internal term may reach the blocked human view (TEST-012, DEC-021).
+    expect(focusedVerbose.stdout).not.toMatch(INTERNAL_TERM_PATTERN);
 
     const apply = await runCli(home, "apply");
 
@@ -4520,13 +4549,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout).toContain("Global blockers:");
-    expect(result.stdout).toContain("Installation State");
+    expect(result.stdout).toContain("installation record");
     expect(result.stdout).toContain("Blockers: 1");
     expectExitCode(apply, 2);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
     expect(apply.stdout).toContain("Global blockers:");
-    expect(apply.stdout).toContain("Installation State");
+    expect(apply.stdout).toContain("installation record");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
@@ -8833,8 +8862,10 @@ describe("shared presentation boundary", () => {
     expectExitCode(blockedTemp, 2);
     const blockedTempOutput = `${blockedTemp.stdout}${blockedTemp.stderr}`;
     expect(blockedTempOutput.replace(/\s+/g, " ")).toContain(
-      "Generated files are already managed through a Project Binding",
+      "Generated files are already managed through a configured Project",
     );
+    // Blocked temporary-installation output stays free of internal terms (TEST-012).
+    expect(humanText(blockedTempOutput)).not.toMatch(INTERNAL_TERM_PATTERN);
     for (const line of blockedTempOutput.split("\n")) {
       // Occupied-output lines carry project-relative path tokens that are
       // unbreakable by design (DEC-003).
@@ -11400,7 +11431,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expectExitCode(result, 2);
     expect(result.stdout).toBe("");
     expect(humanText(result.stderr)).toContain(
-      "Generated files are already managed through a Project Binding",
+      "Generated files are already managed through a configured Project",
     );
     expect(result.stderr).not.toContain(projectPath);
   });

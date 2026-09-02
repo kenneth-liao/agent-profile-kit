@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { execFileSync } from "node:child_process";
 import {
+
   chmodSync,
   existsSync,
   mkdirSync,
@@ -42,6 +43,7 @@ import {
   reportItems,
   reportOutputs,
 } from "./support/reconciliation-report.js";
+import { blockerWording } from "../cli/blocker-wording.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -316,7 +318,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     symlinkSync("../SKILL.md", scriptPath);
     const unsupported = await previewReconciliation(desired, await readInstallationState(home));
     expect(reportBlockers(unsupported).some((blocker) =>
-      blocker.message.includes("unsupported entry") && blocker.message.includes(directory.path)
+      blockerWording(blocker).message.includes("unsupported entry") && blockerWording(blocker).message.includes(directory.path)
     )).toBe(true);
     rmSync(scriptPath);
     writeFileSync(scriptPath, "#!/bin/sh\necho demo\n");
@@ -340,7 +342,7 @@ describe("Installer-owned artifact-directory outputs", () => {
       { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION },
     );
     expect(reportBlockers(report).some((blocker) =>
-      blocker.message.includes("occupied unowned artifact directory")
+      blockerWording(blocker).message.includes("occupied unowned artifact directory")
     )).toBe(true);
     expect(readFileSync(join(project, directory.path, "SKILL.md"), "utf8")).toBe("foreign\n");
   });
@@ -373,7 +375,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     const report = await previewReconciliation([changed], await readInstallationState(home));
 
     expect(reportBlockers(report)).toHaveLength(1);
-    expect(reportBlockers(report)[0]?.message).toContain(
+    expect(blockerWording(reportBlockers(report)[0]!).message).toContain(
       `${directory.path} is an occupied directory path`,
     );
   });
@@ -392,7 +394,7 @@ describe("Installer-owned artifact-directory outputs", () => {
       { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION },
     );
     expect(reportBlockers(report).some((blocker) =>
-      blocker.message.includes("occupied") && blocker.message.includes("parent path")
+      blockerWording(blocker).message.includes("occupied") && blockerWording(blocker).message.includes("parent path")
     )).toBe(true);
     expect(existsSync(join(project, directory.path))).toBe(false);
   });
@@ -485,7 +487,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     );
     expect(reportBlockers(report).some((blocker) =>
       blocker.kind === "installation-ownership" &&
-      blocker.message.includes(directory.path)
+      blockerWording(blocker).message.includes(directory.path)
     )).toBe(true);
     expect(readFileSync(join(external, "SKILL.md"), "utf8")).toBe("external\n");
   });
@@ -622,7 +624,7 @@ describe("Installer-owned artifact-directory outputs", () => {
       { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION },
     );
     expect(reportBlockers(report).some((blocker) =>
-      blocker.message.includes("tracked project path")
+      blockerWording(blocker).message.includes("tracked project path")
     )).toBe(true);
     expect(existsSync(join(project, directory.path))).toBe(false);
   });

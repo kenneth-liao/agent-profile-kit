@@ -321,6 +321,21 @@ export interface ProvenInstallationRemovalTransaction {
 }
 
 /**
+ * A temporary installation removal is blocked: removal authority does not hold
+ * for one or more recorded roots. The detail is a diagnostic fact; presentation
+ * owns the rendered sentence keyed by the blocker kind.
+ */
+export class TemporaryRemovalBlockedError extends Error {
+  readonly detail: string;
+
+  constructor(detail: string) {
+    super(`temporary installation removal blocked: ${detail}`);
+    this.name = "TemporaryRemovalBlockedError";
+    this.detail = detail;
+  }
+}
+
+/**
  * A staged removal could not be rolled back: some already-moved output roots
  * failed to restore, so the staging tree is the only surviving copy of those
  * bytes and is retained for recovery. This is never a skippable per-Project
@@ -468,8 +483,8 @@ export async function removeDisposableOutputs(options: {
     // deletes or untracks them, regardless of proven identity or drift.
     const tracked = await trackedRoots(project, extantRoots, createLifecycleGitInspectionContext());
     if (tracked.length > 0) {
-      throw new Error(
-        `Cannot remove Temporary Profile Installation: owned output ${tracked.join(", ")} ` +
+      throw new TemporaryRemovalBlockedError(
+        `owned output ${tracked.join(", ")} ` +
           "is tracked by Git; Agent Profile Kit will not delete or untrack repository-owned material",
       );
     }
@@ -485,8 +500,8 @@ export async function removeDisposableOutputs(options: {
   for (const output of outputs) {
     const unsafeParent = await unsafeOutputParent(project, output.path);
     if (unsafeParent) {
-      throw new Error(
-        `Cannot remove Temporary Profile Installation: owned output ${output.path} has unsafe parent: ${unsafeParent}`,
+      throw new TemporaryRemovalBlockedError(
+        `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
       );
     }
     const path = join(project, output.path);
@@ -499,8 +514,8 @@ export async function removeDisposableOutputs(options: {
     }
     // Refuse to follow a recorded root that is now a symlink pointing elsewhere.
     if (stats.isSymbolicLink()) {
-      throw new Error(
-        `Cannot remove Temporary Profile Installation: owned output ${output.path} is a symlink`,
+      throw new TemporaryRemovalBlockedError(
+        `owned output ${output.path} is a symlink`,
       );
     }
     await rm(path, { recursive: true, force: true });

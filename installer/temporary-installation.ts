@@ -51,6 +51,7 @@ import {
   type BlockerInput,
   type ReconciliationBlocker,
 } from "./blockers.js";
+import { TemporaryRemovalBlockedError } from "./installation-state.js";
 import {
   capabilityWarning,
   type HostCapabilityWarning,
@@ -73,22 +74,17 @@ export class TemporaryInstallationBlockedError extends Error {
   readonly #canonicalProject: string;
 
   /**
-   * Accept one canonical blocker-input collection, normalize it once, and derive
-   * the legacy string projection and Error.message from it so the two public
-   * views can never diverge. The canonical Project the blocked operation
-   * targeted is part of the error's identity, so it is required.
+   * Accept one canonical blocker-input collection and normalize it once. The
+   * blockers carry typed facts only; presentation owns every rendered sentence.
+   * The canonical Project the blocked operation targeted is part of the error's
+   * identity, so it is required.
    */
   constructor(inputs: readonly BlockerInput[], canonicalProject: string) {
     const canonical = inputs.map((input) => normalizeBlocker(input));
-    super(canonical.map((blocker) => blocker.message).join("\n"));
+    super(`temporary installation blocked: ${canonicalProject}`);
     this.name = "TemporaryInstallationBlockedError";
     this.#canonical = canonical;
     this.#canonicalProject = canonicalProject;
-  }
-
-  /** Legacy message projection consumed by temporary-installation JSON and human output. */
-  get blockers(): readonly string[] {
-    return this.#canonical.map((blocker) => blocker.message);
   }
 
   /** Complete structured evidence for each emitted blocker, published in machine JSON. */
@@ -259,9 +255,6 @@ export function projectConflictBlockers(
   );
   if (ordinary) {
     blockers.push(temporaryInstallationConflictBlocker({
-      message:
-        "Generated files are already managed through a Project Binding; remove them " +
-        "before installing a temporary Profile",
       project: canonicalProject,
     }));
   }
@@ -270,9 +263,6 @@ export function projectConflictBlockers(
   );
   if (activeTemporary) {
     blockers.push(temporaryInstallationConflictBlocker({
-      message:
-        "An active Temporary Profile Installation already owns generated files " +
-        `(${activeTemporary.installationId})`,
       project: canonicalProject,
       temporaryInstallationId: activeTemporary.installationId,
     }));
@@ -515,10 +505,10 @@ export async function removeTemporaryProfile(options: {
         await options.hooks?.onBeforeTerminalStateWrite?.();
         await writeState(options.home, nextState);
       } catch (error) {
-        if (error instanceof Error && error.message.startsWith("Cannot remove Temporary")) {
+        if (error instanceof TemporaryRemovalBlockedError) {
           throw new TemporaryInstallationBlockedError([
             temporaryInstallationRemovalBlocker({
-              message: error.message,
+              detail: error.detail,
               outputs: existing.outputs.map((output) => output.path),
               project: existing.project,
             }),

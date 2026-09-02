@@ -1350,7 +1350,7 @@ async function main(): Promise<void> {
             );
           } else {
             const blocked = presentTemporaryBlockedMessages(
-              error.blockers,
+              error.structured,
               error.canonicalProject,
             );
             writeHuman(
@@ -1428,7 +1428,7 @@ async function main(): Promise<void> {
             );
           } else {
             const blocked = presentTemporaryBlockedMessages(
-              error.blockers,
+              error.structured,
               error.canonicalProject,
             );
             writeHuman(

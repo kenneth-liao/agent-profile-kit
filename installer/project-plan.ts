@@ -10,6 +10,7 @@ import type {
   AdapterDiagnosticWarning,
   AdapterProjectPlan,
   HostSetupStep,
+  OutputRemedyKey,
   ProposedDirectoryMember,
   ProposedProjectOutput,
   ProjectOutputEntryType,
@@ -95,7 +96,7 @@ export interface DesiredProjectFileOutput {
   readonly mode: number;
   readonly origins: readonly ArtifactReference[];
   readonly path: string;
-  readonly remedy?: string;
+  readonly remedyKey?: OutputRemedyKey;
   readonly requirements: readonly string[];
   readonly type: "file";
 }
@@ -107,7 +108,7 @@ export interface DesiredProjectDirectoryOutput {
   readonly mode: number;
   readonly origins: readonly ArtifactReference[];
   readonly path: string;
-  readonly remedy?: string;
+  readonly remedyKey?: OutputRemedyKey;
   readonly requirements: readonly string[];
   readonly type: "directory";
 }
@@ -483,7 +484,7 @@ function normalizeProposedOutput(
       mode,
       origins,
       path,
-      ...(proposed.remedy === undefined ? {} : { remedy: proposed.remedy }),
+      ...(proposed.remedyKey === undefined ? {} : { remedyKey: proposed.remedyKey }),
       requirements,
       type: "file",
     };
@@ -502,7 +503,7 @@ function normalizeProposedOutput(
       mode,
       origins,
       path,
-      ...(proposed.remedy === undefined ? {} : { remedy: proposed.remedy }),
+      ...(proposed.remedyKey === undefined ? {} : { remedyKey: proposed.remedyKey }),
       requirements,
       type: "directory",
     };
@@ -538,12 +539,12 @@ export function normalizeAdapterPlans(
         artifactReferenceKey(left).localeCompare(artifactReferenceKey(right))
       );
       const requirements = [...new Set([...existing.requirements, ...normalized.requirements])].sort();
-      const remedy = existing.remedy ?? normalized.remedy;
+      const remedyKey = existing.remedyKey ?? normalized.remedyKey;
       outputs.set(normalized.path, {
         ...existing,
         consumingHosts: hosts,
         origins,
-        ...(remedy === undefined ? {} : { remedy }),
+        ...(remedyKey === undefined ? {} : { remedyKey }),
         requirements,
       });
     }

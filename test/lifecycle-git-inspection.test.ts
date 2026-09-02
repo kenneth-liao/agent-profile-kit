@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { execFileSync } from "node:child_process";
 import {
+
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -28,6 +29,7 @@ import {
   reportRepositoryExclusions,
   reportWarnings,
 } from "./support/reconciliation-report.js";
+import { blockerWording } from "../cli/blocker-wording.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -274,14 +276,14 @@ describe("lifecycle Git inspection batching", () => {
     expect(blocker.kind).toBe("output-ownership-conflict");
     expect(blocker.scope).toBe("project");
     expect(blocker.project).toBe(project);
-    expect(blocker.problem).toContain("tracked by Git");
-    expect(blocker.remedy).toContain("will not delete");
+    expect(blockerWording(blocker).problem).toContain("tracked by Git");
+    expect(blockerWording(blocker).remedy).toContain("will not delete");
     const affected = blocker.affectedItems
       .filter((item) => item.kind === "path")
       .map((item) => item.value)
       .sort();
     expect(affected).toEqual([...trackedPaths].sort());
-    expect(blocker.message).toContain("more tracked project");
+    expect(blockerWording(blocker).message).toContain("more tracked project");
   });
 
   test("reads each shared Repository Exclusion target once per reconciliation pass", async () => {

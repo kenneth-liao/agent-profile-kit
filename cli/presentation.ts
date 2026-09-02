@@ -2,6 +2,10 @@ import { homedir } from "node:os";
 import { realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 
+import {
+  blockerWording,
+  humanBlockerWording,
+} from "./blocker-wording.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,
@@ -1159,7 +1163,7 @@ function untrackRecoveryLines(
     `${indent}  Recovery: run the command below yourself; Agent Profile Kit never executes it. ` +
       "It stages removal of these paths from Git ownership (the Git index) while the working files are preserved:",
     `${indent}    ${trackedPathUntrackCommand(project, paths)}`,
-    `${indent}  Alternatively, change or remove the Project Binding.`,
+    `${indent}  Alternatively, change or remove the configured Project.`,
   ];
 }
 
@@ -1173,18 +1177,19 @@ function conciseOwnershipConflictLines(
   untrackRecovery: UntrackRecovery,
 ): readonly string[] {
   const paths = outputOwnershipConflictPaths(blocker);
-  const displayProject = displayProjectPath(blocker.project);
+  const wording = humanBlockerWording(blocker);
+  const displayProject = displayProjectPath(blocker.project!);
   const lines = [
-    `${indent}Blocker: ${shortenProjectReferences(blocker.problem, groups)}`,
-    `${indent}  Requirement: ${blocker.requirement}`,
-    `${indent}  Remedy: ${blocker.remedy}`,
+    `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups)}`,
+    `${indent}  Requirement: ${wording.requirement}`,
+    `${indent}  Remedy: ${wording.remedy}`,
     `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`,
   ];
   if (paths.length > 0) {
     lines.push(`${indent}  Affected paths (${paths.length}):`);
     lines.push(...trackedPathGroupLines(paths, indent));
   }
-  lines.push(...untrackRecoveryLines(blocker.project, paths, indent, untrackRecovery));
+  lines.push(...untrackRecoveryLines(blocker.project!, paths, indent, untrackRecovery));
   return lines;
 }
 
@@ -1198,10 +1203,11 @@ function conciseBlockerLines(
   if (isOutputOwnershipConflict(blocker)) {
     return conciseOwnershipConflictLines(blocker, groups, indent, untrackRecovery);
   }
+  const wording = humanBlockerWording(blocker);
   const lines = [
-    `${indent}Blocker: ${shortenProjectReferences(blocker.problem, groups)}`,
-    `${indent}  Requirement: ${blocker.requirement}`,
-    `${indent}  Remedy: ${blocker.remedy}`,
+    `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups)}`,
+    `${indent}  Requirement: ${wording.requirement}`,
+    `${indent}  Remedy: ${wording.remedy}`,
     `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`,
   ];
   for (const item of blocker.affectedItems) {
@@ -1215,22 +1221,23 @@ function verboseBlockerLines(
   shorten: (text: string) => string,
   untrackRecovery: UntrackRecovery,
 ): readonly string[] {
-  const project = blocker.scope === "project" ? displayProjectPath(blocker.project) : undefined;
+  const project = blocker.scope === "project" ? displayProjectPath(blocker.project!) : undefined;
+  const wording = humanBlockerWording(blocker);
   const lines = [
-    `- ${shorten(blocker.problem)}`,
-    `  Requirement: ${blocker.requirement}`,
-    `  Remedy: ${blocker.remedy}`,
+    `- ${shorten(wording.problem)}`,
+    `  Requirement: ${wording.requirement}`,
+    `  Remedy: ${wording.remedy}`,
     `  Scope: ${blockerScopeText(blocker, project)}`,
   ];
   for (const item of blocker.affectedItems) {
     const value = blocker.scope === "project" && item.kind === "path"
-      ? shorten(`${blocker.project}/${item.value}`)
+      ? shorten(`${blocker.project!}/${item.value}`)
       : item.value;
     lines.push(`  ${affectedItemLabel({ ...item, value })}`);
   }
   if (isOutputOwnershipConflict(blocker)) {
     lines.push(...untrackRecoveryLines(
-      blocker.project,
+      blocker.project!,
       outputOwnershipConflictPaths(blocker),
       "",
       untrackRecovery,
@@ -2590,7 +2597,7 @@ function lifecycleCopyableValues(
       // must never split it (#353).
       if (isOutputOwnershipConflict(blocker)) {
         const paths = outputOwnershipConflictPaths(blocker);
-        if (paths.length > 0) values.add(trackedPathUntrackCommand(blocker.project, paths));
+        if (paths.length > 0) values.add(trackedPathUntrackCommand(blocker.project!, paths));
       }
     }
     for (const exclusion of reportRepositoryExclusions(report)) {
@@ -3136,14 +3143,15 @@ const LIFECYCLE_MACHINE_SCHEMA_VERSION = 14 as const;
 const TEMPORARY_INSTALLATION_MACHINE_SCHEMA_VERSION = 9 as const;
 
 function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
+  const wording = blockerWording(blocker);
   return {
     kind: blocker.kind,
     scope: blocker.scope,
     ...(blocker.scope === "project" ? { project: blocker.project } : {}),
-    message: blocker.message,
-    problem: blocker.problem,
-    requirement: blocker.requirement,
-    remedy: blocker.remedy,
+    message: wording.message,
+    problem: wording.problem,
+    requirement: wording.requirement,
+    remedy: wording.remedy,
     affectedItems: blocker.affectedItems.map((item) => ({ kind: item.kind, value: item.value })),
   };
 }
@@ -3473,7 +3481,7 @@ export function formatTemporaryInstallationHuman(
  * command-name prefix counts toward the width measure.
  */
 export function presentTemporaryBlockedMessages(
-  messages: readonly string[],
+  blockers: readonly ReconciliationBlocker[],
   canonicalProject: string,
   authoredProject = canonicalProject,
   cwd = process.cwd(),
@@ -3488,7 +3496,8 @@ export function presentTemporaryBlockedMessages(
   }
   const references = [...new Set([canonicalProject, absoluteAuthoredPath(authoredProject, home)])]
     .sort((left, right) => right.length - left.length || left.localeCompare(right));
-  const text = messages
+  const text = blockers
+    .map((blocker) => humanBlockerWording(blocker).problem)
     .map((message) => references.reduce(
       (reduced, project) => replaceProjectReference(reduced, project, presented),
       message,

@@ -30,6 +30,7 @@ import type {
   AdapterDiagnosticWarning,
   AdapterHostSetupStep,
   AdapterProjectPlan,
+  OutputRemedyKey,
   ProposedProjectFileOutput,
   ProposedProjectOutput,
 } from "./project-plan.js";
@@ -83,9 +84,7 @@ export const OPENCODE_CONFIG_INVOCATION_REQUIREMENTS = [
   "OpenCode blocks model-selected Skill loading while native Skill commands remain available for explicit activation",
 ] as const;
 
-export const OPENCODE_CONFIG_OCCUPIED_REMEDY =
-  "move authored OpenCode configuration to opencode.json or .opencode/opencode.json, " +
-  "or change the Project Binding or Host selection so Agent Profile Kit does not plan output at that path, then retry";
+export const OPENCODE_CONFIG_OCCUPIED_REMEDY_KEY = "opencode-config-occupied" as const satisfies OutputRemedyKey;
 
 export type OpenCodeProjectPlan = AdapterProjectPlan;
 
@@ -354,7 +353,7 @@ function configurationOutput(
     mode: 0o644,
     origins,
     path: OPENCODE_CONFIG_PATH,
-    remedy: OPENCODE_CONFIG_OCCUPIED_REMEDY,
+    remedyKey: OPENCODE_CONFIG_OCCUPIED_REMEDY_KEY,
     requirements,
     type: "file",
   };

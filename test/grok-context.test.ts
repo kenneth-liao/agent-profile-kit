@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
+
   chmodSync,
   existsSync,
   mkdirSync,
@@ -47,6 +48,7 @@ import {
   reportDesired,
   reportItems,
 } from "./support/reconciliation-report.js";
+import { blockerWording } from "../cli/blocker-wording.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -465,7 +467,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
       // The write itself stays blocked by occupied-output ownership, not by probing.
       expect(
         reportBlockers(report).some((blocker) =>
-          blocker.message.includes("is an occupied other parent path"),
+          blockerWording(blocker).message.includes("is an occupied other parent path"),
         ),
       ).toBe(true);
       expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(false);
