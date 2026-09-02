@@ -208,7 +208,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     expect(reportBlockers(report)).toEqual([]);
     expect(reportOutputs(report)).toContainEqual({ kind: "unchanged", path: directory.path, project });
-    expect(reportOutputs(report)).not.toContainEqual({ kind: "drifted output", path: directory.path, project });
+    expect(reportOutputs(report)).not.toContainEqual({ kind: "update", path: directory.path, project });
   });
 
   test("apply drops a wholly absent recorded directory that current Workspace state no longer desires", async () => {
@@ -256,7 +256,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     const drifted = await previewReconciliation(desired, await readInstallationState(home));
     expect(reportOutputs(drifted).filter((item) => item.path === directory.path)).toEqual([{
-      kind: "drifted output",
+      kind: "update",
       path: directory.path,
       project,
     }]);
@@ -291,8 +291,8 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     async function expectRefreshDrift(): Promise<void> {
       const report = await previewReconciliation(desired, await readInstallationState(home));
-      expect(reportOutputs(report).filter((output) => output.kind === "drifted output")).toEqual([{
-        kind: "drifted output",
+      expect(reportOutputs(report).filter((output) => output.kind === "update")).toEqual([{
+        kind: "update",
         path: directory.path,
         project,
       }]);
@@ -410,7 +410,7 @@ describe("Installer-owned artifact-directory outputs", () => {
       await readInstallationState(home),
     );
     expect(reportOutputs(report)).toContainEqual({
-      kind: "drifted output",
+      kind: "update",
       path: directory.path,
       project,
     });
@@ -433,7 +433,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     );
 
     expect(reportOutputs(report).filter((output) =>
-      output.kind === "drifted output" && output.path === directory.path
+      output.kind === "update" && output.path === directory.path
     )).toHaveLength(1);
   });
 
@@ -451,7 +451,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     const preview = await previewReconciliation(desired, await readInstallationState(home));
     expect(reportBlockers(preview)).toEqual([]);
     expect(reportOutputs(preview)).toContainEqual({
-      kind: "drifted output",
+      kind: "update",
       path: directory.path,
       project,
     });

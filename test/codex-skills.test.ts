@@ -387,9 +387,9 @@ describe("Codex project Skill packages", () => {
 
     rmSync(join(project, ".agents", "skills", "write-notes"), { recursive: true, force: true });
     const missing = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(reportItems(missing).some((item) => item.kind === "repairable missing output")).toBe(true);
+    expect(reportItems(missing).some((item) => item.kind === "drifted output")).toBe(true);
     expect(reportOutputs(missing).some((item) =>
-      item.kind === "repair" && item.path === ".agents/skills/write-notes"
+      item.kind === "update" && item.path === ".agents/skills/write-notes"
     )).toBe(true);
     // Restore owned package contents so later drift/stale cases exercise a complete installation.
     mkdirSync(join(project, ".agents", "skills", "write-notes"), { recursive: true });

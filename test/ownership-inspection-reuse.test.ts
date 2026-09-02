@@ -199,9 +199,9 @@ describe("one shared ownership inspection per generated output per pass", () => 
 
     expect(reportBlockers(report)).toEqual([]);
     expect(reportItems(report).every((item) => item.kind === "current")).toBe(true);
-    // Ownership proof and root diagnostics consume the same directory result.
+    // Ownership proof and output planning consume the same directory result.
     // Each output path also resolves its unsafe-parent evidence once even though
-    // ownership proof and repairable detection both consult it.
+    // ownership proof and output planning both consult it.
     expect(instrumentation.counts.inspectFile).toBe(expectedFiles);
     expect(instrumentation.counts.inspectDirectory).toBe(expectedDirectories);
     expect(instrumentation.counts.unsafeParent).toBe(installation.outputs.length);
@@ -227,7 +227,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     );
 
     expect(reportOutputs(report)).toContainEqual({
-      kind: "drifted output",
+      kind: "update",
       path: directory.path,
       project,
     });
@@ -292,7 +292,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     expect(instrumentation.counts.inspectDirectory).toBe(2);
   });
 
-  test("an unreadable owned directory fails closed instead of entering the repair path", async () => {
+  test("an unreadable owned directory fails closed with an ownership blocker", async () => {
     const home = temporaryDirectory("apk-own-inspect-unreadable-home-");
     const project = temporaryDirectory("apk-own-inspect-unreadable-project-");
     const { desired } = await appliedDirectoryInstallation(home, project);
@@ -305,9 +305,8 @@ describe("one shared ownership inspection per generated output per pass", () => 
         await readInstallationState(home),
         { ownershipInspection: createLifecycleOwnershipInspectionContext() },
       );
-      // An unreadable existing tree is never classified as repairable absence;
-      // ownership fails closed instead, so apply cannot rename and replace it.
-      expect(reportItems(report).some((item) => item.kind === "repairable missing output")).toBe(false);
+      // An unreadable existing tree fails closed: ownership is revoked, so
+      // apply cannot rename and replace it.
       expect(reportItems(report).some((item) => item.kind === "drifted output")).toBe(true);
       expect(reportBlockers(report).some((blocker) =>
         blocker.kind === "installation-ownership"
@@ -317,7 +316,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     }
   });
 
-  test("an unreadable owned file fails closed instead of entering the repair path", async () => {
+  test("an unreadable owned file fails closed with an ownership blocker", async () => {
     const home = temporaryDirectory("apk-own-inspect-unreadable-file-home-");
     const project = temporaryDirectory("apk-own-inspect-unreadable-file-project-");
     const { desired } = await appliedDirectoryInstallation(home, project);
@@ -329,7 +328,6 @@ describe("one shared ownership inspection per generated output per pass", () => 
         await readInstallationState(home),
         { ownershipInspection: createLifecycleOwnershipInspectionContext() },
       );
-      expect(reportItems(report).some((item) => item.kind === "repairable missing output")).toBe(false);
       expect(reportItems(report).some((item) => item.kind === "drifted output")).toBe(true);
       expect(reportBlockers(report).some((blocker) =>
         blocker.kind === "installation-ownership"
@@ -339,13 +337,13 @@ describe("one shared ownership inspection per generated output per pass", () => 
     }
   });
 
-  test("a traversal-level failure with an extant root is never repairable", async () => {
+  test("a traversal-level failure with an extant root fails closed with an ownership blocker", async () => {
     const home = temporaryDirectory("apk-own-inspect-traversal-home-");
     const project = temporaryDirectory("apk-own-inspect-traversal-project-");
     const { desired } = await appliedDirectoryInstallation(home, project);
     // Simulate a child vanishing between readdir and lstat during the walk:
-    // traversal-level ENOENT while the root itself remains present. Only the
-    // root absence check may classify an output as repairable missing.
+    // traversal-level ENOENT while the root itself remains present. An extant
+    // root that cannot be walked never proves ownership continuity.
     const ownershipInspection = createLifecycleOwnershipInspectionContext({}, {
       walkDirectory: async () => {
         throw Object.assign(new Error("injected traversal ENOENT"), { code: "ENOENT" });
@@ -357,7 +355,6 @@ describe("one shared ownership inspection per generated output per pass", () => 
       { ownershipInspection },
     );
 
-    expect(reportItems(report).some((item) => item.kind === "repairable missing output")).toBe(false);
     expect(reportItems(report).some((item) => item.kind === "drifted output")).toBe(true);
     expect(reportBlockers(report).some((blocker) =>
       blocker.kind === "installation-ownership"

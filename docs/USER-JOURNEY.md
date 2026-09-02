@@ -582,7 +582,7 @@ Blockers:
 Blockers: 1 · Affected Projects: 1
 ```
 
-During a focused partial apply (`apkit apply --all --blockers-only`), healthy projects and eligible Safe Repairs commit while blocked projects remain untouched. The resulting report retains the committed `Applied:` receipt prefix before remaining blockers, so writes are never hidden.
+During a focused partial apply (`apkit apply --all --blockers-only`), healthy projects and their pending restorations commit while blocked projects remain untouched. The resulting report retains the committed `Applied:` receipt prefix before remaining blockers, so writes are never hidden.
 
 Gaps: ~~[UJ-02](#uj-02)~~, ~~[UJ-05](#uj-05)~~, ~~[UJ-06](#uj-06)~~ (shipped in [#117](https://github.com/kenneth-liao/agent-profile-kit/issues/117)), ~~[UJ-07](#uj-07)~~ (shipped across [#116](https://github.com/kenneth-liao/agent-profile-kit/issues/116) and [#152](https://github.com/kenneth-liao/agent-profile-kit/issues/152)),
 ~~[UJ-11](#uj-11)~~ (shipped in

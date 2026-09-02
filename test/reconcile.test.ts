@@ -104,7 +104,7 @@ describe("nested Project reconciliation report", () => {
     });
     const json = JSON.parse(formatLifecycleJson("status", report));
     expect(json).toMatchObject({
-      schemaVersion: 13,
+      schemaVersion: 14,
       command: "status",
       outcome: "blocked",
       globalBlockers: [],
@@ -308,6 +308,74 @@ describe("injected project filesystem failures", () => {
     expect(statSync(join(project, ".agent-profile-kit", "codex", "context.md")).mode & 0o777).toBe(0o600);
     const state = await readInstallationState(home);
     expect(state.receipts[0]!.outputs.find((output) => output.path.endsWith("context.md"))?.mode).toBe(0o600);
+  });
+
+  test("a wholly absent owned output is ordinary pending update work restored by apply", async () => {
+    const home = temporaryDirectory("agent-profile-kit-absent-home-");
+    const project = temporaryDirectory("agent-profile-kit-absent-project-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nAbsent output.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, desired.installations);
+    const contextPath = join(project, ".agent-profile-kit", "codex", "context.md");
+    rmSync(contextPath);
+
+    const report = await previewReconciliation(desired.installations, await readInstallationState(home));
+    expect(report.projects[0]!.state).toMatchObject({ kind: "drifted output" });
+    expect(report.projects[0]!.blockers).toHaveLength(0);
+    expect(report.projects[0]!.outputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "update", path: ".agent-profile-kit/codex/context.md" }),
+    ]));
+
+    const applied = await applyReconciliation(home, desired.installations);
+    expect(readFileSync(contextPath, "utf8")).toContain("Absent output.");
+    expect(applied.receipt.projects[0]!.outputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "update", path: ".agent-profile-kit/codex/context.md" }),
+    ]));
+  });
+
+  test("apply records the replacement of a user-edited generated file as a named write", async () => {
+    const home = temporaryDirectory("agent-profile-kit-edited-home-");
+    const project = temporaryDirectory("agent-profile-kit-edited-project-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nEdited replacement.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, desired.installations);
+    const contextPath = join(project, ".agent-profile-kit", "codex", "context.md");
+    writeFileSync(contextPath, "user edit\n");
+
+    const applied = await applyReconciliation(home, desired.installations);
+    expect(readFileSync(contextPath, "utf8")).toContain("Edited replacement.");
+    expect(applied.receipt.projects[0]!.state).toMatchObject({ kind: "drifted output" });
+    expect(applied.receipt.projects[0]!.outputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "update", path: ".agent-profile-kit/codex/context.md" }),
+    ]));
   });
 
   test("a missing-output repair remains retryable across output and Installation State publication failures", async () => {

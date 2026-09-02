@@ -60,7 +60,6 @@ import {
 import {
   createLifecycleOwnershipInspectionContext,
   type LifecycleOwnershipInspection,
-  type OwnedOutputInspection,
   recordedOutputMatches,
 } from "./lifecycle-ownership-inspection.js";
 import {
@@ -84,10 +83,6 @@ import {
   type ProjectScopedBlockerInput,
   type ReconciliationBlocker,
 } from "./blockers.js";
-import {
-  safeRepairItemClassification,
-  type SafeRepairWithProjectItem,
-} from "./safe-repair.js";
 
 export type { ReconciliationBlocker } from "./blockers.js";
 
@@ -115,7 +110,6 @@ export type ReconciliationKind =
   | "current"
   | "drifted output"
   | "malformed ownership state"
-  | "repairable missing output"
   | "removal"
   | "stale source"
   | "update";
@@ -128,9 +122,7 @@ export interface ReconciliationItem {
 
 export type OutputReconciliationKind =
   | "addition"
-  | "drifted output"
   | "removal"
-  | "repair"
   | "unchanged"
   | "update";
 
@@ -638,13 +630,6 @@ function composedContextFromOutputs(outputs: readonly DesiredProjectOutput[]): s
   return "";
 }
 
-function recordedOutputRequiresAttention(
-  output: OwnershipOutputReceipt,
-  inspection: OwnedOutputInspection,
-): boolean {
-  return inspection.kind !== "missing" && !recordedOutputMatches(inspection, output);
-}
-
 /**
  * Whether the extant Project path already holds exactly the desired bytes.
  * Adopting byte-identical output lets a re-bound Project at a new path install
@@ -887,32 +872,26 @@ export async function previewReconciliation(
     const ownership = previous
       ? await inspectInstallationOwnership(previous, inspection)
       : undefined;
-    const proposedOutputPaths = new Set(proposedOutputs.map((output) => output.path));
-    const repairableMissingOutputs = new Set(
-      (ownership?.repairableMissingOutputs ?? []).filter((path) => proposedOutputPaths.has(path)),
-    );
     const projectOutputItems: OutputReconciliationItem[] = [];
+    /** Recorded outputs whose on-disk bytes are absent or drifted from the receipt. */
+    const diskMismatchedOutputs = new Set<string>();
     for (const output of proposedOutputs) {
       const previousOutput = previousOutputs.get(output.path);
-      let kind: OutputReconciliationKind = repairableMissingOutputs.has(output.path)
-        ? "repair"
-        : previousOutput === undefined
-        ? "addition"
-        : previousOutput.hash === output.hash &&
-            previousOutput.mode === output.mode &&
-            previousOutput.type === output.type
-          ? "unchanged"
-          : "update";
-      if (
-        kind === "unchanged" &&
-        previousOutput &&
-        previous &&
-        recordedOutputRequiresAttention(
-          previousOutput,
-          await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput),
-        )
-      ) {
-        kind = "drifted output";
+      let kind: OutputReconciliationKind;
+      if (previousOutput === undefined) {
+        kind = "addition";
+      } else {
+        // One shared inspection per recorded output: absent or drifted bytes are
+        // ordinary pending update work that `apply` rewrites from the Workspace.
+        const disk = await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput);
+        const diskMismatched = !recordedOutputMatches(disk, previousOutput);
+        if (diskMismatched) diskMismatchedOutputs.add(output.path);
+        kind = diskMismatched ||
+            previousOutput.hash !== output.hash ||
+            previousOutput.mode !== output.mode ||
+            previousOutput.type !== output.type
+          ? "update"
+          : "unchanged";
       }
       projectOutputItems.push({
         kind,
@@ -953,34 +932,23 @@ export async function previewReconciliation(
           project,
         ));
       }
-      const repairableMissingOutput = repairableMissingOutputs.size > 0;
-      if (!proof.owned && !repairableMissingOutput) {
+      if (!proof.owned) {
         projectItems.push({
           kind: "drifted output",
           project: installation.binding.project,
           ...(proof.reason ? { reason: proof.reason } : {}),
         });
-      // Surface safe recreation ahead of stale source because apply repairs from
+      // Surface safe recreation ahead of stale source because apply restores from
       // that current source.
-      } else if (repairableMissingOutput) {
-        const repair: SafeRepairWithProjectItem = {
-          class: "absent-output",
-          paths: [...repairableMissingOutputs],
-        };
-        projectItems.push({
-          ...safeRepairItemClassification(repair),
-          project: installation.binding.project,
-        });
-      } else if (projectOutputItems.some((item) => item.kind === "drifted output")) {
-        // Identity-proven freshness drift is ordinary pending generated-output
-        // work: apply replaces the whole recorded root from current Workspace
-        // source. It never blocks the lifecycle or revokes ownership.
+      } else if (diskMismatchedOutputs.size > 0) {
+        // Identity-proven freshness drift and wholly absent roots are ordinary
+        // pending generated-output work: apply replaces the whole recorded root
+        // from current Workspace source. It never blocks the lifecycle or
+        // revokes ownership.
         projectItems.push({
           kind: "drifted output",
           project: installation.binding.project,
-          reason: projectOutputItems
-            .filter((item) => item.kind === "drifted output")
-            .map((item) => item.path)
+          reason: [...diskMismatchedOutputs]
             .sort(compareCanonicalStrings)
             .join(", "),
         });
