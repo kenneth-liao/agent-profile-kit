@@ -120,6 +120,13 @@ export type DesiredProjectOutput =
 /** Advisory Host capability warning authored from one Adapter's failure evidence. */
 export interface HostCapabilityWarning {
   readonly host: SupportedHost;
+  /**
+   * Whether the failure is machine-level (a missing or outdated Host CLI) or
+   * bound to one Project's surface. Deduplication keys on this scope: one
+   * warning per Host per invocation for machine-level failures, distinct
+   * warnings per affected Project for Project-specific surface failures.
+   */
+  readonly scope: "host" | "project";
   readonly warning: AdapterDiagnosticWarning;
 }
 
@@ -128,11 +135,19 @@ export interface HostCapabilityWarning {
  * boundary. Probing classifies capability for warning purposes only: it never
  * gates planning, never gates writing, and never produces a Blocker. The
  * Adapter remains the sole author of the warning's wording.
+ *
+ * The scope is classified here from the Adapter's typed evidence, once, so no
+ * downstream reader re-derives it: a failure carrying a path affected item is
+ * bound to one Project's surface, while a machine-level probe failure (a
+ * missing or outdated Host CLI) carries only the Host.
  */
 export function capabilityWarning(host: SupportedHost, failure: unknown): HostCapabilityWarning {
   const structured = isAdapterCapabilityError(failure) ? failure : undefined;
   return {
     host,
+    scope: structured?.affectedItems.some((item) => item.kind === "path") === true
+      ? "project"
+      : "host",
     warning: {
       copyableValues: structured === undefined
         ? [host]
@@ -718,15 +733,17 @@ export async function buildDesiredState(
   const sortedInstallations = [...installations].sort((left, right) =>
     left.binding.canonicalProject.localeCompare(right.binding.canonicalProject)
   );
-  // One warning per identical Host capability failure per invocation (DEC-014):
-  // cached machine-level probes fail identically for every Project, so the
-  // first Project in canonical order keeps the warning and the rest drop it,
-  // independent of how many Projects select the Host. Distinct Project-specific
-  // evidence (for example one Project's occupied surface) keeps its warning.
+  // One warning per Host per invocation for a missing or outdated Host CLI
+  // (DEC-014), regardless of how many Projects select the Host and how many
+  // distinct requirement messages it produced: the first Project in canonical
+  // order keeps the warning and the rest drop it. Project-specific surface
+  // failures keep their distinct warnings per affected Project.
   const warnedCapability = new Set<string>();
   const dedupedInstallations = sortedInstallations.map((installation) => {
     const capabilityWarnings = installation.capabilityWarnings.filter((entry) => {
-      const key = `${entry.host}\0${entry.warning.message}`;
+      const key = entry.scope === "project"
+        ? `${entry.host}\0${installation.binding.canonicalProject}\0${entry.warning.message}`
+        : entry.host;
       if (warnedCapability.has(key)) return false;
       warnedCapability.add(key);
       return true;

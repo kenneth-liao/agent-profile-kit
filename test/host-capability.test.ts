@@ -82,6 +82,7 @@ describe("Host capability probing", () => {
     expect(installation?.capabilityWarnings).toEqual([
       {
         host: "codex",
+        scope: "host",
         warning: {
           copyableValues: ["codex"],
           message: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile",
@@ -109,6 +110,7 @@ describe("Host capability probing", () => {
     expect(desired.installations[0]?.capabilityWarnings).toEqual([
       {
         host: "antigravity",
+        scope: "project",
         warning: {
           copyableValues: [
             "antigravity",

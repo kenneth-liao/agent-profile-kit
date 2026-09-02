@@ -278,6 +278,36 @@ describe("machine-level Host capability probes within one invocation", () => {
     expect(disabledInstallation?.capabilityWarnings).toEqual([]);
   });
 
+  test("an outdated Host emits one warning per Host per invocation across distinct requirement sets", async () => {
+    const home = temporaryDirectory("apk-host-probe-outdated-");
+    await fleetWorkspace({
+      home,
+      bindings: [
+        { hosts: ["claude"], profile: "context-only" },
+        { hosts: ["claude"], profile: "context-only" },
+        { hosts: ["claude"], profile: "skills-disabled" },
+      ],
+    });
+    // 2.0.63 is below the 2.0.64 floor, so the context-only requirement set
+    // fails with the unscoped-rules message and the skills-disabled set fails
+    // with the disabled-invocation message: two distinct requirement messages
+    // from the same Host in one invocation.
+    const bin = installProbeHosts(home, { claude: "2.0.63" });
+
+    const desired = await buildDesiredState(home, {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    });
+
+    expect(desired.installations).toHaveLength(3);
+    const claudeWarnings = desired.installations.flatMap((installation) =>
+      installation.capabilityWarnings.filter((entry) => entry.host === "claude"),
+    );
+    // One warning per Host per invocation (DEC-014), regardless of how many
+    // distinct requirement messages the Host produced.
+    expect(claudeWarnings).toHaveLength(1);
+    expect(claudeWarnings[0]?.warning.message).toContain("requires 2.0.64+");
+  });
+
   test("Project-specific destination checks still run for every affected Project", async () => {
     const home = temporaryDirectory("apk-host-probe-surface-");
     const projects = await fleetWorkspace({
