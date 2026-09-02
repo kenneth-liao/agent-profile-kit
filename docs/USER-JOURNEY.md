@@ -432,8 +432,8 @@ Setup guidance is reported conditionally by Host *and* by what was installed:
 
 **Codex Context floor (0.145.0+).** Context-bearing Codex plans probe
 `codex --version` during `apply`; a missing, unreadable, or older CLI produces
-one advisory warning per invocation naming Codex and the required floor, and
-the material is written regardless (ADR-0025). Skills-only Codex plans do not
+one advisory warning for that requirement per invocation, naming Codex and the
+required floor, and the material is written regardless (ADR-0025). Skills-only Codex plans do not
 probe. `status`, `validate`, and `uninstall` do not probe, so a post-apply
 Codex downgrade is not reported there — Context stops loading until a supported
 CLI is restored, and the next `apply` warns again.
@@ -490,8 +490,9 @@ asserting a user edit without provenance.
 
 **Host CLI missing or outdated** no longer blocks anything (ADR-0025): during
 `apply`, one advisory warning per identical Host capability failure per
-invocation names the Host and its required version — a missing or outdated CLI
-fails identically for every Project, so it emits once per invocation — and the
+invocation names the Host and its required version — the same requirement
+failing for every Project emits once per invocation, while distinct requirement
+failures for the same Host each emit their own warning — and the
 Host's material is written regardless. `status`,
 `validate`, and `uninstall` never probe. The historical excerpt below showed
 these conditions as Blockers with problem/requirement/remedy prose; that
