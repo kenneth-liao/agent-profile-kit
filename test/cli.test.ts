@@ -4623,15 +4623,161 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const uninstall = await runCli(home, "uninstall");
 
     expectExitCode(status, 2);
-    expect(status.stdout).toContain("schema_version must be 9 or 8");
+    expect(status.stdout).toContain("schema_version must be 9 or 8 or 7 or 6");
     expectExitCode(apply, 2);
     expect(apply.stderr).toBe("");
     expect(apply.stdout).toContain("Apply blocked");
-    expect(apply.stdout).toContain("schema_version must be 9 or 8");
+    expect(apply.stdout).toContain("schema_version must be 9 or 8 or 7 or 6");
     expectExitCode(uninstall, 1);
-    expect(uninstall.stderr).toContain("schema_version must be 9 or 8");
+    expect(uninstall.stderr).toContain("schema_version must be 9 or 8 or 7 or 6");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
+  });
+
+  /**
+   * Rewrite the current Installation State document as a pre-#379 writer
+   * produced it: a previous schema_version, a stored repository_exclusion
+   * field, and — at schema 6 only — a legacy Marker output entry the ingestion
+   * boundary must ignore (DEC-005). The v0.132.0 writer itself never recorded a
+   * Marker output entry, but the reader must ignore one if a document carries
+   * it.
+   */
+  function previousVersionStateSource(
+    state: {
+      receipts: Array<Record<string, unknown>>;
+      removed_temporary_installation_ids: string[];
+    },
+    options: { readonly markerOutputEntry: boolean; readonly schemaVersion: number },
+    projectPath: string,
+  ): string {
+    const receipt = structuredClone(state.receipts[0]!) as Record<string, unknown> & {
+      outputs: Array<Record<string, unknown>>;
+    };
+    receipt.repository_exclusion = {
+      entries: ["/.agent-profile-kit/codex/context.md", "/.codex/hooks.json"],
+      target: join(projectPath, ".git", "info", "exclude"),
+    };
+    if (options.markerOutputEntry) {
+      receipt.outputs = [
+        {
+          hash: `sha256:${"0".repeat(64)}`,
+          mode: 0o644,
+          path: ".agent-profile-kit/installation.json",
+          type: "file",
+        },
+        ...receipt.outputs,
+      ];
+    }
+    return `${JSON.stringify({
+      receipts: [receipt],
+      removed_temporary_installation_ids: state.removed_temporary_installation_ids,
+      schema_version: options.schemaVersion,
+    }, null, 2)}\n`;
+  }
+
+  test("a v0.132.0 schema-6 Installation State keeps its receipts without re-binding", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<Record<string, unknown>>;
+      removed_temporary_installation_ids: string[];
+    };
+    const installationId = state.receipts[0]!["installation_id"] as string;
+    writeFileSync(
+      statePath(home),
+      previousVersionStateSource(state, { markerOutputEntry: true, schemaVersion: 6 }, projectPath),
+    );
+
+    const status = await runCli(home, "status");
+    const apply = await runCli(home, "apply");
+
+    expectExitCode(status, 0);
+    expect(status.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
+    expectExitCode(apply, 0);
+
+    const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<{ installation_id: string; project: string }>;
+    };
+    expect(after.receipts).toHaveLength(1);
+    expect(after.receipts[0]!.installation_id).toBe(installationId);
+    expect(after.receipts[0]!.project).toBe(realpathSync(projectPath));
+  });
+
+  test("a schema-7 Installation State keeps its receipts without re-binding", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<Record<string, unknown>>;
+      removed_temporary_installation_ids: string[];
+    };
+    const installationId = state.receipts[0]!["installation_id"] as string;
+    writeFileSync(
+      statePath(home),
+      previousVersionStateSource(
+        state,
+        { markerOutputEntry: false, schemaVersion: 7 },
+        projectPath,
+      ),
+    );
+
+    const status = await runCli(home, "status");
+    const apply = await runCli(home, "apply");
+
+    expectExitCode(status, 0);
+    expect(status.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
+    expectExitCode(apply, 0);
+
+    const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<{ installation_id: string; project: string }>;
+    };
+    expect(after.receipts).toHaveLength(1);
+    expect(after.receipts[0]!.installation_id).toBe(installationId);
+    expect(after.receipts[0]!.project).toBe(realpathSync(projectPath));
+  });
+
+  test("the next successful write after a schema-6 upgrade publishes the current schema version", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<Record<string, unknown>>;
+      removed_temporary_installation_ids: string[];
+    };
+    const installationId = state.receipts[0]!["installation_id"] as string;
+    writeFileSync(
+      statePath(home),
+      previousVersionStateSource(state, { markerOutputEntry: true, schemaVersion: 6 }, projectPath),
+    );
+    // Drift one recorded output so the next apply performs a real write.
+    const drifted = join(projectPath, ".codex", "hooks.json");
+    writeFileSync(drifted, "user edit\n");
+
+    const applied = await runCli(home, "apply");
+
+    expectExitCode(applied, 0);
+    const republished = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      schema_version: number;
+      receipts: Array<{
+        installation_id: string;
+        outputs: Array<{ path: string }>;
+      }>;
+    };
+    expect(republished.schema_version).toBe(9);
+    expect(JSON.stringify(republished)).not.toContain("repository_exclusion");
+    expect(JSON.stringify(republished)).not.toContain("installation.json");
+    expect(republished.receipts).toHaveLength(1);
+    expect(republished.receipts[0]!.installation_id).toBe(installationId);
   });
 
   test("status reports a blocked installation deterministically without writing", async () => {

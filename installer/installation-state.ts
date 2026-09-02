@@ -23,7 +23,6 @@ import {
   OWNERSHIP_STATE_SCHEMA_VERSION,
   parseOwnershipState,
   parseOwnershipStateDocument,
-  PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION,
   type OwnershipOutputReceipt,
   type OwnershipReceipt,
   type OwnershipState,
@@ -129,13 +128,14 @@ export async function readInstallationState(home: string): Promise<OwnershipStat
 }
 
 /**
- * The single ingestion boundary for previous-version documents: legacy
- * ownership-token output entries are ignored here, so every downstream reader
- * sees the current shape. Any later successful write publishes the current
- * schema version.
+ * The single ingestion boundary for previous-version documents (schema 6, 7,
+ * and 8): legacy ownership-token output entries are ignored here, so every
+ * downstream reader sees the current shape. Stored `repository_exclusion`
+ * fields are already dropped by the schema parser itself, and any later
+ * successful write publishes the current schema version.
  */
 function normalizePreviousVersionState(state: ParsedOwnershipStateDocument): OwnershipState {
-  if (state.schemaVersion !== PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION) {
+  if (state.schemaVersion === OWNERSHIP_STATE_SCHEMA_VERSION) {
     return state as OwnershipState;
   }
   const receipts = state.receipts.map((receipt) => {
