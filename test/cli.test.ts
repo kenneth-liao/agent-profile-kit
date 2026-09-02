@@ -23,7 +23,9 @@ import {
   COMMAND_HELP_ALIASES,
   COMMANDS,
   COMMAND_GROUPS,
+  defaultCommands,
   HELP_COMMAND,
+  machineCommands,
 } from "../cli/command-help.js";
 import { TOPIC_GUIDES } from "../cli/guides.js";
 import {
@@ -6132,7 +6134,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "apply"), 0);
     const activeInstall = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       activeProject,
       "--host",
@@ -6141,7 +6143,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     const removedInstall = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       removedProject,
       "--host",
@@ -6154,7 +6156,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       .temporaryInstallationId;
     const removedId = (JSON.parse(removedInstall.stdout) as { temporaryInstallationId: string })
       .temporaryInstallationId;
-    expectExitCode(await runCli(home, "remove-temp", removedId, "--json"), 0);
+    expectExitCode(await runCli(home, "machine", "remove-temp", removedId, "--json"), 0);
     const before = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       receipts: readonly { installation_id: string; lifetime: string }[];
       removed_temporary_installation_ids: readonly string[];
@@ -9015,7 +9017,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expectExitCode(await runCli(home, "apply"), 0);
     const active = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       temporaryProject,
       "--host",
@@ -9029,7 +9031,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     mkdirSync(removedTempProject, { recursive: true });
     const removed = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       removedTempProject,
       "--host",
@@ -9039,7 +9041,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expectExitCode(removed, 0);
     const removedId = (JSON.parse(removed.stdout) as { temporaryInstallationId: string })
       .temporaryInstallationId;
-    expectExitCode(await runCli(home, "remove-temp", removedId, "--json"), 0);
+    expectExitCode(await runCli(home, "machine", "remove-temp", removedId, "--json"), 0);
 
     expectExitCode(await runCli(home, "unbind", projectPath), 0);
 
@@ -10052,7 +10054,7 @@ describe("shared presentation boundary", () => {
       { arguments_: ["list"], exclude: unbreakableApkit },
       { arguments_: ["list", "hosts"], exclude: (line) => unbreakableApkit(line) || structuralLabel(line) },
       { arguments_: ["list", "profiles"], exclude: unbreakableApkit },
-      { arguments_: ["list", "temporary"], exclude: unbreakableApkit },
+      { arguments_: ["machine", "list", "temporary"], exclude: unbreakableApkit },
       { arguments_: ["list", "projects"], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) || structuralLabel(line) },
       { arguments_: ["info"], exclude: structuralLabel },
       { arguments_: ["validate"], exclude: structuralLabel },
@@ -10116,7 +10118,7 @@ describe("shared presentation boundary", () => {
     const blockedTemp = await runCliInPty(
       tempHome,
       40,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -10142,7 +10144,7 @@ describe("shared presentation boundary", () => {
       ["list", "projects", "--json"],
       ["list", "profiles", "--json"],
       ["list", "hosts", "--json"],
-      ["list", "temporary", "--json"],
+      ["machine", "list", "temporary", "--json"],
       ["info", "--json"],
       ["status", "--json"],
       ["status", "--json"],
@@ -10283,10 +10285,10 @@ describe("apkit root help", () => {
     expect(commandsSection).toBeDefined();
     const menuLines = commandsSection!.split("\n");
     const commandLines = menuLines.filter((line) =>
-      COMMANDS.some((command) => line.trimStart().startsWith(command.syntax)),
+      defaultCommands().some((command) => line.trimStart().startsWith(command.syntax)),
     );
-    expect(commandLines).toHaveLength(COMMANDS.length);
-    for (const command of COMMANDS) {
+    expect(commandLines).toHaveLength(defaultCommands().length);
+    for (const command of defaultCommands()) {
       const line = commandLines.find((candidate) => new RegExp(`^\\s*${command.name}\\b`).test(candidate));
       expect(line).toBeDefined();
       expect(line).toContain(command.syntax);
@@ -10305,11 +10307,13 @@ describe("apkit root help", () => {
     expect(result.stderr).toBe("");
     let previousIndex = -1;
     for (const [group, label] of COMMAND_GROUPS) {
+      const commands = defaultCommands().filter((candidate) => candidate.group === group);
+      if (commands.length === 0) continue;
       const heading = group === "common" ? `${label}:` : `  ${label}:`;
       const groupIndex = result.stdout.indexOf(heading);
       expect(groupIndex).toBeGreaterThan(previousIndex);
       previousIndex = groupIndex;
-      for (const command of COMMANDS.filter((candidate) => candidate.group === group)) {
+      for (const command of commands) {
         const syntaxIndex = result.stdout.indexOf(`  ${command.syntax}\n`, previousIndex);
         expect(syntaxIndex).toBeGreaterThan(previousIndex);
         expect(result.stdout.slice(syntaxIndex).split("\n")[1]).toMatch(/^    \S/);
@@ -10369,17 +10373,29 @@ describe("apkit root help", () => {
     for (const command of ["init", "guide", "bind", "validate", "status", "apply"]) {
       expect(common).toMatch(new RegExp(`^  ${command}\\b`, "m"));
     }
-    for (const command of ["list", "unbind", "uninstall", "info", "install-temp", "remove-temp"]) {
+    for (const command of ["list", "unbind", "uninstall", "info"]) {
       expect(common).not.toMatch(new RegExp(`^  ${command}\\b`, "m"));
     }
 
     const secondary = result.stdout.slice(moreIndex);
-    for (const heading of ["Inventory", "Teardown", "Machine details", "Temporary installations"]) {
+    for (const heading of ["Inventory", "Teardown", "Machine details"]) {
       expect(secondary).toContain(`  ${heading}:`);
     }
-    for (const command of ["list", "unbind", "uninstall", "info", "install-temp", "remove-temp"]) {
+    for (const command of ["list", "unbind", "uninstall", "info"]) {
       expect(secondary).toMatch(new RegExp(`^  ${command}\\b`, "m"));
     }
+  });
+
+  test("root help omits machine-namespaced temporary installation commands entirely (DEC-019)", async () => {
+    const home = isolatedHome();
+    const result = await runCli(home, "--help");
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).not.toContain("Temporary installations");
+    expect(result.stdout).not.toContain("install-temp");
+    expect(result.stdout).not.toContain("remove-temp");
+    expect(result.stdout).not.toContain("list temporary");
   });
 
   test("every command explains its purpose, syntax, examples, writes, and next action", async () => {
@@ -10389,7 +10405,9 @@ describe("apkit root help", () => {
 
     for (const command of COMMANDS) {
       for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(command.summary).not.toMatch(term);
-      const result = await runCli(home, command.name, "--help");
+      const result = command.namespace === undefined
+        ? await runCli(home, command.name, "--help")
+        : await runCli(home, command.namespace, command.name, "--help");
       expectExitCode(result, 0);
       expect(result.stderr).toBe("");
       expect(result.stdout).toContain(`Usage: apkit ${command.syntax}`);
@@ -10399,6 +10417,7 @@ describe("apkit root help", () => {
       expect(result.stdout).toMatch(/^Next: .+/m);
       for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(result.stdout).not.toMatch(term);
 
+      if (command.namespace !== undefined) continue;
       const rootLine = root.stdout
         .split("\n")
         .find((line) => new RegExp(`^\\s*${command.name}\\b`).test(line));
@@ -10449,13 +10468,16 @@ describe("apkit root help", () => {
     expect(COMMAND_HELP_ALIASES).toEqual(["-h", "--help"]);
 
     for (const command of COMMANDS) {
-      const helpCommand = await runCli(home, HELP_COMMAND, command.name);
+      const invocation = command.namespace === undefined
+        ? [command.name]
+        : [command.namespace, command.name];
+      const helpCommand = await runCli(home, HELP_COMMAND, ...invocation);
 
       expectExitCode(helpCommand, 0);
       expect(helpCommand.stderr).toBe("");
       for (const alias of COMMAND_HELP_ALIASES) {
-        const aliasHelp = await runCli(home, command.name, alias);
-        const prefixedAliasHelp = await runCli(home, HELP_COMMAND, command.name, alias);
+        const aliasHelp = await runCli(home, ...invocation, alias);
+        const prefixedAliasHelp = await runCli(home, HELP_COMMAND, ...invocation, alias);
         expectExitCode(aliasHelp, 0);
         expectExitCode(prefixedAliasHelp, 0);
         expect(aliasHelp.stderr).toBe("");
@@ -10492,7 +10514,7 @@ describe("apkit root help", () => {
   test("focused binding help names Hosts from each command's supported capability set", async () => {
     const home = isolatedHome();
     const bindHelp = await runCli(home, "help", "bind");
-    const temporaryHelp = await runCli(home, "install-temp", "-h");
+    const temporaryHelp = await runCli(home, "machine", "install-temp", "-h");
 
     expectExitCode(bindHelp, 0);
     expectExitCode(temporaryHelp, 0);
@@ -10641,8 +10663,8 @@ describe("apkit root help", () => {
       ["list", "profiles", "--json"],
       ["list", "hosts"],
       ["list", "hosts", "--json"],
-      ["list", "temporary"],
-      ["list", "temporary", "--json"],
+      ["machine", "list", "temporary"],
+      ["machine", "list", "temporary", "--json"],
       ["validate"],
       ["status"],
       ["status", "--json"],
@@ -10651,8 +10673,8 @@ describe("apkit root help", () => {
       ["status"],
       ["status", "--json"],
       ["uninstall"],
-      ["install-temp"],
-      ["remove-temp"],
+      ["machine", "install-temp"],
+      ["machine", "remove-temp"],
       ["unknown-command"],
       ...COMMANDS.map((command) => [command.name, "--help"]),
     ];
@@ -10856,6 +10878,85 @@ describe("apkit root help", () => {
   });
 });
 
+describe("apkit machine namespace (DEC-019)", () => {
+  test("machine help lists the temporary installation commands and nothing else", async () => {
+    const home = isolatedHome();
+    const bare = await runCli(home, "machine");
+    const help = await runCli(home, "machine", "--help");
+    const shortHelp = await runCli(home, "machine", "-h");
+    const helpCommand = await runCli(home, HELP_COMMAND, "machine");
+
+    for (const result of [bare, help, shortHelp, helpCommand]) {
+      expectExitCode(result, 0);
+      expect(result.stderr).toBe("");
+    }
+    expect(bare.stdout).toBe(help.stdout);
+    expect(shortHelp.stdout).toBe(help.stdout);
+    expect(helpCommand.stdout).toBe(help.stdout);
+
+    expect(help.stdout).toContain("Usage: apkit machine <command> [arguments]");
+    expect(help.stdout).toContain("machine install-temp <profile> <project> --host <host> [--json]");
+    expect(help.stdout).toContain("machine remove-temp <temporary-installation-id> [--json]");
+    expect(help.stdout).toContain("machine list [temporary [--json]]");
+    for (const command of COMMANDS.filter((candidate) => candidate.namespace === undefined)) {
+      expect(help.stdout).not.toContain(command.syntax);
+    }
+    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(help.stdout).not.toMatch(term);
+  });
+
+  test("machine commands accept focused help aliases identical to help machine <command>", async () => {
+    const home = isolatedHome();
+    for (const command of ["install-temp", "remove-temp", "list"]) {
+      const helpCommand = await runCli(home, HELP_COMMAND, "machine", command);
+      expectExitCode(helpCommand, 0);
+      expect(helpCommand.stderr).toBe("");
+      expect(helpCommand.stdout).toContain(`Usage: apkit machine ${command}`);
+      for (const alias of COMMAND_HELP_ALIASES) {
+        const aliasHelp = await runCli(home, "machine", command, alias);
+        expectExitCode(aliasHelp, 0);
+        expect(aliasHelp.stderr).toBe("");
+        expect(aliasHelp.stdout).toBe(helpCommand.stdout);
+      }
+    }
+  });
+
+  test("machine focused help names the temporary Host capability set", async () => {
+    const home = isolatedHome();
+    const help = await runCli(home, "machine", "install-temp", "-h");
+
+    expectExitCode(help, 0);
+    expect(help.stdout).toContain(`Supported Hosts: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`);
+  });
+
+  test("removed top-level temporary commands fail fast with the machine replacement", async () => {
+    const home = isolatedHome();
+    for (const [arguments_, replacement] of [
+      [["install-temp"], "apkit machine install-temp"],
+      [["install-temp", "--help"], "apkit machine install-temp"],
+      [["help", "install-temp"], "apkit machine install-temp"],
+      [["remove-temp"], "apkit machine remove-temp"],
+      [["remove-temp", "--json"], "apkit machine remove-temp"],
+      [["help", "remove-temp"], "apkit machine remove-temp"],
+    ] as const) {
+      const result = await runCli(home, ...arguments_);
+      expectExitCode(result, 1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("moved behind the machine namespace");
+      expect(result.stderr).toContain(replacement);
+    }
+  });
+
+  test("top-level list temporary fails fast pointing at the machine inventory", async () => {
+    const home = isolatedHome();
+    for (const arguments_ of [["list", "temporary"], ["list", "temporary", "--json"]]) {
+      const result = await runCli(home, ...arguments_);
+      expectExitCode(result, 1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("apkit machine list temporary");
+    }
+  });
+});
+
 describe("apkit list", () => {
   test("without a topic, prints a self-describing inventory index without configuration", async () => {
     const home = isolatedHome();
@@ -10880,13 +10981,13 @@ describe("apkit list", () => {
   test("temporary is empty without Installation State and does not initialize application state", async () => {
     const home = isolatedHome();
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "temporary");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "machine", "list", "temporary");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
       "No temporary Profiles are active.\n" +
-        "Use apkit install-temp <profile> <project> --host <host> to create one.\n",
+        "Create one with apkit machine install-temp <profile> <project> --host <host>.\n",
     );
     expect(result.stdout).not.toContain("Next:");
     expect(existsSync(join(home, ".agents"))).toBe(false);
@@ -10959,7 +11060,7 @@ describe("apkit list", () => {
     writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
     const stateBefore = readFileSync(statePath(home), "utf8");
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "temporary");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "machine", "list", "temporary");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -10977,7 +11078,7 @@ describe("apkit list", () => {
 
     const install = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       temporaryProject,
       "--host",
@@ -10987,7 +11088,7 @@ describe("apkit list", () => {
     expectExitCode(install, 0);
     const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
 
-    const result = await runCli(home, "list", "temporary");
+    const result = await runCli(home, "machine", "list", "temporary");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -10997,7 +11098,7 @@ describe("apkit list", () => {
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Host: codex");
     expect(result.stdout).toContain(
-      "Use apkit remove-temp <temporary-installation-id> to remove one when finished.",
+      "Use apkit machine remove-temp <temporary-installation-id> to remove one.",
     );
     expect(result.stdout).not.toContain("Next:");
   });
@@ -11012,7 +11113,7 @@ describe("apkit list", () => {
 
     const install = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       temporaryProject,
       "--host",
@@ -11025,7 +11126,7 @@ describe("apkit list", () => {
     const stateBefore = readFileSync(statePath(home), "utf8");
     const projectEntriesBefore = readdirSync(temporaryProject).sort();
 
-    const result = await runCli(home, "list", "temporary", "--json");
+    const result = await runCli(home, "machine", "list", "temporary", "--json");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -11063,7 +11164,7 @@ describe("apkit list", () => {
     expectExitCode(applyResult, 0);
     const install = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       temporaryProject,
       "--host",
@@ -11073,14 +11174,14 @@ describe("apkit list", () => {
     expectExitCode(install, 0);
     const receipt = JSON.parse(install.stdout) as { readonly temporaryInstallationId: string };
 
-    const active = await runCli(home, "list", "temporary");
+    const active = await runCli(home, "machine", "list", "temporary");
     expectExitCode(active, 0);
     expect(active.stdout).toContain("temporary-project");
     expect(active.stdout).not.toContain("ordinary-project");
 
-    const remove = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    const remove = await runCli(home, "machine", "remove-temp", receipt.temporaryInstallationId, "--json");
     expectExitCode(remove, 0);
-    const afterRemoval = await runCli(home, "list", "temporary");
+    const afterRemoval = await runCli(home, "machine", "list", "temporary");
 
     expectExitCode(afterRemoval, 0);
     expect(afterRemoval.stdout).toContain("No temporary Profiles are active.");
@@ -11105,7 +11206,7 @@ describe("apkit list", () => {
     for (const projectPath of [secondProject, firstProject]) {
       const install = await runCli(
         home,
-        "install-temp",
+        "machine", "install-temp",
         "coding",
         projectPath,
         "--host",
@@ -11115,7 +11216,7 @@ describe("apkit list", () => {
       expectExitCode(install, 0);
     }
 
-    const result = await runCli(home, "list", "temporary", "--json");
+    const result = await runCli(home, "machine", "list", "temporary", "--json");
 
     expectExitCode(result, 0);
     const payload = JSON.parse(result.stdout) as {
@@ -11133,7 +11234,7 @@ describe("apkit list", () => {
     const malformed = "not Installation State\n";
     writeFileSync(statePath(home), malformed);
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "temporary", "--json");
+    const result = await runCliWithPath(home, process.env.PATH ?? "", "machine", "list", "temporary", "--json");
 
     expectExitCode(result, 1);
     expect(result.stderr).toBe("");
@@ -11833,31 +11934,31 @@ describe("apkit info", () => {
 describe("apkit temporary Profile installation (Codex)", () => {
   test("install-temp and remove-temp help use the settled temporary-install vocabulary", async () => {
     const home = isolatedHome();
-    const installHelp = await runCli(home, "install-temp", "--help");
+    const installHelp = await runCli(home, "machine", "install-temp", "--help");
     expectExitCode(installHelp, 0);
     expect(installHelp.stdout).toContain("Install a temporary Profile into one Project");
-    expect(installHelp.stdout).toContain("Usage: apkit install-temp <profile> <project> --host <host> [--json]");
-    expect(installHelp.stdout).toContain("Next: Run apkit remove-temp <temporary-installation-id> when finished.");
+    expect(installHelp.stdout).toContain("Usage: apkit machine install-temp <profile> <project> --host <host> [--json]");
+    expect(installHelp.stdout).toContain("Next: Run apkit machine remove-temp <temporary-installation-id> when finished.");
     expect(installHelp.stdout).toContain("--host claude");
     expect(installHelp.stdout).toContain("--host codex");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
       expect(installHelp.stdout).not.toMatch(term);
     }
 
-    const removeHelp = await runCli(home, "remove-temp", "--help");
+    const removeHelp = await runCli(home, "machine", "remove-temp", "--help");
     expectExitCode(removeHelp, 0);
     expect(removeHelp.stdout).toContain("Remove one temporary Profile");
     expect(removeHelp.stdout).not.toContain("Remove one temporary project");
-    expect(removeHelp.stdout).toContain("Usage: apkit remove-temp <temporary-installation-id> [--json]");
+    expect(removeHelp.stdout).toContain("Usage: apkit machine remove-temp <temporary-installation-id> [--json]");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
       expect(removeHelp.stdout).not.toMatch(term);
     }
 
-    const root = await runCli(home);
-    expect(root.stdout).toContain("Install a temporary Profile into one Project");
-    expect(root.stdout).toContain("Remove one temporary Profile");
+    const machine = await runCli(home, "machine", "--help");
+    expect(machine.stdout).toContain("Install a temporary Profile into one Project");
+    expect(machine.stdout).toContain("Remove one temporary Profile");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
-      expect(root.stdout).not.toMatch(term);
+      expect(machine.stdout).not.toMatch(term);
     }
   });
 
@@ -11872,7 +11973,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const install = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -11881,7 +11982,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     expectExitCode(install, 0);
     const identity = install.stdout.match(/^  Temporary installation: (\S+)$/m)?.[1];
-    const printed = install.stdout.match(/^Next: (apkit remove-temp (\S+))$/m);
+    const printed = install.stdout.match(/^Next: (apkit machine remove-temp (\S+))$/m);
     expect(identity).toBeTruthy();
     expect(printed?.[2]).toBe(identity);
     expect(existsSync(join(tempProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
@@ -11928,7 +12029,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const install = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -12006,7 +12107,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       ),
     ).toBe(true);
 
-    const remove = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    const remove = await runCli(home, "machine", "remove-temp", receipt.temporaryInstallationId, "--json");
     expectExitCode(remove, 0);
     const removed = JSON.parse(remove.stdout) as {
       readonly outcome: string;
@@ -12027,7 +12128,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
     expect(readFileSync(exclude, "utf8")).not.toContain("# BEGIN Agent Profile Kit generated paths");
 
-    const removeAgain = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    const removeAgain = await runCli(home, "machine", "remove-temp", receipt.temporaryInstallationId, "--json");
     expectExitCode(removeAgain, 0);
     const removedAgain = JSON.parse(removeAgain.stdout) as {
       readonly outcome: string;
@@ -12079,7 +12180,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     const install = await runCliWithPath(
       home,
       `${piBin}:${process.env.PATH ?? ""}`,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -12168,7 +12269,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       ),
     ).toBe(true);
 
-    const remove = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    const remove = await runCli(home, "machine", "remove-temp", receipt.temporaryInstallationId, "--json");
     expectExitCode(remove, 0);
     const removed = JSON.parse(remove.stdout) as {
       readonly outcome: string;
@@ -12190,7 +12291,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(readFileSync(exclude, "utf8")).not.toContain("# BEGIN Agent Profile Kit generated paths");
     expect(readFileSync(unrelated, "utf8")).toBe("user-owned\n");
 
-    const removeAgain = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    const removeAgain = await runCli(home, "machine", "remove-temp", receipt.temporaryInstallationId, "--json");
     expectExitCode(removeAgain, 0);
     const removedAgain = JSON.parse(removeAgain.stdout) as {
       readonly outcome: string;
@@ -12218,7 +12319,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     const tracked = await runCliWithPath(
       home,
       `${piBin}:${process.env.PATH ?? ""}`,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       projectPath,
       "--host",
@@ -12250,7 +12351,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const install = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -12279,7 +12380,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const human = await runCli(
       home,
-      "remove-temp",
+      "machine", "remove-temp",
       JSON.parse(install.stdout).temporaryInstallationId,
     );
     expectExitCode(human, 0);
@@ -12287,7 +12388,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     // Reinstall for human install output with the same hooks warning.
     const humanInstall = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -12315,7 +12416,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const unknownProfile = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "missing-profile",
       projectPath,
       "--host",
@@ -12333,7 +12434,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const unsupportedHost = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       projectPath,
       "--host",
@@ -12348,7 +12449,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const missingProject = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       join(home, "no-such-project"),
       "--host",
@@ -12365,7 +12466,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const tracked = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       projectPath,
       "--host",
@@ -12401,7 +12502,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const install = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -12435,7 +12536,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const install = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -12455,7 +12556,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     );
     writeFileSync(join(tempProject, ".agent-profile-kit", "codex", "context.md"), "mutated\n");
 
-    const remove = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    const remove = await runCli(home, "machine", "remove-temp", receipt.temporaryInstallationId, "--json");
     expectExitCode(remove, 0);
     expect(JSON.parse(remove.stdout).completionState).toBe("removed");
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
@@ -12472,7 +12573,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const install = await runCli(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -12486,7 +12587,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     writeFileSync(tracked, "user drift\n");
     execFileSync("git", ["-C", tempProject, "add", "-f", ".agent-profile-kit/codex/context.md"]);
 
-    const remove = await runCli(home, "remove-temp", receipt.temporaryInstallationId, "--json");
+    const remove = await runCli(home, "machine", "remove-temp", receipt.temporaryInstallationId, "--json");
 
     expectExitCode(remove, 2);
     const blocked = JSON.parse(remove.stdout) as {
@@ -12520,8 +12621,8 @@ describe("apkit temporary Profile installation (Codex)", () => {
     const first = realpathSync(addWorktree(primary, "trial-a"));
     const second = realpathSync(addWorktree(primary, "trial-b"));
 
-    const installA = await runCli(home, "install-temp", "coding", first, "--host", "codex", "--json");
-    const installB = await runCli(home, "install-temp", "coding", second, "--host", "codex", "--json");
+    const installA = await runCli(home, "machine", "install-temp", "coding", first, "--host", "codex", "--json");
+    const installB = await runCli(home, "machine", "install-temp", "coding", second, "--host", "codex", "--json");
     expectExitCode(installA, 0);
     expectExitCode(installB, 0);
     const idA = JSON.parse(installA.stdout).temporaryInstallationId as string;
@@ -12530,7 +12631,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
 
-    const removeA = await runCli(home, "remove-temp", idA, "--json");
+    const removeA = await runCli(home, "machine", "remove-temp", idA, "--json");
     expectExitCode(removeA, 0);
     expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
@@ -12538,7 +12639,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       "# BEGIN Agent Profile Kit generated paths",
     );
 
-    const removeB = await runCli(home, "remove-temp", idB, "--json");
+    const removeB = await runCli(home, "machine", "remove-temp", idB, "--json");
     expectExitCode(removeB, 0);
     expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(primary, ".git", "info", "exclude"), "utf8")).not.toContain(
@@ -12553,10 +12654,10 @@ describe("apkit temporary Profile installation (Codex)", () => {
     writeContextProfile(home, "coding");
     const tempProject = realpathSync(gitRepository("agent-profile-kit-temp-second-cli-"));
 
-    const first = await runCli(home, "install-temp", "coding", tempProject, "--host", "codex", "--json");
+    const first = await runCli(home, "machine", "install-temp", "coding", tempProject, "--host", "codex", "--json");
     expectExitCode(first, 0);
 
-    const second = await runCli(home, "install-temp", "coding", tempProject, "--host", "codex", "--json");
+    const second = await runCli(home, "machine", "install-temp", "coding", tempProject, "--host", "codex", "--json");
     expectExitCode(second, 2);
     const blocked = JSON.parse(second.stdout) as {
       readonly outcome: string;
@@ -12581,7 +12682,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     bind(home, authored);
     expectExitCode(await runCli(home, "apply"), 0);
 
-    const result = await runCli(home, "install-temp", "coding", authored, "--host", "codex");
+    const result = await runCli(home, "machine", "install-temp", "coding", authored, "--host", "codex");
 
     expectExitCode(result, 2);
     expect(result.stdout).toBe("");
@@ -12602,18 +12703,18 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     // Receipt-owned temporary lifetime first: an ordinary Profile Installation on
     // the same Project blocks install-temp (ADR-0015).
-    const install = await runCli(home, "install-temp", "coding", authored, "--host", "codex");
+    const install = await runCli(home, "machine", "install-temp", "coding", authored, "--host", "codex");
     expectExitCode(install, 0);
     expect(install.stdout).toContain(`Project: ${authored}\n`);
     expect(install.stdout).not.toContain(canonical);
     const temporaryInstallationId = install.stdout.match(/Temporary installation: (\S+)/)![1]!;
 
-    const temporary = await runCli(home, "list", "temporary");
+    const temporary = await runCli(home, "machine", "list", "temporary");
     expectExitCode(temporary, 0);
     expect(temporary.stdout).toContain(`Project: ${authored}\n`);
     expect(temporary.stdout).not.toContain(canonical);
 
-    const remove = await runCli(home, "remove-temp", temporaryInstallationId);
+    const remove = await runCli(home, "machine", "remove-temp", temporaryInstallationId);
     expectExitCode(remove, 0);
     expect(remove.stdout).toContain(`Project: ${authored}\n`);
     expect(remove.stdout).not.toContain(canonical);
@@ -12709,7 +12810,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
 
     const install = await runCliWithClaude(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -12777,7 +12878,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
 
     const humanInstall = await runCliWithClaude(
       home,
-      "remove-temp",
+      "machine", "remove-temp",
       receipt.temporaryInstallationId,
     );
     // Already installed — re-install after remove for human summary, then assert jargon-free.
@@ -12788,7 +12889,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
 
     const reinstall = await runCliWithClaude(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -12806,7 +12907,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expect(reinstallIdMatch?.[1]).toBeTruthy();
     const reinstallId = reinstallIdMatch![1]!;
 
-    const remove = await runCliWithClaude(home, "remove-temp", reinstallId, "--json");
+    const remove = await runCliWithClaude(home, "machine", "remove-temp", reinstallId, "--json");
     expectExitCode(remove, 0);
     const removed = JSON.parse(remove.stdout) as {
       readonly outcome: string;
@@ -12828,7 +12929,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expect(existsSync(join(tempProject, ".claude", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
 
-    const removeAgain = await runCliWithClaude(home, "remove-temp", reinstallId, "--json");
+    const removeAgain = await runCliWithClaude(home, "machine", "remove-temp", reinstallId, "--json");
     expectExitCode(removeAgain, 0);
     expect(JSON.parse(removeAgain.stdout).completionState).toBe("removed");
     expect(JSON.parse(removeAgain.stdout).outcome).toBe("success");
@@ -12857,7 +12958,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expectExitCode(applyDisabled, 0);
     const installDisabled = await runCliWithClaude(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       temporaryProject,
       "--host",
@@ -12883,7 +12984,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       readonly temporaryInstallationId: string;
     };
     expectExitCode(
-      await runCliWithClaude(home, "remove-temp", disabledReceipt.temporaryInstallationId),
+      await runCliWithClaude(home, "machine", "remove-temp", disabledReceipt.temporaryInstallationId),
       0,
     );
 
@@ -12894,7 +12995,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expectExitCode(await runCliWithClaude(home, "apply"), 0);
     const installAllowed = await runCliWithClaude(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       temporaryProject,
       "--host",
@@ -12911,7 +13012,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       readonly temporaryInstallationId: string;
     };
     expectExitCode(
-      await runCliWithClaude(home, "remove-temp", allowedReceipt.temporaryInstallationId),
+      await runCliWithClaude(home, "machine", "remove-temp", allowedReceipt.temporaryInstallationId),
       0,
     );
     expectExitCode(await runCliWithClaude(home, "uninstall"), 0);
@@ -12925,7 +13026,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
 
     const claudeInstall = await runCliWithClaude(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       claudeProject,
       "--host",
@@ -12934,7 +13035,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     );
     const codexInstall = await runCliWithClaude(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       codexProject,
       "--host",
@@ -12994,7 +13095,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
 
     const success = await runCliWithClaude(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       projectPath,
       "--host",
@@ -13005,7 +13106,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
 
     const missingProfile = await runCliWithClaude(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "no-such-profile",
       projectPath,
       "--host",
@@ -13015,7 +13116,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     expectExitCode(missingProfile, 1);
     expect(JSON.parse(missingProfile.stdout).outcome).toBe("error");
 
-    const invalidInvocation = await runCliWithClaude(home, "install-temp", "--json");
+    const invalidInvocation = await runCliWithClaude(home, "machine", "install-temp", "--json");
     expectExitCode(invalidInvocation, 1);
 
     // Advisory capability warning: old Claude CLI floor does not block install-temp.
@@ -13024,7 +13125,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     const outdatedProject = gitRepository("agent-profile-kit-temp-claude-old-");
     const outdated = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [cliPath, "install-temp", "coding", outdatedProject, "--host", "claude", "--json"],
+      arguments_: [cliPath, "machine", "install-temp", "coding", outdatedProject, "--host", "claude", "--json"],
       environment: { ...process.env, HOME: home, PATH: pathValue },
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
@@ -13093,7 +13194,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
 
     const install = await runCliWithOpenCode(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -13184,7 +13285,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
 
     const humanRemove = await runCliWithOpenCode(
       home,
-      "remove-temp",
+      "machine", "remove-temp",
       receipt.temporaryInstallationId,
     );
     expectExitCode(humanRemove, 0);
@@ -13194,7 +13295,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
 
     const reinstall = await runCliWithOpenCode(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       tempProject,
       "--host",
@@ -13212,7 +13313,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
     expect(reinstallIdMatch?.[1]).toBeTruthy();
     const reinstallId = reinstallIdMatch![1]!;
 
-    const remove = await runCliWithOpenCode(home, "remove-temp", reinstallId, "--json");
+    const remove = await runCliWithOpenCode(home, "machine", "remove-temp", reinstallId, "--json");
     expectExitCode(remove, 0);
     const removed = JSON.parse(remove.stdout) as {
       readonly outcome: string;
@@ -13235,7 +13336,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
 
-    const removeAgain = await runCliWithOpenCode(home, "remove-temp", reinstallId, "--json");
+    const removeAgain = await runCliWithOpenCode(home, "machine", "remove-temp", reinstallId, "--json");
     expectExitCode(removeAgain, 0);
     expect(JSON.parse(removeAgain.stdout).completionState).toBe("removed");
     expect(JSON.parse(removeAgain.stdout).outcome).toBe("success");
@@ -13252,7 +13353,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
 
     const success = await runCliWithOpenCode(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "coding",
       projectPath,
       "--host",
@@ -13263,7 +13364,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
 
     const missingProfile = await runCliWithOpenCode(
       home,
-      "install-temp",
+      "machine", "install-temp",
       "no-such-profile",
       projectPath,
       "--host",
@@ -13279,7 +13380,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
     const outdatedProject = gitRepository("agent-profile-kit-temp-opencode-old-");
     const outdated = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [cliPath, "install-temp", "coding", outdatedProject, "--host", "opencode", "--json"],
+      arguments_: [cliPath, "machine", "install-temp", "coding", outdatedProject, "--host", "opencode", "--json"],
       environment: { ...process.env, HOME: home, PATH: pathValue },
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",

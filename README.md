@@ -118,7 +118,7 @@ Machine-readable command contracts:
   Temporary Profile Installation is supported. It reads capability constants
   only; it does not inspect PATH, Host versions, configuration, Project roots,
   or project output, and never changes state.
-- `list temporary --json` prints a `schemaVersion: 1` object with the engine
+- `machine list temporary --json` prints a `schemaVersion: 1` object with the engine
   version and active Temporary Profile Installation identities, canonical
   Project paths, Profile IDs, and Hosts. Removed identities and ordinary
   installations are omitted. It reads Installation State only and never runs
@@ -133,9 +133,11 @@ Machine-readable command contracts:
   `requirement`, `remedy`, and `affectedItems`. Apply keeps an `applied` nested
   snapshot distinct from the freshly verified resulting Project records; failed
   Project transactions also identify the failed and still-pending Projects.
-  Every `install-temp`/`remove-temp` JSON payload — success receipt, blocked,
+  Every `machine install-temp`/`machine remove-temp` JSON payload — success receipt, blocked,
   and tool error — versions as one family and currently publishes
-  `schemaVersion: 8`; the two families evolve independently (ADR-0023).
+  `schemaVersion: 8`; the two families evolve independently (ADR-0023). The
+  JSON `command` field keeps the bare `install-temp`/`remove-temp` labels, so
+  the machine-facing namespace does not change any payload (DEC-019).
   Combined with `--verbose`, machine output wins.
 - Exit codes: `0` no tool error and no blockers (JSON `outcome` may still be
   `attention` for pending work), `1` tool error (JSON `outcome: "error"` with
@@ -161,8 +163,8 @@ apkit list profiles
 apkit list profiles --json
 apkit list hosts
 apkit list hosts --json
-apkit list temporary
-apkit list temporary --json
+apkit machine list temporary
+apkit machine list temporary --json
 apkit validate
 apkit status                # complete read-only plan for the current Project
 apkit status ~/projects/x   # complete read-only plan for one explicit Project
@@ -174,6 +176,10 @@ apkit status --verbose     # complete reconciliation diagnostics
 apkit status --json        # machine-readable report + uniform exit codes
 apkit uninstall
 ```
+
+Machine-facing commands for external runners — `machine install-temp`,
+`machine remove-temp`, and `machine list temporary` — are documented at
+`apkit machine --help` and stay out of the default command list (DEC-019).
 
 Project Bindings and the explicit Workspace selection live in the machine-local
 `~/.agents/agent-profile-kit/config.yaml`. Current Local Configuration uses

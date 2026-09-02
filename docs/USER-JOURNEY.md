@@ -64,7 +64,7 @@ The first-run excerpts below were captured from that packed run.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]`, `list temporary [--json]` | Understand the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, which Hosts are supported, and which Temporary Profile Installations can be removed by identity |
+| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]` | Understand the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-019) |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
@@ -76,7 +76,7 @@ The first-run excerpts below were captured from that packed run.
 | 10 | Re-sync | `status [project \| --all] [--blockers-only] [--json]` → `apply [project \| --all]` | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope |
 | 11 | Recover | `status`, `apply`, `uninstall` | Get unstuck from drifted, missing, or malformed state |
 | 12 | Tear down | `uninstall`, `unbind` | Remove output and/or desired state, with the boundary made clear |
-| 13 | Temporary Profile Installations | `install-temp <profile> <project> --host <host> [--json]`, `list temporary [--json]`, `remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently |
+| 13 | Temporary Profile Installations | `machine install-temp <profile> <project> --host <host> [--json]`, `machine list temporary [--json]`, `machine remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently; invoked through the machine-facing namespace (DEC-019) |
 
 Stages 1–8 are the first-run path. Stages 10–12 are the returning-user path.
 Stage 4 is the only stage with no CLI surface at all, and stage 9 the only one
@@ -121,15 +121,16 @@ Common commands:
 …
 More commands:
   Inventory:
-  list [projects|profiles|hosts|temporary [--json]]
-    List read-only inventory for Projects, Profiles, Hosts, or temporary
-    Profiles
+  list [projects|profiles|hosts [--json]]
+    List read-only inventory for Projects, Profiles, or Hosts
 …
 ```
 
 Each catalog command retains its syntax and wrapped description. The first run points
 to `guide profile` for a valid Profile example and `bind --help` for supported
-Host values. Interactive output selects the tty width (falling back to `COLUMNS`)
+Host values. Machine-facing commands (temporary installation and its inventory)
+appear nowhere in this default list; they are documented in stage 13 and
+listed by `apkit machine --help` (DEC-019). Interactive output selects the tty width (falling back to `COLUMNS`)
 and clamps readable prose to 40–100 columns; redirected output uses a
 deterministic 80-column measure. Color is used only for color-capable
 interactive human output; `TERM=dumb`, an unset `TERM`, and a non-empty
@@ -151,10 +152,10 @@ help retains JSON syntax and examples. `list projects` reads Project Bindings fr
 normalized Local Configuration, `list profiles` reads Profile selections from
 the selected Workspace, and `list hosts` leads with the canonical Hosts supported
 for configured Projects without probing the machine. Temporary-install eligibility
-remains available in focused `install-temp` help and Host inventory JSON.
-`list temporary` reads active Temporary Profile Installations from Installation
+remains available in focused `machine install-temp` help and Host inventory JSON.
+`machine list temporary` reads active Temporary Profile Installations from Installation
 State, preserving each durable identity alongside its Project, Profile, and Host
-so `remove-temp` can target the correct receipt; it does not enter ordinary
+so `machine remove-temp` can target the correct receipt; it does not enter ordinary
 Project lifecycle reconciliation. Focused human inventory uses instructional
 `Use …` guidance instead of presenting an optional or redundant command as
 `Next:`; Host inventory explains that `apkit bind` selects a listed Host for a
@@ -481,7 +482,7 @@ works well: `status` names the missing paths and `apply` restores them.
 the recorded installation — is ordinary pending work: `status` reports it as
 non-blocking `drifted output` state and `apply` replaces the whole recorded root
 from current Workspace source, discarding unknown members such as host scratch
-directories. Removal paths (`uninstall`, stale removal, `remove-temp`) may
+directories. Removal paths (`uninstall`, stale removal, `machine remove-temp`) may
 remove drifted proven roots without a manual pre-clean. Identity or path-safety
 failures — a missing or foreign Installation Marker, a symlinked root, an unsafe
 parent — remain Blockers, and their evidence states only what was proven, never
@@ -622,7 +623,7 @@ A side journey for automation or one-off inspection, owned by a temporary
 installation receipt rather than a Project Binding (ADR-0015):
 
 ```
-$ apkit install-temp example <project> --host codex
+$ apkit machine install-temp example <project> --host codex
 Installed temporary Profile
   Profile: example
   Host: codex
@@ -636,9 +637,9 @@ Codex setup:
 - Launch Codex from the exact bound project root: <project>
   Consequence: Launching from a descendant prevents Profile Context from
     loading.
-Next: apkit remove-temp <temporary-installation-id>
+Next: apkit machine remove-temp <temporary-installation-id>
 
-$ apkit list temporary
+$ apkit machine list temporary
 Temporary Profiles (1):
 
 Temporary installation: <temporary-installation-id>
@@ -646,14 +647,14 @@ Temporary installation: <temporary-installation-id>
   Profile: example
   Host: codex
 
-$ apkit remove-temp <temporary-installation-id>
+$ apkit machine remove-temp <temporary-installation-id>
 Removed temporary Profile
   Temporary installation: <temporary-installation-id>
   Project: <project>
 ```
 
-The temporary identity survives on the receipt and in `list temporary`, so
-`remove-temp` stays discoverable without touching ordinary Project lifecycle
+The temporary identity survives on the receipt and in `machine list temporary`, so
+`machine remove-temp` stays discoverable without touching ordinary Project lifecycle
 state or Local Configuration. Width, styling, and wrapping behave exactly like
 the ordinary lifecycle surfaces through the shared presentation boundary
 (ADR-0016).
@@ -761,7 +762,7 @@ Successful validation now derives guidance from the result it produced: no
 configured Projects points to `apkit bind`, while one or more points to
 `apkit status`; warnings stay visible and validation stays read-only
 ([#299](https://github.com/kenneth-liao/agent-profile-kit/issues/299)). Temporary
-install success now prints the exact `apkit remove-temp <actual-id>` command
+install success now prints the exact `apkit machine remove-temp <actual-id>` command
 using the durable identity created by that operation
 ([#300](https://github.com/kenneth-liao/agent-profile-kit/issues/300)). Qualified
 in [#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307) by the
@@ -1075,7 +1076,7 @@ carry progress bytes.
 which Hosts are supported, which Temporary Profile Installations are active, or
 where the Workspace, Local Configuration, and Installation State live. `status`
 intentionally hides current Projects, and during an active temporary
-installation it can report no Projects while the identity `remove-temp` needs is
+installation it can report no Projects while the identity `machine remove-temp` needs is
 unreachable.~~
 
 Shipped in [#157](https://github.com/kenneth-liao/agent-profile-kit/issues/157)
@@ -1083,9 +1084,9 @@ Shipped in [#157](https://github.com/kenneth-liao/agent-profile-kit/issues/157)
 (`list projects`), [#161](https://github.com/kenneth-liao/agent-profile-kit/issues/161)
 (`list profiles`), [#163](https://github.com/kenneth-liao/agent-profile-kit/issues/163)
 (`list hosts`), and [#162](https://github.com/kenneth-liao/agent-profile-kit/issues/162)
-(`list temporary`): read-only inventory and location views never probe Hosts or
-write state, and `list temporary` recovers the durable identity for
-`remove-temp` without entering ordinary reconciliation.
+(`machine list temporary`): read-only inventory and location views never probe Hosts or
+write state, and `machine list temporary` recovers the durable identity for
+`machine remove-temp` without entering ordinary reconciliation.
 
 ### ~~UJ-28~~
 ~~Interactive output has no visual hierarchy beyond blank lines and indentation:

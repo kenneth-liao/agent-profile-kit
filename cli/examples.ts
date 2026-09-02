@@ -1,5 +1,5 @@
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
-import { inventoryCommandExamples } from "./inventory-topics.js";
+import { inventoryCommandExamples, machineInventoryCommandExamples } from "./inventory-topics.js";
 
 /** One canonical command-example set for CLI help. */
 const workspace = "~/agent-profile-workspace";
@@ -36,8 +36,11 @@ export const COMMAND_EXAMPLES = {
   ],
   uninstall: ["uninstall"],
   "install-temp": [
-    `install-temp ${profile} ${project} --host codex --json`,
-    `install-temp ${profile} ${project} --host claude --json`,
+    `machine install-temp ${profile} ${project} --host codex --json`,
+    `machine install-temp ${profile} ${project} --host claude --json`,
   ],
-  "remove-temp": ["remove-temp <temporary-installation-id> --json"],
+  "remove-temp": ["machine remove-temp <temporary-installation-id> --json"],
 } as const;
+
+/** Examples for the machine-namespaced inventory command (DEC-019). */
+export const MACHINE_LIST_EXAMPLES = machineInventoryCommandExamples();
