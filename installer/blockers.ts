@@ -625,16 +625,18 @@ function validateStructuredInput(input: StructuredBlockerInput): void {
   if (input.scope === "project") {
     requireText(input.project, "project", input);
   }
-  if (input.scope === "global" && (input as unknown as Record<string, unknown>).project !== undefined) {
+  // Cross-kind facts are forbidden on every kind by own-property presence:
+  // an explicitly `undefined` contaminant is rejected exactly like a value,
+  // so the boundary never silently drops forbidden fields (poka-yoke).
+  const record = input as unknown as Record<string, unknown>;
+  const hasOwn = (field: string): boolean => Object.prototype.hasOwnProperty.call(record, field);
+  if (input.scope === "global" && hasOwn("project")) {
     throw new TypeError(
       `Global structured blockers cannot carry a project${blockerContext(input)}`,
     );
   }
-  // Cross-kind facts are forbidden on every kind, whatever their value: the
-  // boundary rejects them instead of silently dropping them (poka-yoke).
-  const record = input as unknown as Record<string, unknown>;
   for (const field of FORBIDDEN_BLOCKER_FIELDS[blockerKind as BlockerKind]) {
-    if (record[field] !== undefined) {
+    if (hasOwn(field)) {
       throw new TypeError(
         `Structured blocker kind ${blockerKind} must not carry "${field}"${blockerContext(input)}`,
       );

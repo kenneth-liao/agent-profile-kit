@@ -297,20 +297,18 @@ async function selectParsedProjectBindings(
   let canonicalTarget: string;
   try {
     const entryStats = await lstat(expandedTarget);
-    let dangling = false;
+    let followedStats;
     try {
-      await stat(expandedTarget);
+      // Directory membership follows symlinks: a final symlink to a directory
+      // is a valid target, and only a dangling symlink is dangling.
+      followedStats = await stat(expandedTarget);
     } catch (error) {
       if (entryStats.isSymbolicLink() && hasErrorCode(error, "ENOENT")) {
-        dangling = true;
-      } else {
-        throw error;
+        throw new ProjectTargetError({ case: "dangling-symlink-target", command, target });
       }
+      throw error;
     }
-    if (dangling) {
-      throw new ProjectTargetError({ case: "dangling-symlink-target", command, target });
-    }
-    if (!entryStats.isDirectory()) {
+    if (!followedStats.isDirectory()) {
       throw new ProjectTargetError({ case: "missing-target", command, target });
     }
     canonicalTarget = await realpath(expandedTarget);

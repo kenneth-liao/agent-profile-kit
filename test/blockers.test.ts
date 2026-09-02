@@ -343,6 +343,34 @@ describe("shared blocker contract", () => {
         project: invalid,
       } as never)).toThrow("Global structured blockers cannot carry a project");
     }
+    // An explicitly `undefined` project property is present, so it is rejected too.
+    expect(() => normalizeBlocker({
+      ...STATE_UNREADABLE_INPUT,
+      project: undefined,
+    } as never)).toThrow("Global structured blockers cannot carry a project");
+  });
+
+  test("cross-kind forbidden fields are rejected by own-property presence, including explicit undefined", () => {
+    expect(() => normalizeBlocker({
+      affectedItems: [{ kind: "path", value: ".codex/hooks.json" }],
+      detail: undefined,
+      kind: "occupied-output",
+      occupied: { case: "drifted-output" },
+      project: "/p",
+      scope: "project",
+    } as never)).toThrow('Structured blocker kind occupied-output must not carry "detail"');
+    expect(() => normalizeBlocker({
+      ...OWNERSHIP_BLOCKER_INPUT,
+      occupied: undefined,
+    } as never)).toThrow('Structured blocker kind installation-ownership must not carry "occupied"');
+    expect(() => normalizeBlocker({
+      affectedItems: [{ kind: "path", value: ".codex/hooks.json" }],
+      failure: { case: "symlink-output", output: ".codex/hooks.json" },
+      kind: "temporary-installation-removal",
+      project: "/p",
+      remedyKey: undefined,
+      scope: "project",
+    } as never)).toThrow('Structured blocker kind temporary-installation-removal must not carry "remedyKey"');
   });
 
   test("state-read failures carry typed facts rendered only by presentation", () => {

@@ -1947,6 +1947,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const missing = join(home, "missing-project");
     const invalid = join(home, "not-a-project.txt");
     writeFileSync(invalid, "not a directory\n");
+    // A final symlink to a bound directory is a valid target (regression:
+    // the typed classifier must test the followed stat result).
+    const alias = join(home, "target-alias");
+    symlinkSync(bound, alias);
 
     const cases = [
       { cwd: undefined, target: unbound, pattern: /not a bound Project/i },
@@ -1979,6 +1983,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(ambiguousHuman.stderr)).toContain("matches multiple configured Projects");
     expect(existsSync(join(bound, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(nested, ".agent-profile-kit"))).toBe(false);
+
+    for (const command of ["apply", "status"] as const) {
+      const aliasResult = await runCli(home, command, alias);
+      expectExitCode(aliasResult, 0);
+    }
   });
 
   test("status reports desired additions without writing project, state, or host configuration", async () => {
@@ -2871,6 +2880,30 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(output).toContain("never reconstructs ownership from generated file");
     expect(existsSync(join(stateDirectory(home), "manifest.yaml"))).toBe(true);
     expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("machine list temporary renders state-read failures through presentation on both surfaces", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    mkdirSync(stateDirectory(home), { recursive: true });
+    writeFileSync(join(stateDirectory(home), "manifest.yaml"), "schema_version: 5\n");
+
+    const human = await runCli(home, "machine", "list", "temporary");
+    expectExitCode(human, 1);
+    const humanText_ = humanText(human.stderr);
+    // Human output is newcomer-worded presentation composition, not the typed
+    // error summary or the canonical internal wording.
+    expect(humanText_).toContain("Legacy YAML installation record");
+    expect(humanText_).toContain("never reconstructs ownership from generated file");
+    expect(humanText_).not.toContain("installation state read failed");
+    expect(humanText_).not.toContain("Legacy YAML Installation State");
+
+    const machine = await runCli(home, "machine", "list", "temporary", "--json");
+    expectExitCode(machine, 1);
+    const payload = JSON.parse(machine.stdout) as { readonly error: string };
+    // Machine JSON preserves the canonical carried sentence.
+    expect(payload.error).toContain("Legacy YAML Installation State");
+    expect(payload.error).toContain("never reconstructs ownership from generated output");
   });
 
   test("apply leaves current installation outputs and state untouched", async () => {

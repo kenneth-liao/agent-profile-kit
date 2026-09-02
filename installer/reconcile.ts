@@ -83,6 +83,7 @@ import {
   type BlockerInput,
   type OwnershipFailureFact,
   type ProjectScopedBlockerInput,
+  type StateReadFailureFact,
   type ReconciliationBlocker,
 } from "./blockers.js";
 
@@ -119,8 +120,8 @@ export type ReconciliationKind =
 export interface ReconciliationItem {
   readonly kind: ReconciliationKind;
   readonly project: string;
-  /** A diagnostic string, or a typed ownership-failure fact presentation renders. */
-  readonly reason?: OwnershipFailureFact | string;
+  /** A diagnostic string, or a typed ownership/state-read failure fact presentation renders. */
+  readonly reason?: OwnershipFailureFact | StateReadFailureFact | string;
 }
 
 export type OutputReconciliationKind =
@@ -306,18 +307,25 @@ export async function unreadableInstallationStateReport(
     schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
   });
   // Installer-classified state-read failures cross as typed facts; foreign
-  // diagnostics (fs and parse errors) stay plain detail facts.
+  // diagnostics (fs and parse errors) stay plain detail facts. The same fact
+  // rides on every Project state so no Installer-authored sentence leaks.
   const statePath = stateManifestPath(home);
-  const blocker = error instanceof StateReadFailureError
-    ? installationStateUnreadableBlocker({ stateFailure: error.failure, statePath })
-    : installationStateUnreadableBlocker({ detail: message, statePath });
+  const cause = error instanceof StateReadFailureError
+    ? { stateFailure: error.failure as StateReadFailureFact }
+    : { detail: message as string };
+  const blocker = "stateFailure" in cause
+    ? installationStateUnreadableBlocker({ stateFailure: cause.stateFailure, statePath })
+    : installationStateUnreadableBlocker({ detail: cause.detail, statePath });
   return {
     globalBlockers: [normalizeBlocker(blocker)],
     // Ownership cannot be read, so planned Project states and output changes
     // are not trustworthy diagnostics. Keep desired identity plus the boundary failure.
     projects: desiredReport.projects.map((project) => ({
       ...project,
-      state: { kind: "malformed ownership state", reason: message },
+      state: {
+        kind: "malformed ownership state" as const,
+        reason: cause.stateFailure ?? cause.detail,
+      },
       outputs: [],
       blockers: [],
     })),

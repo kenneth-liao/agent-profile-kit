@@ -147,11 +147,24 @@ describe("structured Installer blocker evidence", () => {
     const human = formatLifecycleReport("status", report);
     expect(human).toContain("Global blockers:");
     expect(human).toContain(humanWording.problem);
+    // The typed fact rides on every Project state; presentation composes the
+    // same carried sentence it published before the fact conversion.
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    expect(verbose).toContain("installation record exceeds the 8388608 byte limit");
+    expect(verbose).not.toContain("installation state read failed");
+
     const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       readonly globalBlockers: readonly Record<string, unknown>[];
+      readonly projects: readonly {
+        readonly state: { readonly kind: string; readonly reason?: string };
+      }[];
       readonly schemaVersion: number;
     };
     expect(machine.schemaVersion).toBe(14);
+    expect(machine.projects[0]!.state).toEqual({
+      kind: "malformed ownership state",
+      reason: `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,
+    });
     // The machine payload keeps its field shape; the message/problem values are
     // presentation-composed from the typed fact.
     expect(machine.globalBlockers).toEqual([{

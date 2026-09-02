@@ -3,12 +3,19 @@ import { realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 
 import {
+  applyNewcomerSubstitutions,
   blockerWording,
   describeOwnershipFailure,
+  describeStateReadFailure,
   humanBlockerWording,
 } from "./blocker-wording.js";
+import {
+  STATE_READ_FAILURE_CASES,
+  type StateReadFailureFact,
+} from "../installer/blockers.js";
 
 export {
+  applyNewcomerSubstitutions,
   describeStateReadFailure,
   formatProjectTargetError,
   formatProjectTargetErrorForHuman,
@@ -986,9 +993,24 @@ function repositoryExclusionClause(
     : `${capitalize(DEFAULT_VIEW_LEXICON.repositoryExclusion.plural)}: ${parts.join(", ")}.`;
 }
 
-/** One item-reason projection: diagnostic strings pass through; typed ownership facts compose. */
+function isStateReadFailureFact(
+  reason: NonNullable<ReconciliationItem["reason"]>,
+): reason is StateReadFailureFact {
+  return typeof reason === "object" &&
+    (STATE_READ_FAILURE_CASES as readonly string[]).includes(reason.case);
+}
+
+/** Machine projection: diagnostic strings pass through; typed facts compose canonically. */
+function renderMachineItemReason(reason: NonNullable<ReconciliationItem["reason"]>): string {
+  if (typeof reason === "string") return reason;
+  return isStateReadFailureFact(reason)
+    ? describeStateReadFailure(reason)
+    : describeOwnershipFailure(reason);
+}
+
+/** Human projection: typed facts compose through the newcomer vocabulary. */
 function renderItemReason(reason: NonNullable<ReconciliationItem["reason"]>): string {
-  return typeof reason === "string" ? reason : describeOwnershipFailure(reason);
+  return applyNewcomerSubstitutions(renderMachineItemReason(reason));
 }
 
 function itemText(item: ReconciliationItem): string {
@@ -3215,7 +3237,12 @@ function canonicalMachineProject(project: ReconciliationProjectRecord): unknown 
         profile: project.desired.profile,
       },
     }),
-    state: { ...project.state },
+    state: {
+      kind: project.state.kind,
+      ...(project.state.reason === undefined
+        ? {}
+        : { reason: renderMachineItemReason(project.state.reason) }),
+    },
     outputs: project.outputs.map((output) => ({
       consumingHosts: [...output.consumingHosts],
       kind: output.kind,
