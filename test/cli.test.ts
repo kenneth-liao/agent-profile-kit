@@ -10928,6 +10928,30 @@ describe("apkit machine namespace (DEC-019)", () => {
     expect(help.stdout).toContain(`Supported Hosts: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`);
   });
 
+  test("interactive machine help styles command rows through the shared semantic boundary (INT-1)", async () => {
+    const home = isolatedHome();
+    const piped = await runCli(home, "machine", "--help");
+    const interactive = await runCliInPtyWithEnvironment(
+      home,
+      80,
+      COLOR_TERMINAL_ENVIRONMENT,
+      "machine",
+      "--help",
+    );
+
+    expectExitCode(piped, 0);
+    expectExitCode(interactive, 0);
+    expect(piped.stdout).not.toMatch(/\u001b\[/);
+    expect(interactive.stdout).toMatch(/\u001b\[/);
+    for (const command of machineCommands()) {
+      const row = interactive.stdout
+        .split("\n")
+        .find((line) => line.replace(/\u001b\[\d+m/g, "").trim() === command.syntax);
+      expect(row, `unstyled machine command row: ${command.syntax}`).toBeDefined();
+      expect(row).toMatch(/^\u001b\[36m/);
+    }
+  });
+
   test("removed top-level temporary commands fail fast with the machine replacement", async () => {
     const home = isolatedHome();
     for (const [arguments_, replacement] of [

@@ -193,3 +193,15 @@ export function machineCommands(): readonly CommandHelp[] {
 export function findMachineCommand(name: string): CommandHelp | undefined {
   return machineCommands().find((command) => command.name === name);
 }
+
+/**
+ * The token that starts one command's human invocation line: the bare name for
+ * default commands, the namespace-qualified form for machine-facing commands
+ * (DEC-019). One canonical home so semantic command styling cannot drift from
+ * the command table.
+ */
+export function commandInvocationStarters(): readonly string[] {
+  return COMMANDS.map((command) =>
+    command.namespace === undefined ? command.name : `${command.namespace} ${command.name}`,
+  );
+}

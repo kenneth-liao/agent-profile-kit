@@ -2434,7 +2434,9 @@ const INVENTORY_TOPIC_NAMES = new Set<string>([
   ...MACHINE_INVENTORY_TOPICS,
 ].map((topic) => topic.name));
 /** Namespace tokens that may introduce one namespaced command invocation. */
-const COMMAND_NAMESPACE_TOKENS = new Set<string>(["machine"]);
+const COMMAND_NAMESPACE_TOKENS = new Set<string>(
+  COMMANDS.flatMap((command) => (command.namespace === undefined ? [] : [command.namespace])),
+);
 
 interface CopyableValueProtector {
   readonly pattern: RegExp | undefined;

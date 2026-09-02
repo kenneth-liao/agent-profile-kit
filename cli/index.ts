@@ -87,6 +87,7 @@ import {
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
   COMMAND_HELP_ALIASES,
+  commandInvocationStarters,
   COMMANDS,
   COMMAND_GROUPS,
   defaultCommands,
@@ -116,7 +117,7 @@ import {
   STATUS_PROGRESS_LABEL,
 } from "./progress.js";
 
-const COMMAND_NAMES = COMMANDS.map((command) => command.name);
+const COMMAND_NAMES = commandInvocationStarters();
 
 /**
  * One trusted terminal-presentation context per human stream, read once at the
