@@ -42,6 +42,52 @@ function writeManifestOnlyWorkspace(home: string): string {
   return path;
 }
 
+const UNDELIVERED_ARTIFACT_DIRECTORIES = ["agents", "hooks", "tools"] as const;
+
+describe("delivered Workspace scaffolding", () => {
+  test("init scaffolds exactly the delivered artifact directories and no others", async () => {
+    const home = isolatedHome();
+    const created = await initializeWorkspace(home);
+
+    expect(created.outcome).toBe("created");
+    for (const directory of WORKSPACE_ARTIFACT_DIRECTORIES) {
+      expect(existsSync(join(created.path, directory, ".gitkeep"))).toBe(true);
+    }
+    for (const directory of UNDELIVERED_ARTIFACT_DIRECTORIES) {
+      expect(existsSync(join(created.path, directory))).toBe(false);
+    }
+  });
+
+  test("init leaves pre-existing undelivered artifact directories untouched and validate passes", async () => {
+    const home = isolatedHome();
+    const path = writeManifestOnlyWorkspace(home);
+    for (const directory of UNDELIVERED_ARTIFACT_DIRECTORIES) {
+      mkdirSync(join(path, directory), { recursive: true });
+      writeFileSync(join(path, directory, "legacy.txt"), "user material\n");
+    }
+    const before = readdirSync(path).sort();
+
+    const result = await initializeWorkspace(home);
+
+    expect(result.workspaceScaffolded).toBe(false);
+    expect(readdirSync(path).sort()).toEqual(before);
+    for (const directory of UNDELIVERED_ARTIFACT_DIRECTORIES) {
+      expect(readFileSync(join(path, directory, "legacy.txt"), "utf8")).toBe(
+        "user material\n",
+      );
+    }
+    await expect(validateWorkspaceStructure(path)).resolves.toBeUndefined();
+  });
+
+  test("a Workspace whose undelivered artifact entry is a file still validates", async () => {
+    const home = isolatedHome();
+    const path = writeManifestOnlyWorkspace(home);
+    writeFileSync(join(path, "agents"), "not a directory\n");
+
+    await expect(validateWorkspaceStructure(path)).resolves.toBeUndefined();
+  });
+});
+
 describe("optional Workspace scaffolding after initialization", () => {
   test("a Workspace containing only a valid workspace.yaml validates successfully", async () => {
     const home = isolatedHome();

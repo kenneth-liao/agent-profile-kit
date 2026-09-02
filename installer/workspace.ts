@@ -10,9 +10,6 @@ export const WORKSPACE_ARTIFACT_DIRECTORIES = [
   "profiles",
   "context",
   "skills",
-  "agents",
-  "hooks",
-  "tools",
 ] as const;
 
 function hasErrorCode(error: unknown, code: string): boolean {
