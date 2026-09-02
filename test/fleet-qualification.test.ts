@@ -233,7 +233,7 @@ describe("fleet-wide synchronization qualification", () => {
       readonly projects: readonly { readonly state: { readonly kind: string } }[];
       readonly schemaVersion: number;
     };
-    expect(payload.schemaVersion).toBe(13);
+    expect(payload.schemaVersion).toBe(14);
     expect(payload.projects).toHaveLength(12);
 
     // Apply reconciles the fleet and reports the receipt without a repeated
@@ -603,7 +603,7 @@ function snapshotProjectTree(projectDir: string): Record<string, FsSnapshotEntry
 }
 
 describe("integrated fleet recovery qualification", () => {
-  test("qualifies the complete recovery journey: Safe Repairs, global and project blockers, repeated warnings, focused status and partial apply, and zero unauthorized writes", async () => {
+  test("qualifies the complete recovery journey: best-effort exclusion republication, global and project blockers, repeated warnings, focused status and partial apply, and zero unauthorized writes", async () => {
     const home = isolatedHome();
     const workspace = workspacePath(home);
     mkdirSync(workspace, { recursive: true });
@@ -658,12 +658,12 @@ describe("integrated fleet recovery qualification", () => {
     execFileSync("git", ["-C", projectB, "add", "-f", "."]);
     execFileSync("git", ["-C", projectB, "commit", "-qm", "track planned outputs"]);
 
-    // Create an eligible Safe Repair on projectA: remove .git/info/exclude
+    // Create a missing exclusion section on projectA: remove .git/info/exclude
     rmSync(join(projectA, ".git", "info", "exclude"), { force: true });
 
     const stateManifest = join(home, ".agents", "agent-profile-kit", "state", "manifest.json");
     // Update fleet bindings:
-    // projectA: [codex] (Safe Repair candidate)
+    // projectA: [codex] (missing exclusion section)
     // projectB: [claude, opencode] (Project Blocker with many tracked paths)
     // projectC: [claude, opencode] (Healthy, duplicate skill warning)
     // projectD: [claude, opencode] (Healthy, duplicate skill warning)
@@ -809,7 +809,7 @@ describe("integrated fleet recovery qualification", () => {
         warnings: { kind: string; message: string; copyableValues: string[] }[];
       }[];
     };
-    expect(jsonPayload.schemaVersion).toBe(13);
+    expect(jsonPayload.schemaVersion).toBe(14);
     expect(jsonPayload.outcome).toBe("blocked");
     expect(jsonPayload.projects).toHaveLength(5);
 
@@ -834,7 +834,7 @@ describe("integrated fleet recovery qualification", () => {
 
     expect(jsonE?.state.kind).toBe("current");
 
-    // 5. Second status after apply: repaired projects current, blocked project actionable
+    // 5. Second status after apply: refreshed projects current, blocked project actionable
     const secondStatus = await runCli(home, pathWithHosts, "status", "--all");
     expectExitCode(secondStatus, 2);
     expect(secondStatus.stdout).toContain("Blockers:");

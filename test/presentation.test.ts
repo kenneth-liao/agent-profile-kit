@@ -1424,7 +1424,6 @@ const STATE_ANCHORS: Readonly<Record<(typeof NON_CURRENT_STATE_ORDER)[number], s
   addition: "not installed yet",
   update: "rewrite generated files managed by Agent Profile Kit",
   "stale source": "Workspace source changed",
-  "repairable missing output": "ownership is proven",
   "drifted output": "replace it from current",
   "malformed ownership state": "cannot prove what it owns",
   blocked: "Sync cannot change this Project",
@@ -1524,7 +1523,7 @@ describe("formatLifecycleReport concise terminology", () => {
       machineProject("/project-a", { blockers: reportBlockers(structured) }),
     ]);
     expect(JSON.parse(formatLifecycleJson("status", machine))).toMatchObject({
-      schemaVersion: 13,
+      schemaVersion: 14,
       globalBlockers: [],
       projects: [{
         project: "/project-a",
@@ -2281,7 +2280,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("Selected setup:");
   });
 
-  test("concise status keeps only drift and destructive-removal paths", () => {
+  test("concise status names drifted refresh work and destructive removals", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -2291,29 +2290,22 @@ describe("formatLifecycleReport concise terminology", () => {
         project: "/project-a",
         resolvedArtifacts: [],
       }],
-      items: [{ kind: "addition", project: "/project-a" }],
+      items: [{ kind: "drifted output", project: "/project-a", reason: "f.md" }],
       outputs: [
-        { kind: "addition", path: "a.md", project: "/project-a" },
-        { kind: "addition", path: "b.md", project: "/project-a" },
-        { kind: "update", path: "c.md", project: "/project-a" },
-        { kind: "repair", path: "d.md", project: "/project-a" },
+        { kind: "update", path: "f.md", project: "/project-a" },
         { kind: "removal", path: "e.md", project: "/project-a" },
-        { kind: "drifted output", path: "f.md", project: "/project-a" },
       ],
     });
 
     const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain(
+      "Updates ready for 1 project (1 file update, 1 file removal).\n\n" +
       "Project exceptions:\n" +
       "  /project-a:\n" +
-      "    ! f.md (drifted output)\n" +
+      "    State: drifted output (f.md)\n" +
       "    - e.md",
     );
-    expect(concise).not.toContain("a.md");
-    expect(concise).not.toContain("b.md");
-    expect(concise).not.toContain("c.md");
-    expect(concise).not.toContain("d.md");
     expect(concise).toContain("Details: apkit status --verbose");
     expect(concise).not.toContain("Selected setup:");
     expect(concise).not.toContain("Outputs:");
@@ -2390,14 +2382,12 @@ describe("formatLifecycleReport concise terminology", () => {
       items: [{ kind: "update", project }],
       outputs: [
         ...additions,
-        { kind: "drifted output", path: "z-attention.md", project },
         { kind: "removal", path: "z-removal.md", project },
       ],
     });
 
     const concise = formatLifecycleReport("status", report);
 
-    expect(concise).toContain("! z-attention.md (drifted output)");
     expect(concise).toContain("- z-removal.md");
     expect(concise).not.toContain("a-1.md");
     expect(concise).not.toContain("more files");
@@ -2407,17 +2397,19 @@ describe("formatLifecycleReport concise terminology", () => {
   test("verbose output keeps generated-root attention authoritative", () => {
     const project = "/project-a";
     const report = emptyReport({
+      items: [{ kind: "drifted output", project, reason: "skill" }],
       outputs: [
-        { kind: "drifted output", path: "skill", project },
+        { kind: "update", path: "skill", project },
         { kind: "unchanged", path: "context.md", project },
       ],
     });
 
     const concise = formatLifecycleReport("status", report);
-    expect(concise).toContain("! skill (drifted output)");
+    expect(concise).toContain("State: drifted output (skill)");
 
     const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain("/project-a/skill: drifted output");
+    expect(verbose).toContain("drifted output (skill)");
+    expect(verbose).toContain("/project-a/skill: update");
     expect(verbose).toContain("/project-a/context.md: unchanged");
   });
 
@@ -2773,7 +2765,7 @@ describe("formatLifecycleReport concise terminology", () => {
       items: [{ kind: "stale source", project: "/repo" }],
     });
     const resultingState = emptyReport({
-      items: [{ kind: "repairable missing output", project: "/repo" }],
+      items: [{ kind: "drifted output", project: "/repo", reason: "a.md" }],
     });
 
     const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
@@ -2781,7 +2773,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose.match(/State explanations:/g)).toHaveLength(1);
     expect(explanationLines(verbose)).toEqual([
       expect.stringContaining("stale source: Workspace source changed"),
-      expect.stringContaining("repairable missing output: An owned generated file is wholly missing, but ownership is proven"),
+      expect.stringContaining("drifted output: An owned generated file differs from its recorded installation"),
     ]);
   });
 
@@ -3340,7 +3332,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatLifecycleJson("status", report));
-    expect(payload.schemaVersion).toBe(13);
+    expect(payload.schemaVersion).toBe(14);
     expect(payload.command).toBe("status");
     expect(payload.outcome).toBe("blocked");
     expect(payload.globalBlockers).toEqual([]);
@@ -3441,7 +3433,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatApplyJson(machineApplyResult(receipt, resultingState)));
-    expect(payload.schemaVersion).toBe(13);
+    expect(payload.schemaVersion).toBe(14);
     expect(payload.projects[0].state).toEqual({ kind: "current" });
     expect(payload.applied.projects[0].state).toEqual({ kind: "addition" });
   });
@@ -3452,7 +3444,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatBlockedApplyJson(report));
-    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 13 });
+    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 14 });
     expect(payload).not.toHaveProperty("applied");
     expect(payload.projects[0].blockers).toHaveLength(1);
   });
@@ -3472,7 +3464,7 @@ describe("Machine surface JSON and exit codes", () => {
       command: "apply",
       outcome: "error",
       error: "post-apply verification failed: boom",
-      schemaVersion: 13,
+      schemaVersion: 14,
     });
     expect(payload.projects).toEqual([]);
     expect(payload.applied.projects[0].outputs).toEqual([
@@ -3483,7 +3475,7 @@ describe("Machine surface JSON and exit codes", () => {
   test("tool-error JSON uses the empty nested model", () => {
     for (const command of ["status", "apply"] as const) {
       expect(JSON.parse(formatLifecycleToolErrorJson(command, "missing"))).toEqual({
-        schemaVersion: 13,
+        schemaVersion: 14,
         command,
         outcome: "error",
         error: "missing",
@@ -3741,7 +3733,7 @@ describe("operation-first multi-Project presentation", () => {
         { kind: "addition", path: ".agents/skills/new-skill", project: "/project-a" },
         { kind: "update", path: SKILL_PATH, project: "/project-a" },
         { kind: "update", path: SKILL_PATH, project: "/project-b" },
-        { kind: "repair", path: CONTEXT_PATH, project: "/project-b" },
+        { kind: "update", path: CONTEXT_PATH, project: "/project-b" },
         { kind: "removal", path: ".agents/skills/old-skill", project: "/project-c" },
       ],
     });
@@ -3751,8 +3743,7 @@ describe("operation-first multi-Project presentation", () => {
     expect(concise).toStartWith(
       "Updates ready for 3 projects.\n" +
         "+ 1 file addition in /project-a\n" +
-        "~ 2 file updates in /project-a, /project-b\n" +
-        "~ 1 file repair in /project-b\n" +
+        "~ 3 file updates in /project-a, /project-b\n" +
         "- 1 file removal in /project-c\n",
     );
     expect(concise).not.toContain("Projects: 3");
@@ -3862,18 +3853,15 @@ describe("operation-first multi-Project presentation", () => {
 
   test("generated-root ownership attention remains visible as a Project exception", () => {
     const report = sharedSkillFleet({
-      outputs: [
-        ...reportOutputs(sharedSkillFleet()),
-        {
-          kind: "drifted output" as const,
-          path: SKILL_PATH,
-          project: "/project-a",
-        },
+      items: [
+        { kind: "drifted output" as const, project: "/project-a", reason: SKILL_PATH },
+        { kind: "update" as const, project: "/project-b" },
+        { kind: "update" as const, project: "/project-c" },
       ],
     });
 
     expect(formatLifecycleReport("status", report)).toContain(
-      "Project exceptions:\n  /project-a:\n    ! .agents/skills/review-pr (drifted output)",
+      "Project exceptions:\n  /project-a:\n    State: drifted output (.agents/skills/review-pr)",
     );
   });
 
@@ -4108,15 +4096,15 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
     const resultingState = emptyReport({
       desired: reportDesired(receipt),
-      items: [{ kind: "drifted output", project: "/project-a" }],
-      outputs: [{ kind: "drifted output", path: "a.md", project: "/project-a" }],
+      items: [{ kind: "drifted output", project: "/project-a", reason: "a.md" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
     expect(apply).toContain("Apply completed with attention");
     expect(apply).toContain("Project: /project-a");
-    expect(apply).toContain("State: drifted output");
-    expect(apply).toContain("! a.md");
+    expect(apply).toContain("State: drifted output (a.md)");
+    expect(apply).toContain("~ a.md");
     expect(apply).toContain("Applied:\n  ~ 1 generated file update in 1 project");
   });
 
@@ -4157,7 +4145,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       ],
       outputs: [
         { kind: "unchanged", path: "a.md", project: "/project-a" },
-        { kind: "drifted output", path: "b.md", project: "/project-b" },
+        { kind: "update", path: "b.md", project: "/project-b" },
       ],
     });
 
@@ -4166,7 +4154,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(apply).toContain("Applied:\n  ~ 2 generated file updates in 2 projects");
     expect(apply).toContain("Project: /project-b");
     expect(apply).toContain("State: drifted output");
-    expect(apply).toContain("! b.md");
+    expect(apply).toContain("~ b.md");
     expect(apply).not.toContain("Project: /project-a");
   });
 
@@ -4590,7 +4578,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(payload).toMatchObject({
       command: "status",
       outcome: "attention",
-      schemaVersion: 13,
+      schemaVersion: 14,
     });
     expect(lifecycleExitCode(report)).toBe(0);
     expect(lifecycleExitCode(emptyReport({
@@ -4839,7 +4827,7 @@ describe("focused blockers-only status view (#351)", () => {
         }],
       }],
       items: [{ kind: "blocked", project: "/project-a", reason: "tracked path" }],
-      outputs: [{ kind: "drifted output", path: "a.md", project: "/project-a" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
       warnings: ["OpenCode reports a duplicate Skill identity"],
       blockers: [
         projectBlocker,
@@ -4922,7 +4910,7 @@ describe("focused blockers-only status view (#351)", () => {
       ],
       items: [{ kind: "blocked", project: "/project-a", reason: "tracked path" }],
       outputs: [
-        { kind: "drifted output", path: "a.md", project: "/project-a" },
+        { kind: "update", path: "a.md", project: "/project-a" },
         { kind: "addition", path: "b.md", project: "/project-b" },
       ],
       blockers: [fixtureBlocker("Project /project-a is blocked", "/project-a")],

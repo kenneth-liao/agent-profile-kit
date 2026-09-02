@@ -154,12 +154,10 @@ export const DEFAULT_VIEW_LEXICON = {
 } as const;
 
 const OUTPUT_PATH_PRIORITY = {
-  "drifted output": 0,
-  removal: 1,
-  update: 2,
-  addition: 3,
-  repair: 3,
-  unchanged: 4,
+  removal: 0,
+  update: 1,
+  addition: 2,
+  unchanged: 3,
 } as const satisfies Readonly<Record<OutputReconciliationKind, number>>;
 
 export const INTERNAL_ONLY_DEFAULT_TERMS = [
@@ -206,7 +204,6 @@ export const NON_CURRENT_STATE_ORDER = [
   "addition",
   "update",
   "stale source",
-  "repairable missing output",
   "drifted output",
   "malformed ownership state",
   "blocked",
@@ -236,9 +233,6 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
   "stale source":
     `Workspace source changed since the last apply; ${DEFAULT_VIEW_LEXICON.generatedOutput.plural} no longer ` +
     `match current ${DEFAULT_VIEW_LEXICON.desiredState}.`,
-  "repairable missing output":
-    `An owned ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} is wholly missing, but ownership is proven; ` +
-    "apply will recreate it from current Workspace source.",
   "drifted output":
     `An owned ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} differs from its recorded installation; apply will ` +
     `replace it from current ${DEFAULT_VIEW_LEXICON.desiredState}.`,
@@ -254,9 +248,7 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
 
 interface OutputSummary {
   readonly additions: number;
-  readonly drift: number;
   readonly removals: number;
-  readonly repairs: number;
   readonly updates: number;
 }
 
@@ -832,12 +824,8 @@ function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputS
       switch (output.kind) {
         case "addition":
           return { ...summary, additions: summary.additions + 1 };
-        case "drifted output":
-          return { ...summary, drift: summary.drift + 1 };
         case "removal":
           return { ...summary, removals: summary.removals + 1 };
-        case "repair":
-          return { ...summary, repairs: summary.repairs + 1 };
         case "unchanged":
           return summary;
         case "update":
@@ -846,7 +834,7 @@ function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputS
           return assertNever(output.kind);
       }
     },
-    { additions: 0, drift: 0, removals: 0, repairs: 0, updates: 0 },
+    { additions: 0, removals: 0, updates: 0 },
   );
 }
 
@@ -856,14 +844,12 @@ function changeParts(summary: OutputSummary): string[] {
   const generatedFile = DEFAULT_VIEW_LEXICON.generatedOutput.singular;
   if (summary.additions > 0) parts.push(plural(summary.additions, `${generatedFile} addition`));
   if (summary.updates > 0) parts.push(plural(summary.updates, `${generatedFile} update`));
-  if (summary.repairs > 0) parts.push(plural(summary.repairs, `${generatedFile} repair`));
   if (summary.removals > 0) parts.push(plural(summary.removals, `${generatedFile} removal`));
-  if (summary.drift > 0) parts.push(plural(summary.drift, `${generatedFile} drift item`));
   return parts;
 }
 
 function changeCount(summary: OutputSummary): number {
-  return summary.additions + summary.updates + summary.repairs + summary.removals + summary.drift;
+  return summary.additions + summary.updates + summary.removals;
 }
 
 /** One canonical overflow pointer shared by every capped path list in default views. */
@@ -877,14 +863,11 @@ function outputPathLine(
 ): string | undefined {
   switch (output.kind) {
     case "addition":
-    case "repair":
       return `+ ${output.path}`;
     case "update":
       return `~ ${output.path}`;
     case "removal":
       return `- ${output.path}`;
-    case "drifted output":
-      return `! ${output.path} (${output.kind})`;
     case "unchanged":
       return undefined;
     default:
@@ -1510,7 +1493,6 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
 const TRANSITION_TRIGGERING_OUTPUT_KINDS: ReadonlySet<OutputReconciliationKind> = new Set([
   "addition",
   "update",
-  "repair",
 ]);
 
 /**
@@ -1929,27 +1911,20 @@ function nextActionLines(
 /** Observable output operations included in concise fleet summaries. */
 type PlannedOutputOperation = Extract<
   OutputReconciliationKind,
-  "addition" | "removal" | "repair" | "update"
+  "addition" | "removal" | "update"
 >;
 
 const PLANNED_OUTPUT_OPERATION_ORDER: readonly PlannedOutputOperation[] = [
   "addition",
   "update",
-  "repair",
   "removal",
 ];
 
 const PLANNED_OUTPUT_OPERATION_MARKER: Readonly<Record<PlannedOutputOperation, string>> = {
   addition: "+",
   update: "~",
-  repair: "~",
   removal: "-",
 };
-
-/** Output attention kinds that remain visible beside the operation summary. */
-const OUTPUT_ATTENTION_KINDS: ReadonlySet<OutputReconciliationKind> = new Set([
-  "drifted output",
-]);
 
 /** Attention item kinds that are not planned output operations. */
 const EXCEPTION_ITEM_KINDS: ReadonlySet<ReconciliationKind> = new Set([
@@ -2038,7 +2013,7 @@ function operationAttentionLines(
   const exceptions = report.projects.filter((project) => {
     const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
     return project.outputs.some((output) =>
-      OUTPUT_ATTENTION_KINDS.has(output.kind) || (includeRemovals && output.kind === "removal")
+      includeRemovals && output.kind === "removal"
     ) ||
       EXCEPTION_ITEM_KINDS.has(project.state.kind) ||
       (project.state.kind === STALE_SOURCE_KIND && !hasPlannedOutput);
@@ -2055,7 +2030,7 @@ function operationAttentionLines(
       lines.push(`    State: ${itemText({ ...project.state, project: project.project })}`);
     }
     const attentionOutputs = project.outputs.filter((output) =>
-      OUTPUT_ATTENTION_KINDS.has(output.kind) || (includeRemovals && output.kind === "removal")
+      includeRemovals && output.kind === "removal"
     );
     lines.push(...outputPathLines(attentionOutputs).map((line) => `    ${line}`));
   }
@@ -3097,7 +3072,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 13 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 14 as const;
 
 /**
  * One version line per JSON command family: every `install-temp`/`remove-temp`

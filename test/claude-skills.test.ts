@@ -362,9 +362,9 @@ describe("Claude project Skill packages", () => {
 
     rmSync(join(project, ".claude", "skills", "write-notes"), { recursive: true, force: true });
     const missing = await previewReconciliation(first.installations, await readInstallationState(home));
-    expect(reportItems(missing).some((item) => item.kind === "repairable missing output")).toBe(true);
+    expect(reportItems(missing).some((item) => item.kind === "drifted output")).toBe(true);
     expect(reportOutputs(missing).some((item) =>
-      item.kind === "repair" && item.path === ".claude/skills/write-notes"
+      item.kind === "update" && item.path === ".claude/skills/write-notes"
     )).toBe(true);
     mkdirSync(join(project, ".claude", "skills", "write-notes"), { recursive: true });
     writeFileSync(

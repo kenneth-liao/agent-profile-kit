@@ -134,7 +134,7 @@ describe("structured Installer blocker evidence", () => {
       readonly globalBlockers: readonly Record<string, unknown>[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(13);
+    expect(machine.schemaVersion).toBe(14);
     expect(machine.globalBlockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
@@ -289,12 +289,12 @@ describe("structured Installer blocker evidence", () => {
       reason: ".agent-profile-kit/codex/context.md",
     });
     expect(reportOutputs(report)).toContainEqual({
-      kind: "drifted output",
+      kind: "update",
       path: ".agent-profile-kit/codex/context.md",
       project: expect.any(String),
     });
     expect(reportOutputs(report)).not.toContainEqual({
-      kind: "drifted output",
+      kind: "update",
       path: ".codex/hooks.json",
       project: expect.any(String),
     });

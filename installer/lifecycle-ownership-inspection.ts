@@ -26,10 +26,11 @@ export interface LifecycleOwnershipInspectionInstrumentation {
 export interface OwnedOutputInspection {
   /**
    * On-disk classification of the output root. `missing` means the root itself
-   * is proven absent (repairable); `unreadable` is an explicit non-repairable
-   * inspection failure for a root or traversal that cannot be proven; `other`
-   * covers a root that is not the recorded type and a readable root containing
-   * an unsupported member entry (distinguished by `unsupportedMember`).
+   * is proven absent (ordinary pending work `apply` restores); `unreadable` is
+   * an explicit fail-closed inspection failure for a root or traversal that
+   * cannot be proven; `other` covers a root that is not the recorded type and a
+   * readable root containing an unsupported member entry (distinguished by
+   * `unsupportedMember`).
    */
   readonly kind: "directory" | "file" | "missing" | "other" | "unreadable";
   /** Regular-file bytes when the output root is a regular file. */
@@ -133,8 +134,9 @@ async function inspectDirectoryOutput(
 ): Promise<OwnedOutputInspection> {
   const root = join(project, output.path);
   let mode: number;
-  // Only a proven-absent root (lstat ENOENT) is repairable. Every other root or
-  // traversal failure is non-repairable so extant output cannot enter repair.
+  // Only a proven-absent root (lstat ENOENT) is ordinary pending work. Every
+  // other root or traversal failure fails closed so extant output is never
+  // replaced without a continuity proof.
   try {
     const stats = await lstat(root);
     if (stats.isSymbolicLink() || !stats.isDirectory()) return { kind: "other" };

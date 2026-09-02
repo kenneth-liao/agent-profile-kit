@@ -178,9 +178,9 @@ export function newInstallationId(): string {
 
 /**
  * Authority-failure classification: recorded identity or path evidence that
- * differs unrepairably (unsafe parents or roots, unreadable output) — never
- * content freshness, which the ordinary refresh path restores without revoking
- * authority, and never wholly absent roots, which are repairable pending work.
+ * differs unrepairably (unsafe parents or unreadable output) — never content
+ * freshness or wholly absent roots, which are ordinary pending work that
+ * `apply` restores from the Workspace.
  */
 export type OwnershipFailureKind = "drift";
 
@@ -190,18 +190,13 @@ export interface OwnershipProof {
   readonly owned: boolean;
 }
 
-export interface InstallationOwnershipInspection extends OwnershipProof {
-  readonly repairableMissingOutputs: readonly string[];
-}
-
 /**
  * Authority proof for recorded generated output roots against the active
  * Installation Receipt. The durable continuity evidence is the receipt's own
  * recorded hashes: at least one extant recorded root must still match its
  * recorded hash, or every recorded root must be wholly absent. Wholly absent
- * roots are repairable pending work that `apply` restores; extant roots that
- * match prove continuity, so remaining content, mode, and membership
- * differences are freshness drift that the ordinary refresh path restores.
+ * roots and extant content, mode, and membership differences are freshness
+ * drift that the ordinary refresh path restores; they never revoke authority.
  * Changed extant roots with no matching anchor cannot be distinguished from a
  * different Project later created at the same path, so they fail closed;
  * unsafe parents, unreadable output, and type mismatches also revoke
@@ -210,8 +205,7 @@ export interface InstallationOwnershipInspection extends OwnershipProof {
 export async function inspectInstallationOwnership(
   installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
-): Promise<InstallationOwnershipInspection> {
-  const repairableMissingOutputs: string[] = [];
+): Promise<OwnershipProof> {
   const driftedPaths: string[] = [];
   let matchingRoots = 0;
   for (const output of installation.outputs) {
@@ -221,12 +215,10 @@ export async function inspectInstallationOwnership(
         failureKind: "drift",
         owned: false,
         reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
-        repairableMissingOutputs: [],
       };
     }
     const result = await inspection.inspectOutput(installation.project, output);
     if (result.kind === "missing") {
-      repairableMissingOutputs.push(output.path);
       continue;
     }
     if (result.kind === "unreadable") {
@@ -234,7 +226,6 @@ export async function inspectInstallationOwnership(
         failureKind: "drift",
         owned: false,
         reason: `owned output ${output.path} could not be inspected`,
-        repairableMissingOutputs: [],
       };
     }
     if (result.kind !== output.type) {
@@ -244,7 +235,6 @@ export async function inspectInstallationOwnership(
         reason: result.unsupportedMember
           ? `owned output ${output.path} contains an unsupported entry at ${result.unsupportedMember}`
           : `owned output ${output.path} is not a ${output.type}`,
-        repairableMissingOutputs: [],
       };
     }
     if (recordedOutputMatches(result, output)) matchingRoots += 1;
@@ -258,12 +248,10 @@ export async function inspectInstallationOwnership(
         `recorded output ${driftedPaths[0]} does not match the recorded installation and ` +
         "no other recorded root proves ownership continuity; restore the recorded " +
         "output or remove the generated files, then retry",
-      repairableMissingOutputs: [],
     };
   }
   return {
     owned: true,
-    repairableMissingOutputs,
   };
 }
 

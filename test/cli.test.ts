@@ -2302,7 +2302,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly schemaVersion: number;
       readonly projects: readonly { readonly outputs: readonly { readonly kind: string }[] }[];
     };
-    expect(payload.schemaVersion).toBe(13);
+    expect(payload.schemaVersion).toBe(14);
     expect(payload.projects.flatMap((project) => project.outputs)
       .filter((output) => output.kind === "update")).toHaveLength(12);
 
@@ -2391,12 +2391,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly command: string;
         readonly schemaVersion: number;
       };
-      expect(payload.schemaVersion).toBe(13);
+      expect(payload.schemaVersion).toBe(14);
       expect(payload.command).toBe(command);
 
       const both = await runCli(home, command, "--verbose", "--json");
       expectExitCode(both, 0);
-      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 13 });
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 14 });
 
       const unsupported = await runCli(home, command, "--yaml");
       expectExitCode(unsupported, 1);
@@ -2418,7 +2418,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(status.stderr).toBe("");
     expect(JSON.parse(status.stdout)).toMatchObject({
       command: "status",
-      schemaVersion: 13,
+      schemaVersion: 14,
       projects: [{
         blockers: [],
         warnings: [],
@@ -2531,7 +2531,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
-        schemaVersion: 13,
+        schemaVersion: 14,
       });
     }
 
@@ -2576,7 +2576,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly schemaVersion: number;
       };
       expect(payload).toMatchObject({
-        schemaVersion: 13,
+        schemaVersion: 14,
         command,
         outcome: "error",
       });
@@ -2596,14 +2596,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
-        schemaVersion: 13,
+        schemaVersion: 14,
       });
     }
     const firstApply = await runCli(pendingHome, "apply", "--json");
     expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "apply",
-      schemaVersion: 13,
+      schemaVersion: 14,
     });
     expect(["clean", "attention"]).toContain(
       (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
@@ -3634,7 +3634,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         }[];
       }[];
     };
-    expect(statusJson.schemaVersion).toBe(13);
+    expect(statusJson.schemaVersion).toBe(14);
     expect(statusJson.outcome).toBe("attention");
     expect(statusJson.globalBlockers).toEqual([]);
     const retiringProject = statusJson.projects.find(
@@ -4389,7 +4389,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     ].sort());
   });
 
-  test("status distinguishes current, stale source, drifted output, and repairable missing output", async () => {
+  test("status distinguishes current, stale source, drifted output, and absent owned output", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -4415,9 +4415,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       humanText(`${projectPath}: stale source`),
     );
     rmSync(join(projectPath, ".codex", "hooks.json"));
-    const repairable = await runCli(home, "status", "--verbose");
-    expect(humanText(repairable.stdout)).toContain(
-      humanText(`${projectPath}: repairable missing output`),
+    const absent = await runCli(home, "status", "--verbose");
+    expect(humanText(absent.stdout)).toContain(
+      humanText(`${projectPath}: drifted output`),
     );
   });
 
@@ -4494,6 +4494,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(driftStatus.stdout)).toContain(humanText(`${projectPath}: drifted output`));
     expectExitCode(repaired, 0);
     expect(repaired.stderr).toBe("");
+    // The replacement is a recorded write: even concise output names the work
+    // performed on the working tree, never silently (#380).
+    expect(repaired.stdout).toContain("Applied:");
+    expect(repaired.stdout).toContain("~ 1 generated file update in 1 project");
     expect(readFileSync(drifted, "utf8")).not.toBe("user edit\n");
     expectExitCode(current, 0);
     expect(current.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
@@ -4934,12 +4938,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(join(projectPath, ".agent-profile-kit"), { recursive: true });
     rmSync(join(projectPath, ".codex"), { recursive: true });
 
-    // Wholly absent owned roots are repairable pending work, not lost
+    // Wholly absent owned roots are ordinary pending work, not lost
     // authority: status reports the Project as pending and apply restores it.
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(
-      humanText(`${projectPath}: repairable missing output`),
+      humanText(`${projectPath}: drifted output`),
     );
 
     const result = await runCli(home, "apply");
@@ -5149,7 +5153,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("apply repairs a wholly absent owned file from current Workspace source without changing installation identity", async () => {
+  test("apply restores a wholly absent owned file from current Workspace source without changing installation identity", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -5164,32 +5168,32 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(contextPath);
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nCurrent Workspace repair bytes.\n",
+      "---\nid: team-rules\ndependencies: []\n---\nCurrent Workspace restore bytes.\n",
     );
 
     const concise = await runCli(home, "status");
     expectExitCode(concise, 0);
-    expect(concise.stdout).toContain("Updates ready for 1 project (1 file repair).");
+    expect(concise.stdout).toContain("Updates ready for 1 project (1 file update).");
 
     for (const command of ["status"] as const) {
       const result = await runCli(home, command, "--verbose");
       expectExitCode(result, 0);
-      expect(humanText(result.stdout)).toContain(humanText(`${projectPath}: repairable missing output`));
-      expect(humanText(result.stdout)).toContain(humanText(`${contextPath}: repair`));
+      expect(humanText(result.stdout)).toContain(humanText(`${projectPath}: drifted output`));
+      expect(humanText(result.stdout)).toContain(humanText(`${contextPath}: update`));
       expect(existsSync(contextPath)).toBe(false);
     }
 
     const applied = await runCli(home, "apply");
 
     expectExitCode(applied, 0);
-    expect(readFileSync(contextPath, "utf8")).toContain("Current Workspace repair bytes.");
+    expect(readFileSync(contextPath, "utf8")).toContain("Current Workspace restore bytes.");
     const repaired = parse(readFileSync(statePath(home), "utf8")) as {
       receipts: readonly { installation_id: string }[];
     };
     expect(repaired.receipts[0]!.installation_id).toBe(installationId);
   });
 
-  test("apply repairs a wholly absent owned Skill directory with current Workspace bytes and modes", async () => {
+  test("apply restores a wholly absent owned Skill directory with current Workspace bytes and modes", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -5219,7 +5223,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${destination}: repair`));
+    expect(humanText(status.stdout)).toContain(humanText(`${destination}: update`));
     expect(status.stdout).not.toContain("missing member");
     expect(status.stdout).not.toContain("drift item");
     expect(existsSync(destination)).toBe(false);
@@ -6344,7 +6348,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(moduleRule);
     const repair = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(repair, 0);
-    expect(repair.stdout).toContain("1 file repair");
+    expect(repair.stdout).toContain("1 file update");
     expectExitCode(await runCliWithPath(home, pathWithHosts, "apply"), 0);
     expect(existsSync(moduleRule)).toBe(true);
 
@@ -6521,7 +6525,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(join(antigravityProject, ".agents", "skills", "top-skill"), { recursive: true, force: true });
     const repairStatus = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(repairStatus, 0);
-    expect(repairStatus.stdout).toContain("1 file repair");
+    expect(repairStatus.stdout).toContain("1 file update");
     expectExitCode(await runCliWithPath(home, pathWithHosts, "apply"), 0);
     expect(existsSync(join(antigravityProject, ".agents", "skills", "top-skill", "SKILL.md"))).toBe(true);
 

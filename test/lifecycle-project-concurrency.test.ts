@@ -351,7 +351,7 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
     expect(reportBlockers(report)).toEqual([]);
     expect(reportItems(report)).toHaveLength(8);
     expect(reportItems(report).every((item) =>
-      item.kind === "current" || item.kind === "repairable missing output"
+      item.kind === "current" || item.kind === "drifted output"
     )).toBe(true);
     // Canonical Project ordering is preserved despite concurrent completion.
     expect(reportItems(report).map((item) => item.project)).toEqual(

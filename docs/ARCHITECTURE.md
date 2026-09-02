@@ -112,7 +112,7 @@ Commands separate binding authoring from global reconciliation:
   current Project results. Partial blockers exit `2`; a tool or post-commit
   verification failure exits `1` and retains committed-work evidence. `--json`
   includes both the resulting-state snapshot and an `applied` receipt snapshot.
-- `status` is the complete apply-equivalent read-only plan. It reports current, not installed, stale source, repairable missing output, drifted output, missing output, malformed ownership, and blocked installations; planned generated-file and Git exclusion operations; predictable Host capability evidence; and warnings. Host Setup Steps remain in the ReconciliationReport and appear in `--verbose` and JSON, but concise `status` renders none. A capability problem that prevents pending application is a Project Blocker. Missing or downgraded Host capability relevant only to current output is Host attention and does not change generated-output ownership state. A bound Project with no ordinary Installation Receipt is not installed and eligible for `apply`; no separate teardown intent is inferred or consulted. A fully current concise status states that fact once with no setup reminder, Project list, or next action; non-current state definitions are available through `--verbose`. `--json` uses the same machine payload and exit-code matrix as `apply`.
+- `status` is the complete apply-equivalent read-only plan. It reports current, not installed, stale source, drifted output (including wholly absent owned output), malformed ownership, and blocked installations; planned generated-file and Git exclusion operations; predictable Host capability evidence; and warnings. Host Setup Steps remain in the ReconciliationReport and appear in `--verbose` and JSON, but concise `status` renders none. A capability problem that prevents pending application is a Project Blocker. Missing or downgraded Host capability relevant only to current output is Host attention and does not change generated-output ownership state. A bound Project with no ordinary Installation Receipt is not installed and eligible for `apply`; no separate teardown intent is inferred or consulted. A fully current concise status states that fact once with no setup reminder, Project list, or next action; non-current state definitions are available through `--verbose`. `--json` uses the same machine payload and exit-code matrix as `apply`.
 - `uninstall` safely removes all owned Profile Installations without deleting the Workspace or bindings, and reports each affected project, removed path, and cleaned Git exclusion entry. (`uninstall` is outside the lifecycle machine surface and keeps its own exit semantics.) Temporary Profile Installations and their Repository Exclusion contributions are preserved.
 - `machine install-temp <profile> <project> --host <host>` (machine-facing namespace, DEC-019) installs one Profile temporarily into one explicit Project for one Host marked Temporary-eligible by the canonical Host catalog (`supportsTemporaryProfileInstallation`). It reuses Adapter planning, ownership preflight, transactional publication, and per-receipt Repository Exclusion contributions, writes a durable temporary schema-6 receipt before owned project mutations can be orphaned, and never creates a Project Binding or runs global reconciliation. Concise human success prints the exact `apkit machine remove-temp <actual-id>` command from that durable identity; `--json` continues to emit the shape-unchanged versioned temporary-installation receipt (now at `schemaVersion: 8`, ADR-0023). Failures after the first visible owned mutation report `removalRequired` with the recoverable `temporaryInstallationId`; predictable validation and ownership blockers still occur before writes and require no removal. Temporary and ordinary Installer publication share an exclusive Installation State lifecycle lock so concurrent operations cannot interleave conflicting ownership writes.
 - `machine remove-temp <temporary-installation-id>` removes only that Temporary Profile Installation's owned outputs and exclusion contribution. Temporary-owned roots are intentionally disposable: removal discards content drift and unexpected members inside complete recorded directories without traversing adjacent unowned paths. Cleanup commits before the terminal state write so an interrupted remove remains retryable. A successful removal leaves a terminal removed identity so repeated calls remain idempotent. Linked worktrees are distinct Projects that may hold independent Temporary Profile Installations while sharing contributor-aware Repository Exclusion ownership.
@@ -360,13 +360,13 @@ Healthy OpenCode installations record baseline Capability Contract `native-proje
 
 ## Reconciliation and Ownership
 
-`status` and `apply` select the bound Project containing the current working directory, one explicit existing absolute or home-relative bound root, or the complete fleet through `--all`, then build and validate the same normalized desired output and predictable capability evidence before per-Project reconciliation. Unbound, ambiguous, missing, wildcard, relative, and non-directory targets fail before reconciliation or writes. A Project-scoped command plans, probes, inspects, reconciles, reports, and writes only that Project; an affected shared Repository Exclusion target is updated as one contribution-aware union without inspecting or changing unrelated targets. Scoped apply preserves unrelated Installation Receipts and never classifies them as stale. `apply --all` classifies Blockers before mutation: global Blockers stop every write, while Project-scoped capability, ownership, destination, and Git Blockers leave only their affected Projects untouched. Healthy Project transactions commit sequentially, and one fresh post-commit pass verifies their filesystem output, Installation Markers, and Git exclusion evidence.
+`status` and `apply` select the bound Project containing the current working directory, one explicit existing absolute or home-relative bound root, or the complete fleet through `--all`, then build and validate the same normalized desired output and predictable capability evidence before per-Project reconciliation. Unbound, ambiguous, missing, wildcard, relative, and non-directory targets fail before reconciliation or writes. A Project-scoped command plans, probes, inspects, reconciles, reports, and writes only that Project; a shared Repository Exclusion target is republished from the receipts that will exist after the operation without inspecting or changing unrelated targets. Scoped apply preserves unrelated Installation Receipts and never classifies them as stale. `apply --all` classifies Blockers before mutation: global Blockers stop every write, while Project-scoped ownership, destination, and Git Blockers leave only their affected Projects untouched. Healthy Project transactions commit sequentially, and one fresh post-commit pass verifies their filesystem output and Git exclusion evidence.
 
 Desired-state planning creates one invocation-scoped planning context after Workspace and Local Configuration ingestion and Project selection (`installer/lifecycle-planning.ts`). Within that command only, the context is the single reader for reusable planning facts: resolved Profiles, resolved artifact fingerprints and workspace input hashes, portable Skill package source, composed Context envelopes, Host projections whose complete normalized inputs match, and machine-level Host capability evidence. Each unique selected Host executable/version requirement set is probed at most once per invocation, and both supported and failed probe results are immutable evidence for that command only. Projection options that affect output—including Project-relative Codex Context paths and Grok/Claude topology—participate in the key so unsafe reuse is impossible, while Project-specific Host surface checks (CLI paths, Grok inspection topology, and destination hostability) run only for selected Projects. The context is discarded when the command exits; there is no persistent cache or cross-command memoization, and call sites do not add local fallback readers for the same facts.
 
 Lifecycle reconciliation also creates one invocation-scoped Git inspection context (`installer/lifecycle-git-inspection.ts`) shared across desired-state planning and the reconciliation pass. Within that pass only, the context is the single reader for Git topology, batched tracked-path classification of planned generated destinations, and Repository Exclusion target snapshots. Each Project resolves Git topology at most once; each Git worktree root streams its index once (no fixed whole-output buffer) and classifies planned destinations with binary search over that sorted listing; each shared exclusion target is read and parsed once while contribution identity and union semantics stay unchanged. Apply creates separate inspection contexts for preflight and post-commit verification so pre-write filesystem evidence cannot prove post-write state. The context is discarded when the command exits.
 
-Reconciliation also creates one invocation-scoped ownership inspection context (`installer/lifecycle-ownership-inspection.ts`) per pass. Within that pass only, the context is the single reader for ordinary owned outputs, Installation Marker evidence, and unsafe-parent evidence: each owned file is read at most once and each owned directory walked at most once, and ownership proof, root-level diagnostics, conflict detection, and output reconciliation items all consume that one normalized result instead of re-reading. The cache key includes the canonical expected output identity (type, mode, and hash), so legacy directory member records neither cause another inspection nor provide an alternate ownership proof. Only a genuinely absent root (lstat `ENOENT`) is classified as repairable; an unreadable or otherwise unprovable root or traversal failure is an explicit non-repairable inspection failure, so existing output can never enter the repair path. The Installation Marker is read once per pass and shared by identity resolution, ownership proof, and repairable-Marker classification. Apply creates one ownership context for preflight, a fresh one for the stale-removal pass (each destructive removal re-proves ownership from evidence captured after all earlier project commits, never from preflight snapshots), and a fresh one for post-commit verification, so pre-write filesystem evidence can neither prove post-write state nor authorize removal; contexts are discarded when the command exits.
+Reconciliation also creates one invocation-scoped ownership inspection context (`installer/lifecycle-ownership-inspection.ts`) per pass. Within that pass only, the context is the single reader for ordinary owned outputs and unsafe-parent evidence: each owned file is read at most once and each owned directory walked at most once, and ownership proof, root-level diagnostics, conflict detection, and output reconciliation items all consume that one normalized result instead of re-reading. The cache key includes the canonical expected output identity (type, mode, and hash), so legacy directory member records neither cause another inspection nor provide an alternate ownership proof. A genuinely absent root (lstat `ENOENT`) is ordinary pending work that `apply` restores from the Workspace; an unreadable or otherwise unprovable root or traversal failure fails closed instead, so existing output is never replaced without a continuity proof. Apply creates one ownership context for preflight, a fresh one for the stale-removal pass (each destructive removal re-proves ownership from evidence captured after all earlier project commits, never from preflight snapshots), and a fresh one for post-commit verification, so pre-write filesystem evidence can neither prove post-write state nor authorize removal; contexts are discarded when the command exits.
 
 Independent per-Project planning and inspection work runs through one invocation-scoped bounded-concurrency scheduler (`installer/project-scheduler.ts`) shared by desired-state planning, reconciliation, and apply's preflight and post-commit verification passes. The fixed product-policy limit is four concurrent Project reads (DEC-014); there is no user-facing concurrency setting (OOS-010). The scheduler is a pure executor that holds no Project, Git, or filesystem evidence, so sharing one instance across phases cannot leak facts between passes while each pass still creates fresh inspection contexts. Concurrent results are folded and sorted by canonical Project before report construction, so scheduling order is never observable in human or machine output (DEC-016), and a read failure propagates while global blockers still prevent writes. Apply writes, Installation State publication, Repository Exclusion publication, commit sequencing, stale removals, rollback, and failure recovery remain ordered and never pass through the scheduler (DEC-015, OOS-004).
 
@@ -397,19 +397,16 @@ content hash. A generated directory receipt stores its path, type, root mode,
 and one deterministic aggregate hash covering every complete member path, type,
 mode, and file byte sequence. Directory inspection computes that same aggregate
 without following symlinks. The aggregate hash is freshness evidence, not an
-authority requirement: identity — an active receipt plus a Marker matching its
-Installation ID at safe paths — grants authority over each recorded generated
-output root, and content, mode, or membership differences are ordinary drift
-that `apply` refreshes by replacing the whole proven root. Unsupported entry
-types (such as symlinks) inside a proven root, root type confusion, unreadable
-output, unsafe parents, and missing or foreign Marker identity fail closed and
-remain Blockers; no member tree is persisted or reconstructed.
-
-The minimal `.agent-profile-kit/installation.json` Installation Marker is
-lifecycle metadata, not an Adapter-authored generated output receipt. It travels
-with the Project and links that Project to one active receipt identity. Together
-the Marker and machine-local receipt prove movement and prevent copied identity
-from being adopted.
+authority requirement: an active receipt whose recorded output paths are safe
+grants authority over each recorded generated output root. At least one extant
+recorded root matching its recorded hash proves ownership continuity; wholly
+absent roots and content, mode, or membership differences are ordinary pending
+work that `apply` restores from the Workspace by replacing the whole recorded
+root. Changed extant roots with no matching anchor cannot be distinguished from
+a different Project later created at the same path, so they fail closed.
+Unsupported entry types (such as symlinks) inside a proven root, root type
+confusion, unreadable output, and unsafe parents also fail closed and remain
+Blockers; no member tree is persisted or reconstructed.
 
 Ordinary and Temporary Profile Installations use the same active receipt shape.
 Bindings own ordinary desired lifetime; a temporary receipt owns temporary
@@ -419,42 +416,17 @@ for idempotent retry and is excluded from active inventory. `uninstall` removes
 ordinary receipts and their proven output while preserving Project Bindings,
 active temporary receipts, and compact tombstones.
 
-Each active receipt owns its exact repository-local exclusion target and entries,
-including its Installation Marker entry. Planning derives one deterministic
-union per target from all active ordinary and temporary contributions. The union
-is never persisted as a second ownership fact. Publication still proves the
-marked repository-local section, preserves every unrelated byte, and retains
-entries while any linked-worktree contributor requires them. A missing
-contribution on an otherwise-current installation is a Safe Repair (ADR-0022):
-when the active receipt, Marker, identity-proven owned roots, live Project,
-untracked destinations, and Git target independently prove the exact contribution and the
-target's owned section is absent or exactly the recorded union plus that
-contribution, `status` reports non-blocking pending work and `apply` records the
-contribution and publishes the resulting union through the ordinary transaction;
-every other missing-contribution condition remains a Blocker. Stale recorded
-entries at an unchanged, proven Git target are the same kind of Safe Repair
-(ADR-0022): when the same proofs hold — including an otherwise-current desired
-write set — and the recorded entries differ from the entries the receipt's owned
-outputs derive, and the live section still matches the recorded union exactly,
-`status` reports the one exact replacement as pending work and `apply` replaces
-only the proven installation's entries through the same contribution pass. A
-contribution whose target moved while the Project path stayed is the same kind
-of Safe Repair (ADR-0022): the old target derives only from the active receipt
-and independently passes path, owned-section, and exact recorded-union proof,
-the new target derives from live Git topology and independently passes its own
-proof, and `apply` removes the recorded entries at the old target and publishes
-the re-derived entries at the new target as one exact two-target transaction;
-retirement divergence and unprovable exclusion bytes remain Blockers. The move
-is the first repair whose byte plan spans two files: each target write stays
-individually atomic and reversible, and Installation State publication
-precedes the commit so a failed commit rolls back both targets and the state
-together. A hard crash between the state publication and the target writes can
-leave the receipt-owned section behind at the receipt's previous target after
-the state no longer records it; because no record owns that target afterwards,
-no later pass reports or removes that residue. The residue is inert — its
-entries still exclude the same unchanged generated paths at the previous
-repository — and recovery is manual deletion of the Agent Profile Kit owned
-section at that previous target.
+Each active receipt's recorded output roots deterministically derive its
+Repository Exclusion Contribution at write time. The deterministic union per
+target is never persisted as a second ownership fact. Publication is best-effort
+bookkeeping, not ownership evidence: `apply` rewrites the Agent Profile Kit-owned
+section of each derived target from the receipts that will exist after the
+operation, preserving unrelated bytes, and treats the section as a cache — a
+missing, stale, or modified section is overwritten rather than proven. No
+exclusion condition can produce a Blocker: a failure to read, derive, or write
+any target produces one warning and does not affect the outcome of the
+installation. Exclusions are a cache, so there is no rollback: a superseded or
+failed write self-heals on the next apply.
 
 The pre-1.0 YAML migration window is closed. Runtime Installation State reading
 accepts only strict schema-6 `state/manifest.json`; no YAML parser, compatibility
@@ -467,7 +439,7 @@ Reconciliation returns global Blockers plus one complete record per Project, ord
 
 When a configured project moves, its marker lets reconciliation update the recorded path. If a copied project creates the same installation ID at two existing roots, reconciliation fails instead of silently adopting either copy. A missing marker is missing identity proof; a marker whose bytes differ but whose Installation ID still matches is refreshable drift. At the receipt's recorded path, `apply` may restore a missing marker only when the record and every remaining output hash independently prove the installation — drift must not substitute for missing identity proof; at a different path, the missing identity cannot prove a move and installation fails.
 
-When a binding, Host, project, or artifact disappears, `apply` removes the no-longer-desired output after its receipt, Installation Marker, and path safety prove identity. For a currently bound installation with a matching Marker, `apply` replaces recorded output roots from current Workspace source — recreating wholly absent outputs, refreshing drifted bytes, modes, or members, and never adopting unknown descendants — while occupied unowned destinations and ordinary path-conflict checks still block. Occupied destinations, unsafe paths, and unprovable identity are reported as Blockers and are never overwritten or removed silently.
+When a binding, Host, project, or artifact disappears, `apply` removes the no-longer-desired output after its receipt and path safety prove removal authority. For a currently bound installation, `apply` replaces recorded output roots from current Workspace source — recreating wholly absent outputs, refreshing drifted bytes, modes, or members, and never adopting unknown descendants — while occupied unowned destinations and ordinary path-conflict checks still block. Occupied destinations, unsafe paths, and unprovable removal authority are reported as Blockers and are never overwritten or removed silently.
 
 Generated project paths are owned whole files. A symlink, occupied parent, or
 occupied unowned path blocks installation; shared repository and Host
