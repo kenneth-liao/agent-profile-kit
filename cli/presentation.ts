@@ -775,9 +775,12 @@ export function formatUninstallResult(
   options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
   const projectCount = result.projects.length;
+  const keptCount = result.kept.length;
   const lines = [
     projectCount === 0
-      ? "No ordinary Agent Profile Kit-owned output is installed."
+      ? keptCount === 0
+        ? "No ordinary Agent Profile Kit-owned output is installed."
+        : `Removed no Agent Profile Kit-owned output; kept ${plural(keptCount, "Project")} below.`
       : `Removed proven Agent Profile Kit-owned output from ${plural(projectCount, "Project")}.`,
   ];
   const copyable: string[] = [];
@@ -803,6 +806,17 @@ export function formatUninstallResult(
           )
         ),
       );
+    }
+  }
+  if (keptCount > 0) {
+    lines.push(
+      "",
+      `Kept ${plural(keptCount, "Project")} whose owned output could not be fully removed:`,
+    );
+    for (const kept of result.kept) {
+      const presentedProject = displayProjectPath(kept.project);
+      lines.push("", `Project: ${presentedProject}`, `  - ${kept.reason}`);
+      copyable.push(`Project: ${presentedProject}`, presentedProject, kept.project);
     }
   }
   if (result.warnings.length > 0) {

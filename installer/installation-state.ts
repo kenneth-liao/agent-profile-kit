@@ -320,6 +320,22 @@ export interface ProvenInstallationRemovalTransaction {
   readonly rollback: () => Promise<void>;
 }
 
+/**
+ * A staged removal could not be rolled back: some already-moved output roots
+ * failed to restore, so the staging tree is the only surviving copy of those
+ * bytes and is retained for recovery. This is never a skippable per-Project
+ * removal condition — it is a tool error.
+ */
+export class StagedRollbackFailureError extends Error {
+  readonly failures: readonly unknown[];
+
+  constructor(message: string, failures: readonly unknown[] = []) {
+    super(message);
+    this.name = "StagedRollbackFailureError";
+    this.failures = failures;
+  }
+}
+
 export async function stageProvenInstallationRemoval(
   installation: OwnershipReceipt,
   inspection: LifecycleOwnershipInspection = createLifecycleOwnershipInspectionContext(),
@@ -340,9 +356,23 @@ export async function stageProvenInstallationRemoval(
   const rollback = async (): Promise<void> => {
     if (settled) return;
     settled = true;
+    const restoreFailures: unknown[] = [];
     for (const path of moved.reverse()) {
       const staged = join(stage, path.slice(installation.project.length + 1));
-      await rename(staged, path).catch(() => undefined);
+      try {
+        await rename(staged, path);
+      } catch (error) {
+        restoreFailures.push(error);
+      }
+    }
+    if (restoreFailures.length > 0) {
+      // Restoration failed: the staging tree is the only surviving copy of
+      // the moved output. Retain it for recovery instead of deleting bytes
+      // the receipt still claims are installed.
+      throw new StagedRollbackFailureError(
+        `staged output restore failed; staged bytes retained at ${stage}`,
+        restoreFailures,
+      );
     }
     await cleanup();
   };
@@ -380,7 +410,18 @@ export async function stageProvenInstallationRemoval(
       moved.push(path);
     }
   } catch (error) {
-    await rollback();
+    try {
+      await rollback();
+    } catch (rollbackFailure) {
+      if (rollbackFailure instanceof StagedRollbackFailureError) {
+        const original = error instanceof Error ? error.message : String(error);
+        throw new StagedRollbackFailureError(
+          `Cannot remove Project at ${installation.project}: ${original}; ${rollbackFailure.message}`,
+          rollbackFailure.failures,
+        );
+      }
+      throw rollbackFailure;
+    }
     throw error;
   }
   return {

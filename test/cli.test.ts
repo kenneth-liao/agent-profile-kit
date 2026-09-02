@@ -4665,7 +4665,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
-  test("uninstall blocks a drifted recorded output that Git now tracks", async () => {
+  test("uninstall keeps a Project whose recorded output Git now tracks and reports the reason", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-uninstall-tracked-");
@@ -4678,13 +4678,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "uninstall");
 
-    expectExitCode(result, 1);
-    expect(result.stderr).toContain("Uninstall blocked");
-    expect(result.stderr).toContain("tracked by Git");
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("Kept 1 Project whose owned output could not be fully removed");
+    expect(result.stdout).toContain("tracked by Git");
     expect(existsSync(tracked)).toBe(true);
     expect(execFileSync("git", ["-C", repository, "status", "--porcelain"], { encoding: "utf8" }))
       .toContain("A  .codex/hooks.json");
-    expect(existsSync(join(repository, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<{ project: string }>;
+    };
+    expect(state.receipts.map((receipt) => receipt.project)).toEqual([realpathSync(repository)]);
   });
 
   test("uninstall removes surviving proven output when one recorded root is wholly absent", async () => {
@@ -4704,7 +4708,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(JSON.parse(readFileSync(statePath(home), "utf8")).receipts).toEqual([]);
   });
 
-  test("uninstall rejects a symlinked output parent and preserves matching external data", async () => {
+  test("uninstall keeps a Project with a symlinked output parent, reports the reason, and preserves matching external data", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -4719,13 +4723,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "uninstall");
 
-    expectExitCode(result, 1);
-    expect(result.stderr).toContain("symlink parent");
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("Kept 1 Project whose owned output could not be fully removed");
+    expect(result.stdout).toContain("symlink parent");
     expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
-    expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<{ project: string }>;
+    };
+    expect(state.receipts.map((receipt) => receipt.project)).toEqual([realpathSync(projectPath)]);
   });
 
-  test("uninstall preflights every project before removal and preserves Workspace and Project Bindings", async () => {
+  test("uninstall removes each Project independently and reports the Project it kept", async () => {
     const home = isolatedHome();
     await initialize(home);
     const first = project("agent-profile-kit-uninstall-a-");
@@ -4734,17 +4743,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const configuration = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), configuration);
     expectExitCode(await runCli(home, "apply"), 0);
-    // An unsafe output parent keeps the second Project's stale removal blocked
-    // while Workspace and Project Bindings survive.
+    // An unsafe output parent keeps the second Project's owned output from
+    // being fully removed; the first Project is still removed in the same
+    // invocation and the second is reported as kept without a tool error.
     rmSync(join(second, ".codex"), { recursive: true });
     symlinkSync(first, join(second, ".codex"));
 
     const result = await runCli(home, "uninstall");
 
-    expectExitCode(result, 1);
-    expect(result.stderr).toContain("Uninstall blocked");
-    expect(existsSync(join(first, ".agent-profile-kit", "installation.json"))).toBe(false);
-    expect(existsSync(join(second, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expectExitCode(result, 0);
+    expect(existsSync(join(first, ".codex", "hooks.json"))).toBe(false);
+    expect(existsSync(join(first, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    // The kept Project's owned output survives untouched: the symlink parent
+    // is still in place and its own recorded roots were never staged.
+    expect(existsSync(join(second, ".codex"))).toBe(true);
+    expect(existsSync(join(second, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<{ project: string }>;
+    };
+    expect(state.receipts.map((receipt) => receipt.project)).toEqual([realpathSync(second)]);
+    expect(result.stdout).toContain(`Project: ${realpathSync(first)}`);
+    expect(result.stdout).toContain(`Project: ${realpathSync(second)}`);
+    expect(result.stdout).toContain("unsafe parent");
     expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
     expect(existsSync(join(workspacePath(home), "profiles", "coding.yaml"))).toBe(true);
   });
@@ -5290,8 +5310,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(foreignHooks, "utf8")).toBe("foreign checkout material\n");
 
     const uninstalled = await runCli(home, "uninstall");
-    expectExitCode(uninstalled, 1);
+    // The fail-closed Project is reported and skipped — never a tool error —
+    // and its receipt survives so the foreign bytes are never claimed.
+    expectExitCode(uninstalled, 0);
+    expect(uninstalled.stdout).toContain("Kept 1 Project whose owned output could not be fully removed");
+    expect(uninstalled.stdout).toContain("ownership continuity");
     expect(readFileSync(foreignHooks, "utf8")).toBe("foreign checkout material\n");
+    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: Array<{ project: string }>;
+    };
+    expect(state.receipts.map((receipt) => receipt.project)).toEqual([realpathSync(projectPath)]);
   });
 
   test("a copied Project directory installs cleanly at its new binding while the original is removed", async () => {
