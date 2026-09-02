@@ -390,6 +390,20 @@ function readHostAttentionWarnings(payload: string): readonly string[] {
   );
 }
 
+/** Diagnostic warning messages across the payload's top-level Project records. */
+function readProjectWarnings(payload: string): readonly string[] {
+  const parsed = JSON.parse(payload) as {
+    readonly projects: readonly {
+      readonly warnings: readonly { readonly kind: string; readonly message: string }[];
+    }[];
+  };
+  return parsed.projects.flatMap((projectRecord) =>
+    projectRecord.warnings
+      .filter((warning) => warning.kind === "diagnostic")
+      .map((warning) => warning.message)
+  );
+}
+
 function readCodexHostAttentionWarnings(payload: string): readonly string[] {
   return readHostAttentionWarnings(payload).filter((message) => message.includes("Codex"));
 }
@@ -4168,7 +4182,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
-  test("Git discovery rejects a symlinked authored common directory", async () => {
+  test("an unprovable Git common directory warns once and never blocks installation", async () => {
     const home = isolatedHome();
     await initialize(home);
     const repository = gitRepository("agent-profile-kit-git-common-symlink-");
@@ -4181,13 +4195,33 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, repository);
 
-    const result = await runCli(home, "apply");
+    const result = await runCli(home, "apply", "--json");
 
-    expectExitCode(result, 1);
-    expect(result.stderr).toContain("Git common directory");
-    expect(result.stderr).toContain("non-directory or symlink component");
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    const topologyWarnings = readProjectWarnings(result.stdout).filter((message) =>
+      message.includes("non-directory or symlink component")
+    );
+    expect(topologyWarnings).toHaveLength(1);
+    expect(topologyWarnings[0]).toContain("Git common directory");
+    // Exclusion contribution is skipped; the target's bytes stay unchanged.
     expect(readFileSync(exclude).equals(before)).toBe(true);
-    expect(existsSync(join(repository, ".agent-profile-kit"))).toBe(false);
+    // Generated Profile Installation output is still written.
+    expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+
+    const status = await runCli(home, "status", "--json");
+
+    expectExitCode(status, 0);
+    expect(readProjectWarnings(status.stdout).filter((message) =>
+      message.includes("non-directory or symlink component")
+    )).toHaveLength(1);
+
+    // Teardown proceeds best-effort on unprovable topology too.
+    const uninstall = await runCli(home, "uninstall");
+
+    expectExitCode(uninstall, 0);
+    expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(readFileSync(exclude).equals(before)).toBe(true);
   });
 
   test("a corrupt Git boundary fails closed instead of becoming a non-Git project", async () => {

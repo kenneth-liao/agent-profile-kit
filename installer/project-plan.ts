@@ -50,7 +50,7 @@ import {
 import { requireProfile } from "./profile-selection.js";
 import { type ResolvedProfile } from "./resolve-dependencies.js";
 import { ENGINE_VERSION } from "./version.js";
-import type { GitProject } from "./git.js";
+import { UnprovableGitTopologyError, type GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
 import type { AdapterCapabilityFailure } from "../adapters/capability.js";
@@ -675,7 +675,15 @@ export async function buildDesiredState(
       binding.profile,
     );
     const resolvedProfile = planning.resolveProfile(profile);
-    const gitProject = await gitInspection.findGitProject(binding.canonicalProject);
+    // Unprovable Git topology (DEC-009) never blocks planning: the installation
+    // proceeds without topology evidence and the exclusion derivation warning
+    // (the sole warning site) names the condition.
+    let gitProject: GitProject | undefined;
+    try {
+      gitProject = await gitInspection.findGitProject(binding.canonicalProject);
+    } catch (error) {
+      if (!(error instanceof UnprovableGitTopologyError)) throw error;
+    }
     const { hash: sourceHash, fingerprints: artifactFingerprints } =
       await planning.hashWorkspaceInputs(profile, resolvedProfile);
     const capabilityFailures: { readonly failure: AdapterCapabilityFailure; readonly host: SupportedHost }[] = [];

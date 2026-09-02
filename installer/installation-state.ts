@@ -45,6 +45,7 @@ import {
   createLifecycleGitInspectionContext,
   type LifecycleGitInspection,
 } from "./lifecycle-git-inspection.js";
+import { UnprovableGitTopologyError, type GitProject } from "./git.js";
 import {
   stateManifestPath,
   stateDirectory,
@@ -285,14 +286,22 @@ export async function proveOwnedInstallation(
 /**
  * The one tracked-root reader for every destructive removal surface: the
  * project-relative recorded roots the live Git index tracks, canonically
- * ordered. Ordinary and temporary removal share this fact.
+ * ordered. Ordinary and temporary removal share this fact. Unprovable Git
+ * topology (DEC-009) cannot classify trackedness; removal proceeds best-effort
+ * with no tracked roots rather than stalling teardown.
  */
 async function trackedRoots(
   project: string,
   paths: readonly string[],
   gitInspection: LifecycleGitInspection,
 ): Promise<readonly string[]> {
-  const gitProject = await gitInspection.findGitProject(project);
+  let gitProject: GitProject | undefined;
+  try {
+    gitProject = await gitInspection.findGitProject(project);
+  } catch (error) {
+    if (!(error instanceof UnprovableGitTopologyError)) throw error;
+    return [];
+  }
   if (!gitProject) return [];
   const tracked = await gitInspection.classifyTrackedDestinations(gitProject, paths);
   return paths.filter((path) => tracked.has(path)).sort(compareCanonicalStrings);

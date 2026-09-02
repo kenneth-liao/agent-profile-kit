@@ -2,6 +2,7 @@ import {
   classifyPathsAgainstGitIndex,
   findGitProject,
   listTrackedGitIndex,
+  UnprovableGitTopologyError,
   type GitProject,
   type TrackedPathClassification,
 } from "./git.js";
@@ -57,6 +58,10 @@ export function createLifecycleGitInspectionContext(
     const pending = findGitProject(project);
     gitProjects.set(project, pending);
     return pending.catch((error) => {
+      // An unprovable topology is one invocation-scoped fact: keep the
+      // rejection cached so every consumer shares one inspection and one
+      // warning source. Other failures stay uncached for retry.
+      if (error instanceof UnprovableGitTopologyError) throw error;
       gitProjects.delete(project);
       throw error;
     });

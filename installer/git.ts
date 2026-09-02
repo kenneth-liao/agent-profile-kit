@@ -40,6 +40,21 @@ async function hasGitBoundary(project: string): Promise<boolean> {
   }
 }
 
+/**
+ * Git is present but its topology cannot be proven: the authored common
+ * directory resolves through a symlink or non-directory component. Per DEC-009
+ * this failure never blocks an installation — callers treat Git topology as
+ * unavailable, skip Repository Exclusion Contribution, and surface one
+ * warning. It is distinct from a corrupt Git boundary, which still fails
+ * closed.
+ */
+export class UnprovableGitTopologyError extends Error {
+  constructor(message: string, options?: { readonly cause?: unknown }) {
+    super(message, options);
+    this.name = "UnprovableGitTopologyError";
+  }
+}
+
 export async function assertRealDirectoryPath(path: string, description: string): Promise<void> {
   const root = resolve(path, "/");
   let current = root;
@@ -85,7 +100,14 @@ export async function findGitProject(project: string): Promise<GitProject | unde
   const commonPath = isAbsolute(authoredCommonDirectory)
     ? authoredCommonDirectory
     : resolve(project, authoredCommonDirectory);
-  await assertRealDirectoryPath(commonPath, `Git common directory for ${project}`);
+  try {
+    await assertRealDirectoryPath(commonPath, `Git common directory for ${project}`);
+  } catch (error) {
+    throw new UnprovableGitTopologyError(
+      error instanceof Error ? error.message : String(error),
+      { cause: error },
+    );
+  }
   const common = await realpath(commonPath);
   return {
     commonDirectory: common,
