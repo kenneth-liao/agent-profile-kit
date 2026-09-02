@@ -17,6 +17,8 @@ import {
   previewReconciliation,
 } from "../installer/reconcile.js";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
+import { publishRepositoryExclusions } from "../installer/git-exclusions.js";
+import { uninstallApplication } from "../installer/commands.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -373,8 +375,8 @@ describe("injected project filesystem failures", () => {
 
   test("surfaces installation-state restore failures after an apply error", async () => {
     const home = temporaryDirectory("agent-profile-kit-state-restore-home-");
-    const project = temporaryDirectory("agent-profile-kit-state-restore-project-");
-    execFileSync("git", ["init", "-q", project]);
+    const firstProject = temporaryDirectory("agent-profile-kit-state-restore-a-");
+    const secondProject = temporaryDirectory("agent-profile-kit-state-restore-b-");
     await initializeWorkspace(home);
     const application = join(home, ".agents", "agent-profile-kit");
     const workspace = join(application, "workspace");
@@ -388,7 +390,9 @@ describe("injected project filesystem failures", () => {
     );
     writeFileSync(
       join(application, "config.yaml"),
-      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n` +
+        `  - project: ${firstProject}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${secondProject}\n    profile: coding\n    hosts: [codex]\n`,
     );
     const initial = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, initial.installations);
@@ -396,24 +400,14 @@ describe("injected project filesystem failures", () => {
       join(workspace, "context", "team-rules.md"),
       "---\nid: team-rules\ndependencies: []\n---\nUpdated Context.\n",
     );
-    const desiredState = await buildDesiredState(home, { checkHostCapability: false });
-    const desired = desiredState.installations.map((installation) => ({
-      ...installation,
-      outputs: installation.outputs.map((output) =>
-        output.path.endsWith("context.md")
-          ? { ...output, path: ".agent-profile-kit/codex/context-v2.md" }
-          : output,
-      ),
-    }));
-    let stateWrites = 0;
-    const exclude = join(project, ".git", "info", "exclude");
+    const desired = (await buildDesiredState(home, { checkHostCapability: false })).installations;
 
+    let stateWrites = 0;
     await expect(applyReconciliation(home, desired, {
       writeInstallationState: async (targetHome, state) => {
         stateWrites += 1;
-        if (stateWrites === 2) throw new Error("injected state restore failure");
+        if (stateWrites >= 2) throw new Error("injected state restore failure");
         await writeInstallationState(targetHome, state);
-        if (stateWrites === 1) writeFileSync(exclude, "concurrent edit\n");
       },
     })).rejects.toThrow(/Installation State restore failed/);
   });
@@ -495,7 +489,7 @@ describe("previous-version Marker migration", () => {
     const sha256 = (value: string) =>
       `sha256:${createHash("sha256").update(value).digest("hex")}`;
     const previousStateSource = JSON.stringify({
-      schema_version: 7,
+      schema_version: 8,
       receipts: [{
         installation_id: "previous-installation-id",
         lifetime: "ordinary",
@@ -514,10 +508,6 @@ describe("previous-version Marker migration", () => {
           mode: 0o644,
           hash: sha256(content),
         })),
-        repository_exclusion: {
-          target: join(project, ".git", "info", "exclude"),
-          entries: ["/.codex/hooks.json", "/.agent-profile-kit/codex/context.md"],
-        },
       }],
       removed_temporary_installation_ids: [],
     }, null, 2);
@@ -672,5 +662,72 @@ describe("previous-version Marker migration", () => {
     await applyReconciliation(home, []);
 
     expect(existsSync(token)).toBe(false);
+  });
+});
+
+describe("uninstall failure safety and exclusion publication races", () => {
+  async function prepareGitProject(prefix: string) {
+    const home = temporaryDirectory(`${prefix}-home-`);
+    const project = temporaryDirectory(`${prefix}-project-`);
+    execFileSync("git", ["init", "-q", project]);
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nRules.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: []\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, desired.installations);
+    return { home, project };
+  }
+
+  test("a publish-then-throw state write restores the prior state instead of stranding output", async () => {
+    const { home, project } = await prepareGitProject("agent-profile-kit-uninstall-restore-");
+    let writeCalls = 0;
+
+    await expect(uninstallApplication(home, {
+      writeInstallationState: async (targetHome, state) => {
+        writeCalls += 1;
+        await writeInstallationState(targetHome, state);
+        if (writeCalls === 1) throw new Error("injected post-publish failure");
+      },
+    })).rejects.toThrow("injected post-publish failure");
+
+    // The staged removals rolled back and the prior state (with its receipt)
+    // was restored: no managed output is stranded without ownership evidence.
+    const state = await readInstallationState(home);
+    expect(state.receipts).toHaveLength(1);
+    expect(state.receipts[0]!.project).toBe(realpathSync(project));
+    expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+  });
+
+  test("a concurrent exclude edit during publication is skipped with a warning, never overwritten", async () => {
+    const { home, project } = await prepareGitProject("agent-profile-kit-publish-race-");
+    const exclude = join(project, ".git", "info", "exclude");
+    writeFileSync(exclude, "# unrelated managed-by-user bytes\n");
+    const concurrentBytes = "# concurrent author edit\n*.scratch\n";
+
+    const state = await readInstallationState(home);
+    const publication = await publishRepositoryExclusions(state, {
+      previousState: state,
+      beforeWrite: async () => {
+        writeFileSync(exclude, concurrentBytes);
+      },
+    });
+
+    expect(publication.changes).toEqual([]);
+    expect(publication.warnings).toHaveLength(1);
+    expect(publication.warnings[0]!.message).toContain("changed during exclusion publication");
+    expect(readFileSync(exclude, "utf8")).toBe(concurrentBytes);
   });
 });

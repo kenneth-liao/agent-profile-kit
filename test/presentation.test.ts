@@ -54,7 +54,6 @@ import type {
 } from "../installer/reconcile.js";
 import type {
   RepositoryExclusionChange,
-  RepositoryExclusionRepair,
 } from "../installer/git-exclusions.js";
 import {
   reportBlockers,
@@ -114,7 +113,6 @@ interface FlatFixture {
   readonly items: readonly ReconciliationItem[];
   readonly outputConsumers: readonly OutputConsumerEvidence[];
   readonly outputs: readonly OutputReconciliationItem[];
-  readonly repositoryExclusionRepairs: readonly RepositoryExclusionRepair[];
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
   readonly diagnosticValues: readonly string[];
   readonly warnings: readonly string[];
@@ -127,7 +125,6 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
     items: [],
     outputConsumers: [],
     outputs: [],
-    repositoryExclusionRepairs: [],
     repositoryExclusions: [],
     diagnosticValues: [],
     warnings: [],
@@ -191,7 +188,6 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
           kind: "diagnostic" as const,
           message,
         })) : [],
-        repositoryExclusionRepairs: key === firstProject ? fixture.repositoryExclusionRepairs : [],
         repositoryExclusions: key === firstProject ? fixture.repositoryExclusions : [],
       });
     }),
@@ -217,7 +213,6 @@ function machineProject(
     blockers: [],
     warnings: [],
     setupSteps: [],
-    repositoryExclusionRepairs: [],
     repositoryExclusions: [],
     ...overrides,
   };
@@ -249,7 +244,6 @@ function temporaryReceipt(
     outputs: [".agent-profile-kit/codex/context.md"],
     profileId: "coding",
     project: "/tmp/temporary-project",
-    repositoryExclusion: undefined,
     setupSteps: [],
     temporaryInstallationId: "temporary-installation-opaque-id",
     diagnosticValues: [],
@@ -1081,9 +1075,10 @@ describe("responsive lifecycle presentation", () => {
         resolvedArtifacts: [],
       }],
       items: [{ kind: "stale source", project: "/project-a" }],
-      repositoryExclusionRepairs: [{
-        class: "exclusion-section",
-        entries: ["/tmp/owned path.md"],
+      repositoryExclusions: [{
+        current: [],
+        installed: false,
+        next: ["/tmp/owned path.md"],
         target: repairTarget,
       }],
       diagnosticValues: [
@@ -1172,7 +1167,6 @@ describe("responsive lifecycle presentation", () => {
       outputs: [".agent-profile-kit/codex/context.md"],
       profileId: "coding",
       project: "/tmp/temporary project with spaces",
-      repositoryExclusion: undefined,
       setupSteps: [{
         consequence: "Profile Context does not load until the project is trusted.",
         host: "codex",
@@ -1470,6 +1464,7 @@ describe("formatLifecycleReport concise terminology", () => {
           },
         ],
       }],
+      warnings: [],
     });
 
     expect(receipt).toContain("Project: /project-a");
@@ -2191,6 +2186,7 @@ describe("formatLifecycleReport concise terminology", () => {
           current: [],
           next: ["/a.md"],
           target: "/project-a/.git/info/exclude",
+          installed: false,
         }],
         warnings: [
           "A generated file differs from its installation record; restore the selected Project setup",
@@ -2240,6 +2236,7 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: [{ kind: "addition", path: "generated-output/reconcile", project }],
       repositoryExclusions: [{
         current: [],
+        installed: false,
         next: [exclusionEntry],
         target: exclusionTarget,
       }],
@@ -2608,6 +2605,7 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: [{ kind: "addition", path: ".agent-profile-kit/codex/context.md", project: "/repo" }],
       repositoryExclusions: [{
         current: ["/.old-path.md"],
+        installed: false,
         next: ["/.agent-profile-kit/codex/context.md", "/.codex/hooks.json"],
         target,
       }],
@@ -2626,7 +2624,7 @@ describe("formatLifecycleReport concise terminology", () => {
     );
   });
 
-  test("blocked reports retain the pending Git exclusion repair clause", () => {
+  test("blocked reports retain the pending Git exclusion clause", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/repo",
@@ -2638,10 +2636,11 @@ describe("formatLifecycleReport concise terminology", () => {
       }],
       items: [{ kind: "blocked", project: "/repo", reason: "occupied output" }],
       blockers: [fixtureBlocker("/repo: occupied output", "/repo")],
-      repositoryExclusionRepairs: [{
-        class: "exclusion-section",
-        entries: ["/.agent-profile-kit/codex/context.md"],
+      repositoryExclusions: [{
+        current: [],
+        next: ["/.agent-profile-kit/codex/context.md"],
         target: "/repo/.git/info/exclude",
+        installed: false,
       }],
       warnings: [
         "/repo/.git/info/exclude is missing its Agent Profile Kit exclusion section; apply will restore recorded exact entries",
@@ -2651,7 +2650,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const concise = formatLifecycleReport("status", report);
 
     expect(concise).toContain("Blocker: occupied output");
-    expect(concise).toContain("Git exclusions: 1 recorded entry to restore.");
+    expect(concise).toContain("Git exclusions: 1 entry to add.");
     expect(concise).not.toContain("/repo/.git/info/exclude");
   });
 
@@ -2679,6 +2678,7 @@ describe("formatLifecycleReport concise terminology", () => {
         current: [],
         next: ["/.agent-profile-kit/codex/context.md"],
         target: "/project-a/.git/info/exclude",
+        installed: false,
       }],
       warnings: ["example warning"],
       blockers: [fixtureBlocker("/project-a: example blocker", "/project-a")],
@@ -2717,7 +2717,7 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).not.toContain("Git-local exclusions that keep Installer-owned generated paths untracked");
   });
 
-  test("verbose apply keeps repaired exclusion guidance in the receipt tense", () => {
+  test("verbose apply keeps published exclusion guidance in the receipt tense", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/repo",
@@ -2728,25 +2728,21 @@ describe("formatLifecycleReport concise terminology", () => {
         resolvedArtifacts: [],
       }],
       items: [{ kind: "current", project: "/repo" }],
-      repositoryExclusionRepairs: [{
-        class: "exclusion-section",
-        entries: ["/.agent-profile-kit/codex/context.md"],
+      repositoryExclusions: [{
+        current: [],
+        installed: true,
+        next: ["/.agent-profile-kit/codex/context.md"],
         target: "/repo/.git/info/exclude",
       }],
-      warnings: [
-        "/repo/.git/info/exclude is missing its Agent Profile Kit exclusion section; apply will restore recorded exact entries",
-      ],
     });
     const result = emptyReport({
       desired: reportDesired(receipt),
       items: reportItems(receipt),
       outputs: reportOutputs(receipt),
-      repositoryExclusionRepairs: [],
-      warnings: [],
     });
 
     const status = formatLifecycleReport("status", receipt);
-    expect(status).toContain("Git exclusions: 1 recorded entry to restore.");
+    expect(status).toContain("Git exclusions: 1 entry to add.");
     expect(status).toContain("Details: apkit status --verbose");
     expect(status).not.toContain("/repo/.git/info/exclude");
     expect(status).not.toContain("/.agent-profile-kit/codex/context.md");
@@ -2754,26 +2750,22 @@ describe("formatLifecycleReport concise terminology", () => {
     for (const command of ["status"] as const) {
       const verbosePending = formatLifecycleReport(command, receipt, { verbose: true });
       expect(verbosePending).toContain(
-        "/repo/.git/info/exclude: will restore 1 recorded Git exclusion entry",
+        "/repo/.git/info/exclude: add /.agent-profile-kit/codex/context.md",
       );
       expect(verbosePending).not.toContain(
-        "/repo/.git/info/exclude: restored 1 recorded Git exclusion entry",
+        "/repo/.git/info/exclude: remove /.agent-profile-kit/codex/context.md",
       );
     }
 
     const concise = formatApplyReport(applyResult(receipt, result));
-    expect(concise).not.toContain("Git exclusions: 1 recorded entry restored.");
-    expect(concise).not.toContain("All Projects were already current.");
-    expect(concise).not.toContain("Project: /repo");
-    expect(concise).not.toContain("State: current");
-    expect(concise).not.toContain("/repo/.git/info/exclude");
-    expect(concise).not.toContain("/.agent-profile-kit/codex/context.md");
+    expect(concise).not.toContain("Git exclusions:");
+    expect(concise).toContain("Apply complete");
 
     const verbose = formatApplyReport(applyResult(receipt, result), { verbose: true });
 
-    expect(verbose).not.toContain("apply will restore");
     expect(verbose).toContain("Applied:");
-    expect(verbose).toContain("restored 1 recorded Git exclusion entry");
+    expect(verbose).toContain("Git exclusions:");
+    expect(verbose).toContain("/repo/.git/info/exclude: add /.agent-profile-kit/codex/context.md");
   });
 
   test("verbose apply explains non-current states once across pending and applied sections", () => {
@@ -3244,6 +3236,7 @@ describe("formatLifecycleReport next-action guidance", () => {
         current: [],
         next: ["/.agent-profile-kit/codex/context.md"],
         target: "/repo/.git/info/exclude",
+        installed: false,
       }],
     });
 
@@ -3341,11 +3334,7 @@ describe("Machine surface JSON and exit codes", () => {
           current: [],
           next: ["/.agent-profile-kit/"],
           target: "/project-a/.git/info/exclude",
-        }],
-        repositoryExclusionRepairs: [{
-          class: "exclusion-section",
-          entries: ["/.agent-profile-kit/"],
-          target: "/project-a/.git/info/exclude",
+          installed: false,
         }],
       }),
     ]);
@@ -3384,11 +3373,6 @@ describe("Machine surface JSON and exit codes", () => {
         next: ["/.agent-profile-kit/"],
         target: "/project-a/.git/info/exclude",
       }],
-      repositoryExclusionRepairs: [{
-        class: "exclusion-section",
-        entries: ["/.agent-profile-kit/"],
-        target: "/project-a/.git/info/exclude",
-      }],
     }]);
     expect(payload).not.toHaveProperty("installations");
     expect(payload).not.toHaveProperty("outputs");
@@ -3403,6 +3387,7 @@ describe("Machine surface JSON and exit codes", () => {
           current: [],
           next: ["/a"],
           target: "/repo-a/.git/info/exclude",
+          installed: false,
         }],
       }),
       machineProject("/project-b", {
@@ -3411,6 +3396,7 @@ describe("Machine surface JSON and exit codes", () => {
           current: ["/old-b"],
           next: ["/b"],
           target: "/repo-b/.git/info/exclude",
+          installed: false,
         }],
       }),
     ]);
@@ -3691,6 +3677,7 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
         project: "/home/projects/api",
         repositoryExclusions: [],
       }],
+      warnings: [],
     }, { context: context(40) });
     expect(output).toContain("Project: /home/projects/api");
     expect(output).toContain(".agent-profile-kit/codex/context.md");
@@ -3698,10 +3685,10 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     expect(prose).toBeDefined();
     expect(prose!.length).toBeLessThanOrEqual(40);
 
-    expect(formatUninstallResult({ projects: [] })).toBe(
+    expect(formatUninstallResult({ projects: [], warnings: [] })).toBe(
       "No ordinary Agent Profile Kit-owned output is installed.\n\nConfigured Projects preserved.\n",
     );
-    const wrappedEmpty = formatUninstallResult({ projects: [] }, { context: context(40) });
+    const wrappedEmpty = formatUninstallResult({ projects: [], warnings: [] }, { context: context(40) });
     for (const line of wrappedEmpty.split("\n")) {
       expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
     }
@@ -3816,6 +3803,7 @@ describe("operation-first multi-Project presentation", () => {
         current: [],
         next: [`/${SKILL_PATH}`],
         target: "/project-a/.git/info/exclude",
+        installed: false,
       }],
     });
 
@@ -4081,10 +4069,11 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       }],
       items: [{ kind: "current", project: "/repo" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/repo" }],
-      repositoryExclusionRepairs: [{
-        class: "exclusion-section",
-        entries: ["/.agent-profile-kit/codex/context.md"],
+      repositoryExclusions: [{
+        current: [],
+        next: ["/.agent-profile-kit/codex/context.md"],
         target: "/repo/.git/info/exclude",
+        installed: false,
       }],
     });
     const resultingState = emptyReport({
@@ -4094,15 +4083,14 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
 
     const apply = formatApplyReport(applyResult(receipt, resultingState));
-    expect(apply).toBe(
-      "Apply complete\n\nProfile coding will load the next time you launch a configured Host from a bound Project root.\n",
-    );
+    expect(apply).toContain("Apply complete");
+    expect(apply).not.toContain("Git exclusions:");
     expect(apply).not.toContain("All Projects were already current.");
     expect(apply).not.toContain("Project: /repo");
     expect(apply).not.toContain("State: current");
 
     const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
-    expect(verbose).toContain("restored 1 recorded Git exclusion entry");
+    expect(verbose).toContain("/repo/.git/info/exclude: add /.agent-profile-kit/codex/context.md");
   });
 
   test("remaining attention after apply still appears", () => {
@@ -4270,6 +4258,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
         current: [],
         next: ["/.agent-profile-kit/codex/context.md"],
         target: "/project-a/.git/info/exclude",
+        installed: false,
       }],
     });
 
@@ -4296,6 +4285,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
         current: [],
         next: ["/.agent-profile-kit/codex/context.md"],
         target: "/project-a/.git/info/exclude",
+        installed: false,
       }],
     });
     const resultingState = emptyReport({
@@ -4713,10 +4703,27 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
         project: "/project-a",
         repositoryExclusions: [],
       }],
+      warnings: [],
     });
     expect(uninstall).toContain("Configured Projects preserved.");
     expect(uninstall).toContain("Next: Run apkit unbind for configured Projects you no longer want, or apkit apply to reinstall.");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(uninstall).not.toMatch(term);
+  });
+
+  test("uninstall renders best-effort exclusion warnings and claims only cleaned entries", () => {
+    const result = formatUninstallResult({
+      projects: [{
+        outputs: [".codex/hooks.json"],
+        project: "/project-a",
+        repositoryExclusions: [],
+      }],
+      warnings: [
+        "/project-a/.git/info/exclude changed during exclusion publication; skipping to preserve unrelated bytes",
+      ],
+    });
+    expect(result).toContain("Warnings:");
+    expect(result).toContain("changed during exclusion publication");
+    expect(result).not.toContain("Cleaned Git exclusions");
   });
 
   test("empty status references configured Projects in next guidance", () => {
@@ -4734,7 +4741,6 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       outputs: [".codex/hooks.json"],
       profileId: "engineering",
       project: "/project-a",
-      repositoryExclusion: undefined,
       setupSteps: [],
       temporaryInstallationId: "temp-987",
       warnings: [],
@@ -4749,7 +4755,6 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       diagnosticValues: [],
       host: "codex",
       outputs: [],
-      repositoryExclusion: undefined,
       setupSteps: [],
       temporaryInstallationId: "temp-987",
       warnings: [],

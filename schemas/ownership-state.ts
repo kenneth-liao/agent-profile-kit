@@ -1,4 +1,4 @@
-import { basename, dirname, isAbsolute, normalize, posix, win32 } from "node:path";
+import { isAbsolute, normalize, win32 } from "node:path";
 
 import {
   HOST_CATALOG,
@@ -11,10 +11,10 @@ import {
   parseFileMode,
 } from "./installation-manifest.js";
 
-export const OWNERSHIP_STATE_SCHEMA_VERSION = 8;
+export const OWNERSHIP_STATE_SCHEMA_VERSION = 9;
 
 /** The one immediately preceding schema version the reader still accepts. */
-export const PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION = 7;
+export const PREVIOUS_OWNERSHIP_STATE_SCHEMA_VERSION = 8;
 
 /** Explicit trust-boundary limits for the final ownership-state document. */
 export const OWNERSHIP_STATE_LIMITS = {
@@ -37,11 +37,6 @@ export interface OwnershipOutputReceipt {
   readonly type: "directory" | "file";
 }
 
-export interface OwnershipRepositoryExclusionContribution {
-  readonly entries: readonly string[];
-  readonly target: string;
-}
-
 export interface OwnershipReceipt {
   readonly desiredInputDigest: string;
   readonly hosts: Readonly<Partial<Record<SupportedHost, OwnershipHostReceipt>>>;
@@ -57,7 +52,6 @@ export interface OwnershipReceipt {
   readonly outputs: readonly OwnershipOutputReceipt[];
   readonly profileId: string;
   readonly project: string;
-  readonly repositoryExclusion?: OwnershipRepositoryExclusionContribution;
 }
 
 export interface OwnershipState {
@@ -124,34 +118,6 @@ function requireOutputPath(value: unknown, description: string): string {
   return path;
 }
 
-function requireExclusionTarget(value: unknown, description: string): string {
-  const target = requireProject(value, description);
-  if (
-    target.endsWith("/") ||
-    basename(target) !== "exclude" ||
-    basename(dirname(target)) !== "info" ||
-    basename(dirname(dirname(target))) !== ".git"
-  ) {
-    throw new Error(`${description} must be a canonical Git repository-local exclusion target`);
-  }
-  return target;
-}
-
-function requireExclusionEntry(value: unknown, description: string): string {
-  const entry = requireString(value, description);
-  if (
-    !entry.startsWith("/") ||
-    entry.includes("\\") ||
-    /[*?\[\]]/.test(entry) ||
-    /[\u0000-\u001f\u007f]/.test(entry) ||
-    entry.split("/").some((part, index) => index > 0 && (part === "" || part === "." || part === "..")) ||
-    posix.normalize(entry) !== entry
-  ) {
-    throw new Error(`${description} must be a normalized root-anchored exclusion entry`);
-  }
-  return entry;
-}
-
 function parseOutput(value: unknown, description: string): OwnershipOutputReceipt {
   const output = requireMapping(value, description);
   requireExactFields(output, ["path", "type", "mode", "hash"], description);
@@ -192,27 +158,6 @@ function parseHosts(value: unknown, description: string): OwnershipReceipt["host
   }));
 }
 
-function parseRepositoryExclusion(
-  value: unknown,
-  description: string,
-): OwnershipRepositoryExclusionContribution {
-  const record = requireMapping(value, description);
-  requireExactFields(record, ["target", "entries"], description);
-  if (!Array.isArray(record.entries) || record.entries.length === 0) {
-    throw new Error(`${description} entries must be a non-empty array`);
-  }
-  const entries = record.entries.map((entry, index) =>
-    requireExclusionEntry(entry, `${description} entries[${index}]`),
-  );
-  if (new Set(entries).size !== entries.length) {
-    throw new Error(`${description} entries must not contain a value more than once`);
-  }
-  return {
-    entries: [...entries].sort(compareCanonicalStrings),
-    target: requireExclusionTarget(record.target, `${description} target`),
-  };
-}
-
 function parseReceipt(value: unknown, index: number): OwnershipReceipt {
   const description = `Ownership State receipts[${index}]`;
   const receipt = requireMapping(value, description);
@@ -225,6 +170,10 @@ function parseReceipt(value: unknown, index: number): OwnershipReceipt {
     "hosts",
     "outputs",
   ] as const;
+  // `repository_exclusion` was dropped by the schema change that made the
+  // Repository Exclusion Contribution derived, best-effort bookkeeping: stored
+  // fields from earlier documents are ignored here so every downstream reader
+  // sees the current receipt shape.
   const allowed = [...required, "repository_exclusion", "retired"];
   const unknown = Object.keys(receipt).filter((field) => !allowed.includes(field as typeof allowed[number]));
   if (unknown.length > 0) {
@@ -276,12 +225,6 @@ function parseReceipt(value: unknown, index: number): OwnershipReceipt {
     profileId: requireArtifactId(receipt.profile_id, `${description} profile_id`),
     project: requireProject(receipt.project, `${description} project`),
     ...(receipt.retired === true ? { retired: true as const } : {}),
-    ...(receipt.repository_exclusion === undefined ? {} : {
-      repositoryExclusion: parseRepositoryExclusion(
-        receipt.repository_exclusion,
-        `${description} repository_exclusion`,
-      ),
-    }),
   };
 }
 
@@ -308,12 +251,6 @@ function ownershipStateValue(state: OwnershipState): Record<string, unknown> {
         hash: output.hash,
       })),
       ...(receipt.retired === true ? { retired: true } : {}),
-      ...(receipt.repositoryExclusion === undefined ? {} : {
-        repository_exclusion: {
-          target: receipt.repositoryExclusion.target,
-          entries: receipt.repositoryExclusion.entries,
-        },
-      }),
     })),
     removed_temporary_installation_ids: state.removedTemporaryInstallationIds,
   };
@@ -441,9 +378,7 @@ function assertParsedResourceBounds(value: unknown): void {
 
 function assertPathBounds(state: OwnershipState): void {
   const paths = state.receipts.reduce((count, receipt) =>
-    count + 1 + receipt.outputs.length + (receipt.repositoryExclusion === undefined
-      ? 0
-      : 1 + receipt.repositoryExclusion.entries.length), 0);
+    count + 1 + receipt.outputs.length, 0);
   if (paths > OWNERSHIP_STATE_LIMITS.maxPaths) {
     throw new Error(`Ownership State paths exceed the ${OWNERSHIP_STATE_LIMITS.maxPaths} limit`);
   }

@@ -619,15 +619,6 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     const receipt = state.receipts[0];
     if (!receipt) throw new Error("expected receipt");
 
-    expect(receipt.repositoryExclusion).toBeDefined();
-    expect(receipt.repositoryExclusion?.target).toBe(join(project, ".git", "info", "exclude"));
-    expect(receipt.repositoryExclusion?.entries).toEqual(
-      expect.arrayContaining([
-        "/.agent-profile-kit/opencode/context.md",
-        "/.agents/skills/review-pr",
-        "/.opencode/opencode.jsonc",
-      ]),
-    );
 
     const excludeContent = readFileSync(join(project, ".git", "info", "exclude"), "utf8");
     expect(excludeContent).toContain("# BEGIN Agent Profile Kit generated paths");

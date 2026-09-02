@@ -30,7 +30,7 @@ afterEach(() => {
 function previousVersionStateSource(home: string): string {
   const project = join(home, "project");
   return JSON.stringify({
-    schema_version: 7,
+    schema_version: 8,
     receipts: [{
       installation_id: "installation-a",
       lifetime: "ordinary",
@@ -66,7 +66,7 @@ function previousVersionStateSource(home: string): string {
   }, null, 2);
 }
 
-test("reads the previous schema version and ignores recorded Marker output entries", async () => {
+test("reads the previous schema version and drops stored exclusion fields", async () => {
   const home = temporaryHome();
   writeStateFile(home, previousVersionStateSource(home));
 

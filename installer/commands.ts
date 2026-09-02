@@ -18,16 +18,16 @@ import {
   stageProvenInstallationRemoval,
   writeInstallationState,
 } from "./installation-state.js";
-import { gitExclusionBlockers, stageGitExclusions } from "./git-exclusions.js";
+import { publishRepositoryExclusions, receiptExclusionContribution } from "./git-exclusions.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import type { LifecycleInstrumentation } from "./qualification-instrumentation.js";
+import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 import {
   ordinaryReceipts,
   retiredReceipts,
   temporaryReceipts,
   withReceipts,
 } from "./ownership-state.js";
-import { blockerMessage } from "./blockers.js";
 import type { ProjectBindingSelection } from "./local-configuration.js";
 
 export interface ValidationResult {
@@ -74,6 +74,8 @@ export interface UninstallResult {
       readonly target: string;
     }[];
   }[];
+  /** Best-effort exclusion bookkeeping failures; teardown itself never stalls. */
+  readonly warnings: readonly string[];
 }
 
 export async function validateApplication(
@@ -185,14 +187,28 @@ export async function statusApplication(
   );
 }
 
-export async function uninstallApplication(home: string): Promise<UninstallResult> {
-  return withInstallationLifecycleLock(home, "uninstall", () => uninstallApplicationLocked(home));
+export async function uninstallApplication(
+  home: string,
+  options: {
+    /** Injectable Installation State writer; tests use it to inject failures. */
+    readonly writeInstallationState?: typeof writeInstallationState;
+  } = {},
+): Promise<UninstallResult> {
+  return withInstallationLifecycleLock(home, "uninstall", () =>
+    uninstallApplicationLocked(home, options));
 }
 
-async function uninstallApplicationLocked(home: string): Promise<UninstallResult> {
+async function uninstallApplicationLocked(
+  home: string,
+  options: {
+    readonly writeInstallationState?: typeof writeInstallationState;
+  },
+): Promise<UninstallResult> {
+  const writeState = options.writeInstallationState ?? writeInstallationState;
   const state = await readInstallationState(home);
   const installations = ordinaryReceipts(state);
-  if (installations.length === 0) return { projects: [] };
+  if (installations.length === 0) return { projects: [], warnings: [] };
+  let stateWriteAttempted = false;
   const failures: string[] = [];
   // One shared Git inspection context for the whole preflight: each owned root
   // is classified against the live index at most once per uninstall.
@@ -205,25 +221,21 @@ async function uninstallApplicationLocked(home: string): Promise<UninstallResult
       );
     }
   }
-  failures.push(...(await gitExclusionBlockers(state, [], { validateRecordedInstallations: true }))
-    .map(blockerMessage));
   if (failures.length > 0) {
     throw new Error(
       `Uninstall blocked; generated files were not removed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`,
     );
   }
   const transactions: Awaited<ReturnType<typeof stageProvenInstallationRemoval>>[] = [];
-  const result: UninstallResult = {
-    projects: installations.map((installation) => ({
-      outputs: installation.outputs.map((output) => output.path).sort(),
-      project: installation.project,
-      repositoryExclusions: installation.repositoryExclusion === undefined
-        ? []
-        : [installation.repositoryExclusion],
-    })),
-  };
-  let exclusions: Awaited<ReturnType<typeof stageGitExclusions>> | undefined;
-  let stateWriteAttempted = false;
+  const contributions = new Map<string, { readonly entries: readonly string[]; readonly target: string } | undefined>();
+  for (const installation of installations) {
+    contributions.set(
+      installation.project,
+      await receiptExclusionContribution(installation.project, installation.outputs, { gitInspection }),
+    );
+  }
+  const exclusionWarnings: string[] = [];
+  const cleanedByProject = new Map<string, readonly string[]>();
   try {
     for (const installation of installations) {
       transactions.push(await stageProvenInstallationRemoval(installation));
@@ -235,43 +247,67 @@ async function uninstallApplicationLocked(home: string): Promise<UninstallResult
       ...temporaryReceipts(state),
       ...retiredReceipts(state),
     ]);
-    exclusions = await stageGitExclusions(state, afterOrdinaryUninstall);
+    // Flag the attempt before the write: a publish-then-throw must still
+    // trigger the restore below.
     stateWriteAttempted = true;
-    await writeInstallationState(home, afterOrdinaryUninstall);
-    await exclusions.commit();
+    await writeState(home, afterOrdinaryUninstall);
+    // Best-effort exclusion cleanup after the removal: rewrite every derived
+    // target's owned section from the surviving receipts. A failure produces
+    // one warning and never stalls teardown or returns a tool error.
+    const publication = await publishRepositoryExclusions(afterOrdinaryUninstall, {
+      gitInspection,
+      previousState: state,
+    });
+    exclusionWarnings.push(...publication.warnings.map((warning) => warning.message));
+    // "Cleaned" claims come only from successful publication changes: entries a
+    // failed or skipped publication could not remove are never reported as
+    // cleaned.
+    const survivingByTarget = new Map(
+      publication.changes.map((change) => [change.target, new Set(change.next)]),
+    );
+    for (const [project, contribution] of contributions) {
+      if (contribution === undefined) continue;
+      const surviving = survivingByTarget.get(contribution.target);
+      cleanedByProject.set(
+        project,
+        surviving === undefined
+          ? []
+          : contribution.entries.filter((entry) => !surviving.has(entry)),
+      );
+    }
     for (const transaction of transactions) await transaction.commit();
   } catch (error) {
-    let rollbackFailure: unknown;
-    if (exclusions) {
-      try {
-        await exclusions.rollback();
-      } catch (failure) {
-        rollbackFailure = failure;
-      }
-    }
     for (const transaction of transactions.reverse()) await transaction.rollback();
+    // The durable record precedes the removal commit: restore the prior state
+    // whenever this run attempted the write, so staged root rollbacks can never
+    // strand output whose receipts were already deleted.
     let stateRestoreFailure: unknown;
     if (stateWriteAttempted) {
       try {
-        await writeInstallationState(home, state);
+        await writeState(home, state);
       } catch (failure) {
         stateRestoreFailure = failure;
       }
     }
-    const recoveryMessages = [
-      ...(rollbackFailure === undefined
-        ? []
-        : [`Exclusion rollback failed: ${rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)}`]),
-      ...(stateRestoreFailure === undefined
-        ? []
-        : [`Installation State restore failed: ${stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)}`]),
-    ];
-    if (recoveryMessages.length > 0) {
+    if (stateRestoreFailure !== undefined) {
       throw new Error(
-        `${error instanceof Error ? error.message : String(error)}\n${recoveryMessages.join("\n")}`,
+        `${error instanceof Error ? error.message : String(error)}\n` +
+        `Installation State restore failed: ${stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)}`,
       );
     }
     throw error;
   }
-  return result;
+  return {
+    projects: installations.map((installation) => ({
+      outputs: installation.outputs.map((output) => output.path).sort(),
+      project: installation.project,
+      repositoryExclusions: (cleanedByProject.get(installation.project) ?? []).length === 0
+        ? []
+        : [{
+            entries: cleanedByProject.get(installation.project)!,
+            target: contributions.get(installation.project)!.target,
+          }],
+    })),
+    warnings: exclusionWarnings.sort(compareCanonicalStrings),
+  };
 }

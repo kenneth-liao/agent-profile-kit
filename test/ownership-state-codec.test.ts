@@ -29,10 +29,6 @@ function ordinaryState(): OwnershipState {
       }],
       profileId: "engineering",
       project: "/projects/a",
-      repositoryExclusion: {
-        entries: ["/.codex/hooks.json"],
-        target: "/projects/a/.git/info/exclude",
-      },
     }],
     removedTemporaryInstallationIds: [],
     schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
@@ -44,13 +40,13 @@ describe("final JSON ownership-state codec", () => {
     const source = formatOwnershipState(ordinaryState());
 
     expect(source.startsWith("{\n")).toBe(true);
-    expect(source).toContain('"schema_version": 8');
+    expect(source).toContain('"schema_version": 9');
     expect(source).toContain('"desired_input_digest"');
     expect(parseOwnershipState(source)).toEqual(ordinaryState());
     expect(formatOwnershipState(parseOwnershipState(source))).toBe(source);
   });
 
-  test("canonicalizes receipt, Host, output, exclusion, and tombstone ordering", () => {
+  test("canonicalizes receipt, Host, output, and tombstone ordering", () => {
     const state = ordinaryState();
     const second = {
       ...state.receipts[0]!,
@@ -64,10 +60,6 @@ describe("final JSON ownership-state codec", () => {
         { hash, mode: 0o644, path: "a-output", type: "file" as const },
       ],
       project: "/projects/b",
-      repositoryExclusion: {
-        entries: ["/z-output", "/a-output"],
-        target: "/projects/b/.git/info/exclude",
-      },
     };
     const source = formatOwnershipState({
       receipts: [second, state.receipts[0]!],
@@ -91,7 +83,6 @@ describe("final JSON ownership-state codec", () => {
       "pi",
     ]);
     expect(parsed.receipts[1]!.outputs.map((output) => output.path)).toEqual(["a-output", "z-output"]);
-    expect(parsed.receipts[1]!.repositoryExclusion?.entries).toEqual(["/a-output", "/z-output"]);
     expect(parsed.removedTemporaryInstallationIds).toEqual(["removed-a", "removed-z"]);
     expect(formatOwnershipState(parsed)).toBe(source);
   });
@@ -189,12 +180,19 @@ describe("final JSON ownership-state codec", () => {
     );
     expect(() => parseOwnershipState(JSON.stringify(stringHeavy))).toThrow(/string exceeds/);
 
+    // With exclusion entries no longer stored, the collection bound always
+    // trips before the path bound; the path bound stays as defense in depth.
     const pathHeavy = JSON.parse(formatOwnershipState(ordinaryState()));
-    pathHeavy.receipts[0].repository_exclusion.entries = Array.from(
-      { length: OWNERSHIP_STATE_LIMITS.maxPaths + 1 },
-      (_, index) => `/generated-${index}`,
+    pathHeavy.receipts[0].outputs = Array.from(
+      { length: OWNERSHIP_STATE_LIMITS.maxPaths },
+      (_, index) => ({
+        hash,
+        mode: 0o644,
+        path: `generated-${index}`,
+        type: "file",
+      }),
     );
-    expect(() => parseOwnershipState(JSON.stringify(pathHeavy))).toThrow(/paths exceed/);
+    expect(() => parseOwnershipState(JSON.stringify(pathHeavy))).toThrow();
   });
 
 });

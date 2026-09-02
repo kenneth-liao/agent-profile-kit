@@ -57,12 +57,6 @@ function reportRepositoryExclusions(
   return deduplicateRecords(report.projects.flatMap((project) => project.repositoryExclusions));
 }
 
-function reportRepositoryExclusionRepairs(
-  report: ReconciliationReport,
-): readonly ReconciliationProjectRecord["repositoryExclusionRepairs"][number][] {
-  return deduplicateRecords(report.projects.flatMap((project) => project.repositoryExclusionRepairs));
-}
-
 function reportWarningValues(report: ReconciliationReport): readonly string[] {
   return [...new Set(report.projects.flatMap((project) =>
     project.warnings.flatMap((warning) => warning.copyableValues)
@@ -75,16 +69,6 @@ function reportHasHostAttention(report: ReconciliationReport): boolean {
   );
 }
 import {
-  REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX,
-  REPOSITORY_EXCLUSION_RETIREMENT_REPAIR_WARNING_SUFFIX,
-} from "../installer/git-exclusions.js";
-import {
-  isContributionRepair,
-  publishedContribution,
-  safeRepairTargets,
-  type SafeRepairExclusionRepair,
-} from "../installer/safe-repair.js";
-import {
   isStructuredBlocker,
   OUTPUT_OWNERSHIP_CONFLICT,
   type BlockerAffectedItem,
@@ -92,6 +76,10 @@ import {
   type BlockerScope,
   type StructuredReconciliationBlocker,
 } from "../installer/blockers.js";
+import {
+  REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX,
+  REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX,
+} from "../installer/git-exclusions.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { UninstallResult, ValidationResult } from "../installer/commands.js";
@@ -824,6 +812,11 @@ export function formatUninstallResult(
       );
     }
   }
+  if (result.warnings.length > 0) {
+    lines.push("", "Warnings:");
+    for (const warning of result.warnings) lines.push(`- ${warning}`);
+    copyable.push(...result.warnings);
+  }
   lines.push("", `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.plural)} preserved.`);
   if (projectCount > 0) {
     lines.push(
@@ -932,40 +925,6 @@ function changedRepositoryExclusions(
   );
 }
 
-/** The exact entries one exclusion repair publishes at its target. */
-function repairEntries(repair: SafeRepairExclusionRepair): readonly string[] {
-  return isContributionRepair(repair)
-    ? publishedContribution(repair).entries
-    : repair.entries;
-}
-
-function repositoryExclusionRepairLines(
-  report: ReconciliationReport,
-  completed = false,
-): readonly string[] {
-  return reportRepositoryExclusionRepairs(report).map((repair) => {
-    const count = repairEntries(repair).length;
-    const noun = `Git exclusion ${count === 1 ? "entry" : "entries"}`;
-    if (repair.class === "missing-contribution") {
-      return `${repair.target}: ${completed ? "recorded" : "will record"} ${count} ${noun}`;
-    }
-    if (repair.class === "stale-contribution") {
-      const staleCount = repair.currentEntries.length;
-      const staleNoun = `Git exclusion ${staleCount === 1 ? "entry" : "entries"}`;
-      return `${repair.target}: ${completed ? "replaced" : "will replace"} ${staleCount} stale ${staleNoun} with ${count} ${noun}`;
-    }
-    if (repair.class === "moved-contribution") {
-      return `${repair.nextTarget}: ${completed ? "moved" : "will move"} ${count} ${noun} from ${repair.currentTarget}`;
-    }
-    if (repair.class === "retiring-exclusion-section") {
-      return count === 0
-        ? `${repair.target}: ${completed ? "removed" : "will remove"} the Agent Profile Kit exclusion section`
-        : `${repair.target}: ${completed ? "published" : "will publish"} ${count} surviving ${noun}`;
-    }
-    return `${repair.target}: ${completed ? "restored" : "will restore"} ${count} recorded ${noun}`;
-  });
-}
-
 function exclusionDelta(change: ReconciliationProjectRecord["repositoryExclusions"][number]): {
   readonly additions: readonly string[];
   readonly removals: readonly string[];
@@ -989,21 +948,11 @@ function exclusionDeltaText(change: ReconciliationProjectRecord["repositoryExclu
 function repositoryExclusionClause(
   report: ReconciliationReport,
   completed: boolean,
-  /** Ready status suppresses successful bookkeeping and keeps only repair attention. */
-  repairsOnly = false,
+  /** Ready status suppresses routine pending bookkeeping and keeps drift attention. */
+  driftOnly = false,
 ): string | undefined {
-  const provenContributionTargets = new Set(
-    reportRepositoryExclusionRepairs(report)
-      .filter((repair) => repair.class !== "exclusion-section")
-      .flatMap(safeRepairTargets),
-  );
-  const changes = changedRepositoryExclusions(report);
-  // Ready status keeps only proven-contribution attention; one delta function
-  // owns the count so overlapping recorded entries are never double-counted.
-  const delta = (repairsOnly
-    ? changes.filter((change) => provenContributionTargets.has(change.target))
-    : changes
-  )
+  const changed = changedRepositoryExclusions(report);
+  const delta = (driftOnly ? changed.filter((change) => change.installed) : changed)
     .map(exclusionDelta)
     .reduce(
       (total, change) => ({
@@ -1012,18 +961,12 @@ function repositoryExclusionClause(
       }),
       { additions: 0, removals: 0 },
     );
-  const repairs = reportRepositoryExclusionRepairs(report)
-    .filter((repair) => repair.class === "exclusion-section")
-    .reduce((count, repair) => count + repair.entries.length, 0);
   const parts: string[] = [];
   if (delta.additions > 0) {
     parts.push(`${plural(delta.additions, "entry", "entries")} ${completed ? "added" : "to add"}`);
   }
   if (delta.removals > 0) {
     parts.push(`${plural(delta.removals, "entry", "entries")} ${completed ? "removed" : "to remove"}`);
-  }
-  if (repairs > 0) {
-    parts.push(`${plural(repairs, "recorded entry", "recorded entries")} ${completed ? "restored" : "to restore"}`);
   }
   return parts.length === 0
     ? undefined
@@ -1382,8 +1325,7 @@ function reportHasReconciliationWork(report: ReconciliationReport): boolean {
     reportBlockers(report).length > 0 ||
     changeCount(summarizeOutputs(reportOutputs(report))) > 0 ||
     reportItems(report).some((item) => item.kind !== "current") ||
-    changedRepositoryExclusions(report).length > 0 ||
-    reportRepositoryExclusionRepairs(report).length > 0
+    changedRepositoryExclusions(report).length > 0
   );
 }
 
@@ -1406,10 +1348,7 @@ function stillPendingProjects(report: ReconciliationReport): readonly string[] {
       (
         project.state.kind !== "current" ||
         project.outputs.some((output) => output.kind !== "unchanged") ||
-        project.repositoryExclusions.some((change) =>
-          change.current.join("\n") !== change.next.join("\n")
-        ) ||
-        project.repositoryExclusionRepairs.length > 0
+        project.repositoryExclusions.length > 0
       )
     )
     .map((project) => displayProjectPath(project.canonicalProject, project.project));
@@ -1516,7 +1455,10 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
 
   for (const projectRecord of report.projects) {
     for (const warning of projectRecord.warnings) {
-      if (warning.message.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX)) {
+      if (
+        warning.message.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX) ||
+        warning.message.endsWith(REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX)
+      ) {
         continue;
       }
       const key = warningGroupKey(warning);
@@ -2160,11 +2102,7 @@ function statusAffectedProjects(report: ReconciliationReport): readonly string[]
     .filter((project) =>
       project.state.kind !== "current" ||
       project.outputs.some((output) => isPlannedOutputOperation(output.kind)) ||
-      project.repositoryExclusions.some((change) =>
-        change.current.length !== change.next.length ||
-        change.current.some((entry, index) => entry !== change.next[index])
-      ) ||
-      project.repositoryExclusionRepairs.length > 0
+      project.repositoryExclusions.length > 0
     )
     .map((project) => project.canonicalProject)
     .sort(compareCanonicalStrings);
@@ -2632,10 +2570,6 @@ function lifecycleCopyableValues(
       values.add(exclusion.target);
       for (const entry of [...exclusion.current, ...exclusion.next]) values.add(entry);
     }
-    for (const repair of reportRepositoryExclusionRepairs(report)) {
-      for (const target of safeRepairTargets(repair)) values.add(target);
-      for (const entry of repairEntries(repair)) values.add(entry);
-    }
     for (const value of reportWarningValues(report)) values.add(value);
   }
   return [...values].filter((value) => value.length > 0);
@@ -2792,11 +2726,6 @@ function verboseSections(
     : changedRepositoryExclusions(report)
         .map((change) => `- ${shorten(`${change.target}: ${exclusionDeltaText(change)}`)}`)
         .join("\n");
-  const repositoryExclusionRepairs = reportRepositoryExclusionRepairs(report).length === 0
-    ? "(none)"
-    : repositoryExclusionRepairLines(report, completedRepositoryExclusions)
-        .map((repair) => `- ${shorten(repair)}`)
-        .join("\n");
   const warningGroups = groupWarnings(report);
   const warnings = warningGroups.length === 0
     ? "(none)"
@@ -2811,7 +2740,7 @@ function verboseSections(
         .join("\n");
   const explanations = includeStateExplanations ? stateExplanationLines(stateExplanationItems) : [];
   const explanationSection = explanations.length > 0 ? `${explanations.join("\n")}\n` : "";
-  const detail = `Projects:\n${items}\n${explanationSection}Outputs:\n${outputs}\nGit exclusions:\n${repositoryExclusions}\nGit exclusion repairs:\n${repositoryExclusionRepairs}\nSelected setup:\n${desired}\nWarnings:\n${warnings}\n`;
+  const detail = `Projects:\n${items}\n${explanationSection}Outputs:\n${outputs}\nGit exclusions:\n${repositoryExclusions}\nSelected setup:\n${desired}\nWarnings:\n${warnings}\n`;
   const blockerSection = `Blockers:\n${blockers}\n`;
   return reportBlockers(report).length > 0
     ? `${blockerSection}${detail}`
@@ -3177,7 +3106,7 @@ const LIFECYCLE_MACHINE_SCHEMA_VERSION = 13 as const;
  * `status`/`apply` lifecycle payload family even when both currently publish
  * the same number.
  */
-const TEMPORARY_INSTALLATION_MACHINE_SCHEMA_VERSION = 8 as const;
+const TEMPORARY_INSTALLATION_MACHINE_SCHEMA_VERSION = 9 as const;
 
 function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
   return {
@@ -3249,52 +3178,7 @@ function canonicalMachineProject(project: ReconciliationProjectRecord): unknown 
       next: [...change.next],
       target: change.target,
     })).sort((left, right) => left.target.localeCompare(right.target)),
-    repositoryExclusionRepairs: [...project.repositoryExclusionRepairs]
-      .sort((left, right) =>
-        safeRepairTargets(left)[0]!.localeCompare(safeRepairTargets(right)[0]!) ||
-        left.class.localeCompare(right.class))
-      .map(machineRepositoryExclusionRepair),
   };
-}
-
-/**
- * One exclusion repair's canonical machine record. Every class publishes its
- * own explicit key set; a moved contribution names both targets and both entry
- * sets explicitly (`currentTarget`/`nextTarget`, `current`/`next`).
- */
-function machineRepositoryExclusionRepair(
-  repair: SafeRepairExclusionRepair,
-): Record<string, unknown> {
-  switch (repair.class) {
-    case "exclusion-section":
-      return { class: repair.class, entries: [...repair.entries], target: repair.target };
-    case "missing-contribution":
-      return {
-        class: repair.class,
-        entries: [...repair.entries],
-        installationId: repair.installationId,
-        target: repair.target,
-      };
-    case "stale-contribution":
-      return {
-        class: repair.class,
-        current: [...repair.currentEntries],
-        installationId: repair.installationId,
-        next: [...repair.entries],
-        target: repair.target,
-      };
-    case "moved-contribution":
-      return {
-        class: repair.class,
-        current: [...repair.current],
-        currentTarget: repair.currentTarget,
-        installationId: repair.installationId,
-        next: [...repair.next],
-        nextTarget: repair.nextTarget,
-      };
-    case "retiring-exclusion-section":
-      return { class: repair.class, entries: [...repair.entries], target: repair.target };
-  }
 }
 
 function canonicalMachineSnapshot(report: ReconciliationReport): unknown {
@@ -3315,7 +3199,7 @@ function canonicalMachineOutcome(
     report.projects.some((project) =>
       project.state.kind !== "current" ||
       project.outputs.some((output) => output.kind !== "unchanged") ||
-      project.repositoryExclusionRepairs.length > 0 ||
+      project.repositoryExclusions.length > 0 ||
       project.warnings.some((warning) => warning.kind === "host-attention")
     )
   ) return "attention";
@@ -3415,12 +3299,6 @@ export interface TemporaryInstallationReceiptView {
   readonly outputs: readonly string[];
   readonly profileId?: string;
   readonly project?: string;
-  readonly repositoryExclusion:
-    | {
-        readonly entries: readonly string[];
-        readonly target: string;
-      }
-    | undefined;
   readonly setupSteps: readonly HostSetupStep[];
   readonly temporaryInstallationId: string;
   readonly diagnosticValues: readonly string[];
@@ -3470,7 +3348,6 @@ export function formatTemporaryInstallationJson(
       adapterVersion: receipt.adapterVersion,
       hostVersion: receipt.hostVersion,
       outputs: receipt.outputs,
-      repositoryExclusion: receipt.repositoryExclusion ?? null,
       completionState: receipt.completionState,
       warnings: [...receipt.warnings],
       setupSteps: receipt.setupSteps.map((step) =>

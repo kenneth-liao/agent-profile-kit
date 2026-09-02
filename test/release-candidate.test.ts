@@ -1311,10 +1311,7 @@ describe("project-bound release candidate", () => {
       readonly receipts: readonly {
         readonly installation_id: string;
         readonly lifetime: string;
-        readonly repository_exclusion?: {
-          readonly entries: readonly string[];
-          readonly target: string;
-        };
+        readonly repository_exclusion?: unknown;
       }[];
     };
     expect(temporaryOnlyState.receipts).toEqual([
@@ -1323,16 +1320,11 @@ describe("project-bound release candidate", () => {
         lifetime: "temporary",
       }),
     ]);
-    const temporaryExclusion = temporaryOnlyState.receipts[0]!.repository_exclusion;
-    expect(temporaryExclusion).toBeDefined();
-    expect(temporaryExclusion!.target).toBe(
-      join(realpathSync(projectPath), ".git", "info", "exclude"),
-    );
-    const sharedExcludePath = temporaryExclusion!.target;
+    // Exclusion entries are derived at write time and no longer stored in the receipt.
+    expect(temporaryOnlyState.receipts[0]!.repository_exclusion).toBeUndefined();
+    const sharedExcludePath = join(realpathSync(projectPath), ".git", "info", "exclude");
     const sharedExcludeAfterUninstall = readFileSync(sharedExcludePath, "utf8");
-    for (const entry of temporaryExclusion!.entries) {
-      expect(sharedExcludeAfterUninstall).toContain(entry);
-    }
+    expect(sharedExcludeAfterUninstall).toContain("# BEGIN Agent Profile Kit generated paths");
 
     const removeTemp = await runCli(
       home,
@@ -1353,9 +1345,6 @@ describe("project-bound release candidate", () => {
       receipt.temporaryInstallationId,
     ]);
     const sharedExcludeAfterRemoval = readFileSync(sharedExcludePath, "utf8");
-    for (const entry of temporaryExclusion!.entries) {
-      expect(sharedExcludeAfterRemoval).not.toContain(entry);
-    }
     expect(sharedExcludeAfterRemoval).not.toContain("Agent Profile Kit");
   }, 30_000);
 

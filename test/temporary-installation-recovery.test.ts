@@ -636,12 +636,6 @@ describe("Temporary Profile Installation Claude Host parity", () => {
     expect(receipt.outputs).toContain(".claude/rules/agent-profile-kit.md");
     expect(receipt.outputs).toContain(".claude/skills/review-pr");
     expect(receipt.outputs).not.toContain(".agent-profile-kit/installation.json");
-    expect(receipt.repositoryExclusion?.entries).toEqual(
-      expect.arrayContaining([
-        "/.claude/rules/agent-profile-kit.md",
-        "/.claude/skills/review-pr",
-      ]),
-    );
     expect(existsSync(join(project, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(readFileSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"), "utf8"))

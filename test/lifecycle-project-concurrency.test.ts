@@ -36,7 +36,6 @@ import {
   reportDesired,
   reportItems,
   reportOutputs,
-  reportRepositoryExclusionRepairs,
   reportRepositoryExclusions,
   reportWarnings,
 } from "./support/reconciliation-report.js";
@@ -280,7 +279,6 @@ function reportProjection(report: ReconciliationReport): unknown {
     })),
     items: reportItems(report),
     outputs: reportOutputs(report),
-    repositoryExclusionRepairs: reportRepositoryExclusionRepairs(report),
     repositoryExclusions: reportRepositoryExclusions(report),
     warnings: reportWarnings(report),
   };

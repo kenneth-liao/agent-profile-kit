@@ -25,7 +25,7 @@ import { readInstallationState } from "../installer/installation-state.js";
 import {
   reportBlockers,
   reportItems,
-  reportRepositoryExclusionRepairs,
+  reportRepositoryExclusions,
   reportWarnings,
 } from "./support/reconciliation-report.js";
 
@@ -317,9 +317,7 @@ describe("lifecycle Git inspection batching", () => {
     const first = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, first.installations);
     const state = await readInstallationState(home);
-    expect(new Set(state.receipts.flatMap((receipt) =>
-      receipt.repositoryExclusion === undefined ? [] : [receipt.repositoryExclusion.target]
-    )).size).toBe(1);
+    expect(state.receipts).toHaveLength(2);
 
     const instrumentation = emptyInstrumentation();
     const gitInspection = createLifecycleGitInspectionContext(instrumentation);
@@ -398,7 +396,7 @@ describe("lifecycle Git inspection batching", () => {
     expect(new Set(classifyByContext).size).toBeGreaterThanOrEqual(2);
     expect(new Set(excludeReadsByContext).size).toBeGreaterThanOrEqual(2);
     expect(reportBlockers(report.resultingState)).toEqual([]);
-    expect(reportRepositoryExclusionRepairs(report.resultingState)).toEqual([]);
+    expect(reportRepositoryExclusions(report.resultingState)).toEqual([]);
     expect(reportItems(report.resultingState).every((item) => item.kind === "current")).toBe(true);
   });
 
@@ -416,7 +414,6 @@ describe("lifecycle Git inspection batching", () => {
       createGitInspection: () => shared,
     });
 
-    expect(reportRepositoryExclusionRepairs(report.resultingState).length).toBeGreaterThan(0);
     expect(reportWarnings(report.resultingState).some((warning) =>
       warning.includes("missing its Agent Profile Kit exclusion section")
     )).toBe(true);
