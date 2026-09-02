@@ -17,6 +17,8 @@ import { assertGrokProjectCapability, parseGrokInspectDocument } from "../adapte
 import { assertOpenCodeProjectCapability } from "../adapters/opencode.js";
 import { assertPiProjectCapability } from "../adapters/pi.js";
 import {
+  capabilityFailure,
+  caughtCapabilityFailure,
   isAdapterCapabilityError,
   type AdapterCapabilityAffectedItem,
 } from "../adapters/capability.js";
@@ -82,6 +84,8 @@ describe("Host capability probing", () => {
     expect(installation?.capabilityWarnings).toEqual([
       {
         host: "codex",
+        scope: "host",
+        requiredVersion: "0.145.0",
         warning: {
           copyableValues: ["codex"],
           message: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile",
@@ -109,6 +113,7 @@ describe("Host capability probing", () => {
     expect(desired.installations[0]?.capabilityWarnings).toEqual([
       {
         host: "antigravity",
+        scope: "project",
         warning: {
           copyableValues: [
             "antigravity",
@@ -318,6 +323,28 @@ describe("Host capability probing", () => {
       }
       expect(error).toBe(attempt.failure);
     }
+  });
+
+  test("caught capability failures normalize to typed evidence carrying their phase scope", () => {
+    // A typed Adapter failure passes through with its authored scope and floor.
+    const typed = capabilityFailure("codex", "project", "occupied", "retry", [
+      { kind: "path", value: "/p" },
+    ], "occupied; retry");
+    expect(caughtCapabilityFailure("codex", "project", typed)).toBe(typed);
+
+    // A foreign error from a phase becomes typed evidence with that phase's
+    // scope and the original message, so no unknown failure is scoped downstream.
+    const foreign = caughtCapabilityFailure("claude", "host", new Error("injected probe failure"));
+    expect(isAdapterCapabilityError(foreign)).toBe(true);
+    expect(foreign.scope).toBe("host");
+    expect(foreign.message).toBe("injected probe failure");
+    expect(foreign.problem.length).toBeGreaterThan(0);
+    expect(foreign.requirement).toContain("selected Profile requires");
+    expect(foreign.remedy.length).toBeGreaterThan(0);
+
+    const foreignSurface = caughtCapabilityFailure("pi", "project", new Error("injected surface failure"));
+    expect(foreignSurface.scope).toBe("project");
+    expect(foreignSurface.message).toBe("injected surface failure");
   });
 
   test("warning-adjacent Codex configuration remains non-blocking", async () => {

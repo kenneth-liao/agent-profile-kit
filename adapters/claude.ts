@@ -4,7 +4,12 @@ import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { CLAUDE_ADAPTER_VERSION } from "./host-catalog.js";
 import { type ContextModuleSource } from "./context-envelope.js";
-import { capabilityFailure } from "./capability.js";
+import {
+  caughtCapabilityFailure,
+  capabilityFailure,
+  versionFloorCapabilityFailure,
+  type AdapterCapabilityFailure,
+} from "./capability.js";
 import type {
   AdapterProjectPlan,
   ProposedDirectoryFileMember,
@@ -111,6 +116,7 @@ export function parseClaudeCliVersion(source: string): string {
   if (!match) {
     throw capabilityFailure(
       "claude",
+      "host",
       `Claude CLI version is unreadable from '${source.trim()}'`,
       "install a supported Claude Code release",
     );
@@ -132,23 +138,26 @@ export function assertClaudeCliVersionSupported(
 ): void {
   if (compareCoreSemanticVersions(version, CLAUDE_MINIMUM_CLI_VERSION) < 0) {
     if (options.requireDisabledModelInvocation) {
-      throw capabilityFailure(
+      throw versionFloorCapabilityFailure(
         "claude",
         `Claude CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${CLAUDE_MINIMUM_CLI_VERSION}+)`,
         "upgrade Claude Code before checking status or applying the Profile",
+        CLAUDE_MINIMUM_CLI_VERSION,
       );
     }
     if (options.requireContext === false) {
-      throw capabilityFailure(
+      throw versionFloorCapabilityFailure(
         "claude",
         `Claude CLI ${version} does not support native project Skills (requires ${CLAUDE_MINIMUM_CLI_VERSION}+)`,
         "upgrade Claude Code before checking status or applying the Profile",
+        CLAUDE_MINIMUM_CLI_VERSION,
       );
     }
-    throw capabilityFailure(
+    throw versionFloorCapabilityFailure(
       "claude",
       `Claude CLI ${version} does not support unscoped project rules (requires ${CLAUDE_MINIMUM_CLI_VERSION}+)`,
       "upgrade Claude Code before checking status or applying the Profile",
+      CLAUDE_MINIMUM_CLI_VERSION,
     );
   }
 }
@@ -167,6 +176,7 @@ async function resolveClaudeCliVersion(
     if (hasErrorCode(error, "ENOENT")) {
       throw capabilityFailure(
         "claude",
+        "host",
         "Claude Code CLI was not found on PATH",
         "install Claude Code and ensure `claude --version` works before checking status or applying the Profile",
       );
@@ -184,6 +194,7 @@ async function resolveClaudeCliVersion(
     }
     throw capabilityFailure(
       "claude",
+      "host",
       `Claude Code CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
       "install a supported Claude Code release before checking status or applying the Profile",
     );
@@ -244,6 +255,7 @@ export async function assertClaudeProjectSurface(
       `Claude project surface cannot host outputs: ${claudePath} is a ${claudeKind}, not a directory`;
     throw capabilityFailure(
       "claude",
+      "project",
       problem,
       "ensure the Claude project surface is a directory, then retry",
       [{ kind: "path", value: claudePath }],
@@ -263,6 +275,7 @@ export async function assertClaudeProjectSurface(
       `Claude project surface cannot host unscoped rules: ${rulesPath} is a ${rulesKind}, not a directory`;
     throw capabilityFailure(
       "claude",
+      "project",
       problem,
       "ensure the Claude rules surface is a directory, then retry",
       [{ kind: "path", value: rulesPath }],
@@ -350,7 +363,7 @@ export const claudeAdapter = {
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
       input.resolvedSkills,
     );
-    const capabilityFailures: unknown[] = [];
+    const capabilityFailures: AdapterCapabilityFailure[] = [];
     if (input.checkHostCapability) {
       try {
         const requirements = claudeMachineRequirements({
@@ -365,9 +378,15 @@ export const claudeAdapter = {
             requireDisabledModelInvocation,
           }),
         );
+      } catch (error) {
+        capabilityFailures.push(caughtCapabilityFailure("claude", "host", error));
+      }
+      // The Project surface is independent of the CLI probe: an obstructed
+      // surface is Project-specific evidence even when the CLI also failed.
+      try {
         await assertClaudeProjectSurface(input.project, { requireContext });
       } catch (error) {
-        capabilityFailures.push(error);
+        capabilityFailures.push(caughtCapabilityFailure("claude", "project", error));
       }
     }
     const plan = await services.planProjection(

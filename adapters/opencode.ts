@@ -4,9 +4,12 @@ import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { OPENCODE_ADAPTER_VERSION } from "./host-catalog.js";
 import { type ContextModuleSource } from "./context-envelope.js";
 import {
+  caughtCapabilityFailure,
   capabilityFailure,
   isAdapterCapabilityError,
   type AdapterCapabilityError,
+  versionFloorCapabilityFailure,
+  type AdapterCapabilityFailure,
 } from "./capability.js";
 import { invokeExecutable } from "./services/executable.js";
 import { classifyFileSystemEntry } from "./services/project-surface.js";
@@ -105,6 +108,7 @@ export function parseOpenCodeCliVersion(source: string): string {
   if (!match) {
     throw capabilityFailure(
       "opencode",
+      "host",
       `OpenCode version is unreadable from '${source.trim()}'`,
       `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ and ensure \`opencode --version\` works before checking status or applying the Profile`,
     );
@@ -115,10 +119,11 @@ export function parseOpenCodeCliVersion(source: string): string {
 /** Reject OpenCode versions that cannot discover native project instructions or Skills. */
 export function assertOpenCodeCliVersionSupported(version: string): void {
   if (compareCoreSemanticVersions(version, OPENCODE_MINIMUM_CLI_VERSION) < 0) {
-    throw capabilityFailure(
+    throw versionFloorCapabilityFailure(
       "opencode",
       `OpenCode ${version} does not support native project instructions or Skills (requires ${OPENCODE_MINIMUM_CLI_VERSION}+)`,
       "upgrade OpenCode before checking status or applying the Profile",
+      OPENCODE_MINIMUM_CLI_VERSION,
     );
   }
 }
@@ -137,6 +142,7 @@ async function resolveOpenCodeCliVersion(
     if (hasErrorCode(error, "ENOENT")) {
       throw capabilityFailure(
         "opencode",
+        "host",
         "OpenCode was not found on PATH",
         `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ and ensure \`opencode --version\` works before checking status or applying the Profile`,
       );
@@ -154,6 +160,7 @@ async function resolveOpenCodeCliVersion(
     }
     throw capabilityFailure(
       "opencode",
+      "host",
       `OpenCode version could not be detected (${error instanceof Error ? error.message : String(error)})`,
       `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ before checking status or applying the Profile`,
     );
@@ -201,6 +208,7 @@ export async function assertOpenCodeProjectSurface(
       const problem = `OpenCode shared project surface cannot host Skills: ${agentsPath} is a ${agentsKind}, not a directory`;
       throw capabilityFailure(
         "opencode",
+        "project",
         problem,
         "ensure the shared .agents project surface is a directory, then retry",
         [{ kind: "path", value: agentsPath }],
@@ -213,6 +221,7 @@ export async function assertOpenCodeProjectSurface(
       const problem = `OpenCode shared project surface cannot host Skills: ${skillsPath} is a ${skillsKind}, not a directory`;
       throw capabilityFailure(
         "opencode",
+        "project",
         problem,
         "ensure the shared .agents/skills surface is a directory, then retry",
         [{ kind: "path", value: skillsPath }],
@@ -228,6 +237,7 @@ export async function assertOpenCodeProjectSurface(
       const problem = `OpenCode project surface cannot host outputs: ${opencodePath} is a ${opencodeKind}, not a directory`;
       throw capabilityFailure(
         "opencode",
+        "project",
         problem,
         "ensure the .opencode project surface is a directory, then retry",
         [{ kind: "path", value: opencodePath }],
@@ -243,6 +253,7 @@ export async function assertOpenCodeProjectSurface(
       const problem = `OpenCode project surface cannot host Context: ${apkPath} is a ${apkKind}, not a directory`;
       throw capabilityFailure(
         "opencode",
+        "project",
         problem,
         "ensure the .agent-profile-kit project surface is a directory, then retry",
         [{ kind: "path", value: apkPath }],
@@ -255,6 +266,7 @@ export async function assertOpenCodeProjectSurface(
       const problem = `OpenCode project surface cannot host Context: ${apkOpenCodePath} is a ${apkOpenCodeKind}, not a directory`;
       throw capabilityFailure(
         "opencode",
+        "project",
         problem,
         "ensure the .agent-profile-kit/opencode project surface is a directory, then retry",
         [{ kind: "path", value: apkOpenCodePath }],
@@ -434,7 +446,7 @@ export const opencodeAdapter = {
     const requireSkills = input.resolvedSkills.length > 0;
     const requireConfig =
       requireContext || skillsRequireDisabledModelInvocation(input.resolvedSkills);
-    const capabilityFailures: unknown[] = [];
+    const capabilityFailures: AdapterCapabilityFailure[] = [];
 
     if (input.checkHostCapability) {
       try {
@@ -446,13 +458,19 @@ export const opencodeAdapter = {
             requireSkills,
           }),
         );
+      } catch (error) {
+        capabilityFailures.push(caughtCapabilityFailure("opencode", "host", error));
+      }
+      // The Project surface is independent of the CLI probe: an obstructed
+      // surface is Project-specific evidence even when the CLI also failed.
+      try {
         await assertOpenCodeProjectSurface(input.project, {
           requireConfig,
           requireContext,
           requireSkills,
         });
       } catch (error) {
-        capabilityFailures.push(error);
+        capabilityFailures.push(caughtCapabilityFailure("opencode", "project", error));
       }
     }
 

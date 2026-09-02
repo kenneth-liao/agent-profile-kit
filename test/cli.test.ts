@@ -2557,6 +2557,55 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readCodexHostAttentionWarnings(noopApply.stdout)).toEqual([]);
   });
 
+  test("an outdated Host with distinct requirement sets emits one warning per Host per invocation", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const oldClaudeBin = installFakeClaude(home, "2.0.63");
+    const contextProject = project();
+    const skillsProject = project();
+    writeContextProfile(home);
+    // One Skill carrying disabled model invocation, so the two Profiles impose
+    // distinct machine-level requirement sets on the same outdated Claude CLI.
+    mkdirSync(join(workspacePath(home), "skills", "quiet-skill"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(home), "skills", "quiet-skill", "SKILL.md"),
+      "---\nname: quiet-skill\ndescription: Skill requiring disabled model invocation.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Quiet\n",
+    );
+    writeFileSync(
+      join(workspacePath(home), "profiles", "hands-off.yaml"),
+      "id: hands-off\ncontext: []\nskills: [quiet-skill]\n",
+    );
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${contextProject}\n    profile: coding\n    hosts:\n      - claude\n  - project: ${skillsProject}\n    profile: hands-off\n    hosts:\n      - claude\n`,
+    );
+
+    const apply = await runCliWithPath(home, oldClaudeBin, "apply", "--all", "--json");
+    expectExitCode(apply, 0);
+    // Both Projects receive their material regardless of the capability warning.
+    expect(
+      readFileSync(join(contextProject, ".claude", "rules", "agent-profile-kit.md"), "utf8"),
+    ).toContain("Always preserve the project boundary.");
+    expect(
+      readFileSync(join(skillsProject, ".claude", "skills", "quiet-skill", "SKILL.md"), "utf8"),
+    ).toContain("# Quiet");
+    // The two requirement sets fail with distinct messages for the same Host,
+    // yet exactly one warning naming the Host and its required version appears
+    // per invocation (DEC-014).
+    const claudeWarnings = readHostAttentionWarnings(apply.stdout).filter((message) =>
+      message.includes("Claude"),
+    );
+    expect(claudeWarnings).toHaveLength(1);
+    expect(claudeWarnings[0]).toContain("requires 2.0.64+");
+    expect(JSON.parse(apply.stdout)).toMatchObject({
+      command: "apply",
+      projects: [
+        { blockers: [], state: { kind: "current" } },
+        { blockers: [], state: { kind: "current" } },
+      ],
+    });
+  });
+
   test("status and apply share a uniform exit-code matrix for clean, blocked, and tool-error states", async () => {
     const cleanHome = isolatedHome();
     await initialize(cleanHome);

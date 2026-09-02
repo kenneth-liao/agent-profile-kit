@@ -10,7 +10,13 @@ import {
   composeContextModuleBoundary,
   type ContextModuleSource,
 } from "./context-envelope.js";
-import { capabilityFailure, isAdapterCapabilityError } from "./capability.js";
+import {
+  caughtCapabilityFailure,
+  capabilityFailure,
+  isAdapterCapabilityError,
+  versionFloorCapabilityFailure,
+  type AdapterCapabilityFailure,
+} from "./capability.js";
 import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
   skillsRequireDisabledModelInvocation,
@@ -107,6 +113,7 @@ export function parseAntigravityCliVersion(source: string): string {
   if (!match) {
     throw capabilityFailure(
       "antigravity",
+      "host",
       `Antigravity CLI version is unreadable from '${source.trim()}'`,
       `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ and ensure \`agy --version\` works before checking status or applying the Profile`,
     );
@@ -125,10 +132,11 @@ export function assertAntigravityCliVersionSupported(
       : options.requireDisabledModelInvocation
         ? "shared disabled-invocation Skill policy"
         : "native project always-on rules";
-    throw capabilityFailure(
+    throw versionFloorCapabilityFailure(
       "antigravity",
       `Antigravity CLI ${version} does not support ${capability} (requires ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+)`,
       "upgrade Antigravity CLI before checking status or applying the Profile",
+      ANTIGRAVITY_MINIMUM_CLI_VERSION,
     );
   }
 }
@@ -148,6 +156,7 @@ async function resolveAntigravityCliVersion(
     if (hasErrorCode(error, "ENOENT")) {
       throw capabilityFailure(
         "antigravity",
+        "host",
         "Antigravity CLI was not found on PATH",
         `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ and ensure \`agy --version\` works before checking status or applying the Profile`,
       );
@@ -165,6 +174,7 @@ async function resolveAntigravityCliVersion(
     }
     throw capabilityFailure(
       "antigravity",
+      "host",
       `Antigravity CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
       `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ before checking status or applying the Profile`,
     );
@@ -202,6 +212,7 @@ function surfaceFailure(
   const problem = `Antigravity project surface cannot host ${requirement}: ${path} is a ${kind}, not a directory`;
   return capabilityFailure(
     "antigravity",
+    "project",
     problem,
     `ensure the Antigravity ${requirement} surface is a directory, then retry`,
     [{ kind: "path", value: join(project, path) }],
@@ -266,6 +277,7 @@ function rulePath(index: number, moduleId?: string): string {
       `Antigravity rule sequence '${numericSequence}' cannot preserve stable lexical order within ${ANTIGRAVITY_RULE_SEQUENCE_WIDTH}-digit rule names`;
     throw capabilityFailure(
       "antigravity",
+      "project",
       problem,
       "select fewer Context Modules and retry",
       [],
@@ -289,6 +301,7 @@ function assertRuleSize(path: string, bytes: string): void {
   const problem = `Antigravity rule '${path}' is ${ruleCharacterCount(bytes)} characters, exceeding the ${ANTIGRAVITY_RULE_CHARACTER_LIMIT}-character limit`;
   throw capabilityFailure(
     "antigravity",
+    "project",
     problem,
     "shorten the selected Context Module so its complete always-on rule fits, then retry",
     [{ kind: "path", value: path }],
@@ -389,7 +402,7 @@ export const antigravityAdapter = {
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(
       input.resolvedSkills,
     );
-    const capabilityFailures: unknown[] = [];
+    const capabilityFailures: AdapterCapabilityFailure[] = [];
     if (input.checkHostCapability) {
       try {
         await services.probeMachineCapability(
@@ -405,12 +418,18 @@ export const antigravityAdapter = {
             requireSkills,
           }),
         );
+      } catch (error) {
+        capabilityFailures.push(caughtCapabilityFailure("antigravity", "host", error));
+      }
+      // The Project surface is independent of the CLI probe: an obstructed
+      // surface is Project-specific evidence even when the CLI also failed.
+      try {
         await assertAntigravityProjectSurface(input.project, {
           requireContext,
           requireSkills,
         });
       } catch (error) {
-        capabilityFailures.push(error);
+        capabilityFailures.push(caughtCapabilityFailure("antigravity", "project", error));
       }
     }
 

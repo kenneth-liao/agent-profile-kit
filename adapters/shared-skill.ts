@@ -71,6 +71,7 @@ function policyAuthorityFailure(
     `remains authoritative and ${SHARED_SKILL_OPENAI_YAML} is absent or agrees, then retry`;
   return capabilityFailure(
     skill.consumerHost ?? "codex",
+    "project",
     problem,
     remedy,
     [{ kind: "path", value: join(skill.path, SHARED_SKILL_OPENAI_YAML) }],

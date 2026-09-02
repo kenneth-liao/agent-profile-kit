@@ -53,7 +53,8 @@ import { ENGINE_VERSION } from "./version.js";
 import type { GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
 import type { Workspace } from "./ingest-workspace.js";
-import { isAdapterCapabilityError } from "../adapters/capability.js";
+import type { AdapterCapabilityFailure } from "../adapters/capability.js";
+import { compareCoreSemanticVersions } from "../adapters/services/semantic-version.js";
 
 export type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
 export type { LifecycleGitInspection } from "./lifecycle-git-inspection.js";
@@ -120,6 +121,15 @@ export type DesiredProjectOutput =
 /** Advisory Host capability warning authored from one Adapter's failure evidence. */
 export interface HostCapabilityWarning {
   readonly host: SupportedHost;
+  /**
+   * Whether the failure is machine-level (a missing or outdated Host CLI) or
+   * bound to one Project's surface. Deduplication keys on this scope: one
+   * warning per Host per invocation for machine-level failures, distinct
+   * warnings per affected Project for Project-specific surface failures.
+   */
+  readonly scope: "host" | "project";
+  /** The normalized Host CLI floor the failure names, when it names one. */
+  readonly requiredVersion?: string;
   readonly warning: AdapterDiagnosticWarning;
 }
 
@@ -127,18 +137,22 @@ export interface HostCapabilityWarning {
  * Convert one Adapter capability failure into advisory evidence at the Installer
  * boundary. Probing classifies capability for warning purposes only: it never
  * gates planning, never gates writing, and never produces a Blocker. The
- * Adapter remains the sole author of the warning's wording.
+ * Adapter remains the sole author of the warning's wording and of the typed
+ * scope and version-floor evidence the Installer deduplicates on.
  */
-export function capabilityWarning(host: SupportedHost, failure: unknown): HostCapabilityWarning {
-  const structured = isAdapterCapabilityError(failure) ? failure : undefined;
+export function capabilityWarning(
+  host: SupportedHost,
+  failure: AdapterCapabilityFailure,
+): HostCapabilityWarning {
   return {
     host,
+    scope: failure.scope,
+    ...(failure.requiredVersion === undefined
+      ? {}
+      : { requiredVersion: failure.requiredVersion }),
     warning: {
-      copyableValues: structured === undefined
-        ? [host]
-        : structured.affectedItems.map((item) => item.value),
-      message: structured?.message
-        ?? (failure instanceof Error ? failure.message : String(failure)),
+      copyableValues: failure.affectedItems.map((item) => item.value),
+      message: failure.message,
     },
   };
 }
@@ -664,7 +678,7 @@ export async function buildDesiredState(
     const gitProject = await gitInspection.findGitProject(binding.canonicalProject);
     const { hash: sourceHash, fingerprints: artifactFingerprints } =
       await planning.hashWorkspaceInputs(profile, resolvedProfile);
-    const capabilityFailures: { readonly failure: unknown; readonly host: SupportedHost }[] = [];
+    const capabilityFailures: { readonly failure: AdapterCapabilityFailure; readonly host: SupportedHost }[] = [];
     const plans: AdapterProjectPlan[] = [];
     const hostVersions: Record<string, string> = {};
     const warnings: AdapterDiagnosticWarning[] = [];
@@ -718,18 +732,38 @@ export async function buildDesiredState(
   const sortedInstallations = [...installations].sort((left, right) =>
     left.binding.canonicalProject.localeCompare(right.binding.canonicalProject)
   );
-  // One warning per identical Host capability failure per invocation (DEC-014):
-  // cached machine-level probes fail identically for every Project, so the
-  // first Project in canonical order keeps the warning and the rest drop it,
-  // independent of how many Projects select the Host. Distinct Project-specific
-  // evidence (for example one Project's occupied surface) keeps its warning.
-  const warnedCapability = new Set<string>();
+  // One warning per Host per invocation for a missing or outdated Host CLI
+  // (DEC-014), regardless of how many Projects select the Host and how many
+  // distinct requirement messages it produced: the surviving warning names the
+  // strictest required version the Host produced, because a lower-floor
+  // warning alone would be insufficient guidance for the invocation. Ties keep
+  // the first Project in canonical order. Project-specific surface failures
+  // keep their distinct warnings per affected Project.
+  const strictestHostWarnings = new Map<SupportedHost, HostCapabilityWarning>();
+  for (const installation of sortedInstallations) {
+    for (const entry of installation.capabilityWarnings) {
+      if (entry.scope === "project") continue;
+      const kept = strictestHostWarnings.get(entry.host);
+      if (
+        kept === undefined ||
+        (kept.requiredVersion === undefined && entry.requiredVersion !== undefined) ||
+        (kept.requiredVersion !== undefined && entry.requiredVersion !== undefined &&
+          compareCoreSemanticVersions(entry.requiredVersion, kept.requiredVersion) > 0)
+      ) {
+        strictestHostWarnings.set(entry.host, entry);
+      }
+    }
+  }
+  const warnedProjectScope = new Set<string>();
   const dedupedInstallations = sortedInstallations.map((installation) => {
     const capabilityWarnings = installation.capabilityWarnings.filter((entry) => {
-      const key = `${entry.host}\0${entry.warning.message}`;
-      if (warnedCapability.has(key)) return false;
-      warnedCapability.add(key);
-      return true;
+      if (entry.scope === "project") {
+        const key = `${entry.host}\0${installation.binding.canonicalProject}\0${entry.warning.message}`;
+        if (warnedProjectScope.has(key)) return false;
+        warnedProjectScope.add(key);
+        return true;
+      }
+      return strictestHostWarnings.get(entry.host) === entry;
     });
     return capabilityWarnings.length === installation.capabilityWarnings.length
       ? installation

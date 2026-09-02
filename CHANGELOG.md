@@ -12,6 +12,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Deduplicate Host capability warnings to one per Host per invocation: a missing or outdated Host CLI emits exactly one warning naming the Host and the strictest version it requires, regardless of Project count or distinct requirement messages, while Project-specific surface failures keep their distinct warnings per affected Project ([#403](https://github.com/kenneth-liao/agent-profile-kit/issues/403)).
+
 - Read Ownership State at schema versions 6 and 7 — every version published from the v0.132.0 baseline — so upgrading directly from v0.132.0 keeps existing Installation Receipts working without re-binding or re-applying. Recorded legacy Marker output entries and stored `repository_exclusion` fields are ignored at the single ingestion boundary, and the next successful write publishes `schema_version: 9` ([#402](https://github.com/kenneth-liao/agent-profile-kit/issues/402)).
 
 - Complete the presentation-boundary work from the first review cycle: ownership and temporary-removal failures cross as discriminated typed facts with malformed facts rejected at the normalization boundary; the blocker contract returns to a compile-time kind-discriminated union; blocked `machine install-temp`/`remove-temp` human output renders each Blocker's remedy with its runnable command; and `ProjectTargetError` carries typed reasons that presentation renders ([#382](https://github.com/kenneth-liao/agent-profile-kit/issues/382)).
