@@ -35,8 +35,10 @@ import {
   formatTemporaryInventoryHuman,
   formatTemporaryInventoryJson,
   formatTemporaryInventoryToolErrorJson,
+  describeStateReadFailure,
   formatMissingProfileError,
   formatProjectTargetError,
+  formatProjectTargetErrorForHuman,
   formatTemporaryInstallationBlockedJson,
   formatTemporaryInstallationHuman,
   formatTemporaryInstallationJson,
@@ -59,6 +61,7 @@ import {
   ProjectTargetError,
   type ProjectBindingSelection,
 } from "../installer/local-configuration.js";
+import { StateReadFailureError } from "../installer/installation-state.js";
 import {
   applyApplication,
   statusApplication,
@@ -155,6 +158,7 @@ function humanError(
 function formatError(error: unknown): string {
   if (error instanceof MissingProfileError) return formatMissingProfileError(error);
   if (error instanceof ProjectTargetError) return formatProjectTargetError(error.reason);
+  if (error instanceof StateReadFailureError) return describeStateReadFailure(error.failure);
   if (error instanceof AggregateError) {
     const causes = Array.from(error.errors, formatError);
     return [error.message, ...causes.map((cause) => `caused by: ${cause}`)].join("\n");
@@ -1236,9 +1240,12 @@ async function main(): Promise<void> {
         process.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
       } else {
         const guidance = error instanceof ProjectTargetError ? commandUsage("apply") : "";
+        const failureText = error instanceof ProjectTargetError
+          ? formatProjectTargetErrorForHuman(error.reason)
+          : formatError(error);
         writeHuman(
           process.stderr,
-          humanError(`${COMMAND_NAME}: ${formatError(error)}\n`) + guidance,
+          humanError(`${COMMAND_NAME}: ${failureText}\n`) + guidance,
           stderrPresentationContext,
         );
       }
@@ -1272,9 +1279,12 @@ async function main(): Promise<void> {
         process.stdout.write(formatLifecycleToolErrorJson("status", formatError(error)));
       } else {
         const guidance = error instanceof ProjectTargetError ? commandUsage("status") : "";
+        const failureText = error instanceof ProjectTargetError
+          ? formatProjectTargetErrorForHuman(error.reason)
+          : formatError(error);
         writeHuman(
           process.stderr,
-          humanError(`${COMMAND_NAME}: ${formatError(error)}\n`) + guidance,
+          humanError(`${COMMAND_NAME}: ${failureText}\n`) + guidance,
           stderrPresentationContext,
         );
       }

@@ -8,7 +8,11 @@ import {
   humanBlockerWording,
 } from "./blocker-wording.js";
 
-export { formatProjectTargetError } from "./blocker-wording.js";
+export {
+  describeStateReadFailure,
+  formatProjectTargetError,
+  formatProjectTargetErrorForHuman,
+} from "./blocker-wording.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,

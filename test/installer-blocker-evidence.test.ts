@@ -23,6 +23,7 @@ import {
   TEMPORARY_INSTALLATION_REMOVAL,
   temporaryInstallationConflictBlocker,
   temporaryInstallationRemovalBlocker,
+  type StateReadFailureFact,
 } from "../installer/blockers.js";
 import { statusApplication } from "../installer/commands.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
@@ -117,15 +118,22 @@ describe("structured Installer blocker evidence", () => {
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
     });
-    // The blocker carries typed facts only; the diagnostic fs detail rides as
-    // a fact and every sentence is composed by presentation.
-    expect(blocker.detail).toContain("Installation State exceeds the");
+    // The Installer-classified oversize failure crosses as a typed fact and
+    // every sentence is composed by presentation.
+    expect(blocker.stateFailure).toEqual({
+      case: "oversize-state",
+      limitBytes: OWNERSHIP_STATE_LIMITS.maxBytes,
+    });
+    expect(blocker.detail).toBeUndefined();
     expect(blocker.project).toBeUndefined();
     expect("problem" in blocker).toBe(false);
     expect(blocker.affectedItems).toEqual([{ kind: "path", value: statePath }]);
 
     const wording = blockerWording(blocker);
     const humanWording = humanBlockerWording(blocker);
+    expect(wording.problem).toBe(
+      `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,
+    );
     expect(wording.remedy).toBe("Restore or repair the Installation State file, then retry");
     expect(humanWording.remedy).toBe(
       "Restore or repair the installation record file, then retry. Run apkit status to retry.",
@@ -144,11 +152,13 @@ describe("structured Installer blocker evidence", () => {
       readonly schemaVersion: number;
     };
     expect(machine.schemaVersion).toBe(14);
+    // The machine payload keeps its field shape; the message/problem values are
+    // presentation-composed from the typed fact.
     expect(machine.globalBlockers).toEqual([{
       kind: INSTALLATION_STATE_UNREADABLE,
       scope: "global",
-      message: blocker.detail,
-      problem: blocker.detail,
+      message: `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,
+      problem: `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,
       requirement: "Lifecycle commands require readable Installation State",
       remedy: "Restore or repair the Installation State file, then retry",
       affectedItems: [{ kind: "path", value: statePath }],

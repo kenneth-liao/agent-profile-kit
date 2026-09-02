@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 import type {
   OwnershipFailureFact,
+  StateReadFailureFact,
   TemporaryRemovalFailureFact,
 } from "./blockers.js";
 
@@ -70,9 +71,10 @@ async function readInstallationStateSource(path: string): Promise<string> {
       if (bytesRead === 0) break;
       total += bytesRead;
       if (total > OWNERSHIP_STATE_LIMITS.maxBytes) {
-        throw new Error(
-          `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,
-        );
+        throw new StateReadFailureError({
+          case: "oversize-state",
+          limitBytes: OWNERSHIP_STATE_LIMITS.maxBytes,
+        });
       }
       chunks.push(chunk.subarray(0, bytesRead));
     }
@@ -87,9 +89,10 @@ function retiredInstallationStatePath(home: string): string {
 }
 
 function legacyStateClosedError(home: string): Error {
-  return new Error(
-    `Legacy YAML Installation State at ${retiredInstallationStatePath(home)} is unsupported because the migration window is closed. Use Agent Profile Kit 0.95.0 to migrate it to manifest.json, then retry this command. Agent Profile Kit never reconstructs ownership from generated output.`,
-  );
+  return new StateReadFailureError({
+    case: "legacy-yaml-state-expired",
+    retiredPath: retiredInstallationStatePath(home),
+  });
 }
 
 export function emptyInstallationState(): OwnershipState {
@@ -138,9 +141,10 @@ function normalizePreviousVersionState(state: ParsedOwnershipStateDocument): Own
   const receipts = state.receipts.map((receipt) => {
     const normalized = withoutLegacyInstallationMarkerOutputs(receipt);
     if (normalized.outputs.length === 0) {
-      throw new Error(
-        `Installation State receipts record no generated outputs for the installation at ${receipt.project}`,
-      );
+      throw new StateReadFailureError({
+        case: "receipt-records-no-outputs",
+        project: receipt.project,
+      });
     }
     return normalized;
   });
@@ -304,6 +308,20 @@ export async function removeProvenInstallation(
 export interface ProvenInstallationRemovalTransaction {
   readonly commit: () => Promise<void>;
   readonly rollback: () => Promise<void>;
+}
+
+/**
+ * Installation State could not be read for a reason the Installer classified.
+ * The failure is a typed fact; presentation owns the rendered sentence.
+ */
+export class StateReadFailureError extends Error {
+  readonly failure: StateReadFailureFact;
+
+  constructor(failure: StateReadFailureFact) {
+    super(`installation state read failed: ${failure.case}`);
+    this.name = "StateReadFailureError";
+    this.failure = failure;
+  }
 }
 
 /**

@@ -12,6 +12,7 @@ import {
 import {
   AFFECTED_ITEM_KINDS,
   BLOCKER_KINDS,
+  installationStateUnreadableBlocker,
   isStructuredBlocker,
   normalizeBlocker,
   OUTPUT_OWNERSHIP_CONFLICT,
@@ -20,11 +21,13 @@ import {
 import {
   blockerWording,
   describeOwnershipFailure,
+  describeStateReadFailure,
   describeTemporaryRemovalFailure,
   humanBlockerWording,
 } from "../cli/blocker-wording.js";
 import type {
   OwnershipFailureFact,
+  StateReadFailureFact,
   TemporaryRemovalFailureFact,
 } from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
@@ -234,6 +237,167 @@ describe("shared blocker contract", () => {
         affectedItems: [{ kind: "host", value: "codex" }],
       }],
     });
+  });
+
+  test("runtime normalization rejects every cross-kind forbidden field", () => {
+    const contaminationCases: readonly {
+      readonly expected: RegExp;
+      readonly input: Record<string, unknown>;
+    }[] = [
+      {
+        // global kind rejects every other kind's facts, whatever their value
+        expected: /must not carry "occupied"/,
+        input: { ...STATE_UNREADABLE_INPUT, occupied: { case: "drifted-output" } },
+      },
+      {
+        expected: /must not carry "failure"/,
+        input: { ...STATE_UNREADABLE_INPUT, failure: { case: "unproven" } },
+      },
+      {
+        expected: /must not carry "action"/,
+        input: { ...STATE_UNREADABLE_INPUT, action: "verify" },
+      },
+      {
+        expected: /must not carry "remedyKey"/,
+        input: { ...STATE_UNREADABLE_INPUT, remedyKey: "opencode-config-occupied" },
+      },
+      {
+        // project kinds reject foreign facts too
+        expected: /kind occupied-output must not carry "action"/,
+        input: {
+          affectedItems: [{ kind: "path", value: ".codex/hooks.json" }],
+          action: "verify",
+          kind: "occupied-output",
+          occupied: { case: "drifted-output" },
+          project: "/p",
+          scope: "project",
+        },
+      },
+      {
+        expected: /kind occupied-output must not carry "detail"/,
+        input: {
+          affectedItems: [{ kind: "path", value: ".codex/hooks.json" }],
+          detail: "some sentence",
+          kind: "occupied-output",
+          occupied: { case: "drifted-output" },
+          project: "/p",
+          scope: "project",
+        },
+      },
+      {
+        expected: /kind installation-ownership must not carry "detail"/,
+        input: { ...OWNERSHIP_BLOCKER_INPUT, detail: "some sentence" },
+      },
+      {
+        expected: /kind installation-ownership must not carry "occupied"/,
+        input: {
+          ...OWNERSHIP_BLOCKER_INPUT,
+          occupied: { case: "drifted-output" },
+        },
+      },
+      {
+        expected: /kind installation-ownership must not carry "remedyKey"/,
+        input: { ...OWNERSHIP_BLOCKER_INPUT, remedyKey: "opencode-config-occupied" },
+      },
+      {
+        expected: /kind output-ownership-conflict must not carry "failure"/,
+        input: {
+          affectedItems: [{ kind: "path", value: ".codex/hooks.json" }],
+          failure: { case: "unproven" },
+          kind: "output-ownership-conflict",
+          project: "/p",
+          scope: "project",
+        },
+      },
+      {
+        expected: /kind temporary-installation-conflict must not carry "stateFailure"/,
+        input: {
+          affectedItems: [],
+          kind: "temporary-installation-conflict",
+          project: "/p",
+          scope: "project",
+          stateFailure: { case: "oversize-state", limitBytes: 1 },
+        },
+      },
+      {
+        expected: /kind temporary-installation-removal must not carry "detail"/,
+        input: {
+          affectedItems: [{ kind: "path", value: ".codex/hooks.json" }],
+          detail: "some sentence",
+          failure: { case: "symlink-output", output: ".codex/hooks.json" },
+          kind: "temporary-installation-removal",
+          project: "/p",
+          scope: "project",
+        },
+      },
+    ];
+    for (const example of contaminationCases) {
+      expect(() => normalizeBlocker(example.input as never)).toThrow(example.expected);
+    }
+  });
+
+  test("global blockers reject every invalid project value, not only strings", () => {
+    for (const invalid of [42, null, false, { path: "/project-a" }, ["/project-a"]]) {
+      expect(() => normalizeBlocker({
+        ...STATE_UNREADABLE_INPUT,
+        project: invalid,
+      } as never)).toThrow("Global structured blockers cannot carry a project");
+    }
+  });
+
+  test("state-read failures carry typed facts rendered only by presentation", () => {
+    const facts: readonly StateReadFailureFact[] = [
+      { case: "legacy-yaml-state-expired", retiredPath: "/home/.agents/agent-profile-kit/state/manifest.yaml" },
+      { case: "oversize-state", limitBytes: 8388608 },
+      { case: "receipt-records-no-outputs", project: "/project-a" },
+    ];
+    expect(facts.map((failure) => describeStateReadFailure(failure))).toEqual([
+      "Legacy YAML Installation State at " +
+        "/home/.agents/agent-profile-kit/state/manifest.yaml is unsupported because the " +
+        "migration window is closed. Use Agent Profile Kit 0.95.0 to migrate it to " +
+        "manifest.json, then retry this command. Agent Profile Kit never reconstructs " +
+        "ownership from generated output.",
+      "Installation State exceeds the 8388608 byte limit",
+      "Installation State receipts record no generated outputs for the installation at /project-a",
+    ]);
+
+    // Exactly one cause per blocker; both together are rejected.
+    for (const failure of facts) {
+      const blocker = normalizeBlocker(installationStateUnreadableBlocker({
+        stateFailure: failure,
+        statePath: "/home/state/manifest.json",
+      }));
+      expect(blocker.stateFailure).toEqual(failure);
+      expect(blocker.detail).toBeUndefined();
+      expect(blockerWording(blocker).problem).toBe(describeStateReadFailure(failure));
+    }
+    expect(() => normalizeBlocker({
+      ...STATE_UNREADABLE_INPUT,
+      stateFailure: { case: "oversize-state", limitBytes: 8388608 },
+    } as never)).toThrow(
+      "Structured blocker state-read cause must be either a stateFailure fact or a foreign detail, not both",
+    );
+    expect(() => normalizeBlocker({
+      affectedItems: [],
+      kind: "installation-state-unreadable",
+      scope: "global",
+    } as never)).toThrow(
+      "Structured blocker state-read cause requires a stateFailure fact or a foreign detail",
+    );
+    expect(() => normalizeBlocker({
+      affectedItems: [],
+      kind: "installation-state-unreadable",
+      scope: "global",
+      stateFailure: { case: "oversize-state", limitBytes: -1 },
+    } as never)).toThrow(
+      "Structured blocker state-read failure requires a positive limitBytes",
+    );
+    expect(() => normalizeBlocker({
+      affectedItems: [],
+      kind: "installation-state-unreadable",
+      scope: "global",
+      stateFailure: { case: "unknown-state-failure" },
+    } as never)).toThrow(/Unknown structured blocker state-read failure case "unknown-state-failure"/);
   });
 
   test("every typed ownership-failure fact composes its carried sentence in presentation", () => {

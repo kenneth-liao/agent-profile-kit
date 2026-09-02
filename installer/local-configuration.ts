@@ -242,13 +242,17 @@ export interface IngestedApplicationSource {
 
 /**
  * Typed reason a Project target was rejected before scoped lifecycle planning
- * or writes. `invalid-target` carries the foreign path-diagnostic fact; the
- * Installer authors no sentence. Presentation owns every rendered sentence.
+ * or writes. Every case is a typed fact; the Installer authors no sentence.
+ * Presentation owns every rendered sentence, canonical on machine surfaces and
+ * newcomer-worded on human surfaces.
  */
 export type ProjectTargetErrorReason =
   | { readonly case: "ambiguous-target"; readonly command: "apply" | "status"; readonly target: string }
-  | { readonly case: "invalid-target"; readonly detail: string }
-  | { readonly case: "unbound-target"; readonly command: "apply" | "status"; readonly target: string };
+  | { readonly case: "dangling-symlink-target"; readonly command: "apply" | "status"; readonly target: string }
+  | { readonly case: "missing-target"; readonly command: "apply" | "status"; readonly target: string }
+  | { readonly case: "relative-target"; readonly command: "apply" | "status"; readonly target: string }
+  | { readonly case: "unbound-target"; readonly command: "apply" | "status"; readonly target: string }
+  | { readonly case: "wildcard-target"; readonly command: "apply" | "status"; readonly target: string };
 
 /** Focused user-input failure raised before scoped lifecycle planning or writes. */
 export class ProjectTargetError extends Error {
@@ -279,18 +283,43 @@ async function selectParsedProjectBindings(
 ): Promise<readonly ParsedProjectBinding[]> {
   if (selection.kind === "all") return bindings;
 
-  const description = `${COMMAND_NAME} ${selection.command} Project target`;
+  const command = selection.command;
+  const target = selection.target;
+  // The Project-target boundary classifies rejections as typed facts so no
+  // Installer-authored sentence is needed: shape checks first, then existence.
+  if (["*", "?", "[", "]"].some((wildcard) => target.includes(wildcard))) {
+    throw new ProjectTargetError({ case: "wildcard-target", command, target });
+  }
+  if (target !== "~" && !target.startsWith("~/") && !isAbsolute(target)) {
+    throw new ProjectTargetError({ case: "relative-target", command, target });
+  }
+  const expandedTarget = expandConfiguredPath(target, home, `${COMMAND_NAME} ${command} Project target`, "project");
   let canonicalTarget: string;
   try {
-    const expandedTarget = expandConfiguredPath(selection.target, home, description, "project");
-    canonicalTarget = await requireExistingDirectory(
-      expandedTarget,
-      selection.target,
-      description,
-      "project",
-    );
+    const entryStats = await lstat(expandedTarget);
+    let dangling = false;
+    try {
+      await stat(expandedTarget);
+    } catch (error) {
+      if (entryStats.isSymbolicLink() && hasErrorCode(error, "ENOENT")) {
+        dangling = true;
+      } else {
+        throw error;
+      }
+    }
+    if (dangling) {
+      throw new ProjectTargetError({ case: "dangling-symlink-target", command, target });
+    }
+    if (!entryStats.isDirectory()) {
+      throw new ProjectTargetError({ case: "missing-target", command, target });
+    }
+    canonicalTarget = await realpath(expandedTarget);
   } catch (error) {
-    throw new ProjectTargetError({ case: "invalid-target", detail: errorMessage(error) });
+    if (error instanceof ProjectTargetError) throw error;
+    if (hasErrorCode(error, "ENOENT")) {
+      throw new ProjectTargetError({ case: "missing-target", command, target });
+    }
+    throw error;
   }
   const matches: ParsedProjectBinding[] = [];
   for (const [index, binding] of bindings.entries()) {

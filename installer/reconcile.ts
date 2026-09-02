@@ -39,6 +39,7 @@ import {
   proveOwnedInstallation,
   readInstallationState,
   stageProvenInstallationRemoval,
+  StateReadFailureError,
   writeInstallationState,
   type OwnershipProof,
 } from "./installation-state.js";
@@ -304,11 +305,14 @@ export async function unreadableInstallationStateReport(
     removedTemporaryInstallationIds: [],
     schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
   });
+  // Installer-classified state-read failures cross as typed facts; foreign
+  // diagnostics (fs and parse errors) stay plain detail facts.
+  const statePath = stateManifestPath(home);
+  const blocker = error instanceof StateReadFailureError
+    ? installationStateUnreadableBlocker({ stateFailure: error.failure, statePath })
+    : installationStateUnreadableBlocker({ detail: message, statePath });
   return {
-    globalBlockers: [normalizeBlocker(installationStateUnreadableBlocker({
-      detail: message,
-      statePath: stateManifestPath(home),
-    }))],
+    globalBlockers: [normalizeBlocker(blocker)],
     // Ownership cannot be read, so planned Project states and output changes
     // are not trustworthy diagnostics. Keep desired identity plus the boundary failure.
     projects: desiredReport.projects.map((project) => ({

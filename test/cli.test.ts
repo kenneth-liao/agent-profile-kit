@@ -1967,6 +1967,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         expect(result.stderr).toContain(`Usage: apkit ${command}`);
       }
     }
+
+    // Tool-error JSON preserves the canonical composed sentence; human stderr
+    // renders newcomer wording (scope Follow-up, DEC-014/TEST-012).
+    const ambiguousJson = await runCliAt(home, nested, "apply", "--json");
+    expectExitCode(ambiguousJson, 1);
+    const ambiguousPayload = JSON.parse(ambiguousJson.stdout) as { readonly error: string };
+    expect(ambiguousPayload.error).toContain("matches multiple Project Bindings");
+    const ambiguousHuman = await runCliAt(home, nested, "apply");
+    expectExitCode(ambiguousHuman, 1);
+    expect(humanText(ambiguousHuman.stderr)).toContain("matches multiple configured Projects");
     expect(existsSync(join(bound, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(nested, ".agent-profile-kit"))).toBe(false);
   });

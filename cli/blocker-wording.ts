@@ -15,6 +15,7 @@ import {
   type OwnershipBlockerAction,
   type OwnershipFailureFact,
   type ReconciliationBlocker,
+  type StateReadFailureFact,
   type TemporaryRemovalFailureFact,
 } from "../installer/blockers.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
@@ -85,6 +86,22 @@ function blockerAction(blocker: ReconciliationBlocker): OwnershipBlockerAction {
   return blocker.action;
 }
 
+/** The carried sentence for one typed Installation State read-failure fact. */
+export function describeStateReadFailure(failure: StateReadFailureFact): string {
+  switch (failure.case) {
+    case "legacy-yaml-state-expired":
+      return `Legacy YAML Installation State at ${failure.retiredPath} is unsupported because ` +
+        "the migration window is closed. Use Agent Profile Kit 0.95.0 to migrate it to " +
+        "manifest.json, then retry this command. Agent Profile Kit never reconstructs " +
+        "ownership from generated output.";
+    case "oversize-state":
+      return `Installation State exceeds the ${failure.limitBytes} byte limit`;
+    case "receipt-records-no-outputs":
+      return `Installation State receipts record no generated outputs for the installation ` +
+        `at ${failure.project}`;
+  }
+}
+
 /** The carried sentence for one typed ownership-failure fact. */
 export function describeOwnershipFailure(failure: OwnershipFailureFact): string {
   switch (failure.case) {
@@ -141,13 +158,17 @@ function occupiedOutputProblem(blocker: ReconciliationBlocker): string {
 /** The verbatim stored wording for one blocker; machine JSON publishes these values. */
 export function blockerWording(blocker: ReconciliationBlocker): BlockerWording {
   switch (blocker.kind) {
-    case INSTALLATION_STATE_UNREADABLE:
+    case INSTALLATION_STATE_UNREADABLE: {
+      const problem = blocker.stateFailure === undefined
+        ? blockerDetail(blocker)
+        : describeStateReadFailure(blocker.stateFailure);
       return {
-        message: blockerDetail(blocker),
-        problem: blockerDetail(blocker),
+        message: problem,
+        problem,
         remedy: "Restore or repair the Installation State file, then retry",
         requirement: "Lifecycle commands require readable Installation State",
       };
+    }
     case OCCUPIED_OUTPUT: {
       const problem = occupiedOutputProblem(blocker);
       return {
@@ -317,24 +338,40 @@ export function humanBlockerWording(blocker: ReconciliationBlocker): BlockerWord
 }
 
 /**
- * Presentation-owned sentence for the Installer's typed ProjectTargetError.
- * The composed text carries the same wording the Installer previously authored;
- * internal terms become newcomer terms on every surface.
+ * Presentation-owned canonical sentence for the Installer's typed
+ * ProjectTargetError. Published verbatim in machine tool-error JSON; human
+ * rendering applies the newcomer substitutions
+ * (`formatProjectTargetErrorForHuman`).
  */
 export function formatProjectTargetError(
   reason: ProjectTargetErrorReason,
 ): string {
   switch (reason.case) {
     case "ambiguous-target":
-      return applyNewcomerSubstitutions(
-        `apkit ${reason.command} Project target '${reason.target}' is ambiguous because it ` +
-          "matches multiple Project Bindings; pass one exact Project root or run " +
-          `${COMMAND_NAME} list projects`,
-      );
+      return `apkit ${reason.command} Project target '${reason.target}' is ambiguous because it ` +
+        "matches multiple Project Bindings; pass one exact Project root or run " +
+        `${COMMAND_NAME} list projects`;
+    case "dangling-symlink-target":
+      return `apkit ${reason.command} Project target project '${reason.target}' is a dangling ` +
+        "symlink; restore its target or choose an existing directory";
+    case "missing-target":
+      return `apkit ${reason.command} Project target project '${reason.target}' must be an ` +
+        "existing directory";
+    case "relative-target":
+      return `apkit ${reason.command} Project target project must be an absolute path or ` +
+        "home-relative path beginning with ~/";
     case "unbound-target":
       return `apkit ${reason.command} Project target '${reason.target}' is not a bound Project; ` +
         `run ${COMMAND_NAME} list projects or ${COMMAND_NAME} bind`;
-    case "invalid-target":
-      return reason.detail;
+    case "wildcard-target":
+      return `apkit ${reason.command} Project target project must be an explicit directory ` +
+        "path without wildcards";
   }
+}
+
+/** Human rendering of a ProjectTargetError: newcomer terms, guard-clean. */
+export function formatProjectTargetErrorForHuman(
+  reason: ProjectTargetErrorReason,
+): string {
+  return applyNewcomerSubstitutions(formatProjectTargetError(reason));
 }

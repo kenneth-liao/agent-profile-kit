@@ -41,6 +41,23 @@ export const OCCUPIED_OUTPUT_CASES = [
 ] as const;
 
 /**
+ * The exhaustive typed Installation State read-failure facts the Installer
+ * classifies. Foreign diagnostics (fs and parse errors) stay plain `detail`
+ * facts; everything the Installer itself authors is rendered by presentation
+ * from these discriminants.
+ */
+export const STATE_READ_FAILURE_CASES = [
+  "legacy-yaml-state-expired",
+  "oversize-state",
+  "receipt-records-no-outputs",
+] as const;
+
+export type StateReadFailureFact =
+  | { readonly case: "legacy-yaml-state-expired"; readonly retiredPath: string }
+  | { readonly case: "oversize-state"; readonly limitBytes: number }
+  | { readonly case: "receipt-records-no-outputs"; readonly project: string };
+
+/**
  * The exhaustive typed Profile Installation ownership-failure facts. The
  * Installer classifies the failure; presentation owns every rendered sentence
  * keyed by the discriminant.
@@ -97,12 +114,19 @@ interface StructuredBlockerEvidence {
  */
 export type StructuredBlockerInput =
   | (StructuredBlockerEvidence & {
-      /** Diagnostic detail fact for the unreadable Installation State (for example an fs error message). */
+      readonly kind: typeof INSTALLATION_STATE_UNREADABLE;
+      /** Installer-classified state-read failure; presentation owns the sentence. */
+      readonly stateFailure: StateReadFailureFact;
+      readonly scope: "global";
+    })
+    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly occupied?: never; readonly project?: never; readonly remedyKey?: never }
+  | (StructuredBlockerEvidence & {
+      /** Foreign diagnostic detail fact (for example an fs or parse error message). Never Installer-authored. */
       readonly detail: string;
       readonly kind: typeof INSTALLATION_STATE_UNREADABLE;
       readonly scope: "global";
     })
-    & { readonly action?: never; readonly failure?: never; readonly occupied?: never; readonly project?: never; readonly remedyKey?: never }
+    & { readonly action?: never; readonly failure?: never; readonly occupied?: never; readonly project?: never; readonly remedyKey?: never; readonly stateFailure?: never }
   | (StructuredBlockerEvidence & {
       readonly kind: typeof OCCUPIED_OUTPUT;
       readonly occupied: OccupiedOutputFact;
@@ -110,30 +134,30 @@ export type StructuredBlockerInput =
       readonly remedyKey?: OutputRemedyKey;
       readonly scope: "project";
     })
-    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly project: string }
+    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly project: string; readonly stateFailure?: never }
   | (StructuredBlockerEvidence & {
       readonly action: OwnershipBlockerAction;
       readonly failure: OwnershipFailureFact;
       readonly kind: typeof INSTALLATION_OWNERSHIP;
       readonly scope: "project";
     })
-    & { readonly detail?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never }
+    & { readonly detail?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never; readonly stateFailure?: never }
   | (StructuredBlockerEvidence & {
       readonly kind: typeof OUTPUT_OWNERSHIP_CONFLICT;
       readonly scope: "project";
     })
-    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never }
+    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never; readonly stateFailure?: never }
   | (StructuredBlockerEvidence & {
       readonly kind: typeof TEMPORARY_INSTALLATION_CONFLICT;
       readonly scope: "project";
     })
-    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never }
+    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never; readonly stateFailure?: never }
   | (StructuredBlockerEvidence & {
       readonly failure: TemporaryRemovalFailureFact;
       readonly kind: typeof TEMPORARY_INSTALLATION_REMOVAL;
       readonly scope: "project";
     })
-    & { readonly action?: never; readonly detail?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never };
+    & { readonly action?: never; readonly detail?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never; readonly stateFailure?: never };
 
 /** The project-scoped variant of a structured blocker input. */
 export type ProjectScopedBlockerInput = Extract<
@@ -193,14 +217,33 @@ export const BLOCKER_KINDS = [
 /** Exhaustive typed blocker class. */
 export type BlockerKind = (typeof BLOCKER_KINDS)[number];
 
-/** Build one complete structured blocker for unreadable Installation State. */
+/** Build one complete structured blocker for an Installer-classified state-read failure. */
+export function installationStateUnreadableBlocker(options: {
+  readonly stateFailure: StateReadFailureFact;
+  readonly statePath: string;
+}): GlobalScopedBlockerInput;
+/** Build one complete structured blocker for a foreign state-read diagnostic. */
 export function installationStateUnreadableBlocker(options: {
   readonly detail: string;
   readonly statePath: string;
+}): GlobalScopedBlockerInput;
+export function installationStateUnreadableBlocker(options: {
+  readonly detail?: string;
+  readonly stateFailure?: StateReadFailureFact;
+  readonly statePath: string;
 }): GlobalScopedBlockerInput {
+  const affectedItems = [{ kind: "path" as const, value: options.statePath }];
+  if (options.stateFailure !== undefined) {
+    return {
+      affectedItems,
+      kind: INSTALLATION_STATE_UNREADABLE,
+      scope: "global" as const,
+      stateFailure: options.stateFailure,
+    };
+  }
   return {
-    affectedItems: [{ kind: "path", value: options.statePath }],
-    detail: options.detail,
+    affectedItems,
+    detail: options.detail!,
     kind: INSTALLATION_STATE_UNREADABLE,
     scope: "global" as const,
   };
@@ -400,6 +443,27 @@ function requireTextProperty(
   }
 }
 
+function validateStateReadFailure(
+  value: unknown,
+  input: unknown,
+): asserts value is StateReadFailureFact {
+  const fact = requireFailureCase(value, STATE_READ_FAILURE_CASES, "state-read failure", input);
+  if (fact.case === "oversize-state") {
+    if (typeof fact.limitBytes !== "number" || !Number.isInteger(fact.limitBytes) || fact.limitBytes <= 0) {
+      throw new TypeError(
+        `Structured blocker state-read failure requires a positive limitBytes${blockerContext(input)}`,
+      );
+    }
+    return;
+  }
+  requireTextProperty(
+    fact,
+    fact.case === "legacy-yaml-state-expired" ? "retiredPath" : "project",
+    "state-read failure",
+    input,
+  );
+}
+
 function validateOwnershipFailure(
   value: unknown,
   input: unknown,
@@ -469,7 +533,21 @@ function validateTemporaryRemovalFailure(
 function validateTypedFacts(input: StructuredBlockerInput): void {
   switch (input.kind) {
     case INSTALLATION_STATE_UNREADABLE:
-      requireText(input.detail, "detail", input);
+      if (input.stateFailure !== undefined && input.detail !== undefined) {
+        throw new TypeError(
+          `Structured blocker state-read cause must be either a stateFailure fact or a foreign detail, not both${blockerContext(input)}`,
+        );
+      }
+      if (input.stateFailure === undefined && input.detail === undefined) {
+        throw new TypeError(
+          `Structured blocker state-read cause requires a stateFailure fact or a foreign detail${blockerContext(input)}`,
+        );
+      }
+      if (input.detail !== undefined) {
+        requireText(input.detail, "detail", input);
+        return;
+      }
+      validateStateReadFailure(input.stateFailure, input);
       return;
     case OCCUPIED_OUTPUT:
       validateOccupiedFact(input.occupied, input);
@@ -499,6 +577,27 @@ function validateTypedFacts(input: StructuredBlockerInput): void {
   }
 }
 
+/**
+ * Facts each blocker kind must never carry. `project` for the global kind is
+ * handled by the dedicated global guard so its rejection message stays stable;
+ * everything else is swept here whatever its value.
+ */
+const FORBIDDEN_BLOCKER_FIELDS: Readonly<Record<BlockerKind, readonly string[]>> = {
+  [INSTALLATION_OWNERSHIP]: ["detail", "occupied", "remedyKey", "stateFailure"],
+  [INSTALLATION_STATE_UNREADABLE]: ["action", "failure", "occupied", "remedyKey"],
+  [OCCUPIED_OUTPUT]: ["action", "detail", "failure", "stateFailure"],
+  [OUTPUT_OWNERSHIP_CONFLICT]: ["action", "detail", "failure", "occupied", "remedyKey", "stateFailure"],
+  [TEMPORARY_INSTALLATION_CONFLICT]: [
+    "action",
+    "detail",
+    "failure",
+    "occupied",
+    "remedyKey",
+    "stateFailure",
+  ],
+  [TEMPORARY_INSTALLATION_REMOVAL]: ["action", "detail", "occupied", "remedyKey", "stateFailure"],
+};
+
 function validateStructuredInput(input: StructuredBlockerInput): void {
   rejectProseFields(input);
   requireText(input.kind, "kind", input);
@@ -526,10 +625,20 @@ function validateStructuredInput(input: StructuredBlockerInput): void {
   if (input.scope === "project") {
     requireText(input.project, "project", input);
   }
-  if (input.scope === "global" && typeof (input as unknown as Record<string, unknown>).project === "string") {
+  if (input.scope === "global" && (input as unknown as Record<string, unknown>).project !== undefined) {
     throw new TypeError(
       `Global structured blockers cannot carry a project${blockerContext(input)}`,
     );
+  }
+  // Cross-kind facts are forbidden on every kind, whatever their value: the
+  // boundary rejects them instead of silently dropping them (poka-yoke).
+  const record = input as unknown as Record<string, unknown>;
+  for (const field of FORBIDDEN_BLOCKER_FIELDS[blockerKind as BlockerKind]) {
+    if (record[field] !== undefined) {
+      throw new TypeError(
+        `Structured blocker kind ${blockerKind} must not carry "${field}"${blockerContext(input)}`,
+      );
+    }
   }
   if (!Array.isArray(input.affectedItems)) {
     throw new TypeError(
@@ -554,6 +663,15 @@ function canonicalStructuredBlocker(input: StructuredBlockerInput): StructuredRe
   );
   switch (input.kind) {
     case INSTALLATION_STATE_UNREADABLE:
+      if ("stateFailure" in input) {
+        return Object.freeze({
+          affectedItems,
+          kind: INSTALLATION_STATE_UNREADABLE,
+          scope: "global" as const,
+          stateFailure: Object.freeze({ ...input.stateFailure }),
+          [STRUCTURED_BLOCKER]: true as const,
+        });
+      }
       return Object.freeze({
         affectedItems,
         detail: input.detail,
