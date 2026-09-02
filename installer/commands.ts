@@ -13,11 +13,13 @@ import type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
 import { createProjectReadScheduler } from "./project-scheduler.js";
 import { buildDesiredState } from "./project-plan.js";
 import {
+  OwnershipBlockedRemovalError,
   readInstallationState,
   StagedRollbackFailureError,
   stageProvenInstallationRemoval,
   writeInstallationState,
 } from "./installation-state.js";
+import type { OwnershipFailureFact } from "./blockers.js";
 import { publishRepositoryExclusions, receiptExclusionContribution } from "./git-exclusions.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import type { LifecycleInstrumentation } from "./qualification-instrumentation.js";
@@ -77,7 +79,7 @@ export interface UninstallResult {
   /** Projects whose owned output could not be fully removed; every other Project was still removed. */
   readonly kept: readonly {
     readonly project: string;
-    readonly reason: string;
+    readonly reason: OwnershipFailureFact | string;
   }[];
   /** Best-effort exclusion bookkeeping failures; teardown itself never stalls. */
   readonly warnings: readonly string[];
@@ -219,7 +221,7 @@ async function uninstallApplicationLocked(
   const gitInspection = createLifecycleGitInspectionContext();
   const transactions: Awaited<ReturnType<typeof stageProvenInstallationRemoval>>[] = [];
   const removed = new Set<string>();
-  const kept: { project: string; reason: string }[] = [];
+  const kept: { project: string; reason: OwnershipFailureFact | string }[] = [];
   const contributions = new Map<string, { readonly entries: readonly string[]; readonly target: string } | undefined>();
   const exclusionWarnings: string[] = [];
   const cleanedByProject = new Map<string, readonly string[]>();
@@ -246,7 +248,11 @@ async function uninstallApplicationLocked(
         // Rollback is confirmed, so the Project is safely skipped (DEC-007).
         kept.push({
           project: installation.project,
-          reason: error instanceof Error ? error.message : String(error),
+          reason: error instanceof OwnershipBlockedRemovalError
+            ? error.failure
+            : error instanceof Error
+              ? error.message
+              : String(error),
         });
         continue;
       }

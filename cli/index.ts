@@ -36,6 +36,7 @@ import {
   formatTemporaryInventoryJson,
   formatTemporaryInventoryToolErrorJson,
   formatMissingProfileError,
+  formatProjectTargetError,
   formatTemporaryInstallationBlockedJson,
   formatTemporaryInstallationHuman,
   formatTemporaryInstallationJson,
@@ -153,6 +154,7 @@ function humanError(
 
 function formatError(error: unknown): string {
   if (error instanceof MissingProfileError) return formatMissingProfileError(error);
+  if (error instanceof ProjectTargetError) return formatProjectTargetError(error.reason);
   if (error instanceof AggregateError) {
     const causes = Array.from(error.errors, formatError);
     return [error.message, ...causes.map((cause) => `caused by: ${cause}`)].join("\n");

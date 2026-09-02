@@ -17,7 +17,16 @@ import {
   OUTPUT_OWNERSHIP_CONFLICT,
   type ReconciliationBlocker,
 } from "../installer/blockers.js";
-import { blockerWording, humanBlockerWording } from "../cli/blocker-wording.js";
+import {
+  blockerWording,
+  describeOwnershipFailure,
+  describeTemporaryRemovalFailure,
+  humanBlockerWording,
+} from "../cli/blocker-wording.js";
+import type {
+  OwnershipFailureFact,
+  TemporaryRemovalFailureFact,
+} from "../installer/blockers.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { desiredOutputConflicts, previewReconciliation } from "../installer/reconcile.js";
@@ -34,31 +43,36 @@ afterAll(() => {
 });
 
 function compileOnlyPartialBlocker(): void {
+  // @ts-expect-error An occupied-output blocker requires its typed occupied fact.
   normalizeBlocker({
     affectedItems: [],
     kind: "occupied-output",
-    scope: "global",
+    project: "/project-a",
+    scope: "project",
   });
 }
 
 void compileOnlyPartialBlocker;
 
-const GLOBAL_BLOCKER_INPUT = {
+const OWNERSHIP_BLOCKER_INPUT = {
   action: "verify",
   affectedItems: [{ kind: "host", value: "codex" }],
-  detail: "ownership could not be proven",
+  failure: { case: "unproven" },
   kind: "installation-ownership",
+  project: "/project-a",
+  scope: "project",
+} as const;
+
+const STATE_UNREADABLE_INPUT = {
+  affectedItems: [{ kind: "path", value: "/home/state/manifest.json" }],
+  detail: "EACCES: permission denied",
+  kind: "installation-state-unreadable",
   scope: "global",
 } as const;
 
 describe("shared blocker contract", () => {
   test("normalizes complete structured evidence into a scoped blocker", () => {
-    const input = {
-      ...GLOBAL_BLOCKER_INPUT,
-      project: "/project-a",
-      scope: "project",
-    } as const;
-    const blocker = normalizeBlocker(input);
+    const blocker = normalizeBlocker(OWNERSHIP_BLOCKER_INPUT);
 
     expect(isStructuredBlocker(blocker)).toBe(true);
     // Blockers carry typed facts only; every sentence is presentation-owned.
@@ -66,7 +80,7 @@ describe("shared blocker contract", () => {
     expect(blocker.scope).toBe("project");
     expect(blocker.project).toBe("/project-a");
     expect(blocker.action).toBe("verify");
-    expect(blocker.detail).toBe("ownership could not be proven");
+    expect(blocker.failure).toEqual({ case: "unproven" });
     expect(blocker.affectedItems).toEqual([{ kind: "host", value: "codex" }]);
     expect("problem" in blocker).toBe(false);
     expect("requirement" in blocker).toBe(false);
@@ -80,8 +94,9 @@ describe("shared blocker contract", () => {
         "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
         "active installation record at safe paths",
     });
-    expect(() => normalizeBlocker({ ...input, project: "/project-b" }, "/project-a"))
-      .toThrow(/fallback project.*kind="installation-ownership".*project="\/project-b"/);
+    expect(() =>
+      normalizeBlocker({ ...OWNERSHIP_BLOCKER_INPUT, project: "/project-b" }, "/project-a"),
+    ).toThrow(/fallback project.*kind="installation-ownership".*project="\/project-b"/);
   });
 
   test("message-only blockers can no longer be represented or normalized", () => {
@@ -100,8 +115,17 @@ describe("shared blocker contract", () => {
       action: "verify",
       affectedItems: [],
       kind: "installation-ownership",
-      scope: "global",
-    } as never)).toThrow("Structured blocker detail must be a non-empty string");
+      project: "/project-a",
+      scope: "project",
+    } as never)).toThrow("Structured blocker ownership failure must be an object");
+    expect(() => normalizeBlocker({
+      affectedItems: [],
+      detail: "EACCES: permission denied",
+      kind: "installation-state-unreadable",
+      scope: "project",
+    } as never)).toThrow(
+      "Structured blocker kind installation-state-unreadable is always global-scoped",
+    );
     expect(() => normalizeBlocker({
       affectedItems: [],
       scope: "global",
@@ -111,9 +135,7 @@ describe("shared blocker contract", () => {
   test("prose fields are rejected: wording is presentation-owned, never carried", () => {
     for (const field of ["problem", "requirement", "remedy", "message"] as const) {
       expect(() => normalizeBlocker({
-        ...GLOBAL_BLOCKER_INPUT,
-        project: "/project-a",
-        scope: "project",
+        ...OWNERSHIP_BLOCKER_INPUT,
         [field]: "a user-facing sentence",
       } as never)).toThrow(
         new RegExp(`Structured blockers carry typed facts only; "${field}" is presentation-owned wording`),
@@ -123,22 +145,22 @@ describe("shared blocker contract", () => {
 
   test("rejects an unknown structured blocker scope at runtime", () => {
     expect(() => normalizeBlocker({
-      ...GLOBAL_BLOCKER_INPUT,
+      ...OWNERSHIP_BLOCKER_INPUT,
       scope: "workspace",
     } as never)).toThrow("Structured blocker scope must be 'global' or 'project'");
   });
 
   test("global blockers cannot carry a project and project blockers must", () => {
     expect(() => normalizeBlocker({
-      ...GLOBAL_BLOCKER_INPUT,
+      ...STATE_UNREADABLE_INPUT,
       project: "/project-a",
-    })).toThrow("Global structured blockers cannot carry a project");
+    } as never)).toThrow("Global structured blockers cannot carry a project");
     expect(() => normalizeBlocker({
-      affectedItems: [],
-      detail: "Installation State is unreadable",
-      kind: "installation-state-unreadable",
+      ...STATE_UNREADABLE_INPUT,
       scope: "project",
-    } as never)).toThrow("Structured blocker project must be a non-empty string");
+    } as never)).toThrow(
+      "Structured blocker kind installation-state-unreadable is always global-scoped",
+    );
   });
 
   test("unknown blocker and affected-item kinds are rejected at runtime", () => {
@@ -150,9 +172,10 @@ describe("shared blocker contract", () => {
 
     expect(() => normalizeBlocker({
       affectedItems: [{ kind: "unknown-item", value: "codex" }],
-      detail: "ownership could not be proven",
+      failure: { case: "unproven" },
       kind: "installation-ownership",
-      scope: "global",
+      project: "/project-a",
+      scope: "project",
     } as never)).toThrow(/Unknown structured blocker affected-item kind "unknown-item"/);
   });
 
@@ -189,7 +212,7 @@ describe("shared blocker contract", () => {
   });
 
   test("temporary-installation blocked JSON publishes structured evidence at the family schema version", () => {
-    const structured = normalizeBlocker(GLOBAL_BLOCKER_INPUT);
+    const structured = normalizeBlocker(OWNERSHIP_BLOCKER_INPUT);
 
     const payload = JSON.parse(
       formatTemporaryInstallationBlockedJson("install-temp", [structured]),
@@ -200,7 +223,8 @@ describe("shared blocker contract", () => {
       outcome: "blocked",
       blockers: [{
         kind: "installation-ownership",
-        scope: "global",
+        scope: "project",
+        project: "/project-a",
         message: "Cannot verify generated-file ownership: ownership could not be proven",
         problem: "Cannot verify generated-file ownership: ownership could not be proven",
         requirement:
@@ -212,8 +236,75 @@ describe("shared blocker contract", () => {
     });
   });
 
+  test("every typed ownership-failure fact composes its carried sentence in presentation", () => {
+    const facts: readonly OwnershipFailureFact[] = [
+      {
+        case: "git-tracked-output",
+        outputs: [".codex/hooks.json", ".agents/skills/s01"],
+      },
+      { case: "no-ownership-continuity", output: ".agent-profile-kit/codex/context.md" },
+      { case: "type-mismatch", expected: "directory", output: ".codex/hooks.json" },
+      { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/p/.codex" },
+      { case: "unreadable-output", output: ".codex/hooks.json" },
+      { case: "unproven" },
+      { case: "unsupported-entry", member: "scripts/run.sh", output: ".agents/skills/demo-skill" },
+    ];
+    expect(facts.map((failure) => describeOwnershipFailure(failure))).toEqual([
+      "owned output .codex/hooks.json, .agents/skills/s01 is tracked by Git; " +
+        "Agent Profile Kit will not delete or untrack repository-owned material",
+      "recorded output .agent-profile-kit/codex/context.md does not match the recorded " +
+        "installation and no other recorded root proves ownership continuity; restore the " +
+        "recorded output or remove the generated files, then retry",
+      "owned output .codex/hooks.json is not a directory",
+      "owned output .codex/hooks.json has unsafe parent: /p/.codex",
+      "owned output .codex/hooks.json could not be inspected",
+      "ownership could not be proven",
+      "owned output .agents/skills/demo-skill contains an unsupported entry at scripts/run.sh",
+    ]);
+
+    const removalFacts: readonly TemporaryRemovalFailureFact[] = [
+      { case: "git-tracked-output", outputs: [".codex/hooks.json"] },
+      { case: "symlink-output", output: ".codex/hooks.json" },
+      { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/p/.codex" },
+    ];
+    expect(removalFacts.map((failure) => describeTemporaryRemovalFailure(failure))).toEqual([
+      "owned output .codex/hooks.json is tracked by Git; " +
+        "Agent Profile Kit will not delete or untrack repository-owned material",
+      "owned output .codex/hooks.json is a symlink",
+      "owned output .codex/hooks.json has unsafe parent: /p/.codex",
+    ]);
+  });
+
+  test("malformed typed failure facts are rejected at the normalization boundary", () => {
+    expect(() => normalizeBlocker({
+      ...OWNERSHIP_BLOCKER_INPUT,
+      failure: { case: "unknown-failure" },
+    } as never)).toThrow(/Unknown structured blocker ownership failure case "unknown-failure"/);
+    expect(() => normalizeBlocker({
+      ...OWNERSHIP_BLOCKER_INPUT,
+      failure: { case: "unsafe-parent", output: ".codex/hooks.json" },
+    } as never)).toThrow(
+      "Structured blocker ownership failure requires a non-empty parent",
+    );
+    expect(() => normalizeBlocker({
+      ...OWNERSHIP_BLOCKER_INPUT,
+      failure: { case: "git-tracked-output", outputs: [] },
+    } as never)).toThrow(
+      "Structured blocker ownership failure requires non-empty outputs",
+    );
+    expect(() => normalizeBlocker({
+      affectedItems: [{ kind: "path", value: ".codex/hooks.json" }],
+      failure: { case: "symlink-output", output: "" },
+      kind: "temporary-installation-removal",
+      project: "/p",
+      scope: "project",
+    } as never)).toThrow(
+      "Structured blocker temporary-removal failure requires a non-empty output",
+    );
+  });
+
   test("TemporaryInstallationBlockedError carries one canonical structured collection", () => {
-    const structured = normalizeBlocker(GLOBAL_BLOCKER_INPUT);
+    const structured = normalizeBlocker(OWNERSHIP_BLOCKER_INPUT);
     const conflict = normalizeBlocker({
       affectedItems: [],
       kind: "temporary-installation-conflict",

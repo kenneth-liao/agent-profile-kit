@@ -508,7 +508,7 @@ export async function removeTemporaryProfile(options: {
         if (error instanceof TemporaryRemovalBlockedError) {
           throw new TemporaryInstallationBlockedError([
             temporaryInstallationRemovalBlocker({
-              detail: error.detail,
+              failure: error.failure,
               outputs: existing.outputs.map((output) => output.path),
               project: existing.project,
             }),

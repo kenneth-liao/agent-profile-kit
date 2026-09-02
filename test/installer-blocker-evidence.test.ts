@@ -188,18 +188,18 @@ describe("structured Installer blocker evidence", () => {
 
     const ownership = normalizeBlocker(installationOwnershipBlocker({
       action: "verify",
-      detail: "Cannot sync the generated file: drifted",
+      failure: { case: "type-mismatch", expected: "file", output: ".codex/hooks.json" },
       project: "/p",
     }));
     expect(ownership).toMatchObject({
       action: "verify",
-      detail: "Cannot sync the generated file: drifted",
+      failure: { case: "type-mismatch", expected: "file", output: ".codex/hooks.json" },
       kind: INSTALLATION_OWNERSHIP,
       project: "/p",
       scope: "project",
     });
     expect(blockerWording(ownership).problem).toBe(
-      "Cannot verify generated-file ownership: Cannot sync the generated file: drifted",
+      "Cannot verify generated-file ownership: owned output .codex/hooks.json is not a file",
     );
 
     const conflict = normalizeBlocker(temporaryInstallationConflictBlocker({
@@ -231,12 +231,12 @@ describe("structured Installer blocker evidence", () => {
     );
 
     const removal = temporaryInstallationRemovalBlocker({
-      detail: "owned output .agents/skills/review-pr is a symlink",
+      failure: { case: "symlink-output", output: ".agents/skills/review-pr" },
       outputs: [".agents/skills/review-pr"],
       project: "/p",
     });
     expect(normalizeBlocker(removal)).toMatchObject({
-      detail: "owned output .agents/skills/review-pr is a symlink",
+      failure: { case: "symlink-output", output: ".agents/skills/review-pr" },
       kind: TEMPORARY_INSTALLATION_REMOVAL,
       project: "/p",
       scope: "project",
@@ -324,7 +324,11 @@ describe("structured Installer blocker evidence", () => {
   test("residual ownership Blocker evidence stays provenance-neutral", () => {
     const ownership = normalizeBlocker(installationOwnershipBlocker({
       action: "verify",
-      detail: "owned output .codex/hooks.json has unsafe parent: /p/.codex is a symlink parent",
+      failure: {
+        case: "unsafe-parent",
+        output: ".codex/hooks.json",
+        parent: "/p/.codex is a symlink parent",
+      },
       project: "/p",
     }));
     const wording = blockerWording(ownership);

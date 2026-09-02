@@ -240,11 +240,24 @@ export interface IngestedApplicationSource {
   readonly workspaceModel: Workspace;
 }
 
+/**
+ * Typed reason a Project target was rejected before scoped lifecycle planning
+ * or writes. `invalid-target` carries the foreign path-diagnostic fact; the
+ * Installer authors no sentence. Presentation owns every rendered sentence.
+ */
+export type ProjectTargetErrorReason =
+  | { readonly case: "ambiguous-target"; readonly command: "apply" | "status"; readonly target: string }
+  | { readonly case: "invalid-target"; readonly detail: string }
+  | { readonly case: "unbound-target"; readonly command: "apply" | "status"; readonly target: string };
+
 /** Focused user-input failure raised before scoped lifecycle planning or writes. */
 export class ProjectTargetError extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly reason: ProjectTargetErrorReason;
+
+  constructor(reason: ProjectTargetErrorReason) {
+    super(`project target rejected: ${reason.case}`);
     this.name = "ProjectTargetError";
+    this.reason = reason;
   }
 }
 
@@ -277,7 +290,7 @@ async function selectParsedProjectBindings(
       "project",
     );
   } catch (error) {
-    throw new ProjectTargetError(errorMessage(error));
+    throw new ProjectTargetError({ case: "invalid-target", detail: errorMessage(error) });
   }
   const matches: ParsedProjectBinding[] = [];
   for (const [index, binding] of bindings.entries()) {
@@ -299,14 +312,18 @@ async function selectParsedProjectBindings(
   }
 
   if (matches.length === 0) {
-    throw new ProjectTargetError(
-      `${description} '${selection.target}' is not a bound Project; run ${COMMAND_NAME} list projects or ${COMMAND_NAME} bind`,
-    );
+    throw new ProjectTargetError({
+      case: "unbound-target",
+      command: selection.command,
+      target: selection.target,
+    });
   }
   if (matches.length > 1) {
-    throw new ProjectTargetError(
-      `${description} '${selection.target}' is ambiguous because it matches multiple Project Bindings; pass one exact Project root or run ${COMMAND_NAME} list projects`,
-    );
+    throw new ProjectTargetError({
+      case: "ambiguous-target",
+      command: selection.command,
+      target: selection.target,
+    });
   }
   return matches;
 }

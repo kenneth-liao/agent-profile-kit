@@ -41,45 +41,111 @@ export const OCCUPIED_OUTPUT_CASES = [
 ] as const;
 
 /**
- * Exhaustive typed blocker evidence. Every field is a typed fact — kind,
- * affected Project, affected paths, affected Agent Host, plus the per-kind
- * non-prose evidence each presentation template needs. User-facing sentences do
- * not exist on this type: presentation owns every problem, requirement, and
- * remedy string keyed by {@link BlockerKind}. Which typed facts each kind
- * requires is enforced at the normalization boundary.
+ * The exhaustive typed Profile Installation ownership-failure facts. The
+ * Installer classifies the failure; presentation owns every rendered sentence
+ * keyed by the discriminant.
  */
-export interface StructuredBlockerInput {
+export const OWNERSHIP_FAILURE_CASES = [
+  "git-tracked-output",
+  "no-ownership-continuity",
+  "type-mismatch",
+  "unsafe-parent",
+  "unreadable-output",
+  "unproven",
+  "unsupported-entry",
+] as const;
+
+export type OwnershipFailureFact =
+  | { readonly case: "git-tracked-output"; readonly outputs: readonly string[] }
+  | { readonly case: "no-ownership-continuity"; readonly output: string }
+  | { readonly case: "type-mismatch"; readonly expected: "directory" | "file"; readonly output: string }
+  | { readonly case: "unsafe-parent"; readonly output: string; readonly parent: string }
+  | { readonly case: "unreadable-output"; readonly output: string }
+  | { readonly case: "unproven" }
+  | { readonly case: "unsupported-entry"; readonly member: string; readonly output: string };
+
+/**
+ * The exhaustive typed Temporary Profile Installation removal-failure facts.
+ * The Installer classifies the failure; presentation owns every rendered
+ * sentence keyed by the discriminant.
+ */
+export const TEMPORARY_REMOVAL_FAILURE_CASES = [
+  "git-tracked-output",
+  "symlink-output",
+  "unsafe-parent",
+] as const;
+
+export type TemporaryRemovalFailureFact =
+  | { readonly case: "git-tracked-output"; readonly outputs: readonly string[] }
+  | { readonly case: "symlink-output"; readonly output: string }
+  | { readonly case: "unsafe-parent"; readonly output: string; readonly parent: string };
+
+/** Common evidence every blocker carries. */
+interface StructuredBlockerEvidence {
   readonly affectedItems: readonly BlockerAffectedItem[];
-  /** Typed blocker class; the exhaustive vocabulary is {@link BLOCKER_KINDS}. */
-  readonly kind: BlockerKind;
-  /** The affected Project identity; project-scoped blockers require it. */
-  readonly project?: string;
-  readonly scope: BlockerScope;
-  /** occupied-output only: typed evidence for why the destination is occupied. */
-  readonly occupied?: OccupiedOutputFact;
-  /** occupied-output only: adapter remedy identity; presentation owns the sentence. */
-  readonly remedyKey?: OutputRemedyKey;
-  /** installation-ownership only: which lifecycle action the blocker is preventing. */
-  readonly action?: OwnershipBlockerAction;
-  /**
-   * Diagnostic detail fact for installation-state-unreadable,
-   * installation-ownership, and temporary-installation-removal (for example an
-   * fs error message or an ownership-proof reason). Never a composed sentence.
-   */
-  readonly detail?: string;
 }
 
+/**
+ * Exhaustive typed blocker evidence, discriminated by `kind`. Every member
+ * carries exactly the facts its presentation templates need; foreign fields are
+ * `never`, so a partial or cross-contaminated blocker cannot compile. Every
+ * field is a typed fact — kind, affected Project, affected paths, affected
+ * Agent Host, plus the per-kind non-prose evidence. User-facing sentences do
+ * not exist on this type: presentation owns every problem, requirement, and
+ * remedy string keyed by {@link BlockerKind}, and runtime normalization still
+ * rejects malformed untrusted input loudly.
+ */
+export type StructuredBlockerInput =
+  | (StructuredBlockerEvidence & {
+      /** Diagnostic detail fact for the unreadable Installation State (for example an fs error message). */
+      readonly detail: string;
+      readonly kind: typeof INSTALLATION_STATE_UNREADABLE;
+      readonly scope: "global";
+    })
+    & { readonly action?: never; readonly failure?: never; readonly occupied?: never; readonly project?: never; readonly remedyKey?: never }
+  | (StructuredBlockerEvidence & {
+      readonly kind: typeof OCCUPIED_OUTPUT;
+      readonly occupied: OccupiedOutputFact;
+      /** Adapter remedy identity; presentation owns the remedy sentence it resolves to. */
+      readonly remedyKey?: OutputRemedyKey;
+      readonly scope: "project";
+    })
+    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly project: string }
+  | (StructuredBlockerEvidence & {
+      readonly action: OwnershipBlockerAction;
+      readonly failure: OwnershipFailureFact;
+      readonly kind: typeof INSTALLATION_OWNERSHIP;
+      readonly scope: "project";
+    })
+    & { readonly detail?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never }
+  | (StructuredBlockerEvidence & {
+      readonly kind: typeof OUTPUT_OWNERSHIP_CONFLICT;
+      readonly scope: "project";
+    })
+    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never }
+  | (StructuredBlockerEvidence & {
+      readonly kind: typeof TEMPORARY_INSTALLATION_CONFLICT;
+      readonly scope: "project";
+    })
+    & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never }
+  | (StructuredBlockerEvidence & {
+      readonly failure: TemporaryRemovalFailureFact;
+      readonly kind: typeof TEMPORARY_INSTALLATION_REMOVAL;
+      readonly scope: "project";
+    })
+    & { readonly action?: never; readonly detail?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never };
+
 /** The project-scoped variant of a structured blocker input. */
-export type ProjectScopedBlockerInput = StructuredBlockerInput & {
-  readonly project: string;
-  readonly scope: "project";
-};
+export type ProjectScopedBlockerInput = Extract<
+  StructuredBlockerInput,
+  { readonly scope: "project" }
+>;
 
 /** The global-scoped variant of a structured blocker input. */
-export type GlobalScopedBlockerInput = StructuredBlockerInput & {
-  readonly project?: never;
-  readonly scope: "global";
-};
+export type GlobalScopedBlockerInput = Extract<
+  StructuredBlockerInput,
+  { readonly scope: "global" }
+>;
 
 const STRUCTURED_BLOCKER: unique symbol = Symbol("structured blocker");
 
@@ -160,13 +226,13 @@ export function occupiedOutputBlocker(options: {
 /** Build one complete structured blocker for unprovable Profile Installation ownership. */
 export function installationOwnershipBlocker(options: {
   readonly action: OwnershipBlockerAction;
-  readonly detail: string;
+  readonly failure: OwnershipFailureFact;
   readonly project: string;
 }): ProjectScopedBlockerInput {
   return {
     action: options.action,
     affectedItems: [],
-    detail: options.detail,
+    failure: options.failure,
     kind: INSTALLATION_OWNERSHIP,
     project: options.project,
     scope: "project" as const,
@@ -190,13 +256,13 @@ export function temporaryInstallationConflictBlocker(options: {
 
 /** Build one complete structured blocker for a Temporary Profile Installation that cannot be removed safely. */
 export function temporaryInstallationRemovalBlocker(options: {
-  readonly detail: string;
+  readonly failure: TemporaryRemovalFailureFact;
   readonly outputs: readonly string[];
   readonly project: string;
 }): ProjectScopedBlockerInput {
   return {
     affectedItems: options.outputs.map((output) => ({ kind: "path" as const, value: output })),
-    detail: options.detail,
+    failure: options.failure,
     kind: TEMPORARY_INSTALLATION_REMOVAL,
     project: options.project,
     scope: "project" as const,
@@ -301,6 +367,105 @@ function validateOccupiedFact(value: unknown, input: unknown): asserts value is 
   }
 }
 
+function requireFailureCase(
+  value: unknown,
+  cases: readonly string[],
+  field: string,
+  input: unknown,
+): Record<string, unknown> {
+  if (value === null || typeof value !== "object") {
+    throw new TypeError(
+      `Structured blocker ${field} must be an object${blockerContext(input)}`,
+    );
+  }
+  const fact = value as Record<string, unknown>;
+  if (!cases.includes(fact.case as string)) {
+    throw new TypeError(
+      `Unknown structured blocker ${field} case ${JSON.stringify(fact.case)}${blockerContext(input)}`,
+    );
+  }
+  return fact;
+}
+
+function requireTextProperty(
+  fact: Record<string, unknown>,
+  property: string,
+  field: string,
+  input: unknown,
+): void {
+  if (typeof fact[property] !== "string" || (fact[property] as string).length === 0) {
+    throw new TypeError(
+      `Structured blocker ${field} requires a non-empty ${property}${blockerContext(input)}`,
+    );
+  }
+}
+
+function validateOwnershipFailure(
+  value: unknown,
+  input: unknown,
+): asserts value is OwnershipFailureFact {
+  const fact = requireFailureCase(value, OWNERSHIP_FAILURE_CASES, "ownership failure", input);
+  switch (fact.case) {
+    case "git-tracked-output":
+      if (
+        !Array.isArray(fact.outputs) ||
+        fact.outputs.length === 0 ||
+        !fact.outputs.every((output) => typeof output === "string" && output.length > 0)
+      ) {
+        throw new TypeError(
+          `Structured blocker ownership failure requires non-empty outputs${blockerContext(input)}`,
+        );
+      }
+      return;
+    case "unproven":
+      return;
+    case "type-mismatch":
+      if (fact.expected !== "file" && fact.expected !== "directory") {
+        throw new TypeError(
+          `Structured blocker ownership failure requires a known expected type${blockerContext(input)}`,
+        );
+      }
+      requireTextProperty(fact, "output", "ownership failure", input);
+      return;
+    default:
+      requireTextProperty(fact, "output", "ownership failure", input);
+  }
+  if (fact.case === "unsafe-parent") {
+    requireTextProperty(fact, "parent", "ownership failure", input);
+  }
+  if (fact.case === "unsupported-entry") {
+    requireTextProperty(fact, "member", "ownership failure", input);
+  }
+}
+
+function validateTemporaryRemovalFailure(
+  value: unknown,
+  input: unknown,
+): asserts value is TemporaryRemovalFailureFact {
+  const fact = requireFailureCase(
+    value,
+    TEMPORARY_REMOVAL_FAILURE_CASES,
+    "temporary-removal failure",
+    input,
+  );
+  if (fact.case === "git-tracked-output") {
+    if (
+      !Array.isArray(fact.outputs) ||
+      fact.outputs.length === 0 ||
+      !fact.outputs.every((output) => typeof output === "string" && output.length > 0)
+    ) {
+      throw new TypeError(
+        `Structured blocker temporary-removal failure requires non-empty outputs${blockerContext(input)}`,
+      );
+    }
+    return;
+  }
+  requireTextProperty(fact, "output", "temporary-removal failure", input);
+  if (fact.case === "unsafe-parent") {
+    requireTextProperty(fact, "parent", "temporary-removal failure", input);
+  }
+}
+
 function validateTypedFacts(input: StructuredBlockerInput): void {
   switch (input.kind) {
     case INSTALLATION_STATE_UNREADABLE:
@@ -323,10 +488,10 @@ function validateTypedFacts(input: StructuredBlockerInput): void {
           `Structured blocker ownership action must be 'remove' or 'verify'${blockerContext(input)}`,
         );
       }
-      requireText(input.detail, "detail", input);
+      validateOwnershipFailure(input.failure, input);
       return;
     case TEMPORARY_INSTALLATION_REMOVAL:
-      requireText(input.detail, "detail", input);
+      validateTemporaryRemovalFailure(input.failure, input);
       return;
     case OUTPUT_OWNERSHIP_CONFLICT:
     case TEMPORARY_INSTALLATION_CONFLICT:
@@ -345,6 +510,17 @@ function validateStructuredInput(input: StructuredBlockerInput): void {
   if (input.scope !== "global" && input.scope !== "project") {
     throw new TypeError(
       `Structured blocker scope must be 'global' or 'project'${blockerContext(input)}`,
+    );
+  }
+  const blockerKind: string = input.kind;
+  if (blockerKind === INSTALLATION_STATE_UNREADABLE && input.scope !== "global") {
+    throw new TypeError(
+      `Structured blocker kind ${blockerKind} is always global-scoped${blockerContext(input)}`,
+    );
+  }
+  if (blockerKind !== INSTALLATION_STATE_UNREADABLE && input.scope !== "project") {
+    throw new TypeError(
+      `Structured blocker kind ${blockerKind} is always project-scoped${blockerContext(input)}`,
     );
   }
   if (input.scope === "project") {
@@ -376,17 +552,54 @@ function canonicalStructuredBlocker(input: StructuredBlockerInput): StructuredRe
   const affectedItems = Object.freeze(
     input.affectedItems.map((item) => Object.freeze({ kind: item.kind, value: item.value })),
   );
-  return Object.freeze({
-    ...(input.scope === "project" ? { project: input.project } : {}),
-    affectedItems,
-    ...(input.action === undefined ? {} : { action: input.action }),
-    ...(input.detail === undefined ? {} : { detail: input.detail }),
-    kind: input.kind,
-    ...(input.occupied === undefined ? {} : { occupied: Object.freeze({ ...input.occupied }) }),
-    ...(input.remedyKey === undefined ? {} : { remedyKey: input.remedyKey }),
-    scope: input.scope,
-    [STRUCTURED_BLOCKER]: true as const,
-  });
+  switch (input.kind) {
+    case INSTALLATION_STATE_UNREADABLE:
+      return Object.freeze({
+        affectedItems,
+        detail: input.detail,
+        kind: INSTALLATION_STATE_UNREADABLE,
+        scope: "global" as const,
+        [STRUCTURED_BLOCKER]: true as const,
+      });
+    case OCCUPIED_OUTPUT:
+      return Object.freeze({
+        affectedItems,
+        kind: OCCUPIED_OUTPUT,
+        occupied: Object.freeze({ ...input.occupied }),
+        project: input.project,
+        ...(input.remedyKey === undefined ? {} : { remedyKey: input.remedyKey }),
+        scope: "project" as const,
+        [STRUCTURED_BLOCKER]: true as const,
+      });
+    case INSTALLATION_OWNERSHIP:
+      return Object.freeze({
+        action: input.action,
+        affectedItems,
+        failure: Object.freeze({ ...input.failure }),
+        kind: INSTALLATION_OWNERSHIP,
+        project: input.project,
+        scope: "project" as const,
+        [STRUCTURED_BLOCKER]: true as const,
+      });
+    case TEMPORARY_INSTALLATION_REMOVAL:
+      return Object.freeze({
+        affectedItems,
+        failure: Object.freeze({ ...input.failure }),
+        kind: TEMPORARY_INSTALLATION_REMOVAL,
+        project: input.project,
+        scope: "project" as const,
+        [STRUCTURED_BLOCKER]: true as const,
+      });
+    case OUTPUT_OWNERSHIP_CONFLICT:
+    case TEMPORARY_INSTALLATION_CONFLICT:
+      return Object.freeze({
+        affectedItems,
+        kind: input.kind,
+        project: input.project,
+        scope: "project" as const,
+        [STRUCTURED_BLOCKER]: true as const,
+      });
+  }
 }
 
 function scopeMismatch(input: StructuredBlockerInput, fallbackProject: string): never {

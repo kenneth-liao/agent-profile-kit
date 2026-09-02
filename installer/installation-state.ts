@@ -11,6 +11,10 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import type {
+  OwnershipFailureFact,
+  TemporaryRemovalFailureFact,
+} from "./blockers.js";
 
 import {
   formatOwnershipState,
@@ -176,17 +180,12 @@ export function newInstallationId(): string {
   return randomUUID();
 }
 
-/**
- * Authority-failure classification: recorded identity or path evidence that
- * differs unrepairably (unsafe parents or unreadable output) — never content
- * freshness or wholly absent roots, which are ordinary pending work that
- * `apply` restores from the Workspace.
- */
-export type OwnershipFailureKind = "drift";
-
 export interface OwnershipProof {
-  readonly failureKind?: OwnershipFailureKind;
-  readonly reason?: string;
+  /**
+   * Typed failure evidence when the proof does not hold; presentation owns
+   * every rendered sentence keyed by the discriminant.
+   */
+  readonly failure?: OwnershipFailureFact;
   readonly owned: boolean;
 }
 
@@ -212,9 +211,8 @@ export async function inspectInstallationOwnership(
     const unsafeParent = await inspection.unsafeParent(installation.project, output.path);
     if (unsafeParent) {
       return {
-        failureKind: "drift",
+        failure: { case: "unsafe-parent", output: output.path, parent: unsafeParent },
         owned: false,
-        reason: `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
       };
     }
     const result = await inspection.inspectOutput(installation.project, output);
@@ -223,31 +221,23 @@ export async function inspectInstallationOwnership(
     }
     if (result.kind === "unreadable") {
       return {
-        failureKind: "drift",
+        failure: { case: "unreadable-output", output: output.path },
         owned: false,
-        reason: `owned output ${output.path} could not be inspected`,
       };
     }
     if (result.kind !== output.type) {
-      return {
-        failureKind: "drift",
-        owned: false,
-        reason: result.unsupportedMember
-          ? `owned output ${output.path} contains an unsupported entry at ${result.unsupportedMember}`
-          : `owned output ${output.path} is not a ${output.type}`,
-      };
+      const failure: OwnershipFailureFact = result.unsupportedMember
+        ? { case: "unsupported-entry", member: result.unsupportedMember, output: output.path }
+        : { case: "type-mismatch", expected: output.type, output: output.path };
+      return { failure, owned: false };
     }
     if (recordedOutputMatches(result, output)) matchingRoots += 1;
     else driftedPaths.push(output.path);
   }
   if (driftedPaths.length > 0 && matchingRoots === 0) {
     return {
-      failureKind: "drift",
+      failure: { case: "no-ownership-continuity", output: driftedPaths[0]! },
       owned: false,
-      reason:
-        `recorded output ${driftedPaths[0]} does not match the recorded installation and ` +
-        "no other recorded root proves ownership continuity; restore the recorded " +
-        "output or remove the generated files, then retry",
     };
   }
   return {
@@ -270,8 +260,7 @@ export async function proveOwnedInstallation(
   const inspectionResult = await inspectInstallationOwnership(installation, inspection);
   if (!inspectionResult.owned) {
     return {
-      ...(inspectionResult.failureKind ? { failureKind: inspectionResult.failureKind } : {}),
-      ...(inspectionResult.reason ? { reason: inspectionResult.reason } : {}),
+      ...(inspectionResult.failure ? { failure: inspectionResult.failure } : {}),
       owned: false,
     };
   }
@@ -282,11 +271,8 @@ export async function proveOwnedInstallation(
   );
   if (tracked.length > 0) {
     return {
-      failureKind: "drift",
+      failure: { case: "git-tracked-output", outputs: tracked },
       owned: false,
-      reason:
-        `owned output ${tracked.join(", ")} is tracked by Git; ` +
-        "Agent Profile Kit will not delete or untrack repository-owned material",
     };
   }
   return { owned: true };
@@ -322,16 +308,31 @@ export interface ProvenInstallationRemovalTransaction {
 
 /**
  * A temporary installation removal is blocked: removal authority does not hold
- * for one or more recorded roots. The detail is a diagnostic fact; presentation
+ * for one or more recorded roots. The failure is a typed fact; presentation
  * owns the rendered sentence keyed by the blocker kind.
  */
 export class TemporaryRemovalBlockedError extends Error {
-  readonly detail: string;
+  readonly failure: TemporaryRemovalFailureFact;
 
-  constructor(detail: string) {
-    super(`temporary installation removal blocked: ${detail}`);
+  constructor(failure: TemporaryRemovalFailureFact) {
+    super(`temporary installation removal blocked: ${failure.case}`);
     this.name = "TemporaryRemovalBlockedError";
-    this.detail = detail;
+    this.failure = failure;
+  }
+}
+
+/**
+ * Ordinary installation removal is blocked: ownership proof does not hold for
+ * the recorded installation. The failure is a typed fact; presentation owns
+ * the rendered sentence.
+ */
+export class OwnershipBlockedRemovalError extends Error {
+  readonly failure: OwnershipFailureFact;
+
+  constructor(readonly project: string, failure: OwnershipFailureFact) {
+    super(`installation removal blocked: ${project}: ${failure.case}`);
+    this.name = "OwnershipBlockedRemovalError";
+    this.failure = failure;
   }
 }
 
@@ -358,8 +359,9 @@ export async function stageProvenInstallationRemoval(
 ): Promise<ProvenInstallationRemovalTransaction> {
   const proof = await proveOwnedInstallation(installation, inspection, gitInspection);
   if (!proof.owned) {
-    throw new Error(
-      `Cannot remove Project at ${installation.project}: ${proof.reason ?? "ownership could not be proven"}`,
+    throw new OwnershipBlockedRemovalError(
+      installation.project,
+      proof.failure ?? { case: "unproven" },
     );
   }
   const stage = await mkdtemp(join(installation.project, ".agent-profile-kit-remove-"));
@@ -483,10 +485,10 @@ export async function removeDisposableOutputs(options: {
     // deletes or untracks them, regardless of proven identity or drift.
     const tracked = await trackedRoots(project, extantRoots, createLifecycleGitInspectionContext());
     if (tracked.length > 0) {
-      throw new TemporaryRemovalBlockedError(
-        `owned output ${tracked.join(", ")} ` +
-          "is tracked by Git; Agent Profile Kit will not delete or untrack repository-owned material",
-      );
+      throw new TemporaryRemovalBlockedError({
+        case: "git-tracked-output",
+        outputs: tracked,
+      });
     }
   }
 
@@ -500,9 +502,11 @@ export async function removeDisposableOutputs(options: {
   for (const output of outputs) {
     const unsafeParent = await unsafeOutputParent(project, output.path);
     if (unsafeParent) {
-      throw new TemporaryRemovalBlockedError(
-        `owned output ${output.path} has unsafe parent: ${unsafeParent}`,
-      );
+      throw new TemporaryRemovalBlockedError({
+        case: "unsafe-parent",
+        output: output.path,
+        parent: unsafeParent,
+      });
     }
     const path = join(project, output.path);
     let stats;
@@ -514,9 +518,7 @@ export async function removeDisposableOutputs(options: {
     }
     // Refuse to follow a recorded root that is now a symlink pointing elsewhere.
     if (stats.isSymbolicLink()) {
-      throw new TemporaryRemovalBlockedError(
-        `owned output ${output.path} is a symlink`,
-      );
+      throw new TemporaryRemovalBlockedError({ case: "symlink-output", output: output.path });
     }
     await rm(path, { recursive: true, force: true });
   }

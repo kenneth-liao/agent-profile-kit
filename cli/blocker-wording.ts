@@ -1,5 +1,8 @@
 import { join } from "node:path";
 
+import { COMMAND_NAME } from "../installer/version.js";
+import type { ProjectTargetErrorReason } from "../installer/local-configuration.js";
+
 import {
   INSTALLATION_OWNERSHIP,
   INSTALLATION_STATE_UNREADABLE,
@@ -10,7 +13,9 @@ import {
   type BlockerKind,
   type OccupiedOutputFact,
   type OwnershipBlockerAction,
+  type OwnershipFailureFact,
   type ReconciliationBlocker,
+  type TemporaryRemovalFailureFact,
 } from "../installer/blockers.js";
 import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
 
@@ -48,6 +53,24 @@ function blockerDetail(blocker: ReconciliationBlocker): string {
   return blocker.detail;
 }
 
+function blockerOwnershipFailure(
+  blocker: ReconciliationBlocker & { readonly kind: typeof INSTALLATION_OWNERSHIP },
+): OwnershipFailureFact {
+  if (blocker.failure === undefined) {
+    throw new TypeError(`Blocker kind ${blocker.kind} requires a failure fact`);
+  }
+  return blocker.failure;
+}
+
+function blockerRemovalFailure(
+  blocker: ReconciliationBlocker & { readonly kind: typeof TEMPORARY_INSTALLATION_REMOVAL },
+): TemporaryRemovalFailureFact {
+  if (blocker.failure === undefined) {
+    throw new TypeError(`Blocker kind ${blocker.kind} requires a failure fact`);
+  }
+  return blocker.failure;
+}
+
 function blockerOccupied(blocker: ReconciliationBlocker): OccupiedOutputFact {
   if (blocker.occupied === undefined) {
     throw new TypeError(`Blocker kind ${blocker.kind} requires an occupied fact`);
@@ -60,6 +83,41 @@ function blockerAction(blocker: ReconciliationBlocker): OwnershipBlockerAction {
     throw new TypeError(`Blocker kind ${blocker.kind} requires an ownership action`);
   }
   return blocker.action;
+}
+
+/** The carried sentence for one typed ownership-failure fact. */
+export function describeOwnershipFailure(failure: OwnershipFailureFact): string {
+  switch (failure.case) {
+    case "git-tracked-output":
+      return `owned output ${failure.outputs.join(", ")} is tracked by Git; ` +
+        "Agent Profile Kit will not delete or untrack repository-owned material";
+    case "no-ownership-continuity":
+      return `recorded output ${failure.output} does not match the recorded installation and ` +
+        "no other recorded root proves ownership continuity; restore the recorded " +
+        "output or remove the generated files, then retry";
+    case "type-mismatch":
+      return `owned output ${failure.output} is not a ${failure.expected}`;
+    case "unsafe-parent":
+      return `owned output ${failure.output} has unsafe parent: ${failure.parent}`;
+    case "unreadable-output":
+      return `owned output ${failure.output} could not be inspected`;
+    case "unproven":
+      return "ownership could not be proven";
+    case "unsupported-entry":
+      return `owned output ${failure.output} contains an unsupported entry at ${failure.member}`;
+  }
+}
+
+/** The carried sentence for one typed temporary-removal failure fact. */
+export function describeTemporaryRemovalFailure(failure: TemporaryRemovalFailureFact): string {
+  switch (failure.case) {
+    case "git-tracked-output":
+      return describeOwnershipFailure(failure);
+    case "symlink-output":
+      return `owned output ${failure.output} is a symlink`;
+    case "unsafe-parent":
+      return describeOwnershipFailure(failure);
+  }
 }
 
 function occupiedOutputProblem(blocker: ReconciliationBlocker): string {
@@ -107,8 +165,8 @@ export function blockerWording(blocker: ReconciliationBlocker): BlockerWording {
     }
     case INSTALLATION_OWNERSHIP: {
       const problem = blockerAction(blocker) === "verify"
-        ? `Cannot verify generated-file ownership: ${blockerDetail(blocker)}`
-        : `Cannot remove stale generated files: ${blockerDetail(blocker)}`;
+        ? `Cannot verify generated-file ownership: ${describeOwnershipFailure(blockerOwnershipFailure(blocker))}`
+        : `Cannot remove stale generated files: ${describeOwnershipFailure(blockerOwnershipFailure(blocker))}`;
       return {
         message: problem,
         problem,
@@ -169,7 +227,8 @@ export function blockerWording(blocker: ReconciliationBlocker): BlockerWording {
       };
     }
     case TEMPORARY_INSTALLATION_REMOVAL: {
-      const problem = `Cannot remove Temporary Profile Installation: ${blockerDetail(blocker)}`;
+      const problem =
+        `Cannot remove Temporary Profile Installation: ${describeTemporaryRemovalFailure(blockerRemovalFailure(blocker))}`;
       return {
         message: problem,
         problem,
@@ -198,9 +257,19 @@ export const DEFAULT_BLOCKER_SUBSTITUTIONS: readonly {
   { replacement: "temporary Profiles", term: /Temporary Profile Installations/g },
   { replacement: "temporary Profile", term: /Temporary Profile Installation/g },
   { replacement: "installation record", term: /Installation State/g },
+  { replacement: "generated files", term: /\bgenerated outputs\b/gi },
+  { replacement: "generated file", term: /\bgenerated output\b/gi },
   { replacement: "apkit machine install-temp", term: /\binstall-temp\b/g },
   { replacement: "apkit machine remove-temp", term: /\bremove-temp\b/g },
 ];
+
+/**
+ * Newcomer substitution for presentation-owned error text rendered outside the
+ * blocker lexicon; keeps every human error surface inside the vocabulary guard.
+ */
+export function applyNewcomerSubstitutions(text: string): string {
+  return substitute(text);
+}
 
 function substitute(text: string): string {
   return DEFAULT_BLOCKER_SUBSTITUTIONS.reduce(
@@ -245,4 +314,27 @@ export function humanBlockerWording(blocker: ReconciliationBlocker): BlockerWord
       : `${substitute(wording.remedy)}. ${command}`,
     requirement: substitute(wording.requirement),
   };
+}
+
+/**
+ * Presentation-owned sentence for the Installer's typed ProjectTargetError.
+ * The composed text carries the same wording the Installer previously authored;
+ * internal terms become newcomer terms on every surface.
+ */
+export function formatProjectTargetError(
+  reason: ProjectTargetErrorReason,
+): string {
+  switch (reason.case) {
+    case "ambiguous-target":
+      return applyNewcomerSubstitutions(
+        `apkit ${reason.command} Project target '${reason.target}' is ambiguous because it ` +
+          "matches multiple Project Bindings; pass one exact Project root or run " +
+          `${COMMAND_NAME} list projects`,
+      );
+    case "unbound-target":
+      return `apkit ${reason.command} Project target '${reason.target}' is not a bound Project; ` +
+        `run ${COMMAND_NAME} list projects or ${COMMAND_NAME} bind`;
+    case "invalid-target":
+      return reason.detail;
+  }
 }

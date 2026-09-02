@@ -4,8 +4,11 @@ import { isAbsolute, join, relative } from "node:path";
 
 import {
   blockerWording,
+  describeOwnershipFailure,
   humanBlockerWording,
 } from "./blocker-wording.js";
+
+export { formatProjectTargetError } from "./blocker-wording.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,
@@ -819,7 +822,11 @@ export function formatUninstallResult(
     );
     for (const kept of result.kept) {
       const presentedProject = displayProjectPath(kept.project);
-      lines.push("", `Project: ${presentedProject}`, `  - ${kept.reason}`);
+      lines.push(
+        "",
+        `Project: ${presentedProject}`,
+        `  - ${renderItemReason(kept.reason)}`,
+      );
       copyable.push(`Project: ${presentedProject}`, presentedProject, kept.project);
     }
   }
@@ -975,8 +982,13 @@ function repositoryExclusionClause(
     : `${capitalize(DEFAULT_VIEW_LEXICON.repositoryExclusion.plural)}: ${parts.join(", ")}.`;
 }
 
+/** One item-reason projection: diagnostic strings pass through; typed ownership facts compose. */
+function renderItemReason(reason: NonNullable<ReconciliationItem["reason"]>): string {
+  return typeof reason === "string" ? reason : describeOwnershipFailure(reason);
+}
+
 function itemText(item: ReconciliationItem): string {
-  return `${item.kind}${item.reason ? ` (${item.reason})` : ""}`;
+  return `${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}`;
 }
 
 function isNonCurrentKind(kind: ReconciliationKind): kind is NonCurrentKind {
@@ -2701,7 +2713,7 @@ function verboseSections(
   const items = reportItems(report).length === 0
     ? "(no projects)"
     : reportItems(report)
-        .map((item) => shorten(`${item.project}: ${item.kind}${item.reason ? ` (${item.reason})` : ""}`))
+        .map((item) => shorten(`${item.project}: ${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}`))
         .join("\n");
   const desired = reportDesired(report).length === 0
     ? "(none)"
@@ -3497,10 +3509,18 @@ export function presentTemporaryBlockedMessages(
   const references = [...new Set([canonicalProject, absoluteAuthoredPath(authoredProject, home)])]
     .sort((left, right) => right.length - left.length || left.localeCompare(right));
   const text = blockers
-    .map((blocker) => humanBlockerWording(blocker).problem)
-    .map((message) => references.reduce(
+    .flatMap((blocker) => {
+      const wording = humanBlockerWording(blocker);
+      // Every blocked temporary-installation Blocker renders its problem and
+      // its remedy, so recovery always names a runnable command (US-027).
+      return [
+        wording.problem,
+        `Remedy: ${wording.remedy}`,
+      ];
+    })
+    .map((line) => references.reduce(
       (reduced, project) => replaceProjectReference(reduced, project, presented),
-      message,
+      line,
     ))
     .join("\n");
   return { presented, text };

@@ -1954,7 +1954,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       { cwd: undefined, target: "relative/project", pattern: /absolute path or home-relative/i },
       { cwd: undefined, target: "~/projects/*", pattern: /without wildcards/i },
       { cwd: undefined, target: invalid, pattern: /must be an existing directory/i },
-      { cwd: nested, target: undefined, pattern: /ambiguous.*multiple Project Bindings/i },
+      { cwd: nested, target: undefined, pattern: /ambiguous.*multiple configured Projects/i },
     ] as const;
 
     for (const command of ["apply", "status"] as const) {
@@ -2856,7 +2856,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const output = humanText(result.stdout);
     expect(output).toContain("migration window is closed");
     expect(output).toContain("Agent Profile Kit 0.95.0");
-    expect(output).toContain("never reconstructs ownership from generated output");
+    // The foreign diagnostic rides as a fact; human rendering substitutes the
+    // internal "generated output" term with newcomer vocabulary (TEST-012).
+    expect(output).toContain("never reconstructs ownership from generated file");
     expect(existsSync(join(stateDirectory(home), "manifest.yaml"))).toBe(true);
     expect(existsSync(statePath(home))).toBe(false);
   });
@@ -8864,6 +8866,11 @@ describe("shared presentation boundary", () => {
     expect(blockedTempOutput.replace(/\s+/g, " ")).toContain(
       "Generated files are already managed through a configured Project",
     );
+    // The blocked view renders the remedy with its runnable command (US-027).
+    expect(blockedTempOutput.replace(/\s+/g, " ")).toContain(
+      "Remedy: Remove the existing configured Project-managed files or the active temporary Profile, " +
+        "then retry apkit machine install-temp",
+    );
     // Blocked temporary-installation output stays free of internal terms (TEST-012).
     expect(humanText(blockedTempOutput)).not.toMatch(INTERNAL_TERM_PATTERN);
     for (const line of blockedTempOutput.split("\n")) {
@@ -11343,6 +11350,11 @@ describe("apkit temporary Profile installation (Codex)", () => {
       blocker.message.includes("tracked by Git") &&
       blocker.message.includes(".agent-profile-kit/codex/context.md")
     )).toBe(true);
+    // The human blocked view renders the remedy with its runnable command (US-027).
+    const humanRemoval = await runCli(home, "machine", "remove-temp", receipt.temporaryInstallationId);
+    expectExitCode(humanRemoval, 2);
+    expect(humanText(humanRemoval.stderr)).toContain("Remedy:");
+    expect(humanText(humanRemoval.stderr)).toContain("apkit machine remove-temp");
     // The tracked output, its index entry, the Marker, and the active temporary
     // receipt all survive the blocked removal.
     expect(existsSync(tracked)).toBe(true);

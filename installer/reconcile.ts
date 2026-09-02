@@ -80,6 +80,7 @@ import {
   occupiedOutputBlocker,
   outputOwnershipConflictBlocker,
   type BlockerInput,
+  type OwnershipFailureFact,
   type ProjectScopedBlockerInput,
   type ReconciliationBlocker,
 } from "./blockers.js";
@@ -117,7 +118,8 @@ export type ReconciliationKind =
 export interface ReconciliationItem {
   readonly kind: ReconciliationKind;
   readonly project: string;
-  readonly reason?: string;
+  /** A diagnostic string, or a typed ownership-failure fact presentation renders. */
+  readonly reason?: OwnershipFailureFact | string;
 }
 
 export type OutputReconciliationKind =
@@ -612,7 +614,7 @@ async function installationRetirementSelection(
 function ownershipBlocker(project: string, proof: OwnershipProof): ProjectScopedBlockerInput {
   return installationOwnershipBlocker({
     action: "verify",
-    detail: proof.reason ?? "ownership could not be proven",
+    failure: proof.failure ?? { case: "unproven" },
     project,
   });
 }
@@ -937,7 +939,7 @@ export async function previewReconciliation(
         projectItems.push({
           kind: "drifted output",
           project: installation.binding.project,
-          ...(proof.reason ? { reason: proof.reason } : {}),
+          ...(proof.failure ? { reason: proof.failure } : {}),
         });
       // Surface safe recreation ahead of stale source because apply restores from
       // that current source.
@@ -1041,7 +1043,7 @@ export async function previewReconciliation(
       projectBlockers.push(normalizeBlocker(
         installationOwnershipBlocker({
           action: "remove",
-          detail: proof.reason ?? "ownership could not be proven",
+          failure: proof.failure ?? { case: "unproven" },
           project: installation.project,
         }),
         installation.project,
@@ -1055,8 +1057,8 @@ export async function previewReconciliation(
         project: installation.project,
         ...(intentionallyDeleted
           ? { reason: "project intentionally deleted" }
-          : proof.reason
-            ? { reason: proof.reason }
+          : proof.failure
+            ? { reason: proof.failure }
             : {}),
       }],
       outputItems: installation.outputs.map((output) => ({

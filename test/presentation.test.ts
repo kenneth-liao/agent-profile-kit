@@ -95,22 +95,25 @@ function fixtureBlocker(message: string, project?: string): ReconciliationBlocke
     : normalizeBlocker({
         action: "verify",
         affectedItems: [],
-        detail: message
-          .replaceAll(`${project}/`, "")
-          .replaceAll(`${project}: `, "")
-          .replaceAll(project, "this Project"),
+        failure: {
+          case: "no-ownership-continuity",
+          output: message
+            .replaceAll(`${project}/`, "")
+            .replaceAll(`${project}: `, "")
+            .replaceAll(project, "this Project"),
+        },
         kind: "installation-ownership",
         project,
         scope: "project",
       });
 }
 
-/** One installation-ownership fixture blocker carrying prose as the diagnostic detail fact. */
-function fixtureOwnershipBlocker(detail: string, project: string): ReconciliationBlocker {
+/** One installation-ownership fixture blocker whose failure fact carries long evidence. */
+function fixtureOwnershipBlocker(output: string, project: string): ReconciliationBlocker {
   return normalizeBlocker({
     action: "verify",
     affectedItems: [],
-    detail,
+    failure: { case: "no-ownership-continuity", output },
     kind: "installation-ownership",
     project,
     scope: "project",
@@ -1349,7 +1352,7 @@ describe("temporary-installation Project identity presentation", () => {
           scope: "global",
         }),
         normalizeBlocker(temporaryInstallationRemovalBlocker({
-          detail: `owned output .codex/hooks.json at ${canonical} is a symlink`,
+          failure: { case: "symlink-output", output: ".codex/hooks.json" },
           outputs: [".codex/hooks.json"],
           project: canonical,
         })),
@@ -1368,8 +1371,7 @@ describe("temporary-installation Project identity presentation", () => {
         "~/projects/alpha already has an ordinary Profile Installation",
       );
       expect(rendered).toContain(
-        "Cannot remove temporary Profile: owned output .codex/hooks.json " +
-          "at ~/projects/alpha is a symlink",
+        "Cannot remove temporary Profile: owned output .codex/hooks.json is a symlink",
       );
       expect(rendered).not.toContain(canonical);
     } finally {
@@ -1568,7 +1570,7 @@ describe("formatLifecycleReport concise terminology", () => {
       blockers: [normalizeBlocker({
         action: "verify",
         affectedItems: [{ kind: "host", value: "codex" }],
-        detail: "Codex CLI is unavailable",
+        failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/project-a/.codex" },
         kind: "installation-ownership",
         project: "/project-a",
         scope: "project",
@@ -1578,7 +1580,7 @@ describe("formatLifecycleReport concise terminology", () => {
     // Human views render presentation-owned wording keyed by the typed kind;
     // machine JSON publishes the verbatim stored sentences from one lexicon.
     expect(formatLifecycleReport("status", structured)).toContain(
-      "Blocker: Cannot verify generated-file ownership: Codex CLI is unavailable",
+      "Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex",
     );
     const machine = machineReport([
       machineProject("/project-a", { blockers: reportBlockers(structured) }),
@@ -1591,8 +1593,8 @@ describe("formatLifecycleReport concise terminology", () => {
         blockers: [{
           affectedItems: [{ kind: "host", value: "codex" }],
           kind: "installation-ownership",
-          message: "Cannot verify generated-file ownership: Codex CLI is unavailable",
-          problem: "Cannot verify generated-file ownership: Codex CLI is unavailable",
+          message: "Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex",
+          problem: "Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex",
           project: "/project-a",
           remedy: "Remove the conflicting generated files yourself after verifying the paths, then retry",
           requirement:
@@ -1610,7 +1612,7 @@ describe("formatLifecycleReport concise terminology", () => {
         blockers: [normalizeBlocker({
           action: "verify",
           affectedItems: [{ kind: "host", value: "codex" }],
-          detail: "Codex CLI is unavailable",
+          failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/project-a/.codex" },
           kind: "installation-ownership",
           project: "/project-a",
           scope: "project",
@@ -1621,7 +1623,7 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("status", report);
 
-    expect(concise).toContain("Blocker: Cannot verify generated-file ownership: Codex CLI is unavailable");
+    expect(concise).toContain("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex");
     expect(concise).toContain(
       "Requirement: Agent Profile Kit syncs or removes only files whose ownership is " +
       "proven by the active installation record at safe paths",
@@ -2503,7 +2505,9 @@ describe("formatLifecycleReport concise terminology", () => {
       const concise = formatLifecycleReport("status", report);
       expect(concise).not.toContain("State explanations:");
       if (kind === "blocked") {
-        expect(concise).toContain("Blocker: Cannot verify generated-file ownership: hooks disabled");
+        expect(concise).toContain(
+        "Blocker: Cannot verify generated-file ownership: recorded output hooks disabled does not match",
+      );
         expect(concise).not.toContain("State:");
       } else if (["drifted output", "malformed ownership state", "missing output", "stale source"].includes(kind)) {
         expect(concise).toContain(`State: ${kind}`);
@@ -2597,14 +2601,16 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).not.toContain("State explanations:");
     expect(concise).not.toContain("Changes:");
     expect(concise).toMatch(
-      /Project: \/project-b\n  Profile: coding\n  Hosts: codex\n  Blocker: Cannot verify generated-file ownership: hooks disabled\n/,
+      /Project: \/project-b\n  Profile: coding\n  Hosts: codex\n  Blocker: Cannot verify generated-file ownership: recorded output hooks disabled does not match/,
     );
 
     for (const command of ["status", "apply"] as const) {
       const verbose = command === "apply"
         ? formatBlockedApplyReport(asBlockedReport(report), { verbose: true })
         : formatLifecycleReport(command, report, { verbose: true });
-      expect(verbose.indexOf("Blockers:\n- Cannot verify generated-file ownership: hooks disabled")).toBeGreaterThan(-1);
+      expect(verbose.indexOf(
+        "Blockers:\n- Cannot verify generated-file ownership: recorded output hooks disabled does not match",
+      )).toBeGreaterThan(-1);
       expect(verbose).toContain("Scope: Project /project-b");
       expect(verbose.indexOf("Blockers:\n- /project-b: hooks disabled")).toBeLessThan(
         verbose.indexOf("Projects:"),
@@ -2707,7 +2713,9 @@ describe("formatLifecycleReport concise terminology", () => {
 
     const concise = formatLifecycleReport("status", report);
 
-    expect(concise).toContain("Blocker: Cannot verify generated-file ownership: occupied output");
+    expect(concise).toContain(
+        "Blocker: Cannot verify generated-file ownership: recorded output occupied output does not match",
+      );
     expect(concise).toContain("Git exclusions: 1 entry to add.");
     expect(concise).not.toContain("/repo/.git/info/exclude");
   });
@@ -2768,7 +2776,9 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).toContain("Warnings:");
     expect(verbose).toContain("example warning");
     expect(verbose).toContain("Blockers:");
-    expect(verbose).toContain("- Cannot verify generated-file ownership: example blocker");
+    expect(verbose).toContain(
+        "- Cannot verify generated-file ownership: recorded output example blocker does not match",
+      );
     expect(verbose).toContain("Scope: Project /project-a");
     expect(verbose).toContain("State explanations:");
     expect(verbose).not.toContain("generated-output");
@@ -3411,8 +3421,12 @@ describe("Machine surface JSON and exit codes", () => {
       blockers: [{
         affectedItems: [],
         kind: "installation-ownership",
-        message: "Cannot verify generated-file ownership: CLI missing",
-        problem: "Cannot verify generated-file ownership: CLI missing",
+        message: "Cannot verify generated-file ownership: recorded output CLI missing does not " +
+          "match the recorded installation and no other recorded root proves ownership " +
+          "continuity; restore the recorded output or remove the generated files, then retry",
+        problem: "Cannot verify generated-file ownership: recorded output CLI missing does not " +
+          "match the recorded installation and no other recorded root proves ownership " +
+          "continuity; restore the recorded output or remove the generated files, then retry",
         project,
         remedy: "Remove the conflicting generated files yourself after verifying the paths, then retry",
         requirement:
@@ -4874,7 +4888,7 @@ describe("focused blockers-only status view (#351)", () => {
     const projectBlocker = normalizeBlocker({
       action: "verify",
       affectedItems: [{ kind: "host", value: "codex" }],
-      detail: "Codex CLI is unavailable",
+      failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/project-a/.codex" },
       kind: "installation-ownership",
       project: "/project-a",
       scope: "project",
@@ -4916,7 +4930,7 @@ describe("focused blockers-only status view (#351)", () => {
 
     expect(output).toStartWith("Cannot apply\n");
     expect(output).toContain("Project: /project-a");
-    expect(output).toContain("Blocker: Cannot verify generated-file ownership: Codex CLI is unavailable");
+    expect(output).toContain("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex");
     expect(output).toContain("Global blockers:");
     expect(output).toContain("Blocker: installation record is unreadable");
     expect(output).toContain("Next:");
@@ -4995,7 +5009,7 @@ describe("focused blockers-only status view (#351)", () => {
   test("focused verbose view retains complete Blocker fields and affected items without unrelated sections", () => {
     const output = formatLifecycleReport("status", blockedFleet(), { blockersOnly: true, verbose: true });
 
-    expect(output).toContain("- Cannot verify generated-file ownership: Codex CLI is unavailable");
+    expect(output).toContain("- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex");
     expect(output).toContain(
       "Requirement: Agent Profile Kit syncs or removes only files whose ownership is " +
       "proven by the active installation record at safe paths",
@@ -5052,7 +5066,7 @@ describe("focused blockers-only apply view (#352)", () => {
     normalizeBlocker({
       action: "verify",
       affectedItems: [{ kind: "host", value: "codex" }],
-      detail: "Claude Code CLI is unavailable",
+      failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/project-b/.codex" },
       kind: "installation-ownership",
       project: "/project-b",
       scope: "project",
@@ -5116,16 +5130,16 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(output).toContain("+ 1 generated file addition in /project-a");
     expect(output).toContain("Freshly current: /project-a");
     expect(output).toContain("Still pending: /project-c");
-    expect(output).toContain("Blocker: Cannot verify generated-file ownership: Claude Code CLI is unavailable");
+    expect(output).toContain("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex");
     expect(output).toContain("Blockers: 1 · Affected Projects: 1");
     // Safety evidence is an ordered prefix before the focused Blocker section,
     // rendered exactly once.
     expect(output.indexOf("Applied:")).toBeLessThan(
-      output.indexOf("Blocker: Cannot verify generated-file ownership: Claude Code CLI is unavailable"),
+      output.indexOf("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex"),
     );
     expect(output.split("Applied:")).toHaveLength(2);
     expect(output.indexOf("Still pending:")).toBeLessThan(
-      output.indexOf("Blocker: Cannot verify generated-file ownership: Claude Code CLI is unavailable"),
+      output.indexOf("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex"),
     );
     expect(output.split("Still pending:")).toHaveLength(2);
     expect(output).not.toContain("Warnings:");
@@ -5146,7 +5160,7 @@ describe("focused blockers-only apply view (#352)", () => {
     );
 
     expect(output).toStartWith("Apply completed with blockers\n");
-    expect(output).toContain("- Cannot verify generated-file ownership: Claude Code CLI is unavailable");
+    expect(output).toContain("- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex");
     expect(output).toContain(
       "Requirement: Agent Profile Kit syncs or removes only files whose ownership is " +
       "proven by the active installation record at safe paths",
@@ -5162,7 +5176,7 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(output).toContain("Still pending: /project-c");
     expect(output).toContain("Blockers: 1 · Affected Projects: 1");
     expect(output.indexOf("Applied:")).toBeLessThan(
-      output.indexOf("- Cannot verify generated-file ownership: Claude Code CLI is unavailable"),
+      output.indexOf("- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex"),
     );
     expect(output).not.toMatch(/^Projects:/m);
     expect(output).not.toContain("Outputs:");
@@ -5226,9 +5240,9 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(output).toContain("Still pending: /project-c");
     expect(output).toContain("Applied:");
     expect(output).toContain("Freshly current: /project-a");
-    expect(output).toContain("Blocker: Cannot verify generated-file ownership: Claude Code CLI is unavailable");
+    expect(output).toContain("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex");
     expect(output.indexOf("Applied:")).toBeLessThan(
-      output.indexOf("Blocker: Cannot verify generated-file ownership: Claude Code CLI is unavailable"),
+      output.indexOf("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex"),
     );
   });
 
@@ -5262,12 +5276,12 @@ describe("focused blockers-only apply view (#352)", () => {
 
     const concise = formatApplyExecutionFailure(failure, { blockersOnly: true });
     expect(concise).toContain(
-      "Freshly current: /project-a\n\nProject: /project-b\n  Blocker: Cannot verify generated-file ownership: Claude Code CLI is unavailable",
+      "Freshly current: /project-a\n\nProject: /project-b\n  Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex",
     );
 
     const verbose = formatApplyExecutionFailure(failure, { blockersOnly: true, verbose: true });
     expect(verbose).toContain(
-      "Freshly current: /project-a\n\nBlockers:\n- Cannot verify generated-file ownership: Claude Code CLI is unavailable",
+      "Freshly current: /project-a\n\nBlockers:\n- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex",
     );
   });
 });
@@ -5531,7 +5545,7 @@ describe("blocker wording lives in presentation (DEC-020, US-026, US-027)", () =
       blocker: normalizeBlocker({
         action: "verify",
         affectedItems: [],
-        detail: "no recorded root proves ownership continuity",
+        failure: { case: "no-ownership-continuity", output: ".agent-profile-kit/codex/context.md" },
         kind: "installation-ownership",
         project,
         scope: "project",
@@ -5554,7 +5568,7 @@ describe("blocker wording lives in presentation (DEC-020, US-026, US-027)", () =
     },
     {
       blocker: normalizeBlocker(temporaryInstallationRemovalBlocker({
-        detail: "owned output .codex/hooks.json is a symlink",
+        failure: { case: "symlink-output", output: ".codex/hooks.json" },
         outputs: [".codex/hooks.json"],
         project,
       })),
