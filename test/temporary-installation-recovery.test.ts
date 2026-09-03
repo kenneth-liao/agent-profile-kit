@@ -195,7 +195,6 @@ describe("Temporary Profile Installation recovery", () => {
     expect(removed.completionState).toBe("removed");
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(project, "user-notes.md"), "utf8")).toBe("keep me\n");
     expect(readFileSync(join(project, ".git", "info", "exclude"), "utf8")).not.toContain(
       "# BEGIN Agent Profile Kit generated paths",
@@ -317,7 +316,6 @@ describe("Temporary Profile Installation recovery", () => {
       temporaryInstallationId: recoverable.temporaryInstallationId,
     });
     expect(removed.completionState).toBe("removed");
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("failure after exclusion commit returns recoverable identity", async () => {
@@ -403,7 +401,6 @@ describe("Temporary Profile Installation recovery", () => {
     ).rejects.toThrow(/injected remove interruption after root deletes/);
 
     // Owned outputs already cleaned; no process-private remove stage remains.
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
     const projectEntries = readdirSync(project);
     expect(projectEntries.some((name) => name.startsWith(".agent-profile-kit-remove-"))).toBe(false);
     const mid = await readInstallationState(home);
@@ -639,7 +636,6 @@ describe("Temporary Profile Installation Claude Host parity", () => {
     expect(receipt.hostVersion).toMatch(/native-project-unscoped-rules-skills/);
     expect(receipt.outputs).toContain(".claude/rules/agent-profile-kit.md");
     expect(receipt.outputs).toContain(".claude/skills/review-pr");
-    expect(receipt.outputs).not.toContain(".agent-profile-kit/installation.json");
     expect(existsSync(join(project, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(readFileSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"), "utf8"))
@@ -655,7 +651,6 @@ describe("Temporary Profile Installation Claude Host parity", () => {
     expect(removed.host).toBe("claude");
     expect(existsSync(join(project, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
     expect(existsSync(join(project, ".claude", "skills", "review-pr"))).toBe(false);
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(project, ".git", "info", "exclude"), "utf8")).not.toContain(
       "# BEGIN Agent Profile Kit generated paths",
     );

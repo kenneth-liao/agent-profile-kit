@@ -836,7 +836,7 @@ describe("Host Setup Step provenance and presentation", () => {
         canonicalProject: "/project-a",
         context: "composed",
         hosts: ["claude", "codex"] as const,
-        outputs: [".agent-profile-kit/installation.json", ".claude/rules/agent-profile-kit.md"],
+        outputs: [".claude/skills/review-pr", ".claude/rules/agent-profile-kit.md"],
         profile: "coding",
         project: "/project-a",
         resolvedArtifacts: [],
@@ -844,11 +844,11 @@ describe("Host Setup Step provenance and presentation", () => {
       }],
       items: [{ kind: "addition", project: "/project-a" }],
       outputs: [
-        { kind: "addition", path: ".agent-profile-kit/installation.json", project: "/project-a" },
+        { kind: "addition", path: ".claude/skills/review-pr", project: "/project-a" },
         { kind: "addition", path: ".claude/rules/agent-profile-kit.md", project: "/project-a" },
       ],
       outputConsumers: [
-        { consumingHosts: [], path: ".agent-profile-kit/installation.json", project: "/project-a" },
+        { consumingHosts: [], path: ".claude/skills/review-pr", project: "/project-a" },
         { consumingHosts: ["claude"], path: ".claude/rules/agent-profile-kit.md", project: "/project-a" },
       ],
     });
@@ -1496,15 +1496,15 @@ describe("formatLifecycleReport concise terminology", () => {
     const receipt = formatUninstallResult({
       kept: [],
       projects: [{
-        outputs: [".agent-profile-kit/installation.json", ".codex/hooks.json"],
+        outputs: [".claude/rules/agent-profile-kit.md", ".codex/hooks.json"],
         project: "/project-a",
         repositoryExclusions: [
           {
-            entries: ["/.agent-profile-kit/installation.json", "/.codex/hooks.json"],
+            entries: ["/.claude/rules/agent-profile-kit.md", "/.codex/hooks.json"],
             target: "/project-a/.git/info/exclude",
           },
           {
-            entries: ["/.agent-profile-kit/installation.json"],
+            entries: ["/.claude/rules/agent-profile-kit.md"],
             target: "/shared/.git/info/exclude",
           },
         ],
@@ -1661,7 +1661,6 @@ describe("formatLifecycleReport concise terminology", () => {
     const project = "/project-a";
     const paths = [
       ".agent-profile-kit/codex/context.md",
-      ".agent-profile-kit/installation.json",
       ".agents/skills/s01",
       ".agents/skills/s02",
       ".agents/skills/s03",
@@ -1674,6 +1673,7 @@ describe("formatLifecycleReport concise terminology", () => {
       ".agents/skills/s10",
       ".agents/skills/s11",
       ".agents/skills/s12",
+      ".claude/rules/agent-profile-kit.md",
       ".codex/hooks.json",
     ];
     const report = emptyReport({
@@ -1698,9 +1698,9 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).toContain("keep repository ownership");
     expect(concise).toContain("intentionally remove");
     expect(concise).toContain("Affected paths (15):");
-    expect(concise).toContain("- .agent-profile-kit/installation.json");
     expect(concise).toContain("- .agent-profile-kit/codex/context.md");
     expect(concise).toContain("- .agents/skills/ (12 paths)");
+    expect(concise).toContain("- .claude/rules/agent-profile-kit.md");
     expect(concise).toContain("- .codex/hooks.json");
     expect(concise).not.toContain("/project-a/.agents/skills/s08");
     expect(concise).not.toContain("rm -r --cached");
@@ -2025,7 +2025,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const paths = [
       ".codex/hooks.json",
       ".agents/skills/a skill with spaces.md",
-      ".agent-profile-kit/installation.json",
+      ".claude/rules/agent-profile-kit.md",
     ];
     const verbose = formatLifecycleReport("status", ownershipReport(paths), {
       blockersOnly: true,
@@ -4779,7 +4779,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     const uninstall = formatUninstallResult({
       kept: [],
       projects: [{
-        outputs: [".agent-profile-kit/installation.json", ".codex/hooks.json"],
+        outputs: [".claude/rules/agent-profile-kit.md", ".codex/hooks.json"],
         project: "/project-a",
         repositoryExclusions: [],
       }],

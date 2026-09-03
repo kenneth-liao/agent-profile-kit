@@ -347,7 +347,6 @@ describe("Claude-only Profile Installation lifecycle", () => {
 
     expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(rulePath)).toBe(false);
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(project, "CLAUDE.md"), "utf8")).toBe("project-owned instructions\n");
     expect(readFileSync(join(project, ".claude", "rules", "team.md"), "utf8")).toBe("existing team rule\n");
     expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe('{"permissions":{}}\n');

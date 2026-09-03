@@ -472,7 +472,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     // Verify unowned configuration file was NOT overwritten or modified
     expect(readFileSync(join(project, ".opencode", "opencode.jsonc"), "utf8")).toBe(userJsonc);
 
-    // Verify no Context document or Marker was created
+    // Verify no Context document was created
     expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(project, ".agents"))).toBe(false);
 
@@ -659,7 +659,6 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(existsSync(join(project, ".agent-profile-kit", "opencode", "context.md"))).toBe(true);
     expect(existsSync(join(project, ".opencode", "opencode.jsonc"))).toBe(true);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(true);
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
 
     const uninstallResult = await uninstallApplication(home);
     expect(uninstallResult.projects).toHaveLength(1);
@@ -669,7 +668,6 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(existsSync(join(project, ".agent-profile-kit", "opencode", "context.md"))).toBe(false);
     expect(existsSync(join(project, ".opencode", "opencode.jsonc"))).toBe(false);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
 
     // User-authored files preserved
     expect(readFileSync(join(project, "opencode.json"), "utf8")).toBe(
@@ -798,7 +796,6 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(existsSync(join(tempProject, ".opencode", "opencode.jsonc"))).toBe(false);
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(tempProject, ".agents", "skills", "deploy"))).toBe(false);
-    expect(existsSync(join(tempProject, ".agent-profile-kit", "installation.json"))).toBe(false);
 
     // Exclusion cleaned
     expect(readFileSync(excludeFile, "utf8")).not.toContain("# BEGIN Agent Profile Kit generated paths");

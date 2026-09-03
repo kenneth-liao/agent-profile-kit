@@ -168,7 +168,6 @@ describe("injected project filesystem failures", () => {
     expect((failure as ApplyVerificationError).receipt.projects).toContainEqual(
       expect.objectContaining({ project, state: { kind: "addition" } }),
     );
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 
   test("rolls back a mid-update failure and reports non-empty completed, failed, and pending sets", async () => {
