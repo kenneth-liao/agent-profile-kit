@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -181,6 +182,45 @@ export function createFleetFixture(
   return { home, pathWithHosts: installControlledHosts(home), projects };
 }
 
+/** The controlled Host CLI stubs {@link installControlledHosts} installs under the HOME. */
+const CONTROLLED_HOSTS = [
+  "agy",
+  "claude",
+  "codex",
+  "grok",
+  "opencode",
+  "pi",
+] as const;
+
+/**
+ * One controlled Host CLI stub executable name. Stub names are executable
+ * names, not canonical Host IDs: the Antigravity stub is `agy`.
+ */
+export type ControlledHostStub = (typeof CONTROLLED_HOSTS)[number];
+
+/**
+ * PATH that carries every controlled Host stub except one, so that Host CLI is
+ * missing. The stub is named by executable name; the {@link ControlledHostStub}
+ * type makes any other spelling (a canonical Host ID such as `antigravity`)
+ * unrepresentable. The restricted PATH excludes the system PATH so a real
+ * installed Host CLI cannot satisfy the probe.
+ */
+export function pathWithoutHostStub(home: string, stub: ControlledHostStub): string {
+  const bin = join(home, `bin-without-${stub}`);
+  mkdirSync(bin, { recursive: true });
+  for (const name of CONTROLLED_HOSTS) {
+    if (name === stub) continue;
+    symlinkSync(join(home, "bin", name), join(bin, name));
+  }
+  // Git topology inspection still needs the real git executable; resolve it
+  // from the runner's PATH so the restricted PATH stays hermetic.
+  symlinkSync(
+    realpathSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim()),
+    join(bin, "git"),
+  );
+  return bin;
+}
+
 /** Prepend controlled Host CLI stubs on PATH so lifecycle runs are hermetic. */
 export function installControlledHosts(home: string): string {
   const bin = join(home, "bin");
@@ -193,11 +233,11 @@ export function installControlledHosts(home: string): string {
   );
   writeFileSync(
     join(bin, "grok"),
-    `#!/bin/sh\nif [ "$1" = "version" ]; then\n  echo "grok 0.2.111 (fake) [stable]"\n  exit 0\nfi\nif [ "$1" = "inspect" ] && [ "$2" = "--json" ]; then\n  cat <<'EOF'\n{"externalCompat":{"cells":[{"enabled":true,"source":"default","surface":"rules","vendor":"claude"}],"remoteSettingsLoaded":false},"groKVersion":"0.2.111","projectInstructions":[],"skills":[]}\nEOF\n  exit 0\nfi\necho "unexpected grok invocation: $*" >&2\nexit 2\n`,
+    `#!/bin/sh\nif [ "$1" = "version" ]; then\n  echo "grok 0.2.111 (fake) [stable]"\n  exit 0\nfi\nif [ "$1" = "inspect" ] && [ "$2" = "--json" ]; then\n  printf '%s\\n' '{"externalCompat":{"cells":[{"enabled":true,"source":"default","surface":"rules","vendor":"claude"}],"remoteSettingsLoaded":false},"groKVersion":"0.2.111","projectInstructions":[],"skills":[]}'\n  exit 0\nfi\necho "unexpected grok invocation: $*" >&2\nexit 2\n`,
   );
   writeFileSync(join(bin, "opencode"), `#!/bin/sh\necho "1.18.23"\n`);
   writeFileSync(join(bin, "pi"), `#!/bin/sh\necho "pi 0.82.1"\n`);
-  for (const name of ["agy", "claude", "codex", "grok", "opencode", "pi"]) {
+  for (const name of CONTROLLED_HOSTS) {
     execFileSync("chmod", ["+x", join(bin, name)]);
   }
   return `${bin}:${process.env.PATH ?? ""}`;
