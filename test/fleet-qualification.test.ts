@@ -10,7 +10,9 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -49,6 +51,7 @@ import {
   cleanupFleetFixtures,
   gitRepository,
   installControlledHosts,
+  pathWithoutHost,
   plainProject,
   workspacePath,
   FLEET_HOSTS,
@@ -102,6 +105,22 @@ function withFleetScope(arguments_: readonly string[]): readonly string[] {
 async function runCli(home: string, pathValue: string, ...arguments_: string[]) {
   return runProcess({
     executable: process.env.NODE_BINARY ?? "node",
+    arguments_: [cliPath, ...withFleetScope(arguments_)],
+    environment: { ...process.env, HOME: home, PATH: pathValue },
+    deadlineMs: TEST_CHILD_DEADLINE_MS,
+    commandLabel: "packed CLI",
+  });
+}
+
+/** Packed CLI run with a fully controlled PATH (system PATH excluded) so a missing Host stays missing. */
+async function runCliWithExplicitPath(
+  home: string,
+  pathValue: string,
+  ...arguments_: string[]
+) {
+  return runProcess({
+    // Absolute runtime path so a restricted PATH cannot shadow the runner.
+    executable: process.env.NODE_BINARY ?? process.execPath,
     arguments_: [cliPath, ...withFleetScope(arguments_)],
     environment: { ...process.env, HOME: home, PATH: pathValue },
     deadlineMs: TEST_CHILD_DEADLINE_MS,
@@ -841,4 +860,194 @@ describe("integrated fleet recovery qualification", () => {
     expect(secondStatus.stdout).toContain(projectB);
     expect(secondStatus.stdout).not.toContain("OpenCode discovers Skills");
   }, 120_000);
+
+  test("a 30-Project fleet recovers a hand-deleted Project's generated roots as ordinary pending work", async () => {
+    const home = isolatedHome();
+    const fixture = createFleetFixture(home, { projectCount: 30 });
+    const projects = fixture.projects;
+    const pathWithHosts = fixture.pathWithHosts;
+
+    expectExitCode(await runCli(home, pathWithHosts, "apply"), 0);
+
+    // The spec's headline wedge action: delete one Project's generated roots
+    // by hand — the obvious way to "start that one over".
+    const damaged = projects[1]!;
+    rmSync(join(damaged, ".agent-profile-kit"), { recursive: true });
+    rmSync(join(damaged, ".codex"), { recursive: true });
+
+    // status --all stays at exit 0 and reports the damaged Project as pending
+    // work, never as a blocker; the other 29 Projects are unaffected.
+    const status = await runCli(home, pathWithHosts, "status", "--json");
+    expectExitCode(status, 0);
+    const statusPayload = JSON.parse(status.stdout) as {
+      readonly outcome: string;
+      readonly projects: readonly {
+        readonly canonicalProject: string;
+        readonly state: { readonly kind: string };
+        readonly blockers: readonly unknown[];
+      }[];
+    };
+    expect(statusPayload.projects).toHaveLength(30);
+    expect(statusPayload.outcome).toBe("attention");
+    for (const projectRecord of statusPayload.projects) {
+      expect(projectRecord.blockers).toEqual([]);
+      if (projectRecord.canonicalProject === damaged) {
+        expect(projectRecord.state.kind).toBe("drifted output");
+      } else {
+        expect(projectRecord.state.kind).toBe("current");
+      }
+    }
+
+    // apply --all restores the deleted roots at exit 0.
+    const apply = await runCli(home, pathWithHosts, "apply");
+    expectExitCode(apply, 0);
+    expect(apply.stderr).toBe("");
+    expect(existsSync(join(damaged, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(damaged, ".codex", "hooks.json"))).toBe(true);
+
+    const settled = await runCli(home, pathWithHosts, "status");
+    expectExitCode(settled, 0);
+    expect(settled.stdout).toBe("All Projects are current (30 Projects)\n");
+  }, 240_000);
+
+  test("a 30-Project fleet with mixed pending, drifted, missing-Host, unprovable-Git-topology, and deleted-generated-roots conditions completes status --all and apply --all at exit 0", async () => {
+    const home = isolatedHome();
+    const fixture = createFleetFixture(home, { projectCount: 30 });
+    const projects = fixture.projects;
+    const pathWithHosts = fixture.pathWithHosts;
+
+    // Settle 29 Projects; the 30th binding enters as pending (addition) work.
+    const settled = projects.slice(0, 29);
+    writeBindings(
+      home,
+      settled.map((project, index) => ({
+        project,
+        hosts: FLEET_HOSTS[index % FLEET_HOSTS.length]!,
+      })),
+    );
+    expectExitCode(await runCli(home, pathWithHosts, "apply"), 0);
+    const pending = projects[29]!;
+    writeBindings(
+      home,
+      [
+        ...settled.map((project, index) => ({
+          project,
+          hosts: FLEET_HOSTS[index % FLEET_HOSTS.length]!,
+        })),
+        { project: pending, hosts: FLEET_HOSTS[29 % FLEET_HOSTS.length]! },
+      ],
+    );
+
+    // Drifted output: one Project's owned file is edited by hand.
+    const drifted = projects[1]!;
+    const contextPath = join(drifted, ".agent-profile-kit", "codex", "context.md");
+    writeFileSync(contextPath, "drift\n");
+
+    // Deleted generated roots on another Project.
+    const damaged = projects[2]!;
+    rmSync(join(damaged, ".agent-profile-kit"), { recursive: true });
+    rmSync(join(damaged, ".codex"), { recursive: true });
+
+    // Unprovable Git topology: one Git Project's common directory is a
+    // symlink to an external Git directory.
+    const topology = projects[0]!;
+    const externalGit = join(topology, "external-gitdir");
+    renameSync(join(topology, ".git"), externalGit);
+    symlinkSync(externalGit, join(topology, ".git"));
+    const exclude = join(externalGit, "info", "exclude");
+    const excludeBefore = readFileSync(exclude, "utf8");
+
+    // Missing Host: Pi is selected by 12 of the 30 Projects but its stub is
+    // absent from PATH for the status and apply runs below.
+    const pathWithoutPi = pathWithoutHost(home, "pi");
+
+    // status --all under the missing Host stays at exit 0 with no blockers:
+    // none of these conditions is a blocker any more.
+    const status = await runCliWithExplicitPath(home, pathWithoutPi, "status", "--all", "--json");
+    expectExitCode(status, 0);
+    const statusPayload = JSON.parse(status.stdout) as {
+      readonly outcome: string;
+      readonly projects: readonly {
+        readonly canonicalProject: string;
+        readonly state: { readonly kind: string };
+        readonly blockers: readonly unknown[];
+        readonly warnings: readonly { readonly kind: string; readonly message: string }[];
+      }[];
+    };
+    expect(statusPayload.projects).toHaveLength(30);
+    expect(statusPayload.outcome).toBe("attention");
+    for (const projectRecord of statusPayload.projects) {
+      expect(projectRecord.blockers).toEqual([]);
+      const expectedKind =
+        projectRecord.canonicalProject === pending ? "addition"
+        : projectRecord.canonicalProject === drifted || projectRecord.canonicalProject === damaged
+          ? "drifted output"
+          : "current";
+      expect(projectRecord.state.kind).toBe(expectedKind);
+    }
+    // The unprovable-topology Project carries exactly one topology warning.
+    const topologyRecord = statusPayload.projects.find(
+      (projectRecord) => projectRecord.canonicalProject === topology,
+    );
+    expect(
+      topologyRecord?.warnings.filter((warning) =>
+        warning.message.includes("non-directory or symlink component"),
+      ),
+    ).toHaveLength(1);
+
+    // apply --all completes at exit 0 and installs generated material for
+    // every condition, including the missing Host's Projects.
+    const apply = await runCliWithExplicitPath(home, pathWithoutPi, "apply", "--all", "--json");
+    expectExitCode(apply, 0);
+    expect(apply.stderr).toBe("");
+    const applyPayload = JSON.parse(apply.stdout) as {
+      readonly projects: readonly {
+        readonly canonicalProject: string;
+        readonly state: { readonly kind: string };
+        readonly blockers: readonly unknown[];
+        readonly warnings: readonly { readonly kind: string; readonly message: string }[];
+      }[];
+    };
+    for (const projectRecord of applyPayload.projects) {
+      expect(projectRecord.blockers).toEqual([]);
+      expect(projectRecord.state.kind).toBe("current");
+    }
+    // One warning per Host per invocation for the missing Pi CLI (DEC-014),
+    // regardless of the 12 Projects that select it.
+    const piWarnings = applyPayload.projects
+      .flatMap((projectRecord) => projectRecord.warnings)
+      .filter((warning) => warning.kind === "host-attention")
+      .filter((warning) => warning.message.includes("Pi CLI was not found on PATH"));
+    expect(piWarnings).toHaveLength(1);
+
+    // Every condition recovered on disk: pending Project installed, drifted
+    // file repaired, deleted roots recreated, topology Project still installed
+    // with its exclusion target untouched, and Pi material written anyway.
+    expect(existsSync(join(pending, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(readFileSync(contextPath, "utf8")).toContain("Always preserve the project boundary.");
+    expect(existsSync(join(damaged, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(damaged, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(topology, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(readFileSync(exclude, "utf8")).toBe(excludeBefore);
+    const piProject = projects[6]!;
+    expect(existsSync(join(piProject, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
+
+    // With the Host restored, the whole fleet is current: no condition left
+    // residual pending work or blockers.
+    const settledStatus = await runCliWithExplicitPath(home, pathWithHosts, "status", "--all", "--json");
+    expectExitCode(settledStatus, 0);
+    const settledPayload = JSON.parse(settledStatus.stdout) as {
+      readonly outcome: string;
+      readonly projects: readonly {
+        readonly state: { readonly kind: string };
+        readonly blockers: readonly unknown[];
+      }[];
+    };
+    expect(settledPayload.projects).toHaveLength(30);
+    expect(settledPayload.outcome).toBe("clean");
+    for (const projectRecord of settledPayload.projects) {
+      expect(projectRecord.state.kind).toBe("current");
+      expect(projectRecord.blockers).toEqual([]);
+    }
+  }, 240_000);
 });

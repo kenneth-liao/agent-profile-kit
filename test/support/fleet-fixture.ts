@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -181,6 +182,37 @@ export function createFleetFixture(
   return { home, pathWithHosts: installControlledHosts(home), projects };
 }
 
+/** The controlled Host CLI stubs {@link installControlledHosts} installs under the HOME. */
+const CONTROLLED_HOSTS: readonly string[] = [
+  "agy",
+  "claude",
+  "codex",
+  "grok",
+  "opencode",
+  "pi",
+];
+
+/**
+ * PATH that carries every controlled Host stub except one, so that Host CLI is
+ * missing. The restricted PATH excludes the system PATH so a real installed
+ * Host CLI cannot satisfy the probe.
+ */
+export function pathWithoutHost(home: string, host: string): string {
+  const bin = join(home, `bin-without-${host}`);
+  mkdirSync(bin, { recursive: true });
+  for (const name of CONTROLLED_HOSTS) {
+    if (name === host) continue;
+    symlinkSync(join(home, "bin", name), join(bin, name));
+  }
+  // Git topology inspection still needs the real git executable; resolve it
+  // from the runner's PATH so the restricted PATH stays hermetic.
+  symlinkSync(
+    realpathSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim()),
+    join(bin, "git"),
+  );
+  return bin;
+}
+
 /** Prepend controlled Host CLI stubs on PATH so lifecycle runs are hermetic. */
 export function installControlledHosts(home: string): string {
   const bin = join(home, "bin");
@@ -197,7 +229,7 @@ export function installControlledHosts(home: string): string {
   );
   writeFileSync(join(bin, "opencode"), `#!/bin/sh\necho "1.18.23"\n`);
   writeFileSync(join(bin, "pi"), `#!/bin/sh\necho "pi 0.82.1"\n`);
-  for (const name of ["agy", "claude", "codex", "grok", "opencode", "pi"]) {
+  for (const name of CONTROLLED_HOSTS) {
     execFileSync("chmod", ["+x", join(bin, name)]);
   }
   return `${bin}:${process.env.PATH ?? ""}`;
