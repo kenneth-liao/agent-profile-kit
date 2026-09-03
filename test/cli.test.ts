@@ -7608,11 +7608,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expect(readme).toMatch(/Profile/i);
     expect(readme).toMatch(/bound project|Project Binding/i);
-    expect(readme).toContain("Codex");
-    expect(readme).toContain("Claude");
+    expect(readme).toContain("apkit init");
+    expect(readme).toContain("apkit bind");
+    expect(readme).toContain("apkit status");
     expect(readme).toContain("apkit apply");
     expect(readme).toContain("apkit guide --full");
-    expect(readme).toMatch(/Warnings.{0,80}exit|exit.{0,80}Warnings/is);
+    expect(readme).toMatch(/macOS/i);
+    for (const host of ["Antigravity", "Codex", "Claude Code", "Grok", "OpenCode", "Pi"]) {
+      expect(readme).toContain(host);
+    }
     expect(readme).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
     expect(readme).not.toMatch(/per-session launcher|global Skill projection|process[- ]overlay/i);
     expect(readme).not.toMatch(/legacy migration input/i);
