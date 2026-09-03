@@ -51,7 +51,7 @@ import {
   cleanupFleetFixtures,
   gitRepository,
   installControlledHosts,
-  pathWithoutHost,
+  pathWithoutHostStub,
   plainProject,
   workspacePath,
   FLEET_HOSTS,
@@ -959,7 +959,7 @@ describe("integrated fleet recovery qualification", () => {
 
     // Missing Host: Pi is selected by 12 of the 30 Projects but its stub is
     // absent from PATH for the status and apply runs below.
-    const pathWithoutPi = pathWithoutHost(home, "pi");
+    const pathWithoutPi = pathWithoutHostStub(home, "pi");
 
     // status --all under the missing Host stays at exit 0 with no blockers:
     // none of these conditions is a blocker any more.
@@ -1012,13 +1012,15 @@ describe("integrated fleet recovery qualification", () => {
       expect(projectRecord.blockers).toEqual([]);
       expect(projectRecord.state.kind).toBe("current");
     }
-    // One warning per Host per invocation for the missing Pi CLI (DEC-014),
-    // regardless of the 12 Projects that select it.
-    const piWarnings = applyPayload.projects
+    // One warning per Host per invocation, and only Pi is missing: the
+    // apply payload's Host-attention warnings contain exactly the single
+    // expected Pi warning (INT-1), regardless of the 12 Projects that select
+    // Pi and with no collateral Host capability warnings.
+    const hostAttentionWarnings = applyPayload.projects
       .flatMap((projectRecord) => projectRecord.warnings)
-      .filter((warning) => warning.kind === "host-attention")
-      .filter((warning) => warning.message.includes("Pi CLI was not found on PATH"));
-    expect(piWarnings).toHaveLength(1);
+      .filter((warning) => warning.kind === "host-attention");
+    expect(hostAttentionWarnings).toHaveLength(1);
+    expect(hostAttentionWarnings[0]!.message).toContain("Pi CLI was not found on PATH");
 
     // Every condition recovered on disk: pending Project installed, drifted
     // file repaired, deleted roots recreated, topology Project still installed
