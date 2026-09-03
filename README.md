@@ -123,7 +123,7 @@ Machine-readable command contracts:
   Project paths, Profile IDs, and Hosts. Removed identities and ordinary
   installations are omitted. It reads Installation State only and never runs
   reconciliation or changes state.
-- Lifecycle `--json` on `status` and `apply` prints a `schemaVersion: 12`
+- Lifecycle `--json` on `status` and `apply` prints a `schemaVersion: 14`
   object with global Blockers and one deterministic record per Project. Each
   Project record keeps desired identity, state, output operations with consuming
   Hosts, structured warnings classified as `diagnostic` or `host-attention`
@@ -135,7 +135,7 @@ Machine-readable command contracts:
   Project transactions also identify the failed and still-pending Projects.
   Every `machine install-temp`/`machine remove-temp` JSON payload — success receipt, blocked,
   and tool error — versions as one family and currently publishes
-  `schemaVersion: 8`; the two families evolve independently (ADR-0023). The
+  `schemaVersion: 9`; the two families evolve independently (ADR-0023). The
   JSON `command` field keeps the bare `install-temp`/`remove-temp` labels, so
   the machine-facing namespace does not change any payload (DEC-019).
   Combined with `--verbose`, machine output wins.
@@ -203,10 +203,12 @@ leads with a ready-to-apply or cannot-apply outcome. `apply` and `status` defaul
 to the bound Project containing the current directory, accept
 one explicit existing absolute or home-relative bound root, and require `--all`
 for the complete fleet. A scoped command does not plan, probe, inspect, report,
-or write unrelated Projects. `status` uses the same normalized desired plan and
-predictable Host capability evidence as `apply`: capability problems that block
-pending work are Project Blockers, while missing or downgraded Hosts for current
-output are Host attention without output drift. `apply` reports the verified
+or write unrelated Projects. `status` uses the same normalized desired plan as
+`apply` and performs no Agent Host process execution: Host capability probing
+happens only during `apply` and temporary installation, and it is advisory — a
+missing, unreadable, or outdated Host CLI produces a warning while the planned
+output is written regardless; Host capability problems never produce a Blocker
+and never block pending work. `apply` reports the verified
 resulting state separately from an Apply Receipt describing the pre-apply work
 that was committed.
 These default views group details by Profile Installation, list changed file
@@ -262,7 +264,7 @@ Canonical user content lives in one selected Workspace. The fixed default is
 `~/.agents/agent-profile-kit/workspace/`; zero-argument `init` records that path
 explicitly, while `init <workspace>` may provision or adopt another absolute or
 home-relative Workspace path. Machine-local Project Bindings and that explicit
-path live in `config.yaml`; durable schema-6 JSON Installation State lives under `state/`. Generated Context, hooks, rules, and Skills live
+path live in `config.yaml`; durable schema-9 JSON Installation State lives under `state/`. Generated Context, hooks, rules, and Skills live
 only in bound project-owned paths.
 
 `apkit init` creates a default Workspace with a schema marker, artifact

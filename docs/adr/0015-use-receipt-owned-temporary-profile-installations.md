@@ -18,6 +18,12 @@ ADR-0010's binding-owned model:
 1. **Receipt-owned lifetime.** Desired lifetime is owned by a durable temporary
    installation identity and receipt, not by a Project Binding. Public commands
    are `install-temp` and `remove-temp`.
+   *Superseded in place:* that top-level command surface was later moved behind
+   the machine-facing namespace — `machine install-temp`, `machine remove-temp`,
+   and `machine list temporary`, listed only by `apkit machine --help` (DEC-019,
+   delivered with #378). Top-level `install-temp` and `remove-temp` fail fast
+   with a pointer to the machine replacement. The receipt-owned lifetime model
+   itself remains in force.
 2. **No binding and no global apply.** Temporary install plans and commits only
    the named Project. It never creates, edits, or removes Local Configuration
    or Project Bindings, and never reconciles another project.

@@ -238,8 +238,8 @@ invocation policy coalesces; malformed, wrong-type, or conflicting policy
 produces one structured project Blocker naming the Workspace and shared
 Host-policy authorities with a Workspace repair remedy before any project write. Generated
 policy fields carry short deterministic comments. When any selected Skill
-disables model invocation, capability preflight proves each selected Host can
-enforce it before writes: Claude Code CLI
+disables model invocation, apply-time capability probing checks each selected
+Host's enforcement floor: Claude Code CLI
 `2.0.64+` (same floor as unscoped rules and native Skill discovery, which
 honors `disable-model-invocation`), Grok CLI `0.2.0+` (same floor as project
 rules and native Skill discovery, which honors `disable-model-invocation`),
@@ -254,8 +254,9 @@ baseline allowed Skills. Pi records `native-project-shared-skills-invocation-v1`
 for Skills-only or `native-project-append-system-shared-skills-invocation-v1`
 for combined Profiles. Antigravity records `native-project-shared-skills-invocation-v1`
 or `native-project-always-on-rules-shared-skills-invocation-v1` for the same two
-shapes. Unsupported versions fail closed rather than silently weakening the
-policy.
+shapes. Probing is advisory: an older, missing, or unreadable CLI produces a
+warning, and the planned policy fields are written regardless — the Adapter
+never silently omits or weakens what it plans.
 
 Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each
@@ -270,7 +271,7 @@ non-empty. A Skills-only Profile installs only selected Skill packages for Hosts
 support them and Installer lifecycle metadata—no Context snapshot, Codex
 SessionStart hooks, or Claude Context rule. Antigravity Skills-only bindings
 check only the shared `.agents` and `.agents/skills` surfaces. Host capability
-preflight follows the selected categories (Skills-only does not require Context
+probing is scoped to the selected categories (Skills-only does not require Context
 machinery). Profiles do not inherit, use wildcards, or carry Host settings.
 
 ### Remove obsolete Profile placeholders
@@ -409,16 +410,17 @@ bindings:
 
 For Codex bindings that select Context, the Adapter requires Codex CLI 0.145.0 or
 newer so the generated SessionStart handler can deliver the complete Context
-envelope without Codex's default head-and-tail spill. Older, missing, or
-unreadable Codex versions fail capability preflight before any project or
-Installation State writes. `status` performs the same predictable capability
-preflight without writing; a Project-scoped `status` or `apply` probes only its
-selected binding. `apply --all` leaves a capability-blocked Codex Project untouched
-while committing healthy Projects; global Blockers still stop every fleet write.
+envelope without Codex's default head-and-tail spill. Host capability probing is
+advisory: during `apply`, an older, missing, or unreadable Codex CLI produces a
+warning while the planned project and Installation State writes proceed
+regardless. `status` performs no Agent Host process execution and no capability
+probing; a Project-scoped `status` or `apply` plans only its
+selected binding. `apply --all` writes every selected Project including any with
+Host capability warnings; global Blockers still stop every fleet write.
 Skills-only Codex bindings do
 not require this floor. Review and trust the generated project SessionStart hook
 in Codex for each bound project. Lifecycle hooks are enabled by default. Agent Profile Kit checks the effective global and project configuration
-during preflight and warns when hooks are explicitly disabled, when relevant
+during apply and warns when hooks are explicitly disabled, when relevant
 configuration is malformed or unreadable, or when `hooks` or the deprecated
 `codex_hooks` alias is not a boolean. These warnings do not block installation,
 but generated Context may not load until the setting is corrected. Project configuration takes
@@ -444,12 +446,12 @@ command you just ran; current status and completed or no-op `apply` results omit
 a next step. `status` and `apply` default to the bound Project containing the
 current working directory and accept one explicit existing absolute or
 home-relative bound Project root. Use `--all` as the only fleet scope. Scoped
-planning, Host probes, Git and ownership inspection, reconciliation, reports,
+planning, Git and ownership inspection, reconciliation, reports,
 and writes exclude unrelated Projects; a shared Git exclusion file changes only
-through the selected installation's contribution-aware union. Missing or
-downgraded Hosts block pending application but appear as Host attention when
-output is already current; this capability attention does not mark generated
-files as drifted.
+through the selected installation's contribution-aware union. Host capability
+probing is advisory and happens only during `apply`: a missing or outdated Host
+CLI produces a warning and the planned output is written regardless; capability
+problems never block application and do not mark generated files as drifted.
 
 For complete per-output and desired-state diagnostics, including resolved
 artifact inclusion reasons and composed Context, append `--verbose` to `status` or `apply`. Warnings, blockers, drift reasons, and removal
@@ -609,7 +611,8 @@ but lifecycle safety depends on it for movement, repair, uninstall, Temporary
 Profile Installation recovery, and repository-local exclusion cleanup. Do not
 edit it by hand or reconstruct it from generated project output.
 
-Agent Profile Kit 0.96.0 accepts only strict schema-6 JSON. The writer validates
+Agent Profile Kit reads strict JSON at Ownership State schema versions 6 through
+9 and writes schema version 9. The writer validates
 the exact serialized bytes through the production reader before atomic rename.
 Active ordinary and temporary installations use one minimal receipt shape;
 removed temporary identities retain only the compact ID needed for idempotent
