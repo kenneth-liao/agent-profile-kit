@@ -610,3 +610,32 @@ The temporary identity survives on the receipt and in `machine list temporary`, 
 state or Local Configuration. Width, styling, and wrapping behave exactly like
 the ordinary lifecycle surfaces through the shared presentation boundary
 (ADR-0016).
+
+---
+
+## Accepted presentation principles
+
+Accepted in ADR-0014 and refined by ADR-0020. Individual fixes are argued from
+these rather than from scratch.
+
+1. **One fact, one rendering per screen**, and one command run produces one
+   report.
+2. **Every refusal names its remedy.** A blocker the user cannot act on is an
+   incomplete blocker.
+3. **When blocked, the blocker is the report.** Hypothetical plan detail is
+   demoted or suppressed.
+4. **Never warn about a state the user just requested.**
+5. **A next step must change something**, and must not stall work that is
+   ready.
+6. **Distinct concepts get distinct words.** Presentation must not overload one
+   term for two of them.
+7. **Summarize routine impact; disclose actionable identity.** Exact generated
+   paths and Git bookkeeping are verbose by default, while blockers, warnings,
+   drift, ownership attention, and repair or failure retain the identity needed
+   to act.
+8. **Show identity at the shortest unambiguous length**, including the Hosts
+   the user chose.
+9. **Teach once, at the point of need** — not on every run, and carry the
+   journey into the Host without presenting unobserved Host state as unfinished
+   setup.
+10. **Exit codes agree across commands** for the same state.
