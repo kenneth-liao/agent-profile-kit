@@ -173,7 +173,7 @@ async function runCliInPtyRaw(
   };
 }
 
-/** Count owned outputs of the desired fleet per category (excluding the Marker). */
+/** Count owned outputs of the desired fleet per category. */
 function ownedOutputCounts(
   desired: readonly { readonly outputs: readonly { readonly type: string }[] }[],
 ): { readonly directories: number; readonly files: number } {
@@ -205,10 +205,6 @@ describe("fleet-wide synchronization qualification", () => {
     expect(initialJson.applied.projects).toHaveLength(12);
     expect(initialJson.projects).toHaveLength(12);
     expect(initialJson.projects.every((project) => project.state.kind === "current")).toBe(true);
-    // Every Project carries its Installation Marker and owned output.
-    for (const project of projects) {
-      expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
-    }
 
     // The qualification change: one shared Skill update plus a Host addition.
     writeSkill(home, FLEET_SKILL, "# review-pr\n\nReview with stricter checks.\n");
@@ -653,13 +649,12 @@ describe("integrated fleet recovery qualification", () => {
 
     const pathWithHosts = installControlledHosts(home);
 
-    // Initial binding for projectA only, to establish its durable receipt & marker
+    // Initial binding for projectA only, to establish its durable receipt.
     writeBindings(home, [
       { project: projectA, hosts: ["codex"], profile: "engineering" },
     ]);
     const initialApplyA = await runCli(home, pathWithHosts, "apply", projectA);
     expectExitCode(initialApplyA, 0);
-    expect(existsSync(join(projectA, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(true);
 
     // In projectB (Git), create and track multiple planned output paths across directory prefixes
@@ -778,7 +773,7 @@ describe("integrated fleet recovery qualification", () => {
     expect(stateAfterPartial.receipts.some((r) => r.project === projectD)).toBe(true);
     expect(stateAfterPartial.receipts.some((r) => r.project === projectE)).toBe(true);
 
-    // projectB untouched: zero Git index changes, no marker, no exclusion change, no adoption, no overwrite, no state reconstruction (INT-2)
+    // projectB untouched: zero Git index changes, no exclusion change, no adoption, no overwrite, no state reconstruction (INT-2)
     expect(existsSync(join(projectB, ".agent-profile-kit"))).toBe(false);
     expect(readFileSync(join(projectB, ".git", "info", "exclude"), "utf8")).toBe(preExcludeBContent);
     expect(preExcludeBContent).not.toContain("Agent Profile Kit");

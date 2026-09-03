@@ -448,7 +448,6 @@ describe("Grok-only Profile Installation lifecycle", () => {
 
     expect((await uninstallApplication(home)).projects).toHaveLength(1);
     expect(existsSync(rulePath)).toBe(false);
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(readFileSync(join(project, "AGENTS.md"), "utf8")).toBe("repository-owned instructions\n");
     expect(readFileSync(join(project, ".grok", "rules", "team.md"), "utf8")).toBe(
       "existing team rule\n",

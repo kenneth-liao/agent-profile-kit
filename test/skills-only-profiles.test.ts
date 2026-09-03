@@ -256,7 +256,6 @@ describe("Skills-only Profiles", () => {
     expect(
       manifest.outputs
         .map((entry) => entry.path)
-        .filter((path) => path !== ".agent-profile-kit/installation.json")
         .sort(),
     ).toEqual([".agents/skills/review-pr"]);
 
@@ -452,7 +451,6 @@ describe("Skills-only Profiles", () => {
     expect(
       manifest.outputs
         .map((entry) => entry.path)
-        .filter((path) => path !== ".agent-profile-kit/installation.json")
         .sort(),
     ).toEqual([".agents/skills/review-pr", ".claude/skills/review-pr"]);
   });
@@ -500,6 +498,5 @@ describe("Skills-only Profiles", () => {
     const afterRemoval = await applyReconciliation(home, desired.installations);
     expect(reportBlockers(afterRemoval.receipt)).toEqual([]);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
-    expect(existsSync(join(project, ".agent-profile-kit", "installation.json"))).toBe(false);
   });
 });

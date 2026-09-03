@@ -209,7 +209,7 @@ describe("Pi shared Skill migration", () => {
     const beforeState = readFileSync(statePath, "utf8");
     writeFileSync(join(project, oldPath, "SKILL.md"), "user edit\n");
 
-    // With the Marker gone, the modified old root has no continuity anchor:
+    // The modified old root has no continuity anchor:
     // its bytes no longer match the old receipt's recorded hash and no other
     // recorded root proves the package is Agent Profile Kit's, so migration
     // fails closed instead of removing user-modified material.
