@@ -23,7 +23,7 @@ This repository is the open-source Agent Profile Kit engine. It contains product
 - `schemas/` owns portable Workspace and artifact schemas.
 - `docs/adr/` owns accepted decisions and rationale.
 - `docs/ARCHITECTURE.md` owns living structural facts.
-- `docs/USER-JOURNEY.md` owns user-facing CLI surface behavior and its gap register.
+- `docs/USER-JOURNEY.md` owns user-facing CLI surface behavior: the stages and the outcome each stage owes.
 - `docs/runbooks/` owns operational playbooks.
 - `docs/archive/` owns shipped plans and spent research only.
 

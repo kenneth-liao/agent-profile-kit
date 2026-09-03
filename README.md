@@ -250,7 +250,7 @@ authoring boundaries.
 - `schemas/` - portable Workspace and artifact schemas.
 - `docs/adr/` - accepted architectural and workflow decisions.
 - `docs/ARCHITECTURE.md` - the living system structure and delivery model.
-- `docs/USER-JOURNEY.md` - the living map of user-facing CLI stages and their gaps.
+- `docs/USER-JOURNEY.md` - the living map of user-facing CLI stages and the outcome each stage owes.
 - `docs/guides/` - bundled human and agent Workspace guidance served by the CLI.
 - `docs/runbooks/` - operational playbooks for risky or repeatable procedures.
 - `docs/archive/` - shipped plans and spent research kept only for provenance.
