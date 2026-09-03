@@ -16,10 +16,7 @@ The tool repository owns the CLI, schemas, Installer, Adapters, and product docu
 │   ├── workspace.yaml         # Required Workspace Manifest (schema marker)
 │   ├── profiles/              # Optional category; missing means empty
 │   ├── context/
-│   ├── skills/
-│   ├── agents/
-│   ├── hooks/
-│   └── tools/
+│   └── skills/
 ├── config.yaml                # Machine-local explicit Workspace selection + Project Bindings
 └── state/                     # Durable ownership evidence and staging state
 ```
