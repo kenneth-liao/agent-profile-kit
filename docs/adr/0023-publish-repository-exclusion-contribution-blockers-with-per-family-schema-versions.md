@@ -14,4 +14,8 @@ Every JSON payload that carries the exhaustive Blocker vocabulary publishes sche
 
 *Superseded in place:* the "currently publish 8" statement no longer holds. The lifecycle family now publishes `schemaVersion: 14` and the temporary-installation family `schemaVersion: 9`, each carrying its family's whole JSON contract. The per-family versioning principle itself remains in force; only the current version numbers were superseded by later deliveries.
 
-The maintained glossary defines Safe Repair and the receipt-owned Repository Exclusion Contribution boundary. Historical ADR text is not rewritten; earlier records remain historical.
+The maintained glossary defines Safe Repair and the receipt-owned Repository Exclusion Contribution boundary.
+
+*Superseded in place:* ADR-0025 removed Safe Repair as an authority boundary and the receipt-recorded exclusion boundary entirely — the vocabulary is removed from the product and the glossary rather than kept as a term. The maintained glossary (`CONTEXT.md`) now defines Repository Exclusion Contribution as derived best-effort bookkeeping that never produces a Blocker; ADR-0025 owns that reduced boundary. The sentence above is preserved as the historical view at this record's acceptance.
+
+Historical ADR text is not rewritten; earlier records remain historical.
