@@ -75,7 +75,7 @@ export async function readApplicationInfo(home: string): Promise<ApplicationInfo
   const expanded = expandConfiguredPath(
     parsed.workspace,
     home,
-    `Local Configuration ${localConfiguration}`,
+    { source: "local-configuration", configurationPath: localConfiguration },
     "workspace",
   );
   const canonical = await canonicalizePathForComparison(expanded);

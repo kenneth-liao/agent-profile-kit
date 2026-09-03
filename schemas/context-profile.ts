@@ -2,11 +2,12 @@ import { parse } from "yaml";
 
 import {
   parseArtifactDependencies,
-  requireArtifactId,
+  ARTIFACT_ID,
   type ArtifactReference,
 } from "./dependencies.js";
 
 export { requireArtifactId } from "./dependencies.js";
+import { rejectSchema, type WorkspaceArtifactRejectionReason } from "./schema-rejections.js";
 
 export interface ContextModule {
   readonly dependencies: readonly ArtifactReference[];
@@ -23,39 +24,57 @@ export interface Profile {
 function requireExactFields(
   value: Record<string, unknown>,
   fields: readonly string[],
-  description: string,
+  detail: WorkspaceArtifactRejectionReason,
 ): void {
   const unknown = Object.keys(value).filter((key) => !fields.includes(key));
   if (unknown.length > 0) {
-    throw new Error(`${description} does not allow fields: ${unknown.join(", ")}`);
+    throw rejectSchema({ schema: "workspace-artifact", detail });
   }
 }
 
-function parseYaml(source: string, description: string): unknown {
+function parseYaml(
+  source: string,
+  detail: WorkspaceArtifactRejectionReason,
+): unknown {
   try {
     return parse(source);
   } catch {
-    throw new Error(`${description} is invalid YAML`);
+    throw rejectSchema({ schema: "workspace-artifact", detail });
   }
 }
 
-function requireMapping(value: unknown, description: string): Record<string, unknown> {
+function requireMapping(value: unknown, detail: WorkspaceArtifactRejectionReason): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${description} must be a YAML mapping`);
+    throw rejectSchema({ schema: "workspace-artifact", detail });
   }
   return value as Record<string, unknown>;
 }
 
 function requireStringArray(
   value: unknown,
-  description: string,
+  path: string,
+  field: string,
 ): readonly string[] {
   if (!Array.isArray(value)) {
-    throw new Error(`${description} must be an array of names`);
+    throw rejectSchema({
+      schema: "workspace-artifact",
+      detail: { case: "not-array-of-names", path, field },
+    });
   }
-  const ids = value.map((entry) => requireArtifactId(entry, description));
+  const ids = value.map((entry) => {
+    if (typeof entry !== "string" || !ARTIFACT_ID.test(entry)) {
+      throw rejectSchema({
+        schema: "workspace-artifact",
+        detail: { case: "invalid-artifact-id", artifact: "Profile", path, section: field },
+      });
+    }
+    return entry;
+  });
   if (new Set(ids).size !== ids.length) {
-    throw new Error(`${description} must not select a name more than once`);
+    throw rejectSchema({
+      schema: "workspace-artifact",
+      detail: { case: "duplicate-name", path, field },
+    });
   }
   return ids;
 }
@@ -63,54 +82,96 @@ function requireStringArray(
 export function parseContextModule(source: string, path: string): ContextModule {
   const delimiter = "---\n";
   if (!source.startsWith(delimiter)) {
-    throw new Error(`Context Module ${path} must start with YAML frontmatter`);
+    throw rejectSchema({
+      schema: "workspace-artifact",
+      detail: { case: "frontmatter-not-open", artifact: "Context Module", path },
+    });
   }
   const closing = source.indexOf(delimiter, delimiter.length);
   if (closing === -1) {
-    throw new Error(`Context Module ${path} must close its YAML frontmatter`);
+    throw rejectSchema({
+      schema: "workspace-artifact",
+      detail: { case: "frontmatter-unclosed", artifact: "Context Module", path },
+    });
   }
 
-  const header = parseYaml(source.slice(delimiter.length, closing), `Context Module ${path}`);
-  const mapping = requireMapping(
-    header,
-    `Context Module ${path} frontmatter`,
-  );
-  requireExactFields(mapping, ["id", "dependencies"], `Context Module ${path}`);
-  const id = requireArtifactId(mapping.id, `Context Module ${path} id`);
+  const header = parseYaml(source.slice(delimiter.length, closing), {
+    case: "invalid-yaml",
+    artifact: "Context Module",
+    path,
+    section: "frontmatter",
+  });
+  const mapping = requireMapping(header, {
+    case: "not-a-mapping",
+    artifact: "Context Module",
+    path,
+    section: "frontmatter",
+  });
+  requireExactFields(mapping, ["id", "dependencies"], {
+    case: "unknown-fields",
+    artifact: "Context Module",
+    path,
+    fields: Object.keys(mapping).filter((key) => !["id", "dependencies"].includes(key)),
+  });
+  if (typeof mapping.id !== "string" || !ARTIFACT_ID.test(mapping.id)) {
+    throw rejectSchema({
+      schema: "workspace-artifact",
+      detail: { case: "invalid-artifact-id", artifact: "Context Module", path, section: "id" },
+    });
+  }
+  const id = mapping.id;
   const content = source.slice(closing + delimiter.length);
   if (content.length === 0) {
-    throw new Error(`Context Module ${path} must contain Context`);
+    throw rejectSchema({
+      schema: "workspace-artifact",
+      detail: { case: "empty-content", path },
+    });
   }
   return {
     content,
-    dependencies: parseArtifactDependencies(
-      mapping.dependencies,
-      `Context Module ${path} dependencies`,
-    ),
+    dependencies: parseArtifactDependencies(mapping.dependencies, {
+      artifact: "Context Module",
+      path,
+      section: "dependencies",
+    }),
     id,
   };
 }
 
 export function parseProfile(source: string, path: string): Profile {
-  const value = parseYaml(source, `Profile ${path}`);
-  const mapping = requireMapping(value, `Profile ${path}`);
+  const value = parseYaml(source, { case: "invalid-yaml", artifact: "Profile", path });
+  const mapping = requireMapping(value, { case: "not-a-mapping", artifact: "Profile", path });
   const fields = ["id", "context", "skills"] as const;
   const obsoleteFields = ["agents", "hooks", "tools"].filter((field) => field in mapping);
   if (obsoleteFields.length > 0) {
-    throw new Error(
-      `Profile ${path} no longer supports fields: ${obsoleteFields.join(", ")}. ` +
-        "Remove these obsolete Profile fields; earlier releases allowed them only as empty placeholders",
-    );
+    throw rejectSchema({
+      schema: "workspace-artifact",
+      detail: { case: "obsolete-fields", path, fields: obsoleteFields },
+    });
   }
-  requireExactFields(mapping, fields, `Profile ${path}`);
+  requireExactFields(mapping, fields, {
+    case: "unknown-fields",
+    artifact: "Profile",
+    path,
+    fields: Object.keys(mapping).filter((key) => !fields.includes(key as (typeof fields)[number])),
+  });
   for (const field of fields) {
     if (!(field in mapping)) {
-      throw new Error(`Profile ${path} must contain ${field}`);
+      throw rejectSchema({
+        schema: "workspace-artifact",
+        detail: { case: "missing-field", path, field },
+      });
     }
   }
+  if (typeof mapping.id !== "string" || !ARTIFACT_ID.test(mapping.id)) {
+    throw rejectSchema({
+      schema: "workspace-artifact",
+      detail: { case: "invalid-artifact-id", artifact: "Profile", path, section: "id" },
+    });
+  }
   return {
-    id: requireArtifactId(mapping.id, `Profile ${path} id`),
-    context: requireStringArray(mapping.context, `Profile ${path} context`),
-    skills: requireStringArray(mapping.skills, `Profile ${path} skills`),
+    id: mapping.id,
+    context: requireStringArray(mapping.context, path, "context"),
+    skills: requireStringArray(mapping.skills, path, "skills"),
   };
 }

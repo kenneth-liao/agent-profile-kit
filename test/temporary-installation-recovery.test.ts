@@ -506,7 +506,7 @@ describe("Temporary Profile Installation recovery", () => {
           project,
           hooks: { lockTimeoutMs: 80 },
         }),
-      ).rejects.toThrow(/Installation lifecycle is busy/i);
+      ).rejects.toThrow(/^installer tool error: lifecycle-lock-busy$/);
     });
   });
 
@@ -550,7 +550,7 @@ describe("Temporary Profile Installation recovery", () => {
         withInstallationLifecycleLock(home, "install-temp", async () => {
           contenderEnteredAfterRelease = true;
         }, { lockTimeoutMs: 80 }),
-      ).rejects.toThrow(/Installation lifecycle is busy/i);
+      ).rejects.toThrow(/^installer tool error: lifecycle-lock-busy$/);
       contenderSawBusy = true;
     });
 

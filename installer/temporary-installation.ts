@@ -26,6 +26,7 @@ import {
   ingestApplication,
   normalizeProject,
 } from "./local-configuration.js";
+import { InstallerToolError } from "./tool-errors.js";
 import { createLifecycleOwnershipInspectionContext } from "./lifecycle-ownership-inspection.js";
 import { createLifecyclePlanningContext } from "./lifecycle-planning.js";
 import { requireProfile } from "./profile-selection.js";
@@ -283,22 +284,26 @@ export async function installTemporaryProfile(options: {
 }): Promise<TemporaryInstallationReceipt> {
   const host = options.host;
   if (!isSupportedHost(host)) {
-    throw new Error(
-      `unsupported Agent Host '${host}'; temporary installation supports: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
-    );
+    throw new InstallerToolError({
+      kind: "unsupported-temporary-host",
+      host,
+      supportedHosts: TEMPORARY_INSTALLATION_HOSTS,
+    });
   }
   const registration = hostRegistrationFor(host);
   if (!registration.supportsTemporaryProfileInstallation) {
-    throw new Error(
-      `temporary installation does not yet support Agent Host '${host}'; supported Hosts: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`,
-    );
+    throw new InstallerToolError({
+      kind: "temporary-host-unsupported",
+      host,
+      supportedHosts: TEMPORARY_INSTALLATION_HOSTS,
+    });
   }
   const temporaryHost: TemporaryInstallationHost = registration.host;
   const profileId = requireArtifactId(options.profile, "install-temp profile");
   const canonicalProject = await normalizeProject(
     options.project,
     options.home,
-    "install-temp",
+    { source: "install-temp" },
   );
   const desired = await planTemporaryDesiredInstallation({
     authoredProject: options.project,
@@ -446,7 +451,7 @@ export async function removeTemporaryProfile(options: {
 }): Promise<TemporaryInstallationReceipt> {
   const temporaryInstallationId = options.temporaryInstallationId.trim();
   if (temporaryInstallationId.length === 0) {
-    throw new Error("remove-temp requires a temporary installation identity");
+    throw new InstallerToolError({ kind: "temporary-identity-required" });
   }
   const writeState = options.hooks?.writeInstallationState ?? writeInstallationState;
 
@@ -469,9 +474,10 @@ export async function removeTemporaryProfile(options: {
             warnings: [],
           };
         }
-        throw new Error(
-          `unknown temporary installation identity '${temporaryInstallationId}'`,
-        );
+        throw new InstallerToolError({
+          kind: "unknown-temporary-identity",
+          temporaryInstallationId,
+        });
       }
       const nextState = {
         ...withReceipts(

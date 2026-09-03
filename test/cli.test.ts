@@ -7840,7 +7840,9 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
           }) as typeof readFile,
         },
       }),
-    ).rejects.toThrow(/changed before unbind publication/i);
+    ).rejects.toThrow(
+      new RegExp(`^installer tool error: configuration-changed-before-publication$`),
+    );
 
     expect(readFileSync(configuration, "utf8")).toContain("# external edit before replace");
     expect(readFileSync(configuration, "utf8")).toContain(projectPath);
@@ -7999,7 +8001,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expectExitCode(await runCli(home, "unbind", projectPath), 0);
 
     await expect(applyReconciliation(home, desired.installations)).rejects
-      .toThrow(/Local Configuration changed while apply was planning/);
+      .toThrow(/^installer tool error: configuration-changed-while-planning$/);
 
     // Fail closed: the retired receipt survives unchanged for the next apply.
     const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -8712,7 +8714,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
           }) as typeof readFile,
         },
       }),
-    ).rejects.toThrow(/changed before bind publication/i);
+    ).rejects.toThrow(/^installer tool error: configuration-changed-before-publication$/);
 
     expect(readFileSync(configuration, "utf8")).toContain("# external edit before replace");
     expect(readFileSync(configuration, "utf8")).not.toContain(projectPath);
@@ -8770,7 +8772,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
           }) as typeof readFile,
         },
       }),
-    ).rejects.toThrow(/changed before bind publication/i);
+    ).rejects.toThrow(/^installer tool error: configuration-changed-before-publication$/);
 
     expect(readFileSync(configuration, "utf8")).toContain("profile: ops");
     expect(readFileSync(configuration, "utf8")).not.toContain("profile: coding");

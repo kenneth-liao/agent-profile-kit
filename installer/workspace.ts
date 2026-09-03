@@ -5,6 +5,7 @@ import {
   parseWorkspaceManifest,
   WORKSPACE_MANIFEST_FILE,
 } from "../schemas/workspace-manifest.js";
+import { InstallerToolError } from "./tool-errors.js";
 
 export const WORKSPACE_ARTIFACT_DIRECTORIES = [
   "profiles",
@@ -60,17 +61,21 @@ async function requirePresentDirectory(
     targetStats = await stat(entryPath);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw new Error(
-        `Workspace is invalid at ${workspace}: '${name}' is a dangling symlink; remove it or restore its target directory`,
-      );
+      throw new InstallerToolError({
+        kind: "workspace-dangling-category",
+        workspace,
+        name,
+      });
     }
     throw error;
   }
 
   if (!targetStats.isDirectory()) {
-    throw new Error(
-      `Workspace is invalid at ${workspace}: '${name}' must be a directory`,
-    );
+    throw new InstallerToolError({
+      kind: "workspace-category-not-directory",
+      workspace,
+      name,
+    });
   }
 }
 
@@ -80,16 +85,18 @@ async function requireWorkspaceManifestFile(workspace: string): Promise<void> {
     entryStats = await stat(join(workspace, WORKSPACE_MANIFEST_FILE));
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw new Error(
-        `Workspace is incomplete at ${workspace}: missing required file '${WORKSPACE_MANIFEST_FILE}'`,
-      );
+      throw new InstallerToolError({
+        kind: "workspace-missing-manifest",
+        workspace,
+      });
     }
     throw error;
   }
 
   if (!entryStats.isFile()) {
-    throw new Error(
-      `Workspace is invalid at ${workspace}: '${WORKSPACE_MANIFEST_FILE}' must be a file`,
-    );
+    throw new InstallerToolError({
+      kind: "workspace-manifest-not-file",
+      workspace,
+    });
   }
 }

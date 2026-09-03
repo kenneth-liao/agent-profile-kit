@@ -19,6 +19,7 @@ import {
   type OwnershipReceipt,
 } from "../schemas/ownership-state.js";
 import { hostCatalogEntryFor } from "../adapters/host-catalog.js";
+import { InstallerToolError } from "./tool-errors.js";
 import { CONTEXT_ENVELOPE_PREFIX } from "../adapters/context-envelope.js";
 import {
   readVerifiedLegacyInstallationMarker,
@@ -1421,9 +1422,7 @@ async function applyReconciliationLocked(
       [...expectedBindings].some(([project, tuple]) => freshBindings.get(project) !== tuple)
     : [...expectedBindings].some(([project, tuple]) => freshBindings.get(project) !== tuple);
   if (configurationMismatch) {
-    throw new Error(
-      "Local Configuration changed while apply was planning; retry apply",
-    );
+    throw new InstallerToolError({ kind: "configuration-changed-while-planning" });
   }
   let before;
   try {

@@ -3,6 +3,7 @@ import { mkdir as defaultMkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { stateDirectory } from "./local-configuration.js";
+import { InstallerToolError } from "./tool-errors.js";
 
 const LOCK_RETRY_MS = 20;
 export const DEFAULT_INSTALLATION_LIFECYCLE_LOCK_TIMEOUT_MS = 5_000;
@@ -104,9 +105,10 @@ export async function withInstallationLifecycleLock<T>(
     } catch (error) {
       if (!isLockBusyError(error)) throw error;
       if (Date.now() >= deadline) {
-        throw new Error(
-          `Installation lifecycle is busy; another ${operation} holds the lock — retry`,
-        );
+        throw new InstallerToolError({
+          kind: "lifecycle-lock-busy",
+          operation,
+        });
       }
       await sleep(LOCK_RETRY_MS);
     }

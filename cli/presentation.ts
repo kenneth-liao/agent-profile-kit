@@ -9,6 +9,7 @@ import {
   describeStateReadFailure,
   humanBlockerWording,
 } from "./blocker-wording.js";
+import { formatInstallerToolError } from "./error-wording.js";
 import {
   STATE_READ_FAILURE_CASES,
   type StateReadFailureFact,
@@ -196,19 +197,7 @@ export const INTERNAL_ONLY_DEFAULT_TERMS = [
   /Installation State/i,
 ] as const;
 
-export function formatMissingProfileError(error: MissingProfileError): string {
-  const heading = `${error.message}.`;
-  const recovery = error.recoverByEditingLocalConfiguration
-    ? " Edit Local Configuration directly if this stale binding must be removed."
-    : "";
-  if (error.availableProfiles.length === 0) {
-    const next = error.recoverByEditingLocalConfiguration
-      ? recovery
-      : ` Run ${COMMAND_NAME} guide profile to learn how to add a Profile.`;
-    return `${heading} No Profiles exist in the Workspace.${next}`;
-  }
-  return `${heading} Available Profiles: ${error.availableProfiles.join(", ")}.${recovery}`;
-}
+export { formatMissingProfileError } from "./error-wording.js";
 
 export function capitalize(text: string): string {
   return `${text[0]?.toUpperCase()}${text.slice(1)}`;
@@ -506,7 +495,9 @@ export function formatProjectInventoryHuman(
       `  Profile: ${project.profile}`,
       `  Hosts: ${project.hosts.join(", ")}`,
     );
-    if (project.problem !== null) lines.push(`  Problem: ${project.problem}`);
+    if (project.problem !== null) {
+      lines.push(`  Problem: ${formatInstallerToolError(project.problem)}`);
+    }
     copyable.push(
       `Project: ${presented}`,
       presented,
@@ -553,9 +544,14 @@ function serializeListInventoryMachinePayload(payload: object): string {
 
 type ProjectInventoryMachineBase = ListInventoryMachineBase<"projects">;
 
+/** Machine publication shape: the typed problem fact rendered as its carried sentence. */
+type PublishedProjectInventoryRecord = Omit<ProjectInventoryRecord, "problem"> & {
+  readonly problem: string | null;
+};
+
 interface ProjectInventoryMachineSuccessPayload extends ProjectInventoryMachineBase {
   readonly outcome: "success";
-  readonly projects: readonly ProjectInventoryRecord[];
+  readonly projects: readonly PublishedProjectInventoryRecord[];
 }
 
 interface ProjectInventoryMachineErrorPayload extends ProjectInventoryMachineBase {
@@ -573,8 +569,12 @@ export function formatProjectInventoryJson(
   projects: readonly ProjectInventoryRecord[],
 ): string {
   return serializeListInventoryMachinePayload(
-    listInventoryMachinePayload("projects", "success", { projects }) satisfies
-      ProjectInventoryMachinePayload,
+    listInventoryMachinePayload("projects", "success", {
+      projects: projects.map((project) => ({
+        ...project,
+        problem: project.problem === null ? null : formatInstallerToolError(project.problem),
+      })),
+    }) satisfies ProjectInventoryMachinePayload,
   );
 }
 

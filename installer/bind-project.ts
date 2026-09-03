@@ -25,6 +25,7 @@ import {
 } from "./local-configuration-publication.js";
 import { COMMAND_NAME } from "./version.js";
 import { requireProfile } from "./profile-selection.js";
+import { InstallerToolError, type ConfiguredPathOrigin } from "./tool-errors.js";
 
 /** Compatibility facade for existing bind-project consumers; publication's canonical implementation is separate. */
 export {
@@ -46,17 +47,19 @@ function hasErrorCode(error: unknown, code: string): boolean {
 
 function normalizeHosts(hosts: readonly string[]): readonly SupportedHost[] {
   if (hosts.length === 0) {
-    throw new Error(
-      "bind requires at least one --host flag; supported Hosts: " +
-        SUPPORTED_HOSTS.join(", "),
-    );
+    throw new InstallerToolError({
+      kind: "bind-host-required",
+      supportedHosts: SUPPORTED_HOSTS,
+    });
   }
   const seen = new Set<SupportedHost>();
   for (const host of hosts) {
     if (!isSupportedHost(host)) {
-      throw new Error(
-        `unsupported Agent Host '${host}'; supported Hosts: ${SUPPORTED_HOSTS.join(", ")}`,
-      );
+      throw new InstallerToolError({
+        kind: "unsupported-host",
+        host,
+        supportedHosts: SUPPORTED_HOSTS,
+      });
     }
     seen.add(host);
   }
@@ -115,6 +118,10 @@ export async function bindProject(
   const fileSystem = options.fileSystem ?? defaultFileSystem;
   const lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
   const configurationPath = localConfigurationPath(options.home);
+  const origin: ConfiguredPathOrigin = {
+    source: "local-configuration",
+    configurationPath,
+  };
   const profile = requireArtifactId(options.profile, "bind profile");
   const hosts = normalizeHosts(options.hosts);
   const cwd = options.cwd ?? process.cwd();
@@ -125,14 +132,14 @@ export async function bindProject(
     canonicalProject = await requireExistingDirectory(
       cwd,
       cwd,
-      description,
+      origin,
       "project",
     );
   } else {
     canonicalProject = await normalizeProject(
       options.project,
       options.home,
-      description,
+      origin,
     );
   }
 
@@ -145,9 +152,10 @@ export async function bindProject(
   // cannot interfere with another live bind transaction.
   if (!(await pathExists(fileSystem, configurationPath))) {
     if (!(await hasHeldResidue(configurationPath, fileSystem))) {
-      throw new Error(
-        `Local Configuration is missing at ${configurationPath}; run ${COMMAND_NAME} init`,
-      );
+      throw new InstallerToolError({
+        kind: "missing-local-configuration",
+        path: configurationPath,
+      });
     }
   }
 
@@ -165,9 +173,10 @@ export async function bindProject(
         source = await fileSystem.readFile(configurationPath, "utf8");
       } catch (error) {
         if (hasErrorCode(error, "ENOENT")) {
-          throw new Error(
-            `Local Configuration is missing at ${configurationPath}; run ${COMMAND_NAME} init`,
-          );
+          throw new InstallerToolError({
+            kind: "missing-local-configuration",
+            path: configurationPath,
+          });
         }
         throw error;
       }
@@ -215,9 +224,13 @@ export async function bindProject(
           };
         }
         if (!options.replace) {
-          throw new Error(
-            `${description} already binds canonical project '${canonicalProject}' to profile '${existing.profile}' hosts [${existing.hosts.join(", ")}]; pass --replace to restate its Profile and Hosts`,
-          );
+          throw new InstallerToolError({
+            kind: "bind-conflict",
+            configurationPath,
+            canonicalProject,
+            profile: existing.profile,
+            hosts: existing.hosts,
+          });
         }
 
         // The application model preserves Local Configuration's binding order 1:1,

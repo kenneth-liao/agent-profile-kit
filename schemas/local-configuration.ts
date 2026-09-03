@@ -5,13 +5,21 @@ import {
   SUPPORTED_HOSTS,
   type SupportedHost,
 } from "../adapters/host-catalog.js";
-import { requireArtifactId } from "./dependencies.js";
+import { ARTIFACT_ID } from "./dependencies.js";
+import { rejectSchema, type LocalConfigurationRejectionReason } from "./schema-rejections.js";
 
 export { isSupportedHost, SUPPORTED_HOSTS, type SupportedHost } from "../adapters/host-catalog.js";
 
 export const LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION = 1;
 export const LOCAL_CONFIGURATION_SCHEMA_VERSION = 2;
 export const LOCAL_CONFIGURATION_FILE = "config.yaml";
+
+/**
+ * Local Configuration rejection facts live in `schemas/schema-rejections.ts`
+ * — the one canonical home of every portable-schema rejection vocabulary
+ * (DEC-020). This module re-exports the Local Configuration cases it throws.
+ */
+export type { LocalConfigurationRejectionReason } from "./schema-rejections.js";
 
 export interface ProjectBinding {
   /** The canonical absolute project root used for identity and output. */
@@ -38,24 +46,27 @@ export function createEmptyLocalConfiguration(workspace: string): string {
   });
 }
 
-function parseYaml(source: string, description: string): unknown {
+function parseYaml(source: string, path: string): unknown {
   try {
     return parse(source);
   } catch {
-    throw new Error(`${description} is invalid YAML`);
+    throw rejectSchema({
+    schema: "local-configuration",
+    detail: { case: "invalid-yaml", path },
+  });
   }
 }
 
-function requireMapping(value: unknown, description: string): Record<string, unknown> {
+function requireMapping(value: unknown, reason: LocalConfigurationRejectionReason): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${description} must be a YAML mapping`);
+    throw rejectSchema({ schema: "local-configuration", detail: reason });
   }
   return value as Record<string, unknown>;
 }
 
-function requireString(value: unknown, description: string): string {
+function requireString(value: unknown, reason: LocalConfigurationRejectionReason): string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`${description} must be a non-empty string`);
+    throw rejectSchema({ schema: "local-configuration", detail: reason });
   }
   return value;
 }
@@ -63,11 +74,11 @@ function requireString(value: unknown, description: string): string {
 function requireExactFields(
   value: Record<string, unknown>,
   fields: readonly string[],
-  description: string,
+  reason: LocalConfigurationRejectionReason,
 ): void {
   const unknown = Object.keys(value).filter((field) => !fields.includes(field));
   if (unknown.length > 0) {
-    throw new Error(`${description} does not allow fields: ${unknown.join(", ")}`);
+    throw rejectSchema({ schema: "local-configuration", detail: reason });
   }
 }
 
@@ -103,24 +114,32 @@ function parseLocalConfigurationHeader(
   source: string,
   path: string,
 ): LocalConfigurationHeader {
-  const value = parseYaml(source, `Local Configuration ${path}`);
-  const mapping = requireMapping(value, `Local Configuration ${path}`);
+  const value = parseYaml(source, path);
+  const mapping = requireMapping(value, { case: "not-a-mapping", path });
   requireExactFields(
     mapping,
     ["schema_version", "bindings", "workspace"],
-    `Local Configuration ${path}`,
+    { case: "unknown-field", path, fields: unknownFields(mapping, ["schema_version", "bindings", "workspace"]) },
   );
   const schemaVersion = mapping.schema_version;
   if (
     schemaVersion !== LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION &&
     schemaVersion !== LOCAL_CONFIGURATION_SCHEMA_VERSION
   ) {
-    throw new Error(
-      `Local Configuration ${path} schema_version must be ${LOCAL_CONFIGURATION_SCHEMA_VERSION}`,
-    );
+    throw rejectSchema({
+    schema: "local-configuration",
+    detail: { case: "unsupported-schema-version", path },
+  });
   }
 
   return { mapping, schemaVersion };
+}
+
+function unknownFields(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+): readonly string[] {
+  return Object.keys(value).filter((field) => !allowed.includes(field));
 }
 
 function parseWorkspaceSelection(
@@ -131,11 +150,12 @@ function parseWorkspaceSelection(
   const workspace =
     mapping.workspace === undefined
       ? undefined
-      : requireString(mapping.workspace, `Local Configuration ${path} workspace`);
+      : requireString(mapping.workspace, { case: "invalid-field", path, field: "workspace" });
   if (schemaVersion === LOCAL_CONFIGURATION_SCHEMA_VERSION && workspace === undefined) {
-    throw new Error(
-      `Local Configuration ${path} workspace is required for schema_version ${LOCAL_CONFIGURATION_SCHEMA_VERSION}; add an explicit Workspace path and retry`,
-    );
+    throw rejectSchema({
+    schema: "local-configuration",
+    detail: { case: "missing-workspace", path },
+  });
   }
   return workspace;
 }
@@ -160,24 +180,47 @@ export function parseLocalConfigurationSelection(
 export function parseLocalConfiguration(source: string, path: string): ParsedLocalConfiguration {
   const { mapping, schemaVersion } = parseLocalConfigurationHeader(source, path);
   if (!Array.isArray(mapping.bindings)) {
-    throw new Error(`Local Configuration ${path} bindings must be an array`);
+    throw rejectSchema({
+    schema: "local-configuration",
+    detail: { case: "bindings-not-array", path },
+  });
   }
   const workspace = parseWorkspaceSelection(mapping, schemaVersion, path);
 
   const bindings = mapping.bindings.map((entry, index) => {
-    const description = `Local Configuration ${path} bindings[${index}]`;
-    const binding = requireMapping(entry, description);
-    requireExactFields(binding, ["project", "profile", "hosts"], description);
-    const project = requireString(binding.project, `${description} project`);
-    const profile = requireArtifactId(binding.profile, `${description} profile`);
+    const binding = requireMapping(entry, { case: "binding-not-mapping", path, index });
+    requireExactFields(
+      binding,
+      ["project", "profile", "hosts"],
+      { case: "unknown-binding-field", path, index, fields: unknownFields(binding, ["project", "profile", "hosts"]) },
+    );
+    const project = requireString(binding.project, { case: "invalid-binding-field", path, index, field: "project" });
+    if (typeof binding.profile !== "string" || !ARTIFACT_ID.test(binding.profile)) {
+      throw rejectSchema({
+      schema: "local-configuration",
+      detail: { case: "invalid-binding-profile", path, index },
+    });
+    }
+    const profile = binding.profile;
     if (!Array.isArray(binding.hosts) || binding.hosts.length === 0) {
-      throw new Error(`${description} hosts must be a non-empty array`);
+      throw rejectSchema({
+      schema: "local-configuration",
+      detail: { case: "hosts-not-array", path, index },
+    });
     }
     const hosts = binding.hosts.map((host, hostIndex) => {
       if (!isSupportedHost(host)) {
-        throw new Error(
-          `${description} hosts[${hostIndex}] unsupported Agent Host '${String(host)}'; supported Hosts: ${SUPPORTED_HOSTS.join(", ")}`,
-        );
+        throw rejectSchema({
+          schema: "local-configuration",
+          detail: {
+            case: "unsupported-host",
+            path,
+            index,
+            hostIndex,
+            host: String(host),
+            supportedHosts: SUPPORTED_HOSTS,
+          },
+        });
       }
       return host;
     });
@@ -214,14 +257,21 @@ export function requireCurrentWorkspaceSelection(
   migrationCommand: string,
 ): string {
   if (parsed.schemaVersion !== LOCAL_CONFIGURATION_SCHEMA_VERSION) {
-    throw new Error(
-      `Local Configuration ${path} uses legacy schema_version ${parsed.schemaVersion}; run ${migrationCommand} to migrate it`,
-    );
+    throw rejectSchema({
+      schema: "local-configuration",
+      detail: {
+        case: "legacy-schema-version",
+        path,
+        schemaVersion: LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION,
+        migrationCommand,
+      },
+    });
   }
   if (parsed.workspace === undefined) {
-    throw new Error(
-      `Local Configuration ${path} workspace is required for schema_version ${LOCAL_CONFIGURATION_SCHEMA_VERSION}; add an explicit Workspace path and retry`,
-    );
+    throw rejectSchema({
+    schema: "local-configuration",
+    detail: { case: "missing-workspace", path },
+  });
   }
   return parsed.workspace;
 }

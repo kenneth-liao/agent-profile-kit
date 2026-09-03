@@ -3639,7 +3639,11 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
       [{
         canonicalProject: project,
         hosts: ["claude", "codex"],
-        problem: "Configured project root does not exist on this machine and cannot be reconciled.",
+        problem: {
+          kind: "foreign-diagnostic",
+          detail:
+            "Configured project root does not exist on this machine and cannot be reconciled.",
+        },
         profile: "engineering",
         project,
       }],
@@ -3656,7 +3660,11 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
       [{
         canonicalProject: project,
         hosts: ["claude", "codex"],
-        problem: "Configured project root does not exist on this machine and cannot be reconciled.",
+        problem: {
+          kind: "foreign-diagnostic",
+          detail:
+            "Configured project root does not exist on this machine and cannot be reconciled.",
+        },
         profile: "engineering",
         project,
       }],

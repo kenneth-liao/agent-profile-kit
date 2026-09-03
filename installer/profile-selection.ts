@@ -6,7 +6,7 @@ export class MissingProfileError extends Error {
     availableProfiles: Iterable<string>,
     readonly recoverByEditingLocalConfiguration = false,
   ) {
-    super(`Profile '${profile}' does not exist in this Workspace`);
+    super(`missing profile: ${profile}`);
     this.name = "MissingProfileError";
     this.availableProfiles = [...availableProfiles].sort();
   }

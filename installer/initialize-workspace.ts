@@ -46,6 +46,7 @@ import {
 } from "./workspace.js";
 import { AUTHORING_EXAMPLES } from "./authoring-examples.js";
 import { COMMAND_NAME } from "./version.js";
+import { InstallerToolError } from "./tool-errors.js";
 
 const WORKSPACE_ROOT_FILES = {
   [WORKSPACE_MANIFEST_FILE]: WORKSPACE_MANIFEST,
@@ -113,10 +114,9 @@ export function errorMessage(error: unknown): string {
 async function assertWorkspaceSelectionPath(
   home: string,
   authored: string,
-  description: string,
 ): Promise<string> {
-  const destination = expandConfiguredPath(authored, home, description, "workspace");
-  await assertWorkspaceSelectionSeparation(home, destination, authored, description);
+  const destination = expandConfiguredPath(authored, home, { source: "init" }, "workspace");
+  await assertWorkspaceSelectionSeparation(home, destination, authored, { source: "init" });
   return destination;
 }
 
@@ -138,32 +138,24 @@ async function inspectWorkspace(
     pathStats = await stat(path);
   } catch (error) {
     if (pathEntryStats.isSymbolicLink() && hasErrorCode(error, "ENOENT")) {
-      throw new Error(
-        `Cannot initialize ${path}: the Workspace symlink target does not exist; remove the symlink or restore its target before retrying`,
-      );
+      throw new InstallerToolError({ kind: "init-symlink-target-missing", path });
     }
     throw error;
   }
 
   if (!pathStats.isDirectory()) {
-    throw new Error(
-      `Cannot initialize ${path}: the Workspace path exists and is not a directory`,
-    );
+    throw new InstallerToolError({ kind: "init-path-not-directory", path });
   }
 
   const entries = await readdir(path);
   if (entries.length === 0) {
     if (pathEntryStats.isSymbolicLink()) {
-      throw new Error(
-        `Cannot initialize ${path}: the Workspace symlink target is empty; remove the symlink and run init, or populate its target with a valid Workspace before retrying`,
-      );
+      throw new InstallerToolError({ kind: "init-empty-symlink-target", path });
     }
     return "empty";
   }
   if (!entries.includes(WORKSPACE_MANIFEST_FILE)) {
-    throw new Error(
-      `Cannot initialize ${path}: directory is non-empty and is not an Agent Profile Kit Workspace`,
-    );
+    throw new InstallerToolError({ kind: "init-not-workspace-directory", path });
   }
 
   await validateWorkspaceStructure(path);
@@ -217,9 +209,12 @@ function assertCanonicalWorkspaceMatch(
   configPath: string,
 ): void {
   if (configuredPath === requestedPath) return;
-  throw new Error(
-    `Cannot initialize Workspace '${requested}': Local Configuration ${configPath} already selects a different Workspace at ${configuredPath}; refusing to change the canonical selection`,
-  );
+  throw new InstallerToolError({
+    kind: "init-workspace-selection-conflict",
+    requested,
+    configurationPath: configPath,
+    configuredPath,
+  });
 }
 
 function selectsConventionalDefaultWorkspace(home: string, authored: string): boolean {
@@ -227,7 +222,7 @@ function selectsConventionalDefaultWorkspace(home: string, authored: string): bo
     return expandConfiguredPath(
       authored,
       home,
-      `Local Configuration ${localConfigurationPath(home)}`,
+      { source: "local-configuration", configurationPath: localConfigurationPath(home) },
       "workspace",
     ) === workspacePath(home);
   } catch {
@@ -241,7 +236,7 @@ async function initializeWorkspaceAt(
   ensureConfiguration: boolean,
 ): Promise<InitializationResult> {
   const applicationRoot = join(home, ".agents", "agent-profile-kit");
-  const destination = await assertWorkspaceSelectionPath(home, authored, `${COMMAND_NAME} init`);
+  const destination = await assertWorkspaceSelectionPath(home, authored);
   const workspaceState = await inspectWorkspace(destination);
 
   if (workspaceState === "valid") {
@@ -353,7 +348,7 @@ async function initializeWithoutConfiguration(
   options: InitializeWorkspaceOptions,
 ): Promise<InitializationResult> {
   const authored = options.workspace ?? workspacePath(home);
-  const destination = await assertWorkspaceSelectionPath(home, authored, `${COMMAND_NAME} init`);
+  const destination = await assertWorkspaceSelectionPath(home, authored);
   await inspectWorkspace(destination);
   await mkdir(dirname(configPath), { recursive: true });
 
@@ -409,7 +404,7 @@ async function migrateLegacyConfiguration(
           const requestedExpanded = expandConfiguredPath(
             requestedWorkspace,
             home,
-            `${COMMAND_NAME} init`,
+            { source: "init" },
             "workspace",
           );
           if (requestedExpanded !== workspacePath(home)) {

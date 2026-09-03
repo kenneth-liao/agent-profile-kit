@@ -11,7 +11,6 @@ import {
   type LocalConfigurationFileSystem,
   withConfigurationLock,
 } from "./local-configuration-publication.js";
-import { COMMAND_NAME } from "./version.js";
 import {
   canonicalizePathForComparison,
   expandConfiguredPath,
@@ -23,6 +22,11 @@ import {
 import { readInstallationState, writeInstallationState } from "./installation-state.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import { MissingProfileError } from "./profile-selection.js";
+import {
+  asInstallerAuthoredError,
+  InstallerToolError,
+  type ConfiguredPathOrigin,
+} from "./tool-errors.js";
 
 interface UnbindTarget {
   readonly requested: string;
@@ -126,24 +130,24 @@ async function isMissingPath(path: string): Promise<boolean> {
 
 async function resolveUnbindTarget(
   options: UnbindProjectOptions,
-  description: string,
+  origin: ConfiguredPathOrigin,
 ): Promise<UnbindTarget> {
   const cwd = options.cwd ?? process.cwd();
   if (options.project === undefined) {
     return {
       requested: cwd,
-      canonical: await requireExistingDirectory(cwd, cwd, description, "project"),
+      canonical: await requireExistingDirectory(cwd, cwd, origin, "project"),
       missing: false,
     };
   }
 
-  const expanded = expandConfiguredPath(options.project, options.home, description, "project");
+  const expanded = expandConfiguredPath(options.project, options.home, origin, "project");
   if (await isMissingPath(expanded)) {
     return { requested: options.project, missing: true };
   }
   return {
     requested: options.project,
-    canonical: await normalizeProject(options.project, options.home, description),
+    canonical: await normalizeProject(options.project, options.home, origin),
     missing: false,
   };
 }
@@ -237,14 +241,18 @@ export async function unbindProject(
   const fileSystem = options.fileSystem ?? defaultFileSystem;
   const lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
   const configurationPath = localConfigurationPath(options.home);
-  const description = `Local Configuration ${configurationPath}`;
-  const target = await resolveUnbindTarget(options, description);
+  const origin: ConfiguredPathOrigin = {
+    source: "local-configuration",
+    configurationPath,
+  };
+  const target = await resolveUnbindTarget(options, origin);
 
   if (!(await pathExists(fileSystem, configurationPath))) {
     if (!(await hasHeldResidue(configurationPath, fileSystem))) {
-      throw new Error(
-        `Local Configuration is missing at ${configurationPath}; run ${COMMAND_NAME} init`,
-      );
+      throw new InstallerToolError({
+        kind: "missing-local-configuration",
+        path: configurationPath,
+      });
     }
   }
 
@@ -261,9 +269,10 @@ export async function unbindProject(
         source = await fileSystem.readFile(configurationPath, "utf8");
       } catch (error) {
         if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-          throw new Error(
-            `Local Configuration is missing at ${configurationPath}; run ${COMMAND_NAME} init`,
-          );
+          throw new InstallerToolError({
+            kind: "missing-local-configuration",
+            path: configurationPath,
+          });
         }
         throw error;
       }
@@ -280,10 +289,16 @@ export async function unbindProject(
         if (error instanceof MissingProfileError) {
           throw new MissingProfileError(error.profile, error.availableProfiles, true);
         }
-        const detail = error instanceof Error ? error.message : String(error);
-        throw new Error(
-          `${detail}; edit Local Configuration directly if this stale or malformed binding must be removed`,
-        );
+        // The hand-edit fallback composes around the typed cause; identity
+        // stays a typed field, not text stripped back out of a sentence.
+        // Foreign runtime/OS causes normalize as foreign-diagnostic evidence so
+        // every cause keeps the presentation-owned recovery clause.
+        const cause = asInstallerAuthoredError(error) ??
+          new InstallerToolError({
+            kind: "foreign-diagnostic",
+            detail: error instanceof Error ? error.message : String(error),
+          });
+        throw new InstallerToolError({ kind: "stale-binding-removal", cause });
       }
 
       let match: UnbindMatch | undefined;
@@ -327,7 +342,8 @@ export async function unbindProject(
       const document = parseDocument(source);
       const bindingsNode = document.get("bindings");
       if (!isSeq(bindingsNode)) {
-        throw new Error(`${description} bindings must be an array`);
+        // Defensive: the exact snapshot was already parsed as an array.
+        throw new Error("Local Configuration bindings must be an array");
       }
       // Retirement and binding publication share one lifecycle-serialized
       // transaction, retired before published: a failure from here on can
@@ -337,7 +353,7 @@ export async function unbindProject(
       const receiptProject = match.recovery === "canonical"
         ? match.canonicalProject
         : await canonicalizePathForComparison(
-            expandConfiguredPath(match.project, options.home, "Project Binding", "project"),
+            expandConfiguredPath(match.project, options.home, { source: "project-binding" }, "project"),
           );
       return withInstallationLifecycleLock(options.home, "unbind", async () => {
         const original = await readInstallationState(options.home);
@@ -352,7 +368,7 @@ export async function unbindProject(
             nextSource,
             mode,
             fileSystem,
-            description,
+            `Local Configuration ${configurationPath}`,
             "unbind",
           );
         } catch (error) {

@@ -10,6 +10,7 @@ import {
 import { parseSkill, type Skill } from "../schemas/skill.js";
 import { resolveProfileDependencies, validateDependencyCatalog } from "./resolve-dependencies.js";
 import { validateWorkspaceStructure, workspacePath } from "./workspace.js";
+import { InstallerToolError } from "./tool-errors.js";
 
 export interface Workspace {
   /** Canonical (realpath) Workspace root used for identity and artifact reads. */
@@ -73,10 +74,14 @@ async function sourceFiles(
 function addUnique<T extends { readonly id: string }>(
   entries: Map<string, T>,
   entry: T,
-  description: string,
+  artifactType: string,
 ): void {
   if (entries.has(entry.id)) {
-    throw new Error(`${description} name '${entry.id}' is duplicated`);
+    throw new InstallerToolError({
+      kind: "duplicate-artifact-name",
+      artifactType,
+      id: entry.id,
+    });
   }
   entries.set(entry.id, entry);
 }
@@ -135,21 +140,27 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
     // At least one currently supported artifact category must be selected. No single
     // category (including Context) is mandatory; empty Profiles fail at ingestion.
     if (profile.context.length === 0 && profile.skills.length === 0) {
-      throw new Error(
-        `Profile '${profile.id}' must select at least one supported artifact (Context Module or Skill)`,
-      );
+      throw new InstallerToolError({
+        kind: "profile-without-artifacts",
+        profile: profile.id,
+      });
     }
     for (const contextId of profile.context) {
       if (!contexts.has(contextId)) {
-        throw new Error(
-          `Profile '${profile.id}' selects missing Context Module '${contextId}'. ` +
-            `Restore the Context Module, or remove or update Profile '${profile.id}'`,
-        );
+        throw new InstallerToolError({
+          kind: "missing-context-reference",
+          profile: profile.id,
+          contextId,
+        });
       }
     }
     for (const skillId of profile.skills) {
       if (!skills.has(skillId)) {
-        throw new Error(`Profile '${profile.id}' selects missing Skill '${skillId}'`);
+        throw new InstallerToolError({
+          kind: "missing-skill-reference",
+          profile: profile.id,
+          skillId,
+        });
       }
     }
     resolveProfileDependencies(profile, contexts, skills);
