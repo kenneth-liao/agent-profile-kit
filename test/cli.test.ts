@@ -5716,6 +5716,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Global blockers:");
     for (const projectPath of projects) {
+      expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+      expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
     }
   });
 
