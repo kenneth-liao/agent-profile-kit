@@ -10,11 +10,25 @@ import {
   hashDirectoryMembersFromFiles,
   normalizeAdapterPlans,
 } from "../installer/project-plan.js";
-import { requireProfile } from "../installer/profile-selection.js";
+import { requireProfile, MissingProfileError } from "../installer/profile-selection.js";
+import { formatMissingProfileError } from "../cli/error-wording.js";
 
-test("missing Profile errors retain a useful message outside CLI presentation", () => {
-  expect(() => requireProfile(new Map(), "coding")).toThrow(
-    "Profile 'coding' does not exist in this Workspace",
+test("missing Profile errors carry typed fields and presentation composes the sentence", () => {
+  const failure = (() => {
+    try {
+      requireProfile(new Map(), "coding");
+      return undefined;
+    } catch (error) {
+      return error as MissingProfileError;
+    }
+  })();
+  expect(failure).toBeInstanceOf(MissingProfileError);
+  expect(failure?.profile).toBe("coding");
+  // The error's message is opaque; presentation owns the user-facing sentence.
+  expect(failure?.message).toBe("missing profile: coding");
+  expect(formatMissingProfileError(failure!)).toBe(
+    "Profile 'coding' does not exist in this Workspace. No Profiles exist in the Workspace." +
+      " Run apkit guide profile to learn how to add a Profile.",
   );
 });
 

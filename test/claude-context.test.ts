@@ -38,6 +38,19 @@ import {
 } from "../installer/reconcile.js";
 import { uninstallApplication } from "../installer/commands.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
+import { installerErrorSentence } from "../cli/error-wording.js";
+
+/** Parse Local Configuration and return its presentation-owned rejection sentence. */
+function localConfigurationRejectionSentence(source: string, path = "config.yaml"): string {
+  try {
+    parseLocalConfiguration(source, path);
+  } catch (error) {
+    const typed = installerErrorSentence(error);
+    if (typed !== undefined) return typed;
+    if (error instanceof Error) return error.message;
+  }
+  throw new Error("expected parseLocalConfiguration to reject the source");
+}
 import {
   reportBlockers,
   reportDesired,
@@ -128,12 +141,13 @@ describe("Claude Context Local Configuration", () => {
     );
     expect(duplicate.bindings[0]?.hosts).toEqual(["claude"]);
 
-    expect(() =>
-      parseLocalConfiguration(
+    expect(
+      localConfigurationRejectionSentence(
         "schema_version: 1\nbindings:\n  - project: /tmp/project\n    profile: coding\n    hosts: [cursor]\n",
-        "config.yaml",
       ),
-    ).toThrow("unsupported Agent Host 'cursor'");
+    ).toBe(
+      "Local Configuration config.yaml bindings[0] hosts[0] unsupported Agent Host 'cursor'; supported Hosts: antigravity, claude, codex, grok, opencode, pi",
+    );
   });
 
   test("accepts version-1 Workspace selections as migration input", () => {
@@ -150,19 +164,15 @@ describe("Claude Context Local Configuration", () => {
     );
     expect(withWorkspace.workspace).toBe("~/projects/agent-profile-workspace");
 
-    expect(() =>
-      parseLocalConfiguration(
-        "schema_version: 1\nworkspace: ''\nbindings: []\n",
-        "config.yaml",
-      ),
-    ).toThrow(/workspace must be a non-empty string/);
+    expect(
+      localConfigurationRejectionSentence("schema_version: 1\nworkspace: ''\nbindings: []\n"),
+    ).toBe("Local Configuration config.yaml workspace must be a non-empty string");
 
-    expect(() =>
-      parseLocalConfiguration(
+    expect(
+      localConfigurationRejectionSentence(
         "schema_version: 1\nworkspace: ~/projects/agent-profile-workspace\nbindings: []\nextra: true\n",
-        "config.yaml",
       ),
-    ).toThrow(/does not allow fields: extra/);
+    ).toBe("Local Configuration config.yaml does not allow fields: extra");
   });
 
   test("requires an explicit Workspace path in version 2 while retaining version 1 as migration input", () => {
@@ -180,12 +190,11 @@ describe("Claude Context Local Configuration", () => {
     expect(current.schemaVersion).toBe(2);
     expect(current.workspace).toBe("~/.agents/agent-profile-kit/workspace");
 
-    expect(() =>
-      parseLocalConfiguration(
-        "schema_version: 2\nbindings: []\n",
-        "config.yaml",
-      ),
-    ).toThrow(/workspace.*required/i);
+    expect(
+      localConfigurationRejectionSentence("schema_version: 2\nbindings: []\n"),
+    ).toBe(
+      "Local Configuration config.yaml workspace is required for schema_version 2; add an explicit Workspace path and retry",
+    );
   });
 });
 

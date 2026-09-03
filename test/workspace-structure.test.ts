@@ -20,6 +20,18 @@ import {
   workspacePath,
 } from "../installer/workspace.js";
 import { WORKSPACE_MANIFEST } from "../schemas/workspace-manifest.js";
+import { installerErrorSentence } from "../cli/error-wording.js";
+import type { InstallerAuthoredError } from "../installer/tool-errors.js";
+
+/** Render one typed rejection through its presentation-owned sentence. */
+function rejectionSentence(error: unknown): string {
+  if (error instanceof Error) {
+    const typed = installerErrorSentence(error);
+    if (typed !== undefined) return typed;
+    return error.message;
+  }
+  return String(error);
+}
 
 const temporaryDirectories: string[] = [];
 
@@ -137,7 +149,12 @@ describe("optional Workspace scaffolding after initialization", () => {
       "id: legacy\ncontext: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
     );
 
-    await expect(ingestDefaultWorkspace(home)).rejects.toThrow(
+    const failure = await ingestDefaultWorkspace(home).then(
+      () => undefined,
+      (error) => error as InstallerAuthoredError,
+    );
+    expect(failure).toBeInstanceOf(Object);
+    expect(rejectionSentence(failure)).toBe(
       "Profile profiles/legacy.yaml no longer supports fields: agents, hooks, tools. Remove these obsolete Profile fields; earlier releases allowed them only as empty placeholders",
     );
   });
@@ -156,8 +173,12 @@ describe("optional Workspace scaffolding after initialization", () => {
     const path = writeManifestOnlyWorkspace(home);
     writeFileSync(join(path, "skills"), "not a directory\n");
 
-    await expect(validateWorkspaceStructure(path)).rejects.toThrow(
-      /'skills' must be a directory/,
+    const notDirectory = await validateWorkspaceStructure(path).then(
+      () => undefined,
+      (error) => error as InstallerAuthoredError,
+    );
+    expect(rejectionSentence(notDirectory)).toBe(
+      "Workspace is invalid at " + path + ": 'skills' must be a directory",
     );
   });
 
@@ -166,8 +187,12 @@ describe("optional Workspace scaffolding after initialization", () => {
     const path = writeManifestOnlyWorkspace(home);
     symlinkSync(join(path, "does-not-exist"), join(path, "skills"));
 
-    await expect(validateWorkspaceStructure(path)).rejects.toThrow(
-      /'skills'.*(dangling|broken|symlink|directory)/i,
+    const dangling = await validateWorkspaceStructure(path).then(
+      () => undefined,
+      (error) => error as InstallerAuthoredError,
+    );
+    expect(rejectionSentence(dangling)).toBe(
+      "Workspace is invalid at " + path + ": 'skills' is a dangling symlink; remove it or restore its target directory",
     );
   });
 
@@ -186,18 +211,30 @@ describe("optional Workspace scaffolding after initialization", () => {
     const path = workspacePath(home);
     mkdirSync(path, { recursive: true });
 
-    await expect(validateWorkspaceStructure(path)).rejects.toThrow(
-      /missing required file 'workspace\.yaml'/,
+    const missingManifest = await validateWorkspaceStructure(path).then(
+      () => undefined,
+      (error) => error as InstallerAuthoredError,
+    );
+    expect(rejectionSentence(missingManifest)).toBe(
+      "Workspace is incomplete at " + path + ": missing required file 'workspace.yaml'",
     );
 
     writeFileSync(join(path, "workspace.yaml"), "not: valid: yaml: [\n");
-    await expect(validateWorkspaceStructure(path)).rejects.toThrow(
-      /invalid YAML|correct workspace\.yaml/i,
+    const invalidYaml = await validateWorkspaceStructure(path).then(
+      () => undefined,
+      (error) => error as InstallerAuthoredError,
+    );
+    expect(rejectionSentence(invalidYaml)).toBe(
+      "Workspace Manifest is invalid YAML; correct workspace.yaml before retrying",
     );
 
     writeFileSync(join(path, "workspace.yaml"), "schema_version: 99\n");
-    await expect(validateWorkspaceStructure(path)).rejects.toThrow(
-      /Unsupported Workspace schema version 99/,
+    const unsupportedVersion = await validateWorkspaceStructure(path).then(
+      () => undefined,
+      (error) => error as InstallerAuthoredError,
+    );
+    expect(rejectionSentence(unsupportedVersion)).toContain(
+      "Unsupported Workspace schema version 99",
     );
   });
 

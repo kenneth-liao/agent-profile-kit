@@ -39,6 +39,20 @@ import {
 } from "../installer/reconcile.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { parseSkill, type Skill } from "../schemas/skill.js";
+import { installerErrorSentence } from "../cli/error-wording.js";
+import type { InstallerAuthoredError } from "../installer/tool-errors.js";
+
+/** Parse a Skill source and return its presentation-owned rejection sentence. */
+function parseRejectionSentence(source: string): string {
+  try {
+    parseSkill(source, SKILL_PATH, SOURCE_PATH);
+  } catch (error) {
+    const typed = installerErrorSentence(error);
+    if (typed !== undefined) return typed;
+    if (error instanceof Error) return error.message;
+  }
+  throw new Error("expected parseSkill to reject the source");
+}
 import {
   reportBlockers,
 } from "./support/reconciliation-report.js";
@@ -126,20 +140,20 @@ describe("Skill model-invocation policy", () => {
   });
 
   test("rejects invalid model-invocation types and values at ingestion", () => {
-    expect(() =>
-      parseSkill(
+    expect(
+      parseRejectionSentence(
         "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: maybe\n---\n\n# To spec\n",
-        SKILL_PATH,
-        SOURCE_PATH,
       ),
-    ).toThrow("must be the string 'allowed' or 'disabled'");
-    expect(() =>
-      parseSkill(
+    ).toBe(
+      `Skill ${SKILL_PATH} metadata.agent-profile-kit.model-invocation must be the string 'allowed' or 'disabled'`,
+    );
+    expect(
+      parseRejectionSentence(
         "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: true\n---\n\n# To spec\n",
-        SKILL_PATH,
-        SOURCE_PATH,
       ),
-    ).toThrow("must be the string 'allowed' or 'disabled'");
+    ).toBe(
+      `Skill ${SKILL_PATH} metadata.agent-profile-kit.model-invocation must be the string 'allowed' or 'disabled'`,
+    );
   });
 
   test("preserves unrelated standard metadata while reading model-invocation", () => {
@@ -151,13 +165,13 @@ describe("Skill model-invocation policy", () => {
   });
 
   test("still rejects unknown top-level frontmatter including Claude-native disable-model-invocation", () => {
-    expect(() =>
-      parseSkill(
+    expect(
+      parseRejectionSentence(
         "---\nname: to-spec\ndescription: Turn conversation into a spec.\ndisable-model-invocation: true\n---\n\n# To spec\n",
-        SKILL_PATH,
-        SOURCE_PATH,
       ),
-    ).toThrow("does not allow fields: disable-model-invocation");
+    ).toBe(
+      `Skill ${SKILL_PATH} frontmatter does not allow fields: disable-model-invocation`,
+    );
   });
 
   test("shared invocation emitter projects disable-model-invocation only when disabled while preserving authored comments and formatting", () => {

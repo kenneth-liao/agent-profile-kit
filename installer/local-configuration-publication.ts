@@ -10,6 +10,8 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { InstallerToolError } from "./tool-errors.js";
+
 /** Optional filesystem hooks used to prove snapshot checks and lock safety in tests. */
 export interface LocalConfigurationFileSystem {
   readonly mkdir: typeof defaultMkdir;
@@ -174,9 +176,11 @@ export async function withConfigurationLock<T>(
         continue;
       }
       if (Date.now() >= deadline) {
-        throw new Error(
-          `Local Configuration ${configurationPath} is busy; another ${operation} holds the lock — retry`,
-        );
+        throw new InstallerToolError({
+          kind: "configuration-lock-busy",
+          configurationPath,
+          operation,
+        });
       }
       await sleep(LOCK_RETRY_MS);
     }
@@ -213,9 +217,11 @@ export async function publishConfigurationReplacement(
     await fileSystem.writeFile(temporary, nextSource, { flag: "wx", mode });
     const stillCurrent = await fileSystem.readFile(configurationPath, "utf8");
     if (stillCurrent !== source) {
-      throw new Error(
-        `${description} changed before ${operation} publication; retry after the other edit completes`,
-      );
+      throw new InstallerToolError({
+        kind: "configuration-changed-before-publication",
+        configurationPath,
+        operation,
+      });
     }
     await fileSystem.rename(temporary, configurationPath);
   } catch (error) {

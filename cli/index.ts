@@ -82,6 +82,8 @@ import {
   TemporaryInstallationRecoverableError,
 } from "../installer/temporary-installation.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
+import { installerErrorSentence } from "./error-wording.js";
+import { InstallerToolError } from "../installer/tool-errors.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import {
   listHosts,
@@ -158,9 +160,12 @@ function humanError(
 
 /**
  * Human error projection: typed Installer errors render through presentation's
- * newcomer vocabulary; everything else matches the machine projection.
+ * carried sentences verbatim (the #405 decision keeps tool-error wording
+ * unchanged on screen); everything else matches the machine projection.
  */
 function formatErrorForHuman(error: unknown): string {
+  const authored = installerErrorSentence(error);
+  if (authored !== undefined) return authored;
   if (error instanceof ProjectTargetError) {
     return formatProjectTargetErrorForHuman(error.reason);
   }
@@ -170,7 +175,13 @@ function formatErrorForHuman(error: unknown): string {
   return formatError(error);
 }
 
+/**
+ * Machine projection: typed Installer errors render through presentation's
+ * owned sentences; unrecognized errors keep `error.message`.
+ */
 function formatError(error: unknown): string {
+  const authored = installerErrorSentence(error);
+  if (authored !== undefined) return authored;
   if (error instanceof MissingProfileError) return formatMissingProfileError(error);
   if (error instanceof ProjectTargetError) return formatProjectTargetError(error.reason);
   if (error instanceof StateReadFailureError) return describeStateReadFailure(error.failure);
@@ -561,9 +572,10 @@ function parseBindArguments(arguments_: readonly string[]): {
   }
 
   if (hosts.length === 0) {
-    throw new Error(
-      "bind requires at least one --host flag; supported Hosts: " + SUPPORTED_HOSTS.join(", "),
-    );
+    throw new InstallerToolError({
+      kind: "bind-host-required",
+      supportedHosts: SUPPORTED_HOSTS,
+    });
   }
   return project === undefined ? { profile, hosts, replace } : { profile, project, hosts, replace };
 }

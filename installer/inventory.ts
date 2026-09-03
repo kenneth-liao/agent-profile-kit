@@ -5,6 +5,7 @@ import {
   ingestProjectBindings,
   ingestSelectedWorkspace,
 } from "./local-configuration.js";
+import type { InstallerToolErrorFact } from "./tool-errors.js";
 import { readTemporaryInstallations } from "./installation-state.js";
 
 /** One normalized Project Binding prepared for read-only inventory presentation. */
@@ -16,8 +17,11 @@ export interface ProjectInventoryRecord {
   readonly profile: string;
   /** Hosts are already normalized to the canonical supported-Host order. */
   readonly hosts: readonly SupportedHost[];
-  /** Per-binding normalization problem; null means the configured root resolved cleanly. */
-  readonly problem: string | null;
+  /**
+   * Typed per-binding normalization problem; null means the configured root
+   * resolved cleanly. Presentation owns the sentence; no prose is authored here.
+   */
+  readonly problem: InstallerToolErrorFact | null;
 }
 
 /** One normalized Profile prepared for read-only inventory presentation. */

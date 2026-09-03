@@ -43,6 +43,19 @@ import {
 } from "../installer/reconcile.js";
 import { statusApplication, uninstallApplication } from "../installer/commands.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
+import { installerErrorSentence } from "../cli/error-wording.js";
+
+/** Parse Local Configuration and return its presentation-owned rejection sentence. */
+function localConfigurationRejectionSentence(source: string, path = "config.yaml"): string {
+  try {
+    parseLocalConfiguration(source, path);
+  } catch (error) {
+    const typed = installerErrorSentence(error);
+    if (typed !== undefined) return typed;
+    if (error instanceof Error) return error.message;
+  }
+  throw new Error("expected parseLocalConfiguration to reject the source");
+}
 import {
   reportBlockers,
   reportDesired,
@@ -206,12 +219,13 @@ describe("Grok Context Local Configuration", () => {
     );
     expect(duplicate.bindings[0]?.hosts).toEqual(["grok"]);
 
-    expect(() =>
-      parseLocalConfiguration(
+    expect(
+      localConfigurationRejectionSentence(
         "schema_version: 1\nbindings:\n  - project: /tmp/project\n    profile: coding\n    hosts: [cursor]\n",
-        "config.yaml",
       ),
-    ).toThrow("unsupported Agent Host 'cursor'");
+    ).toBe(
+      "Local Configuration config.yaml bindings[0] hosts[0] unsupported Agent Host 'cursor'; supported Hosts: antigravity, claude, codex, grok, opencode, pi",
+    );
   });
 });
 

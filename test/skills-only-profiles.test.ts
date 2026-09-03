@@ -22,6 +22,8 @@ import {
 import { planOpenCodeProject } from "../adapters/opencode.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { ingestDefaultWorkspace } from "../installer/ingest-workspace.js";
+import { installerErrorSentence } from "../cli/error-wording.js";
+import type { InstallerAuthoredError } from "../installer/tool-errors.js";
 import {
   applyReconciliation,
   previewReconciliation,
@@ -117,8 +119,12 @@ describe("Skills-only Profiles", () => {
       "id: empty\ncontext: []\nskills: []\n",
     );
 
-    await expect(ingestDefaultWorkspace(home)).rejects.toThrow(
-      /Profile 'empty' must select at least one supported artifact/i,
+    const failure = await ingestDefaultWorkspace(home).then(
+      () => undefined,
+      (error) => error as InstallerAuthoredError,
+    );
+    expect(installerErrorSentence(failure)).toBe(
+      "Profile 'empty' must select at least one supported artifact (Context Module or Skill)",
     );
   });
 

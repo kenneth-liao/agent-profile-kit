@@ -4,6 +4,7 @@ import {
 } from "../schemas/dependencies.js";
 import { type ContextModule, type Profile } from "../schemas/context-profile.js";
 import { type Skill } from "../schemas/skill.js";
+import { InstallerToolError } from "./tool-errors.js";
 
 export interface InclusionReason {
   readonly path: readonly ArtifactReference[];
@@ -43,7 +44,11 @@ function artifactFor(
     : skills.get(reference.id);
   if (!artifact) {
     const label = reference.type === "context" ? "Context Module" : "Skill";
-    throw new Error(`Dependency references missing ${label} '${reference.id}'`);
+    throw new InstallerToolError({
+      kind: "missing-dependency-reference",
+      label,
+      id: reference.id,
+    });
   }
   return artifact;
 }
@@ -98,7 +103,7 @@ export function resolveProfileDependencies(
     const state = states.get(key);
     if (state === "resolving") {
       const cycle = [...path, reference].map(artifactReferenceKey).join(" -> ");
-      throw new Error(`Dependency cycle: ${cycle}`);
+      throw new InstallerToolError({ kind: "dependency-cycle", cycle });
     }
     if (state === "resolved") {
       addReason(reference, reason);

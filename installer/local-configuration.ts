@@ -25,6 +25,13 @@ import { ingestWorkspace, type Workspace } from "./ingest-workspace.js";
 import { COMMAND_NAME } from "./version.js";
 import { requireProfile } from "./profile-selection.js";
 import { validateWorkspaceStructure } from "./workspace.js";
+import {
+  InstallerToolError,
+  SchemaRejectionError,
+  type ConfiguredPathOrigin,
+  type InstallerToolErrorFact,
+  type WorkspaceStructureErrorFact,
+} from "./tool-errors.js";
 
 export function localConfigurationPath(home: string): string {
   return join(home, ".agents", "agent-profile-kit", LOCAL_CONFIGURATION_FILE);
@@ -38,6 +45,16 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
+/** validateWorkspaceStructure throws only structure facts; prove it at the wrapper. */
+function isWorkspaceStructureFact(fact: InstallerToolErrorFact): fact is WorkspaceStructureErrorFact {
+  return (
+    fact.kind === "workspace-missing-manifest" ||
+    fact.kind === "workspace-manifest-not-file" ||
+    fact.kind === "workspace-dangling-category" ||
+    fact.kind === "workspace-category-not-directory"
+  );
+}
+
 export function requireCurrentApplicationConfiguration(
   parsed: ParsedLocalConfiguration,
   path: string,
@@ -48,11 +65,12 @@ export function requireCurrentApplicationConfiguration(
 /**
  * Expand an absolute or home-relative machine path. Wildcards and other relative
  * forms are invalid. Shared by Project Binding roots and the authored Workspace path.
+ * Rejections are typed facts; presentation owns every sentence (DEC-020).
  */
 export function expandConfiguredPath(
   value: string,
   home: string,
-  description: string,
+  origin: ConfiguredPathOrigin,
   field: string,
 ): string {
   if (
@@ -61,16 +79,12 @@ export function expandConfiguredPath(
     value.includes("[") ||
     value.includes("]")
   ) {
-    throw new Error(
-      `${description} ${field} must be an explicit directory path without wildcards`,
-    );
+    throw new InstallerToolError({ kind: "wildcard-path", origin, field });
   }
   if (value === "~") return home;
   if (value.startsWith("~/")) return join(home, value.slice(2));
   if (!isAbsolute(value)) {
-    throw new Error(
-      `${description} ${field} must be an absolute path or home-relative path beginning with ~/`,
-    );
+    throw new InstallerToolError({ kind: "relative-path", origin, field });
   }
   return value;
 }
@@ -113,7 +127,7 @@ export async function assertWorkspaceSelectionSeparation(
   home: string,
   destination: string,
   authored: string,
-  description: string,
+  origin: ConfiguredPathOrigin,
 ): Promise<void> {
   const reservedPaths = [
     { label: "Local Configuration", path: localConfigurationPath(home) },
@@ -132,16 +146,20 @@ export async function assertWorkspaceSelectionSeparation(
       isSameOrDescendant(reserved.path, canonicalDestination),
   );
   if (conflict !== undefined) {
-    throw new Error(
-      `${description} workspace '${authored}' is reserved for ${conflict.label} at ${conflict.path}`,
-    );
+    throw new InstallerToolError({
+      kind: "reserved-workspace",
+      origin,
+      authored,
+      label: conflict.label,
+      path: conflict.path,
+    });
   }
 }
 
 export async function requireExistingDirectory(
   expanded: string,
   authored: string,
-  description: string,
+  origin: ConfiguredPathOrigin,
   field: string,
 ): Promise<string> {
   let entryStats;
@@ -149,9 +167,12 @@ export async function requireExistingDirectory(
     entryStats = await lstat(expanded);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw new Error(
-        `${description} ${field} '${authored}' must be an existing directory`,
-      );
+      throw new InstallerToolError({
+        kind: "missing-directory",
+        origin,
+        field,
+        authored,
+      });
     }
     throw error;
   }
@@ -161,21 +182,23 @@ export async function requireExistingDirectory(
     stats = await stat(expanded);
   } catch (error) {
     if (entryStats.isSymbolicLink() && hasErrorCode(error, "ENOENT")) {
-      const recovery =
-        field === "workspace"
-          ? "restore its target or choose an existing Workspace directory"
-          : "restore its target or choose an existing directory";
-      throw new Error(
-        `${description} ${field} '${authored}' is a dangling symlink; ${recovery}`,
-      );
+      throw new InstallerToolError({
+        kind: "dangling-symlink",
+        origin,
+        field,
+        authored,
+      });
     }
     throw error;
   }
 
   if (!stats.isDirectory()) {
-    throw new Error(
-      `${description} ${field} '${authored}' must be an existing directory`,
-    );
+    throw new InstallerToolError({
+      kind: "missing-directory",
+      origin,
+      field,
+      authored,
+    });
   }
   return realpath(expanded);
 }
@@ -184,10 +207,10 @@ export async function requireExistingDirectory(
 export async function normalizeProject(
   project: string,
   home: string,
-  description: string,
+  origin: ConfiguredPathOrigin,
 ): Promise<string> {
-  const expanded = expandConfiguredPath(project, home, description, "project");
-  return requireExistingDirectory(expanded, project, description, "project");
+  const expanded = expandConfiguredPath(project, home, origin, "project");
+  return requireExistingDirectory(expanded, project, origin, "project");
 }
 
 /**
@@ -200,23 +223,38 @@ export async function resolveWorkspaceRoot(
   authored: string,
   configPath: string,
 ): Promise<{ readonly authored: string; readonly path: string }> {
-  const description = `Local Configuration ${configPath}`;
-  const expanded = expandConfiguredPath(authored, home, description, "workspace");
-  await assertWorkspaceSelectionSeparation(home, expanded, authored, description);
+  const origin: ConfiguredPathOrigin = { source: "local-configuration", configurationPath: configPath };
+  const expanded = expandConfiguredPath(authored, home, origin, "workspace");
+  await assertWorkspaceSelectionSeparation(home, expanded, authored, origin);
   const canonical = await requireExistingDirectory(
     expanded,
     authored,
-    description,
+    origin,
     "workspace",
   );
 
   try {
     await validateWorkspaceStructure(canonical);
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `${description} workspace '${authored}' is not a valid Agent Profile Kit Workspace: ${detail}`,
-    );
+    if (error instanceof InstallerToolError) {
+      const cause = error.fact;
+      if (!isWorkspaceStructureFact(cause)) throw error;
+      throw new InstallerToolError({
+        kind: "invalid-workspace",
+        origin,
+        authored,
+        cause,
+      });
+    }
+    if (error instanceof SchemaRejectionError && error.reason.schema === "workspace-manifest") {
+      throw new InstallerToolError({
+        kind: "invalid-workspace",
+        origin,
+        authored,
+        cause: error.reason.detail,
+      });
+    }
+    throw error;
   }
 
   return { authored, path: canonical };
@@ -230,7 +268,8 @@ export interface IngestedProjectBinding {
   readonly canonicalProject?: string;
   readonly expandedProject?: string;
   readonly missing: boolean;
-  readonly problem?: string;
+  /** Typed per-binding normalization problem; presentation owns its sentence. */
+  readonly problem?: InstallerToolErrorFact;
 }
 
 export interface IngestedApplicationSource {
@@ -293,7 +332,12 @@ async function selectParsedProjectBindings(
   if (target !== "~" && !target.startsWith("~/") && !isAbsolute(target)) {
     throw new ProjectTargetError({ case: "relative-target", command, target });
   }
-  const expandedTarget = expandConfiguredPath(target, home, `${COMMAND_NAME} ${command} Project target`, "project");
+  const expandedTarget = expandConfiguredPath(
+    target,
+    home,
+    { source: "project-target", command },
+    "project",
+  );
   let canonicalTarget: string;
   try {
     const entryStats = await lstat(expandedTarget);
@@ -325,7 +369,7 @@ async function selectParsedProjectBindings(
       const expanded = expandConfiguredPath(
         binding.project,
         home,
-        `Local Configuration ${path} bindings[${index}]`,
+        { source: "local-configuration", configurationPath: path, bindingIndex: index },
         "project",
       );
       const canonical = await realpath(expanded);
@@ -377,6 +421,15 @@ type ProjectBindingNormalizationMode =
     }
   | { readonly kind: "inventory" };
 
+/**
+ * Inventory keeps one per-binding problem fact so a single stale record cannot
+ * hide the rest. Foreign diagnostics keep their carried detail verbatim.
+ */
+function inventoryProblem(error: unknown): InstallerToolErrorFact {
+  if (error instanceof InstallerToolError) return error.fact;
+  return { kind: "foreign-diagnostic", detail: errorMessage(error) };
+}
+
 async function ingestWorkspaceFromConfiguration(
   home: string,
   authored: string,
@@ -402,17 +455,21 @@ async function normalizeProjectBindings(
   const bindings: IngestedProjectBinding[] = [];
 
   for (const [index, binding] of parsedBindings.entries()) {
-    const description = `Local Configuration ${path} bindings[${index}]`;
+    const origin: ConfiguredPathOrigin = {
+      source: "local-configuration",
+      configurationPath: path,
+      bindingIndex: index,
+    };
     let expandedProject: string | undefined;
     let canonicalProject: string | undefined;
     let missing = false;
-    let problem: string | undefined;
+    let problem: InstallerToolErrorFact | undefined;
 
     try {
-      expandedProject = expandConfiguredPath(binding.project, home, description, "project");
+      expandedProject = expandConfiguredPath(binding.project, home, origin, "project");
     } catch (error) {
       if (mode.kind === "application") throw error;
-      problem = errorMessage(error);
+      problem = inventoryProblem(error);
     }
 
     if (expandedProject !== undefined) {
@@ -420,12 +477,12 @@ async function normalizeProjectBindings(
         canonicalProject = await requireExistingDirectory(
           expandedProject,
           binding.project,
-          description,
+          origin,
           "project",
         );
       } catch (error) {
         if (mode.kind === "inventory") {
-          problem = errorMessage(error);
+          problem = inventoryProblem(error);
         } else {
           if (
             !mode.allowMissingProjects ||
@@ -440,9 +497,13 @@ async function normalizeProjectBindings(
 
     if (canonicalProject !== undefined) {
       if (roots.has(canonicalProject)) {
-        const duplicate =
-          `${description} project resolves to duplicate canonical root '${canonicalProject}'`;
-        if (mode.kind === "application") throw new Error(duplicate);
+        const duplicate: InstallerToolErrorFact = {
+          kind: "duplicate-canonical-root",
+          configurationPath: path,
+          bindingIndex: index,
+          canonicalProject,
+        };
+        if (mode.kind === "application") throw new InstallerToolError(duplicate);
         canonicalProject = undefined;
         problem = duplicate;
       } else {
@@ -450,9 +511,12 @@ async function normalizeProjectBindings(
       }
     } else if (missing) {
       if (missingProjects.has(binding.project)) {
-        throw new Error(
-          `${description} duplicates missing project path '${binding.project}'`,
-        );
+        throw new InstallerToolError({
+          kind: "duplicate-missing-project",
+          configurationPath: path,
+          bindingIndex: index,
+          project: binding.project,
+        });
       }
       missingProjects.add(binding.project);
     }
@@ -580,7 +644,7 @@ export async function readLocalConfigurationSource(
     source = await readFile(path, "utf8");
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw new Error(`Local Configuration is missing at ${path}; run ${COMMAND_NAME} init`);
+      throw new InstallerToolError({ kind: "missing-local-configuration", path });
     }
     throw error;
   }
