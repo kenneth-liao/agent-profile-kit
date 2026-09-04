@@ -2886,8 +2886,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 0);
     expect(humanText(result.stdout)).toContain("Applied: ~ 1 generated file update");
-    expect(humanText(result.stdout)).toContain(humanText(realpathSync(changedProject)));
-    expect(humanText(result.stdout)).not.toContain(humanText(realpathSync(untouchedProject)));
+    expect(humanText(result.stdout)).toContain(humanText(changedProject));
+    expect(humanText(result.stdout)).not.toContain(humanText(untouchedProject));
   });
 
   test("verbose apply labels pending and applied work separately", async () => {
@@ -5690,7 +5690,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     chmodSync(stateDirectory, 0o755);
     expectExitCode(failed, 1);
-    expect(failed.stderr).toContain("completed projects");
+    expect(humanText(failed.stderr)).toContain(`Apply failed at ${projectPath}`);
+    expect(failed.stderr).toContain("Applied: none.");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
     expectExitCode(await runCli(home, "apply"), 0);
@@ -5769,7 +5770,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("Apply completed with blockers");
     expect(result.stdout).toContain("Applied:");
     expect(result.stdout).toContain("Freshly current:");
-    expect(humanText(result.stdout)).toContain(humanText(realpathSync(healthy)));
+    expect(humanText(result.stdout)).toContain(humanText(healthy));
     expect(readFileSync(join(blocked, ".codex", "hooks.json"), "utf8")).toBe("project-owned\n");
   });
 
@@ -5795,7 +5796,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toStartWith("Apply completed with blockers");
     expect(result.stdout).toContain("Applied:");
     expect(result.stdout).toContain("Freshly current:");
-    expect(humanText(result.stdout)).toContain(humanText(realpathSync(healthy)));
+    expect(humanText(result.stdout)).toContain(humanText(healthy));
     expect(result.stdout).toContain("Blocker:");
     expect(result.stdout).toContain("Blockers: 1 · Affected Projects: 1");
     // Committed evidence is an ordered prefix before the focused Blocker section.
@@ -5851,9 +5852,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     chmodSync(failed, 0o755);
     expectExitCode(result, 1);
     expect(result.stderr).toContain("Failed Project:");
-    expect(humanText(result.stderr)).toContain(humanText(realpathSync(failed)));
+    expect(humanText(result.stderr)).toContain(humanText(failed));
     expect(result.stderr).toContain("Still pending:");
-    expect(humanText(result.stderr)).toContain(humanText(realpathSync(committed)));
+    expect(humanText(result.stderr)).toContain(humanText(committed));
     expect(result.stderr).toContain("Applied:");
     expect(result.stderr).toContain("Freshly current:");
   });
@@ -6014,13 +6015,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     chmodSync(second, 0o755);
     expectExitCode(failed, 1);
-    expect(failed.stderr.replace(/\s+/g, " ")).toContain(
-      `completed projects: ${realpathSync(first)}`,
-    );
-    expect(failed.stderr.replace(/\s+/g, " ")).toContain(
-      `failed project: ${realpathSync(second)}`,
-    );
-    expect(failed.stderr.replace(/\s+/g, " ")).toContain("pending projects: (none)");
+    const failureText = failed.stderr.replace(/\s+/g, " ");
+    expect(failureText).toContain(`Applied: - ${first}:`);
+    expect(failureText).toContain(`Failed Project: ${second}`);
+    expect(failureText).toContain("Still pending: none");
     expect(failed.stderr).toContain("Applied:");
     expect(failed.stderr).toContain("Freshly current:");
 
@@ -10627,6 +10625,35 @@ describe("apkit list", () => {
       result.stdout.indexOf("Project: ~/projects/beta"),
     );
     expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("projects names a Project by home-relative identity even from inside it", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const alpha = join(home, "projects", "alpha");
+    const beta = join(home, "projects", "beta");
+    mkdirSync(alpha, { recursive: true });
+    mkdirSync(beta, { recursive: true });
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        "  - project: ~/projects/beta\n" +
+        "    profile: coding\n" +
+        "    hosts: [codex]\n" +
+        "  - project: ~/projects/alpha\n" +
+        "    profile: coding\n" +
+        "    hosts: [codex]\n",
+    );
+
+    const result = await runCliAt(home, alpha, "list", "projects");
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Project: ~/projects/alpha");
+    expect(result.stdout).toContain("Project: ~/projects/beta");
+    expect(result.stdout).not.toContain("Project: .");
   });
 
   test("projects keeps invalid bindings visible and sorts by expanded Project path", async () => {

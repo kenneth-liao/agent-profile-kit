@@ -28,6 +28,7 @@ import {
   presentTemporaryBlockedMessages,
   type TemporaryInstallationReceiptView,
   displayPath,
+  displayProjectPath,
   lifecycleExitCode,
   DEFAULT_VIEW_LEXICON,
   INTERNAL_ONLY_DEFAULT_TERMS,
@@ -219,6 +220,10 @@ function applyResult(
   resultingState: ReconciliationReport = receipt,
 ): ApplyReconciliationResult {
   return { receipt, resultingState };
+}
+
+function executionProject(project: string): { readonly canonicalProject: string; readonly project: string } {
+  return { canonicalProject: project, project };
 }
 
 function machineProject(
@@ -1947,7 +1952,8 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(blockedApply).toContain(command);
 
     const executionFailure = formatApplyExecutionFailure({
-      failedProject: project,
+      detail: "Apply failed while writing the Project",
+      failedProject: executionProject(project),
       message: "Apply failed while writing the Project",
       pendingProjects: [],
       receipt,
@@ -2072,6 +2078,41 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(verbose).not.toContain(`Projects:\n${project}: addition\n`);
   });
 
+  test("fleet status names the working-directory Project by home-relative identity", () => {
+    const current = process.cwd();
+    const other = join(homedir(), "other-fleet-project");
+    const report = emptyReport({
+      desired: [current, other].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      })),
+      items: [current, other].map((project) => ({ kind: "addition" as const, project })),
+      outputs: [current, other].map((project) => ({
+        kind: "addition" as const,
+        path: "a.md",
+        project,
+      })),
+    });
+
+    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    const concise = formatLifecycleReport("status", report);
+    const homeRelative = current === homedir()
+      ? "~"
+      : current.startsWith(`${homedir()}/`)
+      ? `~/${current.slice(homedir().length + 1)}`
+      : current;
+
+    expect(verbose).toContain(`${homeRelative}: addition\n`);
+    expect(verbose).not.toContain(".: addition\n");
+    expect(verbose).not.toContain(".: Profile");
+    expect(concise).not.toContain("Project: .\n");
+    expect(concise).not.toMatch(/(^|\n)\.: /);
+  });
+
   test("identifies another home project with a home-relative path", () => {
     const project = join(homedir(), "another-project");
     const report = identityReport(project);
@@ -2094,13 +2135,38 @@ describe("formatLifecycleReport concise terminology", () => {
     const canonicalProject = realpathSync(physicalProject);
 
     try {
-      expect(displayPath(canonicalProject, canonicalProject, "/outside", logicalHome)).toBe(
+      expect(displayPath(canonicalProject, canonicalProject, "project", "/outside", logicalHome)).toBe(
         "~/projects/project",
       );
-      expect(displayPath(canonicalProject, canonicalProject, logicalCwd, logicalHome)).toBe("..");
+      expect(displayPath(canonicalProject, canonicalProject, "project", logicalCwd, logicalHome)).toBe("..");
     } finally {
       rmSync(logicalHome, { force: true });
       rmSync(physicalHome, { force: true, recursive: true });
+    }
+  });
+
+  test("fleet scope keeps a stable home-relative identity instead of a cwd alias", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-display-scope-"));
+    try {
+      const project = join(home, "projects", "alpha");
+      mkdirSync(join(project, "nested"), { recursive: true });
+      const nested = join(project, "nested");
+
+      expect(displayPath(project, project, "project", project, home)).toBe(".");
+      expect(displayPath(project, project, "project", nested, home)).toBe("..");
+      expect(displayPath(project, project, "fleet", project, home)).toBe("~/projects/alpha");
+      expect(displayPath(project, project, "fleet", nested, home)).toBe("~/projects/alpha");
+      expect(displayProjectPath(project, project, "fleet", project, home)).toBe(
+        "~/projects/alpha",
+      );
+      expect(displayProjectPath(project, project, "project", project, home)).toBe(".");
+      for (const relativePath of [".", "..", "../alpha"]) {
+        expect(displayPath(relativePath, relativePath, "fleet", project, home)).toBe(
+          `relative path ${JSON.stringify(relativePath)}`,
+        );
+      }
+    } finally {
+      rmSync(home, { force: true, recursive: true });
     }
   });
 
@@ -2230,6 +2296,70 @@ describe("formatLifecycleReport concise terminology", () => {
 
     expect(verbose).toContain(`Projects:\n${authoredProject}: addition\n`);
     expect(verbose).not.toContain(`Projects:\n${canonicalProject}: addition\n`);
+  });
+
+  test("keeps authored home-relative identity across fleet aggregations", () => {
+    const canonicalProject = "/private/var/tmp/aliased-project";
+    const authoredProject = "~/aliased-project";
+    const otherProject = "/var/tmp/other-project";
+    const setupStep: HostSetupStep = {
+      consequence: "Declining the hook prevents Profile Context from loading.",
+      host: "codex",
+      kind: "approval-required",
+      message: "Review and approve the generated SessionStart hook when Codex asks.",
+      output: ".codex/hooks.json",
+      provenance: "transition",
+    };
+    const desired = [
+      {
+        canonicalProject,
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: authoredProject,
+        resolvedArtifacts: [],
+        setupSteps: [setupStep],
+      },
+      {
+        canonicalProject: otherProject,
+        context: "composed",
+        outputs: ["b.md"],
+        profile: "coding",
+        project: otherProject,
+        resolvedArtifacts: [],
+        setupSteps: [setupStep],
+      },
+    ];
+    const operations = emptyReport({
+      desired,
+      items: [
+        { kind: "update", project: authoredProject },
+        { kind: "addition", project: otherProject },
+      ],
+      outputs: [
+        { kind: "update", path: "a.md", project: authoredProject },
+        { kind: "addition", path: "b.md", project: otherProject },
+      ],
+    });
+    const blocked = emptyReport({
+      desired,
+      items: [
+        { kind: "blocked", project: authoredProject, reason: "hooks disabled" },
+        { kind: "current", project: otherProject },
+      ],
+      blockers: [fixtureBlocker(`${canonicalProject}: hooks disabled`, canonicalProject)],
+    });
+
+    const concise = formatLifecycleReport("status", operations);
+    const verbose = formatLifecycleReport("status", operations, { verbose: true });
+    const blockedConcise = formatLifecycleReport("status", blocked);
+
+    expect(concise).toContain("1 file update in ~/aliased-project");
+    expect(verbose).toContain("(~/aliased-project, /var/tmp/other-project)");
+    expect(blockedConcise).toContain("Scope: Project ~/aliased-project");
+    for (const output of [concise, verbose, blockedConcise]) {
+      expect(output).not.toContain(canonicalProject);
+    }
   });
 
   test("keeps internal vocabulary out of every default lifecycle view", () => {
@@ -2931,7 +3061,8 @@ describe("formatLifecycleReport concise terminology", () => {
     });
 
     const concise = formatApplyExecutionFailure({
-      failedProject: "/failed",
+      detail: "Apply failed",
+      failedProject: executionProject("/failed"),
       message: "Apply failed",
       pendingProjects: [],
       receipt,
@@ -2940,6 +3071,45 @@ describe("formatLifecycleReport concise terminology", () => {
 
     expect(concise).toContain("Freshly current: /applied");
     expect(concise).not.toContain("Freshly current: /already-current");
+  });
+
+  test("execution failure headers preserve home-relative symlink aliases", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-failure-home-"));
+    const failedTarget = mkdtempSync(join(tmpdir(), "agent-profile-kit-failed-target-"));
+    const pendingTarget = mkdtempSync(join(tmpdir(), "agent-profile-kit-pending-target-"));
+    try {
+      const failedAlias = join(home, "failed-alias");
+      const pendingAlias = join(home, "pending-alias");
+      symlinkSync(failedTarget, failedAlias, "dir");
+      symlinkSync(pendingTarget, pendingAlias, "dir");
+      const failedCanonical = realpathSync(failedAlias);
+      const pendingCanonical = realpathSync(pendingAlias);
+
+      const output = formatApplyExecutionFailure({
+        detail: "permission denied",
+        failedProject: {
+          canonicalProject: failedCanonical,
+          project: "~/failed-alias",
+        },
+        message: `Apply failed at ${failedCanonical}: permission denied`,
+        pendingProjects: [{
+          canonicalProject: pendingCanonical,
+          project: "~/pending-alias",
+        }],
+        receipt: emptyReport(),
+        resultingState: undefined,
+      }, { all: true });
+
+      expect(output).toContain("Apply failed at ~/failed-alias: permission denied\n");
+      expect(output).toContain("Failed Project: ~/failed-alias\n");
+      expect(output).toContain("Still pending: ~/pending-alias\n");
+      expect(output).not.toContain(failedCanonical);
+      expect(output).not.toContain(pendingCanonical);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+      rmSync(failedTarget, { force: true, recursive: true });
+      rmSync(pendingTarget, { force: true, recursive: true });
+    }
   });
 
   test("verification failures print the completed receipt without claiming current state", () => {
@@ -3609,6 +3779,14 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
         "Local Configuration: ~/.agents/agent-profile-kit/config.yaml\n" +
         "Installation State: ~/.agents/agent-profile-kit/state/manifest.json\n",
     );
+    const insideWorkspace = formatInfoHuman(
+      info,
+      {},
+      "/home",
+      "/home/.agents/agent-profile-kit/workspace",
+    );
+    expect(insideWorkspace).toContain("Workspace: ~/.agents/agent-profile-kit/workspace\n");
+    expect(insideWorkspace).not.toContain("Workspace: .\n");
   });
 
   test("inventory index wraps topic descriptions at the selected width", () => {
@@ -3683,6 +3861,52 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     );
   });
 
+  test("project inventory names a Project by home-relative identity even from inside it", () => {
+    const home = "/home";
+    const project = "/home/projects/alpha";
+    const output = formatProjectInventoryHuman(
+      [{
+        canonicalProject: project,
+        hosts: ["codex"],
+        problem: null,
+        profile: "engineering",
+        project,
+      }],
+      {},
+      home,
+      project,
+    );
+
+    expect(output).toContain("Project: ~/projects/alpha\n");
+    expect(output).not.toContain("Project: .\n");
+    expect(output).not.toContain(project);
+  });
+
+  test("project inventory labels invalid relative paths instead of rendering cwd aliases", () => {
+    const projects = [".", "..", "../alpha"].map((project) => ({
+      canonicalProject: null,
+      hosts: ["codex" as const],
+      problem: {
+        kind: "relative-path" as const,
+        origin: {
+          source: "local-configuration" as const,
+          configurationPath: "/home/.agents/agent-profile-kit/config.yaml",
+          bindingIndex: 0,
+        },
+        field: "project",
+      },
+      profile: "engineering",
+      project,
+    }));
+
+    const output = formatProjectInventoryHuman(projects, {}, "/home", "/home/projects/alpha");
+
+    for (const project of [".", "..", "../alpha"]) {
+      expect(output).toContain(`Project: relative path ${JSON.stringify(project)}\n`);
+    }
+    expect(output).not.toMatch(/^Project: \.{1,2}(?:\/[^\n]+)?$/m);
+  });
+
   test("profile and temporary inventory wrap prose at the selected width", () => {
     const profiles = formatProfileInventoryHuman(
       [{ contextModules: 2, id: "engineering", skills: 3 }],
@@ -3722,6 +3946,26 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
       "No temporary Profiles are active.\n" +
         "Create one with apkit machine install-temp <profile> <project> --host <host>.\n",
     );
+  });
+
+  test("temporary inventory names a Project by home-relative identity even from inside it", () => {
+    const home = "/home";
+    const project = "/home/projects/temporary-project";
+    const output = formatTemporaryInventoryHuman(
+      [{
+        host: "codex",
+        profileId: "coding",
+        project,
+        temporaryInstallationId: "temporary-installation-opaque-id",
+      }],
+      {},
+      home,
+      project,
+    );
+
+    expect(output).toContain("Project: ~/projects/temporary-project\n");
+    expect(output).not.toContain("Project: .\n");
+    expect(output).not.toContain(project);
   });
 
   test("validation wraps long warning prose and keeps the count clause whole", () => {
@@ -3775,6 +4019,27 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
     for (const line of wrappedEmpty.split("\n")) {
       expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
     }
+  });
+
+  test("uninstall names a Project by home-relative identity even from inside it", () => {
+    const current = process.cwd();
+    const homeRelative = current === homedir()
+      ? "~"
+      : current.startsWith(`${homedir()}/`)
+      ? `~/${current.slice(homedir().length + 1)}`
+      : current;
+    const output = formatUninstallResult({
+      kept: [],
+      projects: [{
+        outputs: ["a.md"],
+        project: current,
+        repositoryExclusions: [],
+      }],
+      warnings: [],
+    });
+
+    expect(output).toContain(`Project: ${homeRelative}\n`);
+    expect(output).not.toContain("Project: .\n");
   });
 });
 
@@ -4106,6 +4371,41 @@ describe("lifecycle summaries, next actions, and readiness", () => {
         "- /project-a: After all blockers are resolved, run apkit apply --all.\n" +
         "- /project-b: Resolve the reported blocker, then run apkit status again.",
     );
+  });
+
+  test("fleet next actions name the working-directory Project by home-relative identity", () => {
+    const current = process.cwd();
+    const other = join(homedir(), "other-fleet-project");
+    const homeRelative = current === homedir()
+      ? "~"
+      : current.startsWith(`${homedir()}/`)
+      ? `~/${current.slice(homedir().length + 1)}`
+      : current;
+    const report = emptyReport({
+      desired: [current, other].map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      })),
+      items: [
+        { kind: "stale source" as const, project: current },
+        { kind: "blocked" as const, project: other, reason: "hooks disabled" },
+      ],
+      outputs: [current, other].map((project) => ({
+        kind: "update" as const,
+        path: "a.md",
+        project,
+      })),
+      blockers: [fixtureBlocker(`${other}: hooks disabled`, other)],
+    });
+
+    const status = formatLifecycleReport("status", report);
+    expect(status).toContain(`${homeRelative}: After all blockers are resolved, run apkit apply --all.`);
+    expect(status).not.toContain(".: After all blockers");
+    expect(status).not.toMatch(/(^|\n)- \.: /);
   });
 
   test("successful apply does not print a current-Project matrix before Applied", () => {
@@ -5235,15 +5535,16 @@ describe("focused blockers-only apply view (#352)", () => {
   test("an execution failure retains its safety evidence under the filter and appends Blocker evidence", () => {
     const { receipt, resultingState } = partialApply();
     const failure = {
-      failedProject: "/project-b",
+      detail: "write failed",
+      failedProject: executionProject("/project-b"),
       message: "Apply failed while writing the Project",
-      pendingProjects: ["/project-c"],
+      pendingProjects: [executionProject("/project-c")],
       receipt,
       resultingState,
     };
     const output = formatApplyExecutionFailure(failure, { blockersOnly: true });
 
-    expect(output).toStartWith("Apply failed while writing the Project\n");
+    expect(output).toStartWith("Apply failed at /project-b: write failed\n");
     expect(output).toContain("Failed Project: /project-b");
     expect(output).toContain("Still pending: /project-c");
     expect(output).toContain("Applied:");
@@ -5260,9 +5561,10 @@ describe("focused blockers-only apply view (#352)", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
     const failure = {
-      failedProject: "/project-b",
+      detail: "write failed",
+      failedProject: executionProject("/project-b"),
       message: "Apply failed while writing the Project",
-      pendingProjects: ["/project-b"],
+      pendingProjects: [executionProject("/project-b")],
       receipt,
       resultingState: undefined,
     };
@@ -5275,9 +5577,10 @@ describe("focused blockers-only apply view (#352)", () => {
   test("focused execution-failure output uses single blank-line separation before the Blocker section (RE-1)", () => {
     const { receipt, resultingState } = partialApply();
     const failure = {
-      failedProject: "/project-b",
+      detail: "write failed",
+      failedProject: executionProject("/project-b"),
       message: "Apply failed while writing the Project",
-      pendingProjects: ["/project-c"],
+      pendingProjects: [executionProject("/project-c")],
       receipt,
       resultingState,
     };

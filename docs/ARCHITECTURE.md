@@ -136,8 +136,14 @@ installation receipts use the same exit matrix (`0` / `1` / `2`) with their own
 versioned JSON schema and carry no blocker records.
 
 Human lifecycle presentation in `cli/presentation.ts` has three explicit
-boundaries over the same ReconciliationReport. Concise output presents the
-outcome, affected scope or impact, one next action when one exists, and optional
+boundaries over the same ReconciliationReport. Every human surface selects an
+explicit location-display scope: application-wide and fleet surfaces use a
+stable home-relative Project identity, while a single-Project surface may use
+cwd-relative identity. An invalid relative path on a fleet surface is labeled
+as a relative path instead of being rendered as `.`, `..`, or `../…`. Authored
+Project identity must survive aggregation so presentation never substitutes a
+canonical path where the authored identity is available. Concise output
+presents the outcome, affected scope or impact, one next action when one exists, and optional
 first-use guidance, in that order. It renders each semantic fact once and omits
 routine generated paths, Project matrices, Git exclusion bookkeeping, setup
 provenance, and separate consequences. For unblocked pending `status`, one line
