@@ -22,7 +22,7 @@ export interface TerminalPresentationContext {
   readonly width: number;
 }
 
-type SemanticCategory =
+export type SemanticCategory =
   | "attention"
   | "command"
   | "error"
@@ -41,6 +41,16 @@ const ANSI_COLORS: Readonly<Record<SemanticCategory, string>> = {
   path: "\u001b[35m",
   success: "\u001b[32m",
 };
+
+/** Apply a node's authored semantic category after layout. */
+export function styleSemanticText(
+  text: string,
+  category: SemanticCategory | undefined,
+  color: boolean,
+): string {
+  if (!color || category === undefined || text.length === 0) return text;
+  return `${ANSI_COLORS[category]}${text}${ANSI_RESET}`;
+}
 
 const HEADING_PREFIXES = [
   "Commands:",
