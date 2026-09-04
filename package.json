@@ -28,9 +28,9 @@
     "darwin"
   ],
   "devDependencies": {
-    "@types/bun": "^1.3.14",
-    "@types/node": "^22",
-    "smol-toml": "^1.7.0",
+    "@types/bun": "^1.4.0",
+    "@types/node": "^26",
+    "smol-toml": "^1.8.0",
     "typescript": "^7.0.2",
     "yaml": "^2.9.0"
   }
