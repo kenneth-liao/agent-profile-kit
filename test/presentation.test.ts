@@ -34,7 +34,7 @@ import {
   NON_CURRENT_STATE_ORDER,
 } from "../cli/presentation.js";
 import type { ApplicationInfo } from "../installer/info.js";
-import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/canonical.js";
 import {
   renderHumanOutput,
   type TerminalPresentationContext,

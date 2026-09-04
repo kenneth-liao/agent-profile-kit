@@ -39,7 +39,7 @@ import { projectConflictBlockers } from "../installer/temporary-installation.js"
 import { createLifecycleOwnershipInspectionContext } from "../installer/lifecycle-ownership-inspection.js";
 import {
   compareCanonicalStrings,
-} from "../schemas/installation-manifest.js";
+} from "../schemas/canonical.js";
 import {
   OWNERSHIP_STATE_LIMITS,
   type OwnershipState,

@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 
 import {
   compareCanonicalStrings,
-} from "../schemas/installation-manifest.js";
+} from "../schemas/canonical.js";
 import {
   OWNERSHIP_STATE_SCHEMA_VERSION,
   type OwnershipState,

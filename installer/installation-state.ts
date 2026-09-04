@@ -10,7 +10,7 @@ import {
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/canonical.js";
 import type {
   OwnershipFailureFact,
   StateReadFailureFact,

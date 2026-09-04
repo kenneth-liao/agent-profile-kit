@@ -19,7 +19,7 @@ import {
   type ProjectBinding,
   type SupportedHost,
 } from "../schemas/local-configuration.js";
-import { parseFileMode } from "../schemas/installation-manifest.js";
+import { parseFileMode } from "../schemas/canonical.js";
 import type { OwnershipReceipt } from "../schemas/ownership-state.js";
 import {
   ARTIFACT_TYPES,

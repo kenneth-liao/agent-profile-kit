@@ -9,7 +9,7 @@ import { requireArtifactId } from "./dependencies.js";
 import {
   compareCanonicalStrings,
   parseFileMode,
-} from "./installation-manifest.js";
+} from "./canonical.js";
 
 export const OWNERSHIP_STATE_SCHEMA_VERSION = 9;
 

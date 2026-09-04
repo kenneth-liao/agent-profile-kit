@@ -1,4 +1,4 @@
-import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/canonical.js";
 import {
   OWNERSHIP_STATE_SCHEMA_VERSION,
   type OwnershipReceipt,

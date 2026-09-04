@@ -1,5 +1,5 @@
 import { HOST_REGISTRY } from "../adapters/registry.js";
-import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/canonical.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
 import {
   ingestProjectBindings,

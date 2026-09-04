@@ -23,7 +23,7 @@ import type { OwnershipFailureFact } from "./blockers.js";
 import { publishRepositoryExclusions, receiptExclusionContribution } from "./git-exclusions.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import type { LifecycleInstrumentation } from "./qualification-instrumentation.js";
-import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/canonical.js";
 import {
   ordinaryReceipts,
   retiredReceipts,
