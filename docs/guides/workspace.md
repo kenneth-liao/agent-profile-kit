@@ -682,9 +682,9 @@ planned project destination remain blockers.
 
 Use `apkit status` for the bound Project containing the current directory, pass
 one explicit Project root, or use `apkit status --all` to inspect every binding.
-It reports current, not installed, stale source, repairable missing output, drifted output, missing
-output, blocked and malformed ownership, while keeping Host configuration
-warnings visible.
+It reports current, not installed, stale source, drifted output (including wholly absent
+owned output), malformed ownership, and blocked installations, while keeping Host
+configuration warnings visible.
 
 Use `apkit unbind [project]` to remove desired Project Binding state.
 It does not delete generated output. When an installed receipt remains, its

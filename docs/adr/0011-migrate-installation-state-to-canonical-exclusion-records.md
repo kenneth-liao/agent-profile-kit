@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0025
 ---
 
 # Migrate Installation State to canonical Repository Exclusion Records
