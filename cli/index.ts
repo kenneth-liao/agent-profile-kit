@@ -973,12 +973,12 @@ async function main(): Promise<void> {
       writeHuman(
         process.stdout,
         humanOutput(
-          `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
+          `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged for ${displayProjectPath(result.canonicalProject, result.project, "project")}\n` +
             `  Profile: ${result.profile}\n` +
             `  Hosts: ${result.hosts.join(", ")}\n` +
             `Next: ${COMMAND_NAME} status\n`,
           [
-            `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged for ${displayProjectPath(result.canonicalProject, result.project)}`,
+            `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged for ${displayProjectPath(result.canonicalProject, result.project, "project")}`,
             result.hosts.join(", "),
           ],
         ),
@@ -998,11 +998,11 @@ async function main(): Promise<void> {
       writeHuman(
         process.stdout,
         humanOutput(
-          `Replaced ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
+          `Replaced ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}\n` +
             deltaLines.map((line) => `${line}\n`).join("") +
             `Next: ${COMMAND_NAME} status\n`,
           [
-            `Replaced ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project)}`,
+            `Replaced ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}`,
             ...deltaLines.map((line) => line.slice(2)),
           ],
         ),
@@ -1013,12 +1013,12 @@ async function main(): Promise<void> {
     writeHuman(
       process.stdout,
       humanOutput(
-        `Recorded ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project)}\n` +
+        `Recorded ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}\n` +
           `  Profile: ${result.profile}\n` +
           `  Hosts: ${result.hosts.join(", ")}\n` +
           `Next: ${COMMAND_NAME} status\n`,
         [
-          `Recorded ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project)}`,
+          `Recorded ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}`,
           result.hosts.join(", "),
         ],
       ),
@@ -1060,8 +1060,8 @@ async function main(): Promise<void> {
         `Next: ${COMMAND_NAME} status --all\n`
       : "";
     const presentedProject = result.recovery === "canonical"
-      ? displayProjectPath(result.canonicalProject, result.project)
-      : displayProjectPath(result.project, result.project);
+      ? displayProjectPath(result.canonicalProject, result.project, "project")
+      : displayProjectPath(result.project, result.project, "project");
     writeHuman(
       process.stdout,
       humanOutput(

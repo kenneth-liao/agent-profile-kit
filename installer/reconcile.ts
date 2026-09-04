@@ -254,28 +254,36 @@ export class ApplyBlockedError extends Error {
   }
 }
 
+export interface ProjectIdentity {
+  readonly canonicalProject: string;
+  readonly project: string;
+}
+
 /** Raised after apply execution fails, retaining committed and fresh resulting evidence. */
 export class ApplyExecutionError extends Error {
-  readonly failedProject: string | undefined;
-  readonly pendingProjects: readonly string[];
+  readonly detail: string;
+  readonly failedProject: ProjectIdentity | undefined;
+  readonly pendingProjects: readonly ProjectIdentity[];
   readonly receipt: ReconciliationReport;
   readonly resultingState: ReconciliationReport | undefined;
 
   constructor(options: {
     readonly cause: unknown;
-    readonly failedProject?: string;
-    readonly pendingProjects: readonly string[];
+    readonly detail: string;
+    readonly failedProject?: ProjectIdentity;
+    readonly pendingProjects: readonly ProjectIdentity[];
     readonly receipt: ReconciliationReport;
     readonly resultingState?: ReconciliationReport;
   }) {
-    const detail = options.cause instanceof Error ? options.cause.message : String(options.cause);
+    const cause = options.cause instanceof Error ? options.cause.message : String(options.cause);
     super(
       options.failedProject === undefined
-        ? `Apply failed after committing Project work: ${detail}`
-        : `Apply failed at ${options.failedProject}: ${detail}`,
+        ? `Apply failed after committing Project work: ${cause}`
+        : `Apply failed at ${options.failedProject.canonicalProject}: ${cause}`,
       { cause: options.cause },
     );
     this.name = "ApplyExecutionError";
+    this.detail = options.detail;
     this.failedProject = options.failedProject;
     this.pendingProjects = options.pendingProjects;
     this.receipt = options.receipt;
@@ -1531,8 +1539,9 @@ async function applyReconciliationLocked(
   };
   const failExecution = async (failure: {
     readonly cause: unknown;
-    readonly failedProject?: string;
-    readonly pendingProjects: readonly string[];
+    readonly detail: string;
+    readonly failedProject?: ProjectIdentity;
+    readonly pendingProjects: readonly ProjectIdentity[];
   }): Promise<never> => {
     let resultingState: ReconciliationReport | undefined;
     try {
@@ -1618,30 +1627,38 @@ async function applyReconciliationLocked(
           stateRestoreFailure = failure;
         }
       }
-      const pending = desired
-        .slice(index + 1)
-        .filter((entry) =>
-          !blockedProjects.has(entry.binding.canonicalProject) &&
-          !currentProjects.has(entry.binding.project)
-        )
-        .map((entry) => entry.binding.canonicalProject)
-        .concat(
-          stale
-            .filter((entry) => !blockedProjects.has(entry.project))
-            .map((entry) => entry.project),
-        );
+      const pending: ProjectIdentity[] = [
+        ...desired
+          .slice(index + 1)
+          .filter((entry) =>
+            !blockedProjects.has(entry.binding.canonicalProject) &&
+            !currentProjects.has(entry.binding.project)
+          )
+          .map((entry) => ({
+            canonicalProject: entry.binding.canonicalProject,
+            project: entry.binding.project,
+          })),
+        ...stale
+          .filter((entry) => !blockedProjects.has(entry.project))
+          .map((entry) => ({ canonicalProject: entry.project, project: entry.project })),
+      ];
       const failureMessage = error instanceof Error ? error.message : String(error);
       const recoveryMessages = [
         ...(stateRestoreFailure === undefined
           ? []
           : [`Installation State restore failed: ${stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)}`]),
       ];
+      const detail = `${failureMessage}${recoveryMessages.length > 0 ? `\n${recoveryMessages.join("\n")}` : ""}`;
       const cause = new Error(
-        `Apply failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: ${item.binding.canonicalProject}; pending projects: ${pending.join(", ") || "(none)"}\n${failureMessage}${recoveryMessages.length > 0 ? `\n${recoveryMessages.join("\n")}` : ""}`,
+        `Apply failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: ${item.binding.canonicalProject}; pending projects: ${pending.map((project) => project.canonicalProject).join(", ") || "(none)"}\n${detail}`,
       );
       await failExecution({
         cause,
-        failedProject: item.binding.canonicalProject,
+        detail,
+        failedProject: {
+          canonicalProject: item.binding.canonicalProject,
+          project: item.binding.project,
+        },
         pendingProjects: pending,
       });
     }
@@ -1690,19 +1707,21 @@ async function applyReconciliationLocked(
       const pending = stale
         .slice(index + 1)
         .filter((entry) => !blockedProjects.has(entry.project))
-        .map((entry) => entry.project);
+        .map((entry) => ({ canonicalProject: entry.project, project: entry.project }));
       const failureMessage = error instanceof Error ? error.message : String(error);
       const recoveryMessages = [
         ...(stateRestoreFailure === undefined
           ? []
           : [`Installation State restore failed: ${stateRestoreFailure instanceof Error ? stateRestoreFailure.message : String(stateRestoreFailure)}`]),
       ];
+      const detail = `${failureMessage}${recoveryMessages.length > 0 ? `\n${recoveryMessages.join("\n")}` : ""}`;
       const cause = new Error(
-        `Apply failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: removal ${previous.project}; pending projects: ${pending.join(", ") || "(none)"}\n${failureMessage}${recoveryMessages.length > 0 ? `\n${recoveryMessages.join("\n")}` : ""}`,
+        `Apply failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: removal ${previous.project}; pending projects: ${pending.map((project) => project.canonicalProject).join(", ") || "(none)"}\n${detail}`,
       );
       await failExecution({
         cause,
-        failedProject: previous.project,
+        detail,
+        failedProject: { canonicalProject: previous.project, project: previous.project },
         pendingProjects: pending,
       });
     }

@@ -24,6 +24,7 @@ export {
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,
+  type ProjectIdentity,
   type BlockedReconciliationReport,
   type OutputReconciliationItem,
   type OutputReconciliationKind,
@@ -260,12 +261,17 @@ interface OutputSummary {
   readonly updates: number;
 }
 
-interface ProjectGroup {
-  readonly canonicalProject: string;
+interface ProjectGroup extends ProjectIdentity {
   readonly blockers: ReconciliationBlocker[];
   readonly items: ReconciliationItem[];
   readonly outputs: OutputReconciliationItem[];
-  readonly project: string;
+}
+
+function presentProject(
+  project: ProjectIdentity,
+  scope: LocationDisplayScope,
+): string {
+  return displayProjectPath(project.canonicalProject, project.project, scope);
 }
 
 interface GroupedProjects {
@@ -300,9 +306,12 @@ function absoluteAuthoredPath(authoredPath: string, home: string): string {
       : authoredPath;
 }
 
+export type LocationDisplayScope = "fleet" | "project";
+
 export function displayPath(
   canonicalPath: string,
-  authoredPath = canonicalPath,
+  authoredPath: string = canonicalPath,
+  scope: LocationDisplayScope,
   cwd = process.cwd(),
   home = homedir(),
 ): string {
@@ -310,10 +319,15 @@ export function displayPath(
   const paths = [...new Set([canonicalPath, authoredAbsolute])];
   const displayCwd = existingPathAlias(cwd);
   const displayHome = existingPathAlias(home);
-  const cwdRelativePath = paths.find((path) => containsPath(path, cwd));
-  if (cwdRelativePath) return relative(cwd, cwdRelativePath) || ".";
-  const physicalCwdRelativePath = paths.find((path) => containsPath(path, displayCwd));
-  if (physicalCwdRelativePath) return relative(displayCwd, physicalCwdRelativePath) || ".";
+  if (scope === "project") {
+    const cwdRelativePath = paths.find((path) => containsPath(path, cwd));
+    if (cwdRelativePath) return relative(cwd, cwdRelativePath) || ".";
+    const physicalCwdRelativePath = paths.find((path) => containsPath(path, displayCwd));
+    if (physicalCwdRelativePath) return relative(displayCwd, physicalCwdRelativePath) || ".";
+  } else if (scope !== "fleet") {
+    const exhaustive: never = scope;
+    throw new Error(`Unknown location display scope: ${exhaustive}`);
+  }
   if (authoredPath === "~" || authoredPath.startsWith("~/")) return authoredPath;
   const homeRelativePath = paths.find((path) => containsPath(home, path)) ??
     paths.find((path) => containsPath(displayHome, path));
@@ -322,18 +336,21 @@ export function displayPath(
     const homeRelative = relative(displayBase, homeRelativePath);
     return homeRelative === "" ? "~" : `~/${homeRelative}`;
   }
-  return authoredPath;
+  if (isAbsolute(authoredPath)) return authoredPath;
+  if (isAbsolute(canonicalPath)) return canonicalPath;
+  return `relative path ${JSON.stringify(authoredPath)}`;
 }
 
 export function displayProjectPath(
   canonicalProject: string,
-  authoredProject = canonicalProject,
+  authoredProject: string = canonicalProject,
+  scope: LocationDisplayScope,
   cwd = process.cwd(),
   home = homedir(),
 ): string {
   // Keep this project-specific name as the stable presentation API while all
   // location display policy lives in the shared displayPath implementation.
-  return displayPath(canonicalProject, authoredProject, cwd, home);
+  return displayPath(canonicalProject, authoredProject, scope, cwd, home);
 }
 
 export function formatInfoHuman(
@@ -350,19 +367,22 @@ export function formatInfoHuman(
       ? `Legacy configuration; run ${COMMAND_NAME} init (selected: ${displayPath(
           info.workspace.canonical,
           info.workspace.authored,
+          "fleet",
           cwd,
           home,
         )})`
-      : displayPath(info.workspace.canonical, info.workspace.authored, cwd, home);
+      : displayPath(info.workspace.canonical, info.workspace.authored, "fleet", cwd, home);
   const localConfiguration = displayPath(
     info.localConfiguration,
     info.localConfiguration,
+    "fleet",
     cwd,
     home,
   );
   const installationState = displayPath(
     info.installationState,
     info.installationState,
+    "fleet",
     cwd,
     home,
   );
@@ -486,6 +506,7 @@ export function formatProjectInventoryHuman(
     const presented = displayProjectPath(
       project.canonicalProject ?? project.project,
       project.project,
+      "fleet",
       cwd,
       home,
     );
@@ -697,7 +718,7 @@ export function formatTemporaryInventoryHuman(
   const lines = [`${capitalize(DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.plural)} (${installations.length}):`];
   const copyable: string[] = [];
   for (const installation of installations) {
-    const presented = displayProjectPath(installation.project, installation.project, cwd, home);
+    const presented = displayProjectPath(installation.project, installation.project, "fleet", cwd, home);
     lines.push(
       "",
       `Temporary installation: ${installation.temporaryInstallationId}`,
@@ -803,7 +824,7 @@ export function formatUninstallResult(
   ];
   const copyable: string[] = [];
   for (const project of result.projects) {
-    const presentedProject = displayProjectPath(project.project);
+    const presentedProject = displayProjectPath(project.project, project.project, "fleet");
     lines.push(
       "",
       `Project: ${presentedProject}`,
@@ -832,7 +853,7 @@ export function formatUninstallResult(
       `Kept ${plural(keptCount, "Project")} whose owned output could not be fully removed:`,
     );
     for (const kept of result.kept) {
-      const presentedProject = displayProjectPath(kept.project);
+      const presentedProject = displayProjectPath(kept.project, kept.project, "fleet");
       lines.push(
         "",
         `Project: ${presentedProject}`,
@@ -1042,10 +1063,25 @@ function blockerProject(blocker: ReconciliationBlocker): string | undefined {
   return blocker.project || undefined;
 }
 
-function shortenProjectReferences(message: string, groups: readonly ProjectGroup[]): string {
+function requireProjectGroup(
+  groups: readonly ProjectGroup[],
+  canonicalProject: string,
+): ProjectGroup {
+  const group = groups.find((candidate) => candidate.canonicalProject === canonicalProject);
+  if (group === undefined) {
+    throw new Error(`Project ${canonicalProject} is missing its presentation group`);
+  }
+  return group;
+}
+
+function shortenProjectReferences(
+  message: string,
+  groups: readonly ProjectGroup[],
+  scope: LocationDisplayScope,
+): string {
   const references = groups.flatMap((group) => {
     const authoredAbsolute = absoluteAuthoredPath(group.project, homedir());
-    const replacement = displayProjectPath(group.canonicalProject, group.project);
+    const replacement = displayProjectPath(group.canonicalProject, group.project, scope);
     return [...new Set([group.canonicalProject, authoredAbsolute])].map((project) => ({ project, replacement }));
   }).sort((left, right) =>
     right.project.length - left.project.length || left.project.localeCompare(right.project)
@@ -1210,15 +1246,16 @@ function conciseOwnershipConflictLines(
     readonly kind: typeof OUTPUT_OWNERSHIP_CONFLICT;
     readonly scope: "project";
   },
+  displayProject: string,
   groups: readonly ProjectGroup[],
   indent: string,
   untrackRecovery: UntrackRecovery,
+  scope: LocationDisplayScope,
 ): readonly string[] {
   const paths = outputOwnershipConflictPaths(blocker);
   const wording = humanBlockerWording(blocker);
-  const displayProject = displayProjectPath(blocker.project!);
   const lines = [
-    `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups)}`,
+    `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups, scope)}`,
     `${indent}  Requirement: ${wording.requirement}`,
     `${indent}  Remedy: ${wording.remedy}`,
     `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`,
@@ -1237,13 +1274,24 @@ function conciseBlockerLines(
   groups: readonly ProjectGroup[],
   indent: string,
   untrackRecovery: UntrackRecovery,
+  scope: LocationDisplayScope,
 ): readonly string[] {
   if (isOutputOwnershipConflict(blocker)) {
-    return conciseOwnershipConflictLines(blocker, groups, indent, untrackRecovery);
+    if (displayProject === undefined) {
+      throw new Error("Project-scoped ownership Blocker is missing its Project presentation");
+    }
+    return conciseOwnershipConflictLines(
+      blocker,
+      displayProject,
+      groups,
+      indent,
+      untrackRecovery,
+      scope,
+    );
   }
   const wording = humanBlockerWording(blocker);
   const lines = [
-    `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups)}`,
+    `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups, scope)}`,
     `${indent}  Requirement: ${wording.requirement}`,
     `${indent}  Remedy: ${wording.remedy}`,
     `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`,
@@ -1256,10 +1304,14 @@ function conciseBlockerLines(
 
 function verboseBlockerLines(
   blocker: ReconciliationBlocker,
+  groups: readonly ProjectGroup[],
   shorten: (text: string) => string,
   untrackRecovery: UntrackRecovery,
+  scope: LocationDisplayScope,
 ): readonly string[] {
-  const project = blocker.scope === "project" ? displayProjectPath(blocker.project!) : undefined;
+  const project = blocker.scope === "project"
+    ? presentProject(requireProjectGroup(groups, blocker.project!), scope)
+    : undefined;
   const wording = humanBlockerWording(blocker);
   const lines = [
     `- ${shorten(wording.problem)}`,
@@ -1290,10 +1342,11 @@ function conciseGroupBlockerLines(
   groups: readonly ProjectGroup[],
   indent: string,
   untrackRecovery: UntrackRecovery,
+  scope: LocationDisplayScope,
 ): readonly string[] {
-  const displayProject = displayProjectPath(group.canonicalProject, group.project);
+  const displayProject = displayProjectPath(group.canonicalProject, group.project, scope);
   return group.blockers.flatMap((blocker) =>
-    conciseBlockerLines(blocker, displayProject, groups, indent, untrackRecovery),
+    conciseBlockerLines(blocker, displayProject, groups, indent, untrackRecovery, scope),
   );
 }
 
@@ -1302,13 +1355,14 @@ function conciseGlobalBlockerLines(
   report: ReconciliationReport,
   groups: readonly ProjectGroup[],
   untrackRecovery: UntrackRecovery,
+  scope: LocationDisplayScope,
 ): readonly string[] {
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
   if (globalBlockers.length === 0) return [];
   return [
     "Global blockers:",
     ...globalBlockers.flatMap((blocker) =>
-      conciseBlockerLines(blocker, undefined, groups, "  ", untrackRecovery)
+      conciseBlockerLines(blocker, undefined, groups, "  ", untrackRecovery, scope)
     ),
   ];
 }
@@ -1384,7 +1438,10 @@ function isNoOpApply(
 }
 
 /** Projects that still need reconciliation work but carry no Blocker. */
-function stillPendingProjects(report: ReconciliationReport): readonly string[] {
+function stillPendingProjects(
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+): readonly string[] {
   return report.projects
     .filter((project) =>
       project.blockers.length === 0 &&
@@ -1394,7 +1451,7 @@ function stillPendingProjects(report: ReconciliationReport): readonly string[] {
         project.repositoryExclusions.length > 0
       )
     )
-    .map((project) => displayProjectPath(project.canonicalProject, project.project));
+    .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
 }
 
 /**
@@ -1407,9 +1464,10 @@ function committedApplyEvidence(
   receipt: ReconciliationReport,
   postState: ReconciliationReport,
   summarizeFleet: boolean,
+  scope: LocationDisplayScope,
 ): readonly string[] {
   const lines = [
-    ...applyReceiptLines(receipt, summarizeFleet, postState),
+    ...applyReceiptLines(receipt, scope, summarizeFleet, postState),
   ];
   const appliedProjects = new Set(
     receipt.projects.map((project) => project.canonicalProject),
@@ -1418,7 +1476,7 @@ function committedApplyEvidence(
     .filter((project) =>
       project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
     )
-    .map((project) => displayProjectPath(project.canonicalProject, project.project));
+    .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
   if (freshlyCurrent.length > 0) {
     lines.push(`Freshly current: ${freshlyCurrent.join(", ")}`);
   }
@@ -1585,8 +1643,7 @@ function isFirstRelevantHostOutput(
 }
 
 /** A Host Setup Step selected for one surface, with its Project identities. */
-interface PresentedSetupStep {
-  readonly canonicalProject: string;
+interface PresentedSetupStep extends ProjectIdentity {
   readonly message: string;
   readonly step: HostSetupStep;
 }
@@ -1605,6 +1662,7 @@ function presentedSetupSteps(
   report: ReconciliationReport,
   changeEvidence: ReconciliationReport | undefined,
   verbose: boolean,
+  scope: LocationDisplayScope,
 ): readonly PresentedSetupStep[] {
   if (command === "status" && !verbose) return [];
   if (command === "apply" && reportBlockers(report).length > 0) return [];
@@ -1628,11 +1686,12 @@ function presentedSetupSteps(
       }
       const message = setupStepMessage(
         step,
-        displayProjectPath(project.canonicalProject, project.project),
+        displayProjectPath(project.canonicalProject, project.project, scope),
       );
       steps.push({
         canonicalProject: project.canonicalProject,
         message,
+        project: project.project,
         step,
       });
     }
@@ -1643,7 +1702,7 @@ function presentedSetupSteps(
 /** One deduplicated setup step group with its deterministic Project scope. */
 interface SetupStepGroup {
   readonly message: string;
-  projects: string[];
+  projects: ProjectIdentity[];
   readonly step: HostSetupStep;
 }
 
@@ -1671,19 +1730,25 @@ function groupSetupSteps(
   steps: readonly PresentedSetupStep[],
 ): readonly SetupStepGroup[] {
   const byKey = new Map<string, SetupStepGroup>();
-  for (const { message, step, canonicalProject } of steps) {
+  for (const { message, step, canonicalProject, project } of steps) {
     const key = setupStepGroupKey(step, message);
     const existing = byKey.get(key);
     if (existing) {
-      existing.projects.push(canonicalProject);
+      if (!existing.projects.some((candidate) =>
+        candidate.canonicalProject === canonicalProject
+      )) {
+        existing.projects.push({ canonicalProject, project });
+      }
     } else {
-      byKey.set(key, { message, projects: [canonicalProject], step });
+      byKey.set(key, { message, projects: [{ canonicalProject, project }], step });
     }
   }
   return [...byKey.values()]
     .map((group) => ({
       ...group,
-      projects: [...new Set(group.projects)].sort(compareCanonicalStrings),
+      projects: [...group.projects].sort((left, right) =>
+        compareCanonicalStrings(left.canonicalProject, right.canonicalProject)
+      ),
     }))
     .sort((left, right) =>
       left.step.host.localeCompare(right.step.host) ||
@@ -1694,19 +1759,27 @@ function groupSetupSteps(
 }
 
 /** Compact affected-Project scope for a deduplicated setup step. */
-function setupProjectScope(projects: readonly string[], verbose: boolean): string {
+function setupProjectScope(
+  projects: readonly ProjectIdentity[],
+  verbose: boolean,
+  scope: LocationDisplayScope,
+): string {
   if (projects.length === 1) return "";
   if (verbose || projects.length <= PROJECT_SCOPE_LIMIT) {
-    return ` (${projects.map((project) => displayProjectPath(project)).join(", ")})`;
+    return ` (${projects.map((project) => presentProject(project, scope)).join(", ")})`;
   }
   const visible = projects
     .slice(0, PROJECT_SCOPE_LIMIT)
-    .map((project) => displayProjectPath(project));
+    .map((project) => presentProject(project, scope));
   return ` (${visible.join(", ")}, … ${plural(projects.length - PROJECT_SCOPE_LIMIT, "more Project")}; use --verbose to see all Projects)`;
 }
 
-function setupStepLines(group: SetupStepGroup, verbose: boolean): readonly string[] {
-  const lines = [`- ${group.message}${setupProjectScope(group.projects, verbose)}`];
+function setupStepLines(
+  group: SetupStepGroup,
+  verbose: boolean,
+  scope: LocationDisplayScope,
+): readonly string[] {
+  const lines = [`- ${group.message}${setupProjectScope(group.projects, verbose, scope)}`];
   if (group.step.consequence !== undefined) {
     lines.push(`  Consequence: ${group.step.consequence}`);
   }
@@ -1800,6 +1873,7 @@ function setupSectionsFromPresented(
   presented: readonly PresentedSetupStep[],
   verbose: boolean,
   changeEvidence: ReconciliationReport | undefined,
+  scope: LocationDisplayScope,
 ): readonly string[] {
   if (!verbose) {
     return conciseFirstUseLines(presented, changeEvidence);
@@ -1813,11 +1887,11 @@ function setupSectionsFromPresented(
   const lines: string[] = [];
   if (transition.length > 0) {
     lines.push("Host setup:");
-    for (const group of transition) lines.push(...setupStepLines(group, verbose));
+    for (const group of transition) lines.push(...setupStepLines(group, verbose, scope));
   }
   if (standing.length > 0) {
     lines.push("Standing Host setup:");
-    for (const group of standing) lines.push(...setupStepLines(group, verbose));
+    for (const group of standing) lines.push(...setupStepLines(group, verbose, scope));
   }
   return lines;
 }
@@ -1831,11 +1905,13 @@ function hostSetupSections(
   report: ReconciliationReport,
   changeEvidence: ReconciliationReport | undefined,
   verbose = false,
+  scope: LocationDisplayScope,
 ): readonly string[] {
   return setupSectionsFromPresented(
-    presentedSetupSteps(command, report, changeEvidence, verbose),
+    presentedSetupSteps(command, report, changeEvidence, verbose, scope),
     verbose,
     changeEvidence ?? report,
+    scope,
   );
 }
 
@@ -1864,10 +1940,11 @@ function readinessLines(
 
 function nextActionScope(
   projects: ReadonlyArray<{ readonly authored: string; readonly canonical: string }>,
+  scope: LocationDisplayScope,
 ): string {
   if (projects.length <= 1) return "";
   const presented = projects.map((project) =>
-    displayProjectPath(project.canonical, project.authored),
+    displayProjectPath(project.canonical, project.authored, scope),
   );
   if (presented.length <= PROJECT_SCOPE_LIMIT) {
     return ` (${presented.join(", ")})`;
@@ -1885,6 +1962,7 @@ function nextActionLines(
   options: LifecycleHumanOptions,
 ): readonly string[] {
   if (command === "apply" && reportBlockers(report).length === 0) return [];
+  const scope = locationDisplayScope(options, report);
   const applyCommand = options.all === true
     ? "apply --all"
     : options.project !== undefined
@@ -1958,12 +2036,12 @@ function nextActionLines(
     );
     if (uniqueProjects.length === 1) {
       const project = uniqueProjects[0]!;
-      return `${displayProjectPath(project.canonical, project.authored)}: ${action}`;
+      return `${displayProjectPath(project.canonical, project.authored, scope)}: ${action}`;
     }
     // A single remaining next action is already fleet-scoped; listing every
     // Project would replay the matrix this ticket collapses.
     if (grouped.size === 1) return action;
-    return `${action}${nextActionScope(uniqueProjects)}`;
+    return `${action}${nextActionScope(uniqueProjects, scope)}`;
   });
   return actions.length === 0 ? [] : ["Next:", ...actions.map((action) => `- ${action}`)];
 }
@@ -2013,7 +2091,7 @@ function useOperationSummary(report: ReconciliationReport, blocked: boolean): bo
 
 interface OperationPresentationGroup {
   readonly operation: PlannedOutputOperation;
-  readonly projects: readonly string[];
+  readonly projects: readonly ProjectIdentity[];
   readonly fileCount: number;
 }
 
@@ -2030,7 +2108,11 @@ function groupOutputOperations(
     );
     return fileCount === 0 ? [] : [{
       operation,
-      projects: projects.map((project) => project.canonicalProject).sort(compareCanonicalStrings),
+      projects: projects
+        .map(({ canonicalProject, project }) => ({ canonicalProject, project }))
+        .sort((left, right) =>
+          compareCanonicalStrings(left.canonicalProject, right.canonicalProject)
+        ),
       fileCount,
     }];
   });
@@ -2039,20 +2121,21 @@ function groupOutputOperations(
 function operationScopeClause(
   group: OperationPresentationGroup,
   report: ReconciliationReport,
+  scope: LocationDisplayScope,
 ): string {
   const allProjects = reportProjects(report);
   if (
     group.projects.length === allProjects.length &&
-    group.projects.every((project) => allProjects.includes(project))
+    group.projects.every(({ canonicalProject }) => allProjects.includes(canonicalProject))
   ) {
     return `in ${plural(group.projects.length, "project")}`;
   }
   if (group.projects.length <= PROJECT_SCOPE_LIMIT) {
-    return `in ${group.projects.map((project) => displayProjectPath(project)).join(", ")}`;
+    return `in ${group.projects.map((project) => presentProject(project, scope)).join(", ")}`;
   }
   const visible = group.projects
     .slice(0, PROJECT_SCOPE_LIMIT)
-    .map((project) => displayProjectPath(project));
+    .map((project) => presentProject(project, scope));
   return `in ${visible.join(", ")}, … ${plural(group.projects.length - PROJECT_SCOPE_LIMIT, "more Project")}; ` +
     "use --verbose to see all Projects";
 }
@@ -2060,14 +2143,16 @@ function operationScopeClause(
 function operationGroupLine(
   group: OperationPresentationGroup,
   report: ReconciliationReport,
+  scope: LocationDisplayScope,
 ): string {
   const operation = group.fileCount === 1 ? group.operation : `${group.operation}s`;
   return `${PLANNED_OUTPUT_OPERATION_MARKER[group.operation]} ${group.fileCount} generated file ${operation} ` +
-    operationScopeClause(group, report);
+    operationScopeClause(group, report, scope);
 }
 
 function operationAttentionLines(
   report: ReconciliationReport,
+  scope: LocationDisplayScope,
   includeRemovals = false,
 ): readonly string[] {
   const exceptions = report.projects.filter((project) => {
@@ -2081,7 +2166,7 @@ function operationAttentionLines(
   if (exceptions.length === 0) return [];
   const lines = ["", "Project exceptions:"];
   for (const project of exceptions) {
-    lines.push(`  ${displayProjectPath(project.canonicalProject, project.project)}:`);
+    lines.push(`  ${displayProjectPath(project.canonicalProject, project.project, scope)}:`);
     const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
     if (
       EXCEPTION_ITEM_KINDS.has(project.state.kind) ||
@@ -2097,13 +2182,16 @@ function operationAttentionLines(
   return lines;
 }
 
-function operationSummarySections(report: ReconciliationReport): readonly string[] {
+function operationSummarySections(
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+): readonly string[] {
   const groups = groupOutputOperations(report);
   return [
     "",
     "Project changes:",
-    ...groups.map((group) => `  ${operationGroupLine(group, report)}`),
-    ...operationAttentionLines(report),
+    ...groups.map((group) => `  ${operationGroupLine(group, report, scope)}`),
+    ...operationAttentionLines(report, scope),
   ];
 }
 
@@ -2112,7 +2200,9 @@ function sameProjectScope(groups: readonly OperationPresentationGroup[]): boolea
   const first = groups[0]!.projects;
   return groups.slice(1).every((group) =>
     group.projects.length === first.length &&
-    group.projects.every((project, index) => project === first[index])
+    group.projects.every((project, index) =>
+      project.canonicalProject === first[index]!.canonicalProject
+    )
   );
 }
 
@@ -2126,10 +2216,11 @@ function conciseFileChangeParts(groups: readonly OperationPresentationGroup[]): 
 function conciseStatusOperationLine(
   group: OperationPresentationGroup,
   report: ReconciliationReport,
+  displayScope: LocationDisplayScope,
 ): string {
   const operation = group.fileCount === 1 ? group.operation : `${group.operation}s`;
   return `${PLANNED_OUTPUT_OPERATION_MARKER[group.operation]} ${group.fileCount} file ${operation} ` +
-    operationScopeClause(group, report);
+    operationScopeClause(group, report, displayScope);
 }
 
 function statusAffectedProjects(report: ReconciliationReport): readonly string[] {
@@ -2143,7 +2234,10 @@ function statusAffectedProjects(report: ReconciliationReport): readonly string[]
     .sort(compareCanonicalStrings);
 }
 
-function readyStatusImpactLines(report: ReconciliationReport): readonly string[] {
+function readyStatusImpactLines(
+  report: ReconciliationReport,
+  displayScope: LocationDisplayScope,
+): readonly string[] {
   const operationGroups = groupOutputOperations(report);
   const affectedProjects = statusAffectedProjects(report);
   const scope = plural(affectedProjects.length, "project");
@@ -2155,8 +2249,22 @@ function readyStatusImpactLines(report: ReconciliationReport): readonly string[]
   }
   return [
     `Updates ready for ${scope}.`,
-    ...operationGroups.map((group) => conciseStatusOperationLine(group, report)),
+    ...operationGroups.map((group) => conciseStatusOperationLine(group, report, displayScope)),
   ];
+}
+
+function isFleetLifecycle(
+  options: LifecycleHumanOptions,
+  report: ReconciliationReport,
+): boolean {
+  return options.all === true || (options.project === undefined && report.projects.length > 1);
+}
+
+function locationDisplayScope(
+  options: LifecycleHumanOptions,
+  report: ReconciliationReport,
+): LocationDisplayScope {
+  return isFleetLifecycle(options, report) ? "fleet" : "project";
 }
 
 function lifecycleInvocation(
@@ -2164,7 +2272,7 @@ function lifecycleInvocation(
   report: ReconciliationReport,
   options: LifecycleHumanOptions,
 ): string {
-  if (options.all === true || (options.project === undefined && report.projects.length > 1)) {
+  if (isFleetLifecycle(options, report)) {
     return `${COMMAND_NAME} ${command} --all`;
   }
   if (options.project !== undefined) return `${COMMAND_NAME} ${command} ${options.project}`;
@@ -2184,7 +2292,8 @@ function readyStatusGuidance(
 
 function operationReceiptLines(
   receipt: ReconciliationReport,
-  fleetScope: ReconciliationReport = receipt,
+  fleetScope: ReconciliationReport,
+  scope: LocationDisplayScope,
   includeExclusions = true,
 ): readonly string[] {
   const groups = groupOutputOperations(receipt);
@@ -2193,10 +2302,10 @@ function operationReceiptLines(
   // Every applied write names its file: affected paths sit beneath the counted
   // operation lines, attributed to their Project, capped like every concise
   // path list so no change to a working tree is silent (#380).
-  const pathLines = operationReceiptPathLines(receipt);
+  const pathLines = operationReceiptPathLines(receipt, scope);
   const lines = [
     "Applied:",
-    ...groups.map((group) => `  ${operationGroupLine(group, fleetScope)}`),
+    ...groups.map((group) => `  ${operationGroupLine(group, fleetScope, scope)}`),
     ...pathLines,
   ];
   if (exclusionClause !== undefined) lines.push("", exclusionClause);
@@ -2208,7 +2317,10 @@ function operationReceiptLines(
  * its Project attribution, ordered by operation, Project, then path, and
  * capped at the shared concise path limit with one overflow pointer.
  */
-function operationReceiptPathLines(receipt: ReconciliationReport): readonly string[] {
+function operationReceiptPathLines(
+  receipt: ReconciliationReport,
+  scope: LocationDisplayScope,
+): readonly string[] {
   const lines = receipt.projects
     .slice()
     .sort((left, right) => compareCanonicalStrings(left.canonicalProject, right.canonicalProject))
@@ -2221,7 +2333,7 @@ function operationReceiptPathLines(receipt: ReconciliationReport): readonly stri
           const path = outputPathLine(output);
           return path === undefined ? [] : [{
             operation: PLANNED_OUTPUT_OPERATION_ORDER.indexOf(output.kind),
-            line: `  ${path} (${displayProjectPath(project.canonicalProject, project.project)})`,
+            line: `  ${path} (${displayProjectPath(project.canonicalProject, project.project, scope)})`,
           }];
         }),
     )
@@ -2237,18 +2349,19 @@ function operationReceiptPathLines(receipt: ReconciliationReport): readonly stri
 
 function applyReceiptLines(
   receipt: ReconciliationReport,
+  scope: LocationDisplayScope,
   summarizeFleet = false,
   fleetScope: ReconciliationReport = receipt,
 ): readonly string[] {
   if (summarizeFleet || useOperationSummary(receipt, false)) {
-    return operationReceiptLines(receipt, fleetScope);
+    return operationReceiptLines(receipt, fleetScope, scope);
   }
   const grouped = groupProjects(receipt);
   const entries = grouped.groups.flatMap((group) => {
     const paths = outputPathLines(group.outputs);
     if (paths.length > 0) {
       return [
-        `- ${displayProjectPath(group.canonicalProject, group.project)}:`,
+        `- ${displayProjectPath(group.canonicalProject, group.project, scope)}:`,
         ...paths.map((line) => `  ${line}`),
       ];
     }
@@ -2260,7 +2373,7 @@ function applyReceiptLines(
           : `${DEFAULT_VIEW_LEXICON.reconciliation.noun} ${item.kind}`),
     )];
     return workKinds.length > 0
-      ? [`- ${displayProjectPath(group.canonicalProject, group.project)}: ${workKinds.join(", ")}`]
+      ? [`- ${displayProjectPath(group.canonicalProject, group.project, scope)}: ${workKinds.join(", ")}`]
       : [];
   });
   const exclusionClause = repositoryExclusionClause(receipt, true);
@@ -2282,6 +2395,7 @@ function conciseReport(
   receipt?: ReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
+  const scope = locationDisplayScope(options, report);
   const grouped = groupProjects(report);
   const groups = grouped.groups;
   const blocked = reportBlockers(report).length > 0;
@@ -2309,7 +2423,7 @@ function conciseReport(
         `All ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
       ]
     : readyStatus
-    ? [...readyStatusImpactLines(report)]
+    ? [...readyStatusImpactLines(report, scope)]
     : [outcomeLine(command, report, receipt !== undefined)];
 
   const summary = !blocked && !fullyCurrentStatus && !readyStatus && !noOpApply && command !== "apply"
@@ -2318,7 +2432,7 @@ function conciseReport(
   if (summary !== undefined) lines.push(summary);
 
   if (command === "apply" && !blocked && !noOpApply && receipt !== undefined) {
-    const appliedLines = operationReceiptLines(receipt, report, false);
+    const appliedLines = operationReceiptLines(receipt, report, scope, false);
     if (appliedLines.length > 0) {
       lines.push("", ...appliedLines);
     }
@@ -2331,14 +2445,14 @@ function conciseReport(
 
   if (!noOpApply) {
     if (readyStatus) {
-      lines.push(...operationAttentionLines(report, true));
+      lines.push(...operationAttentionLines(report, scope, true));
     } else if (reportOperationSummary) {
-      lines.push(...operationSummarySections(report));
+      lines.push(...operationSummarySections(report, scope));
     } else if (activeGroups.length > 0) {
       for (const group of activeGroups) {
         lines.push(
           "",
-          `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project)}`,
+          `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project, scope)}`,
         );
         const desired = desiredInstallation(report, group.canonicalProject);
         if (desired) {
@@ -2348,7 +2462,7 @@ function conciseReport(
           lines.push(...conciseGroupBlockerLines(group, groups, "  ", {
             kind: "pointer",
             command,
-          }));
+          }, scope));
           continue;
         }
         for (const item of group.items) {
@@ -2361,10 +2475,11 @@ function conciseReport(
         for (const blocker of group.blockers) {
           lines.push(...conciseBlockerLines(
             blocker,
-            displayProjectPath(group.canonicalProject, group.project),
+            displayProjectPath(group.canonicalProject, group.project, scope),
             groups,
             "  ",
             { kind: "pointer", command },
+            scope,
           ));
         }
       }
@@ -2381,7 +2496,7 @@ function conciseReport(
   }
 
   if (command === "apply" && blocked) {
-    const stillPending = stillPendingProjects(report);
+    const stillPending = stillPendingProjects(report, scope);
     if (stillPending.length > 0) {
       lines.push("", `Still pending: ${stillPending.join(", ")}`);
     }
@@ -2393,7 +2508,7 @@ function conciseReport(
   const globalBlockerLines = conciseGlobalBlockerLines(report, groups, {
     kind: "pointer",
     command,
-  });
+  }, scope);
   if (globalBlockerLines.length > 0) lines.push("", ...globalBlockerLines);
   const blockedSummary = blocked ? aggregateLine(command, report, groups) : undefined;
   if (blockedSummary !== undefined) lines.push("", blockedSummary);
@@ -2405,7 +2520,7 @@ function conciseReport(
   if (warningGroups.length > 0) {
     lines.push("", "Warnings:");
     for (const group of warningGroups) {
-      const formatted = shortenProjectReferences(group.message, groups);
+      const formatted = shortenProjectReferences(group.message, groups, scope);
       lines.push(`- ${formatted} (${plural(group.projects.length, "Project")})`);
     }
   }
@@ -2414,11 +2529,13 @@ function conciseReport(
     report,
     command === "apply" ? receipt : undefined,
     false,
+    scope,
   );
   const setup = setupSectionsFromPresented(
     presented,
     false,
     command === "apply" ? receipt : undefined,
+    scope,
   );
   if (setup.length > 0) lines.push("", ...setup);
   const next = readyStatus
@@ -2429,7 +2546,7 @@ function conciseReport(
       }, options);
   if (next.length > 0) lines.push(...(readyStatus ? next : ["", ...next]));
   if (command === "apply" && blocked && receipt) {
-    lines.push("", ...committedApplyEvidence(receipt, report, report.projects.length > 1));
+    lines.push("", ...committedApplyEvidence(receipt, report, report.projects.length > 1, scope));
   }
   if (command === "apply" && reportBlockers(report).length === 0 && !noOpApply) {
     const readiness = receipt ? readinessLines(report, receipt) : [];
@@ -2607,13 +2724,14 @@ function wrappedLifecycleLine(
 
 function lifecycleCopyableValues(
   reports: readonly ReconciliationReport[],
+  scope: LocationDisplayScope,
 ): readonly string[] {
   const values = new Set<string>();
   for (const report of reports) {
     for (const installation of reportDesired(report)) {
       values.add(installation.canonicalProject);
       values.add(installation.project);
-      values.add(displayProjectPath(installation.canonicalProject, installation.project));
+      values.add(displayProjectPath(installation.canonicalProject, installation.project, scope));
       for (const output of installation.outputs) values.add(output);
       for (const artifact of installation.resolvedArtifacts) values.add(artifact.id);
     }
@@ -2708,6 +2826,7 @@ interface LifecycleHumanOptions {
 interface VerboseSectionOptions {
   readonly completedRepositoryExclusions?: boolean;
   readonly includeStateExplanations?: boolean;
+  readonly scope: LocationDisplayScope;
   readonly stateExplanationItems?: readonly ReconciliationItem[];
   readonly untrackRecovery: UntrackRecovery;
 }
@@ -2735,7 +2854,7 @@ function verboseSections(
     untrackRecovery,
   } = options;
   const groups = groupProjects(report).groups;
-  const shorten = (text: string): string => shortenProjectReferences(text, groups);
+  const shorten = (text: string): string => shortenProjectReferences(text, groups, options.scope);
   const items = reportItems(report).length === 0
     ? "(no projects)"
     : reportItems(report)
@@ -2786,7 +2905,7 @@ function verboseSections(
   const blockers = reportBlockers(report).length === 0
     ? "(none)"
     : reportBlockers(report).flatMap((blocker) =>
-        verboseBlockerLines(blocker, shorten, untrackRecovery)
+        verboseBlockerLines(blocker, groups, shorten, untrackRecovery, options.scope)
       ).join("\n");
   const outputs = reportOutputs(report).length === 0
     ? "(none)"
@@ -2805,7 +2924,7 @@ function verboseSections(
         .map((group) => {
           const formatted = shorten(group.message);
           const projectList = group.projects
-            .map((p) => displayProjectPath(p.canonicalProject, p.project))
+            .map((p) => displayProjectPath(p.canonicalProject, p.project, options.scope))
             .join(", ");
           return `- ${formatted} (${projectList})`;
         })
@@ -2819,34 +2938,45 @@ function verboseSections(
     : `${detail}${blockerSection}`;
 }
 
-function verboseSetupSection(command: LifecycleCommand, report: ReconciliationReport): string {
-  const setup = hostSetupSections(command, report, undefined, true);
+function verboseSetupSection(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+): string {
+  const setup = hostSetupSections(command, report, undefined, true, scope);
   return `Host Setup:\n${setup.length > 0 ? setup.join("\n") : "(none)"}\n`;
 }
 
-function verboseReport(command: LifecycleCommand, report: ReconciliationReport): string {
+function verboseReport(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+): string {
   return `${outcomeLine(command, report)}\n${verboseSections(report, {
+    scope,
     untrackRecovery: { kind: "pointer", command },
   })}` +
-    verboseSetupSection(command, report);
+    verboseSetupSection(command, report, scope);
 }
 
 function verboseApplyReport(result: {
   readonly receipt: ReconciliationReport;
   readonly resultingState: ReconciliationReport;
-}): string {
+}, scope: LocationDisplayScope): string {
   const report = (
     `${outcomeLine("apply", result.resultingState, true)}\n` +
     `Pending:\n${verboseSections(result.resultingState, {
+      scope,
       stateExplanationItems: [...reportItems(result.resultingState), ...reportItems(result.receipt)],
       untrackRecovery: { kind: "pointer", command: "apply" },
     })}` +
     `Applied:\n${verboseSections(result.receipt, {
       completedRepositoryExclusions: true,
       includeStateExplanations: false,
+      scope,
       untrackRecovery: { kind: "pointer", command: "apply" },
     })}` +
-    verboseSetupSection("apply", result.resultingState)
+    verboseSetupSection("apply", result.resultingState, scope)
   );
   const readiness = reportBlockers(result.resultingState).length === 0
     ? readinessLines(
@@ -2867,11 +2997,12 @@ function verboseApplyReport(result: {
 function focusedApplySafetyEvidence(
   postState: ReconciliationReport,
   receipt: ReconciliationReport,
+  scope: LocationDisplayScope,
 ): readonly string[] {
   const lines = [
-    ...committedApplyEvidence(receipt, postState, postState.projects.length > 1),
+    ...committedApplyEvidence(receipt, postState, postState.projects.length > 1, scope),
   ];
-  const pending = stillPendingProjects(postState);
+  const pending = stillPendingProjects(postState, scope);
   if (pending.length > 0) lines.push("", `Still pending: ${pending.join(", ")}`);
   return lines.length > 0 ? ["", ...lines] : lines;
 }
@@ -2881,10 +3012,11 @@ function focusedApplyReport(
   result: ApplyReconciliationResult,
   options: LifecycleHumanOptions,
 ): string {
-  const evidence = focusedApplySafetyEvidence(result.resultingState, result.receipt);
+  const scope = locationDisplayScope(options, result.resultingState);
+  const evidence = focusedApplySafetyEvidence(result.resultingState, result.receipt, scope);
   const blockers = options.verbose
-    ? focusedVerboseBlockers(result.resultingState)
-    : focusedConciseBlockers(result.resultingState, "apply");
+    ? focusedVerboseBlockers(result.resultingState, scope)
+    : focusedConciseBlockers(result.resultingState, "apply", scope);
   return [
     outcomeLine("apply", result.resultingState, true),
     ...evidence,
@@ -2896,39 +3028,45 @@ export function formatApplyReport(
   result: ApplyReconciliationResult,
   options: LifecycleHumanOptions = {},
 ): string {
+  const scope = locationDisplayScope(options, result.resultingState);
   const focused =
     options.blockersOnly === true && reportBlockers(result.resultingState).length > 0;
   const report = focused
     ? focusedApplyReport(result, options)
     : options.verbose
-    ? verboseApplyReport(result)
+    ? verboseApplyReport(result, scope)
     : conciseReport("apply", result.resultingState, result.receipt, options);
   return responsiveLifecycleOutput(
     report,
     options.context,
-    lifecycleCopyableValues([result.resultingState, result.receipt]),
+    lifecycleCopyableValues([result.resultingState, result.receipt], scope),
   );
 }
 
 export function formatApplyExecutionFailure(
   failure: {
-    readonly failedProject: string | undefined;
+    readonly detail: string;
+    readonly failedProject: ProjectIdentity | undefined;
     readonly message: string;
-    readonly pendingProjects: readonly string[];
+    readonly pendingProjects: readonly ProjectIdentity[];
     readonly receipt: ReconciliationReport;
     readonly resultingState: ReconciliationReport | undefined;
   },
   options: LifecycleHumanOptions = {},
 ): string {
+  const scope = locationDisplayScope(options, failure.receipt);
+  const failedProject = failure.failedProject === undefined
+    ? undefined
+    : presentProject(failure.failedProject, scope);
   const lines = [
-    failure.message,
-    ...(failure.failedProject === undefined
-      ? []
-      : [`Failed Project: ${displayProjectPath(failure.failedProject)}`]),
+    failedProject === undefined
+      ? `Apply failed after committing Project work: ${failure.detail}`
+      : `Apply failed at ${failedProject}: ${failure.detail}`,
+    ...(failedProject === undefined ? [] : [`Failed Project: ${failedProject}`]),
     `Still pending: ${failure.pendingProjects.length === 0
       ? "none"
-      : failure.pendingProjects.map((project) => displayProjectPath(project)).join(", ")}`,
-    ...applyReceiptLines(failure.receipt),
+      : failure.pendingProjects.map((project) => presentProject(project, scope)).join(", ")}`,
+    ...applyReceiptLines(failure.receipt, scope),
   ];
   if (failure.resultingState !== undefined) {
     const appliedProjects = new Set(
@@ -2938,7 +3076,7 @@ export function formatApplyExecutionFailure(
       .filter((project) =>
         project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
       )
-      .map((project) => displayProjectPath(project.canonicalProject, project.project));
+      .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
     if (current.length > 0) lines.push(`Freshly current: ${current.join(", ")}`);
   }
   if (
@@ -2948,8 +3086,15 @@ export function formatApplyExecutionFailure(
   ) {
     // Both focused sections supply their own leading blank line (RE-1).
     lines.push(...(options.verbose
-      ? focusedVerboseBlockers(failure.resultingState)
-      : focusedConciseBlockers(failure.resultingState, "apply")));
+      ? focusedVerboseBlockers(
+          failure.resultingState,
+          locationDisplayScope(options, failure.resultingState),
+        )
+      : focusedConciseBlockers(
+          failure.resultingState,
+          "apply",
+          locationDisplayScope(options, failure.resultingState),
+        )));
   }
   return responsiveLifecycleOutput(
     `${lines.join("\n")}\n`,
@@ -2957,7 +3102,7 @@ export function formatApplyExecutionFailure(
     lifecycleCopyableValues([
       failure.receipt,
       ...(failure.resultingState === undefined ? [] : [failure.resultingState]),
-    ]),
+    ], scope),
   );
 }
 
@@ -2966,31 +3111,39 @@ export function formatApplyVerificationFailure(
   message: string,
   options: LifecycleHumanOptions = {},
 ): string {
+  const scope = locationDisplayScope(options, receipt);
   if (options.verbose) {
     return responsiveLifecycleOutput(
       `${message}\nApplied:\n${verboseSections(receipt, {
         completedRepositoryExclusions: true,
+        scope,
         // Focused verbose verification failure carries the exact command
         // (#353 Decision 3); ordinary verbose points to the focused view.
         untrackRecovery: options.blockersOnly === true
           ? { kind: "full" }
           : { kind: "pointer", command: "apply" },
       })}` +
-        verboseSetupSection("apply", receipt),
+        verboseSetupSection("apply", receipt, scope),
       options.context,
-      lifecycleCopyableValues([receipt]),
+      lifecycleCopyableValues([receipt], scope),
     );
   }
   const lines = [
     message,
-    ...applyReceiptLines(receipt),
+    ...applyReceiptLines(receipt, scope),
   ];
-  const setup = hostSetupSections("apply", receipt, receipt);
+  const setup = hostSetupSections(
+    "apply",
+    receipt,
+    receipt,
+    false,
+    scope,
+  );
   if (setup.length > 0) lines.push("", ...setup);
   return responsiveLifecycleOutput(
     `${lines.join("\n")}\n`,
     options.context,
-    lifecycleCopyableValues([receipt]),
+    lifecycleCopyableValues([receipt], scope),
   );
 }
 
@@ -2998,18 +3151,19 @@ export function formatBlockedApplyReport(
   report: BlockedReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
+  const scope = locationDisplayScope(options, report);
   const focused = options.blockersOnly === true && reportBlockers(report).length > 0;
   const output = focused
     ? [
         outcomeLine("apply", report),
         ...(options.verbose
-          ? focusedVerboseBlockers(report)
-          : focusedConciseBlockers(report, "apply")),
+          ? focusedVerboseBlockers(report, scope)
+          : focusedConciseBlockers(report, "apply", scope)),
       ].join("\n") + "\n"
     : options.verbose
-    ? verboseReport("apply", report)
+    ? verboseReport("apply", report, scope)
     : conciseReport("apply", report, undefined, options);
-  return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
+  return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report], scope));
 }
 
 /**
@@ -3048,6 +3202,7 @@ function displayedBlockerGroups(report: ReconciliationReport): readonly ProjectG
 function focusedConciseBlockers(
   report: ReconciliationReport,
   command: LifecycleCommand,
+  scope: LocationDisplayScope,
 ): readonly string[] {
   const grouped = groupProjects(report);
   const displayedGroups = displayedBlockerGroups(report);
@@ -3055,14 +3210,14 @@ function focusedConciseBlockers(
   for (const group of displayedGroups) {
     lines.push(
       "",
-      `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project)}`,
-      ...conciseGroupBlockerLines(group, grouped.groups, "  ", { kind: "pointer", command }),
+      `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project, scope)}`,
+      ...conciseGroupBlockerLines(group, grouped.groups, "  ", { kind: "pointer", command }, scope),
     );
   }
   const globalBlockerLines = conciseGlobalBlockerLines(report, grouped.groups, {
     kind: "pointer",
     command,
-  });
+  }, scope);
   if (globalBlockerLines.length > 0) lines.push("", ...globalBlockerLines);
   lines.push("", blockersOnlyFooter(report));
   return lines;
@@ -3073,14 +3228,17 @@ function focusedConciseBlockers(
  * leading blank line keeps one spacing contract across focused views (INT-3).
  * This is the only view that prints the exact user-owned untracking command
  * (#353, spec #345 Decision 8). */
-function focusedVerboseBlockers(report: ReconciliationReport): readonly string[] {
+function focusedVerboseBlockers(
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+): readonly string[] {
   const groups = groupProjects(report).groups;
-  const shorten = (text: string): string => shortenProjectReferences(text, groups);
+  const shorten = (text: string): string => shortenProjectReferences(text, groups, scope);
   return [
     "",
     `Blockers:\n${reportBlockers(report)
       .flatMap((blocker) =>
-        verboseBlockerLines(blocker, shorten, { kind: "full" })
+        verboseBlockerLines(blocker, groups, shorten, { kind: "full" }, scope)
       )
       .join("\n")}`,
     "",
@@ -3091,8 +3249,9 @@ function focusedVerboseBlockers(report: ReconciliationReport): readonly string[]
 function blockersOnlyConciseReport(
   report: ReconciliationReport,
   options: LifecycleHumanOptions,
+  scope: LocationDisplayScope,
 ): string {
-  const lines = [outcomeLine("status", report), ...focusedConciseBlockers(report, "status")];
+  const lines = [outcomeLine("status", report), ...focusedConciseBlockers(report, "status", scope)];
   // Next actions cover exactly the displayed groups, so pending but
   // Blocker-free Projects cannot leak into the focused view.
   const next = nextActionLines("status", report, {
@@ -3103,10 +3262,13 @@ function blockersOnlyConciseReport(
   return `${lines.join("\n")}\n`;
 }
 
-function blockersOnlyVerboseReport(report: ReconciliationReport): string {
+function blockersOnlyVerboseReport(
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+): string {
   return [
     outcomeLine("status", report),
-    ...focusedVerboseBlockers(report),
+    ...focusedVerboseBlockers(report, scope),
   ].join("\n") + "\n";
 }
 
@@ -3115,6 +3277,7 @@ export function formatLifecycleReport(
   report: ReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
+  const scope = locationDisplayScope(options, report);
   if (options.blockersOnly === true) {
     if (reportBlockers(report).length === 0) {
       const completeView = options.all === true
@@ -3122,17 +3285,25 @@ export function formatLifecycleReport(
         : `${COMMAND_NAME} status`;
       const output =
         `No blockers.\nNext: Run ${completeView} for the complete lifecycle view.\n`;
-      return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
+      return responsiveLifecycleOutput(
+        output,
+        options.context,
+        lifecycleCopyableValues([report], scope),
+      );
     }
     const output = options.verbose
-      ? blockersOnlyVerboseReport(report)
-      : blockersOnlyConciseReport(report, options);
-    return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
+      ? blockersOnlyVerboseReport(report, scope)
+      : blockersOnlyConciseReport(report, options, scope);
+    return responsiveLifecycleOutput(
+      output,
+      options.context,
+      lifecycleCopyableValues([report], scope),
+    );
   }
   const output = options.verbose
-    ? verboseReport(command, report)
+    ? verboseReport(command, report, scope)
     : conciseReport(command, report, undefined, options);
-  return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report]));
+  return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report], scope));
 }
 
 /**
@@ -3316,9 +3487,9 @@ export function formatBlockedApplyJson(report: BlockedReconciliationReport): str
 }
 
 export function formatApplyExecutionFailureJson(failure: {
-  readonly failedProject: string | undefined;
+  readonly failedProject: ProjectIdentity | undefined;
   readonly message: string;
-  readonly pendingProjects: readonly string[];
+  readonly pendingProjects: readonly ProjectIdentity[];
   readonly receipt: ReconciliationReport;
   readonly resultingState: ReconciliationReport | undefined;
 }): string {
@@ -3331,8 +3502,10 @@ export function formatApplyExecutionFailureJson(failure: {
       ? { globalBlockers: [], projects: [] }
       : canonicalMachineSnapshot(failure.resultingState) as object),
     applied: canonicalMachineSnapshot(failure.receipt),
-    ...(failure.failedProject === undefined ? {} : { failedProject: failure.failedProject }),
-    pendingProjects: [...failure.pendingProjects],
+    ...(failure.failedProject === undefined
+      ? {}
+      : { failedProject: failure.failedProject.canonicalProject }),
+    pendingProjects: failure.pendingProjects.map((project) => project.canonicalProject),
   });
 }
 
@@ -3451,7 +3624,7 @@ export function formatTemporaryInstallationHuman(
   }
   const project = receipt.project === undefined
     ? undefined
-    : displayProjectPath(receipt.project, receipt.project, cwd, home);
+    : displayProjectPath(receipt.project, receipt.project, "project", cwd, home);
   if (command === "install-temp") {
     const removalCommand = `${COMMAND_NAME} machine remove-temp ${receipt.temporaryInstallationId}`;
     const warningLines = receipt.warnings.length === 0
@@ -3530,13 +3703,13 @@ export function presentTemporaryBlockedMessages(
   cwd = process.cwd(),
   home = homedir(),
 ): { readonly presented: string; readonly text: string } {
-  let presented = displayProjectPath(canonicalProject, authoredProject, cwd, home);
-  if (presented === "." || presented === ".." || presented.startsWith("../")) {
-    // A bare cwd-relative identity would lose the blocked message's subject;
-    // blocked diagnostics identify the Project independently of the caller's
-    // working directory.
-    presented = displayProjectPath(canonicalProject, authoredProject, home, home);
-  }
+  const presented = displayProjectPath(
+    canonicalProject,
+    authoredProject,
+    "fleet",
+    cwd,
+    home,
+  );
   const references = [...new Set([canonicalProject, absoluteAuthoredPath(authoredProject, home)])]
     .sort((left, right) => right.length - left.length || left.localeCompare(right));
   const text = blockers
