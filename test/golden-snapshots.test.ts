@@ -285,6 +285,16 @@ describe("golden snapshots of every human view", () => {
     expectGolden("focused-guide", await runCli(home, ["guide", "profile"]), home);
   });
 
+  test("focused guide context", async () => {
+    const home = isolatedHome();
+    expectGolden("focused-guide-context", await runCli(home, ["guide", "context"]), home);
+  });
+
+  test("focused guide skill", async () => {
+    const home = isolatedHome();
+    expectGolden("focused-guide-skill", await runCli(home, ["guide", "skill"]), home);
+  });
+
   test("full guide", async () => {
     const home = isolatedHome();
     expectGolden("full-guide", await runCli(home, ["guide", "--full"]), home);
@@ -468,6 +478,11 @@ describe("golden snapshots of every human view", () => {
 describe("rendering matrix for a representative subset", () => {
   const cells = [
     { name: "interactive-narrow-nocolor", columns: MIN_HUMAN_WIDTH, environment: { NO_COLOR: "1" } },
+    {
+      name: "interactive-narrow-color",
+      columns: MIN_HUMAN_WIDTH,
+      environment: COLOR_TERMINAL_ENVIRONMENT,
+    },
     { name: "interactive-wide-nocolor", columns: MAX_HUMAN_WIDTH, environment: { NO_COLOR: "1" } },
     {
       name: "interactive-wide-color",
