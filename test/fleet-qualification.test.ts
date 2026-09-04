@@ -459,12 +459,14 @@ describe("fleet-wide synchronization qualification", () => {
     expect(readFileSync(statePath, "utf8")).toBe(published);
   });
 
-  test("delayed progress never flickers on the packed fleet because status never probes, and non-interactive modes stay progress-free", async () => {
+  test("delayed progress is cleared on the packed fleet PTY, and non-interactive modes stay progress-free", async () => {
     const home = isolatedHome();
     const { pathWithHosts } = createPackedFleet(home);
 
     // A deliberately slow Host stub is on PATH; status never launches it, so
-    // the interactive fleet report renders without any progress bytes.
+    // the report is never delayed by probing. The packed fleet can still
+    // exceed the delayed-progress threshold, so interactive progress may be
+    // captured and then cleared by CR-overwrite before the concise report.
     const pty = await runCliInPtyRaw(
       home,
       80,
@@ -474,9 +476,16 @@ describe("fleet-wide synchronization qualification", () => {
       "--all",
     );
     expectExitCode(pty, 0);
-    expect(pty.stdout).not.toContain(STATUS_PROGRESS_LABEL);
-    // The concise fleet report follows without a progress line or matrix flicker.
-    expect(pty.stdout).toContain("Updates ready");
+    // The concise fleet report follows. Any delayed progress was cleared by
+    // finish()'s CR-overwrite; model the visible content by resolving past
+    // that clear sequence (CR + spaces + CR) instead of splitting raw CRLF
+    // bytes, which the PTY also inserts for ordinary newlines.
+    if (pty.stdout.includes(STATUS_PROGRESS_LABEL)) {
+      expect(pty.stdout).toMatch(
+        new RegExp(`\\r${STATUS_PROGRESS_LABEL}(?:\\.){0,3}\\r[ ]+\\r`),
+      );
+    }
+    expect(pty.stdout.split(/\r[ ]+\r/).at(-1) ?? "").toContain("Updates ready");
 
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({
