@@ -17,6 +17,7 @@
     "build:bundle": "bun build cli/index.ts --target=node --packages=bundle --outfile=dist/cli.js --silent",
     "test": "bun run test/support/suite-supervisor.ts full",
     "test:focused": "bun run test/support/suite-supervisor.ts focused",
+    "test:fleet": "bun run test/support/suite-supervisor.ts focused test/fleet-qualification.test.ts",
     "test:stress": "bun run test/support/suite-supervisor.ts stress",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepack": "bun run build"
