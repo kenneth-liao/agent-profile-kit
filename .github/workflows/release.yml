@@ -76,10 +76,16 @@ jobs:
       - name: Run test suite
         run: bun run test
 
+      - name: Run fleet-scale regressions
+        run: bun run test:fleet
+
+      # Load-bearing for golden snapshots: an uncommitted snapshot must fail
+      # rather than pass silently. Snapshot updating is never enabled here.
       - name: Verify clean generated output
         run: |
           git diff --check
           git diff --exit-code
+          test -z "$(git status --porcelain)"
 
       - name: Pack release artifact
         id: pack

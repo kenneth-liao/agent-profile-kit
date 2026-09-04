@@ -46,10 +46,10 @@ test("runs the complete gate for ready pull-request activity and main pushes onl
   expect(workflow.on?.push?.branches).toEqual(["main"]);
 
   const jobs = Object.values(workflow.jobs ?? {});
-  expect(jobs).toHaveLength(1);
-  expect(jobs[0]?.if).toBe(
+  expect(jobs).toHaveLength(2);
+  expect(jobs.every((job) => job.if ===
     "github.event_name != 'pull_request' || github.event.pull_request.draft == false",
-  );
+  )).toBe(true);
 });
 
 test("retains the bounded macOS gate and superseded-run cancellation", () => {
@@ -138,6 +138,7 @@ test("package consumers reuse the CI archive but retain a local build-and-pack f
   const consumers = [
     "test/cli.test.ts",
     "test/fleet-qualification.test.ts",
+    "test/golden-snapshots.test.ts",
     "test/release-boundary.test.ts",
     "test/release-candidate.test.ts",
   ].map((path) => readFileSync(resolve(repositoryRoot, path), "utf8")).join("\n");
@@ -149,15 +150,30 @@ test("package consumers reuse the CI archive but retain a local build-and-pack f
   expect(consumers).not.toContain('["pack"');
 });
 
-test("orchestrates typecheck, bundle, archive, and the supervised suite exactly once", () => {
+test("fails CI when a snapshot is created or changed without being committed", () => {
   const steps = Object.values(workflow.jobs ?? {}).flatMap((job) => job.steps ?? []);
+  const clean = steps.find((step) => step.name === "Verify clean generated output");
+
+  expect(clean?.run).toContain("git diff --check");
+  expect(clean?.run).toContain("git diff --exit-code");
+  expect(clean?.run).toContain('test -z "$(git status --porcelain)"');
+  expect(workflowSource).toMatch(/uncommitted snapshot/i);
+  expect(workflowSource).toMatch(/load-bearing/i);
+  expect(workflowSource).not.toMatch(/--update-snapshots/);
+  expect(workflowSource).not.toMatch(/update-snapshots/);
+});
+
+test("orchestrates typecheck, bundle, archive, and the supervised suite exactly once", () => {
+  const fast = workflow.jobs?.["macos-supported-platform"];
+  const steps = fast?.steps ?? [];
   const commands = steps.map((step) => step.run ?? "").join("\n");
   const count = (command: string): number => commands.split(command).length - 1;
 
   expect(count("bun run typecheck")).toBe(1);
   expect(count("bun run build:bundle")).toBe(1);
   expect(count("npm pack")).toBe(1);
-  expect(count("bun run test")).toBe(1);
+  expect(count("bun run test\n")).toBe(1);
+  expect(commands).not.toContain("bun run test:fleet");
   expect(commands).not.toContain("bun run build\n");
   expect(commands).not.toContain("bun test");
   expect(commands).not.toContain("--timeout");
@@ -176,4 +192,24 @@ test("orchestrates typecheck, bundle, archive, and the supervised suite exactly 
   expect(stepNames.indexOf("Create package archive")).toBeLessThan(
     stepNames.indexOf("Run test suite"),
   );
+});
+
+test("runs fleet-scale regressions in a separate job without raising the fast deadline", () => {
+  const fast = workflow.jobs?.["macos-supported-platform"];
+  const fleet = workflow.jobs?.["fleet-scale-regressions"];
+
+  expect(fast?.["timeout-minutes"]).toBe(15);
+  expect(fleet?.["runs-on"]).toBe("macos-15");
+  expect(fleet?.["timeout-minutes"]).toBe(15);
+  expect(fleet?.if).toBe(fast?.if);
+
+  const fleetSteps = fleet?.steps ?? [];
+  const fleetCommands = fleetSteps.map((step) => step.run ?? "").join("\n");
+  expect(fleetCommands).toContain("bun run test:fleet");
+  expect(fleetCommands).not.toMatch(/(^|\n)bun run test(\n|$)/);
+  expect(fleetCommands).not.toContain("bun test");
+  expect(fleetCommands).not.toContain("--timeout");
+  expect(fleetCommands).not.toContain("--update-snapshots");
+  expect(fleetSteps.some((step) => step.name === "Install dependencies")).toBe(true);
+  expect(fleetSteps.some((step) => step.name === "Build production CLI")).toBe(true);
 });

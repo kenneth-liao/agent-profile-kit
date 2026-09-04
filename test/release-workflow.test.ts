@@ -54,7 +54,9 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   expect(commands).toContain("bun run typecheck");
   expect(commands).toContain("bun run build");
   expect(commands).toContain("bun run test");
+  expect(commands).toContain("bun run test:fleet");
   expect(commands).toContain("git diff --exit-code");
+  expect(commands).toContain('test -z "$(git status --porcelain)"');
   expect(commands).toContain("npm pack --ignore-scripts");
   expect(commands).toContain('"$INSTALL_ROOT/node_modules/.bin/apkit" guide');
   expect(commands).toContain("CHANGELOG.md > release-notes.md");

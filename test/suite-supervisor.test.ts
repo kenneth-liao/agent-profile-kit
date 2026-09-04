@@ -118,6 +118,25 @@ describe("suite supervisor: full mode", () => {
       rmSync(logDir, { recursive: true, force: true });
     }
   });
+
+  test("keeps fleet-scale regressions out of the fast suite", async () => {
+    const logDir = tempDir();
+    try {
+      const result = await runSupervisedSuite({
+        mode: "full",
+        suiteCommand: shFixture('printf "%s\n" "$@"', "argv fixture"),
+        perRunDeadlineMs: 2000,
+        logDir,
+      });
+      expect(result.ok).toBe(true);
+      const argv = result.runs[0]!.result.stdout.trim().split("\n");
+      expect(argv).toContain("--path-ignore-patterns");
+      const patternIndex = argv.indexOf("--path-ignore-patterns");
+      expect(argv[patternIndex + 1]).toBe("test/fleet-qualification.test.ts");
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("suite supervisor: focused mode", () => {
@@ -594,10 +613,14 @@ describe("canonical command surface", () => {
       "bun run test/support/suite-supervisor.ts focused",
     );
     expect(manifest.scripts["test:stress"]).toBe("bun run test/support/suite-supervisor.ts stress");
+    expect(manifest.scripts["test:fleet"]).toBe(
+      "bun run test/support/suite-supervisor.ts focused test/fleet-qualification.test.ts",
+    );
     for (const script of [
       manifest.scripts.test,
       manifest.scripts["test:focused"],
       manifest.scripts["test:stress"],
+      manifest.scripts["test:fleet"],
     ]) {
       // Policy (timeouts, repetition) lives only in the supervisor; the runner is never invoked raw.
       expect(script).not.toContain("bun test");
@@ -648,6 +671,9 @@ describe("canonical command surface", () => {
     expect(runbook).toContain("bun run test");
     expect(agents).toContain("`bun run test`");
     expect(agents).toContain("`bun run test:focused -- <paths-or-filters>`");
+    expect(agents).toContain("`bun run test:fleet`");
     expect(agents).toContain("`bun run test:stress`");
+    expect(read(".github/workflows/ci.yml")).toContain("bun run test:fleet");
+    expect(read(".github/workflows/release.yml")).toContain("bun run test:fleet");
   });
 });

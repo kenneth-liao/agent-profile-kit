@@ -25,6 +25,8 @@ export const DEFAULT_PER_RUN_DEADLINE_MS = 300_000;
 export const DEFAULT_AGGREGATE_DEADLINE_MS = 1_500_000;
 /** A stress run completes after this many sequential green runs. */
 export const DEFAULT_MAX_RUNS = 10;
+/** Fleet-scale regressions excluded from the fast suite's deadline. */
+export const FAST_SUITE_PATH_IGNORE_PATTERNS = ["test/fleet-qualification.test.ts"] as const;
 /** Optional canonical CLI input for an explicit diagnostics directory. */
 export const DIAGNOSTICS_DIR_ENV = "APKIT_TEST_DIAGNOSTICS_DIR";
 
@@ -207,6 +209,12 @@ export async function runSupervisedSuite(
           ...suiteCommand.slice(1),
           "--timeout",
           String(PER_TEST_TIMEOUT_MS),
+          ...(mode === "focused"
+            ? []
+            : FAST_SUITE_PATH_IGNORE_PATTERNS.flatMap((pattern) => [
+                "--path-ignore-patterns",
+                pattern,
+              ])),
           ...(options.bunArguments ?? []),
         ],
         deadlineMs: runDeadline,
