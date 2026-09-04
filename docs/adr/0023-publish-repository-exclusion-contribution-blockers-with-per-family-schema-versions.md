@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0025
 ---
 
 # Publish the Repository Exclusion Contribution Blocker kind with per-family payload schema versions
