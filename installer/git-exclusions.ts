@@ -1,7 +1,7 @@
 import { chmod, lstat, mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/canonical.js";
 import type { OwnershipOutputReceipt, OwnershipState } from "../schemas/ownership-state.js";
 import { assertRealDirectoryPath, findGitProject, gitExcludeEntry, type GitProject } from "./git.js";
 import type { LifecycleGitInspection } from "./lifecycle-git-inspection.js";

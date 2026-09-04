@@ -125,7 +125,7 @@ import {
   type InventoryTopic,
   type MachineInventoryTopic,
 } from "./inventory-topics.js";
-import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/canonical.js";
 
 export type LifecycleCommand = "apply" | "status";
 

@@ -1,5 +1,5 @@
 import { OUTPUT_REMEDY_KEYS, type OutputRemedyKey } from "../adapters/project-plan.js";
-import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/canonical.js";
 
 /** A blocker scope retains the legacy project identity as a separate projection. */
 export type BlockerScope = "global" | "project";

@@ -101,7 +101,7 @@ test("legacy Installation State readers and retired receipt projections stay abs
   const ownershipBoundaryPaths = [
     "installer/installation-state.ts",
     "installer/ownership-state.ts",
-    "schemas/installation-manifest.ts",
+    "schemas/canonical.ts",
     "schemas/ownership-state.ts",
   ];
   const productionSource = ownershipBoundaryPaths

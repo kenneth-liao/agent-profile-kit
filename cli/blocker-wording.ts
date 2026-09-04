@@ -18,7 +18,7 @@ import {
   type StateReadFailureFact,
   type TemporaryRemovalFailureFact,
 } from "../installer/blockers.js";
-import { compareCanonicalStrings } from "../schemas/installation-manifest.js";
+import { compareCanonicalStrings } from "../schemas/canonical.js";
 
 /**
  * Presentation-owned blocker wording, keyed by typed {@link BlockerKind}.
