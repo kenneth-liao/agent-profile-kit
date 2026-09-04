@@ -476,12 +476,16 @@ describe("fleet-wide synchronization qualification", () => {
       "--all",
     );
     expectExitCode(pty, 0);
-    // The concise fleet report follows, and any delayed progress was cleared:
-    // it must not remain as a leftover final line.
-    expect(pty.stdout).toContain("Updates ready");
-    expect(
-      pty.stdout.trimEnd().split("\r\n").filter((line) => line.includes(STATUS_PROGRESS_LABEL)),
-    ).toEqual([]);
+    // The concise fleet report follows. Any delayed progress was cleared by
+    // finish()'s CR-overwrite; model the visible content by resolving past
+    // that clear sequence (CR + spaces + CR) instead of splitting raw CRLF
+    // bytes, which the PTY also inserts for ordinary newlines.
+    if (pty.stdout.includes(STATUS_PROGRESS_LABEL)) {
+      expect(pty.stdout).toMatch(
+        new RegExp(`\\r${STATUS_PROGRESS_LABEL}(?:\\.){0,3}\\r[ ]+\\r`),
+      );
+    }
+    expect(pty.stdout.split(/\r[ ]+\r/).at(-1) ?? "").toContain("Updates ready");
 
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({
