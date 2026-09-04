@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { COMMANDS } from "../cli/command-help.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { MAX_HUMAN_WIDTH, MIN_HUMAN_WIDTH } from "../cli/terminal-presentation.js";
 import { obtainPackageArchive } from "./support/package-archive.js";
@@ -240,6 +241,350 @@ async function blockedHome(): Promise<{ home: string; project: string }> {
   return { home, project };
 }
 
+function publicCommandId(command: (typeof COMMANDS)[number]): string {
+  return command.namespace === undefined ? command.name : `${command.namespace} ${command.name}`;
+}
+
+const EXTRA_ROUTES = [
+  "root-help",
+  "machine-help",
+  "focused-command-help",
+  "unknown-command",
+  "unknown-machine-command",
+  "unbound-directory-error",
+] as const;
+
+interface HumanView {
+  readonly test: string;
+  readonly snapshot: string;
+  readonly commandId?: string;
+  readonly extraRoute?: (typeof EXTRA_ROUTES)[number];
+  readonly prepare: () => Promise<{ home: string; args: readonly string[] }>;
+}
+
+const HUMAN_VIEWS: readonly HumanView[] = [
+  {
+    test: "root help",
+    snapshot: "root-help",
+    extraRoute: "root-help",
+    prepare: async () => ({ home: isolatedHome(), args: ["--help"] }),
+  },
+  {
+    test: "machine help",
+    snapshot: "machine-help",
+    extraRoute: "machine-help",
+    prepare: async () => ({ home: isolatedHome(), args: ["machine", "--help"] }),
+  },
+  {
+    test: "focused command help",
+    snapshot: "focused-command-help",
+    extraRoute: "focused-command-help",
+    prepare: async () => ({ home: isolatedHome(), args: ["status", "--help"] }),
+  },
+  {
+    test: "unknown command",
+    snapshot: "unknown-command",
+    extraRoute: "unknown-command",
+    prepare: async () => ({ home: isolatedHome(), args: ["nosuch"] }),
+  },
+  {
+    test: "unknown machine command",
+    snapshot: "unknown-machine-command",
+    extraRoute: "unknown-machine-command",
+    prepare: async () => ({ home: isolatedHome(), args: ["machine", "nosuch"] }),
+  },
+  {
+    test: "guide index",
+    snapshot: "guide-index",
+    commandId: "guide",
+    prepare: async () => ({ home: isolatedHome(), args: ["guide"] }),
+  },
+  {
+    test: "focused guide",
+    snapshot: "focused-guide",
+    commandId: "guide",
+    prepare: async () => ({ home: isolatedHome(), args: ["guide", "profile"] }),
+  },
+  {
+    test: "focused guide context",
+    snapshot: "focused-guide-context",
+    commandId: "guide",
+    prepare: async () => ({ home: isolatedHome(), args: ["guide", "context"] }),
+  },
+  {
+    test: "focused guide skill",
+    snapshot: "focused-guide-skill",
+    commandId: "guide",
+    prepare: async () => ({ home: isolatedHome(), args: ["guide", "skill"] }),
+  },
+  {
+    test: "full guide",
+    snapshot: "full-guide",
+    commandId: "guide",
+    prepare: async () => ({ home: isolatedHome(), args: ["guide", "--full"] }),
+  },
+  {
+    test: "agent guide",
+    snapshot: "agent-guide",
+    commandId: "guide",
+    prepare: async () => ({ home: isolatedHome(), args: ["guide", "--agent"] }),
+  },
+  {
+    test: "info",
+    snapshot: "info",
+    commandId: "info",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      return { home, args: ["info"] };
+    },
+  },
+  {
+    test: "list index",
+    snapshot: "list-index",
+    commandId: "list",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      return { home, args: ["list"] };
+    },
+  },
+  {
+    test: "list projects",
+    snapshot: "list-projects",
+    commandId: "list",
+    prepare: async () => {
+      const { home } = await pendingHome();
+      await bindExample(home, demoProject(home, "other"));
+      return { home, args: ["list", "projects"] };
+    },
+  },
+  {
+    test: "list profiles",
+    snapshot: "list-profiles",
+    commandId: "list",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      return { home, args: ["list", "profiles"] };
+    },
+  },
+  {
+    test: "list hosts",
+    snapshot: "list-hosts",
+    commandId: "list",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      return { home, args: ["list", "hosts"] };
+    },
+  },
+  {
+    test: "machine list index",
+    snapshot: "machine-list-index",
+    commandId: "machine list",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      return { home, args: ["machine", "list"] };
+    },
+  },
+  {
+    test: "machine list temporary",
+    snapshot: "machine-list-temporary",
+    commandId: "machine list",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      return { home, args: ["machine", "list", "temporary"] };
+    },
+  },
+  {
+    test: "init",
+    snapshot: "init",
+    commandId: "init",
+    prepare: async () => ({ home: isolatedHome(), args: ["init"] }),
+  },
+  {
+    test: "bind success",
+    snapshot: "bind-success",
+    commandId: "bind",
+    prepare: async () => {
+      const { home, project } = await initializedHome();
+      return {
+        home,
+        args: ["bind", AUTHORING_EXAMPLES.profile.id, project, "--host", "codex"],
+      };
+    },
+  },
+  {
+    test: "validate",
+    snapshot: "validate",
+    commandId: "validate",
+    prepare: async () => {
+      const { home } = await pendingHome();
+      return { home, args: ["validate"] };
+    },
+  },
+  {
+    test: "status current",
+    snapshot: "status-current",
+    commandId: "status",
+    prepare: async () => {
+      const { home, project } = await currentHome();
+      return { home, args: ["status", project] };
+    },
+  },
+  {
+    test: "status pending",
+    snapshot: "status-pending",
+    commandId: "status",
+    prepare: async () => {
+      const { home, project } = await pendingHome();
+      return { home, args: ["status", project] };
+    },
+  },
+  {
+    test: "status blocked",
+    snapshot: "status-blocked",
+    commandId: "status",
+    prepare: async () => {
+      const { home, project } = await blockedHome();
+      return { home, args: ["status", project] };
+    },
+  },
+  {
+    test: "status verbose",
+    snapshot: "status-verbose",
+    commandId: "status",
+    prepare: async () => {
+      const { home, project } = await currentHome();
+      return { home, args: ["status", project, "--verbose"] };
+    },
+  },
+  {
+    test: "status blockers-only",
+    snapshot: "status-blockers-only",
+    commandId: "status",
+    prepare: async () => {
+      const { home, project } = await blockedHome();
+      return { home, args: ["status", project, "--blockers-only"] };
+    },
+  },
+  {
+    test: "apply receipt",
+    snapshot: "apply-receipt",
+    commandId: "apply",
+    prepare: async () => {
+      const { home, project } = await pendingHome();
+      return { home, args: ["apply", project] };
+    },
+  },
+  {
+    test: "apply no-op",
+    snapshot: "apply-noop",
+    commandId: "apply",
+    prepare: async () => {
+      const { home, project } = await currentHome();
+      return { home, args: ["apply", project] };
+    },
+  },
+  {
+    test: "apply blocked",
+    snapshot: "apply-blocked",
+    commandId: "apply",
+    prepare: async () => {
+      const { home, project } = await blockedHome();
+      return { home, args: ["apply", project] };
+    },
+  },
+  {
+    test: "unbind",
+    snapshot: "unbind",
+    commandId: "unbind",
+    prepare: async () => {
+      const { home, project } = await pendingHome();
+      return { home, args: ["unbind", project] };
+    },
+  },
+  {
+    test: "uninstall",
+    snapshot: "uninstall",
+    commandId: "uninstall",
+    prepare: async () => {
+      const { home } = await currentHome();
+      return { home, args: ["uninstall"] };
+    },
+  },
+  {
+    test: "install-temp",
+    snapshot: "install-temp",
+    commandId: "machine install-temp",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      return {
+        home,
+        args: [
+          "machine",
+          "install-temp",
+          AUTHORING_EXAMPLES.profile.id,
+          gitProject(home, "temporary"),
+          "--host",
+          "codex",
+        ],
+      };
+    },
+  },
+  {
+    test: "remove-temp",
+    snapshot: "remove-temp",
+    commandId: "machine remove-temp",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      const project = gitProject(home, "temporary-remove");
+      const installed = await runCli(home, [
+        "machine",
+        "install-temp",
+        AUTHORING_EXAMPLES.profile.id,
+        project,
+        "--host",
+        "codex",
+      ]);
+      expectExitCode(installed, 0);
+      const identity = installed.stdout.match(/^  Temporary installation: (\S+)$/m)?.[1];
+      expect(identity).toBeTruthy();
+      return { home, args: ["machine", "remove-temp", identity!] };
+    },
+  },
+  {
+    test: "blocked temp",
+    snapshot: "blocked-temp",
+    commandId: "machine install-temp",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      const project = gitProject(home, "temporary-blocked");
+      mkdirSync(join(project, ".codex"));
+      writeFileSync(join(project, ".codex", "hooks.json"), "tracked placeholder\n");
+      execFileSync("git", ["-C", project, "add", ".codex/hooks.json"]);
+      execFileSync("git", ["-C", project, "commit", "-qm", "track generated path"]);
+      return {
+        home,
+        args: [
+          "machine",
+          "install-temp",
+          AUTHORING_EXAMPLES.profile.id,
+          project,
+          "--host",
+          "codex",
+        ],
+      };
+    },
+  },
+  {
+    test: "unbound-directory error",
+    snapshot: "unbound-directory-error",
+    extraRoute: "unbound-directory-error",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      return { home, args: ["status", demoProject(home, "unbound")] };
+    },
+  },
+];
+
 test("records the bounded-diff review rule alongside the snapshots", () => {
   const rule = readFileSync(resolve(repositoryRoot, "test/__snapshots__/README.md"), "utf8");
   expect(rule).toMatch(/wrapping/i);
@@ -250,229 +595,24 @@ test("records the bounded-diff review rule alongside the snapshots", () => {
 });
 
 describe("golden snapshots of every human view", () => {
-  test("root help", async () => {
-    const home = isolatedHome();
-    expectGolden("root-help", await runCli(home, ["--help"]), home);
+  test("the catalog covers every public command and extra diagnostic route", () => {
+    expect(
+      HUMAN_VIEWS.every((view) => view.commandId !== undefined || view.extraRoute !== undefined),
+    ).toBe(true);
+    expect(
+      [...new Set(HUMAN_VIEWS.flatMap((view) => view.commandId === undefined ? [] : [view.commandId]))].sort(),
+    ).toEqual([...new Set(COMMANDS.map(publicCommandId))].sort());
+    expect(
+      [...new Set(HUMAN_VIEWS.flatMap((view) => view.extraRoute === undefined ? [] : [view.extraRoute]))].sort(),
+    ).toEqual([...EXTRA_ROUTES].sort());
   });
 
-  test("machine help", async () => {
-    const home = isolatedHome();
-    expectGolden("machine-help", await runCli(home, ["machine", "--help"]), home);
-  });
-
-  test("focused command help", async () => {
-    const home = isolatedHome();
-    expectGolden("focused-command-help", await runCli(home, ["status", "--help"]), home);
-  });
-
-  test("unknown command", async () => {
-    const home = isolatedHome();
-    expectGolden("unknown-command", await runCli(home, ["nosuch"]), home);
-  });
-
-  test("unknown machine command", async () => {
-    const home = isolatedHome();
-    expectGolden("unknown-machine-command", await runCli(home, ["machine", "nosuch"]), home);
-  });
-
-  test("guide index", async () => {
-    const home = isolatedHome();
-    expectGolden("guide-index", await runCli(home, ["guide"]), home);
-  });
-
-  test("focused guide", async () => {
-    const home = isolatedHome();
-    expectGolden("focused-guide", await runCli(home, ["guide", "profile"]), home);
-  });
-
-  test("focused guide context", async () => {
-    const home = isolatedHome();
-    expectGolden("focused-guide-context", await runCli(home, ["guide", "context"]), home);
-  });
-
-  test("focused guide skill", async () => {
-    const home = isolatedHome();
-    expectGolden("focused-guide-skill", await runCli(home, ["guide", "skill"]), home);
-  });
-
-  test("full guide", async () => {
-    const home = isolatedHome();
-    expectGolden("full-guide", await runCli(home, ["guide", "--full"]), home);
-  });
-
-  test("agent guide", async () => {
-    const home = isolatedHome();
-    expectGolden("agent-guide", await runCli(home, ["guide", "--agent"]), home);
-  });
-
-  test("info", async () => {
-    const { home } = await initializedHome();
-    expectGolden("info", await runCli(home, ["info"]), home);
-  });
-
-  test("list index", async () => {
-    const { home } = await initializedHome();
-    expectGolden("list-index", await runCli(home, ["list"]), home);
-  });
-
-  test("list projects", async () => {
-    const { home } = await pendingHome();
-    await bindExample(home, demoProject(home, "other"));
-    expectGolden("list-projects", await runCli(home, ["list", "projects"]), home);
-  });
-
-  test("list profiles", async () => {
-    const { home } = await initializedHome();
-    expectGolden("list-profiles", await runCli(home, ["list", "profiles"]), home);
-  });
-
-  test("list hosts", async () => {
-    const { home } = await initializedHome();
-    expectGolden("list-hosts", await runCli(home, ["list", "hosts"]), home);
-  });
-
-  test("machine list index", async () => {
-    const { home } = await initializedHome();
-    expectGolden("machine-list-index", await runCli(home, ["machine", "list"]), home);
-  });
-
-  test("machine list temporary", async () => {
-    const { home } = await initializedHome();
-    expectGolden("machine-list-temporary", await runCli(home, ["machine", "list", "temporary"]), home);
-  });
-
-  test("init", async () => {
-    const home = isolatedHome();
-    expectGolden("init", await runCli(home, ["init"]), home);
-  });
-
-  test("bind success", async () => {
-    const { home, project } = await initializedHome();
-    expectGolden(
-      "bind-success",
-      await runCli(home, ["bind", AUTHORING_EXAMPLES.profile.id, project, "--host", "codex"]),
-      home,
-    );
-  });
-
-  test("validate", async () => {
-    const { home } = await pendingHome();
-    expectGolden("validate", await runCli(home, ["validate"]), home);
-  });
-
-  test("status current", async () => {
-    const { home, project } = await currentHome();
-    expectGolden("status-current", await runCli(home, ["status", project]), home);
-  });
-
-  test("status pending", async () => {
-    const { home, project } = await pendingHome();
-    expectGolden("status-pending", await runCli(home, ["status", project]), home);
-  });
-
-  test("status blocked", async () => {
-    const { home, project } = await blockedHome();
-    expectGolden("status-blocked", await runCli(home, ["status", project]), home);
-  });
-
-  test("status verbose", async () => {
-    const { home, project } = await currentHome();
-    expectGolden("status-verbose", await runCli(home, ["status", project, "--verbose"]), home);
-  });
-
-  test("status blockers-only", async () => {
-    const { home, project } = await blockedHome();
-    expectGolden(
-      "status-blockers-only",
-      await runCli(home, ["status", project, "--blockers-only"]),
-      home,
-    );
-  });
-
-  test("apply receipt", async () => {
-    const { home, project } = await pendingHome();
-    expectGolden("apply-receipt", await runCli(home, ["apply", project]), home);
-  });
-
-  test("apply blocked", async () => {
-    const { home, project } = await blockedHome();
-    expectGolden("apply-blocked", await runCli(home, ["apply", project]), home);
-  });
-
-  test("unbind", async () => {
-    const { home, project } = await pendingHome();
-    expectGolden("unbind", await runCli(home, ["unbind", project]), home);
-  });
-
-  test("uninstall", async () => {
-    const { home, project } = await currentHome();
-    expectGolden("uninstall", await runCli(home, ["uninstall"]), home);
-  });
-
-  test("install-temp", async () => {
-    const { home } = await initializedHome();
-    const project = gitProject(home, "temporary");
-    expectGolden(
-      "install-temp",
-      await runCli(home, [
-        "machine",
-        "install-temp",
-        AUTHORING_EXAMPLES.profile.id,
-        project,
-        "--host",
-        "codex",
-      ]),
-      home,
-    );
-  });
-
-  test("remove-temp", async () => {
-    const { home } = await initializedHome();
-    const project = gitProject(home, "temporary-remove");
-    const installed = await runCli(home, [
-      "machine",
-      "install-temp",
-      AUTHORING_EXAMPLES.profile.id,
-      project,
-      "--host",
-      "codex",
-    ]);
-    expectExitCode(installed, 0);
-    const identity = installed.stdout.match(/^  Temporary installation: (\S+)$/m)?.[1];
-    expect(identity).toBeTruthy();
-    expectGolden(
-      "remove-temp",
-      await runCli(home, ["machine", "remove-temp", identity!]),
-      home,
-    );
-  });
-
-  test("blocked temp", async () => {
-    const { home } = await initializedHome();
-    const project = gitProject(home, "temporary-blocked");
-    mkdirSync(join(project, ".codex"));
-    writeFileSync(join(project, ".codex", "hooks.json"), "tracked placeholder\n");
-    execFileSync("git", ["-C", project, "add", ".codex/hooks.json"]);
-    execFileSync("git", ["-C", project, "commit", "-qm", "track generated path"]);
-    expectGolden(
-      "blocked-temp",
-      await runCli(home, [
-        "machine",
-        "install-temp",
-        AUTHORING_EXAMPLES.profile.id,
-        project,
-        "--host",
-        "codex",
-      ]),
-      home,
-    );
-  });
-
-  test("unbound-directory error", async () => {
-    const { home } = await initializedHome();
-    const unbound = demoProject(home, "unbound");
-    expectGolden("unbound-directory-error", await runCli(home, ["status", unbound]), home);
-  });
+  for (const view of HUMAN_VIEWS) {
+    test(view.test, async () => {
+      const { home, args } = await view.prepare();
+      expectGolden(view.snapshot, await runCli(home, args), home);
+    });
+  }
 });
 
 describe("rendering matrix for a representative subset", () => {

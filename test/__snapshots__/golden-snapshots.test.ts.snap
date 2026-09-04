@@ -1328,6 +1328,14 @@ Profile example will load the next time you launch a configured Host from a
 "
 `;
 
+exports[`golden snapshots of every human view apply no-op: apply-noop 1`] = `
+"--- stdout ---
+Apply complete
+All Projects were already current.
+--- stderr ---
+"
+`;
+
 exports[`golden snapshots of every human view apply blocked: apply-blocked 1`] = `
 "--- stdout ---
 Apply blocked
