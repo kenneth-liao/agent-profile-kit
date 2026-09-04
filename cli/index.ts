@@ -867,20 +867,6 @@ async function main(): Promise<void> {
     writeHuman(process.stdout, rootHelp(context), context);
     return;
   }
-  if (
-    arguments_[0] === "preview" ||
-    (arguments_[0] === HELP_COMMAND && arguments_[1] === "preview")
-  ) {
-    writeHuman(
-      process.stderr,
-      humanError(
-        `${COMMAND_NAME}: ${COMMAND_NAME} preview was removed; use ${COMMAND_NAME} status [project | --all] [--verbose] [--blockers-only] [--json] for the complete read-only apply plan.\n`,
-      ),
-      stderrPresentationContext,
-    );
-    process.exitCode = 1;
-    return;
-  }
   const focusedHelp = focusedHelpRequest(arguments_);
   if (focusedHelp?.kind === "root") {
     const context = stdoutPresentationContext;

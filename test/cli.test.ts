@@ -9293,20 +9293,24 @@ describe("apkit root help", () => {
     expect(bare.stdout.length).toBeGreaterThan(0);
   });
 
-  test("removed preview invocations receive focused status guidance without a compatibility execution path", async () => {
+  test("removed preview invocations receive ordinary unknown-command handling without a compatibility execution path", async () => {
     const home = isolatedHome();
     for (const arguments_ of [
       ["preview"],
       ["preview", "--json"],
       ["preview", "--help"],
-      ["help", "preview"],
     ]) {
       const result = await runCli(home, ...arguments_);
       expectExitCode(result, 1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("apkit preview was removed");
-      expect(result.stderr).toContain("apkit status");
+      expect(result.stderr).toContain("apkit: unknown command 'preview'");
+      expect(result.stderr).not.toContain("apkit preview was removed");
     }
+    const helpPreview = await runCli(home, "help", "preview");
+    expectExitCode(helpPreview, 1);
+    expect(helpPreview.stdout).toBe("");
+    expect(helpPreview.stderr).toContain("apkit: unknown command 'preview'");
+    expect(helpPreview.stderr).not.toContain("apkit preview was removed");
     expect(COMMANDS.some((command) => command.name === "preview")).toBe(false);
     const root = await runCli(home, "--help");
     expect(root.stdout).not.toMatch(/\bpreview\b/);
