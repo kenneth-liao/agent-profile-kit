@@ -323,7 +323,67 @@ function flattenPresentationNodes(document: PresentationDocument): PresentationN
   return nodes;
 }
 
+/** One top-level node's kind and semantic category, in document order. */
+function shape(node: PresentationNode): string {
+  const category = "category" in node && node.category !== undefined
+    ? `:${node.category}`
+    : "";
+  switch (node.kind) {
+    case "notice":
+      return `notice:${node.severity}`;
+    case "heading":
+      return `heading${category}`;
+    case "prose":
+      return `prose${category}`;
+    case "key-value":
+      return `key-value(${node.key.trim()})${category}`;
+    case "command":
+      return "command";
+    case "path":
+      return "path";
+    case "identifier":
+      return "identifier";
+    case "list-item":
+      return "list-item";
+    case "verbatim":
+      return node.text.length === 0 ? "blank" : "verbatim";
+    default:
+      return node.kind;
+  }
+}
+
+const context = (width: number): TerminalPresentationContext => ({
+  color: false,
+  interactive: true,
+  width,
+});
+
 describe("lifecycle status document", () => {
+  const pendingReport = () => emptyReport({
+    desired: [{
+      canonicalProject: "/project-a",
+      context: "composed",
+      outputs: ["a.md"],
+      profile: "coding",
+      project: "/project-a",
+      resolvedArtifacts: [],
+    }],
+    items: [{ kind: "addition", project: "/project-a" }],
+    outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+  });
+  const blockedReport = () => emptyReport({
+    blockers: [fixtureBlocker("occupied output", "/project-a")],
+    desired: [{
+      canonicalProject: "/project-a",
+      context: "composed",
+      outputs: ["a.md"],
+      profile: "coding",
+      project: "/project-a",
+      resolvedArtifacts: [],
+    }],
+    items: [{ kind: "blocked", project: "/project-a" }],
+  });
+
   test("concise current status states current without setup, Project list, or next action", () => {
     const report = emptyReport({
       desired: ["/project-a", "/project-b"].map((project) => ({
@@ -340,90 +400,74 @@ describe("lifecycle status document", () => {
       ],
     });
 
-    const nodes = flattenPresentationNodes(lifecycleStatusDocument(report));
+    const document = lifecycleStatusDocument(report);
 
-    expect(nodes.some((node) => node.kind === "notice" && node.severity === "success")).toBe(true);
-    expect(nodes.filter((node) => node.kind === "command")).toEqual([]);
-    expect(nodes.filter((node) => node.kind === "path")).toEqual([]);
-    expect(nodes.some((node) =>
-      (node.kind === "heading" || node.kind === "prose") &&
-      /Host setup/i.test(node.text)
-    )).toBe(false);
+    expect(document.map(shape)).toEqual(["notice:success"]);
   });
 
-  test("concise pending status includes apply and details commands without Host setup", () => {
-    const report = emptyReport({
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-      }],
-      items: [{ kind: "addition", project: "/project-a" }],
-      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-    });
+  test("concise pending status is outcome, warnings, then typed next commands in order", () => {
+    const document = lifecycleStatusDocument(pendingReport());
 
-    const nodes = flattenPresentationNodes(lifecycleStatusDocument(report));
-    const commands = nodes.filter((node) => node.kind === "command");
-
-    expect(commands.some((node) =>
-      node.kind === "command" &&
-      node.program === "apkit" &&
-      node.args.some((arg) => arg.kind === "text" && arg.value === "apply")
-    )).toBe(true);
-    expect(commands.some((node) =>
-      node.kind === "command" &&
-      node.program === "apkit" &&
-      node.args.some((arg) => arg.kind === "text" && arg.value === "status") &&
-      node.args.some((arg) => arg.kind === "text" && arg.value === "--verbose")
-    )).toBe(true);
-    expect(nodes.some((node) =>
-      (node.kind === "heading" || node.kind === "prose") &&
-      /Host setup/i.test(node.text)
-    )).toBe(false);
+    expect(document.map(shape)).toEqual([
+      "notice:success",
+      "key-value(Next):command",
+      "blank",
+      "key-value(Details):command",
+    ]);
+    const commands = flattenPresentationNodes(document).filter((node) => node.kind === "command");
+    expect(commands).toEqual([
+      {
+        kind: "command",
+        program: "apkit",
+        args: [{ kind: "text", value: "apply" }],
+      },
+      {
+        kind: "command",
+        program: "apkit",
+        args: [
+          { kind: "text", value: "status" },
+          { kind: "text", value: "--verbose" },
+        ],
+      },
+    ]);
   });
 
-  test("concise blocked status is blocker-first without Host setup or apply", () => {
-    const report = emptyReport({
-      blockers: [fixtureBlocker("occupied output", "/project-a")],
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-      }],
-      items: [{ kind: "blocked", project: "/project-a" }],
-    });
+  test("concise blocked status orders notice, typed Blocker fields, summary, and next actions", () => {
+    const document = lifecycleStatusDocument(blockedReport());
 
-    const nodes = flattenPresentationNodes(lifecycleStatusDocument(report));
-    const commands = nodes.filter((node) => node.kind === "command");
-
-    expect(nodes.some((node) => node.kind === "notice" && node.severity === "error")).toBe(true);
-    expect(nodes.some((node) =>
-      (node.kind === "prose" || node.kind === "heading" || node.kind === "verbatim") &&
-      "text" in node && /occupied output/i.test(node.text)
+    expect(document.map(shape)).toEqual([
+      "notice:error",
+      "blank",
+      "key-value(Project)",
+      "key-value(Profile):path",
+      "key-value(Hosts)",
+      "prose:error",
+      "prose",
+      "prose",
+      "prose",
+      "blank",
+      "notice:error",
+      "blank",
+      "heading",
+      "list-item",
+    ]);
+    const blocker = flattenPresentationNodes(document).filter((node) =>
+      node.kind === "prose"
+    ) as Extract<PresentationNode, { kind: "prose" }>[];
+    expect(blocker.some((node) => node.category === "error" && node.text.startsWith("  Blocker: "))).toBe(true);
+    expect(blocker.some((node) => node.text.startsWith("    Requirement: "))).toBe(true);
+    expect(blocker.some((node) => node.text.startsWith("    Remedy: "))).toBe(true);
+    expect(blocker.some((node) => node.text.startsWith("    Scope: "))).toBe(true);
+    expect(flattenPresentationNodes(document).some((node) =>
+      node.kind === "list-item" &&
+      node.nodes.some((child) => child.kind === "prose" && /apkit status/.test(child.text))
     )).toBe(true);
-    expect(nodes.some((node) =>
-      (node.kind === "prose" || node.kind === "heading" || node.kind === "list-item") &&
-      (node.kind === "list-item"
-        ? node.nodes.some((child) => child.kind === "prose" && /apkit status/i.test(child.text))
-        : "text" in node && /apkit status/i.test(node.text))
-    )).toBe(true);
-    expect(commands.some((node) =>
-      node.kind === "command" &&
+    expect(commandsIn(document).some((node) =>
       node.args.some((arg) => arg.kind === "text" && arg.value === "apply")
     )).toBe(false);
-    expect(nodes.some((node) =>
-      (node.kind === "heading" || node.kind === "prose") &&
-      /Host setup/i.test(node.text)
-    )).toBe(false);
   });
 
-  test("verbose status reproduces Context through a verbatim node including fence escalation", () => {
+  test("verbose status orders detail sections with Context as the only verbatim content", () => {
     const authored = "First module\n--- begin Context ---\nNested module\n";
     const report = emptyReport({
       desired: [{
@@ -444,20 +488,55 @@ describe("lifecycle status document", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const nodes = flattenPresentationNodes(lifecycleStatusDocument(report, { verbose: true }));
-    const verbatim = nodes.filter((node) => node.kind === "verbatim");
+    const document = lifecycleStatusDocument(report, { verbose: true });
 
-    expect(nodes.some((node) =>
-      node.kind === "heading" && /^Host Setup:/i.test(node.text)
-    )).toBe(true);
-    expect(verbatim.some((node) =>
-      node.kind === "verbatim" && node.text.includes(authored)
-    )).toBe(true);
-    expect(verbatim.some((node) =>
-      node.kind === "verbatim" &&
-      node.text.includes("---- begin Context ----") &&
-      node.text.includes("---- end Context ----")
-    )).toBe(true);
+    expect(document.map(shape)).toEqual([
+      "notice:success",
+      "heading",
+      "prose",
+      "heading",
+      "list-item",
+      "heading",
+      "prose",
+      "heading",
+      "prose",
+      "heading",
+      "prose",
+      "prose",
+      "prose",
+      "prose",
+      "prose",
+      "prose",
+      "prose",
+      "verbatim",
+      "heading:attention",
+      "prose",
+      "heading:error",
+      "prose",
+      "heading",
+      "heading",
+      "list-item",
+    ]);
+    const verbatim = document.filter((node) => node.kind === "verbatim");
+    expect(verbatim).toHaveLength(1);
+    const contextText = verbatim[0]!.kind === "verbatim" ? verbatim[0]!.text : "";
+    expect(contextText).toContain(authored);
+    expect(contextText).toContain("---- begin Context ----");
+    expect(contextText).toContain("---- end Context ----");
+    expect(contextText.startsWith("---- begin Context ----")).toBe(true);
+    const headings = document.filter((node) => node.kind === "heading")
+      .map((node) => node.kind === "heading" ? node.text : "");
+    expect(headings).toEqual([
+      "Projects:",
+      "State explanations:",
+      "Outputs:",
+      "Git exclusions:",
+      "Selected setup:",
+      "Warnings:",
+      "Blockers:",
+      "Host Setup:",
+      "Standing Host setup:",
+    ]);
   });
 
   test("blockers-only status keeps Blockers and omits unrelated inventory", () => {
@@ -482,27 +561,217 @@ describe("lifecycle status document", () => {
       warnings: ["OpenCode reports a duplicate Skill identity"],
     });
 
-    const nodes = flattenPresentationNodes(lifecycleStatusDocument(report, { blockersOnly: true }));
+    const document = lifecycleStatusDocument(report, { blockersOnly: true });
 
-    expect(nodes.some((node) => node.kind === "notice" && node.severity === "error")).toBe(true);
-    expect(nodes.some((node) => node.kind === "path")).toBe(true);
-    expect(nodes.some((node) =>
-      (node.kind === "prose" || node.kind === "heading" || node.kind === "verbatim") &&
+    expect(document.map(shape)).toEqual([
+      "notice:error",
+      "blank",
+      "key-value(Project)",
+      "prose:error",
+      "prose",
+      "prose",
+      "prose",
+      "blank",
+      "prose:error",
+      "blank",
+      "heading",
+      "list-item",
+    ]);
+    expect(flattenPresentationNodes(document).some((node) => node.kind === "path")).toBe(true);
+    expect(flattenPresentationNodes(document).some((node) =>
+      (node.kind === "prose" || node.kind === "heading") &&
       "text" in node && /occupied output/i.test(node.text)
     )).toBe(true);
-    expect(nodes.some((node) =>
+    expect(document.some((node) =>
       (node.kind === "heading" || node.kind === "prose") &&
-      /Host setup/i.test(node.text)
+      /Host setup|Warnings:/i.test(node.text)
     )).toBe(false);
-    expect(nodes.some((node) =>
-      node.kind === "heading" && /Warnings:/i.test(node.text)
-    )).toBe(false);
-    expect(nodes.filter((node) =>
-      node.kind === "command" &&
-      node.args.some((arg) => arg.kind === "text" && arg.value === "apply")
-    )).toEqual([]);
+    expect(commandsIn(document)).toEqual([]);
+  });
+
+  test("derives the outcome notice severity from report facts, not rendered copy", () => {
+    const hostAttention = machineReport([machineProject("/project-a", {
+      desired: {
+        context: "composed",
+        hosts: ["codex"],
+        outputs: ["a.md"],
+        profile: "coding",
+        resolvedArtifacts: [],
+      },
+      state: { kind: "current" },
+      warnings: [{
+        copyableValues: [],
+        kind: "host-attention",
+        message: "Trust the bound project in Codex.",
+      }],
+    })]);
+
+    const document = lifecycleStatusDocument(hostAttention);
+    expect(document.map(shape)).toEqual([
+      "notice:attention",
+      "blank",
+      "heading:attention",
+      "list-item",
+    ]);
+    const rendered = formatLifecycleReport("status", hostAttention, {
+      context: { color: true, interactive: true, width: 80 },
+    });
+    expect(rendered).toContain("\u001b[33mHost attention required\u001b[0m");
+  });
+
+  test("renders an explicitly selected Project as a typed command path argument", () => {
+    const project = "/tmp/apkit-int2/projects/deeply/nested/demo project";
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project }],
+      outputs: [{ kind: "addition", path: "a.md", project }],
+    });
+
+    const nodes = flattenPresentationNodes(
+      lifecycleStatusDocument(report, { project }),
+    );
+    const commands = nodes.filter((node) => node.kind === "command")
+      .map((node) => node.kind === "command" ? node : undefined);
+    expect(commands.some((node) =>
+      node !== undefined && node.program === "apkit" &&
+      node.args.some((arg) => arg.kind === "text" && arg.value === "apply") &&
+      node.args.some((arg) =>
+        arg.kind === "path" &&
+        arg.canonicalPath === project &&
+        arg.authoredPath === project &&
+        arg.scope === "project"
+      )
+    )).toBe(true);
+    expect(commands.some((node) =>
+      node !== undefined && node.program === "apkit" &&
+      node.args.some((arg) => arg.kind === "text" && arg.value === "status") &&
+      node.args.some((arg) => arg.kind === "path")
+    )).toBe(true);
+
+    const rendered = formatLifecycleReport("status", report, {
+      context: { color: false, interactive: true, width: 40 },
+      project,
+    });
+    for (const line of rendered.split("\n")) {
+      if (!line.startsWith("Next: apkit apply") && !line.startsWith("Details: apkit status")) {
+        continue;
+      }
+      // The typed path argument shortens through the renderer's displayPath
+      // contract (INT-2): the complete command stays on one fitting line and
+      // the elision marker shows the shortened identity.
+      expect(line.split("\n")).toHaveLength(1);
+      expect(line.length, `command exceeds width: ${line}`).toBeLessThanOrEqual(40);
+      expect(line).toContain("…");
+    }
+    // displayPath keeps whole trailing segments while they fit and only then
+    // elides, so the runnable command tail survives shortening.
+    const nextLine = rendered.split("\n").find((line) => line.startsWith("Next: apkit apply"));
+    const detailsLine = rendered.split("\n").find((line) => line.startsWith("Details: apkit status"));
+    expect(nextLine).toMatch(/^Next: apkit apply \/…\//);
+    expect(nextLine!.endsWith("demo project")).toBe(true);
+    expect(detailsLine).toMatch(/^Details: apkit status \/…/);
+    expect(detailsLine!.endsWith("--verbose")).toBe(true);
+  });
+
+  test("wraps clean, attention, blocked, verbose, and blockers-only status prose to the selected width", () => {
+    const clean = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    const attention = identityReport("/project-a");
+    const blocked = emptyReport({
+      blockers: [
+        fixtureOwnershipBlocker(
+          "The selected generated output cannot be replaced until ownership is resolved.",
+          "/project-a",
+        ),
+      ],
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      warnings: ["The Workspace warning explains a long condition that needs attention."],
+    });
+    for (const width of [40, 80, 100]) {
+      const views = [
+        formatLifecycleReport("status", clean, { context: context(width) }),
+        formatLifecycleReport("status", attention, { context: context(width) }),
+        formatLifecycleReport("status", blocked, { context: context(width) }),
+        formatLifecycleReport("status", blocked, {
+          context: context(width),
+          verbose: true,
+        }),
+        formatLifecycleReport("status", blocked, {
+          blockersOnly: true,
+          context: context(width),
+        }),
+      ];
+
+      for (const view of views) {
+        for (const line of view.trimEnd().split("\n")) {
+          expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(width);
+        }
+      }
+    }
+  });
+
+  test("styles status lines through typed semantic categories", () => {
+    const report = emptyReport({
+      blockers: [fixtureBlocker("occupied output", "/project-a")],
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      warnings: ["The Workspace warning explains a long condition that needs attention."],
+    });
+
+    const rendered = formatLifecycleReport("status", report, {
+      context: { color: true, interactive: true, width: 80 },
+    });
+
+    expect(rendered).toContain("\u001b[31mCannot apply\u001b[0m");
+    expect(rendered).toContain("\u001b[35m/project-a\u001b[0m");
+    expect(rendered).toMatch(/\u001b\[31m  Blocker: [^\u001b]*\u001b\[0m/);
+    expect(rendered).toContain("\u001b[33mWarnings:\u001b[0m");
+    expect(rendered).toContain("\u001b[31mProjects: 1 · Blockers: 1\u001b[0m");
+    expect(rendered).toContain("\u001b[1;34mNext:\u001b[0m");
   });
 });
+
+function commandsIn(
+  document: PresentationDocument,
+): Extract<PresentationNode, { kind: "command" }>[] {
+  return flattenPresentationNodes(document).flatMap((node) =>
+    node.kind === "command" ? [node] : [],
+  );
+}
 
 describe("Host Setup Step provenance and presentation", () => {
   const hookPath = ".codex/hooks.json";
@@ -1123,11 +1392,6 @@ describe("Host Setup Step provenance and presentation", () => {
 });
 
 describe("responsive lifecycle presentation", () => {
-  const context = (width: number): TerminalPresentationContext => ({
-    color: false,
-    interactive: true,
-    width,
-  });
 
   test("wraps applied lifecycle prose to the selected width", () => {
     const receipt = emptyReport({
@@ -1167,14 +1431,30 @@ describe("responsive lifecycle presentation", () => {
   test("keeps copyable Project paths and command invocations intact while wrapping prose", () => {
     const project = "/tmp/agent profile kit/project with a long name";
     const report = identityReport(project);
+    // At a narrow width the selected-Project command argument shortens through
+    // displayPath (INT-2) so each command stays on one fitting line; with room
+    // to spare the copyable Project path survives intact.
     const status = formatLifecycleReport("status", report, {
       context: context(40),
       project,
     });
+    const wideStatus = formatLifecycleReport("status", report, {
+      context: context(80),
+      project,
+    });
     const emptyStatus = formatLifecycleReport("status", emptyReport(), { context: context(40) });
 
+    for (const line of status.split("\n")) {
+      if (!line.startsWith("Next: apkit apply") && !line.startsWith("Details: apkit status")) {
+        continue;
+      }
+      expect(line.split("\n")).toHaveLength(1);
+      expect(line.length, `command exceeds width: ${line}`).toBeLessThanOrEqual(40);
+      expect(line).toContain("…");
+    }
     expect(status).toContain("apkit apply");
-    expect(status).toContain("project with a long name");
+    expect(wideStatus).toContain(`apkit apply ${project}`);
+    expect(wideStatus).toContain(`apkit status ${project} --verbose`);
     expect(emptyStatus).toContain("apkit list projects");
     expect(emptyStatus).toContain("apkit bind <profile> --host <host>");
 

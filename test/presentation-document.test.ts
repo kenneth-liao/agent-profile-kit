@@ -77,10 +77,10 @@ test("wraps prose and carries its style across every wrapped line", () => {
     expect(line.endsWith("\u001b[0m")).toBe(true);
     expect(stripAnsi(line).length).toBeLessThanOrEqual(40);
   }
-  expect(stripAnsi(colored).split("\n").join(" ")).toBe(sentence);
+  expect(stripAnsi(colored).split("\n").map((line) => line.trim()).join(" ")).toBe(sentence);
 });
 
-test("holds prose to a readable 80-column measure on a wide terminal", () => {
+test("holds prose to the selected measure on a wide terminal", () => {
   const sentence = Array.from({ length: 20 }, (_, index) => `word${index}`).join(" ");
   const text = renderPresentationDocument(
     [{ kind: "prose", text: sentence }],
@@ -88,7 +88,7 @@ test("holds prose to a readable 80-column measure on a wide terminal", () => {
   );
   const lines = text.split("\n");
   expect(lines.length).toBeGreaterThan(1);
-  expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(80);
+  expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(100);
 });
 
 test("never splits a path and elides in the middle through displayPath", () => {

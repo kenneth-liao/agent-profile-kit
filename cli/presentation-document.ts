@@ -1,10 +1,14 @@
 import { homedir } from "node:os";
 
-import { displayPath, type LocationDisplayScope } from "./presentation.js";
 import {
-  DEFAULT_HUMAN_WIDTH,
+  createCopyableValueProtector,
+  displayPath,
+  wrappedLifecycleLine,
+  type CopyableValueProtector,
+  type LocationDisplayScope,
+} from "./presentation.js";
+import {
   styleSemanticText,
-  wrapPresentationText,
   type SemanticCategory,
   type TerminalPresentationContext,
 } from "./terminal-presentation.js";
@@ -16,6 +20,8 @@ export type NoticeSeverity = "attention" | "error" | "info" | "success";
 export type PresentationRenderOptions = {
   readonly cwd?: string;
   readonly home?: string;
+  /** Report-supplied values whose spaces must survive prose wrapping. */
+  readonly copyableValues?: readonly string[];
 };
 
 export type ProseNode = {
@@ -126,6 +132,7 @@ const NOTICE_CATEGORY: Readonly<Record<NoticeSeverity, SemanticCategory>> = {
 
 type RenderEnvironment = {
   readonly context: TerminalPresentationContext;
+  readonly copyableValueProtector: CopyableValueProtector;
   readonly cwd: string;
   readonly home: string;
 };
@@ -137,6 +144,7 @@ export function renderPresentationDocument(
 ): string {
   const environment: RenderEnvironment = {
     context,
+    copyableValueProtector: createCopyableValueProtector(options.copyableValues ?? []),
     cwd: options.cwd ?? process.cwd(),
     home: options.home ?? homedir(),
   };
@@ -178,9 +186,8 @@ function renderNode(
   const { context } = environment;
   switch (node.kind) {
     case "prose":
-      return wrapPresentationText(node.text, proseMeasure(context.width)).map((line) =>
-        styleSemanticText(line, node.category ?? inheritedCategory, context.color),
-      );
+      return wrappedLifecycleLine(node.text, context.width, environment.copyableValueProtector)
+        .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
     case "heading":
       return styleLines(node.text, node.category ?? "heading", context.color);
     case "identifier":
@@ -206,16 +213,23 @@ function renderNode(
       );
     case "key-value":
       return styleLines(
-        `${node.key}: ${renderNode(node.value, environment, inheritedCategory).join(" ")}`,
+        `${node.key}: ${renderNode(
+          node.value,
+          // The rendered prefix is part of the line: values such as commands
+          // elide against the width that remains after the key (INT-2).
+          withWidth(environment, Math.max(1, context.width - node.key.length - 2)),
+          inheritedCategory,
+        ).join(" ")}`,
         node.category ?? inheritedCategory,
         context.color,
       );
-    case "list-item":
-      return styleLines(
-        `- ${node.nodes.flatMap((child) => renderNode(child, unstyled(environment), inheritedCategory)).join(" ")}`,
-        node.category ?? inheritedCategory,
-        context.color,
-      );
+    case "list-item": {
+      const content = node.nodes
+        .flatMap((child) => renderNode(child, unstyled(environment), inheritedCategory))
+        .join(" ");
+      return wrappedLifecycleLine(`- ${content}`, context.width, environment.copyableValueProtector)
+        .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
+    }
     case "notice":
       return renderNodes(node.nodes, environment, NOTICE_CATEGORY[node.severity]);
     case "row":
@@ -400,6 +414,3 @@ function styleLines(
   return [styleSemanticText(text, category, color)];
 }
 
-function proseMeasure(width: number): number {
-  return Math.min(DEFAULT_HUMAN_WIDTH, width);
-}

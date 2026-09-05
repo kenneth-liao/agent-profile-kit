@@ -1493,12 +1493,21 @@ describe("project-bound release candidate", () => {
     );
     expectExitCode(readyStatus, 0);
     expect(readyStatus.stdout).toContain("Updates ready for 1 project (2 file additions).");
-    expect(humanText(readyStatus.stdout)).toContain(
-      humanText(`Next: apkit apply ${boundProject}`),
-    );
-    expect(humanText(readyStatus.stdout)).toContain(
-      humanText(`Details: apkit status ${boundProject} --verbose`),
-    );
+    // INT-2: the selected Project is a typed path argument rendered through the
+    // shared project-scope identity, kept on one line by eliding to the width.
+    const nextLine = readyStatus.stdout.split("\n")
+      .find((line) => line.startsWith("Next: apkit apply "));
+    const detailsLine = readyStatus.stdout.split("\n")
+      .find((line) => line.startsWith("Details: apkit status "));
+    for (const [line, tail] of [
+      [nextLine, boundProject.split("/").at(-1)!],
+      [detailsLine, "--verbose"],
+    ] as const) {
+      expect(line).toBeDefined();
+      expect(line!.endsWith(tail)).toBe(true);
+      expect(line!.length).toBeLessThanOrEqual(80);
+    }
+    expect(detailsLine!.includes(boundProject.split("/").at(-1)!)).toBe(true);
     expect(readyStatus.stdout).not.toContain("Standing Host setup:");
     expect(readyStatus.stdout).not.toContain("Host setup:");
 

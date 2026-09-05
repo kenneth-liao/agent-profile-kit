@@ -1805,11 +1805,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const explicitStatus = await runCli(home, "status", absolute);
     expectExitCode(explicitStatus, 0);
+    // The selected Project is a typed path argument (INT-2): it renders the
+    // shared project-scope display identity instead of the raw argument.
     expect(humanText(explicitStatus.stdout)).toContain(
-      humanText(`Next: apkit apply ${absolute}`),
+      humanText("Next: apkit apply ~/projects/absolute-project"),
     );
     expect(humanText(explicitStatus.stdout)).toContain(
-      humanText(`Details: apkit status ${absolute} --verbose`),
+      humanText("Details: apkit status ~/projects/absolute-project --verbose"),
     );
 
     expectExitCode(await runCli(home, "apply", absolute), 0);
