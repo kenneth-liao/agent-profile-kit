@@ -5,6 +5,10 @@ import type { WriteStream } from "node:tty";
 
 import { agentGuide, focusedGuide, guideIndex, humanGuide, type GuideTopic } from "./guides.js";
 import {
+  carriedErrorParts,
+  diagnosticDocument,
+} from "./diagnostics.js";
+import {
   capitalize,
   DEFAULT_VIEW_LEXICON,
   displayProjectPath,
@@ -51,7 +55,7 @@ import {
   responsiveHumanText,
   type LifecycleCommand,
 } from "./presentation.js";
-import { renderPresentationDocument } from "./presentation-document.js";
+import { renderPresentationDocument, type PresentationDocument } from "./presentation-document.js";
 import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
 import { bindProject, hostsEqual } from "../installer/bind-project.js";
 import {
@@ -143,6 +147,15 @@ function writeHuman(
   stream.write(renderHumanOutput(text, context, { commandNames: COMMAND_NAMES }));
 }
 
+/** Diagnostic output rendered from a presentation document (DEC-018). */
+function writeHumanDiagnostic(
+  stream: WriteStream,
+  document: PresentationDocument,
+  context: TerminalPresentationContext,
+): void {
+  stream.write(`${renderPresentationDocument(document, context)}\n`);
+}
+
 /** Authoring and teardown output wrapped through the shared human boundary. */
 function humanOutput(
   text: string,
@@ -195,6 +208,28 @@ function formatError(error: unknown): string {
 
 function usageLine(command: { readonly syntax: string }): string {
   return `Usage: ${COMMAND_NAME} ${command.syntax}`;
+}
+
+/** The carried syntax of one named command, for diagnostic usage nodes. */
+function commandSyntax(name: string): string {
+  return findCommand(name).syntax;
+}
+
+/**
+ * The human diagnostic for one lifecycle tool error: the carried sentence as
+ * what happened, any carried cause lines as why, and usage guidance as what
+ * to type when the error names a Project target.
+ */
+function lifecycleToolErrorDiagnostic(
+  command: LifecycleCommand,
+  error: unknown,
+): PresentationDocument {
+  const { happened, why } = carriedErrorParts(formatErrorForHuman(error));
+  return diagnosticDocument({
+    happened,
+    why,
+    ...(error instanceof ProjectTargetError ? { usage: commandSyntax(command) } : {}),
+  });
 }
 
 /** The single line of usage guidance for one named command. */
@@ -1251,11 +1286,9 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
       } else {
-        const guidance = error instanceof ProjectTargetError ? commandUsage("apply") : "";
-        const failureText = formatErrorForHuman(error);
-        writeHuman(
+        writeHumanDiagnostic(
           process.stderr,
-          humanError(`${COMMAND_NAME}: ${failureText}\n`) + guidance,
+          lifecycleToolErrorDiagnostic("apply", error),
           stderrPresentationContext,
         );
       }
@@ -1287,11 +1320,9 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("status", formatError(error)));
       } else {
-        const guidance = error instanceof ProjectTargetError ? commandUsage("status") : "";
-        const failureText = formatErrorForHuman(error);
-        writeHuman(
+        writeHumanDiagnostic(
           process.stderr,
-          humanError(`${COMMAND_NAME}: ${failureText}\n`) + guidance,
+          lifecycleToolErrorDiagnostic("status", error),
           stderrPresentationContext,
         );
       }

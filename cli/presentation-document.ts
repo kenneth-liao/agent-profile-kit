@@ -4,6 +4,7 @@ import {
   createCopyableValueProtector,
   displayPath,
   wrappedLifecycleLine,
+  wrappedSentenceLine,
   type CopyableValueProtector,
   type LocationDisplayScope,
 } from "./presentation.js";
@@ -26,6 +27,18 @@ export type PresentationRenderOptions = {
 
 export type ProseNode = {
   readonly kind: "prose";
+  readonly text: string;
+  readonly category?: SemanticCategory;
+};
+
+/**
+ * One readable sentence: wraps as continuous flowing text, keeping embedded
+ * command invocations and copyable values inline and whole instead of
+ * promoting them onto dedicated lines. Diagnostics, help and guides use it so
+ * an error reads as one sentence rather than one line per protected value.
+ */
+export type SentenceNode = {
+  readonly kind: "sentence";
   readonly text: string;
   readonly category?: SemanticCategory;
 };
@@ -110,6 +123,7 @@ export type VerbatimNode = {
 
 export type PresentationNode =
   | ProseNode
+  | SentenceNode
   | HeadingNode
   | IdentifierNode
   | PathNode
@@ -187,6 +201,9 @@ function renderNode(
   switch (node.kind) {
     case "prose":
       return wrappedLifecycleLine(node.text, context.width, environment.copyableValueProtector)
+        .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
+    case "sentence":
+      return wrappedSentenceLine(node.text, context.width, environment.copyableValueProtector)
         .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
     case "heading":
       return styleLines(node.text, node.category ?? "heading", context.color);

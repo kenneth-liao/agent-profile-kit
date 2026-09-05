@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { delimitedContext, displayPath } from "../cli/presentation.js";
+import { diagnosticDocument } from "../cli/diagnostics.js";
 import { renderPresentationDocument } from "../cli/presentation-document.js";
 
 const redirected = { color: false, interactive: false, width: 80 } as const;
@@ -281,6 +282,99 @@ test("lays out a column group side by side and stacks when it will not fit", () 
   });
   expect(narrow).toBe("Left column\nRight column");
   expect(Math.max(...narrow.split("\n").map((line) => line.length))).toBeLessThanOrEqual(18);
+});
+
+test("wraps a sentence continuously with embedded commands inline and whole", () => {
+  const sentence =
+    "apkit: apkit status Project target '/projects/demo' is not a bound Project; " +
+    "run apkit list projects or apkit bind";
+  const text = renderPresentationDocument(
+    [{ kind: "sentence", text: sentence }],
+    { color: false, interactive: false, width: 40 },
+  );
+  const lines = text.split("\n");
+  // The sentence wraps to the measure…
+  expect(lines.length).toBeGreaterThan(1);
+  for (const line of lines) {
+    expect(line.length).toBeLessThanOrEqual(40);
+  }
+  // …as one continuous flow: no embedded command is promoted onto its own
+  // dedicated line, and no command is split across lines.
+  expect(lines).not.toContain("apkit status");
+  for (const command of ["apkit status", "apkit list projects", "apkit bind"]) {
+    const linesCarrying = lines.filter((line) =>
+      command.split(" ").some((word) => line.includes(word)),
+    );
+    expect(
+      linesCarrying.some((line) => line.includes(command)),
+      `command '${command}' must stay whole on one line`,
+    ).toBe(true);
+  }
+  expect(lines.map((line) => line.trimStart()).join(" ")).toBe(sentence);
+});
+
+test("keeps a supplied copyable value inline and whole inside a sentence", () => {
+  const sentence = "apkit: init recorded the Workspace at '/tmp/a b/workspace'";
+  const text = renderPresentationDocument(
+    [{ kind: "sentence", text: sentence }],
+    { color: false, interactive: false, width: 30 },
+    { copyableValues: ["'/tmp/a b/workspace'"] },
+  );
+  const lines = text.split("\n");
+  expect(lines.length).toBeGreaterThan(1);
+  expect(lines.some((line) => line.includes("'/tmp/a b/workspace'"))).toBe(true);
+  expect(lines.map((line) => line.trimStart()).join(" ")).toBe(sentence);
+});
+
+test("carries a sentence's category across every wrapped line", () => {
+  const sentence = "apkit: apkit status failed because the Project target is not bound.";
+  const colored = renderPresentationDocument(
+    [{ kind: "sentence", text: sentence, category: "error" }],
+    { color: true, interactive: false, width: 30 },
+  );
+  const lines = colored.split("\n");
+  expect(lines.length).toBeGreaterThan(1);
+  for (const line of lines) {
+    expect(line.startsWith("\u001b[31m")).toBe(true);
+    expect(line.endsWith("\u001b[0m")).toBe(true);
+  }
+});
+
+test("renders a diagnostic document as what happened, why, and what to type", () => {
+  const text = renderPresentationDocument(
+    diagnosticDocument({
+      happened: "apkit status Project target '/projects/demo' is not a bound Project; " +
+        "run apkit list projects or apkit bind",
+      usage: "status [project | --all] [--verbose] [--blockers-only] [--json]",
+    }),
+    { color: false, interactive: false, width: 80 },
+  );
+  expect(text).toBe(
+    [
+      "apkit: apkit status Project target '/projects/demo' is not a bound Project;",
+      "  run apkit list projects or apkit bind",
+      "Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]",
+    ].join("\n"),
+  );
+});
+
+test("renders diagnostic cause lines after what happened and before what to type", () => {
+  const text = renderPresentationDocument(
+    diagnosticDocument({
+      happened: "apply failed",
+      why: ["caused by: one bad thing", "caused by: another bad thing"],
+      whatToType: ["Run apkit --help for available commands."],
+    }),
+    { color: false, interactive: false, width: 80 },
+  );
+  expect(text).toBe(
+    [
+      "apkit: apply failed",
+      "caused by: one bad thing",
+      "caused by: another bad thing",
+      "Run apkit --help for available commands.",
+    ].join("\n"),
+  );
 });
 
 test("reproduces verbatim content exactly, including fence escalation, without wrapping or styling", () => {

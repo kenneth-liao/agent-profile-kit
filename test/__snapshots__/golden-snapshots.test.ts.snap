@@ -1439,13 +1439,9 @@ Remedy: Choose one: keep repository ownership and change the configured
 exports[`golden snapshots of every human view unbound-directory error: unbound-directory-error 1`] = `
 "--- stdout ---
 --- stderr ---
-apkit:
-  apkit status
-  Project target '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a
-  bound Project; run
-  apkit list projects
-  or
-  apkit bind
+apkit: apkit status Project target
+  '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a bound Project; run
+  apkit list projects or apkit bind
 Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]
 "
 `;
@@ -2208,14 +2204,10 @@ Keep project-specific instructions in the project repository.
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-apkit:
-  apkit status
-  Project target
+apkit: apkit status Project target
   '/private/tmp/apkit-golden-xxxx/projects/unbound'
   is not a bound Project; run
-  apkit list projects
-  or
-  apkit bind
+  apkit list projects or apkit bind
 Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]
 --- stderr ---
 "
@@ -2223,27 +2215,19 @@ Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[31mapkit:\x1B[0m
-\x1B[36m  apkit status\x1B[0m
-  Project target
-  '/private/tmp/apkit-golden-xxxx/projects/unbound'
-  is not a bound Project; run
-\x1B[36m  apkit list projects\x1B[0m
-  or
-\x1B[36m  apkit bind\x1B[0m
-\x1B[1;34mUsage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+\x1B[31mapkit: apkit status Project target\x1B[0m
+\x1B[31m  '/private/tmp/apkit-golden-xxxx/projects/unbound'\x1B[0m
+\x1B[31m  is not a bound Project; run\x1B[0m
+\x1B[31m  apkit list projects or apkit bind\x1B[0m
+Usage: \x1B[36mapkit status [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
 --- stderr ---
 "
 `;
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-apkit:
-  apkit status
-  Project target '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a bound Project; run
-  apkit list projects
-  or
-  apkit bind
+apkit: apkit status Project target '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a
+  bound Project; run apkit list projects or apkit bind
 Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]
 --- stderr ---
 "
@@ -2251,13 +2235,9 @@ Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[31mapkit:\x1B[0m
-\x1B[36m  apkit status\x1B[0m
-  Project target '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a bound Project; run
-\x1B[36m  apkit list projects\x1B[0m
-  or
-\x1B[36m  apkit bind\x1B[0m
-\x1B[1;34mUsage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+\x1B[31mapkit: apkit status Project target '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a\x1B[0m
+\x1B[31m  bound Project; run apkit list projects or apkit bind\x1B[0m
+Usage: \x1B[36mapkit status [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
 --- stderr ---
 "
 `;

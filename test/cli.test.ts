@@ -1964,7 +1964,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const cases = [
       { cwd: undefined, target: unbound, pattern: /not a bound Project/i },
       { cwd: undefined, target: missing, pattern: /must be an existing directory/i },
-      { cwd: undefined, target: "relative/project", pattern: /absolute path or home-relative/i },
+      { cwd: undefined, target: "relative/project", pattern: /absolute path or\s+home-relative/i },
       { cwd: undefined, target: "~/projects/*", pattern: /without wildcards/i },
       { cwd: undefined, target: invalid, pattern: /must be an existing directory/i },
       { cwd: nested, target: undefined, pattern: /ambiguous.*multiple configured Projects/i },
@@ -2398,6 +2398,31 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(failed, 1);
     expect(failed.stderr).toContain("is not a bound Project");
     expect(humanText(failed.stderr)).not.toMatch(INTERNAL_TERM_PATTERN);
+  });
+
+  test("an unbound-target error renders as one readable sentence with usage as what to type", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+
+    const unbound = join(home, "unbound");
+    mkdirSync(unbound, { recursive: true });
+    const failed = await runCli(home, "apply", unbound);
+    expectExitCode(failed, 1);
+    const lines = failed.stderr.split("\n");
+    // What happened: one labelled sentence, never an orphaned empty label.
+    expect(lines[0]).toMatch(/^apkit: apkit apply Project target/);
+    expect(lines.map((line) => line.trimStart()).slice(0, -2).join(" ")).toBe(
+      "apkit: apkit apply Project target '" + unbound +
+        "' is not a bound Project; run apkit list projects or apkit bind",
+    );
+    expect(lines.at(-3)!.trimStart()).toContain("run apkit list projects or apkit bind");
+    expect(lines.at(-3)!.endsWith("run apkit list projects or apkit bind")).toBe(true);
+    // What to type: the usage line as one whole command line.
+    expect(lines.at(-2)).toBe("Usage: apkit apply [project | --all] [--verbose] [--blockers-only] [--json]");
+    expect(lines.at(-1)).toBe("");
   });
 
   test("blocked default output does not repeat the working-directory project root", async () => {
