@@ -68,7 +68,8 @@ import {
   uninstallResultDocument,
   type LifecycleCommand,
   validationResultDocument,
-} from "./presentation.js";import {
+} from "./presentation.js";
+import {
   renderPresentationDocument,
   type PresentationDocument,
   type PresentationRenderOptions,

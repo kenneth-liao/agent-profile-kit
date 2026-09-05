@@ -26,7 +26,6 @@ import {
   flatInlineText,
   identifierPart,
   pathPart,
-  renderPresentationDocument,
   textPart,
   type CommandArg,
   type CommandNode,
