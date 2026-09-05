@@ -1,0 +1,35 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`status concise terminology groups tracked-output ownership conflicts into one explained blocker with deterministic directory groups: tracked-path group counts 1`] = `
+"      - .agent-profile-kit/codex/context.md
+      - .agents/skills/ (12 paths)
+      - .claude/rules/agent-profile-kit.md
+      - .codex/hooks.json"
+`;
+
+exports[`status concise terminology renders every tracked path in one parent-directory group without an overflow cap: tracked-path group counts 1`] = `"      - .agents/skills/ (11 paths)"`;
+
+exports[`status concise terminology groups concise tracked paths by immediate parent directory with lossless counts (#353): tracked-path group counts 1`] = `
+"      - ./ (2 paths)
+      - .agents/skills/ (2 paths)
+      - .agents/skills/b/deep.md
+      - .codex/hooks.json"
+`;
+
+exports[`status concise terminology assigns paths under overlapping prefixes to exactly one group each (#353): tracked-path group counts 1`] = `
+"      - .a/b/ (2 paths)
+      - .a/b/d/e.txt"
+`;
+
+exports[`status concise terminology renders concise tracked-path groups deterministically across repeated calls (#353): tracked-path group counts 1`] = `
+"      - root.md
+      - .a/one.md
+      - .a/sub/three.md
+      - .b/two.md"
+`;
+
+exports[`status concise terminology large tracked-path sets render lossless groups and one complete command (#353): tracked-path group counts 1`] = `
+"      - .agents/skills/ (60 paths)
+      - .codex/prompts/ (60 paths)
+      - .opencode/agent/ (30 paths)"
+`;

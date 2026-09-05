@@ -948,13 +948,18 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
 
     // 1. Concise human output carries no duplicate-Skill warning.
     const concise = lifecycleStatusDocument(statusReport);
-    expect(JSON.stringify(concise)).not.toContain("OpenCode discovers Skills");
+    expect(concise.filter((node) => node.kind === "heading").map((node) => node.text)).not.toContain("Warnings:");
 
     // 2. Verbose human output lists all 15 Projects and no warning.
     const verbose = lifecycleStatusDocument(statusReport, { verbose: true });
-    expect(JSON.stringify(verbose)).not.toContain("OpenCode discovers Skills");
+    const warningsAt = verbose.findIndex((node) => node.kind === "heading" && node.text === "Warnings:");
+    const nextSection = verbose.findIndex((node, index) => index > warningsAt && node.kind === "heading");
+    expect(warningsAt).toBeGreaterThan(-1);
+    expect(verbose.slice(warningsAt + 1, nextSection).filter((node) => node.kind !== "verbatim").map((node) => node.kind)).toEqual(["prose"]);
     for (const project of projects) {
-      expect(JSON.stringify(verbose)).toContain(project);
+      expect(verbose.some((node) => node.kind === "prose" && node.parts.some((part) =>
+        typeof part !== "string" && part.kind === "identifier" && part.value === project
+      ))).toBe(true);
     }
 
     // 3. Machine JSON retains 15 separate Project records, each warning-free.

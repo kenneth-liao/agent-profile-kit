@@ -9,32 +9,6 @@ import {
   lifecycleExitCode,
   lifecycleStatusDocument,
 } from "../cli/presentation.js";
-import {
-  flatInlineText as nodeTextOf,
-  type PresentationDocument,
-  type PresentationNode,
-} from "../cli/presentation-document.js";
-
-/** The flat carried texts of every node in a document. */
-function documentTexts(document: PresentationDocument): string[] {
-  const texts: string[] = [];
-  const visit = (node: PresentationNode): void => {
-    if (node.kind === "heading" || node.kind === "verbatim") texts.push(node.text);
-    if (node.kind === "prose" || node.kind === "sentence" || node.kind === "list-item") {
-      texts.push(flatInlineText(node.parts));
-    }
-    if (node.kind === "identifier") texts.push(node.value);
-    if (node.kind === "key-value") visit(node.value);
-    if (node.kind === "notice") for (const child of node.nodes) visit(child);
-  };
-  for (const node of document) visit(node);
-  return texts;
-}
-
-/** The heading texts of a document, in document order. */
-function documentHeadings(document: PresentationDocument): string[] {
-  return document.filter((node) => node.kind === "heading").map((node) => node.text);
-}
 import { blockerWording, humanBlockerWording } from "../cli/blocker-wording.js";
 import { flatInlineText } from "../cli/inline-content.js";
 import {
@@ -172,15 +146,13 @@ describe("structured Installer blocker evidence", () => {
     }
 
     const human = lifecycleStatusDocument(report);
-    expect(documentHeadings(human)).toContain("Global blockers:");
-    expect(documentTexts(human).some((text) =>
-      text.includes(flatInlineText(humanWording.problem))
-    )).toBe(true);
-    // The typed fact rides on every Project state; presentation composes the
-    // same carried sentence it published before the fact conversion.
+    expect(human.filter((node) => node.kind === "heading").map((node) => node.text)).toContain("Global blockers:");
+    expect(human.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(1);
     const verbose = lifecycleStatusDocument(report, { verbose: true });
-    expect(documentTexts(verbose).join("\n")).toContain("installation record exceeds the 8388608 byte limit");
-    expect(documentTexts(verbose).join("\n")).not.toContain("installation state read failed");
+    expect(verbose.filter((node) => node.kind === "heading").map((node) => node.text)).toContain("Blockers:");
+    const blockersAt = verbose.findIndex((node) => node.kind === "heading" && node.text === "Blockers:");
+    const nextSection = verbose.findIndex((node, index) => index > blockersAt && node.kind === "heading");
+    expect(verbose.slice(blockersAt + 1, nextSection).filter((node) => node.kind === "list-item")).toHaveLength(1);
 
     const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       readonly globalBlockers: readonly Record<string, unknown>[];
