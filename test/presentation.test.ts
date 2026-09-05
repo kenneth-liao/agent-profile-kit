@@ -2201,11 +2201,10 @@ describe("formatLifecycleReport concise terminology", () => {
       }),
     ]);
 
-    const output = formatLifecycleReport("status", report, { context: {
-      color: false,
-      interactive: true,
-      width: 40,
-    } });
+    const output = renderBoundary(
+      lifecycleStatusDocument(report),
+      { color: false, interactive: true, width: 40 },
+    );
 
     expect(output).toContain("Use reconcile as authored;");
     expect(output).toContain(value);
@@ -3447,14 +3446,36 @@ describe("formatLifecycleReport concise terminology", () => {
       blockers: [fixtureBlocker("/project-b: hooks disabled", "/project-b")],
     });
 
-    const concise = formatLifecycleReport("status", report);
-    expect(concise).not.toContain("Project: /project-a");
-    expect(concise).toContain("Project: /project-b");
-    expect(concise).not.toContain("State explanations:");
-    expect(concise).not.toContain("Changes:");
-    expect(concise).toMatch(
-      /Project: \/project-b\n  Profile: coding\n  Hosts: codex\n  Blocker: Cannot verify generated-file ownership: recorded output hooks disabled does not match/,
-    );
+    const concise = lifecycleStatusDocument(report);
+    const conciseNodes = flattenPresentationNodes(concise);
+    // Only the blocked Project presents its binding block; no planned-change
+    // summary or state explanations.
+    expect(conciseNodes.some((node) =>
+      node.kind === "key-value" && node.key === "Project" &&
+      (node.value as { readonly canonicalPath?: string }).canonicalPath === "/project-a"
+    )).toBe(false);
+    const projectB = conciseNodes.find((node) =>
+      node.kind === "key-value" && node.key === "Project" &&
+      (node.value as { readonly canonicalPath?: string }).canonicalPath === "/project-b");
+    expect(projectB).toBeDefined();
+    // The binding Profile and Hosts carry their values as typed nodes, and the
+    // Blocker evidence follows as an error-category prose node.
+    expect(keyValuesIn(concise, "  Profile")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "coding",
+    });
+    expect(keyValuesIn(concise, "  Hosts")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "codex",
+    });
+    expect(flattenPresentationNodes(concise).some((node) =>
+      node.kind === "prose" && node.category === "error" &&
+      nodeText(node).startsWith(
+        "  Blocker: Cannot verify generated-file ownership: recorded output hooks disabled does not match",
+      )
+    )).toBe(true);
+    expect(headingsIn(concise)).not.toContain("State explanations:");
+    expect(headingsIn(concise)).not.toContain("Changes:");
 
     for (const command of ["status", "apply"] as const) {
       const verbose = command === "apply"
@@ -3539,16 +3560,24 @@ describe("formatLifecycleReport concise terminology", () => {
       }],
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = lifecycleStatusDocument(report);
 
-    expect(concise).not.toContain("Git exclusions:");
-    expect(concise).not.toContain(target);
-    expect(concise).not.toContain("/.old-path.md");
-    expect(concise).toContain("Details: apkit status --verbose");
+    expect(headingsIn(concise)).not.toContain("Git exclusions:");
+    expect(presentationTexts(concise).some((text) =>
+      text.includes(target) || text.includes("/.old-path.md")
+    )).toBe(false);
+    // The one default clause points at the typed Details command value.
+    expect(keyValuesIn(concise, "Details")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [{ kind: "text", value: "status" }, { kind: "text", value: "--verbose" }],
+    });
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain(
-      `- ${target}: add /.agent-profile-kit/codex/context.md, /.codex/hooks.json; remove /.old-path.md`,
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const exclusionLine = flattenPresentationNodes(verbose).find((node) =>
+      node.kind === "list-item" && nodeText(node).startsWith(`${target}: `));
+    expect(nodeText(exclusionLine!)).toBe(
+      `${target}: add /.agent-profile-kit/codex/context.md, /.codex/hooks.json; remove /.old-path.md`,
     );
   });
 
