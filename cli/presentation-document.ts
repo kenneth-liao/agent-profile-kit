@@ -2,8 +2,6 @@ import { homedir } from "node:os";
 
 import { displayPath, type LocationDisplayScope } from "./display-path.js";
 import {
-  carriedContent,
-  carriedParts,
   commandPart,
   flatInlineText,
   identifierPart,
@@ -21,8 +19,6 @@ import {
 } from "./inline-content.js";
 
 export {
-  carriedContent,
-  carriedParts,
   commandPart,
   flatInlineText,
   identifierPart,
@@ -156,45 +152,6 @@ export type PresentationNode =
 
 export type PresentationDocument = readonly PresentationNode[];
 
-/**
- * Carve structurally supplied values into a document's inline content: every
- * occurrence inside a text span becomes an atomic identifier part the renderer
- * keeps whole (DEC-009). This is the one normalization boundary where carried
- * record values (report paths, ids, recovery commands) become atomic parts;
- * the renderer never re-identifies a value in rendered text.
- */
-export function carveDocumentValues(
-  document: PresentationDocument,
-  values: readonly string[],
-): PresentationDocument {
-  if (values.every((value) => value.length === 0)) return document;
-  return document.map((node) => carveNodeValues(node, values));
-}
-
-function carveNodeValues(node: PresentationNode, values: readonly string[]): PresentationNode {
-  switch (node.kind) {
-    case "prose":
-    case "sentence":
-    case "list-item":
-      return { ...node, parts: carriedContent(node.parts, values) };
-    case "notice":
-      return { ...node, nodes: carveDocumentValues(node.nodes, values) };
-    case "key-value":
-      return { ...node, value: carveNodeValues(node.value, values) };
-    case "row":
-      return {
-        ...node,
-        cells: node.cells.map((cell) => ({
-          ...cell,
-          content: carveNodeValues(cell.content, values),
-        })),
-      };
-    case "column-group":
-      return { ...node, columns: node.columns.map((column) => carveDocumentValues(column, values)) };
-    default:
-      return node;
-  }
-}
 
 const NOTICE_CATEGORY: Readonly<Record<NoticeSeverity, SemanticCategory>> = {
   attention: "attention",

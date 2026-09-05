@@ -22,8 +22,6 @@ export {
   formatProjectTargetErrorForHuman,
 } from "./blocker-wording.js";
 import {
-  carveDocumentValues,
-  carriedParts,
   commandPart,
   flatInlineText,
   identifierPart,
@@ -365,7 +363,7 @@ export function formatInfoHuman(
   home = homedir(),
   cwd = process.cwd(),
 ): string {
-  return renderStandaloneDocument(infoDocument(info, home, cwd), options.context, [], { cwd, home });
+  return renderStandaloneDocument(infoDocument(info, home, cwd), options.context, { cwd, home });
 }
 
 interface InfoMachineBase {
@@ -431,11 +429,10 @@ export function formatInfoToolErrorJson(
 function renderStandaloneDocument(
   document: PresentationDocument,
   context?: TerminalPresentationContext,
-  copyableValues: readonly string[] = [],
   environment: { readonly cwd?: string; readonly home?: string } = {},
 ): string {
   const rendered = renderPresentationDocument(
-    carveDocumentValues(document, copyableValues),
+    document,
     context ?? DEFAULT_RENDER_CONTEXT,
     environment.cwd === undefined && environment.home === undefined ? {} : environment,
   );
@@ -560,26 +557,9 @@ export function formatProjectInventoryHuman(
   home = homedir(),
   cwd = process.cwd(),
 ): string {
-  const copyable = projects.flatMap((project) => {
-    const presented = displayProjectPath(
-      project.canonicalProject ?? project.project,
-      project.project,
-      "fleet",
-      cwd,
-      home,
-    );
-    return [
-      `Project: ${presented}`,
-      presented,
-      project.canonicalProject ?? project.project,
-      project.project,
-      project.hosts.join(", "),
-    ];
-  });
   return renderStandaloneDocument(
     projectInventoryDocument(projects, home, cwd),
     options.context,
-    copyable,
     { cwd, home },
   );
 }
@@ -898,19 +878,9 @@ export function formatTemporaryInventoryHuman(
   home = homedir(),
   cwd = process.cwd(),
 ): string {
-  const copyable = installations.flatMap((installation) => {
-    const presented = displayProjectPath(installation.project, installation.project, "fleet", cwd, home);
-    return [
-      `Temporary installation: ${installation.temporaryInstallationId}`,
-      `Project: ${presented}`,
-      presented,
-      installation.project,
-    ];
-  });
   return renderStandaloneDocument(
     temporaryInventoryDocument(installations, home, cwd),
     options.context,
-    copyable,
     { cwd, home },
   );
 }
@@ -980,7 +950,10 @@ export function validationResultDocument(result: ValidationResult): Presentation
       severity: "success",
       nodes: [{
         kind: "prose",
-        parts: [`Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} valid ${countClause}`],
+        parts: [
+          `Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} valid `,
+          identifierPart(countClause),
+        ],
       }],
     },
     {
@@ -1023,11 +996,7 @@ export function formatValidationResult(
   result: ValidationResult,
   options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
-  return renderStandaloneDocument(validationResultDocument(result), options.context, [
-    validationCountClause(result),
-    result.profiles.join(", "),
-    result.hosts.join(", "),
-  ]);
+  return renderStandaloneDocument(validationResultDocument(result), options.context);
 }
 
 /** The uninstall result view as a presentation document. */
@@ -1062,7 +1031,7 @@ export function uninstallResultDocument(
         value: projectPathNode(project.project, project.project, "fleet"),
       },
       { kind: "prose", parts: ["  Removed generated paths:"], category: "success" },
-      ...project.outputs.map((path) => ({ kind: "prose" as const, parts: [`  - ${path}`] })),
+      ...project.outputs.map((path) => ({ kind: "prose" as const, parts: ["  - ", identifierPart(path)] })),
     );
     if (project.repositoryExclusions.length > 0) {
       nodes.push(
@@ -1070,11 +1039,15 @@ export function uninstallResultDocument(
         ...project.repositoryExclusions.flatMap((exclusion) =>
           exclusion.entries.map((entry) => ({
             kind: "prose" as const,
-            parts: [`  - ${entry} (${replaceProjectReference(
-              exclusion.target,
-              project.project,
-              displayProjectPath(project.project, project.project, "fleet", cwd, home),
-            )})`],
+            parts: [
+              "  - ",
+              identifierPart(entry),
+              ` (${replaceProjectReference(
+                exclusion.target,
+                project.project,
+                displayProjectPath(project.project, project.project, "fleet", cwd, home),
+              )})`,
+            ],
           })),
         ),
       );
@@ -1135,18 +1108,7 @@ export function formatUninstallResult(
   result: UninstallResult,
   options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
-  const copyable = [
-    ...result.projects.flatMap((project) => {
-      const presentedProject = displayProjectPath(project.project, project.project, "fleet");
-      return [`Project: ${presentedProject}`, presentedProject, project.project];
-    }),
-    ...result.kept.flatMap((kept) => {
-      const presentedProject = displayProjectPath(kept.project, kept.project, "fleet");
-      return [`Project: ${presentedProject}`, presentedProject, kept.project];
-    }),
-    ...result.warnings,
-  ];
-  return renderStandaloneDocument(uninstallResultDocument(result), options.context, copyable);
+  return renderStandaloneDocument(uninstallResultDocument(result), options.context);
 }
 
 function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputSummary {
@@ -2530,48 +2492,6 @@ function operationReceiptPathLines(
 
 
 
-function lifecycleCopyableValues(
-  reports: readonly ReconciliationReport[],
-  scope: LocationDisplayScope,
-): readonly string[] {
-  const values = new Set<string>();
-  for (const report of reports) {
-    for (const installation of reportDesired(report)) {
-      values.add(installation.canonicalProject);
-      values.add(installation.project);
-      values.add(displayProjectPath(installation.canonicalProject, installation.project, scope));
-      for (const output of installation.outputs) values.add(output);
-      for (const artifact of installation.resolvedArtifacts) values.add(artifact.id);
-    }
-    for (const item of reportItems(report)) values.add(item.project);
-    for (const output of reportOutputs(report)) {
-      values.add(output.project);
-      values.add(output.path);
-    }
-    for (const project of report.projects) {
-      for (const output of project.outputs) {
-        values.add(project.project);
-        values.add(output.path);
-      }
-    }
-    for (const blocker of reportBlockers(report)) {
-      if (blocker.project !== undefined) values.add(blocker.project);
-      for (const item of blocker.affectedItems ?? []) values.add(item.value);
-      // The exact untracking command is copyable evidence: terminal wrapping
-      // must never split it (#353).
-      if (isOutputOwnershipConflict(blocker)) {
-        const paths = outputOwnershipConflictPaths(blocker);
-        if (paths.length > 0) values.add(trackedPathUntrackCommand(blocker.project!, paths));
-      }
-    }
-    for (const exclusion of reportRepositoryExclusions(report)) {
-      values.add(exclusion.target);
-      for (const entry of [...exclusion.current, ...exclusion.next]) values.add(entry);
-    }
-    for (const value of reportWarningValues(report)) values.add(value);
-  }
-  return [...values].filter((value) => value.length > 0);
-}
 
 interface LifecycleHumanOptions {
   readonly all?: boolean;
@@ -3111,18 +3031,12 @@ const DEFAULT_RENDER_CONTEXT: TerminalPresentationContext = {
   width: 10_000,
 };
 
-/** Render one lifecycle document: carried report values are carved into atomic parts before rendering. */
+/** Render one lifecycle document with default context when unrequested. */
 function renderLifecycleDocument(
   document: PresentationDocument,
-  scope: LocationDisplayScope,
-  reports: readonly ReconciliationReport[],
   context?: TerminalPresentationContext,
 ): string {
-  const carved = carveDocumentValues(
-    document,
-    lifecycleCopyableValues(reports, scope),
-  );
-  const rendered = renderPresentationDocument(carved, context ?? DEFAULT_RENDER_CONTEXT);
+  const rendered = renderPresentationDocument(document, context ?? DEFAULT_RENDER_CONTEXT);
   return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
 }
 
@@ -3130,11 +3044,8 @@ export function formatApplyReport(
   result: ApplyReconciliationResult,
   options: LifecycleHumanOptions = {},
 ): string {
-  const scope = locationDisplayScope(options, result.resultingState);
   return renderLifecycleDocument(
     applyReportDocument(result, options),
-    scope,
-    [result.resultingState, result.receipt],
     options.context,
   );
 }
@@ -3150,14 +3061,8 @@ export function formatApplyExecutionFailure(
   },
   options: LifecycleHumanOptions = {},
 ): string {
-  const scope = locationDisplayScope(options, failure.receipt);
   return renderLifecycleDocument(
     applyExecutionFailureDocument(failure, options),
-    scope,
-    [
-      failure.receipt,
-      ...(failure.resultingState === undefined ? [] : [failure.resultingState]),
-    ],
     options.context,
   );
 }
@@ -3167,11 +3072,8 @@ export function formatApplyVerificationFailure(
   message: string,
   options: LifecycleHumanOptions = {},
 ): string {
-  const scope = locationDisplayScope(options, receipt);
   return renderLifecycleDocument(
     applyVerificationFailureDocument(receipt, message, options),
-    scope,
-    [receipt],
     options.context,
   );
 }
@@ -3180,11 +3082,8 @@ export function formatBlockedApplyReport(
   report: BlockedReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
-  const scope = locationDisplayScope(options, report);
   return renderLifecycleDocument(
     blockedApplyReportDocument(report, options),
-    scope,
-    [report],
     options.context,
   );
 }
@@ -3567,6 +3466,35 @@ function projectPathNode(
 
 
 
+function authorInlineValues(
+  message: string,
+  values: readonly string[],
+): readonly InlineContent[] {
+  const ordered = [...new Set(values)]
+    .filter((value) => value.length > 0)
+    .sort((left, right) => right.length - left.length);
+  if (ordered.length === 0) return [message];
+  const parts: InlineContent[] = [];
+  let cursor = 0;
+  while (cursor < message.length) {
+    const match = ordered
+      .map((value) => ({ value, index: message.indexOf(value, cursor) }))
+      .filter((entry) => entry.index >= 0)
+      .sort((left, right) => left.index - right.index || right.value.length - left.value.length)
+      .at(0);
+    if (match === undefined) {
+      parts.push(message.slice(cursor));
+      break;
+    }
+    if (match.index > cursor) {
+      parts.push(message.slice(cursor, match.index));
+    }
+    parts.push(identifierPart(match.value));
+    cursor = match.index + match.value.length;
+  }
+  return parts;
+}
+
 function warningNodes(
   report: ReconciliationReport,
   groups: readonly ProjectGroup[],
@@ -3580,7 +3508,11 @@ function warningNodes(
     ...warningGroups.map((group) => ({
       kind: "list-item" as const,
       parts: [
-        `${shortenProjectReferences(group.message, groups, scope)} (${plural(group.projects.length, "Project")})`,
+        ...authorInlineValues(
+          shortenProjectReferences(group.message, groups, scope),
+          group.copyableValues,
+        ),
+        ` (${plural(group.projects.length, "Project")})`,
       ],
     })),
   ];
@@ -3638,9 +3570,10 @@ function verboseDetailNodes(
       ? [{ kind: "prose" as const, parts: ["(no projects)"] }]
       : items.map((item) => ({
         kind: "prose" as const,
-        parts: [shorten(
-          `${item.project}: ${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}`,
-        )],
+        parts: [
+          identifierPart(shorten(item.project)),
+          `: ${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}`,
+        ],
       }))),
   ];
   if (includeStateExplanations) {
@@ -3652,15 +3585,30 @@ function verboseDetailNodes(
       ? [{ kind: "prose" as const, parts: ["(none)"] }]
       : outputs.map((output) => ({
         kind: "prose" as const,
-        parts: [shorten(`${output.project}/${output.path}: ${output.kind}`)],
+        parts: [
+          identifierPart(shorten(`${output.project}/${output.path}`)),
+          `: ${output.kind}`,
+        ],
       }))),
     { kind: "heading", text: "Git exclusions:" },
     ...(exclusions.length === 0
       ? [{ kind: "prose" as const, parts: ["(none)"] }]
-      : exclusions.map((change) => ({
-        kind: "list-item" as const,
-        parts: [shorten(`${change.target}: ${exclusionDeltaText(change)}`)],
-      }))),
+      : exclusions.map((change) => {
+        const delta = exclusionDelta(change);
+        const parts: InlineContent[] = [identifierPart(shorten(change.target)), ": "];
+        const deltaClauses: InlineContent[] = [];
+        if (delta.additions.length > 0) {
+          deltaClauses.push("add ", ...delta.additions.flatMap((e, i) => (i === 0 ? [identifierPart(e)] : [", ", identifierPart(e)])));
+        }
+        if (delta.removals.length > 0) {
+          if (deltaClauses.length > 0) deltaClauses.push("; ");
+          deltaClauses.push("remove ", ...delta.removals.flatMap((e, i) => (i === 0 ? [identifierPart(e)] : [", ", identifierPart(e)])));
+        }
+        return {
+          kind: "list-item" as const,
+          parts: [...parts, ...deltaClauses],
+        };
+      })),
     { kind: "heading", text: "Selected setup:" },
   );
   const desired = reportDesired(report);
@@ -3679,7 +3627,10 @@ function verboseDetailNodes(
       .join(", ");
     nodes.push({
       kind: "list-item",
-      parts: [`${shorten(group.message)} (${projectList})`],
+      parts: [
+        ...authorInlineValues(shorten(group.message), group.copyableValues),
+        ` (${projectList})`,
+      ],
     });
   }
   return nodes;
@@ -3985,11 +3936,8 @@ export function formatLifecycleReport(
   options: LifecycleHumanOptions = {},
 ): string {
   void command;
-  const scope = locationDisplayScope(options, report);
   return renderLifecycleDocument(
     lifecycleStatusDocument(report, options),
-    scope,
-    [report],
     options.context,
   );
 }
@@ -4349,7 +4297,7 @@ export function temporaryInstallationDocument(
         { kind: "prose", parts: ["Warnings:"], category: "attention" },
         ...receipt.warnings.map((warning) => ({
           kind: "list-item" as const,
-          parts: [warning],
+          parts: authorInlineValues(warning, receipt.diagnosticValues),
         })),
       );
     }
@@ -4427,25 +4375,9 @@ export function formatTemporaryInstallationHuman(
   cwd = process.cwd(),
   home = homedir(),
 ): string {
-  const copyable = command === "install-temp"
-    ? [
-      displayProjectPath(receipt.project!, receipt.project!, "project", cwd, home),
-      `${COMMAND_NAME} machine remove-temp ${receipt.temporaryInstallationId}`,
-      receipt.temporaryInstallationId,
-      receipt.profileId!,
-      ...receipt.diagnosticValues,
-      ...receipt.outputs,
-    ]
-    : [
-      ...(receipt.project === undefined ? [] : [
-        displayProjectPath(receipt.project, receipt.project, "project", cwd, home),
-      ]),
-      receipt.temporaryInstallationId,
-    ];
   return renderStandaloneDocument(
     temporaryInstallationDocument(command, receipt, cwd, home),
     options.context,
-    copyable,
     { cwd, home },
   );
 }

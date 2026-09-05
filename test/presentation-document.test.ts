@@ -5,6 +5,7 @@ import { diagnosticDocument } from "../cli/diagnostics.js";
 import {
   type CommandArg,
   commandPart,
+  identifierPart,
   type InlineContent,
   pathPart,
   renderPresentationDocument,
@@ -393,6 +394,72 @@ test("reproduces verbatim content exactly, including fence escalation, without w
   expect(colored.split("\n").some((line) => line.length > 20)).toBe(true);
 });
 
+test("atomic inline parts preserve their AST shape and are never split across lines by wrapping", () => {
+  const dynamicIdentifier = identifierPart("/path with spaces/and identifiers/that must stay whole");
+  const dynamicCommand = commandPart("apkit", [
+    { kind: "text", value: "machine" },
+    { kind: "text", value: "install-temp" },
+    { kind: "text", value: "--profile" },
+    { kind: "text", value: "coding-v2" },
+  ]);
+  const dynamicPath = pathPart(
+    "/var/log/my test app/diagnostics.log",
+    "fleet",
+  );
+
+  expect(dynamicIdentifier).toEqual({
+    kind: "identifier",
+    value: "/path with spaces/and identifiers/that must stay whole",
+  });
+  expect(dynamicCommand).toEqual({
+    args: [
+      { kind: "text", value: "machine" },
+      { kind: "text", value: "install-temp" },
+      { kind: "text", value: "--profile" },
+      { kind: "text", value: "coding-v2" },
+    ],
+    kind: "command",
+    program: "apkit",
+  });
+  expect(dynamicPath).toEqual({
+    canonicalPath: "/var/log/my test app/diagnostics.log",
+    kind: "path",
+    scope: "fleet",
+  });
+
+  const doc = [
+    {
+      kind: "prose" as const,
+      parts: [
+        "Please check ",
+        dynamicIdentifier,
+        " and run ",
+        dynamicCommand,
+        " before checking ",
+        dynamicPath,
+        ".",
+      ],
+    },
+  ];
+
+  const rendered = renderPresentationDocument(doc, {
+    color: false,
+    interactive: false,
+    width: 60,
+  });
+
+  const lines = rendered.split("\n");
+  expect(lines.length).toBeGreaterThan(1);
+  for (const line of lines) {
+    expect(line.length).toBeLessThanOrEqual(60);
+  }
+
+  // The dynamic values with spaces must remain whole on single lines, not split across wrapped lines
+  expect(lines.some((line) => line.includes("/path with spaces/and identifiers/that must stay whole"))).toBe(true);
+  expect(lines.some((line) => line.includes("/var/log/my test app/diagnostics.log"))).toBe(true);
+});
+
 function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
 }
+

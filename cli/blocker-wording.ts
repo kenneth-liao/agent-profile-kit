@@ -19,7 +19,7 @@ import {
   type TemporaryRemovalFailureFact,
 } from "../installer/blockers.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
-import { commandPart, type CommandArg, type CommandPart, type InlineContent } from "./inline-content.js";
+import { commandPart, flatInlineText, type CommandArg, type CommandPart, type InlineContent } from "./inline-content.js";
 
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
@@ -306,7 +306,12 @@ export function applyNewcomerSubstitutions(text: string): string {
 
 function substitute(text: string): string {
   return DEFAULT_BLOCKER_SUBSTITUTIONS.reduce(
-    (rendered, substitution) => rendered.replaceAll(substitution.term, substitution.replacement as string),
+    (rendered, substitution) => {
+      const replacement = typeof substitution.replacement === "string"
+        ? substitution.replacement
+        : flatInlineText([substitution.replacement]);
+      return rendered.replaceAll(substitution.term, replacement);
+    },
     text,
   );
 }

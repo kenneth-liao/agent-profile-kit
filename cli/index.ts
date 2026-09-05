@@ -70,7 +70,6 @@ import {
   type LifecycleCommand,
 } from "./presentation.js";
 import {
-  carveDocumentValues,
   renderPresentationDocument,
   type PresentationDocument,
 } from "./presentation-document.js";
@@ -703,14 +702,6 @@ function parseMachineListArguments(
   | { readonly json: boolean; readonly kind: "topic"; readonly topic: MachineInventoryTopic } {
   if (arguments_.length === 0) return { kind: "index" };
   const topic = positionalArgument("machine list", "an inventory topic", arguments_[0]!);
-  if (isInventoryTopic(topic)) {
-    throw new CliArgumentError([
-      "machine list does not support ordinary topic '",
-      topic,
-      "'; use ",
-      commandPart(COMMAND_NAME, [arg("list"), arg(topic)]),
-    ]);
-  }
   if (!isMachineInventoryTopic(topic)) {
     throw new Error(
       `machine list does not support topic '${topic}'; available topics: ${machineInventoryTopicNames().join(", ")}`,
@@ -1200,7 +1191,7 @@ async function main(): Promise<void> {
             );
             process.stderr.write(
               `${renderPresentationDocument(
-                carveDocumentValues(blocked.document, [blocked.presented, error.canonicalProject]),
+                blocked.document,
                 stderrPresentationContext,
               )}\n`,
             );
@@ -1285,7 +1276,7 @@ async function main(): Promise<void> {
             );
             process.stderr.write(
               `${renderPresentationDocument(
-                carveDocumentValues(blocked.document, [blocked.presented, error.canonicalProject]),
+                blocked.document,
                 stderrPresentationContext,
               )}\n`,
             );

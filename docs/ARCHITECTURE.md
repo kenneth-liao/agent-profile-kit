@@ -475,7 +475,7 @@ a real directory.
 
 Every human CLI view flows through one structured document tree and pure renderer:
 
-- **Presentation Document (`cli/presentation-document.ts`)** defines a closed vocabulary of semantic nodes (`notice`, `prose`, `sentence`, `heading`, `key-value`, `list-item`, `table`, `row`, `column-group`, `verbatim`, `path`, `command`, `identifier`) and inline parts (`text`, `command`, `path`, `identifier`).
+- **Presentation Document (`cli/presentation-document.ts`)** defines a closed vocabulary of semantic nodes (`notice`, `prose`, `sentence`, `heading`, `key-value`, `list-item`, `row`, `column-group`, `verbatim`, `path`, `command`, `identifier`) and inline parts (`text`, `command`, `path`, `identifier`).
 - **Terminal Presentation Context (`cli/terminal-presentation.ts`)** is evaluated once per stream at the CLI process boundary (`cli/index.ts`) and passed into the renderer. It owns width clamping, `NO_COLOR` handling, and interactive vs redirected styling.
 - **Pure Document Renderer (`renderPresentationDocument`)** formats the document into terminal text. It wraps prose, sentence, and list-item content to the terminal width without splitting atomic tokens.
 - **Atomic-Node Rule (DEC-009)**: Structurally supplied values (paths, commands, identifiers, options) are authored as atomic nodes or parts at formatter and receipt sites (`cli/inline-content.ts`). Keeping values intact during wrapping is a structural property of atomic nodes rather than a substring scan in rendered text. The former string pipeline (regex categoriser, English prefix table, copyable-value substring protector, and string wrapping helpers) is removed.

@@ -81,63 +81,6 @@ export function identifierPart(value: string): IdentifierPart {
   return { kind: "identifier", value };
 }
 
-/**
- * Compose one carried message and its structurally supplied values into inline
- * content: each value becomes an atomic identifier part rendered verbatim, so
- * a carried value is never re-identified by scanning rendered text (DEC-009).
- * This is the one normalization boundary where a carried record becomes
- * document nodes; the renderer never scans for values.
- */
-export function carriedParts(
-  message: string,
-  values: readonly string[],
-): readonly InlineContent[] {
-  const ordered = [...new Set(values)]
-    .filter((value) => value.length > 0)
-    .sort((left, right) => right.length - left.length);
-  if (ordered.length === 0) return [message];
-  const content: InlineContent[] = [];
-  let cursor = 0;
-  let carry = "";
-  const flushCarry = (): void => {
-    if (carry.length > 0) {
-      content.push(carry);
-      carry = "";
-    }
-  };
-  while (cursor < message.length) {
-    const match = ordered
-      .map((value) => ({ value, index: message.indexOf(value, cursor) }))
-      .filter((entry) => entry.index >= 0)
-      .sort((left, right) =>
-        left.index - right.index || right.value.length - left.value.length
-      )
-      .at(0);
-    if (match === undefined) break;
-    carry += message.slice(cursor, match.index);
-    flushCarry();
-    content.push(identifierPart(match.value));
-    cursor = match.index + match.value.length;
-  }
-  carry += message.slice(cursor);
-  flushCarry();
-  return content;
-}
-
-/**
- * Carve structurally supplied values out of already-composed inline content:
- * every occurrence inside a text span becomes an atomic identifier part, so a
- * value is never re-identified downstream of this composition (DEC-009).
- */
-export function carriedContent(
-  content: readonly InlineContent[],
-  values: readonly string[],
-): readonly InlineContent[] {
-  if (values.every((value) => value.length === 0)) return content;
-  return content.flatMap((part) =>
-    typeof part === "string" ? carriedParts(part, values) : [part]
-  );
-}
 
 /**
  * The plain-text projection of inline content: atomic parts render verbatim.

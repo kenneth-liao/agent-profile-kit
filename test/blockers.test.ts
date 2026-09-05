@@ -19,11 +19,13 @@ import {
   type ReconciliationBlocker,
 } from "../installer/blockers.js";
 import {
+  applyNewcomerSubstitutions,
   blockerWording,
   describeOwnershipFailure,
   describeStateReadFailure,
   describeTemporaryRemovalFailure,
   humanBlockerWording,
+  substituteInline,
 } from "../cli/blocker-wording.js";
 import { flatInlineText } from "../cli/inline-content.js";
 import type {
@@ -635,4 +637,38 @@ describe("tracked-output ownership conflicts", () => {
       ],
     }]);
   });
+
+  test("flattens command replacements for string projection without casting CommandPart to object", () => {
+    const textWithInstallTemp = "Retry with install-temp after fixing conflicts";
+    const textWithRemoveTemp = "Run remove-temp to clean up";
+    
+    expect(applyNewcomerSubstitutions(textWithInstallTemp)).toBe(
+      "Retry with apkit machine install-temp after fixing conflicts",
+    );
+    expect(applyNewcomerSubstitutions(textWithInstallTemp)).not.toContain("[object Object]");
+    
+    expect(applyNewcomerSubstitutions(textWithRemoveTemp)).toBe(
+      "Run apkit machine remove-temp to clean up",
+    );
+    expect(applyNewcomerSubstitutions(textWithRemoveTemp)).not.toContain("[object Object]");
+  });
+
+  test("substitutes command references as atomic command parts in inline AST content", () => {
+    const inline = substituteInline(["Run install-temp then remove-temp"]);
+    expect(inline).toHaveLength(4);
+    expect(inline[0]).toBe("Run ");
+    expect(inline[1]).toEqual({
+      args: [{ kind: "text", value: "machine" }, { kind: "text", value: "install-temp" }],
+      kind: "command",
+      program: "apkit",
+    });
+    expect(inline[2]).toBe(" then ");
+    expect(inline[3]).toEqual({
+      args: [{ kind: "text", value: "machine" }, { kind: "text", value: "remove-temp" }],
+      kind: "command",
+      program: "apkit",
+    });
+  });
 });
+
+
