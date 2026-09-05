@@ -22,6 +22,9 @@ import {
   formatLifecycleJson,
   formatLifecycleReport,
   formatLifecycleToolErrorJson,
+  hostInventoryDocument,
+  infoDocument,
+  inventoryIndexDocument,
   lifecycleStatusDocument,
   formatProfileInventoryHuman,
   formatProjectInventoryHuman,
@@ -30,7 +33,14 @@ import {
   formatTemporaryInventoryHuman,
   formatUninstallResult,
   formatValidationResult,
-  presentTemporaryBlockedMessages,
+  machineInventoryIndexDocument,
+  profileInventoryDocument,
+  projectInventoryDocument,
+  temporaryBlockedMessagesDocument,
+  temporaryInstallationDocument,
+  temporaryInventoryDocument,
+  uninstallResultDocument,
+  validationResultDocument,
   type TemporaryInstallationReceiptView,
   displayPath,
   displayProjectPath,
@@ -44,6 +54,7 @@ import type {
   PresentationNode,
 } from "../cli/presentation-document.js";
 import type { ApplicationInfo } from "../installer/info.js";
+import { INVENTORY_TOPICS, MACHINE_INVENTORY_TOPICS } from "../cli/inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
 import {
   renderHumanOutput,
@@ -1721,267 +1732,62 @@ describe("responsive lifecycle presentation", () => {
     expect(output).not.toContain("untyped project with\n");
   });
 
-  test("wraps temporary-installation setup guidance while preserving its receipt values", () => {
-    const diagnosticValue = "generated diagnostic path with spaces";
-    const receipt: TemporaryInstallationReceiptView = {
-      adapterVersion: "codex-project-v2",
-      completionState: "installed",
-      engineVersion: "0.62.0",
-      host: "codex",
-      hostVersion: "native-project-sessionstart-v1",
-      outputs: [".agent-profile-kit/codex/context.md"],
-      profileId: "coding",
-      project: "/tmp/temporary project with spaces",
-      setupSteps: [{
-        consequence: "Profile Context does not load until the project is trusted.",
-        host: "codex",
-        kind: "trust-required",
-        message: "Trust the bound project in Codex.",
-        provenance: "standing",
-      }],
-      temporaryInstallationId: "temporary-installation-opaque-id",
-      diagnosticValues: [diagnosticValue],
-      warnings: [`Inspect ${diagnosticValue} before continuing with this diagnostic.`],
-      workspaceInputHash: "workspace-hash",
-    };
-
-    const output = formatTemporaryInstallationHuman("install-temp", receipt, {
-      context: context(40),
-    });
-
-    expect(output.split("\n").some((line) => line.includes(receipt.project!))).toBe(true);
-    expect(output).toContain("- Trust the bound project in Codex.");
-    expect(output.split("\n")).toContain(`    ${receipt.temporaryInstallationId}`);
-    expect(output).toContain(`apkit machine remove-temp ${receipt.temporaryInstallationId}`);
-    expect(output).toContain("  Consequence: Profile Context does");
-    expect(output).toContain(diagnosticValue);
-    expect(output).not.toContain("generated diagnostic path with\n");
-    expect(output.replace(/\s+/g, " ")).toContain(
-      "Consequence: Profile Context does not load until the project is trusted.",
-    );
-    for (const line of output.trimEnd().split("\n")) {
-      if (line.includes(receipt.project!) || line.includes("apkit machine remove-temp")) continue;
-      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
-    }
-  });
 });
 
-describe("temporary-installation Project identity presentation", () => {
-  test("presents the temporary-installation Project through the canonical path presenter", () => {
-    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
-    try {
-      const project = join(home, "projects", "alpha");
-      const receipt = temporaryReceipt({ project });
-
-      const install = formatTemporaryInstallationHuman(
-        "install-temp",
-        receipt,
-        {},
-        process.cwd(),
-        home,
-      );
-      const remove = formatTemporaryInstallationHuman(
-        "remove-temp",
-        receipt,
-        {},
-        process.cwd(),
-        home,
-      );
-
-      expect(install).toContain("Project: ~/projects/alpha\n");
-      expect(install).not.toContain(project);
-      expect(remove).toContain("Project: ~/projects/alpha\n");
-      expect(remove).not.toContain(project);
-    } finally {
-      rmSync(home, { force: true, recursive: true });
-    }
-  });
-
-  test("presents the temporary-installation Project relative to the working directory", () => {
-    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
-    try {
-      const project = join(home, "projects", "alpha");
-      const receipt = temporaryReceipt({ project });
-
-      const inside = formatTemporaryInstallationHuman(
-        "install-temp",
-        receipt,
-        {},
-        project,
-        home,
-      );
-      const ancestor = formatTemporaryInstallationHuman(
-        "install-temp",
-        receipt,
-        {},
-        join(project, "nested"),
-        home,
-      );
-
-      expect(inside).toContain("Project: .\n");
-      expect(inside).not.toContain(project);
-      expect(ancestor).toContain("Project: ..\n");
-      expect(ancestor).not.toContain(project);
-    } finally {
-      rmSync(home, { force: true, recursive: true });
-    }
-  });
-
-  test("keeps same-basename temporary-installation Projects distinct", () => {
-    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
-    try {
-      const first = temporaryReceipt({ project: join(home, "team-a", "project") });
-      const second = temporaryReceipt({ project: join(home, "team-b", "project") });
-
-      const install = formatTemporaryInstallationHuman(
-        "install-temp",
-        first,
-        {},
-        process.cwd(),
-        home,
-      ) +
-        formatTemporaryInstallationHuman("install-temp", second, {}, process.cwd(), home);
-
-      expect(install).toContain("Project: ~/team-a/project\n");
-      expect(install).toContain("Project: ~/team-b/project\n");
-    } finally {
-      rmSync(home, { force: true, recursive: true });
-    }
-  });
+describe("temporary-installation Project identity in documents", () => {
+  function receiptFixture(project: string, setupSteps: readonly HostSetupStep[] = []): TemporaryInstallationReceiptView {
+    return {
+      completionState: "installed",
+      diagnosticValues: [],
+      host: "codex",
+      outputs: [],
+      profileId: "coding",
+      project,
+      setupSteps: [...setupSteps],
+      temporaryInstallationId: "temporary-installation-opaque-id",
+      warnings: [],
+    };
+  }
 
   test("presents bound-project Host Setup Steps through the canonical path presenter", () => {
     const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
     try {
       const project = join(home, "projects", "alpha");
-      const receipt = temporaryReceipt({
-        project,
-        setupSteps: [{
+      const document = temporaryInstallationDocument(
+        "install-temp",
+        receiptFixture(project, [{
           host: "codex",
           kind: "launch-constraint",
           message: "Launch Codex from the exact bound project root:",
           path: "bound-project",
           provenance: "standing",
-        }],
-      });
+        }]),
+        process.cwd(),
+        home,
+      );
 
-      const install = formatTemporaryInstallationHuman(
+      const step = flattenPresentationNodes(document).find((node) =>
+        node.kind === "list-item" &&
+        node.nodes.some((child) => child.kind === "prose" && child.text.startsWith("Launch Codex from"))
+      ) as Extract<PresentationNode, { kind: "list-item" }>;
+      const stepText = (step.nodes[0] as Extract<PresentationNode, { kind: "prose" }>).text;
+      expect(stepText).toBe("Launch Codex from the exact bound project root: ~/projects/alpha");
+      // The rendered receipt presents the Project only through the canonical
+      // presenter; the raw path never reaches the rendered text.
+      const rendered = formatTemporaryInstallationHuman(
         "install-temp",
-        receipt,
+        receiptFixture(project, [{
+          host: "codex",
+          kind: "launch-constraint",
+          message: "Launch Codex from the exact bound project root:",
+          path: "bound-project",
+          provenance: "standing",
+        }]),
         {},
         process.cwd(),
         home,
       );
-
-      expect(install.split("\n").find((line) => line.startsWith("- Launch Codex from"))).toBe(
-        "- Launch Codex from the exact bound project root: ~/projects/alpha",
-      );
-      expect(install).not.toContain(project);
-    } finally {
-      rmSync(home, { force: true, recursive: true });
-    }
-  });
-
-  test("presents temporary-installation blocked messages through the canonical path presenter", () => {
-    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
-    try {
-      const canonical = join(home, "projects", "alpha");
-      const blockers = [
-        normalizeBlocker({
-          affectedItems: [],
-          detail:
-            `${canonical} already has an ordinary Profile Installation; remove it ` +
-            "before installing a temporary Profile",
-          kind: "installation-state-unreadable",
-          scope: "global",
-        }),
-        normalizeBlocker(temporaryInstallationRemovalBlocker({
-          failure: { case: "symlink-output", output: ".codex/hooks.json" },
-          outputs: [".codex/hooks.json"],
-          project: canonical,
-        })),
-      ];
-
-      const { presented, text: rendered } = presentTemporaryBlockedMessages(
-        blockers,
-        canonical,
-        "~/projects/alpha",
-        process.cwd(),
-        home,
-      );
-
-      expect(presented).toBe("~/projects/alpha");
-      expect(rendered).toContain(
-        "~/projects/alpha already has an ordinary Profile Installation",
-      );
-      expect(rendered).toContain(
-        "Cannot remove temporary Profile: owned output .codex/hooks.json is a symlink",
-      );
-      expect(rendered).not.toContain(canonical);
-    } finally {
-      rmSync(home, { force: true, recursive: true });
-    }
-  });
-
-  test("keeps the Project subject in blocked messages when running from inside it", () => {
-    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
-    try {
-      const canonical = join(home, "projects", "alpha");
-      const blockers = [
-        normalizeBlocker({
-          affectedItems: [],
-          detail:
-            `${canonical} already has an ordinary Profile Installation; remove it ` +
-            "before installing a temporary Profile",
-          kind: "installation-state-unreadable",
-          scope: "global",
-        }),
-      ];
-
-      const rendered = presentTemporaryBlockedMessages(
-        blockers,
-        canonical,
-        canonical,
-        canonical,
-        home,
-      ).text;
-
-      expect(rendered).toContain(
-        "~/projects/alpha already has an ordinary Profile Installation",
-      );
-      expect(rendered).not.toMatch(/^\. /);
-      expect(rendered).not.toContain(canonical);
-    } finally {
-      rmSync(home, { force: true, recursive: true });
-    }
-  });
-
-  test("replaces both canonical and authored-absolute Project spellings in blocked messages", () => {
-    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
-    try {
-      const canonical = join(home, "real-project");
-      const authored = join(home, "alias-project");
-      const blockers = [
-        normalizeBlocker({
-          affectedItems: [],
-          detail: `${authored} cannot be resolved: the authored spelling differs from ${canonical}`,
-          kind: "installation-state-unreadable",
-          scope: "global",
-        }),
-      ];
-
-      const rendered = presentTemporaryBlockedMessages(
-        blockers,
-        canonical,
-        authored,
-        process.cwd(),
-        home,
-      ).text;
-
-      expect(rendered).toContain(
-        "~/real-project cannot be resolved: the authored spelling differs from ~/real-project",
-      );
-      expect(rendered).not.toContain(canonical);
-      expect(rendered).not.toContain(authored);
+      expect(rendered).not.toContain(project);
     } finally {
       rmSync(home, { force: true, recursive: true });
     }
@@ -2035,51 +1841,6 @@ function explanationLines(reportText: string): string[] {
 }
 
 describe("formatLifecycleReport concise terminology", () => {
-  test("renders the uninstall receipt from removed ownership facts", () => {
-    const receipt = formatUninstallResult({
-      kept: [],
-      projects: [{
-        outputs: [".claude/rules/agent-profile-kit.md", ".codex/hooks.json"],
-        project: "/project-a",
-        repositoryExclusions: [
-          {
-            entries: ["/.claude/rules/agent-profile-kit.md", "/.codex/hooks.json"],
-            target: "/project-a/.git/info/exclude",
-          },
-          {
-            entries: ["/.claude/rules/agent-profile-kit.md"],
-            target: "/shared/.git/info/exclude",
-          },
-        ],
-      }],
-      warnings: [],
-    });
-
-    expect(receipt).toContain("Project: /project-a");
-    expect(receipt).toContain("Removed generated paths:");
-    expect(receipt).toContain("Cleaned Git exclusions:");
-    expect(receipt.match(/Cleaned Git exclusions:/g)).toHaveLength(1);
-    expect(receipt).toContain("Configured Projects preserved.");
-  });
-
-  test("renders kept Projects with their reasons when nothing could be removed", () => {
-    const receipt = formatUninstallResult({
-      projects: [],
-      kept: [{
-        project: "/project-a",
-        reason: "Cannot remove Project at /project-a: owned output .codex/hooks.json has unsafe parent: /project-a/.codex is a symlink parent",
-      }],
-      warnings: [],
-    });
-
-    expect(receipt).toContain("Removed no Agent Profile Kit-owned output; kept 1 Project below.");
-    expect(receipt).toContain("Kept 1 Project whose owned output could not be fully removed:");
-    expect(receipt).toContain("Project: /project-a");
-    expect(receipt).toContain("  - Cannot remove Project at /project-a");
-    expect(receipt).toContain("Configured Projects preserved.");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(receipt).not.toMatch(term);
-  });
-
   test("blocked lifecycle reports lead with the blocker and suppress planned changes", () => {
     const report = emptyReport({
       desired: [{
@@ -4421,14 +4182,14 @@ describe("Machine surface JSON and exit codes", () => {
   });
 });
 
-describe("responsive inventory, info, validation, and teardown human surfaces", () => {
+describe("standalone view presentation documents (#389)", () => {
   const context = (width: number): TerminalPresentationContext => ({
     color: false,
     interactive: true,
     width,
   });
 
-  test("info wraps prose at the selected width and keeps location lines whole", () => {
+  test("info presents the engine version and three application locations as typed fields", () => {
     const info: ApplicationInfo = {
       configurationState: "current",
       engineVersion: "0.67.0",
@@ -4439,125 +4200,148 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
         canonical: "/home/.agents/agent-profile-kit/workspace",
       },
     };
+
+    const document = infoDocument(info, "/home", "/work");
+
+    expect(document.map(shape)).toEqual([
+      "key-value(Engine version):path",
+      "key-value(Workspace)",
+      "key-value(Local Configuration)",
+      "key-value(Installation State)",
+    ]);
+    const workspace = keyValuesIn(document, "Workspace")[0]!;
+    expect(workspace.value).toEqual({
+      kind: "path",
+      canonicalPath: "/home/.agents/agent-profile-kit/workspace",
+      authoredPath: "/home/.agents/agent-profile-kit/workspace",
+      scope: "fleet",
+    });
+    expect(keyValuesIn(document, "Engine version")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "0.67.0",
+    });
+  });
+
+  test("info presents an unconfigured Workspace as prose, not a path node", () => {
+    const document = infoDocument({
+      configurationState: "current",
+      engineVersion: "0.67.0",
+      installationState: "/home/.agents/agent-profile-kit/state/manifest.json",
+      localConfiguration: "/home/.agents/agent-profile-kit/config.yaml",
+      workspace: null,
+    }, "/home", "/work");
+
+    expect(keyValuesIn(document, "Workspace")[0]!.value).toEqual({
+      kind: "prose",
+      text: "Not configured",
+    });
+  });
+
+  test("info renders a long Workspace location elided, never folded (US-008)", () => {
+    const info: ApplicationInfo = {
+      configurationState: "current",
+      engineVersion: "0.67.0",
+      installationState: "/home/.agents/agent-profile-kit/state/manifest.json",
+      localConfiguration: "/home/.agents/agent-profile-kit/config.yaml",
+      workspace: {
+        authored: "/home/projects/a-very-long-project-identity-name",
+        canonical: "/home/projects/a-very-long-project-identity-name",
+      },
+    };
     const output = formatInfoHuman(info, { context: context(40) }, "/home", "/work");
-    for (const line of output.split("\n")) {
-      if (/^(?:Engine version|Workspace|Local Configuration|Installation State):/.test(line)) continue;
-      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
-    }
-    expect(output).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
-    expect(output).toContain("Local Configuration: ~/.agents/agent-profile-kit/config.yaml");
-    expect(output).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.json");
-    // Without a context the deterministic layout is preserved byte-for-byte.
-    expect(formatInfoHuman(info, {}, "/home", "/work")).toBe(
-      "Engine version: 0.67.0\n" +
-        "Workspace: ~/.agents/agent-profile-kit/workspace\n" +
-        "Local Configuration: ~/.agents/agent-profile-kit/config.yaml\n" +
-        "Installation State: ~/.agents/agent-profile-kit/state/manifest.json\n",
-    );
-    const insideWorkspace = formatInfoHuman(
-      info,
-      {},
-      "/home",
-      "/home/.agents/agent-profile-kit/workspace",
-    );
-    expect(insideWorkspace).toContain("Workspace: ~/.agents/agent-profile-kit/workspace\n");
-    expect(insideWorkspace).not.toContain("Workspace: .\n");
+    const workspaceLine = output.split("\n").find((line) => line.startsWith("Workspace: "));
+    expect(workspaceLine).toBeDefined();
+    // The path is one unbroken line that fits the measure by eliding.
+    expect(workspaceLine!.length).toBeLessThanOrEqual(40);
+    expect(workspaceLine!.endsWith("identity-name")).toBe(true);
+    expect(output).not.toContain("Workspace: ~/projects/a-very-long\n");
   });
 
-  test("inventory index wraps topic descriptions at the selected width", () => {
-    const output = formatInventoryIndex({ context: context(40) });
-    for (const line of output.split("\n")) {
-      if (line.includes("apkit ")) continue;
-      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
-    }
-    expect(formatInventoryIndex()).toBe(
-      "Inventory topics:\n" +
-        "  apkit list projects\n" +
-        "    Configured Project inventory from settings.\n" +
-        "  apkit list profiles\n" +
-        "    Profile inventory from the selected Workspace.\n" +
-        "  apkit list hosts\n" +
-        "    Supported Agent Hosts for configured Projects.\n",
-    );
-    expect(formatMachineInventoryIndex()).toBe(
-      "Inventory topics:\n" +
-        "  apkit machine list temporary\n" +
-        "    Active temporary Profile inventory.\n",
-    );
+  test("info keeps the legacy configured-Workspace sentence as one prose field", () => {
+    const document = infoDocument({
+      configurationState: "legacy",
+      engineVersion: "0.67.0",
+      installationState: "/home/.agents/agent-profile-kit/state/manifest.json",
+      localConfiguration: "/home/.agents/agent-profile-kit/config.yaml",
+      workspace: {
+        authored: "/home/.agents/agent-profile-kit/workspace",
+        canonical: "/home/.agents/agent-profile-kit/workspace",
+      },
+    }, "/home", "/work");
+
+    expect(keyValuesIn(document, "Workspace")[0]!.value).toEqual({
+      kind: "prose",
+      text: "Legacy configuration; run apkit init (selected: ~/.agents/agent-profile-kit/workspace)",
+    });
   });
 
-  test("project inventory wraps a long problem clause while keeping Project identity whole", () => {
+  test("inventory indexes present one typed entry per topic with its description", () => {
+    const document = inventoryIndexDocument();
+    expect(document.map(shape)).toEqual([
+      "heading",
+      ...INVENTORY_TOPICS.flatMap(() => ["prose:command", "prose"]),
+    ]);
+    const lines = flattenPresentationNodes(document)
+      .filter((node) => node.kind === "prose")
+      .map((node) => (node as Extract<PresentationNode, { kind: "prose" }>).text);
+    for (const topic of INVENTORY_TOPICS) {
+      expect(lines).toContain(`  apkit list ${topic.name}`);
+      expect(lines).toContain(`    ${topic.description}`);
+    }
+
+    const machine = machineInventoryIndexDocument();
+    expect(machine.map(shape)).toEqual([
+      "heading",
+      ...MACHINE_INVENTORY_TOPICS.flatMap(() => ["prose:command", "prose"]),
+    ]);
+  });
+
+  test("project inventory presents each Project as typed path, Profile, and Hosts fields", () => {
     const project = "/home/projects/a-very-long-project-identity";
-    const output = formatProjectInventoryHuman(
-      [{
-        canonicalProject: project,
-        hosts: ["claude", "codex"],
-        problem: {
-          kind: "foreign-diagnostic",
-          detail:
-            "Configured project root does not exist on this machine and cannot be reconciled.",
+    const document = projectInventoryDocument(
+      [
+        {
+          canonicalProject: project,
+          hosts: ["claude", "codex"],
+          problem: {
+            kind: "foreign-diagnostic",
+            detail:
+              "Configured project root does not exist on this machine and cannot be reconciled.",
+          },
+          profile: "engineering",
+          project,
         },
-        profile: "engineering",
-        project,
-      }],
-      { context: context(40) },
+      ],
       "/home",
       "/work",
     );
-    for (const line of output.split("\n")) {
-      if (line.includes("apkit ") || line.includes("~/projects/")) continue;
-      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
-    }
-    expect(output).toContain("Project: ~/projects/a-very-long-project-identity");
-    expect(formatProjectInventoryHuman(
-      [{
-        canonicalProject: project,
-        hosts: ["claude", "codex"],
-        problem: {
-          kind: "foreign-diagnostic",
-          detail:
-            "Configured project root does not exist on this machine and cannot be reconciled.",
-        },
-        profile: "engineering",
-        project,
-      }],
-      {},
-      "/home",
-      "/work",
-    )).toBe(
-      "Projects (1):\n" +
-        "\n" +
-        "Project: ~/projects/a-very-long-project-identity\n" +
-        "  Profile: engineering\n" +
-        "  Hosts: claude, codex\n" +
-        "  Problem: Configured project root does not exist on this machine and cannot be reconciled.\n" +
-        "\n" +
-        "Use apkit status to inspect Project lifecycle diagnostics.\n",
+
+    expect(document.map(shape)).toEqual([
+      "heading",
+      "blank",
+      "key-value(Project)",
+      "key-value(Profile):path",
+      "key-value(Hosts)",
+      "prose:attention",
+      "blank",
+      "prose",
+    ]);
+    const projectField = keyValuesIn(document, "Project")[0]!;
+    expect(projectField.value).toEqual({
+      kind: "path",
+      canonicalPath: project,
+      authoredPath: project,
+      scope: "fleet",
+    });
+    const problem = flattenPresentationNodes(document).find((node) =>
+      node.kind === "prose" && node.text.startsWith("  Problem: ")
+    ) as Extract<PresentationNode, { kind: "prose" }>;
+    expect(problem.text).toBe(
+      "  Problem: Configured project root does not exist on this machine and cannot be reconciled.",
     );
   });
 
-  test("project inventory names a Project by home-relative identity even from inside it", () => {
-    const home = "/home";
-    const project = "/home/projects/alpha";
-    const output = formatProjectInventoryHuman(
-      [{
-        canonicalProject: project,
-        hosts: ["codex"],
-        problem: null,
-        profile: "engineering",
-        project,
-      }],
-      {},
-      home,
-      project,
-    );
-
-    expect(output).toContain("Project: ~/projects/alpha\n");
-    expect(output).not.toContain("Project: .\n");
-    expect(output).not.toContain(project);
-  });
-
-  test("project inventory labels invalid relative paths instead of rendering cwd aliases", () => {
+  test("project inventory labels invalid relative paths through the canonical presenter", () => {
     const projects = [".", "..", "../alpha"].map((project) => ({
       canonicalProject: null,
       hosts: ["codex" as const],
@@ -4574,147 +4358,553 @@ describe("responsive inventory, info, validation, and teardown human surfaces", 
       project,
     }));
 
-    const output = formatProjectInventoryHuman(projects, {}, "/home", "/home/projects/alpha");
-
+    const document = projectInventoryDocument(projects, "/home", "/home/projects/alpha");
+    const fields = keyValuesIn(document, "Project").map((node) => node.value);
     for (const project of [".", "..", "../alpha"]) {
-      expect(output).toContain(`Project: relative path ${JSON.stringify(project)}\n`);
+      expect(fields).toContainEqual({
+        kind: "path",
+        canonicalPath: project,
+        authoredPath: project,
+        scope: "fleet",
+      });
     }
-    expect(output).not.toMatch(/^Project: \.{1,2}(?:\/[^\n]+)?$/m);
   });
 
-  test("profile and temporary inventory wrap prose at the selected width", () => {
-    const profiles = formatProfileInventoryHuman(
-      [{ contextModules: 2, id: "engineering", skills: 3 }],
-      { context: context(40) },
+  test("an empty project inventory is a success notice with bind guidance", () => {
+    const document = projectInventoryDocument([], "/home", "/work");
+    expect(document.map(shape)).toEqual(["notice:success", "prose"]);
+    const notice = document[0] as Extract<PresentationNode, { kind: "notice" }>;
+    expect(notice.nodes[0]).toEqual({ kind: "prose", text: "No Projects are configured." });
+    expect((document[1] as Extract<PresentationNode, { kind: "prose" }>).text).toBe(
+      "Use apkit bind <profile> --host <host> to configure a Project.",
     );
-    for (const line of profiles.split("\n")) {
-      if (line.includes("apkit ")) continue;
-      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
-    }
-    expect(profiles).toContain("Profile: engineering");
-    expect(profiles.replace(/\s+/g, " ")).toContain(
-      "Use <profile> with apkit bind to select it for a configured Project.",
-    );
-    expect(profiles).not.toContain("Next:");
+  });
 
-    const temporary = formatTemporaryInventoryHuman(
-      [{
-        host: "codex",
-        profileId: "coding",
-        project: "/home/projects/temporary-project",
-        temporaryInstallationId: "temporary-installation-opaque-id",
-      }],
-      { context: context(40) },
+  test("profile inventory presents each Profile with its module and skill counts", () => {
+    const document = profileInventoryDocument([{ contextModules: 2, id: "engineering", skills: 3 }]);
+    expect(document.map(shape)).toEqual([
+      "heading",
+      "blank",
+      "key-value(Profile):path",
+      "key-value(Context Modules)",
+      "key-value(Skills)",
+      "blank",
+      "prose",
+    ]);
+    expect(keyValuesIn(document, "Profile")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "engineering",
+    });
+  });
+
+  test("an empty profile inventory is a success notice with workspace guidance", () => {
+    const document = profileInventoryDocument([]);
+    expect(document.map(shape)).toEqual(["notice:success", "prose"]);
+    expect((document[0] as Extract<PresentationNode, { kind: "notice" }>).nodes[0]).toEqual({
+      kind: "prose",
+      text: "No Profiles are available.",
+    });
+  });
+
+  test("host inventory lists supported Hosts as one entry each", () => {
+    const document = hostInventoryDocument([
+      { host: "codex", supportsTemporaryProfileInstallation: true },
+      { host: "claude", supportsTemporaryProfileInstallation: false },
+    ]);
+    expect(document.map(shape)).toEqual(["heading", "prose", "prose", "blank", "prose"]);
+    const hostLines = flattenPresentationNodes(document)
+      .filter((node) => node.kind === "prose")
+      .map((node) => (node as Extract<PresentationNode, { kind: "prose" }>).text);
+    expect(hostLines).toEqual(["  codex", "  claude", "", "Use <host> with apkit bind to select it for a configured Project."].filter((line) => line !== ""));
+  });
+
+  test("temporary inventory presents each installation as typed identity fields", () => {
+    const project = "/home/projects/temporary-project";
+    const document = temporaryInventoryDocument(
+      [
+        {
+          host: "codex",
+          profileId: "coding",
+          project,
+          temporaryInstallationId: "temporary-installation-opaque-id",
+        },
+      ],
       "/home",
       "/work",
     );
-    for (const line of temporary.split("\n")) {
-      if (line.includes("apkit ") || line.includes("~/projects/") || line.startsWith("Temporary installation:")) continue;
-      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
-    }
-    expect(temporary).toContain("Project: ~/projects/temporary-project");
-    expect(temporary.replace(/\s+/g, " ")).toContain(
-      "Use apkit machine remove-temp <temporary-installation-id> to remove one.",
-    );
-    expect(temporary).not.toContain("Next:");
-    expect(formatTemporaryInventoryHuman([], {}, "/home", "/work")).toBe(
-      "No temporary Profiles are active.\n" +
-        "Create one with apkit machine install-temp <profile> <project> --host <host>.\n",
-    );
+
+    expect(document.map(shape)).toEqual([
+      "heading",
+      "blank",
+      "key-value(Temporary installation):path",
+      "key-value(Project)",
+      "key-value(Profile):path",
+      "key-value(Host):path",
+      "blank",
+      "prose",
+    ]);
+    expect(keyValuesIn(document, "Temporary installation")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "temporary-installation-opaque-id",
+    });
+    expect(keyValuesIn(document, "  Project")[0]!.value).toEqual({
+      kind: "path",
+      canonicalPath: project,
+      authoredPath: project,
+      scope: "fleet",
+    });
   });
 
-  test("temporary inventory names a Project by home-relative identity even from inside it", () => {
-    const home = "/home";
-    const project = "/home/projects/temporary-project";
-    const output = formatTemporaryInventoryHuman(
-      [{
-        host: "codex",
-        profileId: "coding",
-        project,
-        temporaryInstallationId: "temporary-installation-opaque-id",
-      }],
-      {},
-      home,
-      project,
-    );
-
-    expect(output).toContain("Project: ~/projects/temporary-project\n");
-    expect(output).not.toContain("Project: .\n");
-    expect(output).not.toContain(project);
+  test("an empty temporary inventory is a success notice with install guidance", () => {
+    const document = temporaryInventoryDocument([], "/home", "/work");
+    expect(document.map(shape)).toEqual(["notice:success", "prose"]);
+    expect((document[0] as Extract<PresentationNode, { kind: "notice" }>).nodes[0]).toEqual({
+      kind: "prose",
+      text: "No temporary Profiles are active.",
+    });
   });
 
-  test("validation wraps long warning prose and keeps the count clause whole", () => {
-    const output = formatValidationResult({
+  test("validation presents the valid outcome, found counts, warnings, and a typed next command", () => {
+    const document = validationResultDocument({
       bindings: 2,
       hosts: ["claude", "codex"],
       profiles: ["engineering"],
       warnings: [
         "This is an unusually long validation warning that must wrap cleanly at a narrow terminal measure.",
       ],
-    }, { context: context(40) });
-    for (const line of output.split("\n")) {
-      if (line.includes("apkit ") || line.includes("(2 Profile")) continue;
-      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
-    }
-    expect(output).toContain("Warning:");
-    expect(output).toContain("Next: apkit status");
-    expect(formatValidationResult({
+    });
+
+    expect(document.map(shape)).toEqual([
+      "notice:success",
+      "key-value(Profiles found)",
+      "key-value(Hosts bound)",
+      "prose:attention",
+      "key-value(Next)",
+    ]);
+    const next = keyValuesIn(document, "Next")[0]!;
+    expect(next.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [{ kind: "text", value: "status" }],
+    });
+    expect(keyValuesIn(document, "Profiles found")[0]!.value).toEqual({
+      kind: "prose",
+      text: "engineering",
+    });
+  });
+
+  test("validation without bindings points at the bind command as a typed command node", () => {
+    const document = validationResultDocument({
       bindings: 0,
       hosts: [],
       profiles: [],
       warnings: [],
-    })).toBe(
-      "Workspace and settings valid (0 Profiles, 0 configured Projects)\n" +
-        "Profiles found: none\n" +
-        "Hosts bound: none\n" +
-        "Next: apkit bind <profile> --host <host>\n",
-    );
-  });
+    });
 
-  test("uninstall wraps prose at the selected width, keeps paths whole, and preserves the empty state", () => {
-    const output = formatUninstallResult({
-      kept: [],
-      projects: [{
-        outputs: [".agent-profile-kit/codex/context.md"],
-        project: "/home/projects/api",
-        repositoryExclusions: [],
-      }],
+    expect(keyValuesIn(document, "Next")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [{ kind: "text", value: "bind <profile> --host <host>" }],
+    });
+    expect(keyValuesIn(document, "Profiles found")[0]!.value).toEqual({
+      kind: "prose",
+      text: "none",
+    });
+    // The count clause is protected report material: it never wraps (US-010).
+    const rendered = formatValidationResult({
+      bindings: 0,
+      hosts: [],
+      profiles: [],
       warnings: [],
     }, { context: context(40) });
-    expect(output).toContain("Project: /home/projects/api");
-    expect(output).toContain(".agent-profile-kit/codex/context.md");
-    const prose = output.split("\n").find((line) => line.startsWith("Removed proven"));
-    expect(prose).toBeDefined();
-    expect(prose!.length).toBeLessThanOrEqual(40);
-
-    expect(formatUninstallResult({ projects: [], kept: [], warnings: [] })).toBe(
-      "No ordinary Agent Profile Kit-owned output is installed.\n\nConfigured Projects preserved.\n",
-    );
-    const wrappedEmpty = formatUninstallResult({ projects: [], kept: [], warnings: [] }, { context: context(40) });
-    for (const line of wrappedEmpty.split("\n")) {
-      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
-    }
+    expect(rendered.split("\n")).toEqual([
+      "Workspace and settings valid",
+      "  (0 Profiles, 0 configured Projects)",
+      "Profiles found: none",
+      "Hosts bound: none",
+      "Next: apkit bind <profile> --host <host>",
+      "",
+    ]);
   });
 
-  test("uninstall names a Project by home-relative identity even from inside it", () => {
-    const current = process.cwd();
-    const homeRelative = current === homedir()
-      ? "~"
-      : current.startsWith(`${homedir()}/`)
-      ? `~/${current.slice(homedir().length + 1)}`
-      : current;
-    const output = formatUninstallResult({
+  test("uninstall presents removed Projects with typed identity and their generated paths", () => {
+    const document = uninstallResultDocument({
+      kept: [],
+      projects: [
+        {
+          outputs: [".agent-profile-kit/codex/context.md"],
+          project: "/home/projects/api",
+          repositoryExclusions: [],
+        },
+      ],
+      warnings: [],
+    }, "/home", "/work");
+
+    expect(document.map(shape)).toEqual([
+      "notice:success",
+      "blank",
+      "key-value(Project)",
+      "prose:success",
+      "prose",
+      "blank",
+      "prose",
+      "prose:command",
+    ]);
+    expect(keyValuesIn(document, "Project")[0]!.value).toEqual({
+      kind: "path",
+      canonicalPath: "/home/projects/api",
+      authoredPath: "/home/projects/api",
+      scope: "fleet",
+    });
+    const prose = flattenPresentationNodes(document)
+      .filter((node) => node.kind === "prose")
+      .map((node) => (node as Extract<PresentationNode, { kind: "prose" }>).text);
+    expect(prose).toContain("  Removed generated paths:");
+    expect(prose).toContain("  - .agent-profile-kit/codex/context.md");
+    expect(prose).toContain("Configured Projects preserved.");
+  });
+
+  test("uninstall presents cleaned Git exclusions with their repository target", () => {
+    const document = uninstallResultDocument({
       kept: [],
       projects: [{
-        outputs: ["a.md"],
-        project: current,
-        repositoryExclusions: [],
+        outputs: [".codex/hooks.json"],
+        project: "/project-a",
+        repositoryExclusions: [
+          {
+            entries: ["/.claude/rules/agent-profile-kit.md", "/.codex/hooks.json"],
+            target: "/project-a/.git/info/exclude",
+          },
+          {
+            entries: ["/.claude/rules/agent-profile-kit.md"],
+            target: "/shared/.git/info/exclude",
+          },
+        ],
       }],
       warnings: [],
     });
 
-    expect(output).toContain(`Project: ${homeRelative}\n`);
-    expect(output).not.toContain("Project: .\n");
+    const prose = flattenPresentationNodes(document)
+      .filter((node) => node.kind === "prose")
+      .map((node) => (node as Extract<PresentationNode, { kind: "prose" }>).text);
+    expect(prose.filter((line) => line === "  Cleaned Git exclusions:")).toHaveLength(1);
+    expect(prose).toContain("  - /.claude/rules/agent-profile-kit.md (/project-a/.git/info/exclude)");
+    expect(prose).toContain("  - /.codex/hooks.json (/project-a/.git/info/exclude)");
+    expect(prose).toContain("  - /.claude/rules/agent-profile-kit.md (/shared/.git/info/exclude)");
+  });
+
+  test("uninstall presents kept Projects and their removal failure reasons", () => {
+    const document = uninstallResultDocument({
+      projects: [],
+      kept: [{
+        project: "/project-a",
+        reason: "Cannot remove Project at /project-a: owned output .codex/hooks.json has unsafe parent: /project-a/.codex is a symlink parent",
+      }],
+      warnings: [],
+    });
+
+    expect(document.map(shape)).toEqual([
+      "notice:success",
+      "blank",
+      "prose",
+      "blank",
+      "key-value(Project)",
+      "prose:error",
+      "blank",
+      "prose",
+    ]);
+    const keptReason = flattenPresentationNodes(document).find((node) =>
+      node.kind === "prose" && node.text.startsWith("  - Cannot remove Project at ")
+    ) as Extract<PresentationNode, { kind: "prose" }>;
+    expect(keptReason.category).toBe("error");
+  });
+
+  test("uninstall presents warnings as a titled list of typed list items", () => {
+    const document = uninstallResultDocument({
+      kept: [],
+      projects: [],
+      warnings: [
+        "/project-a/.git/info/exclude changed during exclusion publication; skipping to preserve unrelated bytes",
+      ],
+    });
+
+    const items = flattenPresentationNodes(document).filter((node) => node.kind === "list-item");
+    expect(items).toHaveLength(1);
+    expect(document.map(shape)).toContain("prose:attention");
+    expect(flattenPresentationNodes(document).some((node) =>
+      node.kind === "prose" && node.text === "  Cleaned Git exclusions:"
+    )).toBe(false);
+  });
+
+  test("an uninstall with nothing installed is a single success notice", () => {
+    const document = uninstallResultDocument({ projects: [], kept: [], warnings: [] });
+    expect(document.map(shape)).toEqual(["notice:success", "blank", "prose"]);
+    expect((document[0] as Extract<PresentationNode, { kind: "notice" }>).nodes[0]).toEqual({
+      kind: "prose",
+      text: "No ordinary Agent Profile Kit-owned output is installed.",
+    });
+  });
+
+  test("temporary installation receipts present identity fields and a typed removal command", () => {
+    const receipt: TemporaryInstallationReceiptView = {
+      completionState: "installed",
+      diagnosticValues: [],
+      host: "codex",
+      outputs: [".codex/hooks.json"],
+      profileId: "engineering",
+      project: "/project-a",
+      setupSteps: [],
+      temporaryInstallationId: "temp-987",
+      warnings: [],
+    };
+
+    const document = temporaryInstallationDocument("install-temp", receipt);
+    expect(document.map(shape)).toEqual([
+      "notice:success",
+      "key-value(Profile):path",
+      "key-value(Host):path",
+      "key-value(Project)",
+      "key-value(Temporary installation):path",
+      "key-value(Next)",
+    ]);
+    expect(keyValuesIn(document, "  Project")[0]!.value).toEqual({
+      kind: "path",
+      canonicalPath: "/project-a",
+      authoredPath: "/project-a",
+      scope: "project",
+    });
+    const next = keyValuesIn(document, "Next")[0]!;
+    expect(next.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [
+        { kind: "text", value: "machine" },
+        { kind: "text", value: "remove-temp" },
+        { kind: "text", value: "temp-987" },
+      ],
+    });
+
+    const removed = temporaryInstallationDocument("remove-temp", receipt);
+    expect(removed.map(shape)).toEqual([
+      "notice:success",
+      "key-value(Temporary installation):path",
+      "key-value(Project)",
+    ]);
+  });
+
+  test("temporary installation receipts present warnings and setup steps as typed lists", () => {
+    const diagnosticValue = "generated diagnostic path with spaces";
+    const receipt: TemporaryInstallationReceiptView = {
+      completionState: "installed",
+      diagnosticValues: [diagnosticValue],
+      host: "codex",
+      outputs: [".agent-profile-kit/codex/context.md"],
+      profileId: "coding",
+      project: "/tmp/temporary project with spaces",
+      setupSteps: [{
+        consequence: "Profile Context does not load until the project is trusted.",
+        host: "codex",
+        kind: "trust-required",
+        message: "Trust the bound project in Codex.",
+        provenance: "standing",
+      }],
+      temporaryInstallationId: "temporary-installation-opaque-id",
+      warnings: [`Inspect ${diagnosticValue} before continuing with this diagnostic.`],
+      workspaceInputHash: "workspace-hash",
+    };
+
+    const document = temporaryInstallationDocument("install-temp", receipt);
+    expect(document.map(shape)).toEqual([
+      "notice:success",
+      "key-value(Profile):path",
+      "key-value(Host):path",
+      "key-value(Project)",
+      "key-value(Temporary installation):path",
+      "prose:attention",
+      "list-item",
+      "heading",
+      "list-item",
+      "prose",
+      "key-value(Next)",
+    ]);
+    // The diagnostic value survives as protected report material (US-019).
+    const rendered = formatTemporaryInstallationHuman("install-temp", receipt, { context: context(40) });
+    expect(rendered).toContain(diagnosticValue);
+    expect(rendered).not.toContain("generated diagnostic path with\n");
+    expect(rendered.split("\n").some((line) => line.startsWith("- Trust the bound project in Codex."))).toBe(true);
+    expect(rendered.split("\n")).toContain("  Consequence: Profile Context does");
+    for (const line of rendered.trimEnd().split("\n")) {
+      if (
+        line.includes("/tmp/temporary project with spaces") ||
+        line.includes("apkit machine remove-temp") ||
+        // The installation identity is protected report material: it stays
+        // whole on its own line even when wider than the measure.
+        line.startsWith("  Temporary installation:")
+      ) continue;
+      expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(40);
+    }
+  });
+
+  test("blocked temporary-installation messages carry the diagnostic prefix and replaced Project references", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const canonical = join(home, "projects", "alpha");
+      const blockers = [
+        normalizeBlocker({
+          affectedItems: [],
+          detail:
+            `${canonical} already has an ordinary Profile Installation; remove it ` +
+            "before installing a temporary Profile",
+          kind: "installation-state-unreadable",
+          scope: "global",
+        }),
+        normalizeBlocker(temporaryInstallationRemovalBlocker({
+          failure: { case: "symlink-output", output: ".codex/hooks.json" },
+          outputs: [".codex/hooks.json"],
+          project: canonical,
+        })),
+      ];
+
+      const { presented, document } = temporaryBlockedMessagesDocument(
+        blockers,
+        canonical,
+        "~/projects/alpha",
+        process.cwd(),
+        home,
+      );
+
+      expect(presented).toBe("~/projects/alpha");
+      const prose = flattenPresentationNodes(document)
+        .filter((node) => node.kind === "prose")
+        .map((node) => node as Extract<PresentationNode, { kind: "prose" }>);
+      expect(prose[0]!.text).toBe(
+        "apkit: ~/projects/alpha already has an ordinary Profile Installation; remove it before installing a temporary Profile",
+      );
+      expect(prose[0]!.category).toBe("error");
+      expect(prose[2]!.text).toContain(
+        "Cannot remove temporary Profile: owned output .codex/hooks.json is a symlink",
+      );
+      expect(prose[3]!.text.startsWith("Remedy: ")).toBe(true);
+      expect(JSON.stringify(document)).not.toContain(canonical);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  test("only the first blocked-message line carries the diagnostic prefix", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const canonical = join(home, "projects", "alpha");
+      const blockers = [
+        normalizeBlocker({
+          affectedItems: [],
+          detail:
+            `${canonical} already has an ordinary Profile Installation; remove it ` +
+            "before installing a temporary Profile",
+          kind: "installation-state-unreadable",
+          scope: "global",
+        }),
+        normalizeBlocker(temporaryInstallationRemovalBlocker({
+          failure: { case: "symlink-output", output: ".codex/hooks.json" },
+          outputs: [".codex/hooks.json"],
+          project: canonical,
+        })),
+      ];
+
+      const { document } = temporaryBlockedMessagesDocument(
+        blockers,
+        canonical,
+        "~/projects/alpha",
+        process.cwd(),
+        home,
+      );
+
+      // Exact multi-Blocker line sequence: prefixed problem, remedy, then
+      // unprefixed problem and remedy for every further Blocker.
+      const lines = flattenPresentationNodes(document)
+        .filter((node) => node.kind === "prose")
+        .map((node) => (node as Extract<PresentationNode, { kind: "prose" }>).text);
+      expect(lines).toHaveLength(4);
+      expect(lines[0]!.startsWith("apkit: ")).toBe(true);
+      expect(lines[1]!.startsWith("Remedy: ")).toBe(true);
+      expect(lines[2]!.startsWith("apkit: ")).toBe(false);
+      expect(lines[3]!.startsWith("Remedy: ")).toBe(true);
+      // The rendered diagnostic carries the prefix exactly once.
+      expect(lines.filter((line) => line.includes("apkit:"))).toHaveLength(1);
+      expect(lines[0]!.startsWith(`apkit: ~/projects/alpha`)).toBe(true);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  test("blocked messages keep the Project subject when running from inside it", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const canonical = join(home, "projects", "alpha");
+      const blockers = [
+        normalizeBlocker({
+          affectedItems: [],
+          detail:
+            `${canonical} already has an ordinary Profile Installation; remove it ` +
+            "before installing a temporary Profile",
+          kind: "installation-state-unreadable",
+          scope: "global",
+        }),
+      ];
+
+      const { document } = temporaryBlockedMessagesDocument(
+        blockers,
+        canonical,
+        canonical,
+        canonical,
+        home,
+      );
+
+      const prose = flattenPresentationNodes(document)
+        .filter((node) => node.kind === "prose")
+        .map((node) => node as Extract<PresentationNode, { kind: "prose" }>);
+      expect(prose[0]!.text).toBe(
+        "apkit: ~/projects/alpha already has an ordinary Profile Installation; remove it before installing a temporary Profile",
+      );
+      expect(JSON.stringify(document)).not.toContain(canonical);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  test("blocked messages replace both canonical and authored-absolute Project spellings", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const canonical = join(home, "real-project");
+      const authored = join(home, "alias-project");
+      const blockers = [
+        normalizeBlocker({
+          affectedItems: [],
+          detail: `${authored} cannot be resolved: the authored spelling differs from ${canonical}`,
+          kind: "installation-state-unreadable",
+          scope: "global",
+        }),
+      ];
+
+      const { document } = temporaryBlockedMessagesDocument(
+        blockers,
+        canonical,
+        authored,
+        process.cwd(),
+        home,
+      );
+
+      const prose = flattenPresentationNodes(document)
+        .filter((node) => node.kind === "prose")
+        .map((node) => node as Extract<PresentationNode, { kind: "prose" }>);
+      expect(prose[0]!.text).toBe(
+        "apkit: ~/real-project cannot be resolved: the authored spelling differs from ~/real-project",
+      );
+      expect(JSON.stringify(document)).not.toContain(canonical);
+      expect(JSON.stringify(document)).not.toContain(authored);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
   });
 });
 

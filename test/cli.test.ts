@@ -46,6 +46,7 @@ import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installatio
 import { ENGINE_VERSION } from "../installer/version.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import { humanText } from "./support/human-text.js";
+import { expectElidedProjectLine } from "./support/project-line.js";
 import { obtainPackageArchive } from "./support/package-archive.js";
 import {
   TEST_CHILD_DEADLINE_MS,
@@ -5107,8 +5108,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       receipts: Array<{ project: string }>;
     };
     expect(state.receipts.map((receipt) => receipt.project)).toEqual([realpathSync(second)]);
-    expect(result.stdout).toContain(`Project: ${realpathSync(first)}`);
-    expect(result.stdout).toContain(`Project: ${realpathSync(second)}`);
+    // The typed Project identity is an atomic path node: it elides in the
+    // middle and keeps the tail visible instead of overflowing (DEC-004).
+    expectElidedProjectLine(result.stdout, realpathSync(first));
+    expectElidedProjectLine(result.stdout, realpathSync(second));
     expect(result.stdout).toContain("unsafe parent");
     expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
     expect(existsSync(join(workspacePath(home), "profiles", "coding.yaml"))).toBe(true);
@@ -5246,7 +5249,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(result.stdout).toContain("Removed proven Agent Profile Kit-owned output from 1 Project.");
     expect(result.stdout).not.toMatch(/^Uninstalled\b/m);
-    expect(humanText(result.stdout)).toContain(humanText(`Project: ${realpathSync(projectPath)}`));
+    // The typed Project identity is an atomic path node: it elides in the
+    // middle and keeps the tail visible instead of overflowing (DEC-004).
+    expectElidedProjectLine(result.stdout, realpathSync(projectPath));
     expect(result.stdout).toContain("Removed generated paths:");
     expect(result.stdout).toContain("- .agent-profile-kit/codex/context.md");
     expect(result.stdout).toContain("- .codex/hooks.json");

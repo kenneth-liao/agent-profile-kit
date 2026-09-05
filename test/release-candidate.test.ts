@@ -19,6 +19,7 @@ import { parse } from "yaml";
 import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
 import { installControlledHosts as installAllControlledHosts } from "./support/fleet-fixture.js";
 import { humanText } from "./support/human-text.js";
+import { expectElidedProjectLine } from "./support/project-line.js";
 import { obtainPackageArchive } from "./support/package-archive.js";
 import {
   TEST_CHILD_DEADLINE_MS,
@@ -1263,7 +1264,9 @@ describe("project-bound release candidate", () => {
 
     const projects = await runCli(home, ["list", "projects"]);
     expectExitCode(projects, 0);
-    expect(projects.stdout).toContain(projectPath);
+    // The typed Project identity is an atomic path node: it elides in the
+    // middle and keeps the tail visible instead of overflowing (DEC-004).
+    expectElidedProjectLine(projects.stdout, projectPath);
     expect(projects.stdout).toContain("Profile: coding");
 
     // Plan and apply with controlled Host CLIs on PATH.
