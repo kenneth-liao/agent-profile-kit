@@ -2716,15 +2716,16 @@ describe("status concise terminology", () => {
         ": addition",
       ])
     )).toBe(true);
-    const texts = presentationTexts(verbose).join("\n");
-    expect(texts).not.toContain(".: addition\n");
-    expect(texts).not.toContain(".: Profile");
+    // No node carries a bare cwd alias in state or Profile lines.
+    const verboseTexts = presentationTexts(verbose);
+    expect(verboseTexts.some((text) => text.startsWith(".: "))).toBe(false);
+    expect(verboseTexts.some((text) => text.startsWith(".: Profile"))).toBe(false);
     // The concise Project key-value never presents a bare cwd alias.
     expect(keyValuesIn(concise, "Project").map((node) => node.value)).not.toContain({
       kind: "prose",
       parts: [{ kind: "identifier", value: "." }, ": "],
     });
-    expect(presentationTexts(concise).join("\n")).not.toMatch(/(^|\n)\.: /);
+    expect(presentationTexts(concise).some((text) => text.startsWith(".: "))).toBe(false);
   });
 
   test("identifies another home project with a home-relative path", () => {
@@ -3007,11 +3008,19 @@ describe("status concise terminology", () => {
     const verbose = lifecycleStatusDocument(operations, { verbose: true });
     const blockedConcise = lifecycleStatusDocument(blocked);
 
-    expect(presentationTexts(concise).join("\n")).toContain("1 file update in ~/aliased-project");
-    expect(presentationTexts(verbose).join("\n")).toContain("(~/aliased-project, /var/tmp/other-project)");
-    expect(presentationTexts(blockedConcise).join("\n")).toContain("Scope: Project ~/aliased-project");
+    expect(presentationTexts(concise).some((text) =>
+      text.includes("1 file update in ~/aliased-project")
+    )).toBe(true);
+    expect(presentationTexts(verbose).some((text) =>
+      text.includes("(~/aliased-project, /var/tmp/other-project)")
+    )).toBe(true);
+    expect(presentationTexts(blockedConcise).some((text) =>
+      text.includes("Scope: Project ~/aliased-project")
+    )).toBe(true);
     for (const document of [concise, verbose, blockedConcise]) {
-      expect(presentationTexts(document).join("\n")).not.toContain(canonicalProject);
+      expect(presentationTexts(document).some((text) =>
+        text.includes(canonicalProject)
+      )).toBe(false);
     }
   });
 
@@ -3136,7 +3145,7 @@ describe("status concise terminology", () => {
       { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: [message] }] },
     ]);
     expectUserFacingVocabulary(
-      presentationTexts(applyVerificationFailureDocument(receipt, message)).join("\n"),
+      renderBoundary(applyVerificationFailureDocument(receipt, message)),
     );
 
     const verbose = applyVerificationFailureDocument(receipt, message, { verbose: true });
@@ -6607,7 +6616,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       parts: ["none"],
     });
     expect(commandTexts(zeroProjects)).toContain("apkit bind <profile> --host <host>");
-    expectUserFacingVocabulary(presentationTexts(zeroProjects).join("\n"));
+    expectUserFacingVocabulary(renderBoundary(zeroProjects));
 
     const oneProject = validationDocument(1, ["codex"], ["engineering"]);
     expect(noticesIn(oneProject)[0]!.nodes[0]).toEqual({
@@ -6617,7 +6626,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
         { kind: "identifier", value: "(1 Profile, 1 configured Project)" },
       ],
     });
-    expectUserFacingVocabulary(presentationTexts(oneProject).join("\n"));
+    expectUserFacingVocabulary(renderBoundary(oneProject));
 
     const multiProjects = validationDocument(3, ["codex", "claude"], ["engineering", "design"]);
     expect(noticesIn(multiProjects)[0]!.nodes[0]).toEqual({
@@ -6627,7 +6636,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
         { kind: "identifier", value: "(2 Profiles, 3 configured Projects)" },
       ],
     });
-    expectUserFacingVocabulary(presentationTexts(multiProjects).join("\n"));
+    expectUserFacingVocabulary(renderBoundary(multiProjects));
   });
 
   test("routine inventory topics and temporary inventory use newcomer lexicon", () => {
