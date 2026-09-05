@@ -2072,7 +2072,7 @@ function explanationItems(document: PresentationDocument): string[] {
   return listItemsFrom(nodes, start + 1);
 }
 
-describe("formatLifecycleReport concise terminology", () => {
+describe("status concise terminology", () => {
   test("blocked lifecycle reports lead with the blocker and suppress planned changes", () => {
     const report = emptyReport({
       desired: [{
@@ -4002,7 +4002,7 @@ function documentNextActions(document: PresentationDocument): string[] {
     .flatMap((node) => node.kind === "list-item" ? [nodeText(node)] : []);
 }
 
-describe("formatLifecycleReport next-action guidance", () => {
+describe("status next-action guidance", () => {
 
   test("stale source status reports what changed and what to run", () => {
     const report = emptyReport({
