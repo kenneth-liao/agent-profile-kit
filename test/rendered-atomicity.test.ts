@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { renderPresentationDocument, commandPart } from "../cli/presentation-document.js";
 import { checkAtomicRendering, collectSpellings } from "./support/rendered-atomicity.js";
 
 describe("per-capture oracle: baseline shapes are accepted", () => {
@@ -164,6 +165,101 @@ describe("verbatim tolerance is scoped to actual verbatim regions", () => {
     expect(() => checkAtomicRendering(actual, baseline, { verbatimLines })).toThrow(
       /fragmented/,
     );
+  });
+});
+
+describe("complete spellings from real command and path forms", () => {
+  const usageBaseline = "Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]\n";
+  const outputsBaseline = "  Outputs: .agent-profile-kit/codex/context.md, .codex/hooks.json\n";
+  const recoveryBaseline = "git -C 'my project' rm -r --cached -- 'a b.md'\n";
+
+  test("recognizes and guards full usage syntax spans", () => {
+    const spellings = collectSpellings(usageBaseline, {});
+    expect(spellings).toContain("apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
+    expect(() =>
+      checkAtomicRendering(
+        usageBaseline.replace("apkit status [", "apkit status\n      ["),
+        usageBaseline,
+        {},
+      ),
+    ).toThrow(/fragmented/);
+  });
+
+  test("keeps leading-dot relative paths whole across a fold", () => {
+    expect(collectSpellings(outputsBaseline, {})).toContain(".agent-profile-kit/codex/context.md");
+    expect(() =>
+      checkAtomicRendering(
+        outputsBaseline.replace(".agent-profile-kit/", ".\n      agent-profile-kit/"),
+        outputsBaseline,
+        {},
+      ),
+    ).toThrow(/fragmented/);
+  });
+
+  test("keeps single-quoted spaced paths whole across a fold", () => {
+    expect(collectSpellings(recoveryBaseline, {})).toContain("'my project'");
+    expect(collectSpellings(recoveryBaseline, {})).toContain("'a b.md'");
+    expect(() =>
+      checkAtomicRendering(
+        recoveryBaseline.replace("'a b.md'", "'a b.\n  md'"),
+        recoveryBaseline,
+        {},
+      ),
+    ).toThrow(/fragmented/);
+  });
+
+  test("guards emitted help and recovery command forms", () => {
+    const helpBaseline = "For command help, run apkit --help.\n";
+    expect(collectSpellings(helpBaseline, {})).toContain("apkit --help");
+    expect(() =>
+      checkAtomicRendering(helpBaseline.replace("apkit --help.", "apkit --\n  help."), helpBaseline, {}),
+    ).toThrow(/fragmented/);
+
+    const gitStatusBaseline = "Then run git status to inspect the tree.\n";
+    expect(collectSpellings(gitStatusBaseline, {})).toContain("git status");
+    expect(() =>
+      checkAtomicRendering(
+        gitStatusBaseline.replace("git status", "git sta\n  tus"),
+        gitStatusBaseline,
+        {},
+      ),
+    ).toThrow(/fragmented/);
+  });
+
+  test("full recovery command spellings fold under the gate", () => {
+    expect(() =>
+      checkAtomicRendering(
+        recoveryBaseline.replace("rm -r --cached -- 'a", "rm -r --cached --\n  'a"),
+        recoveryBaseline,
+        {},
+      ),
+    ).toThrow(/fragmented/);
+  });
+
+  test("the renderer's own recovery command bytes fold under the gate", () => {
+    // The Git untrack recovery command node the CLI authors
+    // (cli/presentation.ts): rendered through the production renderer at a
+    // narrow measure, so the baseline bytes are real renderer output.
+    const document = [
+      {
+        kind: "command" as const,
+        program: "git",
+        args: ["-C", "'my project'", "rm", "-r", "--cached", "--", "'a b.md'"].map(
+          (value) => ({ kind: "text" as const, value }),
+        ),
+        category: "command" as const,
+      },
+    ];
+    const rendered = renderPresentationDocument(document, {
+      color: false,
+      interactive: false,
+      width: 40,
+    });
+    expect(collectSpellings(rendered, {})).toContain(
+      "git -C 'my project' rm -r --cached -- 'a b.md'",
+    );
+    const folded = rendered.replace("rm -r --cached --", "rm -r --cached\n  --");
+    expect(() => checkAtomicRendering(folded, rendered, {})).toThrow(/fragmented/);
   });
 });
 

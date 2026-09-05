@@ -46,11 +46,13 @@ syntax-only:
 
 A capture without a committed baseline fails the gate in ordinary runs. New
 baselines are created only through the explicit local snapshot-update
-workflow (`bun test --update-snapshots test/golden-snapshots.test.ts` on a
-maintainer machine, which marks the supervised run via
-`APKIT_TEST_UPDATE_SNAPSHOTS`); existing baselines are still checked during
-an update run. CI never enables snapshot updating and never sets the marker,
-so an uncommitted snapshot fails the clean-tree gate.
+workflow, `bun run test:focused -- --update-snapshots
+test/golden-snapshots.test.ts` on a maintainer machine: the supervised run
+forwards Bun's own flag and marks the child (`APKIT_TEST_UPDATE_SNAPSHOTS`),
+which the gate requires before allowing baseline creation. Existing
+baselines are still checked during an update run. CI never enables snapshot
+updating and never sets the marker, so an uncommitted snapshot fails the
+clean-tree gate.
 
 Snapshot files are created and changed only on a maintainer machine. CI never
 enables snapshot updating; an uncommitted snapshot fails the clean-tree gate.

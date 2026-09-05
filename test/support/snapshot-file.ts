@@ -2,52 +2,49 @@ import { readFileSync } from "node:fs";
 
 /**
  * Boundary parser for Bun Snapshot v1 files (the committed golden baseline
- * corpus). Format, verified against this repository's snapshot file: each
- * entry is `exports[\`<key>\`] = \`` followed by the body wrapped in double
- * quotes, terminated by a bare `"` (or a content line ending in `"`) and a
- * `` `; `` line. Content escapes are template-literal escapes (`\X` for the
- * characters Bun escapes); content cannot contain an unescaped backtick, so
- * a line that is exactly `` `; `` unambiguously terminates an entry.
+ * corpus). Verified against Bun 1.3 serialization: each entry is
+ * `exports[\`<key>\`] = \`` + body + `` `; ``, where the body is wrapped in
+ * double quotes (possibly with a leading newline) and every backtick,
+ * backslash, and `${` sequence inside it is escaped. Control characters are
+ * serialized as hex escapes (`\x1B` for ESC). Content cannot contain an
+ * unescaped backtick, so a single scan terminates each entry unambiguously.
  */
 
-const HEADER = /^exports\[`(.+)`\] = `$/;
+const ENTRY = /exports\[`((?:[^`\\]|\\.)*)`\] = `((?:[^`\\]|\\.)*)`;/g;
 
 export function readSnapshotBodies(path: string | URL): Map<string, string> {
   const bodies = new Map<string, string>();
-  const lines = readFileSync(path, "utf8").split("\n");
-  let index = 0;
-  while (index < lines.length) {
-    const header = lines[index]?.match(HEADER);
-    if (header === null || header === undefined || header[1] === undefined) {
-      index += 1;
-      continue;
-    }
-    const key = header[1];
-    const terminator = lines.indexOf("`;", index + 1);
-    if (terminator < 0) {
-      throw new Error(`snapshot file ${path}: unterminated entry for ${JSON.stringify(key)}`);
-    }
-    const quoteLine = lines[terminator - 1] ?? "";
-    if (!quoteLine.endsWith('"')) {
-      throw new Error(`snapshot file ${path}: malformed entry for ${JSON.stringify(key)}`);
-    }
-    // Body spans the lines between the header and the closing quote. The
-    // first body line opens with the wrapper quote; the closing quote is
-    // glued to the final content line unless the content ended with its own
-    // newline (then the quote sits on its own line).
-    let content = lines.slice(index + 1, terminator).join("\n");
-    if (!content.startsWith('"')) {
+  const source = readFileSync(path, "utf8");
+  for (const match of source.matchAll(ENTRY)) {
+    const key = unescapeSnapshotContent(match[1]!);
+    // The body is wrapped in double quotes; the serializer separates the
+    // wrapper from the entry delimiters with newlines on both sides.
+    const body = match[2]!.replace(/^\n/, "").replace(/\n$/, "");
+    if (!body.startsWith('"') || !body.endsWith('"')) {
       throw new Error(`snapshot file ${path}: unquoted body for ${JSON.stringify(key)}`);
     }
-    content = content.slice(1);
-    if (content.endsWith('"')) content = content.slice(0, -1);
-    bodies.set(key, unescapeSnapshotContent(content));
-    index = terminator + 1;
+    bodies.set(key, unescapeSnapshotContent(body.slice(1, -1)));
+  }
+  if (source.includes("exports[`") && bodies.size === 0) {
+    throw new Error(`snapshot file ${path}: contains entries but none parsed`);
   }
   return bodies;
 }
 
-/** Bun escapes only what a template literal requires: `\`, backtick, `${`. */
+/**
+ * Bun escapes exactly what its template-literal serializer requires:
+ * backslashes, backticks, `${`, and control characters as `\xHH` or
+ * `\u…`. Decode the supported forms; unknown escapes decode to their
+ * literal character.
+ */
 function unescapeSnapshotContent(content: string): string {
-  return content.replace(/\\(.)/g, (_, character: string) => character);
+  return content.replace(
+    /\\(x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]{1,6}\}|u[0-9a-fA-F]{4}|.)/g,
+    (_, escape: string) => {
+      if (escape.startsWith("x")) return String.fromCharCode(parseInt(escape.slice(1), 16));
+      if (escape.startsWith("u{")) return String.fromCodePoint(parseInt(escape.slice(2, -1), 16));
+      if (escape.startsWith("u")) return String.fromCharCode(parseInt(escape.slice(1), 16));
+      return escape;
+    },
+  );
 }

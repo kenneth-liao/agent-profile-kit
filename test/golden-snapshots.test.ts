@@ -113,8 +113,9 @@ function committedBaseline(baselineKey: string): string | undefined {
     throw new Error(
       `No committed golden baseline for ${JSON.stringify(baselineKey)}; the atomicity` +
         " gate requires one. Create and review it through the explicit local" +
-        " snapshot-update workflow (bun test --update-snapshots locally; CI never" +
-        " enables snapshot updating).",
+        " snapshot-update workflow (`bun run test:focused -- --update-snapshots" +
+        " test/golden-snapshots.test.ts` locally; CI never enables snapshot" +
+        " updating).",
     );
   }
   return undefined;
@@ -869,5 +870,71 @@ describe("rendered atomicity mutation evidence from real captures", () => {
         corpus,
       ),
     ).toThrow(/fragmented/);
+  });
+
+  test("committed baselines reject fragmenting their complete spellings", () => {
+    const corpus = goldenCorpus();
+
+    // Focused-command-help usage syntax (committed bytes): a fold after the
+    // verb must not pass just because the bracketed syntax continues later.
+    const helpKey = "golden snapshots of every human view focused command help: focused-command-help 1";
+    const helpBaseline = baselineStream(snapshotBodies.get(helpKey)!, "stdout");
+    checkAtomicRendering(helpBaseline, helpBaseline, corpus);
+    const usageLine = helpBaseline.split("\n").find((line) => line.startsWith("Usage: apkit status "));
+    expect(usageLine).toBeDefined();
+    expect(() =>
+      checkAtomicRendering(
+        helpBaseline.replace("apkit status [", "apkit status\n      ["),
+        helpBaseline,
+        corpus,
+      ),
+    ).toThrow(/fragmented/);
+
+    // Apply receipt (committed bytes): a relative dotted path folded after
+    // its leading dot must be rejected, not excused by its continuation.
+    const receiptEntry = [...snapshotBodies].find(([, body]) =>
+      body.includes(".agent-profile-kit/codex/context.md"),
+    );
+    expect(receiptEntry).toBeDefined();
+    const receiptBaseline = baselineStream(receiptEntry![1], "stdout");
+    checkAtomicRendering(receiptBaseline, receiptBaseline, corpus);
+    expect(() =>
+      checkAtomicRendering(
+        receiptBaseline.replace(".agent-profile-kit/", ".\n      agent-profile-kit/"),
+        receiptBaseline,
+        corpus,
+      ),
+    ).toThrow(/fragmented/);
+  });
+
+  test("a colored committed baseline guards its decoded styled paths", () => {
+    const colorKey =
+      "rendering matrix for a representative subset list projects matrix: list-projects-interactive-narrow-color 1";
+    const colorBaseline = baselineStream(snapshotBodies.get(colorKey)!, "stdout");
+    const corpus = goldenCorpus();
+    checkAtomicRendering(colorBaseline, colorBaseline, corpus);
+    const styledPathLine = colorBaseline.split("\n").find((line) => line.includes("~/projects/demo"));
+    expect(styledPathLine).toBeDefined();
+    expect(() =>
+      checkAtomicRendering(
+        colorBaseline.replace("~/projects/demo", "~/projects/de\n      mo"),
+        colorBaseline,
+        corpus,
+      ),
+    ).toThrow(/fragmented/);
+  });
+
+  test("missing baselines fail outside the update workflow and are tolerated within it", () => {
+    const absentKey = "golden snapshots of every human view absent view: absent 1";
+    const savedMarker = process.env[UPDATE_SNAPSHOTS_ENV];
+    delete process.env[UPDATE_SNAPSHOTS_ENV];
+    try {
+      expect(() => committedBaseline(absentKey)).toThrow(/No committed golden baseline/);
+      process.env[UPDATE_SNAPSHOTS_ENV] = "1";
+      expect(committedBaseline(absentKey)).toBeUndefined();
+    } finally {
+      if (savedMarker === undefined) delete process.env[UPDATE_SNAPSHOTS_ENV];
+      else process.env[UPDATE_SNAPSHOTS_ENV] = savedMarker;
+    }
   });
 });

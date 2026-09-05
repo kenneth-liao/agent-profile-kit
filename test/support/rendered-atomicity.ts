@@ -73,14 +73,33 @@ for (const host of [...SUPPORTED_HOSTS, ...TEMPORARY_INSTALLATION_HOSTS]) {
 for (const example of Object.values(AUTHORING_EXAMPLES)) COMMAND_WORD.add(example.id);
 
 const COMMAND_WORD_RE =
-  /^(?:--\w[\w-]*|<[^>]+>|\[|\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+  /^(?:--?[\w][\w-]*|<[^>]+>|\[|\]|--|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
-const EDGE_NOISE = new Set(["`", ".", ",", ";", ":", "(", ")", "[", "]", '"', "'"]);
+/**
+ * Command programs the CLI authors as command nodes: the `apkit` program
+ * (cli/command-help.ts) and the Git untrack recovery command
+ * (cli/presentation.ts, `git -C <project> rm -r --cached -- <paths>`), whose
+ * subcommand vocabulary is mirrored here as grammar metadata.
+ */
+const PROGRAMS = new Set(["apkit", "git"]);
+const GIT_SUBCOMMANDS = new Set(["rm"]);
 
-function trimTokenEdges(token: string): string {
+/** Edge characters that belong to prose, not to the atomic value. Leading
+ * brackets and dots are deliberately absent: `[project | --all]` usage tokens
+ * and `.agent-profile-kit/…` relative paths are atomic spellings themselves. */
+const LEADING_NOISE = new Set(["`", '"', "'", "("]);
+const TRAILING_NOISE = new Set(["`", '"', "'", ".", ",", ";", ":", ")"]);
+
+function trimTokenEdges(token: string, keepQuotes = false): string {
   let next = token;
-  while (next.length > 0 && EDGE_NOISE.has(next[0]!)) next = next.slice(1);
-  while (next.length > 0 && EDGE_NOISE.has(next.at(-1)!)) next = next.slice(0, -1);
+  const leading = keepQuotes
+    ? new Set([...LEADING_NOISE].filter((edge) => edge !== "'" && edge !== '"'))
+    : LEADING_NOISE;
+  const trailing = keepQuotes
+    ? new Set([...TRAILING_NOISE].filter((edge) => edge !== "'" && edge !== '"'))
+    : TRAILING_NOISE;
+  while (next.length > 0 && leading.has(next[0]!)) next = next.slice(1);
+  while (next.length > 0 && trailing.has(next.at(-1)!)) next = next.slice(0, -1);
   return next;
 }
 
@@ -88,8 +107,13 @@ function isPathToken(token: string): boolean {
   return token.includes("/") && token.length > 1;
 }
 
-function isGrammarWord(token: string): boolean {
+function isPlainGrammarWord(token: string): boolean {
   return COMMAND_WORD.has(token) || COMMAND_WORD_RE.test(token) || isPathToken(token);
+}
+
+/** A single-quoted span is an opaque carried value: always grammar-valid. */
+function isGrammarWord(tokens: readonly string[], quoted: ReadonlySet<number>, index: number): boolean {
+  return quoted.has(index) || isPlainGrammarWord(tokens[index]!);
 }
 
 /** Strip SGR styling; whole-line styling makes stripping lossless for content. */
@@ -135,48 +159,76 @@ function analyzableLines(stream: string, verbatimLines: readonly string[]): read
   }));
 }
 
-/** One command spelling: the maximal grammar-valid run led by the program name. */
-function commandSpelling(tokens: readonly string[], start: number): string | undefined {
-  if (tokens[start] !== "apkit") return undefined;
+/** One command spelling: the maximal grammar-valid run led by an authored program. */
+function commandSpelling(
+  tokens: readonly string[],
+  quoted: ReadonlySet<number>,
+  start: number,
+): string | undefined {
+  const program = tokens[start];
+  if (program === undefined || !PROGRAMS.has(program)) return undefined;
   const first = tokens[start + 1];
-  if (first === undefined) return undefined;
-  if (first === "machine") {
-    if (!MACHINE_VERBS.has(tokens[start + 2] ?? "")) return undefined;
-  } else if (!VERBS.has(first)) {
-    return undefined;
-  }
-  const parts = ["apkit"];
-  let index = start + 1;
-  if (first === "machine") {
-    parts.push("machine", tokens[start + 2]!);
-    index = start + 3;
-  } else {
-    parts.push(first);
-    index = start + 2;
-  }
+  if (first === undefined || !isGrammarWord(tokens, quoted, start + 1)) return undefined;
+  const parts = [program, first];
+  let index = start + 2;
   while (index < tokens.length) {
     const token = tokens[index]!;
-    if (!isGrammarWord(token)) break;
+    const allowed = quoted.has(index) || isPlainGrammarWord(token) ||
+      (program === "git" && GIT_SUBCOMMANDS.has(token));
+    if (!allowed) break;
     parts.push(token);
     index += 1;
   }
   return parts.join(" ");
 }
 
-/** Spellings recognized from intact content of the baseline body. */
+/**
+ * Spellings recognized from intact content of the baseline body. Tokens glued
+ * into a single-quoted span (shell-quoted paths with spaces) are merged back
+ * into one token before edge trimming, so the quoted form — the renderer's
+ * atomic form — is what is recognized and guarded.
+ */
 function extractSpellings(lines: readonly string[]): readonly string[] {
   const found = new Set<string>();
   for (const line of lines) {
-    const tokens = line.split(/\s+/).filter((token) => token.length > 0).map(trimTokenEdges);
-    for (const token of tokens) {
-      if (isPathToken(token)) found.add(token);
+    const rawTokens = mergeQuotedSpans(line.split(/\s+/).filter((token) => token.length > 0));
+    const quoted = new Set<number>(
+      rawTokens.flatMap((token, index) => (token.startsWith("'") ? [index] : [])),
+    );
+    for (const [index, token] of rawTokens.entries()) {
+      // Quoted spans keep their quotes: the quoted form is the renderer's
+      // atomic form, and the spelling must match the raw text. Other tokens
+      // shed prose punctuation.
+      const trimmed = quoted.has(index) ? trimTokenEdges(token, true) : trimTokenEdges(token);
+      if (isPathToken(trimmed) || (quoted.has(index) && trimmed.length > 1)) found.add(trimmed);
     }
+    const tokens = rawTokens.map((token, index) =>
+      quoted.has(index) ? trimTokenEdges(token, true) : trimTokenEdges(token),
+    );
     for (let index = 0; index < tokens.length; index += 1) {
-      const spelling = commandSpelling(tokens, index);
+      const spelling = commandSpelling(tokens, quoted, index);
       if (spelling !== undefined) found.add(spelling);
     }
   }
   return [...found];
+}
+
+/** Merge tokens glued into one single-quoted span back into a single token. */
+function mergeQuotedSpans(tokens: readonly string[]): readonly string[] {
+  const merged: string[] = [];
+  let open = false;
+  for (const token of tokens) {
+    if (open) {
+      merged[merged.length - 1] = `${merged.at(-1)!} ${token}`;
+      if (token.endsWith("'")) open = false;
+      continue;
+    }
+    if (token.startsWith("'") && !token.endsWith("'") && token.length > 1) {
+      open = true;
+    }
+    merged.push(token);
+  }
+  return merged;
 }
 
 /** The baseline-intact spelling oracle, exposed for mutation-test evidence. */
