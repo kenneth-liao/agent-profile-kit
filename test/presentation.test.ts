@@ -2598,21 +2598,22 @@ describe("formatLifecycleReport concise terminology", () => {
       ...Array.from({ length: 60 }, (_, index) => `.codex/prompts/p${String(index).padStart(3, "0")}`),
       ...Array.from({ length: 30 }, (_, index) => `.opencode/agent/o${String(index).padStart(3, "0")}.md`),
     ];
-    const concise = formatLifecycleReport("status", ownershipReport(paths));
-    expect(concise).toContain("Affected paths (150):");
-    expect(concise).toContain("- .agents/skills/ (60 paths)");
-    expect(concise).toContain("- .codex/prompts/ (60 paths)");
-    expect(concise).toContain("- .opencode/agent/ (30 paths)");
+    const concise = lifecycleStatusDocument(ownershipReport(paths));
+    expect(trackedPathLines(concise)).toEqual([
+      "      - .agents/skills/ (60 paths)",
+      "      - .codex/prompts/ (60 paths)",
+      "      - .opencode/agent/ (30 paths)",
+    ]);
 
-    const verbose = formatLifecycleReport("status", ownershipReport(paths), {
+    const focusedVerbose = lifecycleStatusDocument(ownershipReport(paths), {
       blockersOnly: true,
       verbose: true,
     });
-    const commandLine = verbose
-      .split("\n")
-      .find((line) => line.includes("rm -r --cached"));
-    expect(commandLine).toBeDefined();
-    expect((commandLine ?? "").match(/'/g)).toHaveLength(302);
+    const gitCommands = commandTexts(focusedVerbose).filter((text) =>
+      text.includes("rm -r --cached"));
+    // One complete command: 150 paths plus the project, each shell-quoted.
+    expect(gitCommands).toHaveLength(1);
+    expect((gitCommands[0] ?? "").match(/'/g)).toHaveLength(302);
   });
 
   test("narrow terminals keep the untracking command on one unsplit line (#353)", () => {
@@ -2621,15 +2622,15 @@ describe("formatLifecycleReport concise terminology", () => {
       ".agents/skills/a skill with spaces.md",
       ".claude/rules/agent-profile-kit.md",
     ];
-    const verbose = formatLifecycleReport("status", ownershipReport(paths), {
+    const focusedVerbose = lifecycleStatusDocument(ownershipReport(paths), {
       blockersOnly: true,
       verbose: true,
-      context: { color: false, interactive: true, width: 40 },
     });
     const command = untrackCommandFor("/project-a", paths);
 
-    const lines = verbose.split("\n");
-    expect(lines.filter((line) => line.includes(command))).toHaveLength(1);
+    // The atomic command node renders on one unsplit line at any width.
+    const rendered = renderBoundary(focusedVerbose, { color: false, interactive: true, width: 40 });
+    expect(rendered.split("\n").filter((line) => line.includes(command))).toHaveLength(1);
   });
 
   test("machine JSON evidence stays byte-identical without any command text (#353)", () => {
@@ -3094,12 +3095,13 @@ describe("formatLifecycleReport concise terminology", () => {
       warnings: [`Review /tmp/reconcile/generated-output for Profile 'reconcile'`],
     });
 
-    const conciseStatus = formatLifecycleReport("status", report);
-    expect(conciseStatus).toContain("/tmp/reconcile/generated-output");
-    expect(conciseStatus).toContain("'reconcile'");
-    expect(conciseStatus).not.toContain(`Project: ${project}`);
-    expect(conciseStatus).not.toContain(exclusionTarget);
-    expect(conciseStatus).not.toContain(exclusionEntry);
+    const conciseStatus = lifecycleStatusDocument(report);
+    const statusTexts = presentationTexts(conciseStatus);
+    // User-authored values ride the warning list item verbatim.
+    expect(statusTexts.some((text) => text.includes("/tmp/reconcile/generated-output"))).toBe(true);
+    expect(statusTexts.some((text) => text.includes("'reconcile'"))).toBe(true);
+    expect(statusTexts.some((text) => text.includes(exclusionTarget))).toBe(false);
+    expect(statusTexts.some((text) => text.includes(exclusionEntry))).toBe(false);
 
     const concise = applyReportDocument(applyResult(report));
     const applyNodes = flattenPresentationNodes(concise);
@@ -3115,12 +3117,12 @@ describe("formatLifecycleReport concise terminology", () => {
       node.kind === "prose" && nodeText(node).includes("generated-output/reconcile")
     )).toBe(true);
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain(project);
-    expect(verbose).toContain("Profile reconcile");
-    expect(verbose).toContain("generated-output/reconcile");
-    expect(verbose).toContain(exclusionTarget);
-    expect(verbose).toContain(exclusionEntry);
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const verboseTexts = presentationTexts(verbose);
+    expect(verboseTexts.some((text) => text.includes(project))).toBe(true);
+    expect(verboseTexts).toContain("/tmp/reconcile/Profile Installation/generated-output: Profile reconcile");
+    expect(verboseTexts).toContain("  Outputs: generated-output/reconcile");
+    expect(verboseTexts).toContain("/tmp/reconcile/Repository Exclusion/info/exclude: add /generated-output/reconcile");
   });
 
   test("renders task-authored apply verification failures without semantic translation", () => {
