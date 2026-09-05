@@ -2048,16 +2048,14 @@ function expectUserFacingVocabulary(view: string): void {
   for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(view).not.toMatch(term);
 }
 
-function explanationLines(reportText: string): string[] {
-  const start = reportText.indexOf("State explanations:\n");
+/** The state-explanation glosses: the list items following the
+ * "State explanations:" heading, in document order. */
+function explanationItems(document: PresentationDocument): string[] {
+  const nodes = flattenPresentationNodes(document);
+  const start = indexWhere(nodes, (node) =>
+    node.kind === "heading" && nodeText(node) === "State explanations:");
   if (start < 0) return [];
-  const after = reportText.slice(start + "State explanations:\n".length);
-  const lines: string[] = [];
-  for (const line of after.split("\n")) {
-    if (!line.startsWith("- ")) break;
-    lines.push(line);
-  }
-  return lines;
+  return listItemsFrom(nodes, start + 1);
 }
 
 describe("formatLifecycleReport concise terminology", () => {
@@ -3117,18 +3115,33 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = lifecycleStatusDocument(report);
 
-    expect(concise).toContain(
-      "Updates ready for 1 project (1 file update, 1 file removal).\n\n" +
-      "Project exceptions:\n" +
-      "  /project-a:\n" +
-      "    State: drifted output (f.md)\n" +
-      "    - e.md",
-    );
-    expect(concise).toContain("Details: apkit status --verbose");
-    expect(concise).not.toContain("Selected setup:");
-    expect(concise).not.toContain("Outputs:");
+    // The ready summary is a success notice; the drift is a Project exception
+    // with its typed State key-value and the destructive removal as a list item.
+    expect(noticesIn(concise)).toEqual([{
+      kind: "notice",
+      severity: "success",
+      nodes: [{ kind: "prose", parts: ["Updates ready for 1 project (1 file update, 1 file removal)."] }],
+    }]);
+    const nodes = flattenPresentationNodes(concise);
+    const exceptionIndex = indexWhere(nodes, (node) =>
+      node.kind === "heading" && nodeText(node) === "Project exceptions:");
+    expect(exceptionIndex).toBeGreaterThan(-1);
+    expect(nodes[exceptionIndex + 1]).toEqual({ kind: "prose", parts: ["  /project-a:"] });
+    expect(nodes[exceptionIndex + 2]).toEqual({
+      kind: "prose",
+      parts: ["    State: drifted output (f.md)"],
+    });
+    expect(nodes[exceptionIndex + 3]).toEqual({ kind: "prose", parts: ["    - e.md"] });
+    // The verbose route is a typed command value on the Details key-value.
+    expect(keyValuesIn(concise, "Details")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [{ kind: "text", value: "status" }, { kind: "text", value: "--verbose" }],
+    });
+    expect(headingsIn(concise)).not.toContain("Selected setup:");
+    expect(headingsIn(concise)).not.toContain("Outputs:");
   });
 
   test("destructive removal remains visible while routine paths stay suppressed", () => {
@@ -3149,11 +3162,13 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = lifecycleStatusDocument(report);
 
-    expect(concise).toContain("    - z.md");
-    expect(concise).not.toContain("m.md");
-    expect(concise).not.toContain("a.md");
+    // The destructive removal is a Project-exception line; routine paths stay suppressed.
+    expect(presentationTexts(concise)).toContain("    - z.md");
+    expect(presentationTexts(concise).some((text) =>
+      text.includes("m.md") || text.includes("a.md")
+    )).toBe(false);
   });
 
   test("hides routine generated paths behind one verbose route", () => {
@@ -3172,16 +3187,32 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: paths.map((path) => ({ kind: "addition" as const, path, project })),
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = lifecycleStatusDocument(report);
 
-    expect(concise).not.toContain("file-01.md");
-    expect(concise).not.toContain("file-12.md");
-    expect(concise.match(/Details:/g)).toHaveLength(1);
-    expect(concise).toContain("Details: apkit status --verbose");
+    // No routine path appears in the concise document; the one verbose route
+    // is the typed Details command value.
+    expect(flattenPresentationNodes(concise).some((node) =>
+      nodeText(node).includes("file-")
+    )).toBe(false);
+    expect(keyValuesIn(concise, "Details")).toHaveLength(1);
+    expect(keyValuesIn(concise, "Details")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [{ kind: "text", value: "status" }, { kind: "text", value: "--verbose" }],
+    });
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain("/project-a/file-11.md: addition");
-    expect(verbose).toContain("/project-a/file-12.md: addition");
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const verboseNodes = flattenPresentationNodes(verbose);
+    // Each generated path is an Outputs-section prose node with a typed
+    // identifier part carrying the full path.
+    const outputLine = (path: string) => verboseNodes.some((node) =>
+      node.kind === "prose" &&
+      JSON.stringify(node.parts) === JSON.stringify([
+        { kind: "identifier", value: path },
+        ": addition",
+      ]));
+    expect(outputLine("/project-a/file-11.md")).toBe(true);
+    expect(outputLine("/project-a/file-12.md")).toBe(true);
   });
 
   test("keeps attention paths and removals visible ahead of ordinary capped changes", () => {
@@ -3206,12 +3237,16 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = lifecycleStatusDocument(report);
 
-    expect(concise).toContain("- z-removal.md");
-    expect(concise).not.toContain("a-1.md");
-    expect(concise).not.toContain("more files");
-    expect(concise).toContain("Details: apkit status --verbose");
+    expect(presentationTexts(concise)).toContain("    - z-removal.md");
+    expect(presentationTexts(concise).some((text) => text.includes("a-1.md"))).toBe(false);
+    expect(presentationTexts(concise).some((text) => text.includes("more files"))).toBe(false);
+    expect(keyValuesIn(concise, "Details")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [{ kind: "text", value: "status" }, { kind: "text", value: "--verbose" }],
+    });
   });
 
   test("verbose output keeps generated-root attention authoritative", () => {
@@ -3224,13 +3259,19 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("status", report);
-    expect(concise).toContain("State: drifted output (skill)");
+    const concise = lifecycleStatusDocument(report);
+    expect(presentationTexts(concise)).toContain("    State: drifted output (skill)");
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain("drifted output (skill)");
-    expect(verbose).toContain("/project-a/skill: update");
-    expect(verbose).toContain("/project-a/context.md: unchanged");
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const verboseNodes = flattenPresentationNodes(verbose);
+    const outputLine = (path: string, kind: string) => verboseNodes.some((node) =>
+      node.kind === "prose" &&
+      JSON.stringify(node.parts) === JSON.stringify([
+        { kind: "identifier", value: path },
+        `: ${kind}`,
+      ]));
+    expect(outputLine("/project-a/skill", "update")).toBe(true);
+    expect(outputLine("/project-a/context.md", "unchanged")).toBe(true);
   });
 
   test("keeps every present non-current state definition available in verbose output", () => {
@@ -3254,23 +3295,33 @@ describe("formatLifecycleReport concise terminology", () => {
           : [],
       });
 
-      const concise = formatLifecycleReport("status", report);
-      expect(concise).not.toContain("State explanations:");
+      const concise = lifecycleStatusDocument(report);
+      const conciseTexts = presentationTexts(concise);
+      expect(headingsIn(concise)).not.toContain("State explanations:");
       if (kind === "blocked") {
-        expect(concise).toContain(
-        "Blocker: Cannot verify generated-file ownership: recorded output hooks disabled does not match",
-      );
-        expect(concise).not.toContain("State:");
+        expect(flattenPresentationNodes(concise).some((node) =>
+          node.kind === "prose" && node.category === "error" &&
+          nodeText(node).startsWith(
+            "  Blocker: Cannot verify generated-file ownership: recorded output hooks disabled does not match",
+          )
+        )).toBe(true);
+        expect(conciseTexts.some((text) => text.startsWith("    State:"))).toBe(false);
       } else if (["drifted output", "malformed ownership state", "missing output", "stale source"].includes(kind)) {
-        expect(concise).toContain(`State: ${kind}`);
+        expect(conciseTexts).toContain(`    State: ${kind}`);
       } else {
-        expect(concise).toStartWith("Updates ready for 1 project");
-        expect(concise).not.toContain("State:");
+        expect(noticesIn(concise)[0]!.nodes[0]).toMatchObject({
+          kind: "prose",
+        });
+        expect(noticesIn(concise)[0]).toMatchObject({ severity: "success" });
+        expect(nodeText(noticesIn(concise)[0]!.nodes[0] as PresentationNode)).toMatch(
+          /^Updates ready for 1 project/,
+        );
+        expect(conciseTexts.some((text) => text.startsWith("    State:"))).toBe(false);
       }
-      const glosses = explanationLines(formatLifecycleReport("status", report, { verbose: true }));
+      const glosses = explanationItems(lifecycleStatusDocument(report, { verbose: true }));
       expect(glosses).toHaveLength(1);
-      expect(glosses[0]).toMatch(new RegExp(`^- ${kind.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: .+`));
-      expect(glosses[0]!.length).toBeGreaterThan(`- ${kind}: `.length);
+      expect(glosses[0]).toMatch(new RegExp(`^${kind.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: .+`));
+      expect(glosses[0]!.length).toBeGreaterThan(`${kind}: `.length);
       expect(glosses[0]).toContain(STATE_ANCHORS[kind]);
     }
 
@@ -3286,9 +3337,9 @@ describe("formatLifecycleReport concise terminology", () => {
       items: [{ kind: "current", project: "/current" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/current" }],
     });
-    const allCurrent = formatLifecycleReport("status", currentOnly);
-    expect(allCurrent).not.toContain("State explanations:");
-    expect(allCurrent).not.toContain("State: current");
+    const allCurrent = lifecycleStatusDocument(currentOnly);
+    expect(headingsIn(allCurrent)).not.toContain("State explanations:");
+    expect(presentationTexts(allCurrent).some((text) => text.startsWith("    State:"))).toBe(false);
   });
 
   test("keeps state definitions behind the explicit verbose view", () => {
@@ -3305,13 +3356,13 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
 
-    const concise = formatLifecycleReport("status", report);
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    const concise = lifecycleStatusDocument(report);
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
 
-    expect(concise).not.toContain("State explanations:");
-    expect(verbose).toContain(
-      "State explanations:\n- stale source: Workspace source changed since the last apply",
-    );
+    expect(headingsIn(concise)).not.toContain("State explanations:");
+    expect(explanationItems(verbose)).toEqual([
+      "stale source: Workspace source changed since the last apply; generated files no longer match current selected setup.",
+    ]);
   });
 
   test("blocked reports suppress planned detail for otherwise actionable projects", () => {
@@ -3395,8 +3446,10 @@ describe("formatLifecycleReport concise terminology", () => {
       ),
     });
 
-    const glosses = explanationLines(formatLifecycleReport("status", report, { verbose: true }));
-    const kinds = glosses.map((line) => line.slice(2, line.indexOf(":")));
+    const glosses = explanationItems(
+      lifecycleStatusDocument(report, { verbose: true }),
+    );
+    const kinds = glosses.map((line) => line.slice(0, line.indexOf(":")));
     expect(kinds).toEqual(NON_CURRENT_STATE_ORDER.filter((kind) => present.includes(kind)));
   });
 
@@ -3404,13 +3457,16 @@ describe("formatLifecycleReport concise terminology", () => {
     const report = emptyReport({
       items: [{ kind: "removal", project: "/orphan" }],
     });
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    const projectsAt = verbose.indexOf("Projects:");
-    const explanationsAt = verbose.indexOf("State explanations:");
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const nodes = flattenPresentationNodes(verbose);
+    const projectsAt = indexWhere(nodes, (node) =>
+      node.kind === "heading" && nodeText(node) === "Projects:");
+    const explanationsAt = indexWhere(nodes, (node) =>
+      node.kind === "heading" && nodeText(node) === "State explanations:");
     expect(projectsAt).toBeGreaterThan(-1);
     expect(explanationsAt).toBeGreaterThan(projectsAt);
-    expect(verbose).toContain("/orphan: removal");
-    expect(explanationLines(verbose)).toHaveLength(1);
+    expect(projectStateLines(verbose)).toContain("/orphan: removal");
+    expect(explanationItems(verbose)).toHaveLength(1);
   });
 
   test("summarizes Git exclusions in one default clause and keeps exact deltas in --verbose", () => {
