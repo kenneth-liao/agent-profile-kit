@@ -33,16 +33,10 @@ import {
   applyReportDocument,
   applyVerificationFailureDocument,
   blockedApplyReportDocument,
-  formatBlockedApplyReport,
-  formatApplyExecutionFailure,
-  formatApplyReport,
-  formatApplyVerificationFailure,
   formatApplyJson,
+  formatApplyReport,
   formatApplyVerificationFailureJson,
   formatBlockedApplyJson,
-  formatInfoHuman,
-  formatInventoryIndex,
-  formatMachineInventoryIndex,
   formatLifecycleJson,
   formatLifecycleReport,
   formatLifecycleToolErrorJson,
@@ -50,13 +44,7 @@ import {
   infoDocument,
   inventoryIndexDocument,
   lifecycleStatusDocument,
-  formatProfileInventoryHuman,
-  formatProjectInventoryHuman,
   formatMissingProfileError,
-  formatTemporaryInstallationHuman,
-  formatTemporaryInventoryHuman,
-  formatUninstallResult,
-  formatValidationResult,
   machineInventoryIndexDocument,
   profileInventoryDocument,
   projectInventoryDocument,
@@ -435,6 +423,15 @@ const context = (width: number): TerminalPresentationContext => ({
   interactive: true,
   width,
 });
+
+/** The default render context the CLI-boundary string formatters used: the
+ * vocabulary guard renders documents through it so its scanned text is
+ * unchanged (TEST-014). */
+const defaultRenderContext: TerminalPresentationContext = {
+  color: false,
+  interactive: false,
+  width: 10_000,
+};
 
 describe("lifecycle status document", () => {
   const pendingReport = () => emptyReport({
@@ -1960,18 +1957,21 @@ describe("temporary-installation Project identity in documents", () => {
       expect(stepText).toBe("Launch Codex from the exact bound project root: ~/projects/alpha");
       // The rendered receipt presents the Project only through the canonical
       // presenter; the raw path never reaches the rendered text.
-      const rendered = formatTemporaryInstallationHuman(
-        "install-temp",
-        receiptFixture(project, [{
-          host: "codex",
-          kind: "launch-constraint",
-          message: "Launch Codex from the exact bound project root:",
-          path: "bound-project",
-          provenance: "standing",
-        }]),
-        {},
-        process.cwd(),
-        home,
+      const rendered = renderPresentationDocument(
+        temporaryInstallationDocument(
+          "install-temp",
+          receiptFixture(project, [{
+            host: "codex",
+            kind: "launch-constraint",
+            message: "Launch Codex from the exact bound project root:",
+            path: "bound-project",
+            provenance: "standing",
+          }]),
+          process.cwd(),
+          home,
+        ),
+        { color: false, interactive: false, width: 10_000 },
+        { cwd: process.cwd(), home },
       );
       expect(rendered).not.toContain(project);
     } finally {
@@ -4429,7 +4429,7 @@ describe("standalone view presentation documents (#389)", () => {
         canonical: "/home/projects/a-very-long-project-identity-name",
       },
     };
-    const output = formatInfoHuman(info, { context: context(40) }, "/home", "/work");
+    const output = renderPresentationDocument(infoDocument(info, "/home", "/work"), context(40), { cwd: "/work", home: "/home" });
     const workspaceLine = output.split("\n").find((line) => line.startsWith("Workspace: "));
     expect(workspaceLine).toBeDefined();
     // The path is one unbroken line that fits the measure by eliding.
@@ -4696,19 +4696,21 @@ describe("standalone view presentation documents (#389)", () => {
       parts: ["none"],
     });
     // The count clause is protected report material: it never wraps (US-010).
-    const rendered = formatValidationResult({
-      bindings: 0,
-      hosts: [],
-      profiles: [],
-      warnings: [],
-    }, { context: context(40) });
+    const rendered = renderPresentationDocument(
+      validationResultDocument({
+        bindings: 0,
+        hosts: [],
+        profiles: [],
+        warnings: [],
+      }),
+      context(40),
+    );
     expect(rendered.split("\n")).toEqual([
       "Workspace and settings valid",
       "  (0 Profiles, 0 configured Projects)",
       "Profiles found: none",
       "Hosts bound: none",
       "Next: apkit bind <profile> --host <host>",
-      "",
     ]);
   });
 
@@ -4914,7 +4916,10 @@ describe("standalone view presentation documents (#389)", () => {
       "key-value(Next)",
     ]);
     // The diagnostic value survives as protected report material (US-019).
-    const rendered = formatTemporaryInstallationHuman("install-temp", receipt, { context: context(40) });
+    const rendered = renderPresentationDocument(
+      temporaryInstallationDocument("install-temp", receipt),
+      context(40),
+    );
     expect(rendered).toContain(diagnosticValue);
     expect(rendered).not.toContain("generated diagnostic path with\n");
     expect(rendered.split("\n").some((line) => line.startsWith("- Trust the bound project in Codex."))).toBe(true);
@@ -6190,53 +6195,74 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
   });
 
   test("routine validation uses newcomer presentation lexicon and omits internal terms", () => {
-    const zeroProjects = formatValidationResult({
-      bindings: 0,
-      hosts: [],
-      profiles: ["engineering"],
-      warnings: [],
-    });
-    expect(zeroProjects).toContain("Workspace and settings valid (1 Profile, 0 configured Projects)");
-    expect(zeroProjects).toContain("Profiles found: engineering");
-    expect(zeroProjects).toContain("Hosts bound: none");
-    expect(zeroProjects).toContain("Next: apkit bind <profile> --host <host>");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(zeroProjects).not.toMatch(term);
+    const validationDocument = (bindings: number, hosts: string[], profiles: string[]) =>
+      validationResultDocument({ bindings, hosts, profiles, warnings: [] });
 
-    const oneProject = formatValidationResult({
-      bindings: 1,
-      hosts: ["codex"],
-      profiles: ["engineering"],
-      warnings: [],
+    const zeroProjects = validationDocument(0, [], ["engineering"]);
+    // Severity is the validity fact; the count clause is its carried value,
+    // authored as an atomic identifier so it never wraps (US-010).
+    expect(noticesIn(zeroProjects)).toEqual([{
+      kind: "notice",
+      severity: "success",
+      nodes: [{
+        kind: "prose",
+        parts: [
+          "Workspace and settings valid ",
+          { kind: "identifier", value: "(1 Profile, 0 configured Projects)" },
+        ],
+      }],
+    }]);
+    expect(keyValuesIn(zeroProjects, "Profiles found")[0]!.value).toEqual({
+      kind: "prose",
+      parts: ["engineering"],
     });
-    expect(oneProject).toContain("Workspace and settings valid (1 Profile, 1 configured Project)");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(oneProject).not.toMatch(term);
+    expect(keyValuesIn(zeroProjects, "Hosts bound")[0]!.value).toEqual({
+      kind: "prose",
+      parts: ["none"],
+    });
+    expect(commandTexts(zeroProjects)).toContain("apkit bind <profile> --host <host>");
+    expectUserFacingVocabulary(presentationTexts(zeroProjects).join("\n"));
 
-    const multiProjects = formatValidationResult({
-      bindings: 3,
-      hosts: ["codex", "claude"],
-      profiles: ["engineering", "design"],
-      warnings: [],
+    const oneProject = validationDocument(1, ["codex"], ["engineering"]);
+    expect(noticesIn(oneProject)[0]!.nodes[0]).toEqual({
+      kind: "prose",
+      parts: [
+        "Workspace and settings valid ",
+        { kind: "identifier", value: "(1 Profile, 1 configured Project)" },
+      ],
     });
-    expect(multiProjects).toContain("Workspace and settings valid (2 Profiles, 3 configured Projects)");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(multiProjects).not.toMatch(term);
+    expectUserFacingVocabulary(presentationTexts(oneProject).join("\n"));
+
+    const multiProjects = validationDocument(3, ["codex", "claude"], ["engineering", "design"]);
+    expect(noticesIn(multiProjects)[0]!.nodes[0]).toEqual({
+      kind: "prose",
+      parts: [
+        "Workspace and settings valid ",
+        { kind: "identifier", value: "(2 Profiles, 3 configured Projects)" },
+      ],
+    });
+    expectUserFacingVocabulary(presentationTexts(multiProjects).join("\n"));
   });
 
   test("routine inventory topics and temporary inventory use newcomer lexicon", () => {
-    const index = formatInventoryIndex();
-    expect(index).toContain("Configured Project inventory from settings.");
-    expect(index).not.toContain("Installation State");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(index).not.toMatch(term);
+    const index = inventoryIndexDocument();
+    expect(presentationTexts(index).join("\n")).toContain("Configured Project inventory from settings.");
+    expectUserFacingVocabulary(renderPresentationDocument(index, defaultRenderContext));
 
-    const machineIndex = formatMachineInventoryIndex();
-    expect(machineIndex).toContain("Active temporary Profile inventory.");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(machineIndex).not.toMatch(term);
+    const machineIndex = machineInventoryIndexDocument();
+    expect(presentationTexts(machineIndex).join("\n")).toContain("Active temporary Profile inventory.");
+    expectUserFacingVocabulary(renderPresentationDocument(machineIndex, defaultRenderContext));
 
-    const emptyTemp = formatTemporaryInventoryHuman([]);
-    expect(emptyTemp).toContain("No temporary Profiles are active.");
-    expect(emptyTemp).toContain("Create one with apkit machine install-temp <profile> <project> --host <host>.");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(emptyTemp).not.toMatch(term);
+    const emptyTemp = temporaryInventoryDocument([]);
+    expect(presentationTexts(emptyTemp).join("\n")).toContain(
+      "No temporary Profiles are active.",
+    );
+    expect(presentationTexts(emptyTemp).join("\n")).toContain(
+      "Create one with apkit machine install-temp <profile> <project> --host <host>.",
+    );
+    expectUserFacingVocabulary(renderPresentationDocument(emptyTemp, defaultRenderContext));
 
-    const activeTemp = formatTemporaryInventoryHuman([
+    const activeTemp = temporaryInventoryDocument([
       {
         host: "codex",
         profileId: "engineering",
@@ -6244,14 +6270,20 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
         temporaryInstallationId: "temp-12345",
       },
     ]);
-    expect(activeTemp).toContain("Temporary Profiles (1):");
-    expect(activeTemp).toContain("Temporary installation: temp-12345");
-    expect(activeTemp).toContain("Use apkit machine remove-temp <temporary-installation-id> to remove one.");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(activeTemp).not.toMatch(term);
+    expect(presentationTexts(activeTemp).join("\n")).toContain("Temporary Profiles (1):");
+    expect(keyValuesIn(activeTemp, "Temporary installation")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "temp-12345",
+    });
+    expect(commandTexts(activeTemp)).toEqual([]);
+    expect(presentationTexts(activeTemp).join("\n")).toContain(
+      "Use apkit machine remove-temp <temporary-installation-id> to remove one.",
+    );
+    expectUserFacingVocabulary(renderPresentationDocument(activeTemp, defaultRenderContext));
   });
 
   test("routine teardown receipts preserve configured Projects in user-facing vocabulary", () => {
-    const uninstall = formatUninstallResult({
+    const uninstall = uninstallResultDocument({
       kept: [],
       projects: [{
         outputs: [".claude/rules/agent-profile-kit.md", ".codex/hooks.json"],
@@ -6260,13 +6292,15 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       }],
       warnings: [],
     });
-    expect(uninstall).toContain("Configured Projects preserved.");
-    expect(uninstall).toContain("Next: Run apkit unbind for configured Projects you no longer want, or apkit apply to reinstall.");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(uninstall).not.toMatch(term);
+    expect(presentationTexts(uninstall).join("\n")).toContain("Configured Projects preserved.");
+    expect(presentationTexts(uninstall).join("\n")).toContain(
+      "Next: Run apkit unbind for configured Projects you no longer want, or apkit apply to reinstall.",
+    );
+    expectUserFacingVocabulary(renderPresentationDocument(uninstall, defaultRenderContext));
   });
 
   test("uninstall renders best-effort exclusion warnings and claims only cleaned entries", () => {
-    const result = formatUninstallResult({
+    const result = uninstallResultDocument({
       kept: [],
       projects: [{
         outputs: [".codex/hooks.json"],
@@ -6277,20 +6311,33 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
         "/project-a/.git/info/exclude changed during exclusion publication; skipping to preserve unrelated bytes",
       ],
     });
-    expect(result).toContain("Warnings:");
-    expect(result).toContain("changed during exclusion publication");
-    expect(result).not.toContain("Cleaned Git exclusions");
+    const warningHeading = flattenPresentationNodes(result).find((node) =>
+      node.kind === "prose" && node.category === "attention" && nodeText(node) === "Warnings:"
+    );
+    expect(warningHeading).toBeDefined();
+    expect(listItemsIn(result)).toContain(
+      "/project-a/.git/info/exclude changed during exclusion publication; skipping to preserve unrelated bytes",
+    );
+    expect(presentationTexts(result).join("\n")).not.toContain("Cleaned Git exclusions");
   });
 
   test("empty status references configured Projects in next guidance", () => {
-    const empty = formatLifecycleReport("status", emptyReport());
-    expect(empty).toContain("No Projects are configured.");
-    expect(empty).toContain("Next: Run apkit list projects to inspect configured Projects, or apkit bind <profile> --host <host> to configure one.");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(empty).not.toMatch(term);
+    const empty = lifecycleStatusDocument(emptyReport());
+    expect(empty.map(shape)).toEqual(["notice:success", "prose:command"]);
+    expect((empty[0] as Extract<PresentationNode, { kind: "notice" }>).nodes[0]).toEqual({
+      kind: "prose",
+      parts: ["No Projects are configured."],
+    });
+    // The next action is authored as a command-category prose node whose parts
+    // keep both invocations atomic.
+    expect(nodeText(empty[1]!)).toBe(
+      "Next: Run apkit list projects to inspect configured Projects, or apkit bind <profile> --host <host> to configure one.",
+    );
+    expectUserFacingVocabulary(renderPresentationDocument(empty, defaultRenderContext));
   });
 
   test("temporary install and remove receipts use newcomer lexicon", () => {
-    const install = formatTemporaryInstallationHuman("install-temp", {
+    const install = temporaryInstallationDocument("install-temp", {
       completionState: "installed",
       diagnosticValues: [],
       host: "codex",
@@ -6301,12 +6348,19 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       temporaryInstallationId: "temp-987",
       warnings: [],
     });
-    expect(install).toContain("Installed temporary Profile");
-    expect(install).toContain("Temporary installation: temp-987");
-    expect(install).toContain("Next: apkit machine remove-temp temp-987");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(install).not.toMatch(term);
+    expect(noticesIn(install)).toEqual([{
+      kind: "notice",
+      severity: "success",
+      nodes: [{ kind: "prose", parts: ["Installed temporary Profile"] }],
+    }]);
+    expect(keyValuesIn(install, "  Temporary installation")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "temp-987",
+    });
+    expect(commandTexts(install)).toContain("apkit machine remove-temp temp-987");
+    expectUserFacingVocabulary(renderPresentationDocument(install, defaultRenderContext));
 
-    const remove = formatTemporaryInstallationHuman("remove-temp", {
+    const remove = temporaryInstallationDocument("remove-temp", {
       completionState: "removed",
       diagnosticValues: [],
       host: "codex",
@@ -6315,21 +6369,29 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       temporaryInstallationId: "temp-987",
       warnings: [],
     });
-    expect(remove).toContain("Removed temporary Profile");
-    expect(remove).toContain("Temporary installation: temp-987");
-    for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(remove).not.toMatch(term);
+    expect(noticesIn(remove)).toEqual([{
+      kind: "notice",
+      severity: "success",
+      nodes: [{ kind: "prose", parts: ["Removed temporary Profile"] }],
+    }]);
+    expect(keyValuesIn(remove, "  Temporary installation")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "temp-987",
+    });
+    expectUserFacingVocabulary(renderPresentationDocument(remove, defaultRenderContext));
   });
 
   test("technical surfaces (info, verbose, JSON, actionable recovery) retain canonical domain terms", () => {
-    const info = formatInfoHuman({
+    const info = infoDocument({
       configurationState: "current",
       engineVersion: "0.114.0",
       installationState: "/home/user/.agents/agent-profile-kit/state/manifest.json",
       localConfiguration: "/home/user/.agents/agent-profile-kit/config.yaml",
       workspace: { authored: "~/workspace", canonical: "/home/user/workspace" },
     });
-    expect(info).toContain("Local Configuration:");
-    expect(info).toContain("Installation State:");
+    // The canonical keys are authored key-value nodes, retained on technical surfaces.
+    expect(keyValuesIn(info, "Local Configuration")).toHaveLength(1);
+    expect(keyValuesIn(info, "Installation State")).toHaveLength(1);
 
     const report = emptyReport({
       desired: [{
@@ -6351,8 +6413,8 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       items: [{ kind: "addition", project: "/project-a" }],
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain("Host Setup:");
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    expect(headingsIn(verbose)).toContain("Host Setup:");
 
     const missingProfile = flatInlineText(formatMissingProfileError({
       availableProfiles: ["coding"],

@@ -38,40 +38,40 @@ import {
   formatLifecycleJson,
   formatLifecycleReport,
   formatLifecycleToolErrorJson,
-  formatInfoHuman,
   formatInfoJson,
   formatInfoToolErrorJson,
-  formatHostInventoryHuman,
   formatHostInventoryJson,
-  formatInventoryIndex,
-  formatMachineInventoryIndex,
-  formatProjectInventoryHuman,
   formatProjectInventoryJson,
   formatProjectInventoryToolErrorJson,
-  formatProfileInventoryHuman,
   formatProfileInventoryJson,
   formatProfileInventoryToolErrorJson,
-  formatTemporaryInventoryHuman,
   formatTemporaryInventoryJson,
   formatTemporaryInventoryToolErrorJson,
+  hostInventoryDocument,
+  infoDocument,
+  inventoryIndexDocument,
   describeStateReadFailure,
   formatMissingProfileError,
   formatProjectTargetError,
   applyNewcomerSubstitutions,
   formatProjectTargetErrorForHuman,
   formatTemporaryInstallationBlockedJson,
-  formatTemporaryInstallationHuman,
   formatTemporaryInstallationJson,
   formatTemporaryInstallationToolErrorJson,
-  formatUninstallResult,
-  formatValidationResult,
   lifecycleExitCode,
+  machineInventoryIndexDocument,
+  profileInventoryDocument,
+  projectInventoryDocument,
   temporaryBlockedMessagesDocument,
+  temporaryInstallationDocument,
+  temporaryInventoryDocument,
+  uninstallResultDocument,
   type LifecycleCommand,
-} from "./presentation.js";
-import {
+  validationResultDocument,
+} from "./presentation.js";import {
   renderPresentationDocument,
   type PresentationDocument,
+  type PresentationRenderOptions,
 } from "./presentation-document.js";
 import { commandPart, flatInlineText, type CommandArg, type InlineContent } from "./inline-content.js";
 
@@ -162,13 +162,21 @@ function rootWordmark(context: TerminalPresentationContext): readonly string[] {
   return context.interactive ? agentProfileKitWordmark(context.width) : [];
 }
 
-/** Human output rendered from a presentation document (DEC-018). */
+/**
+ * Human output rendered from a presentation document (DEC-001): the one
+ * boundary render. The renderer joins node lines without a trailing newline,
+ * so the document receives exactly one terminating newline and a view ending
+ * in a blank line is never doubled. Render environment is needed by views whose
+ * location display scope resolves against the CLI's home.
+ */
 function writeHumanDocument(
   stream: WriteStream,
   document: PresentationDocument,
   context: TerminalPresentationContext,
+  environment: PresentationRenderOptions = {},
 ): void {
-  stream.write(`${renderPresentationDocument(document, context)}\n`);
+  const rendered = renderPresentationDocument(document, context, environment);
+  stream.write(rendered.endsWith("\n") ? rendered : `${rendered}\n`);
 }
 
 /**
@@ -908,8 +916,7 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("validate", () => parseNoArguments("validate", arguments_.slice(1)));
     if (parsed === undefined) return;
     const result = await validateApplication(home);
-    // Validation already carries node categories; skip the regex categoriser.
-    process.stdout.write(formatValidationResult(result, { context: stdoutPresentationContext }));
+    writeHumanDocument(process.stdout, validationResultDocument(result), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "info") {
@@ -920,10 +927,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatInfoJson(info));
       } else {
-        // Machine details already carry node categories; skip the regex categoriser.
-        process.stdout.write(
-          formatInfoHuman(info, { context: stdoutPresentationContext }, home),
-        );
+        writeHumanDocument(process.stdout, infoDocument(info, home), stdoutPresentationContext);
       }
     } catch (error) {
       if (parsed.json) {
@@ -945,8 +949,7 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("list", () => parseListArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     if (parsed.kind === "index") {
-      // Inventory already carries node categories; skip the regex categoriser.
-      process.stdout.write(formatInventoryIndex({ context: stdoutPresentationContext }));
+      writeHumanDocument(process.stdout, inventoryIndexDocument(), stdoutPresentationContext);
       return;
     }
     switch (parsed.topic) {
@@ -956,13 +959,10 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProjectInventoryJson(projects));
           } else {
-            // Project inventory already carries node categories; skip the regex categoriser.
-            process.stdout.write(
-              formatProjectInventoryHuman(
-                projects,
-                { context: stdoutPresentationContext },
-                home,
-              ),
+            writeHumanDocument(
+              process.stdout,
+              projectInventoryDocument(projects, home),
+              stdoutPresentationContext,
             );
           }
         } catch (error) {
@@ -984,9 +984,10 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProfileInventoryJson(profiles));
           } else {
-            // Profile inventory already carries node categories; skip the regex categoriser.
-            process.stdout.write(
-              formatProfileInventoryHuman(profiles, { context: stdoutPresentationContext }),
+            writeHumanDocument(
+              process.stdout,
+              profileInventoryDocument(profiles),
+              stdoutPresentationContext,
             );
           }
         } catch (error) {
@@ -1008,10 +1009,7 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatHostInventoryJson(hosts));
           } else {
-            // Host inventory already carries node categories; skip the regex categoriser.
-            process.stdout.write(
-              formatHostInventoryHuman(hosts, { context: stdoutPresentationContext }),
-            );
+            writeHumanDocument(process.stdout, hostInventoryDocument(hosts), stdoutPresentationContext);
           }
         }
         return;
@@ -1123,9 +1121,10 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "uninstall") {
     const parsed = parseOrExit("uninstall", () => parseNoArguments("uninstall", arguments_.slice(1)));
     if (parsed === undefined) return;
-    // Teardown already carries node categories; skip the regex categoriser.
-    process.stdout.write(
-      formatUninstallResult(await uninstallApplication(home), { context: stdoutPresentationContext }),
+    writeHumanDocument(
+      process.stdout,
+      uninstallResultDocument(await uninstallApplication(home)),
+      stdoutPresentationContext,
     );
     return;
   }
@@ -1172,9 +1171,10 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatTemporaryInstallationJson("install-temp", receipt));
         } else {
-          // Receipts already carry node categories; skip the regex categoriser.
-          process.stdout.write(
-            formatTemporaryInstallationHuman("install-temp", receipt, { context }),
+          writeHumanDocument(
+            process.stdout,
+            temporaryInstallationDocument("install-temp", receipt),
+            context,
           );
         }
         process.exitCode = 0;
@@ -1257,9 +1257,10 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatTemporaryInstallationJson("remove-temp", receipt));
         } else {
-          // Receipts already carry node categories; skip the regex categoriser.
-          process.stdout.write(
-            formatTemporaryInstallationHuman("remove-temp", receipt, { context }),
+          writeHumanDocument(
+            process.stdout,
+            temporaryInstallationDocument("remove-temp", receipt),
+            context,
           );
         }
         process.exitCode = 0;
@@ -1303,9 +1304,10 @@ async function main(): Promise<void> {
       const parsed = parseOrExit("machine list", () => parseMachineListArguments(rest.slice(1)));
       if (parsed === undefined) return;
       if (parsed.kind === "index") {
-        // Inventory already carries node categories; skip the regex categoriser.
-        process.stdout.write(
-          formatMachineInventoryIndex({ context: stdoutPresentationContext }),
+        writeHumanDocument(
+          process.stdout,
+          machineInventoryIndexDocument(),
+          stdoutPresentationContext,
         );
         return;
       }
@@ -1314,13 +1316,10 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatTemporaryInventoryJson(installations));
         } else {
-          // Temporary inventory already carries node categories; skip the regex categoriser.
-          process.stdout.write(
-            formatTemporaryInventoryHuman(
-              installations,
-              { context: stdoutPresentationContext },
-              home,
-            ),
+          writeHumanDocument(
+            process.stdout,
+            temporaryInventoryDocument(installations, home),
+            stdoutPresentationContext,
           );
         }
       } catch (error) {
