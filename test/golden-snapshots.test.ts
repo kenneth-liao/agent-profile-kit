@@ -872,6 +872,18 @@ describe("rendered atomicity mutation evidence from real captures", () => {
     ).toThrow(/fragmented/);
   });
 
+  test("INT-1 original committed root-help syntax fold is rejected", () => {
+    const key = "golden snapshots of every human view root help: root-help 1";
+    const baseline = baselineStream(snapshotBodies.get(key)!, "stdout");
+    const syntax = "status [project | --all]";
+    expect(baseline).toContain(syntax);
+    checkAtomicRendering(baseline, baseline, goldenCorpus());
+    expect(() => checkAtomicRendering(
+      baseline.replace(syntax, "status\n    [project | --all]"), baseline, goldenCorpus(),
+    )).toThrow(/fragmented/);
+    expect(collectSpellings(baseline, goldenCorpus()).some((value) => value.startsWith(syntax))).toBe(true);
+  });
+
   test("committed baselines reject fragmenting their complete spellings", () => {
     const corpus = goldenCorpus();
 

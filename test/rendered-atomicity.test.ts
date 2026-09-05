@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { renderPresentationDocument, commandPart } from "../cli/presentation-document.js";
+import { renderPresentationDocument, commandPart, pathPart } from "../cli/presentation-document.js";
 import { checkAtomicRendering, collectSpellings } from "./support/rendered-atomicity.js";
 
 describe("per-capture oracle: baseline shapes are accepted", () => {
@@ -273,4 +273,45 @@ describe("baseline-intact spelling oracle", () => {
     expect(spellings).toContain("~/projects/demo");
     expect(spellings).toContain("apkit guide profile");
   });
+});
+
+describe("INT-1 exact follow-up regressions", () => {
+  test.each([
+    ["apkit status . --verbose", "apkit status\n    . --verbose"],
+    ['apkit apply "~/projects/my demo" --verbose', 'apkit apply\n    "~/projects/my demo" --verbose'],
+    ["Project: ~/projects/my demo", "Project: ~/projects/my\n    demo"],
+  ])("rejects the reported fold in %s", (baseline, actual) => {
+    expect(() => checkAtomicRendering(actual, baseline)).toThrow(/fragmented/);
+    expect(collectSpellings(baseline)).toContain(baseline.replace("Project: ", ""));
+  });
+});
+
+
+test("INT-1 renderer-produced command and spaced path spellings reject every fold boundary", () => {
+  const context = { color: false, interactive: false, width: 80 } as const;
+  const commands = [
+    ["status", ".", "--verbose"],
+    ["status", "..", "--verbose"],
+    ["apply", '"~/projects/my demo"', "--verbose"],
+    ["apply", '"~/projects/my  demo"', "--verbose"],
+    ["apply", "'~/projects/my demo'", "--verbose"],
+  ];
+  const rendered = commands.map((args) => renderPresentationDocument([
+    { kind: "sentence", parts: [commandPart("apkit", args.map((value) => ({ kind: "text", value })))] },
+  ], context));
+  rendered.push(renderPresentationDocument([
+    { kind: "sentence", parts: ["Project: ", pathPart("/home/test/projects/my demo", "fleet")] },
+  ], context, { home: "/home/test", cwd: "/tmp" }));
+
+  for (const baseline of rendered) {
+    const spelling = baseline.replace("Project: ", "");
+    expect(collectSpellings(baseline)).toContain(spelling);
+    checkAtomicRendering(baseline, baseline);
+    for (let offset = 1; offset < spelling.length; offset += 1) {
+      if (spelling[offset - 1] === " ") continue;
+      const folded = spelling.slice(0, offset) + "\n    " +
+        spelling.slice(offset + (spelling[offset] === " " ? 1 : 0));
+      expect(() => checkAtomicRendering(baseline.replace(spelling, folded), baseline)).toThrow(/fragmented/);
+    }
+  }
 });

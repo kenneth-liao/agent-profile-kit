@@ -28,7 +28,12 @@ syntax-only:
 - Expected atom spellings are extracted — by filesystem/command syntax, never
   by English presentation categories — only from that capture's own committed
   golden baseline body, never from a global corpus and never from the actual
-  capture.
+  capture. Root-help syntax comes from the canonical command table; quoted
+  values preserve either quote form and internal spaces. Unquoted spaced paths
+  are ambiguous in rendered text, so the gate conservatively guards each
+  intact path prefix within a single-spaced field (ending at punctuation,
+  quotes, flags or a column gap). This can also guard adjacent prose; an
+  unchanged baseline wrap still has its position-aligned allowance.
 - Every occurrence of every recognized spelling is located by source
   line/column in the actual output. A cross-line occurrence is a defect unless
   it is position-aligned with an identical legal shape in the baseline: the

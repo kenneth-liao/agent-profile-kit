@@ -91,6 +91,7 @@ const LEADING_NOISE = new Set(["`", '"', "'", "("]);
 const TRAILING_NOISE = new Set(["`", '"', "'", ".", ",", ";", ":", ")"]);
 
 function trimTokenEdges(token: string, keepQuotes = false): string {
+  if (token === "." || token === "..") return token;
   let next = token;
   const leading = keepQuotes
     ? new Set([...LEADING_NOISE].filter((edge) => edge !== "'" && edge !== '"'))
@@ -104,14 +105,14 @@ function trimTokenEdges(token: string, keepQuotes = false): string {
 }
 
 function isPathToken(token: string): boolean {
-  return token.includes("/") && token.length > 1;
+  return token === "." || token === ".." || (token.includes("/") && token.length > 1);
 }
 
 function isPlainGrammarWord(token: string): boolean {
   return COMMAND_WORD.has(token) || COMMAND_WORD_RE.test(token) || isPathToken(token);
 }
 
-/** A single-quoted span is an opaque carried value: always grammar-valid. */
+/** A quoted span is an opaque carried value: always grammar-valid. */
 function isGrammarWord(tokens: readonly string[], quoted: ReadonlySet<number>, index: number): boolean {
   return quoted.has(index) || isPlainGrammarWord(tokens[index]!);
 }
@@ -184,16 +185,31 @@ function commandSpelling(
 
 /**
  * Spellings recognized from intact content of the baseline body. Tokens glued
- * into a single-quoted span (shell-quoted paths with spaces) are merged back
- * into one token before edge trimming, so the quoted form — the renderer's
- * atomic form — is what is recognized and guarded.
+ * into a quoted span (shell-quoted paths with spaces) are merged back
+ * into one token without changing internal whitespace. The quoted form is
+ * what is recognized and guarded.
  */
 function extractSpellings(lines: readonly string[]): readonly string[] {
   const found = new Set<string>();
   for (const line of lines) {
-    const rawTokens = mergeQuotedSpans(line.split(/\s+/).filter((token) => token.length > 0));
+    // Root help authors command.syntax directly, without an apkit prefix.
+    // Use that canonical syntax, only when its complete bytes occur here.
+    for (const command of COMMANDS) {
+      if (line.includes(command.syntax)) found.add(command.syntax);
+    }
+    // Unquoted paths may contain spaces. Rendered bytes cannot distinguish a
+    // path's last word from adjacent prose, so guard each baseline-intact
+    // prefix within the same single-spaced field. Punctuation, column gaps,
+    // quotes and flags terminate the field; no English labels are consulted.
+    for (const match of line.matchAll(/(?:^|[\s(])((?:~?\/|\.{1,2}\/|\.[^\s/]+\/|[^\s'"():;,]+\/)[^\s'"(),;:]+(?: [^\s'"(),;:-][^\s'"(),;:]*)*)/g)) {
+      const words = match[1]!.split(" ");
+      for (let count = 1; count <= words.length; count += 1) {
+        found.add(trimTokenEdges(words.slice(0, count).join(" ")));
+      }
+    }
+    const rawTokens = line.match(/(?:'[^']*'|"(?:\\.|[^"\\])*"|[^\s'"])+/g) ?? [];
     const quoted = new Set<number>(
-      rawTokens.flatMap((token, index) => (token.startsWith("'") ? [index] : [])),
+      rawTokens.flatMap((token, index) => (/^['"]/.test(token) ? [index] : [])),
     );
     for (const [index, token] of rawTokens.entries()) {
       // Quoted spans keep their quotes: the quoted form is the renderer's
@@ -211,24 +227,6 @@ function extractSpellings(lines: readonly string[]): readonly string[] {
     }
   }
   return [...found];
-}
-
-/** Merge tokens glued into one single-quoted span back into a single token. */
-function mergeQuotedSpans(tokens: readonly string[]): readonly string[] {
-  const merged: string[] = [];
-  let open = false;
-  for (const token of tokens) {
-    if (open) {
-      merged[merged.length - 1] = `${merged.at(-1)!} ${token}`;
-      if (token.endsWith("'")) open = false;
-      continue;
-    }
-    if (token.startsWith("'") && !token.endsWith("'") && token.length > 1) {
-      open = true;
-    }
-    merged.push(token);
-  }
-  return merged;
 }
 
 /** The baseline-intact spelling oracle, exposed for mutation-test evidence. */
