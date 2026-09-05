@@ -66,7 +66,6 @@ import {
   formatUninstallResult,
   formatValidationResult,
   lifecycleExitCode,
-  responsiveHumanText,
   temporaryBlockedMessagesDocument,
   type LifecycleCommand,
 } from "./presentation.js";
@@ -1231,7 +1230,7 @@ async function main(): Promise<void> {
             writeHumanDocument(
               process.stderr,
               diagnosticDocument({
-                happened: formatError(error),
+                ...carriedErrorParts(formatError(error)),
                 whatToType: [
                   `removal is required; run ${COMMAND_NAME} machine remove-temp ${error.temporaryInstallationId}`,
                 ],

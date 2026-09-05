@@ -1,4 +1,6 @@
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+import { hostsEqual } from "../installer/bind-project.js";
+import type { SupportedHost } from "../adapters/host-catalog.js";
 import { COMMAND_NAME } from "../installer/version.js";
 import {
   capitalize,
@@ -84,11 +86,11 @@ export type BindReceiptInput = {
   readonly canonicalProject: string;
   readonly project: string;
   readonly profile: string;
-  readonly hosts: readonly string[];
+  readonly hosts: readonly SupportedHost[];
 } & (BindReceiptInputBase | {
   readonly outcome: "replaced";
   readonly previousProfile: string;
-  readonly previousHosts: readonly string[];
+  readonly previousHosts: readonly SupportedHost[];
 });
 
 type BindReceiptInputBase = {
@@ -120,7 +122,7 @@ export function bindReceiptDocument(
         category: "path",
       });
     }
-    if (!hostsUnchanged(previousHosts, input.hosts)) {
+    if (!hostsEqual(previousHosts, input.hosts)) {
       nodes.push({
         kind: "key-value",
         key: "  Hosts",
@@ -144,14 +146,6 @@ export function bindReceiptDocument(
   }
   nodes.push(nextCommandNode("status"));
   return receipt(nodes, [project]);
-}
-
-function hostsUnchanged(
-  previous: readonly string[],
-  next: readonly string[],
-): boolean {
-  return previous.length === next.length &&
-    next.every((host, index) => previous[index] === host);
 }
 
 export type UnbindReceiptInput =

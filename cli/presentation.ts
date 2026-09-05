@@ -3294,26 +3294,6 @@ function responsiveLifecycleOutput(
   return lines.join("\n");
 }
 
-/**
- * Shared responsive wrapping for human surfaces that carry no lifecycle
- * Context fences: inventory, info, validation, teardown, authoring, and error
- * views receive the same trusted width policy as lifecycle reports. Structural
- * copyable values (paths, identities, command lines) stay whole on dedicated
- * lines while prose wraps to the selected measure.
- */
-export function responsiveHumanText(
-  text: string,
-  context: TerminalPresentationContext | undefined,
-  copyableValues: readonly string[] = [],
-): string {
-  if (context === undefined) return text;
-  const copyableValueProtector = createCopyableValueProtector(copyableValues);
-  return text
-    .split("\n")
-    .flatMap((line) => wrappedLifecycleLine(line, context.width, copyableValueProtector))
-    .join("\n");
-}
-
 interface LifecycleHumanOptions {
   readonly all?: boolean;
   readonly blockersOnly?: boolean;
