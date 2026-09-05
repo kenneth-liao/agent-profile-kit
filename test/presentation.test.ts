@@ -2048,6 +2048,22 @@ function expectUserFacingVocabulary(view: string): void {
   for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(view).not.toMatch(term);
 }
 
+/** The tracked-path group lines of an ownership-conflict Blocker: the prose
+ * members following its "Affected paths" node, in document order. */
+function trackedPathLines(document: PresentationDocument): string[] {
+  const nodes = flattenPresentationNodes(document);
+  const start = indexWhere(nodes, (node) =>
+    node.kind === "prose" && /^\s*Affected paths \(\d+\):$/.test(nodeText(node)));
+  if (start < 0) return [];
+  const texts: string[] = [];
+  for (let index = start + 1; index < nodes.length; index += 1) {
+    const node = nodes[index]!;
+    if (node.kind !== "prose" || !nodeText(node).startsWith(`${" ".repeat(6)}- `)) break;
+    texts.push(nodeText(node));
+  }
+  return texts;
+}
+
 /** The state-explanation glosses: the list items following the
  * "State explanations:" heading, in document order. */
 function explanationItems(document: PresentationDocument): string[] {
@@ -2229,32 +2245,48 @@ describe("formatLifecycleReport concise terminology", () => {
       blockers: [normalizeBlocker(outputOwnershipConflictBlocker({ paths, project }))],
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = lifecycleStatusDocument(report);
+    const conciseNodes = flattenPresentationNodes(concise);
 
-    expect(concise.match(/Blocker:/g)).toHaveLength(1);
-    expect(concise).toContain("Blocker: These generated paths are tracked by Git");
-    expect(concise).toContain("Requirement:");
-    expect(concise).toContain("Remedy:");
-    expect(concise).toContain("keep repository ownership");
-    expect(concise).toContain("intentionally remove");
-    expect(concise).toContain("Affected paths (15):");
-    expect(concise).toContain("- .agent-profile-kit/codex/context.md");
-    expect(concise).toContain("- .agents/skills/ (12 paths)");
-    expect(concise).toContain("- .claude/rules/agent-profile-kit.md");
-    expect(concise).toContain("- .codex/hooks.json");
-    expect(concise).not.toContain("/project-a/.agents/skills/s08");
-    expect(concise).not.toContain("rm -r --cached");
+    // One explained Blocker: the problem, one Requirement, one Remedy carrying
+    // both alternatives, the grouped Affected paths, and no untracking command.
+    expect(conciseNodes.filter((node) =>
+      node.kind === "prose" && node.category === "error" &&
+      nodeText(node).startsWith("  Blocker: ")
+    )).toHaveLength(1);
+    expect(conciseNodes.some((node) =>
+      node.kind === "prose" && nodeText(node).startsWith("    Requirement: ")
+    )).toBe(true);
+    const remedy = conciseNodes.find((node) =>
+      node.kind === "prose" && nodeText(node).startsWith("    Remedy: "));
+    expect(remedy).toBeDefined();
+    expect(nodeText(remedy!)).toContain("keep repository ownership");
+    expect(nodeText(remedy!)).toContain("intentionally remove");
+    expect(trackedPathLines(concise)).toEqual([
+      "      - .agent-profile-kit/codex/context.md",
+      "      - .agents/skills/ (12 paths)",
+      "      - .claude/rules/agent-profile-kit.md",
+      "      - .codex/hooks.json",
+    ]);
+    expect(presentationTexts(concise).some((text) =>
+      text.includes("/project-a/.agents/skills/s08")
+    )).toBe(false);
+    expect(commandTexts(concise).some((text) => text.includes("rm -r --cached"))).toBe(false);
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const verboseTexts = presentationTexts(verbose);
 
-    expect(verbose).toContain("/project-a/.agents/skills/s11");
-    expect(verbose).toContain("/project-a/.agents/skills/s12");
-    expect(verbose).toContain("/project-a/.codex/hooks.json");
-    expect(verbose.match(/Requirement:/g)).toHaveLength(1);
-    expect(verbose).not.toContain("more paths");
-    expect(verbose).not.toContain("rm -r --cached");
-    expect(verbose).toContain(
-      "Recovery command: run apkit status --blockers-only --verbose to see the exact untracking command.",
+    // Every proven path is an Affected path node; one Requirement; the exact
+    // untracking command stays out of the ordinary verbose view.
+    expect(verboseTexts).toContain("  Affected path: /project-a/.agents/skills/s11");
+    expect(verboseTexts).toContain("  Affected path: /project-a/.agents/skills/s12");
+    expect(verboseTexts).toContain("  Affected path: /project-a/.codex/hooks.json");
+    expect(verboseTexts.filter((text) => text.startsWith("  Requirement: "))).toHaveLength(1);
+    expect(verboseTexts.some((text) => text.includes("more paths"))).toBe(false);
+    expect(verboseTexts.some((text) => text.includes("rm -r --cached"))).toBe(false);
+    expect(commandTexts(verbose).some((text) => text.includes("rm -r --cached"))).toBe(false);
+    expect(verboseTexts).toContain(
+      "  Recovery command: run apkit status --blockers-only --verbose to see the exact untracking command.",
     );
   });
 
@@ -2277,11 +2309,11 @@ describe("formatLifecycleReport concise terminology", () => {
       blockers: [normalizeBlocker(outputOwnershipConflictBlocker({ paths, project }))],
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = lifecycleStatusDocument(report);
 
-    expect(concise).toContain("Affected paths (11):");
-    expect(concise).toContain("- .agents/skills/ (11 paths)");
-    expect(concise).not.toContain("more path");
+    expect(presentationTexts(concise)).toContain("    Affected paths (11):");
+    expect(trackedPathLines(concise)).toEqual(["      - .agents/skills/ (11 paths)"]);
+    expect(presentationTexts(concise).some((text) => text.includes("more path"))).toBe(false);
   });
 
   test("keeps project-scoped ownership conflicts distinct from global blockers", () => {
@@ -2310,14 +2342,20 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = lifecycleStatusDocument(report);
+    const nodes = flattenPresentationNodes(concise);
 
-    expect(concise).toContain("Global blockers:");
-    expect(concise).toContain("Blocker: installation record is unreadable");
-    expect(concise.indexOf("Project: /project-a")).toBeGreaterThan(-1);
-    expect(concise.indexOf("Project: /project-a")).toBeLessThan(
-      concise.indexOf("Global blockers:"),
-    );
+    expect(headingsIn(concise)).toContain("Global blockers:");
+    expect(nodes.some((node) =>
+      node.kind === "prose" && node.category === "error" &&
+      nodeText(node).includes("Blocker: installation record is unreadable")
+    )).toBe(true);
+    const projectAt = indexWhere(nodes, (node) =>
+      node.kind === "key-value" && node.key === "Project");
+    const globalAt = indexWhere(nodes, (node) =>
+      node.kind === "heading" && nodeText(node) === "Global blockers:");
+    expect(projectAt).toBeGreaterThan(-1);
+    expect(projectAt).toBeLessThan(globalAt);
   });
 
   const ownershipReport = (
@@ -2354,14 +2392,16 @@ describe("formatLifecycleReport concise terminology", () => {
       "AGENTS.md",
       "README.md",
     ];
-    const concise = formatLifecycleReport("status", ownershipReport(paths));
+    const concise = lifecycleStatusDocument(ownershipReport(paths));
 
-    expect(concise).toContain("Affected paths (6):");
-    expect(concise).toContain("- ./ (2 paths)");
-    expect(concise).toContain("- .agents/skills/ (2 paths)");
-    expect(concise).toContain("- .agents/skills/b/deep.md");
-    expect(concise).toContain("- .codex/hooks.json");
-    expect(concise).not.toContain("(1 path");
+    expect(presentationTexts(concise)).toContain("    Affected paths (6):");
+    expect(trackedPathLines(concise)).toEqual([
+      "      - ./ (2 paths)",
+      "      - .agents/skills/ (2 paths)",
+      "      - .agents/skills/b/deep.md",
+      "      - .codex/hooks.json",
+    ]);
+    expect(presentationTexts(concise).some((text) => text.includes("(1 path"))).toBe(false);
   });
 
   test("assigns paths under overlapping prefixes to exactly one group each (#353)", () => {
@@ -2370,12 +2410,12 @@ describe("formatLifecycleReport concise terminology", () => {
       ".a/b/d/e.txt",
       ".a/b/f.txt",
     ];
-    const concise = formatLifecycleReport("status", ownershipReport(paths));
+    const concise = lifecycleStatusDocument(ownershipReport(paths));
 
-    expect(concise).toContain("Affected paths (3):");
-    expect(concise).toContain("- .a/b/ (2 paths)");
-    expect(concise).toContain("- .a/b/d/e.txt");
-    expect(concise.match(/- \.a\//g)).toHaveLength(2);
+    expect(trackedPathLines(concise)).toEqual([
+      "      - .a/b/ (2 paths)",
+      "      - .a/b/d/e.txt",
+    ]);
   });
 
   test("renders concise tracked-path groups deterministically across repeated calls (#353)", () => {
@@ -2385,12 +2425,12 @@ describe("formatLifecycleReport concise terminology", () => {
       ".a/sub/three.md",
       "root.md",
     ];
-    const first = formatLifecycleReport("status", ownershipReport(paths));
-    const second = formatLifecycleReport("status", ownershipReport(paths));
+    const first = lifecycleStatusDocument(ownershipReport(paths));
+    const second = lifecycleStatusDocument(ownershipReport(paths));
 
-    expect(second).toBe(first);
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
     // Groups sort by canonical parent-directory key: ".", ".a", ".a/sub", ".b".
-    expect(first.split("\n").filter((line) => /^      - /.test(line))).toEqual([
+    expect(trackedPathLines(first)).toEqual([
       "      - root.md",
       "      - .a/one.md",
       "      - .a/sub/three.md",
@@ -2405,47 +2445,54 @@ describe("formatLifecycleReport concise terminology", () => {
       "-leading-dash.md",
       "weird'name.md",
     ];
-    const verbose = formatLifecycleReport(
-      "status",
-      ownershipReport(paths),
-      { blockersOnly: true, verbose: true },
-    );
+    const focusedVerbose = lifecycleStatusDocument(ownershipReport(paths), {
+      blockersOnly: true,
+      verbose: true,
+    });
 
-    const commandLines = verbose.split("\n").filter((line) => line.includes("rm -r --cached"));
-    expect(commandLines).toHaveLength(1);
-    const commandLine = commandLines[0] ?? "";
-    expect(commandLine.trim()).toBe(untrackCommandFor("/project-a", paths));
-    expect(commandLine).toContain("git -C '/project-a' rm -r --cached --");
-    expect(commandLine).toContain("-- '-leading-dash.md'");
-    expect(commandLine).toContain("'weird'\\''name.md'");
+    const gitCommands = commandTexts(focusedVerbose).filter((text) =>
+      text.includes("rm -r --cached"));
+    expect(gitCommands).toHaveLength(1);
+    // The command node carries the exact invocation; every proven path appears
+    // once as its own quoted argument.
+    expect(gitCommands[0]).toBe(untrackCommandFor("/project-a", paths));
+    expect(gitCommands[0]).toContain("git -C '/project-a' rm -r --cached --");
+    expect(gitCommands[0]).toContain("-- '-leading-dash.md'");
+    expect(gitCommands[0]).toContain("'weird'\\''name.md'");
   });
 
   test("focused verbose recovery copy preserves working files and keeps the binding alternative (#353)", () => {
-    const verbose = formatLifecycleReport(
-      "status",
+    const focusedVerbose = lifecycleStatusDocument(
       ownershipReport([".codex/hooks.json"]),
       { blockersOnly: true, verbose: true },
     );
+    const texts = presentationTexts(focusedVerbose);
 
-    expect(verbose).toContain(
+    expect(commandTexts(focusedVerbose)).toContain(
       "git -C '/project-a' rm -r --cached -- '.codex/hooks.json'",
     );
-    expect(verbose).toContain("working files are preserved");
-    expect(verbose).toContain("Git ownership");
-    expect(verbose).toContain("change or remove the configured Project.");
+    expect(texts).toContain(
+      "  Recovery: run the command below yourself; Agent Profile Kit never executes it. " +
+        "It stages removal of these paths from Git ownership (the Git index) while the working files are preserved:",
+    );
+    expect(texts).toContain("  Alternatively, change or remove the configured Project.");
   });
 
   test("ordinary concise, focused concise, and ordinary verbose point to focused diagnostics without the command (#353)", () => {
     const report = ownershipReport([".codex/hooks.json", ".agents/skills/s01.md"]);
-    const concise = formatLifecycleReport("status", report);
-    const focusedConcise = formatLifecycleReport("status", report, { blockersOnly: true });
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    const concise = lifecycleStatusDocument(report);
+    const focusedConcise = lifecycleStatusDocument(report, { blockersOnly: true });
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
 
-    for (const output of [concise, focusedConcise, verbose]) {
-      expect(output).toContain(
-        "Recovery command: run apkit status --blockers-only --verbose to see the exact untracking command.",
-      );
-      expect(output).not.toContain("rm -r --cached");
+    for (const document of [concise, focusedConcise, verbose]) {
+      const texts = presentationTexts(document);
+      expect(texts.some((text) =>
+        text.endsWith(
+          "Recovery command: run apkit status --blockers-only --verbose to see the exact untracking command.",
+        )
+      )).toBe(true);
+      expect(texts.some((text) => text.includes("rm -r --cached"))).toBe(false);
+      expect(commandTexts(document).some((text) => text.includes("rm -r --cached"))).toBe(false);
     }
   });
 
