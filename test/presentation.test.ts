@@ -3730,21 +3730,29 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: reportOutputs(receipt),
     });
 
-    const status = formatLifecycleReport("status", receipt);
-    expect(status).toContain("Git exclusions: 1 entry to add.");
-    expect(status).toContain("Details: apkit status --verbose");
-    expect(status).not.toContain("/repo/.git/info/exclude");
-    expect(status).not.toContain("/.agent-profile-kit/codex/context.md");
+    const status = lifecycleStatusDocument(receipt);
+    const statusTexts = presentationTexts(status);
+    expect(statusTexts).toContain("Git exclusions: 1 entry to add.");
+    expect(keyValuesIn(status, "Details")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [{ kind: "text", value: "status" }, { kind: "text", value: "--verbose" }],
+    });
+    expect(statusTexts.some((text) =>
+      text.includes("/repo/.git/info/exclude") ||
+      text.includes("/.agent-profile-kit/codex/context.md")
+    )).toBe(false);
 
-    for (const command of ["status"] as const) {
-      const verbosePending = formatLifecycleReport(command, receipt, { verbose: true });
-      expect(verbosePending).toContain(
-        "/repo/.git/info/exclude: add /.agent-profile-kit/codex/context.md",
-      );
-      expect(verbosePending).not.toContain(
-        "/repo/.git/info/exclude: remove /.agent-profile-kit/codex/context.md",
-      );
-    }
+    const verbosePending = lifecycleStatusDocument(receipt, { verbose: true });
+    const pendingNodes = flattenPresentationNodes(verbosePending);
+    expect(pendingNodes.some((node) =>
+      node.kind === "list-item" &&
+      nodeText(node) === "/repo/.git/info/exclude: add /.agent-profile-kit/codex/context.md"
+    )).toBe(true);
+    expect(pendingNodes.some((node) =>
+      node.kind === "list-item" &&
+      nodeText(node).includes("remove /.agent-profile-kit/codex/context.md")
+    )).toBe(false);
 
     // Concise receipt carries no Git-exclusion clause for this unchanged
     // receipt; the success notice opens the view.
@@ -3972,6 +3980,22 @@ describe("formatLifecycleReport concise terminology", () => {
 });
 
 /** The next-action bullets of a lifecycle document, asserted as structure. */
+/** The complete next-action guidance of a lifecycle view: the typed "Next"
+ * key-value's command invocation when the view carries one, otherwise the
+ * list items under the "Next:" heading. */
+function nextGuidance(document: PresentationDocument): string[] {
+  const next = keyValuesIn(document, "Next")[0];
+  if (next !== undefined && next.value.kind === "command") {
+    const command = next.value;
+    return [
+      [command.program,
+        ...command.args.map((arg) => arg.kind === "text" ? arg.value : "")]
+        .filter((part) => part !== "").join(" "),
+    ];
+  }
+  return documentNextActions(document);
+}
+
 function documentNextActions(document: PresentationDocument): string[] {
   const nodes = flattenPresentationNodes(document);
   const headingIndex = nodes.findIndex((node) => node.kind === "heading" && nodeText(node) === "Next:");
@@ -3981,18 +4005,6 @@ function documentNextActions(document: PresentationDocument): string[] {
 }
 
 describe("formatLifecycleReport next-action guidance", () => {
-  function nextActionLines(reportText: string): string[] {
-    const direct = /^Next: (.+)$/m.exec(reportText);
-    if (direct !== null) return [direct[1]!];
-    const next = reportText.indexOf("Next:\n");
-    if (next < 0) return [];
-    return reportText
-      .slice(next + "Next:\n".length)
-      .split("\n\n", 1)[0]!
-      .split("\n")
-      .filter((line) => line.startsWith("- "))
-      .map((line) => line.slice(2));
-  }
 
   test("stale source status reports what changed and what to run", () => {
     const report = emptyReport({
@@ -4008,15 +4020,24 @@ describe("formatLifecycleReport next-action guidance", () => {
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
 
-    const concise = formatLifecycleReport("status", report);
-    const next = nextActionLines(concise);
+    const concise = lifecycleStatusDocument(report);
+    const next = nextGuidance(concise);
     expect(next).toHaveLength(1);
     expect(next[0]).toMatch(/apply/i);
     expect(next[0]).not.toMatch(/status|bind/i);
-    expect(concise).toContain("Updates ready for 1 project (1 file update).");
-    expect(concise).not.toContain("State: stale source");
-    expect(concise).not.toContain("a.md");
-    expect(concise).toContain("Details: apkit status --verbose");
+    expect(noticesIn(concise)[0]!.nodes[0]).toMatchObject({
+      kind: "prose",
+      parts: ["Updates ready for 1 project (1 file update)."],
+    });
+    // The drift detail stays behind the verbose route; no routine path appears.
+    expect(presentationTexts(concise).some((text) =>
+      text.startsWith("    State: stale source") || text.includes("a.md")
+    )).toBe(false);
+    expect(keyValuesIn(concise, "Details")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [{ kind: "text", value: "status" }, { kind: "text", value: "--verbose" }],
+    });
   });
 
   test("ready status recommends apply", () => {
@@ -4033,11 +4054,14 @@ describe("formatLifecycleReport next-action guidance", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const concise = formatLifecycleReport("status", report);
-    const next = nextActionLines(concise);
+    const concise = lifecycleStatusDocument(report);
+    const next = nextGuidance(concise);
     expect(next).toHaveLength(1);
     expect(next[0]).toMatch(/apkit apply/);
-    expect(concise).toContain("Updates ready for 1 project (1 file addition).");
+    expect(noticesIn(concise)[0]!.nodes[0]).toMatchObject({
+      kind: "prose",
+      parts: ["Updates ready for 1 project (1 file addition)."],
+    });
   });
 
   test("blocked status retries status without recommending apply", () => {
@@ -4054,14 +4078,19 @@ describe("formatLifecycleReport next-action guidance", () => {
       blockers: [fixtureBlocker("/project-a: hooks disabled", "/project-a")],
     });
 
-    const status = formatLifecycleReport("status", report);
-    const statusNext = nextActionLines(status);
+    const status = lifecycleStatusDocument(report);
+    const statusNext = nextGuidance(status);
     expect(statusNext).toHaveLength(1);
     expect(statusNext[0]).toMatch(/resolve/i);
     expect(statusNext[0]).toMatch(/blocker/i);
     expect(statusNext[0]).toMatch(/apkit status/);
     expect(statusNext[0]).not.toMatch(/apply/i);
-    expect(status).toContain("Cannot apply");
+    // The outcome notice leads; the aggregate Blocker count follows it.
+    expect(noticesIn(status)[0]).toEqual({
+      kind: "notice",
+      severity: "error",
+      nodes: [{ kind: "prose", parts: ["Cannot apply"] }],
+    });
   });
 
   test("blocked apply directs resolve-and-retry of apply", () => {
@@ -4099,7 +4128,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    expect(nextActionLines(formatLifecycleReport("status", current))).toEqual([]);
+    expect(nextGuidance(lifecycleStatusDocument(current))).toEqual([]);
   });
 
   test("fully current status states that fact once", () => {
@@ -4116,9 +4145,9 @@ describe("formatLifecycleReport next-action guidance", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    const status = formatLifecycleReport("status", current);
+    const status = lifecycleStatusDocument(current);
 
-    expect(status).toBe("All Projects are current (1 Project)\n");
+    expect(renderBoundary(status)).toBe("All Projects are current (1 Project)\n");
   });
 
   test("a diagnostic warning on current output is not Host attention", () => {
@@ -4136,10 +4165,12 @@ describe("formatLifecycleReport next-action guidance", () => {
       warnings: ["Codex hooks are disabled in this Project."],
     });
 
-    const status = formatLifecycleReport("status", current);
+    const status = lifecycleStatusDocument(current);
 
-    expect(status).toStartWith("All Projects are current (1 Project)\n");
-    expect(status).not.toContain("Host attention required");
+    expect(renderBoundary(status)).toMatch(/^All Projects are current \(1 Project\)/);
+    expect(presentationTexts(status).some((text) =>
+      text.includes("Host attention required")
+    )).toBe(false);
     expect(JSON.parse(formatLifecycleJson("status", current)).outcome).toBe("clean");
   });
 
@@ -4228,13 +4259,12 @@ describe("formatLifecycleReport next-action guidance", () => {
       blockers: [fixtureBlocker("/project-b: hooks disabled", "/project-b")],
     });
 
-    const status = formatLifecycleReport("status", mixedBlocked);
+    const status = lifecycleStatusDocument(mixedBlocked);
 
-    expect(status).toContain(
-      "Next:\n" +
-        "- /project-a: After all blockers are resolved, run apkit apply --all.\n" +
-        "- /project-b: Resolve the reported blocker, then run apkit status again.",
-    );
+    expect(documentNextActions(status)).toEqual([
+      "/project-a: After all blockers are resolved, run apkit apply --all.",
+      "/project-b: Resolve the reported blocker, then run apkit status again.",
+    ]);
   });
 
   test("global blockers suppress ready guidance for every project", () => {
@@ -4252,12 +4282,12 @@ describe("formatLifecycleReport next-action guidance", () => {
       blockers: [fixtureBlocker("Installation State is unreadable")],
     });
 
-    const status = formatLifecycleReport("status", globallyBlocked);
+    const status = lifecycleStatusDocument(globallyBlocked);
 
-    expect(status).toContain(
-      "Next:\n- Resolve the reported global blocker, then run apkit status again.",
-    );
-    expect(status).not.toContain("Ready to apply.");
+    expect(documentNextActions(status)).toEqual([
+      "Resolve the reported global blocker, then run apkit status again.",
+    ]);
+    expect(presentationTexts(status)).not.toContain("Ready to apply.");
   });
 
   test("mixed actionable outcomes name only projects with work", () => {
@@ -4290,10 +4320,14 @@ describe("formatLifecycleReport next-action guidance", () => {
       ],
     });
 
-    const mixedStatus = formatLifecycleReport("status", mixedActionable);
-    expect(nextActionLines(mixedStatus)).toHaveLength(1);
-    expect(nextActionLines(mixedStatus)).toEqual(["apkit apply --all"]);
-    expect(mixedStatus).toContain("Details: apkit status --all --verbose");
+    const mixedStatus = lifecycleStatusDocument(mixedActionable);
+    expect(nextGuidance(mixedStatus)).toEqual(["apkit apply --all"]);
+    // The Details key-value carries the typed fleet-verbose command.
+    expect(keyValuesIn(mixedStatus, "Details")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [{ kind: "text", value: "status" }, { kind: "text", value: "--all" }, { kind: "text", value: "--verbose" }],
+    });
   });
 
   test("--verbose does not append next-action guidance", () => {
@@ -4310,8 +4344,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
 
-    expect(nextActionLines(formatLifecycleReport("status", report, { verbose: true }))).toEqual([]);
-    expect(nextActionLines(formatLifecycleReport("status", report, { verbose: true }))).toEqual([]);
+    expect(nextGuidance(lifecycleStatusDocument(report, { verbose: true }))).toEqual([]);
   });
 
   test("exclusion-only deltas remain pending work with a direct apply action", () => {
@@ -4334,11 +4367,15 @@ describe("formatLifecycleReport next-action guidance", () => {
       }],
     });
 
-    const status = formatLifecycleReport("status", report);
-    expect(status).toContain("Updates ready for 1 project.");
-    expect(status).not.toContain("Git exclusions:");
-    expect(status).toContain("Details: apkit status --verbose");
-    expect(nextActionLines(status)).toEqual(["apkit apply"]);
+    const status = lifecycleStatusDocument(report);
+    expect(presentationTexts(status)).toContain("Updates ready for 1 project.");
+    expect(headingsIn(status)).not.toContain("Git exclusions:");
+    expect(keyValuesIn(status, "Details")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [{ kind: "text", value: "status" }, { kind: "text", value: "--verbose" }],
+    });
+    expect(nextGuidance(status)).toEqual(["apkit apply"]);
   });
 
   test("status renders a nested desired Project with current state as current", () => {
@@ -4356,9 +4393,9 @@ describe("formatLifecycleReport next-action guidance", () => {
       outputs: [],
     });
 
-    const status = formatLifecycleReport("status", report);
-    expect(status).toBe("All Projects are current (1 Project)\n");
-    expect(nextActionLines(status)).toEqual([]);
+    const status = lifecycleStatusDocument(report);
+    expect(renderBoundary(status)).toBe("All Projects are current (1 Project)\n");
+    expect(nextGuidance(status)).toEqual([]);
   });
 
   test("multiple blocked projects each receive their own guidance", () => {
@@ -4391,7 +4428,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       ],
     });
 
-    const next = nextActionLines(formatLifecycleReport("status", report));
+    const next = nextGuidance(lifecycleStatusDocument(report));
     expect(next).toEqual([
       "Resolve the reported blocker, then run apkit status again.",
     ]);
