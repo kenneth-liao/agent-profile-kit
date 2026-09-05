@@ -21,6 +21,14 @@ export {
   formatProjectTargetError,
   formatProjectTargetErrorForHuman,
 } from "./blocker-wording.js";
+import {
+  renderPresentationDocument,
+  type CommandArg,
+  type CommandNode,
+  type NoticeSeverity,
+  type PresentationDocument,
+  type PresentationNode,
+} from "./presentation-document.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,
@@ -3321,38 +3329,409 @@ function blockersOnlyVerboseReport(
   ].join("\n") + "\n";
 }
 
+function statusLifecycleCommand(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+  extraArgs: readonly CommandArg[] = [],
+): CommandNode {
+  const args: CommandArg[] = [{ kind: "text", value: command }];
+  if (isFleetLifecycle(options, report)) {
+    args.push({ kind: "text", value: "--all" });
+  } else if (options.project !== undefined) {
+    args.push({ kind: "text", value: options.project });
+  }
+  args.push(...extraArgs);
+  return { kind: "command", program: COMMAND_NAME, args };
+}
+
+function readyStatusGuidanceNodes(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): PresentationNode[] {
+  return [
+    {
+      kind: "key-value",
+      key: "Next",
+      value: statusLifecycleCommand("apply", report, options),
+      category: "command",
+    },
+    spacerNode(),
+    {
+      kind: "key-value",
+      key: "Details",
+      value: statusLifecycleCommand("status", report, options, [
+        { kind: "text", value: "--verbose" },
+      ]),
+      category: "command",
+    },
+  ];
+}
+
+function statusOutcomeNotice(report: ReconciliationReport): PresentationNode {
+  const text = outcomeLine("status", report);
+  let severity: NoticeSeverity = "success";
+  if (reportBlockers(report).length > 0) severity = "error";
+  else if (text === "Host attention required") severity = "attention";
+  return { kind: "notice", severity, nodes: [{ kind: "prose", text }] };
+}
+
+function spacerNode(): PresentationNode {
+  return { kind: "verbatim", text: "" };
+}
+
+function projectPathNode(
+  canonicalProject: string,
+  authoredProject: string,
+  scope: LocationDisplayScope,
+): PresentationNode {
+  return {
+    kind: "path",
+    canonicalPath: canonicalProject,
+    authoredPath: authoredProject,
+    scope,
+  };
+}
+
+function nextActionNodes(
+  report: ReconciliationReport,
+  surface: {
+    readonly groups: readonly ProjectGroup[];
+    readonly unscopedItems: readonly ReconciliationItem[];
+  },
+  options: LifecycleHumanOptions,
+): PresentationNode[] {
+  const lines = nextActionLines("status", report, surface, options);
+  if (lines.length === 0) return [];
+  const nodes: PresentationNode[] = [];
+  for (const line of lines) {
+    if (line === "Next:") {
+      nodes.push({ kind: "heading", text: "Next:", category: "heading" });
+      continue;
+    }
+    if (line.startsWith("- ")) {
+      nodes.push({ kind: "list-item", nodes: [{ kind: "prose", text: line.slice(2) }] });
+      continue;
+    }
+    nodes.push({ kind: "prose", text: line });
+  }
+  return nodes;
+}
+
+function conciseBlockerNodes(
+  blocker: ReconciliationBlocker,
+  displayProject: string | undefined,
+  groups: readonly ProjectGroup[],
+  indent: string,
+  untrackRecovery: UntrackRecovery,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  return verbatimBlock(conciseBlockerLines(
+    blocker,
+    displayProject,
+    groups,
+    indent,
+    untrackRecovery,
+    scope,
+  ).join("\n"));
+}
+
+function verbatimBlock(text: string): PresentationNode[] {
+  if (text.length === 0) return [];
+  return [{ kind: "verbatim", text }];
+}
+
+function warningNodes(
+  report: ReconciliationReport,
+  groups: readonly ProjectGroup[],
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const warningGroups = groupWarnings(report);
+  if (warningGroups.length === 0) return [];
+  return [
+    spacerNode(),
+    { kind: "heading", text: "Warnings:" },
+    ...warningGroups.map((group) => ({
+      kind: "verbatim" as const,
+      text: `- ${shortenProjectReferences(group.message, groups, scope)} (${plural(group.projects.length, "Project")})`,
+    })),
+  ];
+}
+
+function verboseContextNodes(
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+  untrackRecovery: UntrackRecovery,
+): PresentationNode[] {
+  const raw = verboseSections(report, { scope, untrackRecovery });
+  const contexts = reportDesired(report).map((installation) => delimitedContext(installation.context));
+  const nodes: PresentationNode[] = [];
+  let remaining = raw;
+  for (const context of contexts) {
+    const index = remaining.indexOf(context);
+    if (index < 0) continue;
+    const before = remaining.slice(0, index);
+    if (before.length > 0) nodes.push(...verbatimBlock(before.replace(/\n$/, "")));
+    nodes.push({ kind: "verbatim", text: context });
+    remaining = remaining.slice(index + context.length).replace(/^\n/, "");
+  }
+  if (remaining.length > 0) nodes.push(...verbatimBlock(remaining.replace(/\n$/, "")));
+  return nodes;
+}
+
+function conciseStatusDocument(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): PresentationDocument {
+  const scope = locationDisplayScope(options, report);
+  const grouped = groupProjects(report);
+  const groups = grouped.groups;
+  const blocked = reportBlockers(report).length > 0;
+  const emptyStatus =
+    !blocked && reportDesired(report).length === 0 && reportItems(report).length === 0;
+  const fullyCurrentStatus = fullyCurrentProjectCount(report) !== undefined;
+  const readyStatus = !blocked && !emptyStatus && !fullyCurrentStatus;
+
+  if (emptyStatus) {
+    return [
+      {
+        kind: "notice",
+        severity: "success",
+        nodes: [{ kind: "prose", text: "No Projects are configured." }],
+      },
+      {
+        kind: "verbatim",
+        text:
+          `Next: Run ${COMMAND_NAME} list projects to inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}, or ` +
+          `${COMMAND_NAME} bind <profile> --host <host> to configure one.`,
+      },
+    ];
+  }
+
+  const nodes: PresentationNode[] = [];
+  if (fullyCurrentStatus) {
+    nodes.push(statusOutcomeNotice(report));
+    nodes.push(...warningNodes(report, groups, scope));
+    return nodes;
+  }
+  if (readyStatus) {
+    const impact = readyStatusImpactLines(report, scope);
+    const [first, ...rest] = impact;
+    if (first !== undefined) {
+      nodes.push({
+        kind: "notice",
+        severity: "success",
+        nodes: [{ kind: "prose", text: first }],
+      });
+    }
+    for (const line of rest) nodes.push({ kind: "verbatim", text: line });
+    nodes.push(...verbatimBlock(operationAttentionLines(report, scope, true).join("\n")));
+    const exclusionClause = repositoryExclusionClause(report, false, true);
+    if (exclusionClause !== undefined) {
+      nodes.push(spacerNode(), { kind: "verbatim", text: exclusionClause });
+    }
+    nodes.push(...warningNodes(report, groups, scope));
+    nodes.push(...readyStatusGuidanceNodes(report, options));
+    return nodes;
+  }
+
+  nodes.push(statusOutcomeNotice(report));
+  const activeGroups = blocked
+    ? groups.filter((group) => group.blockers.length > 0)
+    : groups.filter((group) => groupNeedsAttention(group, "status"));
+  const reportOperationSummary = useOperationSummary(report, blocked);
+  if (reportOperationSummary) {
+    nodes.push(...verbatimBlock(operationSummarySections(report, scope).join("\n")));
+  } else if (activeGroups.length > 0) {
+    for (const group of activeGroups) {
+      nodes.push(
+        spacerNode(),
+        {
+          kind: "key-value",
+          key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
+          value: projectPathNode(group.canonicalProject, group.project, scope),
+        },
+      );
+      const desired = desiredInstallation(report, group.canonicalProject);
+      if (desired) {
+        nodes.push(
+          {
+            kind: "key-value",
+            key: "  Profile",
+            value: { kind: "identifier", value: desired.profile },
+          },
+          {
+            kind: "key-value",
+            key: "  Hosts",
+            value: { kind: "identifier", value: desired.hosts.join(", ") },
+          },
+        );
+      }
+      if (blocked) {
+        nodes.push(...group.blockers.flatMap((blocker) =>
+          conciseBlockerNodes(
+            blocker,
+            displayProjectPath(group.canonicalProject, group.project, scope),
+            groups,
+            "  ",
+            { kind: "pointer", command: "status" },
+            scope,
+          ),
+        ));
+        continue;
+      }
+      for (const item of group.items) {
+        if (item.kind !== "current") {
+          nodes.push({
+            kind: "key-value",
+            key: "  State",
+            value: { kind: "prose", text: itemText(item) },
+          });
+        }
+      }
+    }
+  }
+
+  const exclusionClause = repositoryExclusionClause(report, false, false);
+  if (exclusionClause !== undefined) {
+    nodes.push(spacerNode(), { kind: "verbatim", text: exclusionClause });
+  }
+  const globalBlockerLines = conciseGlobalBlockerLines(report, groups, {
+    kind: "pointer",
+    command: "status",
+  }, scope);
+  if (globalBlockerLines.length > 0) {
+    nodes.push(spacerNode(), ...verbatimBlock(globalBlockerLines.join("\n")));
+  }
+  const blockedSummary = blocked ? aggregateLine("status", report, groups) : undefined;
+  if (blockedSummary !== undefined) {
+    nodes.push(spacerNode(), {
+      kind: "notice",
+      severity: "error",
+      nodes: [{ kind: "prose", text: blockedSummary }],
+    });
+  }
+  nodes.push(...warningNodes(report, groups, scope));
+  nodes.push(spacerNode(), ...nextActionNodes(report, {
+    groups,
+    unscopedItems: grouped.unscopedItems,
+  }, options));
+  return nodes;
+}
+
+function verboseStatusDocument(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): PresentationDocument {
+  const scope = locationDisplayScope(options, report);
+  const nodes: PresentationNode[] = [statusOutcomeNotice(report)];
+  nodes.push(...verboseContextNodes(report, scope, { kind: "pointer", command: "status" }));
+  const setup = hostSetupSections("status", report, undefined, true, scope);
+  nodes.push({ kind: "heading", text: "Host Setup:" });
+  if (setup.length === 0) nodes.push({ kind: "verbatim", text: "(none)" });
+  else nodes.push(...verbatimBlock(setup.join("\n")));
+  return nodes;
+}
+
+function blockersOnlyStatusDocument(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): PresentationDocument {
+  const scope = locationDisplayScope(options, report);
+  if (reportBlockers(report).length === 0) {
+    const completeView = options.all === true
+      ? `${COMMAND_NAME} status --all`
+      : `${COMMAND_NAME} status`;
+    return [
+      { kind: "prose", text: "No blockers." },
+      {
+        kind: "key-value",
+        key: "Next",
+        value: {
+          kind: "prose",
+          text: `Run ${completeView} for the complete lifecycle view.`,
+        },
+      },
+    ];
+  }
+  const nodes: PresentationNode[] = [statusOutcomeNotice(report)];
+  if (options.verbose === true) {
+    const groups = groupProjects(report).groups;
+    const shorten = (text: string): string => shortenProjectReferences(text, groups, scope);
+    nodes.push({ kind: "heading", text: "Blockers:" });
+    for (const blocker of reportBlockers(report)) {
+      nodes.push(...verbatimBlock(verboseBlockerLines(
+        blocker,
+        groups,
+        shorten,
+        { kind: "full" },
+        scope,
+      ).join("\n")));
+    }
+    nodes.push(spacerNode(), ...verbatimBlock(blockersOnlyFooter(report)));
+    return nodes;
+  }
+  const grouped = groupProjects(report);
+  const displayedGroups = displayedBlockerGroups(report);
+  for (const group of displayedGroups) {
+    nodes.push(
+      spacerNode(),
+      {
+        kind: "key-value",
+        key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
+        value: projectPathNode(group.canonicalProject, group.project, scope),
+      },
+      ...group.blockers.flatMap((blocker) =>
+        conciseBlockerNodes(
+          blocker,
+          displayProjectPath(group.canonicalProject, group.project, scope),
+          grouped.groups,
+          "  ",
+          { kind: "pointer", command: "status" },
+          scope,
+        ),
+      ),
+    );
+  }
+  const globalBlockerLines = conciseGlobalBlockerLines(report, grouped.groups, {
+    kind: "pointer",
+    command: "status",
+  }, scope);
+  if (globalBlockerLines.length > 0) {
+    nodes.push(spacerNode(), ...verbatimBlock(globalBlockerLines.join("\n")));
+  }
+  nodes.push(spacerNode(), ...verbatimBlock(blockersOnlyFooter(report)));
+  const next = nextActionNodes(report, {
+    groups: displayedGroups,
+    unscopedItems: [],
+  }, options);
+  if (next.length > 0) nodes.push(spacerNode(), ...next);
+  return nodes;
+}
+
+export function lifecycleStatusDocument(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions = {},
+): PresentationDocument {
+  if (options.blockersOnly === true) return blockersOnlyStatusDocument(report, options);
+  if (options.verbose === true) return verboseStatusDocument(report, options);
+  return conciseStatusDocument(report, options);
+}
+
 export function formatLifecycleReport(
   command: Exclude<LifecycleCommand, "apply">,
   report: ReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
-  const scope = locationDisplayScope(options, report);
-  if (options.blockersOnly === true) {
-    if (reportBlockers(report).length === 0) {
-      const completeView = options.all === true
-        ? `${COMMAND_NAME} status --all`
-        : `${COMMAND_NAME} status`;
-      const output =
-        `No blockers.\nNext: Run ${completeView} for the complete lifecycle view.\n`;
-      return responsiveLifecycleOutput(
-        output,
-        options.context,
-        lifecycleCopyableValues([report], scope),
-      );
-    }
-    const output = options.verbose
-      ? blockersOnlyVerboseReport(report, scope)
-      : blockersOnlyConciseReport(report, options, scope);
-    return responsiveLifecycleOutput(
-      output,
-      options.context,
-      lifecycleCopyableValues([report], scope),
-    );
-  }
-  const output = options.verbose
-    ? verboseReport(command, report, scope)
-    : conciseReport(command, report, undefined, options);
-  return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report], scope));
+  void command;
+  const document = lifecycleStatusDocument(report, options);
+  const context = options.context ?? {
+    color: false,
+    interactive: false,
+    width: 10_000,
+  };
+  const rendered = renderPresentationDocument(document, context);
+  return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
 }
 
 /**

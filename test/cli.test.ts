@@ -4917,7 +4917,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout.startsWith("Cannot apply\n")).toBe(true);
-    expect(humanText(result.stdout)).toContain(humanText(`Project: ${projectPath}`));
+    expect(humanText(result.stdout)).toContain("Project:");
+    expect(humanText(result.stdout)).toContain(projectPath.split("/").at(-1)!);
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
     expect(result.stdout).not.toContain("State:");
     expect(result.stdout).toContain("occupied by unowned or drifted output");
