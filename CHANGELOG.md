@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Migrate lifecycle `status` human views onto the presentation document and renderer. JSON, exit codes, and other commands stay on the string pipeline. Snapshot diffs are wrapping, eliding, alignment, and colour extent only ([#387](https://github.com/kenneth-liao/agent-profile-kit/issues/387)).
+
 - Add a typed presentation document and pure renderer beside the existing string pipeline, with atomic path/command layout, wrapped-line styling, row stacking, and verbatim reproduction. No command output changes ([#386](https://github.com/kenneth-liao/agent-profile-kit/issues/386)).
 
 - Give location display an explicit fleet or project scope so application locations, fleet listings, and fleet-wide next actions use stable home-relative identities instead of cwd aliases ([#385](https://github.com/kenneth-liao/agent-profile-kit/issues/385)).

@@ -1071,7 +1071,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.144.0
+Engine version: 0.145.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1192,9 +1192,9 @@ All Projects are current (1 Project)
 exports[`golden snapshots of every human view status pending: status-pending 1`] = `
 "--- stdout ---
 Updates ready for 1 project (2 file additions).
-Next: apkit apply /private/tmp/apkit-golden-xxxx/projects/demo
+Next: apkit apply ~/projects/demo
 
-Details: apkit status /private/tmp/apkit-golden-xxxx/projects/demo --verbose
+Details: apkit status ~/projects/demo --verbose
 --- stderr ---
 "
 `;
@@ -1722,7 +1722,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.144.0
+Engine version: 0.145.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1732,7 +1732,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.144.0\x1B[0m
+\x1B[35mEngine version: 0.145.0\x1B[0m
 \x1B[35mWorkspace: ~/.agents/agent-profile-kit/workspace\x1B[0m
 \x1B[35mLocal Configuration: ~/.agents/agent-profile-kit/config.yaml\x1B[0m
 \x1B[35mInstallation State: ~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -1742,7 +1742,7 @@ exports[`rendering matrix for a representative subset info matrix: info-interact
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.144.0
+Engine version: 0.145.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1752,7 +1752,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.144.0\x1B[0m
+\x1B[35mEngine version: 0.145.0\x1B[0m
 \x1B[35mWorkspace: ~/.agents/agent-profile-kit/workspace\x1B[0m
 \x1B[35mLocal Configuration: ~/.agents/agent-profile-kit/config.yaml\x1B[0m
 \x1B[35mInstallation State: ~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -1887,14 +1887,14 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 "--- stdout ---
 \x1B[31mCannot apply\x1B[0m
 
-\x1B[35mProject: ~/projects/blocked\x1B[0m
+Project: \x1B[35m~/projects/blocked\x1B[0m
 \x1B[35m  Profile: example\x1B[0m
   Hosts: codex
 \x1B[31m  Blocker: These generated paths are\x1B[0m
-    tracked by Git, so Agent Profile Kit
+\x1B[31m    tracked by Git, so Agent Profile Kit\x1B[0m
 \x1B[31m    cannot write to them without\x1B[0m
-    conflicting with repository
-    ownership.
+\x1B[31m    conflicting with repository\x1B[0m
+\x1B[31m    ownership.\x1B[0m
     Requirement: Generated files must
       be exclusively managed by Agent
       Profile Kit; repository-owned
@@ -1915,18 +1915,18 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
     Affected paths (1):
       - .codex/hooks.json
     Recovery command: run
-\x1B[36m      apkit status --blockers-only --verbose\x1B[0m
+      apkit status --blockers-only --verbose
       to see the exact untracking
       command.
 
 Git exclusions: 2 entries to add.
 
-\x1B[1;34mProjects: 1 · Blockers: 1\x1B[0m
+\x1B[31mProjects: 1 · Blockers: 1\x1B[0m
 
 \x1B[1;34mNext:\x1B[0m
 - ~/projects/blocked: Resolve the
   reported blocker, then run
-\x1B[36m  apkit status\x1B[0m
+  apkit status
   again.
 --- stderr ---
 "
@@ -1968,11 +1968,11 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 "--- stdout ---
 \x1B[31mCannot apply\x1B[0m
 
-\x1B[35mProject: ~/projects/blocked\x1B[0m
+Project: \x1B[35m~/projects/blocked\x1B[0m
 \x1B[35m  Profile: example\x1B[0m
   Hosts: codex
 \x1B[31m  Blocker: These generated paths are tracked by Git, so Agent Profile Kit cannot write to them\x1B[0m
-    without conflicting with repository ownership.
+\x1B[31m    without conflicting with repository ownership.\x1B[0m
     Requirement: Generated files must be exclusively managed by Agent Profile Kit;
       repository-owned paths cannot be replaced.
     Remedy: Choose one: keep repository ownership and change the configured Project or its Host
@@ -1983,12 +1983,12 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
     Affected paths (1):
       - .codex/hooks.json
     Recovery command: run
-\x1B[36m      apkit status --blockers-only --verbose\x1B[0m
+      apkit status --blockers-only --verbose
       to see the exact untracking command.
 
 Git exclusions: 2 entries to add.
 
-\x1B[1;34mProjects: 1 · Blockers: 1\x1B[0m
+\x1B[31mProjects: 1 · Blockers: 1\x1B[0m
 
 \x1B[1;34mNext:\x1B[0m
 - ~/projects/blocked: Resolve the reported blocker, then run apkit status again.
@@ -2061,14 +2061,14 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 \x1B[32mAll Projects are current (1 Project)\x1B[0m
 \x1B[1;34mProjects:\x1B[0m
 ~/projects/demo: current
-Outputs:
+\x1B[1;34mOutputs:\x1B[0m
 ~/projects/demo/.agent-profile-kit/codex/context.md:
   unchanged
 ~/projects/demo/.codex/hooks.json:
   unchanged
-Git exclusions:
+\x1B[1;34mGit exclusions:\x1B[0m
 (none)
-Selected setup:
+\x1B[1;34mSelected setup:\x1B[0m
 ~/projects/demo: Profile example
   Hosts: codex
   Capability Contracts:
@@ -2095,14 +2095,14 @@ Keep project-specific instructions in the project repository.
 (none)
 \x1B[31mBlockers:\x1B[0m
 (none)
-Host Setup:
-Host setup:
+\x1B[1;34mHost Setup:\x1B[0m
+\x1B[1;34mHost setup:\x1B[0m
 - Review and approve the generated
   SessionStart hook when Codex asks.
   Consequence: Declining the hook
     prevents Profile Context from
     loading.
-Standing Host setup:
+\x1B[1;34mStanding Host setup:\x1B[0m
 - Trust the bound project in Codex.
   Consequence: Profile Context does
     not load until the project is
@@ -2166,12 +2166,12 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 \x1B[32mAll Projects are current (1 Project)\x1B[0m
 \x1B[1;34mProjects:\x1B[0m
 ~/projects/demo: current
-Outputs:
+\x1B[1;34mOutputs:\x1B[0m
 ~/projects/demo/.agent-profile-kit/codex/context.md: unchanged
 ~/projects/demo/.codex/hooks.json: unchanged
-Git exclusions:
+\x1B[1;34mGit exclusions:\x1B[0m
 (none)
-Selected setup:
+\x1B[1;34mSelected setup:\x1B[0m
 ~/projects/demo: Profile example
   Hosts: codex
   Capability Contracts:
@@ -2193,11 +2193,11 @@ Keep project-specific instructions in the project repository.
 (none)
 \x1B[31mBlockers:\x1B[0m
 (none)
-Host Setup:
-Host setup:
+\x1B[1;34mHost Setup:\x1B[0m
+\x1B[1;34mHost setup:\x1B[0m
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
-Standing Host setup:
+\x1B[1;34mStanding Host setup:\x1B[0m
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
 - Launch Codex from the exact bound project root: ~/projects/demo

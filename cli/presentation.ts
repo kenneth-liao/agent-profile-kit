@@ -21,6 +21,14 @@ export {
   formatProjectTargetError,
   formatProjectTargetErrorForHuman,
 } from "./blocker-wording.js";
+import {
+  renderPresentationDocument,
+  type CommandArg,
+  type CommandNode,
+  type NoticeSeverity,
+  type PresentationDocument,
+  type PresentationNode,
+} from "./presentation-document.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,
@@ -2001,7 +2009,8 @@ function nextActionScope(
   return ` (${presented.slice(0, PROJECT_SCOPE_LIMIT).join(", ")}, … ${plural(presented.length - PROJECT_SCOPE_LIMIT, "more Project")}; use --verbose to see all Projects)`;
 }
 
-function nextActionLines(
+/** One invocation-scoped next action, without its heading or bullet prefix. */
+function nextActions(
   command: LifecycleCommand,
   report: ReconciliationReport,
   surface: {
@@ -2092,6 +2101,20 @@ function nextActionLines(
     if (grouped.size === 1) return action;
     return `${action}${nextActionScope(uniqueProjects, scope)}`;
   });
+  return actions;
+}
+
+/** String-pipeline heading and bullets for the shared next-action facts. */
+function nextActionLines(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  surface: {
+    readonly groups: readonly ProjectGroup[];
+    readonly unscopedItems: readonly ReconciliationItem[];
+  },
+  options: LifecycleHumanOptions,
+): readonly string[] {
+  const actions = nextActions(command, report, surface, options);
   return actions.length === 0 ? [] : ["Next:", ...actions.map((action) => `- ${action}`)];
 }
 
@@ -2242,6 +2265,68 @@ function operationSummarySections(
     ...groups.map((group) => `  ${operationGroupLine(group, report, scope)}`),
     ...operationAttentionLines(report, scope),
   ];
+}
+
+/** The typed concise operation summary shared by the status views. */
+function operationSummaryNodes(
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const groups = groupOutputOperations(report);
+  return [
+    spacerNode(),
+    { kind: "heading", text: "Project changes:" },
+    ...groups.map((group) => ({
+      kind: "prose" as const,
+      text: `  ${operationGroupLine(group, report, scope)}`,
+    })),
+    ...operationAttentionNodes(report, scope),
+  ];
+}
+
+/** The typed Project-exceptions block shared by the status views. */
+function operationAttentionNodes(
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+  includeRemovals = false,
+): PresentationNode[] {
+  const exceptions = report.projects.filter((project) => {
+    const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
+    return project.outputs.some((output) =>
+      includeRemovals && output.kind === "removal"
+    ) ||
+      EXCEPTION_ITEM_KINDS.has(project.state.kind) ||
+      (project.state.kind === STALE_SOURCE_KIND && !hasPlannedOutput);
+  });
+  if (exceptions.length === 0) return [];
+  const nodes: PresentationNode[] = [
+    spacerNode(),
+    { kind: "heading", text: "Project exceptions:" },
+  ];
+  for (const project of exceptions) {
+    nodes.push({
+      kind: "prose",
+      text: `  ${displayProjectPath(project.canonicalProject, project.project, scope)}:`,
+    });
+    const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
+    if (
+      EXCEPTION_ITEM_KINDS.has(project.state.kind) ||
+      (project.state.kind === STALE_SOURCE_KIND && !hasPlannedOutput)
+    ) {
+      nodes.push({
+        kind: "prose",
+        text: `    State: ${itemText({ ...project.state, project: project.project })}`,
+      });
+    }
+    const attentionOutputs = project.outputs.filter((output) =>
+      includeRemovals && output.kind === "removal"
+    );
+    nodes.push(...outputPathLines(attentionOutputs).map((line) => ({
+      kind: "prose" as const,
+      text: `    ${line}`,
+    })));
+  }
+  return nodes;
 }
 
 function sameProjectScope(groups: readonly OperationPresentationGroup[]): boolean {
@@ -2614,7 +2699,7 @@ const COMMAND_NAMESPACE_TOKENS = new Set<string>(
   COMMANDS.flatMap((command) => (command.namespace === undefined ? [] : [command.namespace])),
 );
 
-interface CopyableValueProtector {
+export interface CopyableValueProtector {
   readonly pattern: RegExp | undefined;
 }
 
@@ -2681,7 +2766,7 @@ function restoreMarker(text: string, marker: string): string {
 }
 
 /** Compile one report-wide matcher for values whose spaces must survive wrapping. */
-function createCopyableValueProtector(
+export function createCopyableValueProtector(
   values: readonly string[],
 ): CopyableValueProtector {
   const uniqueValues = [...new Set(values.filter((value) => value.includes(" ")))]
@@ -2733,7 +2818,7 @@ function wrapLifecycleText(
   return lines;
 }
 
-function wrappedLifecycleLine(
+export function wrappedLifecycleLine(
   line: string,
   width: number,
   copyableValueProtector: CopyableValueProtector,
@@ -3295,30 +3380,714 @@ function focusedVerboseBlockers(
   ];
 }
 
-function blockersOnlyConciseReport(
-  report: ReconciliationReport,
-  options: LifecycleHumanOptions,
-  scope: LocationDisplayScope,
-): string {
-  const lines = [outcomeLine("status", report), ...focusedConciseBlockers(report, "status", scope)];
-  // Next actions cover exactly the displayed groups, so pending but
-  // Blocker-free Projects cannot leak into the focused view.
-  const next = nextActionLines("status", report, {
-    groups: displayedBlockerGroups(report),
-    unscopedItems: [],
-  }, options);
-  if (next.length > 0) lines.push("", ...next);
-  return `${lines.join("\n")}\n`;
+/** The typed untracking recovery for one ownership-conflict Blocker. */
+function untrackRecoveryNodes(
+  project: string,
+  paths: readonly string[],
+  indent: string,
+  recovery: UntrackRecovery,
+): PresentationNode[] {
+  if (paths.length === 0) return [];
+  if (recovery.kind === "pointer") {
+    return [
+      {
+        kind: "prose",
+        text: `${indent}  Recovery command: run apkit ${recovery.command}` +
+          " --blockers-only --verbose to see the exact untracking command.",
+      },
+    ];
+  }
+  return [
+    {
+      kind: "prose",
+      text: `${indent}  Recovery: run the command below yourself; Agent Profile Kit never executes it. ` +
+        "It stages removal of these paths from Git ownership (the Git index) while the working files are preserved:",
+    },
+    {
+      kind: "command",
+      program: "git",
+      args: [
+        { kind: "text", value: "-C" },
+        { kind: "text", value: shellSingleQuoted(project) },
+        { kind: "text", value: "rm" },
+        { kind: "text", value: "-r" },
+        { kind: "text", value: "--cached" },
+        { kind: "text", value: "--" },
+        ...paths.map((path) => ({ kind: "text" as const, value: shellSingleQuoted(path) })),
+      ],
+      category: "command",
+    },
+    { kind: "prose", text: `${indent}  Alternatively, change or remove the configured Project.` },
+  ];
 }
 
-function blockersOnlyVerboseReport(
+/** The typed concise Blocker evidence for one Blocker (legacy indent kept). */
+function conciseBlockerNodes(
+  blocker: ReconciliationBlocker,
+  displayProject: string | undefined,
+  groups: readonly ProjectGroup[],
+  indent: string,
+  untrackRecovery: UntrackRecovery,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  if (isOutputOwnershipConflict(blocker)) {
+    if (displayProject === undefined) {
+      throw new Error("Project-scoped ownership Blocker is missing its Project presentation");
+    }
+    const paths = outputOwnershipConflictPaths(blocker);
+    const wording = humanBlockerWording(blocker);
+    return [
+      { kind: "prose", text: `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups, scope)}`, category: "error" },
+      { kind: "prose", text: `${indent}  Requirement: ${wording.requirement}` },
+      { kind: "prose", text: `${indent}  Remedy: ${wording.remedy}` },
+      { kind: "prose", text: `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}` },
+      ...(paths.length === 0 ? [] as PresentationNode[] : [
+        { kind: "prose" as const, text: `${indent}  Affected paths (${paths.length}):` },
+        ...trackedPathGroupLines(paths, indent).map((line) => ({
+          kind: "prose" as const,
+          text: line,
+        })),
+      ]),
+      ...untrackRecoveryNodes(blocker.project!, paths, indent, untrackRecovery),
+    ];
+  }
+  const wording = humanBlockerWording(blocker);
+  return [
+    { kind: "prose", text: `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups, scope)}`, category: "error" },
+    { kind: "prose", text: `${indent}  Requirement: ${wording.requirement}` },
+    { kind: "prose", text: `${indent}  Remedy: ${wording.remedy}` },
+    { kind: "prose", text: `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}` },
+    ...blocker.affectedItems.map((item) => ({
+      kind: "prose" as const,
+      text: `${indent}  ${affectedItemLabel(item)}`,
+    })),
+  ];
+}
+
+/** The typed verbose Blocker evidence for one Blocker. */
+function verboseBlockerNodes(
+  blocker: ReconciliationBlocker,
+  groups: readonly ProjectGroup[],
+  shorten: (text: string) => string,
+  untrackRecovery: UntrackRecovery,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const project = blocker.scope === "project"
+    ? presentProject(requireProjectGroup(groups, blocker.project!), scope)
+    : undefined;
+  const wording = humanBlockerWording(blocker);
+  const nodes: PresentationNode[] = [
+    { kind: "list-item", nodes: [{ kind: "prose", text: shorten(wording.problem) }] },
+    { kind: "prose", text: `  Requirement: ${wording.requirement}` },
+    { kind: "prose", text: `  Remedy: ${wording.remedy}` },
+    { kind: "prose", text: `  Scope: ${blockerScopeText(blocker, project)}` },
+  ];
+  for (const item of blocker.affectedItems) {
+    const value = blocker.scope === "project" && item.kind === "path"
+      ? shorten(`${blocker.project!}/${item.value}`)
+      : item.value;
+    nodes.push({ kind: "prose", text: `  ${affectedItemLabel({ ...item, value })}` });
+  }
+  if (isOutputOwnershipConflict(blocker)) {
+    nodes.push(...untrackRecoveryNodes(
+      blocker.project!,
+      outputOwnershipConflictPaths(blocker),
+      "",
+      untrackRecovery,
+    ));
+  }
+  return nodes;
+}
+
+/** The typed global-Blocker section; empty when no global Blocker exists. */
+function globalBlockerNodes(
+  report: ReconciliationReport,
+  groups: readonly ProjectGroup[],
+  untrackRecovery: UntrackRecovery,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
+  if (globalBlockers.length === 0) return [];
+  return [
+    { kind: "heading", text: "Global blockers:", category: "error" },
+    ...globalBlockers.flatMap((blocker) =>
+      conciseBlockerNodes(blocker, undefined, groups, "  ", untrackRecovery, scope)
+    ),
+  ];
+}
+
+/** The displayed-Blocker footer as one typed summary line. */
+function blockersOnlyFooterNode(report: ReconciliationReport): PresentationNode {
+  return { kind: "prose", text: blockersOnlyFooter(report), category: "error" };
+}
+
+/** The presentation group of an explicitly selected Project, normalized once. */
+function selectedProjectGroup(
+  report: ReconciliationReport,
+  target: string,
+): ProjectGroup {
+  const groups = groupProjects(report).groups;
+  const group = groups.find((candidate) =>
+    candidate.project === target || candidate.canonicalProject === target
+  ) ?? findSelectedProjectGroupByCanonical(groups, target);
+  if (group === undefined) {
+    throw new Error(`Selected Project ${target} is missing its presentation group`);
+  }
+  return group;
+}
+
+/** Resolve the target through the same realpath the selection boundary used. */
+function findSelectedProjectGroupByCanonical(
+  groups: readonly ProjectGroup[],
+  target: string,
+): ProjectGroup | undefined {
+  if (target !== "~" && !target.startsWith("~/") && !isAbsolute(target)) return undefined;
+  try {
+    const expanded = target === "~"
+      ? homedir()
+      : target.startsWith("~/")
+      ? join(homedir(), target.slice(2))
+      : target;
+    const canonical = realpathSync(expanded);
+    return groups.find((candidate) => candidate.canonicalProject === canonical);
+  } catch {
+    return undefined;
+  }
+}
+
+function statusLifecycleCommand(
+  command: LifecycleCommand,
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+  extraArgs: readonly CommandArg[] = [],
+): CommandNode {
+  const args: CommandArg[] = [{ kind: "text", value: command }];
+  if (isFleetLifecycle(options, report)) {
+    args.push({ kind: "text", value: "--all" });
+  } else if (options.project !== undefined) {
+    const group = selectedProjectGroup(report, options.project);
+    args.push({
+      kind: "path",
+      canonicalPath: group.canonicalProject,
+      authoredPath: group.project,
+      scope: locationDisplayScope(options, report),
+    });
+  }
+  args.push(...extraArgs);
+  return { kind: "command", program: COMMAND_NAME, args };
+}
+
+function readyStatusGuidanceNodes(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): PresentationNode[] {
+  return [
+    {
+      kind: "key-value",
+      key: "Next",
+      value: statusLifecycleCommand("apply", report, options),
+      category: "command",
+    },
+    spacerNode(),
+    {
+      kind: "key-value",
+      key: "Details",
+      value: statusLifecycleCommand("status", report, options, [
+        { kind: "text", value: "--verbose" },
+      ]),
+      category: "command",
+    },
+  ];
+}
+
+/** The status outcome notice: severity derives from report facts, never copy. */
+function statusOutcomeNotice(report: ReconciliationReport): PresentationNode {
+  let severity: NoticeSeverity = "success";
+  if (reportBlockers(report).length > 0) severity = "error";
+  else if (
+    reportHasHostAttention(report) && fullyCurrentProjectCount(report) !== undefined
+  ) severity = "attention";
+  return {
+    kind: "notice",
+    severity,
+    nodes: [{ kind: "prose", text: outcomeLine("status", report) }],
+  };
+}
+
+function spacerNode(): PresentationNode {
+  return { kind: "verbatim", text: "" };
+}
+
+function projectPathNode(
+  canonicalProject: string,
+  authoredProject: string,
+  scope: LocationDisplayScope,
+): PresentationNode {
+  return {
+    kind: "path",
+    canonicalPath: canonicalProject,
+    authoredPath: authoredProject,
+    scope,
+  };
+}
+
+function nextActionNodes(
+  report: ReconciliationReport,
+  surface: {
+    readonly groups: readonly ProjectGroup[];
+    readonly unscopedItems: readonly ReconciliationItem[];
+  },
+  options: LifecycleHumanOptions,
+): PresentationNode[] {
+  const actions = nextActions("status", report, surface, options);
+  if (actions.length === 0) return [];
+  return [
+    { kind: "heading", text: "Next:" },
+    ...actions.map((action) => ({
+      kind: "list-item" as const,
+      nodes: [{ kind: "prose" as const, text: action }],
+    })),
+  ];
+}
+
+function warningNodes(
+  report: ReconciliationReport,
+  groups: readonly ProjectGroup[],
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const warningGroups = groupWarnings(report);
+  if (warningGroups.length === 0) return [];
+  return [
+    spacerNode(),
+    { kind: "heading", text: "Warnings:", category: "attention" },
+    ...warningGroups.map((group) => ({
+      kind: "list-item" as const,
+      nodes: [{
+        kind: "prose" as const,
+        text: `${shortenProjectReferences(group.message, groups, scope)} (${plural(group.projects.length, "Project")})`,
+      }],
+    })),
+  ];
+}
+
+/** The verbose status detail sections and Blocker section as typed nodes.
+ * Composed Context is the only verbatim content: it is user-authored
+ * material reproduced byte-for-byte (INT-1). */
+function verboseStatusSections(
   report: ReconciliationReport,
   scope: LocationDisplayScope,
-): string {
+  untrackRecovery: UntrackRecovery,
+): PresentationNode[] {
+  const groups = groupProjects(report).groups;
+  const shorten = (text: string): string => shortenProjectReferences(text, groups, scope);
+  const blockers = reportBlockers(report);
+  const nodes: PresentationNode[] = [];
+  if (blockers.length > 0) {
+    nodes.push({ kind: "heading", text: "Blockers:", category: "error" });
+    for (const blocker of blockers) {
+      nodes.push(...verboseBlockerNodes(blocker, groups, shorten, untrackRecovery, scope));
+    }
+  }
+  nodes.push(...verboseDetailNodes(report, groups, shorten, scope));
+  // The populated Blockers section leads the verbose view; the trailing
+  // heading exists only to report the empty outcome.
+  if (blockers.length === 0) {
+    nodes.push({ kind: "heading", text: "Blockers:", category: "error" });
+    nodes.push({ kind: "prose", text: "(none)" });
+  }
+  return nodes;
+}
+
+function verboseDetailNodes(
+  report: ReconciliationReport,
+  groups: readonly ProjectGroup[],
+  shorten: (text: string) => string,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const items = reportItems(report);
+  const outputs = reportOutputs(report);
+  const exclusions = changedRepositoryExclusions(report);
+  const warningGroups = groupWarnings(report);
+  const explanations = stateExplanationLines(items);
+  const nodes: PresentationNode[] = [
+    { kind: "heading", text: "Projects:" },
+    ...(items.length === 0
+      ? [{ kind: "prose" as const, text: "(no projects)" }]
+      : items.map((item) => ({
+        kind: "prose" as const,
+        text: shorten(
+          `${item.project}: ${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}`,
+        ),
+      }))),
+  ];
+  if (explanations.length > 0) {
+    nodes.push({ kind: "heading", text: "State explanations:" });
+    for (const line of explanations.slice(1)) {
+      nodes.push({ kind: "list-item", nodes: [{ kind: "prose", text: line.slice(2) }] });
+    }
+  }
+  nodes.push(
+    { kind: "heading", text: "Outputs:" },
+    ...(outputs.length === 0
+      ? [{ kind: "prose" as const, text: "(none)" }]
+      : outputs.map((output) => ({
+        kind: "prose" as const,
+        text: shorten(`${output.project}/${output.path}: ${output.kind}`),
+      }))),
+    { kind: "heading", text: "Git exclusions:" },
+    ...(exclusions.length === 0
+      ? [{ kind: "prose" as const, text: "(none)" }]
+      : exclusions.map((change) => ({
+        kind: "list-item" as const,
+        nodes: [{
+          kind: "prose" as const,
+          text: shorten(`${change.target}: ${exclusionDeltaText(change)}`),
+        }],
+      }))),
+    { kind: "heading", text: "Selected setup:" },
+  );
+  const desired = reportDesired(report);
+  if (desired.length === 0) nodes.push({ kind: "prose", text: "(none)" });
+  for (const installation of desired) {
+    nodes.push(...verboseInstallationNodes(installation, report.projects, scope));
+  }
+  nodes.push({ kind: "heading", text: "Warnings:", category: "attention" });
+  if (warningGroups.length === 0) {
+    nodes.push({ kind: "prose", text: "(none)" });
+    return nodes;
+  }
+  for (const group of warningGroups) {
+    const projectList = group.projects
+      .map((project) => displayProjectPath(project.canonicalProject, project.project, scope))
+      .join(", ");
+    nodes.push({
+      kind: "list-item",
+      nodes: [{ kind: "prose", text: `${shorten(group.message)} (${projectList})` }],
+    });
+  }
+  return nodes;
+}
+
+/** One verbose Selected-setup installation block; Context stays verbatim. */
+function verboseInstallationNodes(
+  installation: PresentedDesired,
+  records: readonly ReconciliationProjectRecord[],
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const project = displayProjectPath(installation.canonicalProject, installation.project, scope);
+  const record = records.find((candidate) =>
+    candidate.canonicalProject === installation.canonicalProject
+  );
+  const nodes: PresentationNode[] = [
+    { kind: "prose", text: `${project}: Profile ${installation.profile}` },
+    { kind: "prose", text: `  Hosts: ${installation.hosts.join(", ")}` },
+  ];
+  if (installation.capabilityContracts !== undefined) {
+    nodes.push({ kind: "prose", text: "  Capability Contracts:" });
+    for (const [host, contract] of Object.entries(installation.capabilityContracts)
+      .sort(([left], [right]) => left.localeCompare(right))) {
+      nodes.push({ kind: "prose", text: `    - ${host}: ${contract}` });
+    }
+  }
+  nodes.push({ kind: "prose", text: `  Outputs: ${installation.outputs.join(", ")}` });
+  const consumers = (record?.outputs ?? [])
+    .filter((output) => output.consumingHosts.length > 0);
+  if (consumers.length > 0) {
+    nodes.push({ kind: "prose", text: "  Consuming Hosts:" });
+    for (const output of consumers) {
+      nodes.push({
+        kind: "prose",
+        text: `    - ${output.path}: ${output.consumingHosts.join(", ")}`,
+      });
+    }
+  }
+  if (installation.resolvedArtifacts.length === 0) {
+    nodes.push({ kind: "prose", text: "  Resolved artifacts: (none)" });
+  } else {
+    nodes.push({ kind: "prose", text: "  Resolved artifacts:" });
+    for (const artifact of installation.resolvedArtifacts) {
+      const reasons = artifact.inclusionReasons.map((reason) => {
+        const path = reason.path.length === 0
+          ? "selected by profile"
+          : `via ${reason.path.join(" -> ")}`;
+        return `${reason.profile}: ${path}`;
+      }).join("; ");
+      nodes.push({ kind: "prose", text: `    - ${artifact.type}:${artifact.id} (${reasons})` });
+    }
+  }
+  nodes.push({ kind: "prose", text: "  Context:" });
+  nodes.push({ kind: "verbatim", text: delimitedContext(installation.context) });
+  return nodes;
+}
+
+/** The verbose Host Setup section as typed nodes. */
+function verboseHostSetupNodes(
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const presented = presentedSetupSteps("status", report, undefined, true, scope);
+  const nodes: PresentationNode[] = [{ kind: "heading", text: "Host Setup:" }];
+  if (presented.length === 0) {
+    nodes.push({ kind: "prose", text: "(none)" });
+    return nodes;
+  }
+  const transition = groupSetupSteps(
+    presented.filter((item) => item.step.provenance === "transition"),
+  );
+  const standing = groupSetupSteps(
+    presented.filter((item) => item.step.provenance === "standing"),
+  );
+  for (const [heading, sectionGroups] of [
+    ["Host setup:", transition],
+    ["Standing Host setup:", standing],
+  ] as const) {
+    if (sectionGroups.length === 0) continue;
+    nodes.push({ kind: "heading", text: heading });
+    for (const group of sectionGroups) {
+      nodes.push({
+        kind: "list-item",
+        nodes: [{
+          kind: "prose",
+          text: `${group.message}${setupProjectScope(group.projects, true, scope)}`,
+        }],
+      });
+      if (group.step.consequence !== undefined) {
+        nodes.push({ kind: "prose", text: `  Consequence: ${group.step.consequence}` });
+      }
+    }
+  }
+  return nodes;
+}
+
+function conciseStatusDocument(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): PresentationDocument {
+  const scope = locationDisplayScope(options, report);
+  const grouped = groupProjects(report);
+  const groups = grouped.groups;
+  const blocked = reportBlockers(report).length > 0;
+  const emptyStatus =
+    !blocked && reportDesired(report).length === 0 && reportItems(report).length === 0;
+  const fullyCurrentStatus = fullyCurrentProjectCount(report) !== undefined;
+  const readyStatus = !blocked && !emptyStatus && !fullyCurrentStatus;
+
+  if (emptyStatus) {
+    return [
+      {
+        kind: "notice",
+        severity: "success",
+        nodes: [{ kind: "prose", text: "No Projects are configured." }],
+      },
+      {
+        kind: "prose",
+        category: "command",
+        text:
+          `Next: Run ${COMMAND_NAME} list projects to inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}, or ` +
+          `${COMMAND_NAME} bind <profile> --host <host> to configure one.`,
+      },
+    ];
+  }
+
+  const nodes: PresentationNode[] = [];
+  if (fullyCurrentStatus) {
+    nodes.push(statusOutcomeNotice(report));
+    nodes.push(...warningNodes(report, groups, scope));
+    return nodes;
+  }
+  if (readyStatus) {
+    const impact = readyStatusImpactLines(report, scope);
+    const [first, ...rest] = impact;
+    if (first !== undefined) {
+      nodes.push({
+        kind: "notice",
+        severity: "success",
+        nodes: [{ kind: "prose", text: first }],
+      });
+    }
+    for (const line of rest) nodes.push({ kind: "prose", text: line });
+    nodes.push(...operationAttentionNodes(report, scope, true));
+    const exclusionClause = repositoryExclusionClause(report, false, true);
+    if (exclusionClause !== undefined) {
+      nodes.push(spacerNode(), { kind: "prose", text: exclusionClause });
+    }
+    nodes.push(...warningNodes(report, groups, scope));
+    nodes.push(...readyStatusGuidanceNodes(report, options));
+    return nodes;
+  }
+
+  nodes.push(statusOutcomeNotice(report));
+  const activeGroups = blocked
+    ? groups.filter((group) => group.blockers.length > 0)
+    : groups.filter((group) => groupNeedsAttention(group, "status"));
+  const reportOperationSummary = useOperationSummary(report, blocked);
+  if (reportOperationSummary) {
+    nodes.push(...operationSummaryNodes(report, scope));
+  } else if (activeGroups.length > 0) {
+    for (const group of activeGroups) {
+      nodes.push(
+        spacerNode(),
+        {
+          kind: "key-value",
+          key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
+          value: projectPathNode(group.canonicalProject, group.project, scope),
+        },
+      );
+      const desired = desiredInstallation(report, group.canonicalProject);
+      if (desired) {
+        nodes.push(
+          {
+            kind: "key-value",
+            key: "  Profile",
+            value: { kind: "identifier", value: desired.profile },
+            category: "path",
+          },
+          {
+            kind: "key-value",
+            key: "  Hosts",
+            value: { kind: "identifier", value: desired.hosts.join(", ") },
+          },
+        );
+      }
+      if (blocked) {
+        nodes.push(...group.blockers.flatMap((blocker) =>
+          conciseBlockerNodes(
+            blocker,
+            displayProjectPath(group.canonicalProject, group.project, scope),
+            groups,
+            "  ",
+            { kind: "pointer", command: "status" },
+            scope,
+          ),
+        ));
+        continue;
+      }
+      for (const item of group.items) {
+        if (item.kind !== "current") {
+          nodes.push({
+            kind: "key-value",
+            key: "  State",
+            value: { kind: "prose", text: itemText(item) },
+            category: "attention",
+          });
+        }
+      }
+    }
+  }
+
+  const exclusionClause = repositoryExclusionClause(report, false, false);
+  if (exclusionClause !== undefined) {
+    nodes.push(spacerNode(), { kind: "prose", text: exclusionClause });
+  }
+  const globalBlockers = globalBlockerNodes(report, groups, {
+    kind: "pointer",
+    command: "status",
+  }, scope);
+  if (globalBlockers.length > 0) {
+    nodes.push(spacerNode(), ...globalBlockers);
+  }
+  const blockedSummary = blocked ? aggregateLine("status", report, groups) : undefined;
+  if (blockedSummary !== undefined) {
+    nodes.push(spacerNode(), {
+      kind: "notice",
+      severity: "error",
+      nodes: [{ kind: "prose", text: blockedSummary }],
+    });
+  }
+  nodes.push(...warningNodes(report, groups, scope));
+  nodes.push(spacerNode(), ...nextActionNodes(report, {
+    groups,
+    unscopedItems: grouped.unscopedItems,
+  }, options));
+  return nodes;
+}
+
+function verboseStatusDocument(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): PresentationDocument {
+  const scope = locationDisplayScope(options, report);
   return [
-    outcomeLine("status", report),
-    ...focusedVerboseBlockers(report, scope),
-  ].join("\n") + "\n";
+    statusOutcomeNotice(report),
+    ...verboseStatusSections(report, scope, { kind: "pointer", command: "status" }),
+    ...verboseHostSetupNodes(report, scope),
+  ];
+}
+
+function blockersOnlyStatusDocument(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions,
+): PresentationDocument {
+  const scope = locationDisplayScope(options, report);
+  if (reportBlockers(report).length === 0) {
+    const completeView = options.all === true
+      ? `${COMMAND_NAME} status --all`
+      : `${COMMAND_NAME} status`;
+    return [
+      { kind: "prose", text: "No blockers.", category: "success" },
+      {
+        kind: "prose",
+        category: "command",
+        text: `Next: Run ${completeView} for the complete lifecycle view.`,
+      },
+    ];
+  }
+  const nodes: PresentationNode[] = [statusOutcomeNotice(report)];
+  if (options.verbose === true) {
+    const groups = groupProjects(report).groups;
+    const shorten = (text: string): string => shortenProjectReferences(text, groups, scope);
+    nodes.push({ kind: "heading", text: "Blockers:", category: "error" });
+    for (const blocker of reportBlockers(report)) {
+      nodes.push(...verboseBlockerNodes(blocker, groups, shorten, { kind: "full" }, scope));
+    }
+    nodes.push(spacerNode(), blockersOnlyFooterNode(report));
+    return nodes;
+  }
+  const grouped = groupProjects(report);
+  const displayedGroups = displayedBlockerGroups(report);
+  for (const group of displayedGroups) {
+    nodes.push(
+      spacerNode(),
+      {
+        kind: "key-value",
+        key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
+        value: projectPathNode(group.canonicalProject, group.project, scope),
+      },
+      ...group.blockers.flatMap((blocker) =>
+        conciseBlockerNodes(
+          blocker,
+          displayProjectPath(group.canonicalProject, group.project, scope),
+          grouped.groups,
+          "  ",
+          { kind: "pointer", command: "status" },
+          scope,
+        ),
+      ),
+    );
+  }
+  const globalBlockers = globalBlockerNodes(report, grouped.groups, {
+    kind: "pointer",
+    command: "status",
+  }, scope);
+  if (globalBlockers.length > 0) {
+    nodes.push(spacerNode(), ...globalBlockers);
+  }
+  nodes.push(spacerNode(), blockersOnlyFooterNode(report));
+  const next = nextActionNodes(report, {
+    groups: displayedGroups,
+    unscopedItems: [],
+  }, options);
+  if (next.length > 0) nodes.push(spacerNode(), ...next);
+  return nodes;
+}
+
+export function lifecycleStatusDocument(
+  report: ReconciliationReport,
+  options: LifecycleHumanOptions = {},
+): PresentationDocument {
+  if (options.blockersOnly === true) return blockersOnlyStatusDocument(report, options);
+  if (options.verbose === true) return verboseStatusDocument(report, options);
+  return conciseStatusDocument(report, options);
 }
 
 export function formatLifecycleReport(
@@ -3326,33 +4095,18 @@ export function formatLifecycleReport(
   report: ReconciliationReport,
   options: LifecycleHumanOptions = {},
 ): string {
+  void command;
   const scope = locationDisplayScope(options, report);
-  if (options.blockersOnly === true) {
-    if (reportBlockers(report).length === 0) {
-      const completeView = options.all === true
-        ? `${COMMAND_NAME} status --all`
-        : `${COMMAND_NAME} status`;
-      const output =
-        `No blockers.\nNext: Run ${completeView} for the complete lifecycle view.\n`;
-      return responsiveLifecycleOutput(
-        output,
-        options.context,
-        lifecycleCopyableValues([report], scope),
-      );
-    }
-    const output = options.verbose
-      ? blockersOnlyVerboseReport(report, scope)
-      : blockersOnlyConciseReport(report, options, scope);
-    return responsiveLifecycleOutput(
-      output,
-      options.context,
-      lifecycleCopyableValues([report], scope),
-    );
-  }
-  const output = options.verbose
-    ? verboseReport(command, report, scope)
-    : conciseReport(command, report, undefined, options);
-  return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report], scope));
+  const document = lifecycleStatusDocument(report, options);
+  const context = options.context ?? {
+    color: false,
+    interactive: false,
+    width: 10_000,
+  };
+  const rendered = renderPresentationDocument(document, context, {
+    copyableValues: lifecycleCopyableValues([report], scope),
+  });
+  return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
 }
 
 /**

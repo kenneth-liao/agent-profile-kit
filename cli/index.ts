@@ -1277,10 +1277,9 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleJson("status", report));
       } else {
-        writeHuman(
-          process.stdout,
+        // Status already carries node categories; skip the regex categoriser.
+        process.stdout.write(
           formatLifecycleReport("status", report, { ...parsed, context }),
-          context,
         );
       }
       process.exitCode = lifecycleExitCode(report);
