@@ -16,6 +16,13 @@ import { fileURLToPath } from "node:url";
 import { COMMANDS } from "../cli/command-help.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { MAX_HUMAN_WIDTH, MIN_HUMAN_WIDTH } from "../cli/terminal-presentation.js";
+import { humanGuide, agentGuide } from "../cli/guides.js";
+import { readSnapshotBodies } from "./support/snapshot-file.js";
+import { UPDATE_SNAPSHOTS_ENV } from "./support/suite-supervisor.js";
+import {
+  checkAtomicRendering,
+  collectSpellings,
+} from "./support/rendered-atomicity.js";
 import { obtainPackageArchive } from "./support/package-archive.js";
 import {
   TEST_CHILD_DEADLINE_MS,
@@ -28,6 +35,8 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
 let packageArchiveCleanup = (): void => undefined;
 let cliPath = join(repositoryRoot, "dist", "cli.js");
+let authoredVerbatimLines: readonly string[] = [];
+let snapshotBodies: Map<string, string>;
 
 const UUID_PATTERN =
   /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
@@ -37,13 +46,23 @@ const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
   TERM: "xterm-256color",
 };
 
-beforeAll(() => {
+beforeAll(async () => {
   const archive = obtainPackageArchive(repositoryRoot, "agent-profile-kit-golden-pack-");
   packageArchiveCleanup = archive.cleanup;
   const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-golden-packed-"));
   temporaryDirectories.push(extracted);
   execFileSync("tar", ["-xzf", archive.path, "-C", extracted]);
   cliPath = join(extracted, "package", "dist", "cli.js");
+  // Verbatim regions are matched line-consecutively, so blank lines stay in
+  // the corpus; authored example and guide bodies are reproduced verbatim.
+  authoredVerbatimLines = [
+    ...Object.values(AUTHORING_EXAMPLES).flatMap((example) => example.contents.split("\n")),
+    ...(await humanGuide()).split("\n"),
+    ...(await agentGuide()).split("\n"),
+  ];
+  snapshotBodies = readSnapshotBodies(
+    resolve(repositoryRoot, "test/__snapshots__/golden-snapshots.test.ts.snap"),
+  );
 });
 
 afterAll(() => {
@@ -78,7 +97,59 @@ function snapshotBody(result: ProcessResult, home: string): string {
   return stabilize(`--- stdout ---\n${result.stdout}--- stderr ---\n${result.stderr}`, home);
 }
 
-function expectGolden(name: string, result: ProcessResult, home: string): void {
+/**
+ * The atomicity corpus: authored verbatim lines only. Expected spellings come
+ * from each capture's own committed golden baseline, never a global corpus.
+ */
+function goldenCorpus(): { verbatimLines: readonly string[] } {
+  return { verbatimLines: authoredVerbatimLines };
+}
+
+/** The committed baseline body for one capture's snapshot key, when one exists. */
+function committedBaseline(baselineKey: string): string | undefined {
+  const body = snapshotBodies.get(baselineKey);
+  if (body !== undefined) return body;
+  if (process.env[UPDATE_SNAPSHOTS_ENV] !== "1") {
+    throw new Error(
+      `No committed golden baseline for ${JSON.stringify(baselineKey)}; the atomicity` +
+        " gate requires one. Create and review it through the explicit local" +
+        " snapshot-update workflow (`bun run test:focused -- --update-snapshots" +
+        " test/golden-snapshots.test.ts` locally; CI never enables snapshot" +
+        " updating).",
+    );
+  }
+  return undefined;
+}
+
+/** One half of a committed baseline body: the named stream's captured text. */
+function baselineStream(baselineBody: string, stream: "stdout" | "stderr"): string {
+  const stdoutMarker = "--- stdout ---\n";
+  const stderrMarker = "--- stderr ---\n";
+  const stderrStart = baselineBody.indexOf(stderrMarker);
+  if (stderrStart < 0) {
+    throw new Error("Committed baseline is missing its stderr section");
+  }
+  const stdoutStart = baselineBody.indexOf(stdoutMarker);
+  if (stdoutStart < 0) {
+    throw new Error("Committed baseline is missing its stdout section");
+  }
+  const stdout = baselineBody.slice(stdoutStart + stdoutMarker.length, stderrStart);
+  const stderr = baselineBody.slice(stderrStart + stderrMarker.length);
+  return stream === "stdout" ? stdout : stderr;
+}
+
+function expectGolden(
+  name: string,
+  baselineKey: string,
+  result: ProcessResult,
+  home: string,
+): void {
+  const baselineBody = committedBaseline(baselineKey);
+  if (baselineBody !== undefined) {
+    const corpus = goldenCorpus();
+    checkAtomicRendering(stabilize(result.stdout, home), baselineStream(baselineBody, "stdout"), corpus);
+    checkAtomicRendering(stabilize(result.stderr, home), baselineStream(baselineBody, "stderr"), corpus);
+  }
   expect(snapshotBody(result, home)).toMatchSnapshot(name);
 }
 
@@ -211,7 +282,8 @@ async function bindExample(home: string, projectPath: string): Promise<void> {
 async function initializedHome(): Promise<{ home: string; project: string }> {
   const home = isolatedHome();
   await initialize(home);
-  return { home, project: demoProject(home) };
+  const project = demoProject(home);
+  return { home, project };
 }
 
 async function pendingHome(): Promise<{ home: string; project: string }> {
@@ -572,13 +644,14 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     commandId: "machine install-temp",
     prepare: async () => {
       const { home } = await initializedHome();
+      const project = gitProject(home, "temporary");
       return {
         home,
         args: [
           "machine",
           "install-temp",
           AUTHORING_EXAMPLES.profile.id,
-          gitProject(home, "temporary"),
+          project,
           "--host",
           "codex",
         ],
@@ -636,7 +709,8 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     extraRoute: "unbound-directory-error",
     prepare: async () => {
       const { home } = await initializedHome();
-      return { home, args: ["status", demoProject(home, "unbound")] };
+      const unbound = demoProject(home, "unbound");
+      return { home, args: ["status", unbound] };
     },
   },
 ];
@@ -666,7 +740,12 @@ describe("golden snapshots of every human view", () => {
   for (const view of HUMAN_VIEWS) {
     test(view.test, async () => {
       const { home, args } = await view.prepare();
-      expectGolden(view.snapshot, await runCli(home, args), home);
+      expectGolden(
+        view.snapshot,
+        `golden snapshots of every human view ${view.test}: ${view.snapshot} 1`,
+        await runCli(home, args),
+        home,
+      );
     });
   }
 });
@@ -688,6 +767,7 @@ describe("rendering matrix for a representative subset", () => {
   ] as const;
 
   async function matrixSnapshot(
+    matrixTest: string,
     view: string,
     home: string,
     args: readonly string[],
@@ -695,6 +775,7 @@ describe("rendering matrix for a representative subset", () => {
     for (const cell of cells) {
       expectGolden(
         `${view}-${cell.name}`,
+        `rendering matrix for a representative subset ${matrixTest}: ${view}-${cell.name} 1`,
         await runCliInPty(home, cell.columns, cell.environment, args),
         home,
       );
@@ -703,33 +784,169 @@ describe("rendering matrix for a representative subset", () => {
 
   test("root help matrix", async () => {
     const home = isolatedHome();
-    await matrixSnapshot("root-help", home, ["--help"]);
+    await matrixSnapshot("root help matrix", "root-help", home, ["--help"]);
   });
 
   test("info matrix", async () => {
     const { home } = await initializedHome();
-    await matrixSnapshot("info", home, ["info"]);
+    await matrixSnapshot("info matrix", "info", home, ["info"]);
   });
 
   test("list projects matrix", async () => {
     const { home } = await pendingHome();
     await bindExample(home, demoProject(home, "other"));
-    await matrixSnapshot("list-projects", home, ["list", "projects"]);
+    await matrixSnapshot("list projects matrix", "list-projects", home, ["list", "projects"]);
   });
 
   test("blocked status matrix", async () => {
     const { home, project } = await blockedHome();
-    await matrixSnapshot("status-blocked", home, ["status", project]);
+    await matrixSnapshot("blocked status matrix", "status-blocked", home, ["status", project]);
   });
 
   test("status verbose matrix", async () => {
     const { home, project } = await currentHome();
-    await matrixSnapshot("status-verbose", home, ["status", project, "--verbose"]);
+    await matrixSnapshot("status verbose matrix", "status-verbose", home, ["status", project, "--verbose"]);
   });
 
   test("unbound error matrix", async () => {
     const { home } = await initializedHome();
     const unbound = demoProject(home, "unbound");
-    await matrixSnapshot("unbound-directory-error", home, ["status", unbound]);
+    await matrixSnapshot("unbound error matrix", "unbound-directory-error", home, ["status", unbound]);
+  });
+});
+
+describe("rendered atomicity mutation evidence from real captures", () => {
+  test("a pristine capture passes and its recognized spellings reject mutations", async () => {
+    const { home, project } = await pendingHome();
+    const args = ["status", project];
+    const pristine = await runCli(home, args);
+    const corpus = goldenCorpus();
+    // The pristine capture is its own baseline: the oracle accepts it verbatim.
+    const stabilized = stabilize(pristine.stdout, home);
+    checkAtomicRendering(stabilized, stabilized, corpus);
+
+    const spellings = new Set(collectSpellings(stabilized, corpus));
+    const nextLine = stabilized.split("\n").find((line) => line.startsWith("Next: apkit apply "));
+    expect(nextLine).toBeDefined();
+    const command = nextLine!.slice("Next: ".length).trim();
+    expect(spellings).toContain(command);
+    const detailsLine = stabilized.split("\n").find((line) => line.startsWith("Details: apkit status "));
+    expect(detailsLine).toBeDefined();
+
+    const mutated = (replacement: string): string => stabilized.replace(`${nextLine!}\n`, replacement);
+
+    // Two-line fold of a command with a path argument.
+    expect(() =>
+      checkAtomicRendering(
+        mutated(`Next: apkit ap\n  ply ${command.slice("apkit apply ".length)}\n`),
+        stabilized,
+        corpus,
+      ),
+    ).toThrow(/fragmented/);
+
+    // An intact occurrence elsewhere never excuses a second, split occurrence.
+    expect(() =>
+      checkAtomicRendering(
+        mutated(`${nextLine!}\nAlso: apkit ap\n  ply ${command.slice("apkit apply ".length)}\n`),
+        stabilized,
+        corpus,
+      ),
+    ).toThrow(/fragmented/);
+
+    // Fragmentation across three or more lines.
+    expect(() =>
+      checkAtomicRendering(mutated("Next: apkit\n  apply ~/pro\n  jects/demo\n"), stabilized, corpus),
+    ).toThrow(/fragmented/);
+
+    // A path argument split mid-token inside an intact command prefix.
+    const pathSpelling = command.slice("apkit apply ".length);
+    expect(() =>
+      checkAtomicRendering(
+        stabilized.replace(
+          `${detailsLine!}\n`,
+          `Details: apkit status ${pathSpelling.slice(0, -4)}\n  ${pathSpelling.slice(-4)} --verbose\n`,
+        ),
+        stabilized,
+        corpus,
+      ),
+    ).toThrow(/fragmented/);
+  });
+
+  test("INT-1 original committed root-help syntax fold is rejected", () => {
+    const key = "golden snapshots of every human view root help: root-help 1";
+    const baseline = baselineStream(snapshotBodies.get(key)!, "stdout");
+    const syntax = "status [project | --all]";
+    expect(baseline).toContain(syntax);
+    checkAtomicRendering(baseline, baseline, goldenCorpus());
+    expect(() => checkAtomicRendering(
+      baseline.replace(syntax, "status\n    [project | --all]"), baseline, goldenCorpus(),
+    )).toThrow(/fragmented/);
+    expect(collectSpellings(baseline, goldenCorpus()).some((value) => value.startsWith(syntax))).toBe(true);
+  });
+
+  test("committed baselines reject fragmenting their complete spellings", () => {
+    const corpus = goldenCorpus();
+
+    // Focused-command-help usage syntax (committed bytes): a fold after the
+    // verb must not pass just because the bracketed syntax continues later.
+    const helpKey = "golden snapshots of every human view focused command help: focused-command-help 1";
+    const helpBaseline = baselineStream(snapshotBodies.get(helpKey)!, "stdout");
+    checkAtomicRendering(helpBaseline, helpBaseline, corpus);
+    const usageLine = helpBaseline.split("\n").find((line) => line.startsWith("Usage: apkit status "));
+    expect(usageLine).toBeDefined();
+    expect(() =>
+      checkAtomicRendering(
+        helpBaseline.replace("apkit status [", "apkit status\n      ["),
+        helpBaseline,
+        corpus,
+      ),
+    ).toThrow(/fragmented/);
+
+    // Apply receipt (committed bytes): a relative dotted path folded after
+    // its leading dot must be rejected, not excused by its continuation.
+    const receiptEntry = [...snapshotBodies].find(([, body]) =>
+      body.includes(".agent-profile-kit/codex/context.md"),
+    );
+    expect(receiptEntry).toBeDefined();
+    const receiptBaseline = baselineStream(receiptEntry![1], "stdout");
+    checkAtomicRendering(receiptBaseline, receiptBaseline, corpus);
+    expect(() =>
+      checkAtomicRendering(
+        receiptBaseline.replace(".agent-profile-kit/", ".\n      agent-profile-kit/"),
+        receiptBaseline,
+        corpus,
+      ),
+    ).toThrow(/fragmented/);
+  });
+
+  test("a colored committed baseline guards its decoded styled paths", () => {
+    const colorKey =
+      "rendering matrix for a representative subset list projects matrix: list-projects-interactive-narrow-color 1";
+    const colorBaseline = baselineStream(snapshotBodies.get(colorKey)!, "stdout");
+    const corpus = goldenCorpus();
+    checkAtomicRendering(colorBaseline, colorBaseline, corpus);
+    const styledPathLine = colorBaseline.split("\n").find((line) => line.includes("~/projects/demo"));
+    expect(styledPathLine).toBeDefined();
+    expect(() =>
+      checkAtomicRendering(
+        colorBaseline.replace("~/projects/demo", "~/projects/de\n      mo"),
+        colorBaseline,
+        corpus,
+      ),
+    ).toThrow(/fragmented/);
+  });
+
+  test("missing baselines fail outside the update workflow and are tolerated within it", () => {
+    const absentKey = "golden snapshots of every human view absent view: absent 1";
+    const savedMarker = process.env[UPDATE_SNAPSHOTS_ENV];
+    delete process.env[UPDATE_SNAPSHOTS_ENV];
+    try {
+      expect(() => committedBaseline(absentKey)).toThrow(/No committed golden baseline/);
+      process.env[UPDATE_SNAPSHOTS_ENV] = "1";
+      expect(committedBaseline(absentKey)).toBeUndefined();
+    } finally {
+      if (savedMarker === undefined) delete process.env[UPDATE_SNAPSHOTS_ENV];
+      else process.env[UPDATE_SNAPSHOTS_ENV] = savedMarker;
+    }
   });
 });

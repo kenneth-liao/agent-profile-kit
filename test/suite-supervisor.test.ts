@@ -159,6 +159,34 @@ describe("suite supervisor: focused mode", () => {
       rmSync(logDir, { recursive: true, force: true });
     }
   });
+
+  test("marks the child environment when the explicit snapshot-update workflow is active", async () => {
+    const logDir = tempDir();
+    const fixture = 'printf "%s" "${APKIT_TEST_UPDATE_SNAPSHOTS:-absent}"';
+    try {
+      const withFlag = await runSupervisedSuite({
+        mode: "focused",
+        suiteCommand: shFixture(fixture, "env fixture"),
+        bunArguments: ["--update-snapshots", "test/golden-snapshots.test.ts"],
+        perRunDeadlineMs: 2000,
+        logDir,
+      });
+      expect(withFlag.ok).toBe(true);
+      expect(withFlag.runs[0]!.result.stdout).toBe("1");
+
+      const withoutFlag = await runSupervisedSuite({
+        mode: "focused",
+        suiteCommand: shFixture(fixture, "env fixture"),
+        bunArguments: ["test/golden-snapshots.test.ts"],
+        perRunDeadlineMs: 2000,
+        logDir,
+      });
+      expect(withoutFlag.ok).toBe(true);
+      expect(withoutFlag.runs[0]!.result.stdout).toBe("absent");
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("suite supervisor: stress mode", () => {
