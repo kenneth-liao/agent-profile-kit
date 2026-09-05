@@ -30,6 +30,7 @@ import type {
   ProposedProjectFileOutput,
   ProposedProjectOutput,
 } from "./project-plan.js";
+import { identifierPart } from "../cli/inline-content.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -118,6 +119,11 @@ export async function detectPiSkillSettingsWarnings(
       {
         copyableValues: [path],
         message: `Pi ${scope} settings relevant to planned Skills at ${path} could not be read or parsed (${detail}); generated Skills may not load until the configuration is repaired`,
+        parts: [
+          `Pi ${scope} settings relevant to planned Skills at `,
+          identifierPart(path),
+          ` could not be read or parsed (${detail}); generated Skills may not load until the configuration is repaired`,
+        ],
       },
     );
   };

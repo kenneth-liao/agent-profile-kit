@@ -1619,6 +1619,7 @@ export interface WarningPresentationGroup {
   readonly copyableValues: readonly string[];
   readonly kind: ReconciliationWarning["kind"];
   readonly message: string;
+  readonly parts?: readonly InlineContent[];
   readonly projects: readonly {
     readonly canonicalProject: string;
     readonly project: string;
@@ -1631,6 +1632,7 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
     copyableValues: readonly string[];
     kind: ReconciliationWarning["kind"];
     message: string;
+    parts?: readonly InlineContent[];
     projects: { canonicalProject: string; project: string }[];
   }>();
 
@@ -1650,6 +1652,7 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
           copyableValues: [...warning.copyableValues],
           kind: warning.kind,
           message: warning.message,
+          ...(warning.parts === undefined ? {} : { parts: warning.parts }),
           projects: [{
             canonicalProject: projectRecord.canonicalProject,
             project: projectRecord.project,
@@ -1672,6 +1675,7 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
       copyableValues: group.copyableValues,
       kind: group.kind,
       message: group.message,
+      ...(group.parts === undefined ? {} : { parts: group.parts }),
       projects: [...group.projects].sort((left, right) =>
         compareCanonicalStrings(left.canonicalProject, right.canonicalProject)
       ),
@@ -3466,33 +3470,17 @@ function projectPathNode(
 
 
 
-function authorInlineValues(
-  message: string,
-  values: readonly string[],
+function formatWarningGroupParts(
+  group: WarningPresentationGroup,
+  groups: readonly ProjectGroup[],
+  scope: LocationDisplayScope,
 ): readonly InlineContent[] {
-  const ordered = [...new Set(values)]
-    .filter((value) => value.length > 0)
-    .sort((left, right) => right.length - left.length);
-  if (ordered.length === 0) return [message];
-  const parts: InlineContent[] = [];
-  let cursor = 0;
-  while (cursor < message.length) {
-    const match = ordered
-      .map((value) => ({ value, index: message.indexOf(value, cursor) }))
-      .filter((entry) => entry.index >= 0)
-      .sort((left, right) => left.index - right.index || right.value.length - left.value.length)
-      .at(0);
-    if (match === undefined) {
-      parts.push(message.slice(cursor));
-      break;
-    }
-    if (match.index > cursor) {
-      parts.push(message.slice(cursor, match.index));
-    }
-    parts.push(identifierPart(match.value));
-    cursor = match.index + match.value.length;
+  if (group.parts !== undefined && group.parts.length > 0) {
+    return group.parts.map((part) =>
+      typeof part === "string" ? shortenProjectReferences(part, groups, scope) : part
+    );
   }
-  return parts;
+  return [shortenProjectReferences(group.message, groups, scope)];
 }
 
 function warningNodes(
@@ -3508,10 +3496,7 @@ function warningNodes(
     ...warningGroups.map((group) => ({
       kind: "list-item" as const,
       parts: [
-        ...authorInlineValues(
-          shortenProjectReferences(group.message, groups, scope),
-          group.copyableValues,
-        ),
+        ...formatWarningGroupParts(group, groups, scope),
         ` (${plural(group.projects.length, "Project")})`,
       ],
     })),
@@ -3628,7 +3613,7 @@ function verboseDetailNodes(
     nodes.push({
       kind: "list-item",
       parts: [
-        ...authorInlineValues(shorten(group.message), group.copyableValues),
+        ...formatWarningGroupParts(group, groups, scope),
         ` (${projectList})`,
       ],
     });
@@ -4190,6 +4175,7 @@ export interface TemporaryInstallationReceiptView {
   readonly temporaryInstallationId: string;
   readonly diagnosticValues: readonly string[];
   readonly warnings: readonly string[];
+  readonly warningParts?: readonly (readonly InlineContent[])[];
   readonly workspaceInputHash?: string;
 }
 
@@ -4295,9 +4281,9 @@ export function temporaryInstallationDocument(
     if (receipt.warnings.length > 0) {
       nodes.push(
         { kind: "prose", parts: ["Warnings:"], category: "attention" },
-        ...receipt.warnings.map((warning) => ({
+        ...receipt.warnings.map((warning, index) => ({
           kind: "list-item" as const,
-          parts: authorInlineValues(warning, receipt.diagnosticValues),
+          parts: receipt.warningParts?.[index] ?? [warning],
         })),
       );
     }

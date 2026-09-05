@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { identifierPart } from "../cli/inline-content.js";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
   chmodSync,
@@ -512,6 +513,14 @@ describe("Skill model-invocation policy", () => {
           join(project, ".codex", "config.toml"),
         ],
         message: expect.stringContaining(join(codexHome, "config.toml")),
+        parts: [
+          "Codex SessionStart hooks are not enabled by ",
+          identifierPart(join(codexHome, "config.toml")),
+          "; generated Profile Context may not load until [features].hooks = true is set in ",
+          identifierPart(join(project, ".codex", "config.toml")),
+          " or ",
+          identifierPart(join(codexHome, "config.toml")),
+        ],
       },
     ]);
 

@@ -30,6 +30,7 @@ import type {
   ProposedProjectFileOutput,
   ProposedProjectOutput,
 } from "./project-plan.js";
+import { identifierPart } from "../cli/inline-content.js";
 import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
   DISABLED_MODEL_INVOCATION_REQUIREMENT,
@@ -374,6 +375,9 @@ export async function detectGrokProjectConfigurationWarnings(
       {
         copyableValues: [configPath],
         message: `Grok configuration relevant to planned Skills at ${configPath} could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Skills may not load until the configuration is repaired`,
+        parts: [
+          `Grok configuration relevant to planned Skills at ${configPath} could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Skills may not load until the configuration is repaired`,
+        ],
       },
     ];
   }
@@ -387,6 +391,13 @@ export async function detectGrokProjectConfigurationWarnings(
         {
           copyableValues: [configPath, skillId],
           message: `Grok configuration at ${configPath} lists planned Skill '${skillId}' as disabled; generated Skill output may not load until it is enabled`,
+          parts: [
+            "Grok configuration at ",
+            identifierPart(configPath),
+            " lists planned Skill '",
+            identifierPart(skillId),
+            "' as disabled; generated Skill output may not load until it is enabled",
+          ],
         },
       );
     }
@@ -398,6 +409,15 @@ export async function detectGrokProjectConfigurationWarnings(
         {
           copyableValues: [configPath, managedDirectory, skillId],
           message: `Grok configuration at ${configPath} ignores planned Skill '${skillId}' at ${managedDirectory}; generated Skill output may not load until the ignore entry is removed`,
+          parts: [
+            "Grok configuration at ",
+            identifierPart(configPath),
+            " ignores planned Skill '",
+            identifierPart(skillId),
+            "' at ",
+            identifierPart(managedDirectory),
+            "; generated Skill output may not load until the ignore entry is removed",
+          ],
         },
       );
     }

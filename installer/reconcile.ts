@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import type { InlineContent } from "../adapters/project-plan.js";
 import {
   compareCanonicalStrings,
 } from "../schemas/canonical.js";
@@ -158,6 +159,7 @@ export interface ReconciliationWarning {
   readonly copyableValues: readonly string[];
   readonly kind: "diagnostic" | "host-attention";
   readonly message: string;
+  readonly parts?: readonly InlineContent[];
 }
 
 export interface ReconciliationProjectOutput
@@ -726,12 +728,14 @@ function nestedReconciliationReport(
       copyableValues: [...warning.copyableValues],
       kind: "diagnostic" as const,
       message: warning.message,
+      ...(warning.parts === undefined ? {} : { parts: warning.parts }),
     }));
     for (const entry of installation.capabilityWarnings) {
       warnings.push({
         copyableValues: [...entry.warning.copyableValues],
         kind: "host-attention",
         message: entry.warning.message,
+        ...(entry.warning.parts === undefined ? {} : { parts: entry.warning.parts }),
       });
     }
     warningsByCanonical.set(key, warnings);

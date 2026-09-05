@@ -1,5 +1,8 @@
 import type { ArtifactReference } from "../schemas/dependencies.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
+import type { InlineContent } from "../cli/inline-content.js";
+
+export type { InlineContent };
 
 export type ProjectOutputEntryType = "directory" | "file";
 
@@ -119,6 +122,7 @@ export interface AdapterDiagnosticWarning {
   readonly consequence?: string;
   readonly copyableValues: readonly string[];
   readonly message: string;
+  readonly parts?: readonly InlineContent[];
 }
 
 export interface AdapterProjectPlan {

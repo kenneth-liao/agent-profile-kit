@@ -7,6 +7,7 @@ import type { HostSetupStep } from "../adapters/project-plan.js";
 import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
 import {
   flatInlineText,
+  identifierPart,
   type InlineContent,
   renderPresentationDocument,
 } from "../cli/presentation-document.js";
@@ -200,6 +201,7 @@ interface FlatFixture {
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
   readonly diagnosticValues: readonly string[];
   readonly warnings: readonly string[];
+  readonly warningParts?: readonly (readonly InlineContent[])[];
 }
 
 function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport {
@@ -267,10 +269,13 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
         blockers: fixture.blockers.filter((blocker) =>
           blocker.scope === "project" && canonicalProject(blocker.project!) === key
         ),
-        warnings: key === firstProject ? fixture.warnings.map((message) => ({
+        warnings: key === firstProject ? fixture.warnings.map((message, index) => ({
           copyableValues: fixture.diagnosticValues,
           kind: "diagnostic" as const,
           message,
+          ...(fixture.warningParts?.[index] !== undefined
+            ? { parts: fixture.warningParts[index] }
+            : {}),
         })) : [],
         repositoryExclusions: key === firstProject ? fixture.repositoryExclusions : [],
       });
@@ -1724,6 +1729,13 @@ describe("responsive lifecycle presentation", () => {
         `Inspect ${replacementPath} for marker replacement.`,
         `Check ${prefixedPath} then repair ${warningPath} ${markerCandidates}`,
       ],
+      warningParts: [
+        ["Review ", identifierPart(prefixedPath), ": repair ", identifierPart(warningPath), " \u0001\u0002"],
+        ["Inspect ", identifierPart(arbitraryPath), " for the generated Skill output."],
+        ["Inspect ", identifierPart(pathWithConjunction), " because it is missing."],
+        ["Inspect ", identifierPart(replacementPath), " for marker replacement."],
+        ["Check ", identifierPart(prefixedPath), " then repair ", identifierPart(warningPath), ` ${markerCandidates}`],
+      ],
     });
 
     const output = formatLifecycleReport("status", report, {
@@ -1751,6 +1763,7 @@ describe("responsive lifecycle presentation", () => {
     const report = emptyReport({
       diagnosticValues: [value],
       warnings: [warning],
+      warningParts: [["Inspect ", identifierPart(value), " before continuing with this diagnostic."]],
     });
     const output = formatLifecycleReport("status", report, { context: context(40) });
 
@@ -1761,6 +1774,7 @@ describe("responsive lifecycle presentation", () => {
     const path = "/tmp/foo";
     const output = formatLifecycleReport("status", emptyReport({
       warnings: [`Inspect ${path} and then explain this warning with enough prose to wrap cleanly.`],
+      warningParts: [["Inspect ", identifierPart(path), " and then explain this warning with enough prose to wrap cleanly."]],
     }), { context: context(40) });
 
     expect(output).toContain(path);
@@ -1772,12 +1786,36 @@ describe("responsive lifecycle presentation", () => {
     const output = formatLifecycleReport("status", emptyReport({
       diagnosticValues: [path],
       warnings: [warning],
+      warningParts: [["Inspect ", identifierPart(path), " before continuing with this diagnostic."]],
     }), {
       context: context(40),
     });
 
     expect(output).toContain(path);
     expect(output).not.toContain("untyped project with\n");
+  });
+
+  test("warning nodes contain structured identifier parts without substring re-identification", () => {
+    const projectPath = "/Users/test/projects/my-project";
+    const report = emptyReport({
+      warnings: [`Inspect ${projectPath} for generated configuration.`],
+      warningParts: [
+        ["Inspect ", identifierPart(projectPath), " for generated configuration."],
+      ],
+    });
+    const doc = lifecycleStatusDocument(report);
+    const nodes = flattenPresentationNodes(doc);
+    const warningListItem = nodes.find((node) =>
+      node.kind === "list-item" &&
+      node.parts.some((part) => typeof part === "object" && part.kind === "identifier" && part.value === projectPath)
+    ) as Extract<PresentationNode, { kind: "list-item" }> | undefined;
+    expect(warningListItem).toBeDefined();
+    expect(warningListItem?.parts).toEqual([
+      "Inspect ",
+      { kind: "identifier", value: projectPath },
+      " for generated configuration.",
+      " (1 Project)",
+    ]);
   });
 
 });
@@ -4749,6 +4787,7 @@ describe("standalone view presentation documents (#389)", () => {
       }],
       temporaryInstallationId: "temporary-installation-opaque-id",
       warnings: [`Inspect ${diagnosticValue} before continuing with this diagnostic.`],
+      warningParts: [["Inspect ", identifierPart(diagnosticValue), " before continuing with this diagnostic."]],
       workspaceInputHash: "workspace-hash",
     };
 

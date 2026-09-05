@@ -6,7 +6,11 @@ import {
   TEMPORARY_INSTALLATION_HOSTS,
   type TemporaryInstallationHost,
 } from "../adapters/registry.js";
-import type { AdapterDiagnosticWarning, HostSetupStep } from "../adapters/project-plan.js";
+import type {
+  AdapterDiagnosticWarning,
+  HostSetupStep,
+  InlineContent,
+} from "../adapters/project-plan.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
 import {
   isSupportedHost,
@@ -130,6 +134,7 @@ export interface TemporaryInstallationReceipt {
   readonly diagnosticValues: readonly string[];
   /** Configuration warnings that do not block install but can prevent Host loading. */
   readonly warnings: readonly string[];
+  readonly warningParts?: readonly (readonly InlineContent[])[];
   readonly workspaceInputHash?: string;
 }
 
@@ -152,6 +157,7 @@ function receiptFromRecord(
     readonly diagnosticValues?: readonly string[];
     readonly setupSteps?: readonly HostSetupStep[];
     readonly warnings?: readonly string[];
+    readonly warningParts?: readonly (readonly InlineContent[])[];
   } = {},
 ): TemporaryInstallationReceipt {
   const host = Object.keys(record.hosts)[0]! as SupportedHost;
@@ -169,6 +175,7 @@ function receiptFromRecord(
     temporaryInstallationId: record.installationId,
     diagnosticValues: options.diagnosticValues ?? [],
     warnings: options.warnings ?? [],
+    ...(options.warningParts === undefined ? {} : { warningParts: options.warningParts }),
     workspaceInputHash: record.desiredInputDigest,
   };
 }
@@ -428,6 +435,11 @@ export async function installTemporaryProfile(options: {
             ...desired.warnings.map((warning) => warning.message),
             ...desired.capabilityWarnings.map((entry) => entry.warning.message),
             ...publicationWarnings,
+          ],
+          warningParts: [
+            ...desired.warnings.map((warning) => warning.parts ?? [warning.message]),
+            ...desired.capabilityWarnings.map((entry) => entry.warning.parts ?? [entry.warning.message]),
+            ...publicationWarnings.map((warning) => [warning]),
           ],
         },
       );

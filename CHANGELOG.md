@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Fixed
+
+- Author atomic warning inline parts directly on adapter diagnostics and reconciliation warnings rather than searching composed messages with substring matching ([#428](https://github.com/kenneth-liao/agent-profile-kit/pull/428)).
+
 ### Removed
 
 - Delete the legacy string presentation pipeline: the regex categoriser, English prefix table, copyable-value substring protector, and string wrapping path are removed now that every human view flows through presentation documents and the pure renderer with atomic inline parts ([#391](https://github.com/kenneth-liao/agent-profile-kit/issues/391)).
