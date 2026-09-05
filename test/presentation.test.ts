@@ -1130,10 +1130,9 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     expect(headingsIn(concise)).not.toContain("First use:");
-    expect(listItemsIn(concise)).not.toEqual(expect.arrayContaining([
-      "Trust the bound project in Codex.",
-      "Launch Codex from the exact bound project root",
-    ]));
+    // Each forbidden first-use item is independently absent.
+    expect(listItemsIn(concise)).not.toContain("Trust the bound project in Codex.");
+    expect(listItemsIn(concise)).not.toContain("Launch Codex from the exact bound project root");
     const verbose = applyReportDocument(applyResult(receipt, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toContain("Standing Host setup:");
     expect(listItemsIn(verbose)).toContain("Trust the bound project in Codex.");
@@ -1502,16 +1501,21 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "blocked", project: "/project-a" }],
     });
 
-    const blockedApply = presentationTexts(
-      blockedApplyReportDocument(asBlockedReport(report)),
-    );
-    expect(blockedApply).not.toContain(
-      "Review and approve the generated SessionStart hook",
-    );
-    expect(blockedApply).not.toContain("First use:");
-    expect(blockedApply).not.toContain("Host setup:");
-    expect(blockedApply).not.toContain("Standing Host setup:");
-    expect(blockedApply).not.toContain("Trust the bound project in Codex.");
+    // Blocked apply suppresses all Host setup presentation: no first-use
+    // heading or items, no verbose setup headings, no setup-step copy.
+    const blockedApply = blockedApplyReportDocument(asBlockedReport(report));
+    expect(headingsIn(blockedApply)).not.toContain("First use:");
+    expect(headingsIn(blockedApply)).not.toContain("Host setup:");
+    expect(headingsIn(blockedApply)).not.toContain("Standing Host setup:");
+    expect(listItemsIn(blockedApply).some((text) =>
+      text.includes("Review and approve the generated SessionStart hook") ||
+      text.includes("Trust the bound project in Codex.")
+    )).toBe(false);
+    expect(flattenPresentationNodes(blockedApply).some((node) =>
+      node.kind === "prose" &&
+      (node.text.includes("Review and approve the generated SessionStart hook") ||
+        node.text.includes("Trust the bound project in Codex."))
+    )).toBe(false);
   });
 
   test("post-commit verification failure retains apply setup without claiming activation", () => {
@@ -1521,13 +1525,20 @@ describe("Host Setup Step provenance and presentation", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const failure = presentationTexts(
-      applyVerificationFailureDocument(report, "Verification failed."),
+    // The failure view keeps first-use guidance as list items under its
+    // heading and never claims activation.
+    const failure = applyVerificationFailureDocument(report, "Verification failed.");
+    const firstUse = indexWhere(
+      failure,
+      (node) => node.kind === "heading" && node.text === "First use:",
     );
-
-    expect(failure).toContain("First use:");
-    expect(failure).toContain("Trust the bound project in Codex so the Profile can load.");
-    expect(failure).not.toContain("becomes active");
+    expect(firstUse).toBeGreaterThan(-1);
+    expect(listItemsFrom(failure, firstUse + 1)).toEqual([
+      "Trust the bound project in Codex so the Profile can load.",
+    ]);
+    expect(flattenPresentationNodes(failure).some((node) =>
+      node.kind === "prose" && node.text.includes("becomes active")
+    )).toBe(false);
   });
 });
 
