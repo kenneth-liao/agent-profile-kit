@@ -77,6 +77,9 @@ import {
 } from "./support/reconciliation-report.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+// Fleet qualification uses structural assertions; this is a finite hang bound,
+// with headroom for packed-CLI deadlines and cleanup on slower runners.
+const FLEET_TEST_TIMEOUT_MS = 120_000;
 const temporaryDirectories: string[] = [];
 
 beforeAll(() => {
@@ -262,7 +265,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(status.stdout).not.toContain("Next:");
     // Pi now generates output in the added Project.
     expect(existsSync(join(withPi, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
-  }, 120_000);
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("integrated journeys enforce invocation-scoped operation budgets for unique Profiles, Hosts, Projects, and generated outputs", async () => {
     const home = isolatedHome();
@@ -332,7 +335,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(steady.counts.classifyTrackedPaths).toBe(6);
     expect(steady.counts.findGitProject).toBe(12);
     expect(reportItems(report)).toHaveLength(12);
-  });
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("operation budgets flow through the command layer with Host probes once per unique requirement", async () => {
     const home = isolatedHome();
@@ -361,7 +364,7 @@ describe("fleet-wide synchronization qualification", () => {
     // One machine-level probe per supported Host requirement set for the
     // Context+Skill Profile during apply's planning.
     expect(applyInstrumentation.counts.probeHostCapability).toBe(5);
-  });
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("apply still performs fresh post-commit verification while writes, state, and receipts stay sequential", async () => {
     const home = isolatedHome();
@@ -418,7 +421,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(reportItems(applied.resultingState).every((item) => item.kind === "current")).toBe(true);
     const state = await readInstallationState(home);
     expect(state.receipts).toHaveLength(12);
-  });
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("a dependency-rich 14-Project publication remains readable across fresh processes", async () => {
     const home = isolatedHome();
@@ -441,7 +444,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(nextRead.stdout).toContain("All Projects are current (14 Projects)");
     expectExitCode(await runCli(home, fixture.pathWithHosts, "apply"), 0);
     expect(readFileSync(statePath, "utf8")).toBe(published);
-  }, 120_000);
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("delayed progress is cleared on the packed fleet PTY, and non-interactive modes stay progress-free", async () => {
     const home = isolatedHome();
@@ -505,7 +508,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(json.stdout).not.toContain(STATUS_PROGRESS_LABEL);
     expect(json.stdout).not.toMatch(/\r/);
     expect(() => JSON.parse(json.stdout)).not.toThrow();
-  }, 120_000);
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("representative warm status and apply samples are benchmarked and recorded with the qualification evidence", async () => {
     const home = isolatedHome();
@@ -542,7 +545,7 @@ describe("fleet-wide synchronization qualification", () => {
     await expect(benchmarkWarmRuns(home, { commands: [] })).rejects.toThrow(
       /at least one command/,
     );
-  }, 120_000);
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("validate is part of the same command-layer instrumentation surface", async () => {
     const home = isolatedHome();
@@ -561,7 +564,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(reportBlockers(report)).toEqual([]);
     expect(reportItems(report)).toHaveLength(12);
     expect(statusInstrumentation.counts.resolveProfile).toBe(1);
-  });
+  }, FLEET_TEST_TIMEOUT_MS);
 });
 
 interface FsSnapshotEntry {
@@ -847,7 +850,7 @@ describe("integrated fleet recovery qualification", () => {
     expect(secondStatus.stdout).toContain("Blockers:");
     expect(secondStatus.stdout).toContain(projectB);
     expect(secondStatus.stdout).not.toContain("OpenCode discovers Skills");
-  }, 120_000);
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("a 30-Project fleet recovers a hand-deleted Project's generated roots as ordinary pending work", async () => {
     const home = isolatedHome();

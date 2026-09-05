@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 
 import {
   runProcess,
-  TEST_CHILD_DEADLINE_MS,
   type ExecutorOptions,
   type ProcessResult,
 } from "./process-executor.js";
