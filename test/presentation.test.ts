@@ -935,6 +935,22 @@ function listItemsIn(document: PresentationDocument): string[] {
   );
 }
 
+/** The carried texts following the "Projects:" heading until the next heading:
+ * the verbose Project state lines, each naming one identity. */
+function projectStateLines(document: PresentationDocument): string[] {
+  const nodes = flattenPresentationNodes(document);
+  const start = indexWhere(nodes, (node) =>
+    node.kind === "heading" && nodeText(node) === "Projects:");
+  if (start < 0) return [];
+  const texts: string[] = [];
+  for (let index = start + 1; index < nodes.length; index += 1) {
+    const node = nodes[index]!;
+    if (node.kind === "heading") break;
+    texts.push(nodeText(node));
+  }
+  return texts;
+}
+
 /** The flat index of the first node satisfying one predicate. */
 function indexWhere(
   nodes: readonly PresentationNode[],
@@ -2801,11 +2817,15 @@ describe("formatLifecycleReport concise terminology", () => {
     const project = join(homedir(), "multi-host-project");
     const report = identityReport(project, ["claude", "codex"]);
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-
-    expect(verbose).toContain(
-      "~/multi-host-project: Profile coding\n  Hosts: claude, codex\n",
-    );
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const nodes = flattenPresentationNodes(verbose);
+    const projectIndex = indexWhere(nodes, (node) =>
+      node.kind === "prose" && nodeText(node) === "~/multi-host-project: Profile coding");
+    expect(projectIndex).toBeGreaterThan(-1);
+    expect(nodes[projectIndex + 1]).toEqual({
+      kind: "prose",
+      parts: ["  Hosts: claude, codex"],
+    });
   });
 
   test("keeps displayed identities distinct for projects with the same basename", () => {
@@ -2835,18 +2855,18 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-
-    expect(verbose).toContain("~/team-a/project: addition");
-    expect(verbose).toContain("~/team-b/project: addition");
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const stateLines = projectStateLines(verbose);
+    expect(stateLines).toContain("~/team-a/project: addition");
+    expect(stateLines).toContain("~/team-b/project: addition");
   });
 
   test("keeps an outside-home project absolute", () => {
     const project = "/var/tmp/outside-home-project";
     const report = identityReport(project);
 
-    expect(formatLifecycleReport("status", report, { verbose: true })).toContain(
-      `Projects:\n${project}: addition\n`,
+    expect(projectStateLines(lifecycleStatusDocument(report, { verbose: true }))).toContain(
+      `${project}: addition`,
     );
   });
 
@@ -2863,10 +2883,10 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: reportOutputs(report),
     });
 
-    const verbose = formatLifecycleReport("status", aliasedReport, { verbose: true });
-
-    expect(verbose).toContain(`Projects:\n${authoredProject}: addition\n`);
-    expect(verbose).not.toContain(`Projects:\n${canonicalProject}: addition\n`);
+    const verbose = lifecycleStatusDocument(aliasedReport, { verbose: true });
+    const stateLines = projectStateLines(verbose);
+    expect(stateLines).toContain(`${authoredProject}: addition`);
+    expect(stateLines).not.toContain(`${canonicalProject}: addition`);
   });
 
   test("preserves an authored home-relative path when its canonical spelling differs", () => {
@@ -2882,10 +2902,10 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: reportOutputs(report),
     });
 
-    const verbose = formatLifecycleReport("status", aliasedReport, { verbose: true });
-
-    expect(verbose).toContain(`Projects:\n${authoredProject}: addition\n`);
-    expect(verbose).not.toContain(`Projects:\n${canonicalProject}: addition\n`);
+    const verbose = lifecycleStatusDocument(aliasedReport, { verbose: true });
+    const stateLines = projectStateLines(verbose);
+    expect(stateLines).toContain(`${authoredProject}: addition`);
+    expect(stateLines).not.toContain(`${canonicalProject}: addition`);
   });
 
   test("keeps authored home-relative identity across fleet aggregations", () => {
@@ -2940,15 +2960,15 @@ describe("formatLifecycleReport concise terminology", () => {
       blockers: [fixtureBlocker(`${canonicalProject}: hooks disabled`, canonicalProject)],
     });
 
-    const concise = formatLifecycleReport("status", operations);
-    const verbose = formatLifecycleReport("status", operations, { verbose: true });
-    const blockedConcise = formatLifecycleReport("status", blocked);
+    const concise = lifecycleStatusDocument(operations);
+    const verbose = lifecycleStatusDocument(operations, { verbose: true });
+    const blockedConcise = lifecycleStatusDocument(blocked);
 
-    expect(concise).toContain("1 file update in ~/aliased-project");
-    expect(verbose).toContain("(~/aliased-project, /var/tmp/other-project)");
-    expect(blockedConcise).toContain("Scope: Project ~/aliased-project");
-    for (const output of [concise, verbose, blockedConcise]) {
-      expect(output).not.toContain(canonicalProject);
+    expect(presentationTexts(concise).join("\n")).toContain("1 file update in ~/aliased-project");
+    expect(presentationTexts(verbose).join("\n")).toContain("(~/aliased-project, /var/tmp/other-project)");
+    expect(presentationTexts(blockedConcise).join("\n")).toContain("Scope: Project ~/aliased-project");
+    for (const document of [concise, verbose, blockedConcise]) {
+      expect(presentationTexts(document).join("\n")).not.toContain(canonicalProject);
     }
   });
 
@@ -2991,13 +3011,12 @@ describe("formatLifecycleReport concise terminology", () => {
           : [],
       });
       const defaultViews = [
-        formatLifecycleReport("status", report),
-        formatApplyReport(applyResult(report)),
-        formatLifecycleReport("status", report),
+        lifecycleStatusDocument(report),
+        applyReportDocument(applyResult(report)),
       ];
 
       for (const view of defaultViews) {
-        expectUserFacingVocabulary(view);
+        expectUserFacingVocabulary(renderBoundary(view));
       }
     }
   });
