@@ -2932,12 +2932,6 @@ export function applyVerificationFailureDocument(
   return nodes;
 }
 
-const DEFAULT_RENDER_CONTEXT: TerminalPresentationContext = {
-  color: false,
-  interactive: false,
-  width: 10_000,
-};
-
 
 /**
  * Focused Blocker view for `status --blockers-only` (#351) and
