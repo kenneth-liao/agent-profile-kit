@@ -16,7 +16,7 @@ const redirected = { color: false, interactive: false, width: 80 } as const;
 
 test("renders a prose document to text for a terminal presentation context", () => {
   const text = renderPresentationDocument(
-    [{ kind: "prose", text: "Ready to apply.", category: "success" }],
+    [{ kind: "prose", parts: ["Ready to apply."], category: "success" }],
     redirected,
   );
   expect(text).toBe("Ready to apply.");
@@ -31,7 +31,7 @@ test("renders heading, key-value, identifier, and list-item nodes as distinct li
         key: "Workspace",
         value: { kind: "identifier", value: "engineering" },
       },
-      { kind: "list-item", nodes: [{ kind: "prose", text: "status reads the selected Project" }] },
+      { kind: "list-item", parts: ["status reads the selected Project"] },
     ],
     redirected,
   );
@@ -50,7 +50,7 @@ test("styles a notice by its severity rather than as a heading", () => {
     {
       kind: "notice" as const,
       severity: "error" as const,
-      nodes: [{ kind: "prose" as const, text: "2 Blockers" }],
+      nodes: [{ kind: "prose" as const, parts: ["2 Blockers"] }],
     },
   ];
 
@@ -76,7 +76,7 @@ test("wraps prose and carries its style across every wrapped line", () => {
   const sentence =
     "Blocker: generated output is occupied by a foreign file that Agent Profile Kit does not own.";
   const colored = renderPresentationDocument(
-    [{ kind: "prose", text: sentence, category: "error" }],
+    [{ kind: "prose", parts: [sentence], category: "error" }],
     { color: true, interactive: true, width: 40 },
   );
   const lines = colored.split("\n");
@@ -92,7 +92,7 @@ test("wraps prose and carries its style across every wrapped line", () => {
 test("holds prose to the selected measure on a wide terminal", () => {
   const sentence = Array.from({ length: 20 }, (_, index) => `word${index}`).join(" ");
   const text = renderPresentationDocument(
-    [{ kind: "prose", text: sentence }],
+    [{ kind: "prose", parts: [sentence] }],
     { color: false, interactive: true, width: 100 },
   );
   const lines = text.split("\n");
@@ -271,8 +271,8 @@ test("lays out a column group side by side and stacks when it will not fit", () 
   const document = [{
     kind: "column-group" as const,
     columns: [
-      [{ kind: "prose" as const, text: "Left column" }],
-      [{ kind: "prose" as const, text: "Right column" }],
+      [{ kind: "prose" as const, parts: ["Left column"] }],
+      [{ kind: "prose" as const, parts: ["Right column"] }],
     ],
   }];
   const wide = renderPresentationDocument(document, {
@@ -297,7 +297,7 @@ test("wraps a sentence continuously with embedded commands inline and whole", ()
     "apkit: apkit status Project target '/projects/demo' is not a bound Project; " +
     "run apkit list projects or apkit bind";
   const text = renderPresentationDocument(
-    [{ kind: "sentence", text: sentence }],
+    [{ kind: "sentence", parts: [sentence] }],
     { color: false, interactive: false, width: 40 },
   );
   const lines = text.split("\n");
@@ -321,23 +321,10 @@ test("wraps a sentence continuously with embedded commands inline and whole", ()
   expect(lines.map((line) => line.trimStart()).join(" ")).toBe(sentence);
 });
 
-test("keeps a supplied copyable value inline and whole inside a sentence", () => {
-  const sentence = "apkit: init recorded the Workspace at '/tmp/a b/workspace'";
-  const text = renderPresentationDocument(
-    [{ kind: "sentence", text: sentence }],
-    { color: false, interactive: false, width: 30 },
-    { copyableValues: ["'/tmp/a b/workspace'"] },
-  );
-  const lines = text.split("\n");
-  expect(lines.length).toBeGreaterThan(1);
-  expect(lines.some((line) => line.includes("'/tmp/a b/workspace'"))).toBe(true);
-  expect(lines.map((line) => line.trimStart()).join(" ")).toBe(sentence);
-});
-
 test("carries a sentence's category across every wrapped line", () => {
   const sentence = "apkit: apkit status failed because the Project target is not bound.";
   const colored = renderPresentationDocument(
-    [{ kind: "sentence", text: sentence, category: "error" }],
+    [{ kind: "sentence", parts: [sentence], category: "error" }],
     { color: true, interactive: false, width: 30 },
   );
   const lines = colored.split("\n");
@@ -351,8 +338,10 @@ test("carries a sentence's category across every wrapped line", () => {
 test("renders a diagnostic document as what happened, why, and what to type", () => {
   const text = renderPresentationDocument(
     diagnosticDocument({
-      happened: "apkit status Project target '/projects/demo' is not a bound Project; " +
-        "run apkit list projects or apkit bind",
+      happened: [
+        "apkit status Project target '/projects/demo' is not a bound Project; " +
+          "run apkit list projects or apkit bind",
+      ],
       usage: "status [project | --all] [--verbose] [--blockers-only] [--json]",
     }),
     { color: false, interactive: false, width: 80 },
@@ -372,9 +361,13 @@ test("renders a diagnostic document as what happened, why, and what to type", ()
 test("renders diagnostic cause lines after what happened and before what to type", () => {
   const text = renderPresentationDocument(
     diagnosticDocument({
-      happened: "apply failed",
-      why: ["caused by: one bad thing", "caused by: another bad thing"],
-      whatToType: ["Run apkit --help for available commands."],
+      happened: ["apply failed"],
+      why: [["caused by: one bad thing"], ["caused by: another bad thing"]],
+      whatToType: [[
+        "Run ",
+        commandPart("apkit", [{ kind: "text", value: "--help" }]),
+        " for available commands.",
+      ]],
     }),
     { color: false, interactive: false, width: 80 },
   );
@@ -403,95 +396,3 @@ test("reproduces verbatim content exactly, including fence escalation, without w
 function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
 }
-
-test("renders inline parts with byte-identical output to the carried string", () => {
-  // The parts model is the structural replacement for the copyable-value
-  // protector: whatever the protector kept whole or promoted must render
-  // identically when the invocation and path are authored as parts instead of
-  // scanned out of the rendered string.
-  const project = "/tmp/agent profile kit/project";
-  const cases: readonly {
-    readonly name: string;
-    readonly text: string;
-    readonly parts: readonly InlineContent[];
-    readonly copyableValues?: readonly string[];
-  }[] = [
-    {
-      name: "promoted command invocation",
-      text: "Recovery command: run apkit status --blockers-only --verbose to see the exact untracking command.",
-      parts: [
-        "Recovery command: run ",
-        commandPart("apkit", [arg("status"), arg("--blockers-only"), arg("--verbose")]),
-        " to see the exact untracking command.",
-      ],
-    },
-    {
-      name: "promoted invocation with trailing punctuation",
-      text: "For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run apkit guide --full.",
-      parts: [
-        "For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ",
-        commandPart("apkit", [arg("guide"), arg("--full.")]),
-      ],
-    },
-    {
-      name: "spaced copyable path kept whole",
-      text: `- ${project}: Profile installation update`,
-      parts: ["- ", pathPart(project, "fleet"), ": Profile installation update"],
-      copyableValues: [project],
-    },
-    {
-      name: "sentence keeps invocations inline and whole",
-      text: "apkit: apkit status Project target '/projects/demo' is not a bound Project; run apkit list projects or apkit bind",
-      parts: [
-        "apkit: ",
-        commandPart("apkit", [arg("status")]),
-        " Project target '/projects/demo' is not a bound Project; run ",
-        commandPart("apkit", [arg("list"), arg("projects")]),
-        " or ",
-        commandPart("apkit", [arg("bind")]),
-      ],
-    },
-  ];
-  for (const width of [40, 72, 80, 100]) {
-    for (const { name, text, parts, copyableValues } of cases) {
-      for (const kind of ["prose", "sentence"] as const) {
-        const carried = renderPresentationDocument(
-          [{ kind, text, category: "attention" }],
-          { color: false, interactive: false, width },
-          copyableValues === undefined ? {} : { copyableValues },
-        );
-        const structured = renderPresentationDocument(
-          [{ kind, parts, category: "attention" }],
-          { color: false, interactive: false, width },
-        );
-        expect(structured, `${kind} parts mismatch at width ${width}: ${name}`).toBe(carried);
-      }
-    }
-  }
-});
-
-test("renders list-item parts with byte-identical output to carried child nodes", () => {
-  const carried = renderPresentationDocument(
-    [{
-      kind: "list-item",
-      nodes: [{
-        kind: "prose",
-        text: "~/projects/demo: Resolve the reported blocker, then run apkit status again.",
-      }],
-    }],
-    { color: false, interactive: false, width: 40 },
-  );
-  const structured = renderPresentationDocument(
-    [{
-      kind: "list-item",
-      parts: [
-        "~/projects/demo",
-        ": Resolve the reported blocker, then run ",
-        commandPart("apkit", [arg("status")]),
-        " again.",
-      ],
-    }],
-    { color: false, interactive: false, width: 40 },
-  );
-  expect(structured).toBe(carried);
-});

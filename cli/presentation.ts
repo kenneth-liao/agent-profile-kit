@@ -22,13 +22,23 @@ export {
   formatProjectTargetErrorForHuman,
 } from "./blocker-wording.js";
 import {
+  carveDocumentValues,
+  carriedParts,
+  commandPart,
+  flatInlineText,
+  identifierPart,
+  pathPart,
   renderPresentationDocument,
   type CommandArg,
   type CommandNode,
+  type InlineContent,
   type NoticeSeverity,
   type PresentationDocument,
   type PresentationNode,
 } from "./presentation-document.js";
+
+/** One carried command argument. */
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,
@@ -124,7 +134,6 @@ import type {
   InfoConfigurationState,
 } from "../installer/info.js";
 import {
-  wrapPresentationText,
   type TerminalPresentationContext,
 } from "./terminal-presentation.js";
 import { COMMANDS } from "./command-help.js";
@@ -307,13 +316,17 @@ export function infoDocument(
   cwd = process.cwd(),
 ): PresentationDocument {
   const workspaceValue: PresentationNode = info.workspace === null
-    ? { kind: "prose", text: info.configurationState === "legacy"
-      ? `Legacy configuration; run ${COMMAND_NAME} init`
-      : "Not configured" }
+    ? { kind: "prose", parts: info.configurationState === "legacy"
+      ? ["Legacy configuration; run ", commandPart(COMMAND_NAME, [arg("init")])]
+      : ["Not configured"] }
     : info.configurationState === "legacy"
-      ? { kind: "prose", text: `Legacy configuration; run ${COMMAND_NAME} init (selected: ${
-        displayPath(info.workspace.canonical, info.workspace.authored, "fleet", cwd, home)
-      })` }
+      ? { kind: "prose", parts: [
+        "Legacy configuration; run ",
+        commandPart(COMMAND_NAME, [arg("init")]),
+        ` (selected: ${
+          displayPath(info.workspace.canonical, info.workspace.authored, "fleet", cwd, home)
+        })`,
+      ] }
       : { kind: "path", canonicalPath: info.workspace.canonical, authoredPath: info.workspace.authored, scope: "fleet" };
   return [
     {
@@ -421,38 +434,38 @@ function renderStandaloneDocument(
   copyableValues: readonly string[] = [],
   environment: { readonly cwd?: string; readonly home?: string } = {},
 ): string {
-  const rendered = renderPresentationDocument(document, context ?? DEFAULT_RENDER_CONTEXT, {
-    copyableValues,
-    ...(environment.cwd === undefined ? {} : { cwd: environment.cwd }),
-    ...(environment.home === undefined ? {} : { home: environment.home }),
-  });
+  const rendered = renderPresentationDocument(
+    carveDocumentValues(document, copyableValues),
+    context ?? DEFAULT_RENDER_CONTEXT,
+    environment.cwd === undefined && environment.home === undefined ? {} : environment,
+  );
   return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
 }
 
 /** The inventory index view as a presentation document. */
 export function inventoryIndexDocument(): PresentationDocument {
-  return inventoryTopicNodes(INVENTORY_TOPICS, (topic) => `${COMMAND_NAME} list ${topic.name}`);
+  return inventoryTopicNodes(INVENTORY_TOPICS, (topic) => [arg("list"), arg(topic.name)]);
 }
 
 /** Index view for the machine-namespaced inventory command (DEC-019). */
 export function machineInventoryIndexDocument(): PresentationDocument {
   return inventoryTopicNodes(
     MACHINE_INVENTORY_TOPICS,
-    (topic) => `${COMMAND_NAME} machine list ${topic.name}`,
+    (topic) => [arg("machine"), arg("list"), arg(topic.name)],
   );
 }
 
 function inventoryTopicNodes(
   topics: readonly { readonly description: string; readonly name: string }[],
-  command: (topic: { readonly description: string; readonly name: string }) => string,
+  command: (topic: { readonly description: string; readonly name: string }) => readonly CommandArg[],
 ): PresentationDocument {
   const nodes: PresentationNode[] = [{ kind: "heading", text: "Inventory topics:" }];
   for (const topic of topics) {
     nodes.push(
       // Indented command invocations are prose lines with an authored command
       // category: the command node kind cannot carry the two-space indent.
-      { kind: "prose", text: `  ${command(topic)}`, category: "command" },
-      { kind: "prose", text: `    ${topic.description}` },
+      { kind: "prose", parts: ["  ", commandPart(COMMAND_NAME, command(topic))], category: "command" },
+      { kind: "prose", parts: [`    ${topic.description}`] },
     );
   }
   return nodes;
@@ -482,11 +495,15 @@ export function projectInventoryDocument(
       {
         kind: "notice",
         severity: "success",
-        nodes: [{ kind: "prose", text: "No Projects are configured." }],
+        nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
       },
       {
         kind: "prose",
-        text: `Use ${COMMAND_NAME} bind <profile> --host <host> to configure a Project.`,
+        parts: [
+          "Use ",
+          commandPart(COMMAND_NAME, [arg("bind"), arg("<profile>"), arg("--host"), arg("<host>")]),
+          " to configure a Project.",
+        ],
       },
     ];
   }
@@ -515,14 +532,24 @@ export function projectInventoryDocument(
     if (project.problem !== null) {
       nodes.push({
         kind: "prose",
-        text: `  Problem: ${formatInstallerToolError(project.problem)}`,
+        parts: [
+          "  Problem: ",
+          ...formatInstallerToolError(project.problem),
+        ],
         category: "attention",
       });
     }
   }
   nodes.push(
     spacerNode(),
-    { kind: "prose", text: `Use ${COMMAND_NAME} status to inspect Project lifecycle diagnostics.` },
+    {
+      kind: "prose",
+      parts: [
+        "Use ",
+        commandPart(COMMAND_NAME, [arg("status")]),
+        " to inspect Project lifecycle diagnostics.",
+      ],
+    },
   );
   return nodes;
 }
@@ -619,7 +646,9 @@ export function formatProjectInventoryJson(
     listInventoryMachinePayload("projects", "success", {
       projects: projects.map((project) => ({
         ...project,
-        problem: project.problem === null ? null : formatInstallerToolError(project.problem),
+        problem: project.problem === null
+          ? null
+          : flatInlineText(formatInstallerToolError(project.problem)),
       })),
     }) satisfies ProjectInventoryMachinePayload,
   );
@@ -643,11 +672,15 @@ export function profileInventoryDocument(
       {
         kind: "notice",
         severity: "success",
-        nodes: [{ kind: "prose", text: "No Profiles are available." }],
+        nodes: [{ kind: "prose", parts: ["No Profiles are available."] }],
       },
       {
         kind: "prose",
-        text: `Add a Profile to the selected Workspace, then use <profile> with ${COMMAND_NAME} bind.`,
+        parts: [
+          "Add a Profile to the selected Workspace, then use <profile> with ",
+          commandPart(COMMAND_NAME, [arg("bind")]),
+          ".",
+        ],
       },
     ];
   }
@@ -678,7 +711,11 @@ export function profileInventoryDocument(
     spacerNode(),
     {
       kind: "prose",
-      text: `Use <profile> with ${COMMAND_NAME} bind to select it for a configured Project.`,
+      parts: [
+        "Use <profile> with ",
+        commandPart(COMMAND_NAME, [arg("bind")]),
+        " to select it for a configured Project.",
+      ],
     },
   );
   return nodes;
@@ -732,11 +769,15 @@ export function hostInventoryDocument(
 ): PresentationDocument {
   return [
     { kind: "heading", text: "Supported Hosts:" },
-    ...hosts.map(({ host }) => ({ kind: "prose" as const, text: `  ${host}` })),
+    ...hosts.map(({ host }) => ({ kind: "prose" as const, parts: [`  ${host}`] })),
     spacerNode(),
     {
       kind: "prose",
-      text: `Use <host> with ${COMMAND_NAME} bind to select it for a configured Project.`,
+      parts: [
+        "Use <host> with ",
+        commandPart(COMMAND_NAME, [arg("bind")]),
+        " to select it for a configured Project.",
+      ],
     },
   ];
 }
@@ -778,12 +819,23 @@ export function temporaryInventoryDocument(
         severity: "success",
         nodes: [{
           kind: "prose",
-          text: `No ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.plural} are active.`,
+          parts: [`No ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.plural} are active.`],
         }],
       },
       {
         kind: "prose",
-        text: `Create one with ${COMMAND_NAME} machine install-temp <profile> <project> --host <host>.`,
+        parts: [
+          "Create one with ",
+          commandPart(COMMAND_NAME, [
+            arg("machine"),
+            arg("install-temp"),
+            arg("<profile>"),
+            arg("<project>"),
+            arg("--host"),
+            arg("<host>"),
+          ]),
+          ".",
+        ],
       },
     ];
   }
@@ -826,7 +878,15 @@ export function temporaryInventoryDocument(
     spacerNode(),
     {
       kind: "prose",
-      text: `Use ${COMMAND_NAME} machine remove-temp <temporary-installation-id> to remove one.`,
+      parts: [
+        "Use ",
+        commandPart(COMMAND_NAME, [
+          arg("machine"),
+          arg("remove-temp"),
+          arg("<temporary-installation-id>"),
+        ]),
+        " to remove one.",
+      ],
     },
   );
   return nodes;
@@ -920,22 +980,28 @@ export function validationResultDocument(result: ValidationResult): Presentation
       severity: "success",
       nodes: [{
         kind: "prose",
-        text: `Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} valid ${countClause}`,
+        parts: [`Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} valid ${countClause}`],
       }],
     },
     {
       kind: "key-value",
       key: "Profiles found",
-      value: { kind: "prose", text: profileCount === 0 ? "none" : result.profiles.join(", ") },
+      value: {
+        kind: "prose",
+        parts: [profileCount === 0 ? "none" : result.profiles.join(", ")],
+      },
     },
     {
       kind: "key-value",
       key: "Hosts bound",
-      value: { kind: "prose", text: result.hosts.length === 0 ? "none" : result.hosts.join(", ") },
+      value: {
+        kind: "prose",
+        parts: [result.hosts.length === 0 ? "none" : result.hosts.join(", ")],
+      },
     },
     ...result.warnings.map((warning) => ({
       kind: "prose" as const,
-      text: `Warning: ${warning}`,
+      parts: [`Warning: ${warning}`],
       category: "attention" as const,
     })),
     {
@@ -979,11 +1045,11 @@ export function uninstallResultDocument(
       severity: "success",
       nodes: [{
         kind: "prose",
-        text: projectCount === 0
+        parts: [projectCount === 0
           ? keptCount === 0
             ? "No ordinary Agent Profile Kit-owned output is installed."
             : `Removed no Agent Profile Kit-owned output; kept ${plural(keptCount, "Project")} below.`
-          : `Removed proven Agent Profile Kit-owned output from ${plural(projectCount, "Project")}.`,
+          : `Removed proven Agent Profile Kit-owned output from ${plural(projectCount, "Project")}.`],
       }],
     },
   ];
@@ -995,20 +1061,20 @@ export function uninstallResultDocument(
         key: "Project",
         value: projectPathNode(project.project, project.project, "fleet"),
       },
-      { kind: "prose", text: "  Removed generated paths:", category: "success" },
-      ...project.outputs.map((path) => ({ kind: "prose" as const, text: `  - ${path}` })),
+      { kind: "prose", parts: ["  Removed generated paths:"], category: "success" },
+      ...project.outputs.map((path) => ({ kind: "prose" as const, parts: [`  - ${path}`] })),
     );
     if (project.repositoryExclusions.length > 0) {
       nodes.push(
-        { kind: "prose", text: "  Cleaned Git exclusions:" },
+        { kind: "prose", parts: ["  Cleaned Git exclusions:"] },
         ...project.repositoryExclusions.flatMap((exclusion) =>
           exclusion.entries.map((entry) => ({
             kind: "prose" as const,
-            text: `  - ${entry} (${replaceProjectReference(
+            parts: [`  - ${entry} (${replaceProjectReference(
               exclusion.target,
               project.project,
               displayProjectPath(project.project, project.project, "fleet", cwd, home),
-            )})`,
+            )})`],
           })),
         ),
       );
@@ -1019,7 +1085,7 @@ export function uninstallResultDocument(
       spacerNode(),
       {
         kind: "prose",
-        text: `Kept ${plural(keptCount, "Project")} whose owned output could not be fully removed:`,
+        parts: [`Kept ${plural(keptCount, "Project")} whose owned output could not be fully removed:`],
       },
     );
     for (const kept of result.kept) {
@@ -1031,28 +1097,34 @@ export function uninstallResultDocument(
           value: projectPathNode(kept.project, kept.project, "fleet"),
         },
         // The reason is a removal failure fact; its category is error.
-        { kind: "prose", text: `  - ${renderItemReason(kept.reason)}`, category: "error" },
+        { kind: "prose", parts: [`  - ${renderItemReason(kept.reason)}`], category: "error" },
       );
     }
   }
   if (result.warnings.length > 0) {
     nodes.push(
       spacerNode(),
-      { kind: "prose", text: "Warnings:", category: "attention" },
+      { kind: "prose", parts: ["Warnings:"], category: "attention" },
       ...result.warnings.map((warning) => ({
         kind: "list-item" as const,
-        nodes: [{ kind: "prose" as const, text: warning }],
+        parts: [warning],
       })),
     );
   }
   nodes.push(
     spacerNode(),
-    { kind: "prose", text: `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.plural)} preserved.` },
+    { kind: "prose", parts: [`${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.plural)} preserved.`] },
   );
   if (projectCount > 0) {
     nodes.push({
       kind: "prose",
-      text: `Next: Run ${COMMAND_NAME} unbind for ${DEFAULT_VIEW_LEXICON.projectBinding.plural} you no longer want, or ${COMMAND_NAME} apply to reinstall.`,
+      parts: [
+        "Next: Run ",
+        commandPart(COMMAND_NAME, [arg("unbind")]),
+        ` for ${DEFAULT_VIEW_LEXICON.projectBinding.plural} you no longer want, or `,
+        commandPart(COMMAND_NAME, [arg("apply")]),
+        " to reinstall.",
+      ],
       category: "command",
     });
   }
@@ -1268,7 +1340,7 @@ function stateExplanationNodes(items: readonly ReconciliationItem[]): Presentati
     { kind: "heading", text: "State explanations:" },
     ...kinds.map((kind) => ({
       kind: "list-item" as const,
-      nodes: [{ kind: "prose" as const, text: `${kind}: ${STATE_EXPLANATIONS[kind]}` }],
+      parts: [`${kind}: ${STATE_EXPLANATIONS[kind]}`],
     })),
   ];
 }
@@ -1435,151 +1507,11 @@ type UntrackRecovery =
   | { readonly kind: "full" }
   | { readonly kind: "pointer"; readonly command: LifecycleCommand };
 
-function untrackRecoveryLines(
-  project: string,
-  paths: readonly string[],
-  indent: string,
-  recovery: UntrackRecovery,
-): readonly string[] {
-  if (paths.length === 0) return [];
-  if (recovery.kind === "pointer") {
-    return [
-      `${indent}  Recovery command: run apkit ${recovery.command} --blockers-only --verbose to see the exact untracking command.`,
-    ];
-  }
-  return [
-    `${indent}  Recovery: run the command below yourself; Agent Profile Kit never executes it. ` +
-      "It stages removal of these paths from Git ownership (the Git index) while the working files are preserved:",
-    `${indent}    ${trackedPathUntrackCommand(project, paths)}`,
-    `${indent}  Alternatively, change or remove the configured Project.`,
-  ];
-}
 
-function conciseOwnershipConflictLines(
-  blocker: StructuredReconciliationBlocker & {
-    readonly kind: typeof OUTPUT_OWNERSHIP_CONFLICT;
-    readonly scope: "project";
-  },
-  displayProject: string,
-  groups: readonly ProjectGroup[],
-  indent: string,
-  untrackRecovery: UntrackRecovery,
-  scope: LocationDisplayScope,
-): readonly string[] {
-  const paths = outputOwnershipConflictPaths(blocker);
-  const wording = humanBlockerWording(blocker);
-  const lines = [
-    `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups, scope)}`,
-    `${indent}  Requirement: ${wording.requirement}`,
-    `${indent}  Remedy: ${wording.remedy}`,
-    `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`,
-  ];
-  if (paths.length > 0) {
-    lines.push(`${indent}  Affected paths (${paths.length}):`);
-    lines.push(...trackedPathGroupLines(paths, indent));
-  }
-  lines.push(...untrackRecoveryLines(blocker.project!, paths, indent, untrackRecovery));
-  return lines;
-}
 
-function conciseBlockerLines(
-  blocker: ReconciliationBlocker,
-  displayProject: string | undefined,
-  groups: readonly ProjectGroup[],
-  indent: string,
-  untrackRecovery: UntrackRecovery,
-  scope: LocationDisplayScope,
-): readonly string[] {
-  if (isOutputOwnershipConflict(blocker)) {
-    if (displayProject === undefined) {
-      throw new Error("Project-scoped ownership Blocker is missing its Project presentation");
-    }
-    return conciseOwnershipConflictLines(
-      blocker,
-      displayProject,
-      groups,
-      indent,
-      untrackRecovery,
-      scope,
-    );
-  }
-  const wording = humanBlockerWording(blocker);
-  const lines = [
-    `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups, scope)}`,
-    `${indent}  Requirement: ${wording.requirement}`,
-    `${indent}  Remedy: ${wording.remedy}`,
-    `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`,
-  ];
-  for (const item of blocker.affectedItems) {
-    lines.push(`${indent}  ${affectedItemLabel(item)}`);
-  }
-  return lines;
-}
 
-function verboseBlockerLines(
-  blocker: ReconciliationBlocker,
-  groups: readonly ProjectGroup[],
-  shorten: (text: string) => string,
-  untrackRecovery: UntrackRecovery,
-  scope: LocationDisplayScope,
-): readonly string[] {
-  const project = blocker.scope === "project"
-    ? presentProject(requireProjectGroup(groups, blocker.project!), scope)
-    : undefined;
-  const wording = humanBlockerWording(blocker);
-  const lines = [
-    `- ${shorten(wording.problem)}`,
-    `  Requirement: ${wording.requirement}`,
-    `  Remedy: ${wording.remedy}`,
-    `  Scope: ${blockerScopeText(blocker, project)}`,
-  ];
-  for (const item of blocker.affectedItems) {
-    const value = blocker.scope === "project" && item.kind === "path"
-      ? shorten(`${blocker.project!}/${item.value}`)
-      : item.value;
-    lines.push(`  ${affectedItemLabel({ ...item, value })}`);
-  }
-  if (isOutputOwnershipConflict(blocker)) {
-    lines.push(...untrackRecoveryLines(
-      blocker.project!,
-      outputOwnershipConflictPaths(blocker),
-      "",
-      untrackRecovery,
-    ));
-  }
-  return lines;
-}
 
-/** One group's concise blocker evidence, one entry per Blocker. */
-function conciseGroupBlockerLines(
-  group: ProjectGroup,
-  groups: readonly ProjectGroup[],
-  indent: string,
-  untrackRecovery: UntrackRecovery,
-  scope: LocationDisplayScope,
-): readonly string[] {
-  const displayProject = displayProjectPath(group.canonicalProject, group.project, scope);
-  return group.blockers.flatMap((blocker) =>
-    conciseBlockerLines(blocker, displayProject, groups, indent, untrackRecovery, scope),
-  );
-}
 
-/** The concise global-blocker section; empty when no global Blocker exists. */
-function conciseGlobalBlockerLines(
-  report: ReconciliationReport,
-  groups: readonly ProjectGroup[],
-  untrackRecovery: UntrackRecovery,
-  scope: LocationDisplayScope,
-): readonly string[] {
-  const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
-  if (globalBlockers.length === 0) return [];
-  return [
-    "Global blockers:",
-    ...globalBlockers.flatMap((blocker) =>
-      conciseBlockerLines(blocker, undefined, groups, "  ", untrackRecovery, scope)
-    ),
-  ];
-}
 
 function groupProjects(report: ReconciliationReport): GroupedProjects {
   const groups = report.projects.map((record): ProjectGroup => ({
@@ -1668,34 +1600,6 @@ function stillPendingProjects(
     .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
 }
 
-/**
- * The committed Apply Receipt plus the Projects it made current — safety
- * evidence every human apply view must show (ADR-0024). `postState` is the
- * post-commit snapshot; `summarizeFleet` collapses per-Project receipts above
- * one Project.
- */
-function committedApplyEvidence(
-  receipt: ReconciliationReport,
-  postState: ReconciliationReport,
-  summarizeFleet: boolean,
-  scope: LocationDisplayScope,
-): readonly string[] {
-  const lines = [
-    ...applyReceiptLines(receipt, scope, summarizeFleet, postState),
-  ];
-  const appliedProjects = new Set(
-    receipt.projects.map((project) => project.canonicalProject),
-  );
-  const freshlyCurrent = postState.projects
-    .filter((project) =>
-      project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
-    )
-    .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
-  if (freshlyCurrent.length > 0) {
-    lines.push(`Freshly current: ${freshlyCurrent.join(", ")}`);
-  }
-  return lines;
-}
 
 function outcomeLine(
   command: LifecycleCommand,
@@ -2112,7 +2016,7 @@ function conciseFirstUseNodes(
     { kind: "heading", text: "First use:" },
     ...groups.map((group) => ({
       kind: "list-item" as const,
-      nodes: [{ kind: "prose" as const, text: conciseFirstUseActionLine(group, changeEvidence) }],
+      parts: [conciseFirstUseActionLine(group, changeEvidence)],
     })),
   ];
 }
@@ -2205,8 +2109,8 @@ function nextActionScope(
   return ` (${presented.slice(0, PROJECT_SCOPE_LIMIT).join(", ")}, … ${plural(presented.length - PROJECT_SCOPE_LIMIT, "more Project")}; use --verbose to see all Projects)`;
 }
 
-/** One invocation-scoped next action, without its heading or bullet prefix. */
-function nextActions(
+/** One invocation-scoped next action node list. */
+function nextActionNodes(
   command: LifecycleCommand,
   report: ReconciliationReport,
   surface: {
@@ -2214,33 +2118,46 @@ function nextActions(
     readonly unscopedItems: readonly ReconciliationItem[];
   },
   options: LifecycleHumanOptions,
-): readonly string[] {
+): PresentationNode[] {
   if (command === "apply" && reportBlockers(report).length === 0) return [];
   const scope = locationDisplayScope(options, report);
-  const applyCommand = options.all === true
-    ? "apply --all"
+  const applyCommandArgs: readonly CommandArg[] = options.all === true
+    ? [arg("apply"), arg("--all")]
     : options.project !== undefined
-    ? `apply ${options.project}`
+    ? [arg("apply"), arg(options.project)]
     : report.projects.length > 1
-    ? "apply --all"
-    : "apply";
+    ? [arg("apply"), arg("--all")]
+    : [arg("apply")];
 
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
-  const grouped = new Map<string, Array<{ readonly authored: string; readonly canonical: string }>>();
+  const grouped = new Map<
+    string,
+    {
+      readonly parts: readonly InlineContent[];
+      readonly projects: Array<{ readonly authored: string; readonly canonical: string }>;
+    }
+  >();
   const addAction = (
-    action: string,
+    parts: readonly InlineContent[],
     project?: { readonly authored: string; readonly canonical: string },
   ): void => {
-    const existing = grouped.get(action) ?? [];
-    if (project !== undefined) existing.push(project);
-    grouped.set(action, existing);
+    const key = flatInlineText(parts);
+    const existing = grouped.get(key) ?? { parts, projects: [] };
+    if (project !== undefined) existing.projects.push(project);
+    grouped.set(key, existing);
   };
   for (const group of surface.groups) {
     const project = { authored: group.project, canonical: group.canonicalProject };
     if (group.blockers.length > 0) {
       const blockerWord = group.blockers.length === 1 ? "blocker" : "blockers";
       addAction(
-        `Resolve the reported ${blockerWord}, then run ${COMMAND_NAME} ${command} again.`,
+        [
+          "Resolve the reported ",
+          blockerWord,
+          ", then run ",
+          commandPart(COMMAND_NAME, [arg(command)]),
+          " again.",
+        ],
         project,
       );
       continue;
@@ -2249,29 +2166,41 @@ function nextActions(
     if (reportBlockers(report).length > 0 && globalBlockers.length === 0) {
       if (command === "status") {
         addAction(
-          `After all blockers are resolved, run ${COMMAND_NAME} ${applyCommand}.`,
+          [
+            "After all blockers are resolved, run ",
+            commandPart(COMMAND_NAME, applyCommandArgs),
+            ".",
+          ],
           project,
         );
       } else {
         addAction(
-          `After all blockers are resolved, run ${COMMAND_NAME} ${applyCommand}` +
-            `${command === "apply" ? " again" : ""}.`,
+          [
+            "After all blockers are resolved, run ",
+            commandPart(COMMAND_NAME, applyCommandArgs),
+            command === "apply" ? " again." : ".",
+          ],
           project,
         );
       }
       continue;
     }
     if (globalBlockers.length > 0) continue;
-    if (command === "status") {
-      addAction(`Run ${COMMAND_NAME} ${applyCommand}.`, project);
-    } else {
-      addAction(`Run ${COMMAND_NAME} ${applyCommand}.`, project);
-    }
+    addAction(
+      ["Run ", commandPart(COMMAND_NAME, applyCommandArgs), "."],
+      project,
+    );
   }
 
   if (globalBlockers.length > 0) {
     const blockerWord = globalBlockers.length === 1 ? "blocker" : "blockers";
-    addAction(`Resolve the reported global ${blockerWord}, then run ${COMMAND_NAME} ${command} again.`);
+    addAction([
+      "Resolve the reported global ",
+      blockerWord,
+      ", then run ",
+      commandPart(COMMAND_NAME, [arg(command)]),
+      " again.",
+    ]);
   }
   if (
     reportBlockers(report).length === 0 &&
@@ -2280,38 +2209,34 @@ function nextActions(
       (grouped.size === 0 && reportHasReconciliationWork(report))
     )
   ) {
-    addAction(`Run ${COMMAND_NAME} ${applyCommand}.`);
+    addAction(["Run ", commandPart(COMMAND_NAME, applyCommandArgs), "."]);
   }
-  const actions = [...grouped.entries()].map(([action, projects]) => {
+  const items: InlineContent[][] = [...grouped.values()].map((entry) => {
     const uniqueProjects = [...new Map(
-      projects.map((project) => [project.canonical, project]),
+      entry.projects.map((project) => [project.canonical, project]),
     ).values()].sort((left, right) =>
       compareCanonicalStrings(left.canonical, right.canonical),
     );
     if (uniqueProjects.length === 1) {
       const project = uniqueProjects[0]!;
-      return `${displayProjectPath(project.canonical, project.authored, scope)}: ${action}`;
+      return [
+        pathPart(project.canonical, scope, project.authored),
+        ": ",
+        ...entry.parts,
+      ];
     }
-    // A single remaining next action is already fleet-scoped; listing every
-    // Project would replay the matrix this ticket collapses.
-    if (grouped.size === 1) return action;
-    return `${action}${nextActionScope(uniqueProjects, scope)}`;
+    if (grouped.size === 1) return [...entry.parts];
+    return [...entry.parts, nextActionScope(uniqueProjects, scope)];
   });
-  return actions;
-}
 
-/** String-pipeline heading and bullets for the shared next-action facts. */
-function nextActionLines(
-  command: LifecycleCommand,
-  report: ReconciliationReport,
-  surface: {
-    readonly groups: readonly ProjectGroup[];
-    readonly unscopedItems: readonly ReconciliationItem[];
-  },
-  options: LifecycleHumanOptions,
-): readonly string[] {
-  const actions = nextActions(command, report, surface, options);
-  return actions.length === 0 ? [] : ["Next:", ...actions.map((action) => `- ${action}`)];
+  if (items.length === 0) return [];
+  return [
+    { kind: "heading", text: "Next:" },
+    ...items.map((parts) => ({
+      kind: "list-item" as const,
+      parts,
+    })),
+  ];
 }
 
 /** Observable output operations included in concise fleet summaries. */
@@ -2418,50 +2343,7 @@ function operationGroupLine(
     operationScopeClause(group, report, scope);
 }
 
-function operationAttentionLines(
-  report: ReconciliationReport,
-  scope: LocationDisplayScope,
-  includeRemovals = false,
-): readonly string[] {
-  const exceptions = report.projects.filter((project) => {
-    const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
-    return project.outputs.some((output) =>
-      includeRemovals && output.kind === "removal"
-    ) ||
-      EXCEPTION_ITEM_KINDS.has(project.state.kind) ||
-      (project.state.kind === STALE_SOURCE_KIND && !hasPlannedOutput);
-  });
-  if (exceptions.length === 0) return [];
-  const lines = ["", "Project exceptions:"];
-  for (const project of exceptions) {
-    lines.push(`  ${displayProjectPath(project.canonicalProject, project.project, scope)}:`);
-    const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
-    if (
-      EXCEPTION_ITEM_KINDS.has(project.state.kind) ||
-      (project.state.kind === STALE_SOURCE_KIND && !hasPlannedOutput)
-    ) {
-      lines.push(`    State: ${itemText({ ...project.state, project: project.project })}`);
-    }
-    const attentionOutputs = project.outputs.filter((output) =>
-      includeRemovals && output.kind === "removal"
-    );
-    lines.push(...outputPathLines(attentionOutputs).map((line) => `    ${line}`));
-  }
-  return lines;
-}
 
-function operationSummarySections(
-  report: ReconciliationReport,
-  scope: LocationDisplayScope,
-): readonly string[] {
-  const groups = groupOutputOperations(report);
-  return [
-    "",
-    "Project changes:",
-    ...groups.map((group) => `  ${operationGroupLine(group, report, scope)}`),
-    ...operationAttentionLines(report, scope),
-  ];
-}
 
 /** The typed concise operation summary shared by the status views. */
 function operationSummaryNodes(
@@ -2474,7 +2356,7 @@ function operationSummaryNodes(
     { kind: "heading", text: "Project changes:" },
     ...groups.map((group) => ({
       kind: "prose" as const,
-      text: `  ${operationGroupLine(group, report, scope)}`,
+      parts: [`  ${operationGroupLine(group, report, scope)}`],
     })),
     ...operationAttentionNodes(report, scope),
   ];
@@ -2502,7 +2384,7 @@ function operationAttentionNodes(
   for (const project of exceptions) {
     nodes.push({
       kind: "prose",
-      text: `  ${displayProjectPath(project.canonicalProject, project.project, scope)}:`,
+      parts: [`  ${displayProjectPath(project.canonicalProject, project.project, scope)}:`],
     });
     const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
     if (
@@ -2511,7 +2393,7 @@ function operationAttentionNodes(
     ) {
       nodes.push({
         kind: "prose",
-        text: `    State: ${itemText({ ...project.state, project: project.project })}`,
+        parts: [`    State: ${itemText({ ...project.state, project: project.project })}`],
       });
     }
     const attentionOutputs = project.outputs.filter((output) =>
@@ -2519,7 +2401,7 @@ function operationAttentionNodes(
     );
     nodes.push(...outputPathLines(attentionOutputs).map((line) => ({
       kind: "prose" as const,
-      text: `    ${line}`,
+      parts: [`    ${line}`],
     })));
   }
   return nodes;
@@ -2609,38 +2491,7 @@ function lifecycleInvocation(
   return `${COMMAND_NAME} ${command}`;
 }
 
-function readyStatusGuidance(
-  report: ReconciliationReport,
-  options: LifecycleHumanOptions,
-): readonly string[] {
-  return [
-    `Next: ${lifecycleInvocation("apply", report, options)}`,
-    "",
-    `Details: ${lifecycleInvocation("status", report, options)} --verbose`,
-  ];
-}
 
-function operationReceiptLines(
-  receipt: ReconciliationReport,
-  fleetScope: ReconciliationReport,
-  scope: LocationDisplayScope,
-  includeExclusions = true,
-): readonly string[] {
-  const groups = groupOutputOperations(receipt);
-  const exclusionClause = includeExclusions ? repositoryExclusionClause(receipt, true) : undefined;
-  if (groups.length === 0 && exclusionClause === undefined) return [];
-  // Every applied write names its file: affected paths sit beneath the counted
-  // operation lines, attributed to their Project, capped like every concise
-  // path list so no change to a working tree is silent (#380).
-  const pathLines = operationReceiptPathLines(receipt, scope);
-  const lines = [
-    "Applied:",
-    ...groups.map((group) => `  ${operationGroupLine(group, fleetScope, scope)}`),
-    ...pathLines,
-  ];
-  if (exclusionClause !== undefined) lines.push("", exclusionClause);
-  return lines;
-}
 
 /**
  * One named path line per affected generated file in the Apply Receipt, with
@@ -2677,439 +2528,7 @@ function operationReceiptPathLines(
     : lines;
 }
 
-function applyReceiptLines(
-  receipt: ReconciliationReport,
-  scope: LocationDisplayScope,
-  summarizeFleet = false,
-  fleetScope: ReconciliationReport = receipt,
-): readonly string[] {
-  if (summarizeFleet || useOperationSummary(receipt, false)) {
-    return operationReceiptLines(receipt, fleetScope, scope);
-  }
-  const grouped = groupProjects(receipt);
-  const entries = grouped.groups.flatMap((group) => {
-    const paths = outputPathLines(group.outputs);
-    if (paths.length > 0) {
-      return [
-        `- ${displayProjectPath(group.canonicalProject, group.project, scope)}:`,
-        ...paths.map((line) => `  ${line}`),
-      ];
-    }
-    const workKinds = [...new Set(
-      group.items
-        .filter((item) => item.kind !== "current")
-        .map((item) => item.kind === "update"
-          ? `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} update`
-          : `${DEFAULT_VIEW_LEXICON.reconciliation.noun} ${item.kind}`),
-    )];
-    return workKinds.length > 0
-      ? [`- ${displayProjectPath(group.canonicalProject, group.project, scope)}: ${workKinds.join(", ")}`]
-      : [];
-  });
-  const exclusionClause = repositoryExclusionClause(receipt, true);
-  if (entries.length === 0 && exclusionClause === undefined) {
-    return ["Applied: none."];
-  }
 
-  const lines = [
-    "Applied:",
-    ...(entries.length > 0 ? entries : [`- No ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} changes`]),
-  ];
-  if (exclusionClause !== undefined) lines.push("", exclusionClause);
-  return lines;
-}
-
-function conciseReport(
-  command: LifecycleCommand,
-  report: ReconciliationReport,
-  receipt?: ReconciliationReport,
-  options: LifecycleHumanOptions = {},
-): string {
-  const scope = locationDisplayScope(options, report);
-  const grouped = groupProjects(report);
-  const groups = grouped.groups;
-  const blocked = reportBlockers(report).length > 0;
-  const emptyStatus =
-    command === "status" &&
-    reportBlockers(report).length === 0 &&
-    reportDesired(report).length === 0 &&
-    reportItems(report).length === 0;
-  const fullyCurrentStatus = command === "status" && fullyCurrentProjectCount(report) !== undefined;
-  const readyStatus = command === "status" && !blocked && !emptyStatus && !fullyCurrentStatus;
-  const noOpApply = isNoOpApply(command, report, receipt);
-
-  if (emptyStatus) {
-    return [
-      "No Projects are configured.",
-      `Next: Run ${COMMAND_NAME} list projects to inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}, or ` +
-        `${COMMAND_NAME} bind <profile> --host <host> to configure one.`,
-      "",
-    ].join("\n");
-  }
-
-  const lines = noOpApply
-    ? [
-        outcomeLine(command, report, true),
-        `All ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
-      ]
-    : readyStatus
-    ? [...readyStatusImpactLines(report, scope)]
-    : [outcomeLine(command, report, receipt !== undefined)];
-
-  const summary = !blocked && !fullyCurrentStatus && !readyStatus && !noOpApply && command !== "apply"
-    ? aggregateLine(command, report, groups)
-    : undefined;
-  if (summary !== undefined) lines.push(summary);
-
-  if (command === "apply" && !blocked && !noOpApply && receipt !== undefined) {
-    const appliedLines = operationReceiptLines(receipt, report, scope, false);
-    if (appliedLines.length > 0) {
-      lines.push("", ...appliedLines);
-    }
-  }
-
-  const activeGroups = blocked
-    ? groups.filter((group) => group.blockers.length > 0)
-    : groups.filter((group) => groupNeedsAttention(group, command));
-  const reportOperationSummary = command !== "apply" && useOperationSummary(report, blocked);
-
-  if (!noOpApply) {
-    if (readyStatus) {
-      lines.push(...operationAttentionLines(report, scope, true));
-    } else if (reportOperationSummary) {
-      lines.push(...operationSummarySections(report, scope));
-    } else if (activeGroups.length > 0) {
-      for (const group of activeGroups) {
-        lines.push(
-          "",
-          `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project, scope)}`,
-        );
-        const desired = desiredInstallation(report, group.canonicalProject);
-        if (desired) {
-          lines.push(`  Profile: ${desired.profile}`, `  Hosts: ${desired.hosts.join(", ")}`);
-        }
-        if (blocked) {
-          lines.push(...conciseGroupBlockerLines(group, groups, "  ", {
-            kind: "pointer",
-            command,
-          }, scope));
-          continue;
-        }
-        for (const item of group.items) {
-          if (item.kind !== "current") {
-            lines.push(`  State: ${itemText(item)}`);
-          }
-        }
-        const outputLines = outputPathLines(group.outputs);
-        if (outputLines.length > 0) lines.push("  Files:", ...outputLines.map((line) => `  ${line}`));
-        for (const blocker of group.blockers) {
-          lines.push(...conciseBlockerLines(
-            blocker,
-            displayProjectPath(group.canonicalProject, group.project, scope),
-            groups,
-            "  ",
-            { kind: "pointer", command },
-            scope,
-          ));
-        }
-      }
-    } else if (
-      command === "status" &&
-      groups.length > 0 &&
-      reportBlockers(report).length === 0 &&
-      !fullyCurrentStatus &&
-      !reportHasReconciliationWork(report)
-    ) {
-      const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-      lines.push(`No ${projects} need attention.`);
-    }
-  }
-
-  if (command === "apply" && blocked) {
-    const stillPending = stillPendingProjects(report, scope);
-    if (stillPending.length > 0) {
-      lines.push("", `Still pending: ${stillPending.join(", ")}`);
-    }
-  }
-
-  const exclusionClause = repositoryExclusionClause(report, false, readyStatus);
-  if (exclusionClause !== undefined) lines.push("", exclusionClause);
-
-  const globalBlockerLines = conciseGlobalBlockerLines(report, groups, {
-    kind: "pointer",
-    command,
-  }, scope);
-  if (globalBlockerLines.length > 0) lines.push("", ...globalBlockerLines);
-  const blockedSummary = blocked ? aggregateLine(command, report, groups) : undefined;
-  if (blockedSummary !== undefined) lines.push("", blockedSummary);
-  if (!blocked && grouped.unscopedItems.length > 0) {
-    lines.push("", "Diagnostics:");
-    for (const item of grouped.unscopedItems) lines.push(`- ${item.project}: ${itemText(item)}`);
-  }
-  const warningGroups = groupWarnings(report);
-  if (warningGroups.length > 0) {
-    lines.push("", "Warnings:");
-    for (const group of warningGroups) {
-      const formatted = shortenProjectReferences(group.message, groups, scope);
-      lines.push(`- ${formatted} (${plural(group.projects.length, "Project")})`);
-    }
-  }
-  const presented = presentedSetupSteps(
-    command,
-    report,
-    command === "apply" ? receipt : undefined,
-    false,
-    scope,
-  );
-  const setup = setupSectionsFromPresented(
-    presented,
-    false,
-    command === "apply" ? receipt : undefined,
-    scope,
-  );
-  if (setup.length > 0) lines.push("", ...setup);
-  const next = readyStatus
-    ? readyStatusGuidance(report, options)
-    : nextActionLines(command, report, {
-        groups,
-        unscopedItems: grouped.unscopedItems,
-      }, options);
-  if (next.length > 0) lines.push(...(readyStatus ? next : ["", ...next]));
-  if (command === "apply" && blocked && receipt) {
-    lines.push("", ...committedApplyEvidence(receipt, report, report.projects.length > 1, scope));
-  }
-  if (command === "apply" && reportBlockers(report).length === 0 && !noOpApply) {
-    const readiness = receipt ? readinessLines(report, receipt) : [];
-    if (readiness.length > 0) lines.push("", ...readiness);
-  }
-  return `${lines.join("\n")}\n`;
-}
-
-const COMMAND_NAMES = new Set(COMMANDS.map((command) => command.name));
-const INVENTORY_TOPIC_NAMES = new Set<string>([
-  ...INVENTORY_TOPICS,
-  ...MACHINE_INVENTORY_TOPICS,
-].map((topic) => topic.name));
-/** Namespace tokens that may introduce one namespaced command invocation. */
-const COMMAND_NAMESPACE_TOKENS = new Set<string>(
-  COMMANDS.flatMap((command) => (command.namespace === undefined ? [] : [command.namespace])),
-);
-
-export interface CopyableValueProtector {
-  readonly pattern: RegExp | undefined;
-}
-
-function unusedPresentationMarker(
-  source: string,
-  kind: string,
-  lead: "\u0000" | "\u0001" = "\u0000",
-): string {
-  let marker = `${lead}apkit-${kind}`;
-  while (source.includes(marker)) marker += "\u0000";
-  return marker;
-}
-
-function escapedRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Keep command invocations together while prose wraps. */
-function protectCommandInvocations(text: string, marker: string): string {
-  const pattern = new RegExp(
-    `\\b${escapedRegExp(COMMAND_NAME)}\\s+([A-Za-z][\\w-]*)\\b`,
-    "g",
-  );
-  let cursor = 0;
-  let protectedText = "";
-  for (const match of text.matchAll(pattern)) {
-    const start = match.index ?? 0;
-    const namespacePrefix = COMMAND_NAMESPACE_TOKENS.has(match[1]!);
-    if (start < cursor || !(namespacePrefix || COMMAND_NAMES.has(match[1]!))) continue;
-    let end = start + match[0].length;
-    while (true) {
-      const argument = text.slice(end).match(/^\s+(\S+)/);
-      if (argument !== null) {
-        const token = argument[1]!;
-        const syntaxToken = token.replace(/[.,;:!?)]*$/, "");
-        if (
-          /^<[^>]+>$/.test(syntaxToken) ||
-          /^--[\w-]+$/.test(syntaxToken) ||
-          INVENTORY_TOPIC_NAMES.has(syntaxToken) ||
-          (namespacePrefix && COMMAND_NAMES.has(syntaxToken))
-        ) {
-          end += argument[0].length;
-          continue;
-        }
-      }
-      const chained = text.slice(end).match(
-        new RegExp(`^\\s+&&\\s+${escapedRegExp(COMMAND_NAME)}\\s+([A-Za-z][\\w-]*)\\b`),
-      );
-      if (chained !== null && COMMAND_NAMES.has(chained[1]!)) {
-        end += chained[0].length;
-        continue;
-      }
-      break;
-    }
-    protectedText += text.slice(cursor, start);
-    protectedText += text.slice(start, end).replaceAll(" ", marker);
-    cursor = end;
-  }
-  return protectedText + text.slice(cursor);
-}
-
-function restoreMarker(text: string, marker: string): string {
-  return text.replaceAll(marker, " ");
-}
-
-/** Compile one report-wide matcher for values whose spaces must survive wrapping. */
-export function createCopyableValueProtector(
-  values: readonly string[],
-): CopyableValueProtector {
-  const uniqueValues = [...new Set(values.filter((value) => value.includes(" ")))]
-    .sort((left, right) => right.length - left.length);
-  return {
-    pattern: uniqueValues.length === 0
-      ? undefined
-      : new RegExp(uniqueValues.map(escapedRegExp).join("|"), "g"),
-  };
-}
-
-/** Keep structurally supplied values containing spaces as one copyable token. */
-function protectCopyableValues(
-  text: string,
-  protector: CopyableValueProtector,
-  marker: string,
-): string {
-  if (protector.pattern === undefined) return text;
-  return text.replace(
-    protector.pattern,
-    (value) => value.replaceAll(" ", marker),
-  );
-}
-
-function wrapLifecycleText(
-  text: string,
-  width: number,
-  commandMarker: string,
-): readonly string[] {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return text.length === 0 ? [] : [text];
-
-  const lines: string[] = [];
-  let prose = "";
-  const flushProse = (): void => {
-    if (prose.length === 0) return;
-    lines.push(...wrapPresentationText(prose, width));
-    prose = "";
-  };
-  for (const word of words) {
-    if (word.includes(commandMarker)) {
-      flushProse();
-      lines.push(word);
-    } else {
-      prose = prose.length === 0 ? word : `${prose} ${word}`;
-    }
-  }
-  flushProse();
-  return lines;
-}
-
-export function wrappedLifecycleLine(
-  line: string,
-  width: number,
-  copyableValueProtector: CopyableValueProtector,
-): readonly string[] {
-  if (line.trim().length === 0) return [line];
-  const indentation = line.match(/^\s*/)?.[0] ?? "";
-  const content = line.slice(indentation.length);
-  const bullet = content.startsWith("- ") ? "- " : "";
-  const prose = bullet.length > 0 ? content.slice(bullet.length) : content;
-  const commandMarker = unusedPresentationMarker(prose, "command");
-  const copyableMarker = unusedPresentationMarker(
-    `${prose}${commandMarker}`,
-    "value",
-    "\u0001",
-  );
-  const protectedProse = protectCommandInvocations(
-    protectCopyableValues(prose, copyableValueProtector, copyableMarker),
-    commandMarker,
-  );
-  // When the line already fits the selected measure, keep it intact: command
-  // invocations and copyable values move to dedicated lines only when wrapping
-  // is actually required (DEC-003).
-  if (prose.length <= Math.max(1, width - indentation.length - 2)) {
-    return [line];
-  }
-  const wrapped = wrapLifecycleText(
-    protectedProse,
-    Math.max(1, width - indentation.length - 2),
-    commandMarker,
-  ).map((part) =>
-    restoreMarker(restoreMarker(part, commandMarker), copyableMarker)
-  );
-  return wrapped.map((part, index) =>
-    `${index === 0 ? indentation + bullet : `${indentation}  `}${part}`
-  );
-}
-
-/**
- * Wrap one sentence as continuous flowing prose: protected tokens (command
- * invocations and supplied copyable values) stay inline and whole instead of
- * being promoted onto dedicated lines. This is the diagnostic and help-surface
- * wrapping policy — the lifecycle policy that promotes copyable values stays
- * in {@link wrappedLifecycleLine}.
- */
-export function wrappedSentenceLine(
-  line: string,
-  width: number,
-  copyableValueProtector: CopyableValueProtector,
-): readonly string[] {
-  if (line.trim().length === 0) return [line];
-  const indentation = line.match(/^\s*/)?.[0] ?? "";
-  const content = line.slice(indentation.length);
-  const commandMarker = unusedPresentationMarker(content, "command");
-  const copyableMarker = unusedPresentationMarker(
-    `${content}${commandMarker}`,
-    "value",
-    "\u0001",
-  );
-  const protectedContent = protectCommandInvocations(
-    protectCopyableValues(content, copyableValueProtector, copyableMarker),
-    commandMarker,
-  );
-  const measure = Math.max(1, width - indentation.length - 2);
-  return wrapProtectedText(protectedContent, measure, commandMarker, copyableMarker)
-    .map((part, index) =>
-      index === 0 ? `${indentation}${part}` : `${indentation}  ${part}`);
-}
-
-/**
- * Greedy word wrap that measures each candidate after restoring protected
- * values, so marker padding cannot make a sentence wrap early.
- */
-function wrapProtectedText(
-  protectedText: string,
-  width: number,
-  ...markers: readonly string[]
-): readonly string[] {
-  const restore = (part: string): string =>
-    markers.reduce((restored, marker) => restoreMarker(restored, marker), part);
-  const words = protectedText.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return protectedText.length === 0 ? [""] : [restore(protectedText)];
-  const lines: string[] = [];
-  let current = "";
-  for (const word of words) {
-    const candidate = current.length === 0 ? word : `${current} ${word}`;
-    if (current.length > 0 && restore(candidate).length > width) {
-      lines.push(restore(current));
-      current = word;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current.length > 0) lines.push(restore(current));
-  return lines;
-}
 
 function lifecycleCopyableValues(
   reports: readonly ReconciliationReport[],
@@ -3154,36 +2573,6 @@ function lifecycleCopyableValues(
   return [...values].filter((value) => value.length > 0);
 }
 
-/**
- * Apply the shared terminal width policy to lifecycle prose after semantic
- * report construction. Context payloads remain byte-for-byte intact because
- * they are user-authored material rather than presentation prose.
- */
-function responsiveLifecycleOutput(
-  text: string,
-  context: TerminalPresentationContext | undefined,
-  copyableValues: readonly string[] = [],
-): string {
-  if (context === undefined) return text;
-  const copyableValueProtector = createCopyableValueProtector(copyableValues);
-  let contextFence: string | undefined;
-  const lines = text.split("\n").flatMap((line) => {
-    if (contextFence !== undefined) {
-      if (line === `${contextFence} end Context ${contextFence}`) contextFence = undefined;
-      return [line];
-    }
-
-    const begin = /^(-+) begin Context \1$/.exec(line);
-    if (begin !== null) {
-      contextFence = begin[1];
-      return [line];
-    }
-
-    return wrappedLifecycleLine(line, context.width, copyableValueProtector);
-  });
-  return lines.join("\n");
-}
-
 interface LifecycleHumanOptions {
   readonly all?: boolean;
   readonly blockersOnly?: boolean;
@@ -3212,186 +2601,10 @@ export function delimitedContext(context: string): string {
   return `${fence} begin Context ${fence}\n${body}${fence} end Context ${fence}`;
 }
 
-function verboseSections(
-  report: ReconciliationReport,
-  options: VerboseSectionOptions,
-): string {
-  const {
-    completedRepositoryExclusions = false,
-    includeStateExplanations = true,
-    stateExplanationItems = reportItems(report),
-    untrackRecovery,
-  } = options;
-  const groups = groupProjects(report).groups;
-  const shorten = (text: string): string => shortenProjectReferences(text, groups, options.scope);
-  const items = reportItems(report).length === 0
-    ? "(no projects)"
-    : reportItems(report)
-        .map((item) => shorten(`${item.project}: ${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}`))
-        .join("\n");
-  const desired = reportDesired(report).length === 0
-    ? "(none)"
-    : reportDesired(report)
-        .map((installation) => {
-          const resolved = installation.resolvedArtifacts.length === 0
-            ? "  Resolved artifacts: (none)"
-            : `  Resolved artifacts:\n${installation.resolvedArtifacts.map((artifact) => {
-                const reasons = artifact.inclusionReasons.map((reason) => {
-                  const path = reason.path.length === 0
-                    ? "selected by profile"
-                    : `via ${reason.path.join(" -> ")}`;
-                  return `${reason.profile}: ${path}`;
-                }).join("; ");
-                return `    - ${artifact.type}:${artifact.id} (${reasons})`;
-              }).join("\n")}`;
-          const project = report.projects.find((candidate) =>
-            candidate.canonicalProject === installation.canonicalProject
-          );
-          const consumers = (project?.outputs ?? [])
-            .filter((output) => output.consumingHosts.length > 0)
-            .map((output) => `    - ${output.path}: ${output.consumingHosts.join(", ")}`)
-            .join("\n");
-          const consumerSection = consumers.length === 0
-            ? ""
-            : `  Consuming Hosts:\n${consumers}\n`;
-          const capabilityContracts = installation.capabilityContracts === undefined
-            ? ""
-            : Object.entries(installation.capabilityContracts)
-                .sort(([left], [right]) => left.localeCompare(right))
-                .map(([host, contract]) => `    - ${host}: ${contract}`)
-                .join("\n");
-          return (
-            `${shorten(`${installation.project}: Profile ${installation.profile}`)}\n` +
-            `  Hosts: ${installation.hosts.join(", ")}\n` +
-            (capabilityContracts.length === 0 ? "" : `  Capability Contracts:\n${capabilityContracts}\n`) +
-            `  Outputs: ${installation.outputs.join(", ")}\n` +
-            consumerSection +
-            `${resolved}\n` +
-            `  Context:\n${delimitedContext(installation.context)}`
-          );
-        })
-        .join("\n");
-  const blockers = reportBlockers(report).length === 0
-    ? "(none)"
-    : reportBlockers(report).flatMap((blocker) =>
-        verboseBlockerLines(blocker, groups, shorten, untrackRecovery, options.scope)
-      ).join("\n");
-  const outputs = reportOutputs(report).length === 0
-    ? "(none)"
-    : reportOutputs(report)
-        .map((output) => shorten(`${output.project}/${output.path}: ${output.kind}`))
-        .join("\n");
-  const repositoryExclusions = changedRepositoryExclusions(report).length === 0
-    ? "(none)"
-    : changedRepositoryExclusions(report)
-        .map((change) => `- ${shorten(`${change.target}: ${exclusionDeltaText(change)}`)}`)
-        .join("\n");
-  const warningGroups = groupWarnings(report);
-  const warnings = warningGroups.length === 0
-    ? "(none)"
-    : warningGroups
-        .map((group) => {
-          const formatted = shorten(group.message);
-          const projectList = group.projects
-            .map((p) => displayProjectPath(p.canonicalProject, p.project, options.scope))
-            .join(", ");
-          return `- ${formatted} (${projectList})`;
-        })
-        .join("\n");
-  const explanations = includeStateExplanations ? stateExplanationLines(stateExplanationItems) : [];
-  const explanationSection = explanations.length > 0 ? `${explanations.join("\n")}\n` : "";
-  const detail = `Projects:\n${items}\n${explanationSection}Outputs:\n${outputs}\nGit exclusions:\n${repositoryExclusions}\nSelected setup:\n${desired}\nWarnings:\n${warnings}\n`;
-  const blockerSection = `Blockers:\n${blockers}\n`;
-  return reportBlockers(report).length > 0
-    ? `${blockerSection}${detail}`
-    : `${detail}${blockerSection}`;
-}
 
-function verboseSetupSection(
-  command: LifecycleCommand,
-  report: ReconciliationReport,
-  scope: LocationDisplayScope,
-): string {
-  const setup = hostSetupSections(command, report, undefined, true, scope);
-  return `Host Setup:\n${setup.length > 0 ? setup.join("\n") : "(none)"}\n`;
-}
 
-function verboseReport(
-  command: LifecycleCommand,
-  report: ReconciliationReport,
-  scope: LocationDisplayScope,
-): string {
-  return `${outcomeLine(command, report)}\n${verboseSections(report, {
-    scope,
-    untrackRecovery: { kind: "pointer", command },
-  })}` +
-    verboseSetupSection(command, report, scope);
-}
 
-function verboseApplyReport(result: {
-  readonly receipt: ReconciliationReport;
-  readonly resultingState: ReconciliationReport;
-}, scope: LocationDisplayScope): string {
-  const report = (
-    `${outcomeLine("apply", result.resultingState, true)}\n` +
-    `Pending:\n${verboseSections(result.resultingState, {
-      scope,
-      stateExplanationItems: [...reportItems(result.resultingState), ...reportItems(result.receipt)],
-      untrackRecovery: { kind: "pointer", command: "apply" },
-    })}` +
-    `Applied:\n${verboseSections(result.receipt, {
-      completedRepositoryExclusions: true,
-      includeStateExplanations: false,
-      scope,
-      untrackRecovery: { kind: "pointer", command: "apply" },
-    })}` +
-    verboseSetupSection("apply", result.resultingState, scope)
-  );
-  const readiness = reportBlockers(result.resultingState).length === 0
-    ? readinessLines(
-        result.resultingState,
-        result.receipt,
-      )
-    : [];
-  return readiness.length > 0 ? `${report}\n${readiness.join("\n")}\n` : report;
-}
 
-/**
- * Ordered apply safety evidence for a focused view (#352): the committed Apply
- * Receipt with the Projects it made current, then still-pending Project
- * identities. The focused filter renders this prefix before Blocker evidence
- * and can never suppress it, because a presentation filter must never hide
- * writes (ADR-0024, spec #345 Decision 6).
- */
-function focusedApplySafetyEvidence(
-  postState: ReconciliationReport,
-  receipt: ReconciliationReport,
-  scope: LocationDisplayScope,
-): readonly string[] {
-  const lines = [
-    ...committedApplyEvidence(receipt, postState, postState.projects.length > 1, scope),
-  ];
-  const pending = stillPendingProjects(postState, scope);
-  if (pending.length > 0) lines.push("", `Still pending: ${pending.join(", ")}`);
-  return lines.length > 0 ? ["", ...lines] : lines;
-}
-
-/** Focused apply view (#352): the safety-evidence prefix, then shared Blocker evidence. */
-function focusedApplyReport(
-  result: ApplyReconciliationResult,
-  options: LifecycleHumanOptions,
-): string {
-  const scope = locationDisplayScope(options, result.resultingState);
-  const evidence = focusedApplySafetyEvidence(result.resultingState, result.receipt, scope);
-  const blockers = options.verbose
-    ? focusedVerboseBlockers(result.resultingState, scope)
-    : focusedConciseBlockers(result.resultingState, "apply", scope);
-  return [
-    outcomeLine("apply", result.resultingState, true),
-    ...evidence,
-    ...blockers,
-  ].join("\n") + "\n";
-}
 
 /** The apply outcome notice: severity derives from report facts, never copy. */
 function applyOutcomeNotice(
@@ -3401,7 +2614,7 @@ function applyOutcomeNotice(
   return {
     kind: "notice",
     severity: reportBlockers(report).length > 0 ? "error" : "success",
-    nodes: [{ kind: "prose", text: outcomeLine("apply", report, applyCompleted) }],
+    nodes: [{ kind: "prose", parts: [outcomeLine("apply", report, applyCompleted)] }],
   };
 }
 
@@ -3420,15 +2633,15 @@ function operationReceiptNodes(
     { kind: "heading", text: "Applied:" },
     ...groups.map((group) => ({
       kind: "prose" as const,
-      text: `  ${operationGroupLine(group, fleetScope, scope)}`,
+      parts: [`  ${operationGroupLine(group, fleetScope, scope)}`],
     })),
     ...operationReceiptPathLines(receipt, scope).map((line) => ({
       kind: "prose" as const,
-      text: line,
+      parts: [line],
     })),
   ];
   if (exclusionClause !== undefined) {
-    nodes.push(spacerNode(), { kind: "prose", text: exclusionClause });
+    nodes.push(spacerNode(), { kind: "prose", parts: [exclusionClause] });
   }
   return nodes;
 }
@@ -3451,9 +2664,9 @@ function applyReceiptNodes(
       return [
         {
           kind: "prose" as const,
-          text: `- ${displayProjectPath(group.canonicalProject, group.project, scope)}:`,
+          parts: [`- ${displayProjectPath(group.canonicalProject, group.project, scope)}:`],
         },
-        ...paths.map((line) => ({ kind: "prose" as const, text: `  ${line}` })),
+        ...paths.map((line) => ({ kind: "prose" as const, parts: [`  ${line}`] })),
       ];
     }
     const workKinds = [...new Set(
@@ -3466,22 +2679,22 @@ function applyReceiptNodes(
     return workKinds.length > 0
       ? [{
         kind: "prose" as const,
-        text: `- ${displayProjectPath(group.canonicalProject, group.project, scope)}: ${workKinds.join(", ")}`,
+        parts: [`- ${displayProjectPath(group.canonicalProject, group.project, scope)}: ${workKinds.join(", ")}`],
       }]
       : [];
   });
   const exclusionClause = repositoryExclusionClause(receipt, true);
   if (entries.length === 0 && exclusionClause === undefined) {
-    return [{ kind: "prose", text: "Applied: none." }];
+    return [{ kind: "prose", parts: ["Applied: none."] }];
   }
   const nodes: PresentationNode[] = [
     { kind: "heading", text: "Applied:" },
     ...(entries.length > 0
       ? entries
-      : [{ kind: "prose" as const, text: `- No ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} changes` }]),
+      : [{ kind: "prose" as const, parts: [`- No ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} changes`] }]),
   ];
   if (exclusionClause !== undefined) {
-    nodes.push(spacerNode(), { kind: "prose", text: exclusionClause });
+    nodes.push(spacerNode(), { kind: "prose", parts: [exclusionClause] });
   }
   return nodes;
 }
@@ -3505,7 +2718,7 @@ function committedApplyEvidenceNodes(
     )
     .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
   if (freshlyCurrent.length > 0) {
-    nodes.push({ kind: "prose", text: `Freshly current: ${freshlyCurrent.join(", ")}` });
+    nodes.push({ kind: "prose", parts: [`Freshly current: ${freshlyCurrent.join(", ")}`] });
   }
   return nodes;
 }
@@ -3517,7 +2730,7 @@ function stillPendingNodes(
 ): PresentationNode[] {
   const pending = stillPendingProjects(report, scope);
   if (pending.length === 0) return [];
-  return [{ kind: "prose", text: `Still pending: ${pending.join(", ")}` }];
+  return [{ kind: "prose", parts: [`Still pending: ${pending.join(", ")}`] }];
 }
 
 /** The typed invocation-wide next-launch readiness statement. */
@@ -3527,7 +2740,7 @@ function readinessNodes(
 ): PresentationNode[] {
   return readinessLines(report, receipt).map((line) => ({
     kind: "prose" as const,
-    text: line,
+    parts: [line],
   }));
 }
 
@@ -3549,7 +2762,7 @@ function conciseApplyDocument(
   if (noOpApply) {
     nodes.push({
       kind: "prose",
-      text: `All ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
+      parts: [`All ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`],
     });
   }
 
@@ -3606,15 +2819,15 @@ function conciseApplyDocument(
           nodes.push({
             kind: "key-value",
             key: "  State",
-            value: { kind: "prose", text: itemText(item) },
+            value: { kind: "prose", parts: [itemText(item)] },
             category: "attention",
           });
         }
       }
       const outputLines = outputPathLines(group.outputs);
       if (outputLines.length > 0) {
-        nodes.push({ kind: "prose", text: "  Files:" });
-        nodes.push(...outputLines.map((line) => ({ kind: "prose" as const, text: `  ${line}` })));
+        nodes.push({ kind: "prose", parts: ["  Files:"] });
+        nodes.push(...outputLines.map((line) => ({ kind: "prose" as const, parts: [`  ${line}`] })));
       }
       for (const blocker of group.blockers) {
         nodes.push(...conciseBlockerNodes(
@@ -3636,7 +2849,7 @@ function conciseApplyDocument(
 
   const exclusionClause = repositoryExclusionClause(report, false, false);
   if (exclusionClause !== undefined) {
-    nodes.push(spacerNode(), { kind: "prose", text: exclusionClause });
+    nodes.push(spacerNode(), { kind: "prose", parts: [exclusionClause] });
   }
 
   const globalBlockers = globalBlockerNodes(report, groups, {
@@ -3650,7 +2863,7 @@ function conciseApplyDocument(
     nodes.push(spacerNode(), {
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: blockedSummary }],
+      nodes: [{ kind: "prose", parts: [blockedSummary] }],
     });
   }
 
@@ -3809,20 +3022,20 @@ export function applyExecutionFailureDocument(
       severity: "error",
       nodes: [{
         kind: "prose",
-        text: failedProject === undefined
+        parts: [failedProject === undefined
           ? `Apply failed after committing Project work: ${failure.detail}`
-          : `Apply failed at ${failedProject}: ${failure.detail}`,
+          : `Apply failed at ${failedProject}: ${failure.detail}`],
       }],
     },
   ];
   if (failedProject !== undefined) {
-    nodes.push({ kind: "prose", text: `Failed Project: ${failedProject}` });
+    nodes.push({ kind: "prose", parts: [`Failed Project: ${failedProject}`] });
   }
   nodes.push({
     kind: "prose",
-    text: `Still pending: ${failure.pendingProjects.length === 0
+    parts: [`Still pending: ${failure.pendingProjects.length === 0
       ? "none"
-      : failure.pendingProjects.map((project) => presentProject(project, scope)).join(", ")}`,
+      : failure.pendingProjects.map((project) => presentProject(project, scope)).join(", ")}`],
   });
   nodes.push(...applyReceiptNodes(failure.receipt, scope));
   if (failure.resultingState !== undefined) {
@@ -3835,7 +3048,7 @@ export function applyExecutionFailureDocument(
       )
       .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
     if (current.length > 0) {
-      nodes.push({ kind: "prose", text: `Freshly current: ${current.join(", ")}` });
+      nodes.push({ kind: "prose", parts: [`Freshly current: ${current.join(", ")}`] });
     }
   }
   if (
@@ -3867,7 +3080,7 @@ export function applyVerificationFailureDocument(
   const scope = locationDisplayScope(options, receipt);
   if (options.verbose === true) {
     return [
-      { kind: "notice", severity: "error", nodes: [{ kind: "prose", text: message }] },
+      { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: [message] }] },
       { kind: "heading", text: "Applied:" },
       ...verboseLifecycleSections(receipt, {
         scope,
@@ -3881,7 +3094,7 @@ export function applyVerificationFailureDocument(
     ];
   }
   const nodes: PresentationNode[] = [
-    { kind: "notice", severity: "error", nodes: [{ kind: "prose", text: message }] },
+    { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: [message] }] },
     ...applyReceiptNodes(receipt, scope),
   ];
   const setup = conciseFirstUseNodes(
@@ -3898,16 +3111,18 @@ const DEFAULT_RENDER_CONTEXT: TerminalPresentationContext = {
   width: 10_000,
 };
 
-/** Render one lifecycle document with the report's copyable values protected. */
+/** Render one lifecycle document: carried report values are carved into atomic parts before rendering. */
 function renderLifecycleDocument(
   document: PresentationDocument,
   scope: LocationDisplayScope,
   reports: readonly ReconciliationReport[],
   context?: TerminalPresentationContext,
 ): string {
-  const rendered = renderPresentationDocument(document, context ?? DEFAULT_RENDER_CONTEXT, {
-    copyableValues: lifecycleCopyableValues(reports, scope),
-  });
+  const carved = carveDocumentValues(
+    document,
+    lifecycleCopyableValues(reports, scope),
+  );
+  const rendered = renderPresentationDocument(carved, context ?? DEFAULT_RENDER_CONTEXT);
   return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
 }
 
@@ -4004,55 +3219,7 @@ function displayedBlockerGroups(report: ReconciliationReport): readonly ProjectG
   return groupProjects(report).groups.filter((candidate) => candidate.blockers.length > 0);
 }
 
-/** The concise focused Blocker section shared by `status` and `apply`: one
- * deterministic group per affected Project, then global Blockers, then the
- * displayed-Blocker footer. The caller owns the outcome line and any prefix. */
-function focusedConciseBlockers(
-  report: ReconciliationReport,
-  command: LifecycleCommand,
-  scope: LocationDisplayScope,
-): readonly string[] {
-  const grouped = groupProjects(report);
-  const displayedGroups = displayedBlockerGroups(report);
-  const lines: string[] = [];
-  for (const group of displayedGroups) {
-    lines.push(
-      "",
-      `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}: ${displayProjectPath(group.canonicalProject, group.project, scope)}`,
-      ...conciseGroupBlockerLines(group, grouped.groups, "  ", { kind: "pointer", command }, scope),
-    );
-  }
-  const globalBlockerLines = conciseGlobalBlockerLines(report, grouped.groups, {
-    kind: "pointer",
-    command,
-  }, scope);
-  if (globalBlockerLines.length > 0) lines.push("", ...globalBlockerLines);
-  lines.push("", blockersOnlyFooter(report));
-  return lines;
-}
 
-/** The verbose focused Blocker section shared by `status` and `apply`:
- * complete Blocker fields with every affected item, then the footer. The
- * leading blank line keeps one spacing contract across focused views (INT-3).
- * This is the only view that prints the exact user-owned untracking command
- * (#353, spec #345 Decision 8). */
-function focusedVerboseBlockers(
-  report: ReconciliationReport,
-  scope: LocationDisplayScope,
-): readonly string[] {
-  const groups = groupProjects(report).groups;
-  const shorten = (text: string): string => shortenProjectReferences(text, groups, scope);
-  return [
-    "",
-    `Blockers:\n${reportBlockers(report)
-      .flatMap((blocker) =>
-        verboseBlockerLines(blocker, groups, shorten, { kind: "full" }, scope)
-      )
-      .join("\n")}`,
-    "",
-    blockersOnlyFooter(report),
-  ];
-}
 
 /** The typed concise focused Blocker section shared by `status` and `apply`:
  * one deterministic group per affected Project, then global Blockers, then the
@@ -4125,16 +3292,23 @@ function untrackRecoveryNodes(
     return [
       {
         kind: "prose",
-        text: `${indent}  Recovery command: run apkit ${recovery.command}` +
-          " --blockers-only --verbose to see the exact untracking command.",
+        parts: [
+          `${indent}  Recovery command: run `,
+          commandPart("apkit", [
+            arg(recovery.command),
+            arg("--blockers-only"),
+            arg("--verbose"),
+          ]),
+          " to see the exact untracking command.",
+        ],
       },
     ];
   }
   return [
     {
       kind: "prose",
-      text: `${indent}  Recovery: run the command below yourself; Agent Profile Kit never executes it. ` +
-        "It stages removal of these paths from Git ownership (the Git index) while the working files are preserved:",
+      parts: [`${indent}  Recovery: run the command below yourself; Agent Profile Kit never executes it. ` +
+        "It stages removal of these paths from Git ownership (the Git index) while the working files are preserved:"],
     },
     {
       kind: "command",
@@ -4150,8 +3324,23 @@ function untrackRecoveryNodes(
       ],
       category: "command",
     },
-    { kind: "prose", text: `${indent}  Alternatively, change or remove the configured Project.` },
+    { kind: "prose", parts: [`${indent}  Alternatively, change or remove the configured Project.`] },
   ];
+}
+
+/**
+ * Shorten project references inside inline content: references are composed
+ * inside text spans, so shortening applies there; atomic parts are carried
+ * values that shortening must never rewrite.
+ */
+function shortenInlineProjectReferences(
+  content: readonly InlineContent[],
+  groups: readonly ProjectGroup[],
+  scope: LocationDisplayScope,
+): readonly InlineContent[] {
+  return content.map((part) =>
+    typeof part === "string" ? shortenProjectReferences(part, groups, scope) : part
+  );
 }
 
 /** The typed concise Blocker evidence for one Blocker (legacy indent kept). */
@@ -4170,15 +3359,19 @@ function conciseBlockerNodes(
     const paths = outputOwnershipConflictPaths(blocker);
     const wording = humanBlockerWording(blocker);
     return [
-      { kind: "prose", text: `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups, scope)}`, category: "error" },
-      { kind: "prose", text: `${indent}  Requirement: ${wording.requirement}` },
-      { kind: "prose", text: `${indent}  Remedy: ${wording.remedy}` },
-      { kind: "prose", text: `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}` },
+      {
+        kind: "prose",
+        parts: shortenInlineProjectReferences([`${indent}Blocker: `, ...wording.problem], groups, scope),
+        category: "error",
+      },
+      { kind: "prose", parts: [`${indent}  Requirement: `, ...wording.requirement] },
+      { kind: "prose", parts: [`${indent}  Remedy: `, ...wording.remedy] },
+      { kind: "prose", parts: [`${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`] },
       ...(paths.length === 0 ? [] as PresentationNode[] : [
-        { kind: "prose" as const, text: `${indent}  Affected paths (${paths.length}):` },
+        { kind: "prose" as const, parts: [`${indent}  Affected paths (${paths.length}):`] },
         ...trackedPathGroupLines(paths, indent).map((line) => ({
           kind: "prose" as const,
-          text: line,
+          parts: [line],
         })),
       ]),
       ...untrackRecoveryNodes(blocker.project!, paths, indent, untrackRecovery),
@@ -4186,13 +3379,17 @@ function conciseBlockerNodes(
   }
   const wording = humanBlockerWording(blocker);
   return [
-    { kind: "prose", text: `${indent}Blocker: ${shortenProjectReferences(wording.problem, groups, scope)}`, category: "error" },
-    { kind: "prose", text: `${indent}  Requirement: ${wording.requirement}` },
-    { kind: "prose", text: `${indent}  Remedy: ${wording.remedy}` },
-    { kind: "prose", text: `${indent}  Scope: ${blockerScopeText(blocker, displayProject)}` },
+    {
+      kind: "prose",
+      parts: shortenInlineProjectReferences([`${indent}Blocker: `, ...wording.problem], groups, scope),
+      category: "error",
+    },
+    { kind: "prose", parts: [`${indent}  Requirement: `, ...wording.requirement] },
+    { kind: "prose", parts: [`${indent}  Remedy: `, ...wording.remedy] },
+    { kind: "prose", parts: [`${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`] },
     ...blocker.affectedItems.map((item) => ({
       kind: "prose" as const,
-      text: `${indent}  ${affectedItemLabel(item)}`,
+      parts: [`${indent}  ${affectedItemLabel(item)}`],
     })),
   ];
 }
@@ -4210,16 +3407,16 @@ function verboseBlockerNodes(
     : undefined;
   const wording = humanBlockerWording(blocker);
   const nodes: PresentationNode[] = [
-    { kind: "list-item", nodes: [{ kind: "prose", text: shorten(wording.problem) }] },
-    { kind: "prose", text: `  Requirement: ${wording.requirement}` },
-    { kind: "prose", text: `  Remedy: ${wording.remedy}` },
-    { kind: "prose", text: `  Scope: ${blockerScopeText(blocker, project)}` },
+    { kind: "list-item", parts: shortenInlineProjectReferences(wording.problem, groups, scope) },
+    { kind: "prose", parts: ["  Requirement: ", ...wording.requirement] },
+    { kind: "prose", parts: ["  Remedy: ", ...wording.remedy] },
+    { kind: "prose", parts: [`  Scope: ${blockerScopeText(blocker, project)}`] },
   ];
   for (const item of blocker.affectedItems) {
     const value = blocker.scope === "project" && item.kind === "path"
       ? shorten(`${blocker.project!}/${item.value}`)
       : item.value;
-    nodes.push({ kind: "prose", text: `  ${affectedItemLabel({ ...item, value })}` });
+    nodes.push({ kind: "prose", parts: [`  ${affectedItemLabel({ ...item, value })}`] });
   }
   if (isOutputOwnershipConflict(blocker)) {
     nodes.push(...untrackRecoveryNodes(
@@ -4251,7 +3448,11 @@ function globalBlockerNodes(
 
 /** The displayed-Blocker footer as one typed summary line. */
 function blockersOnlyFooterNode(report: ReconciliationReport): PresentationNode {
-  return { kind: "prose", text: blockersOnlyFooter(report), category: "error" };
+  return {
+    kind: "prose",
+    parts: [blockersOnlyFooter(report)],
+    category: "error",
+  };
 }
 
 /** The presentation group of an explicitly selected Project, normalized once. */
@@ -4343,7 +3544,7 @@ function statusOutcomeNotice(report: ReconciliationReport): PresentationNode {
   return {
     kind: "notice",
     severity,
-    nodes: [{ kind: "prose", text: outcomeLine("status", report) }],
+    nodes: [{ kind: "prose", parts: [outcomeLine("status", report)] }],
   };
 }
 
@@ -4364,25 +3565,7 @@ function projectPathNode(
   };
 }
 
-function nextActionNodes(
-  command: LifecycleCommand,
-  report: ReconciliationReport,
-  surface: {
-    readonly groups: readonly ProjectGroup[];
-    readonly unscopedItems: readonly ReconciliationItem[];
-  },
-  options: LifecycleHumanOptions,
-): PresentationNode[] {
-  const actions = nextActions(command, report, surface, options);
-  if (actions.length === 0) return [];
-  return [
-    { kind: "heading", text: "Next:" },
-    ...actions.map((action) => ({
-      kind: "list-item" as const,
-      nodes: [{ kind: "prose" as const, text: action }],
-    })),
-  ];
-}
+
 
 function warningNodes(
   report: ReconciliationReport,
@@ -4396,10 +3579,9 @@ function warningNodes(
     { kind: "heading", text: "Warnings:", category: "attention" },
     ...warningGroups.map((group) => ({
       kind: "list-item" as const,
-      nodes: [{
-        kind: "prose" as const,
-        text: `${shortenProjectReferences(group.message, groups, scope)} (${plural(group.projects.length, "Project")})`,
-      }],
+      parts: [
+        `${shortenProjectReferences(group.message, groups, scope)} (${plural(group.projects.length, "Project")})`,
+      ],
     })),
   ];
 }
@@ -4433,7 +3615,7 @@ function verboseLifecycleSections(
   // heading exists only to report the empty outcome.
   if (blockers.length === 0) {
     nodes.push({ kind: "heading", text: "Blockers:", category: "error" });
-    nodes.push({ kind: "prose", text: "(none)" });
+    nodes.push({ kind: "prose", parts: ["(none)"] });
   }
   return nodes;
 }
@@ -4453,12 +3635,12 @@ function verboseDetailNodes(
   const nodes: PresentationNode[] = [
     { kind: "heading", text: "Projects:" },
     ...(items.length === 0
-      ? [{ kind: "prose" as const, text: "(no projects)" }]
+      ? [{ kind: "prose" as const, parts: ["(no projects)"] }]
       : items.map((item) => ({
         kind: "prose" as const,
-        text: shorten(
+        parts: [shorten(
           `${item.project}: ${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}`,
-        ),
+        )],
       }))),
   ];
   if (includeStateExplanations) {
@@ -4467,31 +3649,28 @@ function verboseDetailNodes(
   nodes.push(
     { kind: "heading", text: "Outputs:" },
     ...(outputs.length === 0
-      ? [{ kind: "prose" as const, text: "(none)" }]
+      ? [{ kind: "prose" as const, parts: ["(none)"] }]
       : outputs.map((output) => ({
         kind: "prose" as const,
-        text: shorten(`${output.project}/${output.path}: ${output.kind}`),
+        parts: [shorten(`${output.project}/${output.path}: ${output.kind}`)],
       }))),
     { kind: "heading", text: "Git exclusions:" },
     ...(exclusions.length === 0
-      ? [{ kind: "prose" as const, text: "(none)" }]
+      ? [{ kind: "prose" as const, parts: ["(none)"] }]
       : exclusions.map((change) => ({
         kind: "list-item" as const,
-        nodes: [{
-          kind: "prose" as const,
-          text: shorten(`${change.target}: ${exclusionDeltaText(change)}`),
-        }],
+        parts: [shorten(`${change.target}: ${exclusionDeltaText(change)}`)],
       }))),
     { kind: "heading", text: "Selected setup:" },
   );
   const desired = reportDesired(report);
-  if (desired.length === 0) nodes.push({ kind: "prose", text: "(none)" });
+  if (desired.length === 0) nodes.push({ kind: "prose", parts: ["(none)"] });
   for (const installation of desired) {
     nodes.push(...verboseInstallationNodes(installation, report.projects, scope));
   }
   nodes.push({ kind: "heading", text: "Warnings:", category: "attention" });
   if (warningGroups.length === 0) {
-    nodes.push({ kind: "prose", text: "(none)" });
+    nodes.push({ kind: "prose", parts: ["(none)"] });
     return nodes;
   }
   for (const group of warningGroups) {
@@ -4500,7 +3679,7 @@ function verboseDetailNodes(
       .join(", ");
     nodes.push({
       kind: "list-item",
-      nodes: [{ kind: "prose", text: `${shorten(group.message)} (${projectList})` }],
+      parts: [`${shorten(group.message)} (${projectList})`],
     });
   }
   return nodes;
@@ -4517,32 +3696,32 @@ function verboseInstallationNodes(
     candidate.canonicalProject === installation.canonicalProject
   );
   const nodes: PresentationNode[] = [
-    { kind: "prose", text: `${project}: Profile ${installation.profile}` },
-    { kind: "prose", text: `  Hosts: ${installation.hosts.join(", ")}` },
+    { kind: "prose", parts: [`${project}: Profile ${installation.profile}`] },
+    { kind: "prose", parts: [`  Hosts: ${installation.hosts.join(", ")}`] },
   ];
   if (installation.capabilityContracts !== undefined) {
-    nodes.push({ kind: "prose", text: "  Capability Contracts:" });
+    nodes.push({ kind: "prose", parts: ["  Capability Contracts:"] });
     for (const [host, contract] of Object.entries(installation.capabilityContracts)
       .sort(([left], [right]) => left.localeCompare(right))) {
-      nodes.push({ kind: "prose", text: `    - ${host}: ${contract}` });
+      nodes.push({ kind: "prose", parts: [`    - ${host}: ${contract}`] });
     }
   }
-  nodes.push({ kind: "prose", text: `  Outputs: ${installation.outputs.join(", ")}` });
+  nodes.push({ kind: "prose", parts: [`  Outputs: ${installation.outputs.join(", ")}`] });
   const consumers = (record?.outputs ?? [])
     .filter((output) => output.consumingHosts.length > 0);
   if (consumers.length > 0) {
-    nodes.push({ kind: "prose", text: "  Consuming Hosts:" });
+    nodes.push({ kind: "prose", parts: ["  Consuming Hosts:"] });
     for (const output of consumers) {
       nodes.push({
         kind: "prose",
-        text: `    - ${output.path}: ${output.consumingHosts.join(", ")}`,
+        parts: [`    - ${output.path}: ${output.consumingHosts.join(", ")}`],
       });
     }
   }
   if (installation.resolvedArtifacts.length === 0) {
-    nodes.push({ kind: "prose", text: "  Resolved artifacts: (none)" });
+    nodes.push({ kind: "prose", parts: ["  Resolved artifacts: (none)"] });
   } else {
-    nodes.push({ kind: "prose", text: "  Resolved artifacts:" });
+    nodes.push({ kind: "prose", parts: ["  Resolved artifacts:"] });
     for (const artifact of installation.resolvedArtifacts) {
       const reasons = artifact.inclusionReasons.map((reason) => {
         const path = reason.path.length === 0
@@ -4550,10 +3729,10 @@ function verboseInstallationNodes(
           : `via ${reason.path.join(" -> ")}`;
         return `${reason.profile}: ${path}`;
       }).join("; ");
-      nodes.push({ kind: "prose", text: `    - ${artifact.type}:${artifact.id} (${reasons})` });
+      nodes.push({ kind: "prose", parts: [`    - ${artifact.type}:${artifact.id} (${reasons})`] });
     }
   }
-  nodes.push({ kind: "prose", text: "  Context:" });
+  nodes.push({ kind: "prose", parts: ["  Context:"] });
   nodes.push({ kind: "verbatim", text: delimitedContext(installation.context) });
   return nodes;
 }
@@ -4567,7 +3746,7 @@ function verboseHostSetupNodes(
   const presented = presentedSetupSteps(command, report, undefined, true, scope);
   const nodes: PresentationNode[] = [{ kind: "heading", text: "Host Setup:" }];
   if (presented.length === 0) {
-    nodes.push({ kind: "prose", text: "(none)" });
+    nodes.push({ kind: "prose", parts: ["(none)"] });
     return nodes;
   }
   const transition = groupSetupSteps(
@@ -4585,13 +3764,10 @@ function verboseHostSetupNodes(
     for (const group of sectionGroups) {
       nodes.push({
         kind: "list-item",
-        nodes: [{
-          kind: "prose",
-          text: `${group.message}${setupProjectScope(group.projects, true, scope)}`,
-        }],
+        parts: [`${group.message}${setupProjectScope(group.projects, true, scope)}`],
       });
       if (group.step.consequence !== undefined) {
-        nodes.push({ kind: "prose", text: `  Consequence: ${group.step.consequence}` });
+        nodes.push({ kind: "prose", parts: [`  Consequence: ${group.step.consequence}`] });
       }
     }
   }
@@ -4616,14 +3792,18 @@ function conciseStatusDocument(
       {
         kind: "notice",
         severity: "success",
-        nodes: [{ kind: "prose", text: "No Projects are configured." }],
+        nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
       },
       {
         kind: "prose",
         category: "command",
-        text:
-          `Next: Run ${COMMAND_NAME} list projects to inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}, or ` +
-          `${COMMAND_NAME} bind <profile> --host <host> to configure one.`,
+        parts: [
+          "Next: Run ",
+          commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
+          ` to inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}, or `,
+          commandPart(COMMAND_NAME, [arg("bind"), arg("<profile>"), arg("--host"), arg("<host>")]),
+          " to configure one.",
+        ],
       },
     ];
   }
@@ -4641,14 +3821,14 @@ function conciseStatusDocument(
       nodes.push({
         kind: "notice",
         severity: "success",
-        nodes: [{ kind: "prose", text: first }],
+        nodes: [{ kind: "prose", parts: [first] }],
       });
     }
-    for (const line of rest) nodes.push({ kind: "prose", text: line });
+    for (const line of rest) nodes.push({ kind: "prose", parts: [line] });
     nodes.push(...operationAttentionNodes(report, scope, true));
     const exclusionClause = repositoryExclusionClause(report, false, true);
     if (exclusionClause !== undefined) {
-      nodes.push(spacerNode(), { kind: "prose", text: exclusionClause });
+      nodes.push(spacerNode(), { kind: "prose", parts: [exclusionClause] });
     }
     nodes.push(...warningNodes(report, groups, scope));
     nodes.push(...readyStatusGuidanceNodes(report, options));
@@ -4706,7 +3886,7 @@ function conciseStatusDocument(
           nodes.push({
             kind: "key-value",
             key: "  State",
-            value: { kind: "prose", text: itemText(item) },
+            value: { kind: "prose", parts: [itemText(item)] },
             category: "attention",
           });
         }
@@ -4716,7 +3896,7 @@ function conciseStatusDocument(
 
   const exclusionClause = repositoryExclusionClause(report, false, false);
   if (exclusionClause !== undefined) {
-    nodes.push(spacerNode(), { kind: "prose", text: exclusionClause });
+    nodes.push(spacerNode(), { kind: "prose", parts: [exclusionClause] });
   }
   const globalBlockers = globalBlockerNodes(report, groups, {
     kind: "pointer",
@@ -4730,7 +3910,7 @@ function conciseStatusDocument(
     nodes.push(spacerNode(), {
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: blockedSummary }],
+      nodes: [{ kind: "prose", parts: [blockedSummary] }],
     });
   }
   nodes.push(...warningNodes(report, groups, scope));
@@ -4759,15 +3939,18 @@ function blockersOnlyStatusDocument(
 ): PresentationDocument {
   const scope = locationDisplayScope(options, report);
   if (reportBlockers(report).length === 0) {
-    const completeView = options.all === true
-      ? `${COMMAND_NAME} status --all`
-      : `${COMMAND_NAME} status`;
     return [
-      { kind: "prose", text: "No blockers.", category: "success" },
+      { kind: "prose", parts: ["No blockers."], category: "success" },
       {
         kind: "prose",
         category: "command",
-        text: `Next: Run ${completeView} for the complete lifecycle view.`,
+        parts: [
+          "Next: Run ",
+          options.all === true
+            ? commandPart(COMMAND_NAME, [arg("status"), arg("--all")])
+            : commandPart(COMMAND_NAME, [arg("status")]),
+          " for the complete lifecycle view.",
+        ],
       },
     ];
   }
@@ -5138,7 +4321,7 @@ export function temporaryInstallationDocument(
         severity: "success",
         nodes: [{
           kind: "prose",
-          text: `Installed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`,
+          parts: [`Installed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`],
         }],
       },
       {
@@ -5163,10 +4346,10 @@ export function temporaryInstallationDocument(
     ];
     if (receipt.warnings.length > 0) {
       nodes.push(
-        { kind: "prose", text: "Warnings:", category: "attention" },
+        { kind: "prose", parts: ["Warnings:"], category: "attention" },
         ...receipt.warnings.map((warning) => ({
           kind: "list-item" as const,
-          nodes: [{ kind: "prose" as const, text: warning }],
+          parts: [warning],
         })),
       );
     }
@@ -5190,11 +4373,11 @@ export function temporaryInstallationDocument(
             return [
               {
                 kind: "list-item" as const,
-                nodes: [{ kind: "prose" as const, text: message }],
+                parts: [message],
               },
               ...(step.consequence === undefined
                 ? []
-                : [{ kind: "prose" as const, text: `  Consequence: ${step.consequence}` }]),
+                : [{ kind: "prose" as const, parts: [`  Consequence: ${step.consequence}`] }]),
             ];
           }),
       );
@@ -5221,7 +4404,7 @@ export function temporaryInstallationDocument(
       severity: "success",
       nodes: [{
         kind: "prose",
-        text: `Removed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`,
+        parts: [`Removed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`],
       }],
     },
     {
@@ -5295,16 +4478,25 @@ export function temporaryBlockedMessagesDocument(
       (reduced, project) => replaceProjectReference(reduced, project, presented),
       line,
     );
+  const replaceReferencesInParts = (content: readonly InlineContent[]): readonly InlineContent[] =>
+    content.map((part) =>
+      typeof part === "string" ? replaceReferences(part) : part
+    );
   const document: PresentationDocument = blockers.flatMap((blocker, index) => {
     const wording = humanBlockerWording(blocker);
     // Every blocked temporary-installation Blocker renders its problem and
     // its remedy, so recovery always names a runnable command (US-027). The
     // command-name diagnostic prefix belongs to the first line only, exactly
     // as the composed CLI diagnostic carried it before the document model.
-    const problem = index === 0 ? `${COMMAND_NAME}: ${wording.problem}` : wording.problem;
+    const problem: readonly InlineContent[] = index === 0
+      ? [`${COMMAND_NAME}: `, ...wording.problem]
+      : wording.problem;
     return [
-      { kind: "prose", text: replaceReferences(problem), category: "error" },
-      { kind: "prose", text: replaceReferences(`Remedy: ${wording.remedy}`) },
+      { kind: "prose", parts: replaceReferencesInParts(problem), category: "error" },
+      {
+        kind: "prose",
+        parts: replaceReferencesInParts(["Remedy: ", ...wording.remedy]),
+      },
     ];
   });
   return { presented, document };

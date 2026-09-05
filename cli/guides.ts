@@ -63,8 +63,9 @@ export function guideIndexDocument(): PresentationDocument {
     spacer(),
     {
       kind: "sentence",
-      text:
+      parts: [
         "Choose a focused authoring topic, read the complete human guide, or open the agent workflow reference.",
+      ],
     },
     spacer(),
     { kind: "heading", text: "Topics:" },
@@ -132,7 +133,7 @@ export function focusedGuideDocument(topic: GuideTopic): PresentationDocument {
   const nodes: PresentationNode[] = [
     { kind: "heading", text: `# ${guide.title}` },
     spacer(),
-    { kind: "sentence", text: guide.introduction },
+    { kind: "sentence", parts: [guide.introduction] },
     ...exampleNodes(AUTHORING_EXAMPLES[topic], guide.language),
   ];
   if (topic === "profile") {

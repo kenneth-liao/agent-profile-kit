@@ -21,6 +21,7 @@ import {
   formatSchemaRejection,
 } from "../cli/error-wording.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
+import { flatInlineText } from "../cli/inline-content.js";
 import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
 
 function isolatedHome(): string {
@@ -88,7 +89,7 @@ describe("typed Installer tool errors", () => {
         "installer tool error: missing-local-configuration",
       );
       // Presentation owns the carried sentence on both surfaces, verbatim.
-      expect(formatInstallerToolError(fact)).toBe(
+      expect(flatInlineText(formatInstallerToolError(fact))).toBe(
         `Local Configuration is missing at ${configPath(home)}; run apkit init`,
       );
     } finally {
@@ -109,7 +110,7 @@ describe("typed Installer tool errors", () => {
       );
       expect(unsupportedHost).toBeInstanceOf(InstallerToolError);
       expect((unsupportedHost as InstallerToolError).fact.kind).toBe("unsupported-host");
-      expect(formatInstallerToolError((unsupportedHost as InstallerToolError).fact)).toBe(
+      expect(flatInlineText(formatInstallerToolError((unsupportedHost as InstallerToolError).fact))).toBe(
         "unsupported Agent Host 'gemini'; supported Hosts: antigravity, claude, codex, grok, opencode, pi",
       );
 
@@ -119,7 +120,7 @@ describe("typed Installer tool errors", () => {
       );
       expect(conflict).toBeInstanceOf(InstallerToolError);
       expect((conflict as InstallerToolError).fact.kind).toBe("bind-conflict");
-      const conflictSentence = formatInstallerToolError((conflict as InstallerToolError).fact);
+      const conflictSentence = flatInlineText(formatInstallerToolError((conflict as InstallerToolError).fact));
       expect(conflictSentence).toContain("already binds canonical project");
       expect(conflictSentence).toContain("pass --replace to restate its Profile and Hosts");
 
@@ -129,7 +130,7 @@ describe("typed Installer tool errors", () => {
       );
       expect(duplicate).toBeInstanceOf(InstallerToolError);
       expect((duplicate as InstallerToolError).fact.kind).toBe("duplicate-canonical-root");
-      expect(formatInstallerToolError((duplicate as InstallerToolError).fact)).toContain(
+      expect(flatInlineText(formatInstallerToolError((duplicate as InstallerToolError).fact))).toContain(
         "project resolves to duplicate canonical root",
       );
     } finally {
@@ -156,7 +157,7 @@ describe("typed Installer tool errors", () => {
       expect((failure as Error).name).toBe("MissingProfileError");
       expect((failure as Error).message).toBe("missing profile: missing");
       const sentence = failure instanceof MissingProfileError
-        ? formatMissingProfileError(failure)
+        ? flatInlineText(formatMissingProfileError(failure))
         : undefined;
       expect(sentence).toContain("Profile 'missing' does not exist in this Workspace");
       expect(sentence).toContain(
@@ -185,7 +186,7 @@ describe("typed Installer tool errors", () => {
       })();
       expect(wildcard).toBeInstanceOf(InstallerToolError);
       expect(
-        formatInstallerToolError((wildcard as InstallerToolError).fact),
+        flatInlineText(formatInstallerToolError((wildcard as InstallerToolError).fact)),
       ).toBe(
         "Local Configuration /home/.agents/agent-profile-kit/config.yaml bindings[2] project must be an explicit directory path without wildcards",
       );
@@ -199,7 +200,7 @@ describe("typed Installer tool errors", () => {
         }
       })();
       expect(
-        formatInstallerToolError((relative as InstallerToolError).fact),
+        flatInlineText(formatInstallerToolError((relative as InstallerToolError).fact)),
       ).toBe(
         "Local Configuration /home/.agents/agent-profile-kit/config.yaml bindings[2] project must be an absolute path or home-relative path beginning with ~/",
       );
@@ -227,7 +228,7 @@ describe("typed Installer tool errors", () => {
       );
       expect(failure).toBeInstanceOf(InstallerToolError);
       expect((failure as InstallerToolError).fact.kind).toBe("missing-directory");
-      expect(formatInstallerToolError((failure as InstallerToolError).fact)).toBe(
+      expect(flatInlineText(formatInstallerToolError((failure as InstallerToolError).fact))).toBe(
         "apkit init workspace '~/no-such-dir' must be an existing directory",
       );
     } finally {
@@ -252,7 +253,7 @@ describe("typed Installer tool errors", () => {
     const rejection = failure as SchemaRejectionError;
     expect(rejection.reason.schema).toBe("local-configuration");
     expect(rejection.reason.detail.case).toBe("unsupported-host");
-    expect(formatSchemaRejection(rejection.reason)).toBe(
+    expect(flatInlineText(formatSchemaRejection(rejection.reason))).toBe(
       `Local Configuration ${path} bindings[0] hosts[0] unsupported Agent Host 'cursor'; supported Hosts: antigravity, claude, codex, grok, opencode, pi`,
     );
     expect(rejection.message).toBe("schema rejected: local-configuration/unsupported-host");
@@ -269,7 +270,7 @@ describe("typed Installer tool errors", () => {
       const failure = await rejection(() => ingestWorkspace(workspace));
       expect(failure).toBeInstanceOf(InstallerToolError);
       expect((failure as InstallerToolError).fact.kind).toBe("missing-context-reference");
-      expect(formatInstallerToolError((failure as InstallerToolError).fact)).toBe(
+      expect(flatInlineText(formatInstallerToolError((failure as InstallerToolError).fact))).toBe(
         "Profile 'broken' selects missing Context Module 'no-such-context'. " +
           "Restore the Context Module, or remove or update Profile 'broken'",
       );
@@ -289,7 +290,7 @@ describe("typed Installer tool errors", () => {
       );
       expect(failure).toBeInstanceOf(InstallerToolError);
       expect((failure as InstallerToolError).fact.kind).toBe("init-not-workspace-directory");
-      expect(formatInstallerToolError((failure as InstallerToolError).fact)).toBe(
+      expect(flatInlineText(formatInstallerToolError((failure as InstallerToolError).fact))).toBe(
         `Cannot initialize ${destination}: directory is non-empty and is not an Agent Profile Kit Workspace`,
       );
     } finally {
@@ -321,7 +322,7 @@ describe("typed Installer tool errors", () => {
       );
       expect(unknownIdentity).toBeInstanceOf(InstallerToolError);
       expect((unknownIdentity as InstallerToolError).fact.kind).toBe("unknown-temporary-identity");
-      expect(formatInstallerToolError((unknownIdentity as InstallerToolError).fact)).toBe(
+      expect(flatInlineText(formatInstallerToolError((unknownIdentity as InstallerToolError).fact))).toBe(
         "unknown temporary installation identity 'no-such-identity'",
       );
     } finally {
@@ -346,7 +347,7 @@ describe("typed Installer tool errors", () => {
         }),
       );
       expect((unsupported as InstallerToolError).fact.kind).toBe("unsupported-temporary-host");
-      expect(formatInstallerToolError((unsupported as InstallerToolError).fact)).toBe(
+      expect(flatInlineText(formatInstallerToolError((unsupported as InstallerToolError).fact))).toBe(
         "unsupported Agent Host 'gemini'; temporary installation supports: claude, codex, opencode, pi",
       );
 
@@ -359,7 +360,7 @@ describe("typed Installer tool errors", () => {
         }),
       );
       expect((notYet as InstallerToolError).fact.kind).toBe("temporary-host-unsupported");
-      expect(formatInstallerToolError((notYet as InstallerToolError).fact)).toBe(
+      expect(flatInlineText(formatInstallerToolError((notYet as InstallerToolError).fact))).toBe(
         "temporary installation does not yet support Agent Host 'grok'; supported Hosts: claude, codex, opencode, pi",
       );
     } finally {
@@ -382,9 +383,9 @@ describe("typed Installer tool errors", () => {
       kind: "missing-local-configuration",
       path: "/home/.agents/agent-profile-kit/config.yaml",
     };
-    const machine = formatInstallerToolError(fact);
+    const machine = flatInlineText(formatInstallerToolError(fact));
     // The machine and human projections publish the same carried sentence.
-    expect(installerErrorSentence(new InstallerToolError(fact))).toBe(machine);
+    expect(flatInlineText(installerErrorSentence(new InstallerToolError(fact)) ?? [])).toBe(machine);
     expect(machine).toContain("run apkit init");
   });
 
@@ -413,7 +414,7 @@ describe("typed Installer tool errors", () => {
       }
       // The foreign detail is carried verbatim and the presentation-owned
       // recovery clause is retained, matching the pre-typing composition.
-      const sentence = formatInstallerToolError(fact);
+      const sentence = flatInlineText(formatInstallerToolError(fact));
       expect(sentence).toContain("EACCES");
       expect(sentence.endsWith(
         "; edit Local Configuration directly if this stale or malformed binding must be removed",

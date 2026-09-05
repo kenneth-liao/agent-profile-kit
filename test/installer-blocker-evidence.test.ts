@@ -10,6 +10,7 @@ import {
   lifecycleExitCode,
 } from "../cli/presentation.js";
 import { blockerWording, humanBlockerWording } from "../cli/blocker-wording.js";
+import { flatInlineText } from "../cli/inline-content.js";
 import {
   INSTALLATION_OWNERSHIP,
   INSTALLATION_STATE_UNREADABLE,
@@ -135,18 +136,18 @@ describe("structured Installer blocker evidence", () => {
       `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,
     );
     expect(wording.remedy).toBe("Restore or repair the Installation State file, then retry");
-    expect(humanWording.remedy).toBe(
+    expect(flatInlineText(humanWording.remedy)).toBe(
       "Restore or repair the installation record file, then retry. Run apkit status to retry.",
     );
     for (const term of [/Installation State/i]) {
-      expect(humanWording.problem).not.toMatch(term);
-      expect(humanWording.requirement).not.toMatch(term);
-      expect(humanWording.remedy).not.toMatch(term);
+      expect(flatInlineText(humanWording.problem)).not.toMatch(term);
+      expect(flatInlineText(humanWording.requirement)).not.toMatch(term);
+      expect(flatInlineText(humanWording.remedy)).not.toMatch(term);
     }
 
     const human = formatLifecycleReport("status", report);
     expect(human).toContain("Global blockers:");
-    expect(human).toContain(humanWording.problem);
+    expect(human).toContain(flatInlineText(humanWording.problem));
     // The typed fact rides on every Project state; presentation composes the
     // same carried sentence it published before the fact conversion.
     const verbose = formatLifecycleReport("status", report, { verbose: true });
@@ -238,7 +239,7 @@ describe("structured Installer blocker evidence", () => {
     expect(blockerWording(conflict).problem).toBe(
       "An active Temporary Profile Installation already owns generated files (temp-1)",
     );
-    expect(humanBlockerWording(conflict).problem).toBe(
+    expect(flatInlineText(humanBlockerWording(conflict).problem)).toBe(
       "An active temporary Profile already owns generated files (temp-1)",
     );
 

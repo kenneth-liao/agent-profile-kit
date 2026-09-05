@@ -123,3 +123,68 @@ export function carriedParts(
   flushCarry();
   return content;
 }
+
+/**
+ * Carve structurally supplied values out of already-composed inline content:
+ * every occurrence inside a text span becomes an atomic identifier part, so a
+ * value is never re-identified downstream of this composition (DEC-009).
+ */
+export function carriedContent(
+  content: readonly InlineContent[],
+  values: readonly string[],
+): readonly InlineContent[] {
+  if (values.every((value) => value.length === 0)) return content;
+  return content.flatMap((part) =>
+    typeof part === "string" ? carriedParts(part, values) : [part]
+  );
+}
+
+/**
+ * The plain-text projection of inline content: atomic parts render verbatim.
+ * Machine surfaces publish carried sentences through this projection so the
+ * parts authoring stays the single home of the wording (DEC-009).
+ */
+export function flatInlineText(content: readonly InlineContent[]): string {
+  return content.map(flatInlinePart).join("");
+}
+
+function flatInlinePart(part: InlineContent): string {
+  if (typeof part === "string") return part;
+  switch (part.kind) {
+    case "text":
+      return part.value;
+    case "command":
+      return [part.program, ...part.args.map(flatCommandArg)].join(" ");
+    case "path":
+      return part.authoredPath ?? part.canonicalPath;
+    case "identifier":
+      return part.value;
+  }
+}
+
+function flatCommandArg(arg: CommandArg): string {
+  return arg.kind === "text" ? arg.value : (arg.authoredPath ?? arg.canonicalPath);
+}
+
+/**
+ * Split inline content at carried newlines into one part list per line, so a
+ * multi-line carried message becomes one document node per line without the
+ * renderer re-identifying the line structure (DEC-009).
+ */
+export function splitInlineLines(
+  content: readonly InlineContent[],
+): readonly (readonly InlineContent[])[] {
+  const lines: InlineContent[][] = [[]];
+  for (const part of content) {
+    if (typeof part !== "string") {
+      lines.at(-1)!.push(part);
+      continue;
+    }
+    const segments = part.split("\n");
+    segments.forEach((segment, index) => {
+      if (index > 0) lines.push([]);
+      if (segment.length > 0) lines.at(-1)!.push(segment);
+    });
+  }
+  return lines;
+}

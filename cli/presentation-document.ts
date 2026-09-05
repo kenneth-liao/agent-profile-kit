@@ -1,16 +1,14 @@
 import { homedir } from "node:os";
 
-import {
-  createCopyableValueProtector,
-  type CopyableValueProtector,
-  wrappedLifecycleLine,
-  wrappedSentenceLine,
-} from "./presentation.js";
 import { displayPath, type LocationDisplayScope } from "./display-path.js";
 import {
+  carriedContent,
+  carriedParts,
   commandPart,
+  flatInlineText,
   identifierPart,
   pathPart,
+  splitInlineLines,
   textPart,
   type CommandArg,
   type CommandPart,
@@ -23,9 +21,13 @@ import {
 } from "./inline-content.js";
 
 export {
+  carriedContent,
+  carriedParts,
   commandPart,
+  flatInlineText,
   identifierPart,
   pathPart,
+  splitInlineLines,
   textPart,
 };
 export type {
@@ -51,15 +53,11 @@ export type NoticeSeverity = "attention" | "error" | "info" | "success";
 export type PresentationRenderOptions = {
   readonly cwd?: string;
   readonly home?: string;
-  /** Report-supplied values whose spaces must survive prose wrapping. */
-  readonly copyableValues?: readonly string[];
 };
 
 export type ProseNode = {
   readonly kind: "prose";
-  /** Transitional: carried text until the site is authored as parts. */
-  readonly text?: string;
-  readonly parts?: readonly InlineContent[];
+  readonly parts: readonly InlineContent[];
   readonly category?: SemanticCategory;
 };
 
@@ -71,9 +69,7 @@ export type ProseNode = {
  */
 export type SentenceNode = {
   readonly kind: "sentence";
-  /** Transitional: carried text until the site is authored as parts. */
-  readonly text?: string;
-  readonly parts?: readonly InlineContent[];
+  readonly parts: readonly InlineContent[];
   readonly category?: SemanticCategory;
 };
 
@@ -113,9 +109,7 @@ export type KeyValueNode = {
 
 export type ListItemNode = {
   readonly kind: "list-item";
-  /** Transitional: carried child nodes until the site is authored as parts. */
-  readonly nodes?: readonly PresentationNode[];
-  readonly parts?: readonly InlineContent[];
+  readonly parts: readonly InlineContent[];
   readonly category?: SemanticCategory;
 };
 
@@ -162,6 +156,46 @@ export type PresentationNode =
 
 export type PresentationDocument = readonly PresentationNode[];
 
+/**
+ * Carve structurally supplied values into a document's inline content: every
+ * occurrence inside a text span becomes an atomic identifier part the renderer
+ * keeps whole (DEC-009). This is the one normalization boundary where carried
+ * record values (report paths, ids, recovery commands) become atomic parts;
+ * the renderer never re-identifies a value in rendered text.
+ */
+export function carveDocumentValues(
+  document: PresentationDocument,
+  values: readonly string[],
+): PresentationDocument {
+  if (values.every((value) => value.length === 0)) return document;
+  return document.map((node) => carveNodeValues(node, values));
+}
+
+function carveNodeValues(node: PresentationNode, values: readonly string[]): PresentationNode {
+  switch (node.kind) {
+    case "prose":
+    case "sentence":
+    case "list-item":
+      return { ...node, parts: carriedContent(node.parts, values) };
+    case "notice":
+      return { ...node, nodes: carveDocumentValues(node.nodes, values) };
+    case "key-value":
+      return { ...node, value: carveNodeValues(node.value, values) };
+    case "row":
+      return {
+        ...node,
+        cells: node.cells.map((cell) => ({
+          ...cell,
+          content: carveNodeValues(cell.content, values),
+        })),
+      };
+    case "column-group":
+      return { ...node, columns: node.columns.map((column) => carveDocumentValues(column, values)) };
+    default:
+      return node;
+  }
+}
+
 const NOTICE_CATEGORY: Readonly<Record<NoticeSeverity, SemanticCategory>> = {
   attention: "attention",
   error: "error",
@@ -171,7 +205,6 @@ const NOTICE_CATEGORY: Readonly<Record<NoticeSeverity, SemanticCategory>> = {
 
 type RenderEnvironment = {
   readonly context: TerminalPresentationContext;
-  readonly copyableValueProtector: CopyableValueProtector | undefined;
   readonly cwd: string;
   readonly home: string;
 };
@@ -183,9 +216,6 @@ export function renderPresentationDocument(
 ): string {
   const environment: RenderEnvironment = {
     context,
-    copyableValueProtector: options.copyableValues === undefined
-      ? undefined
-      : createCopyableValueProtector(options.copyableValues),
     cwd: options.cwd ?? process.cwd(),
     home: options.home ?? homedir(),
   };
@@ -227,10 +257,10 @@ function renderNode(
   const { context } = environment;
   switch (node.kind) {
     case "prose":
-      return wrapInlineNode(node.parts, node.text, environment, "lifecycle")
+      return wrapInlineNode(node.parts, environment, "lifecycle")
         .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
     case "sentence":
-      return wrapInlineNode(node.parts, node.text, environment, "sentence")
+      return wrapInlineNode(node.parts, environment, "sentence")
         .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
     case "heading":
       return styleLines(node.text, node.category ?? "heading", context.color);
@@ -268,12 +298,8 @@ function renderNode(
         context.color,
       );
     case "list-item": {
-      const content = node.nodes
-        ?.flatMap((child) => renderNode(child, unstyled(environment), inheritedCategory))
-        .join(" ");
       return wrapInlineNode(
-        node.parts === undefined ? undefined : ["- ", ...node.parts],
-        content === undefined ? undefined : `- ${content}`,
+        ["- ", ...node.parts],
         environment,
         "lifecycle",
       )
@@ -456,23 +482,15 @@ function unstyled(environment: RenderEnvironment): RenderEnvironment {
 }
 
 /**
- * Wrap one inline-content node. Authored parts wrap through the renderer's
- * own two policies; carried text still delegates to the string pipeline until
- * every site is authored as parts (transitional).
+ * Wrap one inline-content node through the renderer's own two wrapping
+ * policies: lifecycle promotes authored command invocations onto dedicated
+ * lines; sentence keeps them inline and whole.
  */
 function wrapInlineNode(
-  parts: readonly InlineContent[] | undefined,
-  carriedText: string | undefined,
+  parts: readonly InlineContent[],
   environment: RenderEnvironment,
   policy: "lifecycle" | "sentence",
 ): readonly string[] {
-  if (parts === undefined) {
-    const text = carriedText ?? "";
-    const protector = environment.copyableValueProtector ?? createCopyableValueProtector([]);
-    return policy === "lifecycle"
-      ? wrappedLifecycleLine(text, environment.context.width, protector)
-      : wrappedSentenceLine(text, environment.context.width, protector);
-  }
   return wrapInlineParts(normalizeParts(parts), environment, policy);
 }
 
@@ -493,7 +511,13 @@ function renderInlinePart(part: InlinePart, environment: RenderEnvironment): str
         environment,
       );
     case "path":
-      return part.authoredPath ?? part.canonicalPath;
+      return displayPath(
+        part.canonicalPath,
+        part.authoredPath ?? part.canonicalPath,
+        part.scope,
+        environment.cwd,
+        environment.home,
+      );
     case "identifier":
       return part.value;
   }

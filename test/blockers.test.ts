@@ -25,6 +25,7 @@ import {
   describeTemporaryRemovalFailure,
   humanBlockerWording,
 } from "../cli/blocker-wording.js";
+import { flatInlineText } from "../cli/inline-content.js";
 import type {
   OwnershipFailureFact,
   StateReadFailureFact,
@@ -513,7 +514,7 @@ describe("shared blocker contract", () => {
       "Generated files are already managed through a Project Binding; remove them " +
       "before installing a temporary Profile",
     );
-    expect(humanBlockerWording(conflict).problem).toBe(
+    expect(flatInlineText(humanBlockerWording(conflict).problem)).toBe(
       "Generated files are already managed through a configured Project; remove them " +
       "before installing a temporary Profile",
     );

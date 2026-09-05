@@ -8,9 +8,13 @@ import {
   commandPart,
   identifierPart,
   pathPart,
+  type CommandArg,
   type PresentationDocument,
   type PresentationNode,
 } from "./presentation-document.js";
+
+/** One carried command argument. */
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 /**
  * Authoring and teardown receipt views as presentation documents. Every node
@@ -29,7 +33,7 @@ export function initReceiptDocument(input: {
   readonly path: string;
   readonly workspaceScaffolded?: boolean;
 }): PresentationDocument {
-  const workspace = pathPart(input.path, "project", input.path);
+  const workspace = identifierPart(input.path);
   if (input.outcome === "unchanged") {
     return [{
       kind: "sentence",
@@ -54,7 +58,7 @@ export function initReceiptDocument(input: {
         kind: "sentence",
         parts: [
           "Next: run ",
-          commandPart(COMMAND_NAME, [{ kind: "text", value: "validate" }]),
+          commandPart(COMMAND_NAME, [arg("validate")]),
           ", then status and apply as needed",
         ],
         category: "command",
@@ -75,12 +79,16 @@ export function initReceiptDocument(input: {
       parts: input.workspaceScaffolded === true
         ? [
           "Next: from the project you want to try, run ",
-          commandPart(COMMAND_NAME, [{ kind: "text", value: "bind" }]),
-          ` ${AUTHORING_EXAMPLES.profile.id} --host codex`,
+          commandPart(COMMAND_NAME, [
+            arg("bind"),
+            arg(AUTHORING_EXAMPLES.profile.id),
+            arg("--host"),
+            arg("codex"),
+          ]),
         ]
         : [
           "Next: run ",
-          commandPart(COMMAND_NAME, [{ kind: "text", value: "validate" }]),
+          commandPart(COMMAND_NAME, [arg("validate")]),
         ],
       category: "command",
     },
@@ -255,7 +263,7 @@ function nextCommandNode(arguments_: string): PresentationNode {
       args: arguments_
         .split(/\s+/)
         .filter(Boolean)
-        .map((token) => ({ kind: "text" as const, value: token })),
+        .map(arg),
     },
     category: "command",
   };

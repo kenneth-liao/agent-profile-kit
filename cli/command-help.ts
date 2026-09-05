@@ -87,8 +87,13 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Remove a configured Project",
     examples: COMMAND_EXAMPLES.unbind,
     writes: "Removes one configured Project from settings; does not remove installed project files.",
-    next: ["Run ", invocation("status", "--all,"), " then ", invocation("apply", "--all"),
-    " to remove obsolete generated files."],
+    next: [
+      "Run ",
+      invocation("status", "--all"),
+      ", then ",
+      invocation("apply", "--all"),
+      " to remove obsolete generated files.",
+    ],
   },
   {
     name: "validate",
@@ -304,7 +309,7 @@ export function rootHelpDocument(wordmark: readonly string[]): PresentationDocum
   }
   if (wordmark.length > 0) nodes.push(spacer());
   nodes.push(
-    { kind: "sentence", text: ROOT_INTRO },
+    { kind: "sentence", parts: [ROOT_INTRO] },
     spacer(),
     usageNode("<command> [arguments]"),
     spacer(),
@@ -352,8 +357,9 @@ export function machineHelpDocument(): PresentationDocument {
   const nodes: PresentationNode[] = [
     {
       kind: "sentence",
-      text:
+      parts: [
         "Machine-facing commands for external runners and automation. Temporary Profile Installation behavior, JSON payloads, and exit codes are unchanged from their documented contract.",
+      ],
     },
     spacer(),
     usageNode("machine <command> [arguments]"),

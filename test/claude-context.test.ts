@@ -39,6 +39,7 @@ import {
 import { uninstallApplication } from "../installer/commands.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
+import { flatInlineText } from "../cli/inline-content.js";
 
 /** Parse Local Configuration and return its presentation-owned rejection sentence. */
 function localConfigurationRejectionSentence(source: string, path = "config.yaml"): string {
@@ -46,7 +47,7 @@ function localConfigurationRejectionSentence(source: string, path = "config.yaml
     parseLocalConfiguration(source, path);
   } catch (error) {
     const typed = installerErrorSentence(error);
-    if (typed !== undefined) return typed;
+    if (typed !== undefined) return flatInlineText(typed);
     if (error instanceof Error) return error.message;
   }
   throw new Error("expected parseLocalConfiguration to reject the source");

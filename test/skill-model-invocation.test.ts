@@ -40,6 +40,7 @@ import {
 import { buildDesiredState } from "../installer/project-plan.js";
 import { parseSkill, type Skill } from "../schemas/skill.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
+import { flatInlineText } from "../cli/inline-content.js";
 import type { InstallerAuthoredError } from "../installer/tool-errors.js";
 
 /** Parse a Skill source and return its presentation-owned rejection sentence. */
@@ -48,7 +49,7 @@ function parseRejectionSentence(source: string): string {
     parseSkill(source, SKILL_PATH, SOURCE_PATH);
   } catch (error) {
     const typed = installerErrorSentence(error);
-    if (typed !== undefined) return typed;
+    if (typed !== undefined) return flatInlineText(typed);
     if (error instanceof Error) return error.message;
   }
   throw new Error("expected parseSkill to reject the source");

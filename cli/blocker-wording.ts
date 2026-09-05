@@ -19,6 +19,10 @@ import {
   type TemporaryRemovalFailureFact,
 } from "../installer/blockers.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
+import { commandPart, type CommandArg, type CommandPart, type InlineContent } from "./inline-content.js";
+
+/** One carried command argument. */
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 /**
  * Presentation-owned blocker wording, keyed by typed {@link BlockerKind}.
@@ -266,11 +270,13 @@ export function blockerWording(blocker: ReconciliationBlocker): BlockerWording {
 /**
  * Newcomer substitutions applied when rendering blocker wording for humans.
  * Internal domain terms become their default-view lexicon equivalents, and
- * machine-namespace command references reflect the published command surface.
- * Ordered: plural forms before singular, longest first.
+ * machine-namespace command references become atomic command parts: the
+ * substitution authors the invocation rather than leaving it to be
+ * re-identified in rendered text (DEC-009). Ordered: plural forms before
+ * singular, longest first.
  */
 export const DEFAULT_BLOCKER_SUBSTITUTIONS: readonly {
-  readonly replacement: string;
+  readonly replacement: string | CommandPart;
   readonly term: RegExp;
 }[] = [
   { replacement: "configured Projects", term: /Project Bindings/g },
@@ -280,8 +286,14 @@ export const DEFAULT_BLOCKER_SUBSTITUTIONS: readonly {
   { replacement: "installation record", term: /Installation State/g },
   { replacement: "generated files", term: /\bgenerated outputs\b/gi },
   { replacement: "generated file", term: /\bgenerated output\b/gi },
-  { replacement: "apkit machine install-temp", term: /\binstall-temp\b/g },
-  { replacement: "apkit machine remove-temp", term: /\bremove-temp\b/g },
+  {
+    replacement: commandPart("apkit", [arg("machine"), arg("install-temp")]),
+    term: /\binstall-temp\b/g,
+  },
+  {
+    replacement: commandPart("apkit", [arg("machine"), arg("remove-temp")]),
+    term: /\bremove-temp\b/g,
+  },
 ];
 
 /**
@@ -294,9 +306,42 @@ export function applyNewcomerSubstitutions(text: string): string {
 
 function substitute(text: string): string {
   return DEFAULT_BLOCKER_SUBSTITUTIONS.reduce(
-    (rendered, substitution) => rendered.replaceAll(substitution.term, substitution.replacement),
+    (rendered, substitution) => rendered.replaceAll(substitution.term, substitution.replacement as string),
     text,
   );
+}
+
+/**
+ * Apply the newcomer substitutions to inline content: string spans split at
+ * term matches and the replacement is authored in place — a command
+ * replacement becomes an atomic command part (DEC-009). Atomic parts pass
+ * through untouched: a carried value is never rewritten.
+ */
+export function substituteInline(
+  content: readonly InlineContent[],
+): readonly InlineContent[] {
+  return content.flatMap((part) => {
+    if (typeof part !== "string") return [part];
+    let spans: readonly InlineContent[] = [part];
+    for (const substitution of DEFAULT_BLOCKER_SUBSTITUTIONS) {
+      spans = spans.flatMap((span) => {
+        if (typeof span !== "string") return [span];
+        const pieces: InlineContent[] = [];
+        let cursor = 0;
+        for (const match of span.matchAll(substitution.term)) {
+          const start = match.index;
+          if (start === undefined || match[0].length === 0) continue;
+          if (start > cursor) pieces.push(span.slice(cursor, start));
+          pieces.push(substitution.replacement);
+          cursor = start + match[0].length;
+        }
+        if (pieces.length === 0) return [span];
+        if (cursor < span.length) pieces.push(span.slice(cursor));
+        return pieces;
+      });
+    }
+    return spans;
+  });
 }
 
 /**
@@ -305,17 +350,22 @@ function substitute(text: string): string {
  * substitution (temporary installation) or whose rendering includes dedicated
  * recovery command lines (tracked-output conflicts) need no addition.
  */
-function remedyCommand(blocker: ReconciliationBlocker): string | undefined {
+function remedyCommand(blocker: ReconciliationBlocker): readonly InlineContent[] | undefined {
   switch (blocker.kind) {
     case INSTALLATION_STATE_UNREADABLE:
-      return "Run apkit status to retry.";
+      return ["Run ", commandPart("apkit", [arg("status")]), " to retry."];
     case OCCUPIED_OUTPUT:
-      return "Run apkit bind <profile> --host <host> to change the configured Project, " +
-        "or apkit apply to retry.";
+      return [
+        "Run ",
+        commandPart("apkit", [arg("bind"), arg("<profile>"), arg("--host"), arg("<host>")]),
+        " to change the configured Project, or ",
+        commandPart("apkit", [arg("apply")]),
+        " to retry.",
+      ];
     case INSTALLATION_OWNERSHIP:
       return blockerAction(blocker) === "verify"
-        ? "Run apkit apply to retry."
-        : "Run apkit uninstall to retry.";
+        ? ["Run ", commandPart("apkit", [arg("apply")]), " to retry."]
+        : ["Run ", commandPart("apkit", [arg("uninstall")]), " to retry."];
     case OUTPUT_OWNERSHIP_CONFLICT:
     case TEMPORARY_INSTALLATION_CONFLICT:
     case TEMPORARY_INSTALLATION_REMOVAL:
@@ -323,55 +373,83 @@ function remedyCommand(blocker: ReconciliationBlocker): string | undefined {
   }
 }
 
-/** The human rendering of one blocker: newcomer terms plus a runnable command where needed. */
-export function humanBlockerWording(blocker: ReconciliationBlocker): BlockerWording {
+/** The human parts rendering of one blocker: newcomer terms plus a runnable command where needed. */
+export interface HumanBlockerWording {
+  readonly message: readonly InlineContent[];
+  readonly problem: readonly InlineContent[];
+  readonly remedy: readonly InlineContent[];
+  readonly requirement: readonly InlineContent[];
+}
+
+export function humanBlockerWording(blocker: ReconciliationBlocker): HumanBlockerWording {
   const wording = blockerWording(blocker);
   const command = remedyCommand(blocker);
   return {
-    message: substitute(wording.message),
-    problem: substitute(wording.problem),
+    message: substituteInline([wording.message]),
+    problem: substituteInline([wording.problem]),
     remedy: command === undefined
-      ? substitute(wording.remedy)
-      : `${substitute(wording.remedy)}. ${command}`,
-    requirement: substitute(wording.requirement),
+      ? substituteInline([wording.remedy])
+      : [...substituteInline([`${wording.remedy}. `]), ...command],
+    requirement: substituteInline([wording.requirement]),
   };
 }
 
 /**
- * Presentation-owned canonical sentence for the Installer's typed
- * ProjectTargetError. Published verbatim in machine tool-error JSON; human
- * rendering applies the newcomer substitutions
- * (`formatProjectTargetErrorForHuman`).
+ * Presentation-owned canonical sentence parts for the Installer's typed
+ * ProjectTargetError. Published verbatim in machine tool-error JSON (through
+ * the plain-text projection); human rendering applies the newcomer
+ * substitutions (`formatProjectTargetErrorForHuman`).
  */
 export function formatProjectTargetError(
   reason: ProjectTargetErrorReason,
-): string {
+): readonly InlineContent[] {
   switch (reason.case) {
     case "ambiguous-target":
-      return `apkit ${reason.command} Project target '${reason.target}' is ambiguous because it ` +
-        "matches multiple Project Bindings; pass one exact Project root or run " +
-        `${COMMAND_NAME} list projects`;
+      return [
+        commandPart("apkit", [arg(reason.command)]),
+        ` Project target '${reason.target}' is ambiguous because it ` +
+          "matches multiple Project Bindings; pass one exact Project root or run ",
+        commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
+      ];
     case "dangling-symlink-target":
-      return `apkit ${reason.command} Project target project '${reason.target}' is a dangling ` +
-        "symlink; restore its target or choose an existing directory";
+      return [
+        commandPart("apkit", [arg(reason.command)]),
+        ` Project target project '${reason.target}' is a dangling ` +
+          "symlink; restore its target or choose an existing directory",
+      ];
     case "missing-target":
-      return `apkit ${reason.command} Project target project '${reason.target}' must be an ` +
-        "existing directory";
+      return [
+        commandPart("apkit", [arg(reason.command)]),
+        ` Project target project '${reason.target}' must be an ` +
+          "existing directory",
+      ];
     case "relative-target":
-      return `apkit ${reason.command} Project target project must be an absolute path or ` +
-        "home-relative path beginning with ~/";
+      return [
+        commandPart("apkit", [arg(reason.command)]),
+        " Project target project must be an absolute path or " +
+          "home-relative path beginning with ~/",
+      ];
     case "unbound-target":
-      return `apkit ${reason.command} Project target '${reason.target}' is not a bound Project; ` +
-        `run ${COMMAND_NAME} list projects or ${COMMAND_NAME} bind`;
+      return [
+        commandPart("apkit", [arg(reason.command)]),
+        ` Project target '${reason.target}' is not a bound Project; ` +
+          "run ",
+        commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
+        " or ",
+        commandPart(COMMAND_NAME, [arg("bind")]),
+      ];
     case "wildcard-target":
-      return `apkit ${reason.command} Project target project must be an explicit directory ` +
-        "path without wildcards";
+      return [
+        commandPart("apkit", [arg(reason.command)]),
+        " Project target project must be an explicit directory " +
+          "path without wildcards",
+      ];
   }
 }
 
 /** Human rendering of a ProjectTargetError: newcomer terms, guard-clean. */
 export function formatProjectTargetErrorForHuman(
   reason: ProjectTargetErrorReason,
-): string {
-  return applyNewcomerSubstitutions(formatProjectTargetError(reason));
+): readonly InlineContent[] {
+  return substituteInline(formatProjectTargetError(reason));
 }

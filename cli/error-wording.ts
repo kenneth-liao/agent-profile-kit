@@ -16,6 +16,10 @@ import type {
 } from "../schemas/schema-rejections.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import { InstallerToolError, SchemaRejectionError } from "../installer/tool-errors.js";
+import { commandPart, identifierPart, type CommandArg, type InlineContent } from "./inline-content.js";
+
+/** One carried command argument. */
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 /**
  * Presentation-owned tool-error wording, keyed by the typed error facts the
@@ -27,20 +31,20 @@ import { InstallerToolError, SchemaRejectionError } from "../installer/tool-erro
  * tool-error sentences, so no on-screen wording changes.
  */
 
-function configuredPathDescription(origin: ConfiguredPathOrigin): string {
+function configuredPathDescription(origin: ConfiguredPathOrigin): readonly InlineContent[] {
   switch (origin.source) {
     case "local-configuration":
       return origin.bindingIndex === undefined
-        ? `Local Configuration ${origin.configurationPath}`
-        : `Local Configuration ${origin.configurationPath} bindings[${origin.bindingIndex}]`;
+        ? [`Local Configuration ${origin.configurationPath}`]
+        : [`Local Configuration ${origin.configurationPath} bindings[${origin.bindingIndex}]`];
     case "init":
-      return `${COMMAND_NAME} init`;
+      return [commandPart(COMMAND_NAME, [arg("init")])];
     case "install-temp":
-      return "install-temp";
+      return ["install-temp"];
     case "project-target":
-      return `${COMMAND_NAME} ${origin.command} Project target`;
+      return [commandPart(COMMAND_NAME, [arg(origin.command)]), " Project target"];
     case "project-binding":
-      return "Project Binding";
+      return ["Project Binding"];
   }
 }
 
@@ -50,22 +54,22 @@ function danglingSymlinkRecovery(field: string): string {
     : "restore its target or choose an existing directory";
 }
 
-/** The carried sentence for one typed configured-path failure. */
-export function formatConfiguredPathError(fact: ConfiguredPathErrorFact): string {
+/** The carried sentence parts for one typed configured-path failure. */
+export function formatConfiguredPathError(fact: ConfiguredPathErrorFact): readonly InlineContent[] {
   const description = configuredPathDescription(fact.origin);
   switch (fact.kind) {
     case "wildcard-path":
-      return `${description} ${fact.field} must be an explicit directory path without wildcards`;
+      return [...description, ` ${fact.field} must be an explicit directory path without wildcards`];
     case "relative-path":
-      return `${description} ${fact.field} must be an absolute path or home-relative path beginning with ~/`;
+      return [...description, ` ${fact.field} must be an absolute path or home-relative path beginning with ~/`];
     case "missing-directory":
-      return `${description} ${fact.field} '${fact.authored}' must be an existing directory`;
+      return [...description, ` ${fact.field} '${fact.authored}' must be an existing directory`];
     case "dangling-symlink":
-      return `${description} ${fact.field} '${fact.authored}' is a dangling symlink; ${danglingSymlinkRecovery(fact.field)}`;
+      return [...description, ` ${fact.field} '${fact.authored}' is a dangling symlink; ${danglingSymlinkRecovery(fact.field)}`];
     case "reserved-workspace":
-      return `${description} workspace '${fact.authored}' is reserved for ${fact.label} at ${fact.path}`;
+      return [...description, ` workspace '${fact.authored}' is reserved for ${fact.label} at ${fact.path}`];
     case "invalid-workspace":
-      return `${description} workspace '${fact.authored}' is not a valid Agent Profile Kit Workspace: ${formatWorkspaceIngestionError(fact.cause)}`;
+      return [...description, ` workspace '${fact.authored}' is not a valid Agent Profile Kit Workspace: ${formatWorkspaceIngestionError(fact.cause)}`];
   }
 }
 
@@ -97,37 +101,45 @@ export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string 
   }
 }
 
-/** The carried sentence for one typed Local Configuration rejection. */
-export function formatLocalConfigurationError(reason: LocalConfigurationRejectionReason): string {
+/** The carried sentence parts for one typed Local Configuration rejection. */
+export function formatLocalConfigurationError(
+  reason: LocalConfigurationRejectionReason,
+): readonly InlineContent[] {
   switch (reason.case) {
     case "invalid-yaml":
-      return `Local Configuration ${reason.path} is invalid YAML`;
+      return [`Local Configuration ${reason.path} is invalid YAML`];
     case "not-a-mapping":
-      return `Local Configuration ${reason.path} must be a YAML mapping`;
+      return [`Local Configuration ${reason.path} must be a YAML mapping`];
     case "unknown-field":
-      return `Local Configuration ${reason.path} does not allow fields: ${reason.fields.join(", ")}`;
+      return [`Local Configuration ${reason.path} does not allow fields: ${reason.fields.join(", ")}`];
     case "unsupported-schema-version":
-      return `Local Configuration ${reason.path} schema_version must be ${LOCAL_CONFIGURATION_SCHEMA_VERSION}`;
+      return [`Local Configuration ${reason.path} schema_version must be ${LOCAL_CONFIGURATION_SCHEMA_VERSION}`];
     case "missing-workspace":
-      return `Local Configuration ${reason.path} workspace is required for schema_version ${LOCAL_CONFIGURATION_SCHEMA_VERSION}; add an explicit Workspace path and retry`;
+      return [`Local Configuration ${reason.path} workspace is required for schema_version ${LOCAL_CONFIGURATION_SCHEMA_VERSION}; add an explicit Workspace path and retry`];
     case "legacy-schema-version":
-      return `Local Configuration ${reason.path} uses legacy schema_version ${reason.schemaVersion}; run ${reason.migrationCommand} to migrate it`;
+      return [
+        `Local Configuration ${reason.path} uses legacy schema_version ${reason.schemaVersion}; run `,
+        // The carried migration command is a structurally supplied value: it
+        // stays one atomic token the renderer never splits (DEC-009).
+        identifierPart(reason.migrationCommand),
+        " to migrate it",
+      ];
     case "bindings-not-array":
-      return `Local Configuration ${reason.path} bindings must be an array`;
+      return [`Local Configuration ${reason.path} bindings must be an array`];
     case "binding-not-mapping":
-      return `Local Configuration ${reason.path} bindings[${reason.index}] must be a YAML mapping`;
+      return [`Local Configuration ${reason.path} bindings[${reason.index}] must be a YAML mapping`];
     case "unknown-binding-field":
-      return `Local Configuration ${reason.path} bindings[${reason.index}] does not allow fields: ${reason.fields.join(", ")}`;
+      return [`Local Configuration ${reason.path} bindings[${reason.index}] does not allow fields: ${reason.fields.join(", ")}`];
     case "invalid-field":
-      return `Local Configuration ${reason.path} ${reason.field} must be a non-empty string`;
+      return [`Local Configuration ${reason.path} ${reason.field} must be a non-empty string`];
     case "invalid-binding-field":
-      return `Local Configuration ${reason.path} bindings[${reason.index}] ${reason.field} must be a non-empty string`;
+      return [`Local Configuration ${reason.path} bindings[${reason.index}] ${reason.field} must be a non-empty string`];
     case "invalid-binding-profile":
-      return `Local Configuration ${reason.path} bindings[${reason.index}] profile must be a lowercase kebab-case name without wildcards`;
+      return [`Local Configuration ${reason.path} bindings[${reason.index}] profile must be a lowercase kebab-case name without wildcards`];
     case "hosts-not-array":
-      return `Local Configuration ${reason.path} bindings[${reason.index}] hosts must be a non-empty array`;
+      return [`Local Configuration ${reason.path} bindings[${reason.index}] hosts must be a non-empty array`];
     case "unsupported-host":
-      return `Local Configuration ${reason.path} bindings[${reason.index}] hosts[${reason.hostIndex}] unsupported Agent Host '${reason.host}'; supported Hosts: ${reason.supportedHosts.join(", ")}`;
+      return [`Local Configuration ${reason.path} bindings[${reason.index}] hosts[${reason.hostIndex}] unsupported Agent Host '${reason.host}'; supported Hosts: ${reason.supportedHosts.join(", ")}`];
   }
 }
 
@@ -147,17 +159,17 @@ export function formatWorkspaceManifestError(reason: WorkspaceManifestRejectionR
   }
 }
 
-/** The carried sentence for one typed portable-schema rejection. */
-export function formatSchemaRejection(reason: SchemaRejectionReason): string {
+/** The carried sentence parts for one typed portable-schema rejection. */
+export function formatSchemaRejection(reason: SchemaRejectionReason): readonly InlineContent[] {
   switch (reason.schema) {
     case "local-configuration":
       return formatLocalConfigurationError(reason.detail);
     case "workspace-manifest":
-      return formatWorkspaceManifestError(reason.detail);
+      return [formatWorkspaceManifestError(reason.detail)];
     case "workspace-artifact":
-      return formatWorkspaceArtifactError(reason.detail);
+      return [formatWorkspaceArtifactError(reason.detail)];
     case "artifact-id":
-      return `${reason.detail.label} must be a lowercase kebab-case name without wildcards`;
+      return [`${reason.detail.label} must be a lowercase kebab-case name without wildcards`];
   }
 }
 
@@ -225,11 +237,12 @@ export function formatWorkspaceArtifactError(reason: WorkspaceArtifactRejectionR
  * message for the pre-existing typed MissingProfileError (its sentence home
  * composes around it), the presentation sentence for every other typed cause.
  */
-function carriedCauseDetail(cause: InstallerAuthoredError): string {
+function carriedCauseDetail(cause: InstallerAuthoredError): readonly InlineContent[] {
   if (cause instanceof MissingProfileError) {
-    return missingProfileSentence(cause.profile);
+    return [missingProfileSentence(cause.profile)];
   }
-  return installerErrorSentence(cause) ?? cause.message;
+  const sentence = installerErrorSentence(cause);
+  return sentence ?? [cause.message];
 }
 
 /** The carried Missing Profile sentence, composed from typed fields (DEC-020). */
@@ -242,65 +255,65 @@ function missingProfileSentence(profile: string): string {
  * {@link MissingProfileError} fields; the error's own message is opaque. This
  * module is the single home of that sentence.
  */
-export function formatMissingProfileError(error: MissingProfileError): string {
-  const heading = `${missingProfileSentence(error.profile)}.`;
-  const recovery = error.recoverByEditingLocalConfiguration
-    ? " Edit Local Configuration directly if this stale binding must be removed."
-    : "";
+export function formatMissingProfileError(error: MissingProfileError): readonly InlineContent[] {
+  const heading = [`${missingProfileSentence(error.profile)}.`];
+  const recovery: readonly InlineContent[] = error.recoverByEditingLocalConfiguration
+    ? [" Edit Local Configuration directly if this stale binding must be removed."]
+    : [];
   if (error.availableProfiles.length === 0) {
-    const next = error.recoverByEditingLocalConfiguration
+    const next: readonly InlineContent[] = error.recoverByEditingLocalConfiguration
       ? recovery
-      : ` Run ${COMMAND_NAME} guide profile to learn how to add a Profile.`;
-    return `${heading} No Profiles exist in the Workspace.${next}`;
+      : [" Run ", commandPart(COMMAND_NAME, [arg("guide"), arg("profile")]), " to learn how to add a Profile."];
+    return [...heading, " No Profiles exist in the Workspace.", ...next];
   }
-  return `${heading} Available Profiles: ${error.availableProfiles.join(", ")}.${recovery}`;
+  return [...heading, ` Available Profiles: ${error.availableProfiles.join(", ")}.`, ...recovery];
 }
 
-/** The carried sentence for one typed Installer tool-error fact. */
-export function formatInstallerToolError(fact: InstallerToolErrorFact): string {
+/** The carried sentence parts for one typed Installer tool-error fact. */
+export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly InlineContent[] {
   switch (fact.kind) {
     case "missing-local-configuration":
-      return `Local Configuration is missing at ${fact.path}; run ${COMMAND_NAME} init`;
+      return [`Local Configuration is missing at ${fact.path}; run `, commandPart(COMMAND_NAME, [arg("init")])];
     case "bind-conflict":
-      return `Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]; pass --replace to restate its Profile and Hosts`;
+      return [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]; pass --replace to restate its Profile and Hosts`];
     case "stale-binding-removal":
-      return `${carriedCauseDetail(fact.cause)}; edit Local Configuration directly if this stale or malformed binding must be removed`;
+      return [...carriedCauseDetail(fact.cause), "; edit Local Configuration directly if this stale or malformed binding must be removed"];
     case "duplicate-canonical-root":
-      return `Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`;
+      return [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`];
     case "duplicate-missing-project":
-      return `Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] duplicates missing project path '${fact.project}'`;
+      return [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] duplicates missing project path '${fact.project}'`];
     case "bind-host-required":
-      return `bind requires at least one --host flag; supported Hosts: ${fact.supportedHosts.join(", ")}`;
+      return [`bind requires at least one --host flag; supported Hosts: ${fact.supportedHosts.join(", ")}`];
     case "unsupported-host":
-      return `unsupported Agent Host '${fact.host}'; supported Hosts: ${fact.supportedHosts.join(", ")}`;
+      return [`unsupported Agent Host '${fact.host}'; supported Hosts: ${fact.supportedHosts.join(", ")}`];
     case "unsupported-temporary-host":
-      return `unsupported Agent Host '${fact.host}'; temporary installation supports: ${fact.supportedHosts.join(", ")}`;
+      return [`unsupported Agent Host '${fact.host}'; temporary installation supports: ${fact.supportedHosts.join(", ")}`];
     case "temporary-host-unsupported":
-      return `temporary installation does not yet support Agent Host '${fact.host}'; supported Hosts: ${fact.supportedHosts.join(", ")}`;
+      return [`temporary installation does not yet support Agent Host '${fact.host}'; supported Hosts: ${fact.supportedHosts.join(", ")}`];
     case "lifecycle-lock-busy":
-      return `Installation lifecycle is busy; another ${fact.operation} holds the lock — retry`;
+      return [`Installation lifecycle is busy; another ${fact.operation} holds the lock — retry`];
     case "configuration-lock-busy":
-      return `Local Configuration ${fact.configurationPath} is busy; another ${fact.operation} holds the lock — retry`;
+      return [`Local Configuration ${fact.configurationPath} is busy; another ${fact.operation} holds the lock — retry`];
     case "configuration-changed-while-planning":
-      return "Local Configuration changed while apply was planning; retry apply";
+      return ["Local Configuration changed while apply was planning; retry apply"];
     case "configuration-changed-before-publication":
-      return `Local Configuration ${fact.configurationPath} changed before ${fact.operation} publication; retry after the other edit completes`;
+      return [`Local Configuration ${fact.configurationPath} changed before ${fact.operation} publication; retry after the other edit completes`];
     case "temporary-identity-required":
-      return "remove-temp requires a temporary installation identity";
+      return ["remove-temp requires a temporary installation identity"];
     case "unknown-temporary-identity":
-      return `unknown temporary installation identity '${fact.temporaryInstallationId}'`;
+      return [`unknown temporary installation identity '${fact.temporaryInstallationId}'`];
     case "init-symlink-target-missing":
-      return `Cannot initialize ${fact.path}: the Workspace symlink target does not exist; remove the symlink or restore its target before retrying`;
+      return [`Cannot initialize ${fact.path}: the Workspace symlink target does not exist; remove the symlink or restore its target before retrying`];
     case "init-path-not-directory":
-      return `Cannot initialize ${fact.path}: the Workspace path exists and is not a directory`;
+      return [`Cannot initialize ${fact.path}: the Workspace path exists and is not a directory`];
     case "init-empty-symlink-target":
-      return `Cannot initialize ${fact.path}: the Workspace symlink target is empty; remove the symlink and run init, or populate its target with a valid Workspace before retrying`;
+      return [`Cannot initialize ${fact.path}: the Workspace symlink target is empty; remove the symlink and run init, or populate its target with a valid Workspace before retrying`];
     case "init-not-workspace-directory":
-      return `Cannot initialize ${fact.path}: directory is non-empty and is not an Agent Profile Kit Workspace`;
+      return [`Cannot initialize ${fact.path}: directory is non-empty and is not an Agent Profile Kit Workspace`];
     case "init-workspace-selection-conflict":
-      return `Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`;
+      return [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`];
     case "foreign-diagnostic":
-      return fact.detail;
+      return [fact.detail];
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":
@@ -311,18 +324,18 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): string {
     case "missing-skill-reference":
     case "missing-dependency-reference":
     case "dependency-cycle":
-      return formatWorkspaceIngestionError(fact);
+      return [formatWorkspaceIngestionError(fact)];
     default:
       return formatConfiguredPathError(fact);
   }
 }
 
 /**
- * The presentation sentence for one typed Installer-authored error, or
+ * The presentation sentence parts for one typed Installer-authored error, or
  * undefined when the error was not Installer-authored and may still project
  * `error.message`.
  */
-export function installerErrorSentence(error: unknown): string | undefined {
+export function installerErrorSentence(error: unknown): readonly InlineContent[] | undefined {
   if (error instanceof InstallerToolError) return formatInstallerToolError(error.fact);
   if (error instanceof SchemaRejectionError) return formatSchemaRejection(error.reason);
   return undefined;

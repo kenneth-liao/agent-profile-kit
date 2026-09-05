@@ -21,13 +21,14 @@ import {
 } from "../installer/workspace.js";
 import { WORKSPACE_MANIFEST } from "../schemas/workspace-manifest.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
+import { flatInlineText } from "../cli/inline-content.js";
 import type { InstallerAuthoredError } from "../installer/tool-errors.js";
 
 /** Render one typed rejection through its presentation-owned sentence. */
 function rejectionSentence(error: unknown): string {
   if (error instanceof Error) {
     const typed = installerErrorSentence(error);
-    if (typed !== undefined) return typed;
+    if (typed !== undefined) return flatInlineText(typed);
     return error.message;
   }
   return String(error);

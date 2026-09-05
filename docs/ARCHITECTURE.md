@@ -471,6 +471,17 @@ changing a shared `.gitignore`. The Installer treats the common directory report
 repository-local metadata authority only after proving every path component is
 a real directory.
 
+## Presentation Pipeline
+
+Every human CLI view flows through one structured document tree and pure renderer:
+
+- **Presentation Document (`cli/presentation-document.ts`)** defines a closed vocabulary of semantic nodes (`notice`, `prose`, `sentence`, `heading`, `key-value`, `list-item`, `table`, `row`, `column-group`, `verbatim`, `path`, `command`, `identifier`) and inline parts (`text`, `command`, `path`, `identifier`).
+- **Terminal Presentation Context (`cli/terminal-presentation.ts`)** is evaluated once per stream at the CLI process boundary (`cli/index.ts`) and passed into the renderer. It owns width clamping, `NO_COLOR` handling, and interactive vs redirected styling.
+- **Pure Document Renderer (`renderPresentationDocument`)** formats the document into terminal text. It wraps prose, sentence, and list-item content to the terminal width without splitting atomic tokens.
+- **Atomic-Node Rule (DEC-009)**: Structurally supplied values (paths, commands, identifiers, options) are authored as atomic nodes or parts at formatter and receipt sites (`cli/inline-content.ts`). Keeping values intact during wrapping is a structural property of atomic nodes rather than a substring scan in rendered text. The former string pipeline (regex categoriser, English prefix table, copyable-value substring protector, and string wrapping helpers) is removed.
+- **Authored Semantic Categories (DEC-003)**: Semantic category (`success`, `attention`, `error`, `heading`, `command`, `path`, `muted`) is authored at the formatter boundary where meaning is known, rather than inferred downstream from rendered strings.
+- **Machine Surfaces**: Versioned JSON (`--json`) serializes directly from typed structured records without touching presentation documents or parsing rendered prose.
+
 ## Freshness and Versioning
 
 Profiles and artifacts are not independently versioned. Deterministic hashes distinguish current installations from source changes and output drift. The engine, schemas, and Adapters share the package's semantic version; structured configuration and ownership-state formats carry schema versions.

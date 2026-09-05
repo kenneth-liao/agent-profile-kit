@@ -23,6 +23,7 @@ import { planOpenCodeProject } from "../adapters/opencode.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { ingestDefaultWorkspace } from "../installer/ingest-workspace.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
+import { flatInlineText } from "../cli/inline-content.js";
 import type { InstallerAuthoredError } from "../installer/tool-errors.js";
 import {
   applyReconciliation,
@@ -123,7 +124,7 @@ describe("Skills-only Profiles", () => {
       () => undefined,
       (error) => error as InstallerAuthoredError,
     );
-    expect(installerErrorSentence(failure)).toBe(
+    expect(flatInlineText(installerErrorSentence(failure) ?? [])).toBe(
       "Profile 'empty' must select at least one supported artifact (Context Module or Skill)",
     );
   });
