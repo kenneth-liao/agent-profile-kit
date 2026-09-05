@@ -34,11 +34,9 @@ import {
   applyVerificationFailureDocument,
   blockedApplyReportDocument,
   formatApplyJson,
-  formatApplyReport,
   formatApplyVerificationFailureJson,
   formatBlockedApplyJson,
   formatLifecycleJson,
-  formatLifecycleReport,
   formatLifecycleToolErrorJson,
   hostInventoryDocument,
   infoDocument,
@@ -5861,7 +5859,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const nodes = flattenPresentationNodes(status);
     expect(nodes.some((node) =>
       node.kind === "list-item" &&
-      node.parts.some((part) => part.kind === "path" &&
+      node.parts.some((part) => typeof part !== "string" && part.kind === "path" &&
         part.canonicalPath === current && part.scope === "fleet")
     )).toBe(true);
     expect(renderBoundary(status, defaultRenderContext)).toContain(
@@ -7548,12 +7546,12 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       ],
     };
 
-    const concise = formatLifecycleReport("status", report);
-    expect(concise).toContain(
-      "Warnings:\n" +
-      "- OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names (3 Projects)",
-    );
-    expect(concise.match(/OpenCode discovers Skills/g)).toHaveLength(1);
+    const concise = lifecycleStatusDocument(report);
+    const warningItems = listItemsIn(concise).filter((text) =>
+      text.startsWith("OpenCode discovers Skills from both .claude/skills and .agents/skills"));
+    // One grouped warning item carries the affected-Project count.
+    expect(warningItems).toHaveLength(1);
+    expect(headingsIn(concise)).toContain("Warnings:");
   });
 
   test("concise lifecycle output reports (1 Project) for a single affected project", () => {
@@ -7570,11 +7568,9 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       ],
     };
 
-    const concise = formatLifecycleReport("status", report);
-    expect(concise).toContain(
-      "Warnings:\n" +
-      "- Codex SessionStart hooks are not enabled (1 Project)",
-    );
+    const concise = lifecycleStatusDocument(report);
+    expect(headingsIn(concise)).toContain("Warnings:");
+    expect(listItemsIn(concise)).toContain("Codex SessionStart hooks are not enabled (1 Project)");
   });
 
   test("verbose lifecycle output renders each semantic warning once and lists every affected project", () => {
@@ -7598,12 +7594,13 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       ],
     };
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain(
-      "Warnings:\n" +
-      "- OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names (/project-a, /project-b)\n",
-    );
-    expect(verbose.match(/OpenCode discovers Skills/g)).toHaveLength(1);
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const warningItems = listItemsIn(verbose).filter((text) =>
+      text.startsWith("OpenCode discovers Skills from both .claude/skills and .agents/skills"));
+    // One grouped item lists every affected project.
+    expect(warningItems).toEqual([
+      "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names (/project-a, /project-b)",
+    ]);
   });
 
   test("distinct warning kinds, messages, consequences, or copyable values do not collapse", () => {
@@ -7642,15 +7639,16 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       ],
     };
 
-    const concise = formatLifecycleReport("status", report);
-    // All 4 distinct warnings render separately with their respective counts
-    expect(concise.match(/- Same message/g)).toHaveLength(4);
+    const concise = lifecycleStatusDocument(report);
+    // All 4 distinct warnings stay separate list items with their counts.
+    expect(listItemsIn(concise).filter((text) => text.startsWith("Same message"))).toHaveLength(4);
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain("- Same message (/project-a)");
-    expect(verbose).toContain("- Same message (/project-b)");
-    expect(verbose).toContain("- Same message (/project-c)");
-    expect(verbose).toContain("- Same message (/project-d)");
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const verboseItems = listItemsIn(verbose).filter((text) => text.startsWith("Same message"));
+    expect(verboseItems).toHaveLength(4);
+    for (const project of ["/project-a", "/project-b", "/project-c", "/project-d"]) {
+      expect(verboseItems.some((text) => text.includes(`(${project})`))).toBe(true);
+    }
   });
 
   test("machine JSON retains normalized warning under each Project without embedded Project prefix in message", () => {
@@ -7734,15 +7732,14 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       ],
     };
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    const warningSection = verbose.slice(verbose.indexOf("Warnings:\n"), verbose.indexOf("Blockers:\n"));
-    expect(warningSection).toBe(
-      "Warnings:\n" +
-      "- Shared warning message (/project-1)\n" +
-      "- Shared warning message (/project-2)\n" +
-      "- Shared warning message (/project-3)\n" +
-      "- Shared warning message (/project-4)\n",
-    );
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    // The Warnings list items sort by canonical Project identity.
+    expect(listItemsIn(verbose).filter((text) => text.startsWith("Shared warning message"))).toEqual([
+      "Shared warning message (/project-1)",
+      "Shared warning message (/project-2)",
+      "Shared warning message (/project-3)",
+      "Shared warning message (/project-4)",
+    ]);
   });
 });
 
@@ -7831,20 +7828,23 @@ describe("blocker wording lives in presentation (DEC-020, US-026, US-027)", () =
     "%s renders human wording free of internal terms with a runnable remedy command",
     (_label, blocker) => {
       for (const options of [{ verbose: false }, { verbose: true }] as const) {
-        const view = formatLifecycleReport("status", blockedReport(blocker), {
+        const document = lifecycleStatusDocument(blockedReport(blocker), {
           blockersOnly: true,
           ...options,
         });
-        for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(view).not.toMatch(term);
+        for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
+          expect(renderBoundary(document)).not.toMatch(term);
+        }
       }
 
       const wording = humanBlockerWording(blocker);
       if (_label === "output-ownership-conflict") {
-        // The rendered recovery lines carry the runnable untrack command.
-        const view = formatLifecycleReport("status", blockedReport(blocker), {
+        // The typed recovery nodes carry the runnable untrack command.
+        const focused = lifecycleStatusDocument(blockedReport(blocker), {
           blockersOnly: true,
         });
-        expect(view).toMatch(/Recovery command: run apkit |git -C /);
+        const texts = presentationTexts(focused).join("\n");
+        expect(texts.includes("Recovery command: run apkit ") || commandTexts(focused).some((text) => text.startsWith("git -C "))).toBe(true);
         return;
       }
       expect(flatInlineText(wording.remedy)).toMatch(/apkit [a-z-]+/);

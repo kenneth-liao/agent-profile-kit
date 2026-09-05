@@ -27,17 +27,17 @@ import {
 } from "./receipts.js";
 import {
   DEFAULT_VIEW_LEXICON,
+  applyExecutionFailureDocument,
+  applyReportDocument,
+  applyVerificationFailureDocument,
+  blockedApplyReportDocument,
   formatApplyJson,
-  formatApplyReport,
-  formatApplyExecutionFailure,
   formatApplyExecutionFailureJson,
-  formatApplyVerificationFailure,
   formatApplyVerificationFailureJson,
   formatBlockedApplyJson,
-  formatBlockedApplyReport,
   formatLifecycleJson,
-  formatLifecycleReport,
   formatLifecycleToolErrorJson,
+  lifecycleStatusDocument,
   formatInfoJson,
   formatInfoToolErrorJson,
   formatHostInventoryJson,
@@ -1028,7 +1028,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatApplyJson(applied));
       } else {
-        process.stdout.write(formatApplyReport(applied, { ...parsed, context }));
+        writeHumanDocument(process.stdout, applyReportDocument(applied, parsed), context);
       }
       // Exit 0 whenever apply completed without blockers, including remaining
       // non-current work (outcome "attention"). Gate on blockers only — DEC-024.
@@ -1038,9 +1038,7 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatBlockedApplyJson(error.report));
         } else {
-          process.stdout.write(
-            formatBlockedApplyReport(error.report, { ...parsed, context }),
-          );
+          writeHumanDocument(process.stdout, blockedApplyReportDocument(error.report, parsed), context);
         }
         process.exitCode = lifecycleExitCode(error.report);
         return;
@@ -1049,8 +1047,10 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatApplyExecutionFailureJson(error));
         } else {
-          process.stderr.write(
-            formatApplyExecutionFailure(error, { ...parsed, context: stderrPresentationContext }),
+          writeHumanDocument(
+            process.stderr,
+            applyExecutionFailureDocument(error, parsed),
+            stderrPresentationContext,
           );
         }
         process.exitCode = 1;
@@ -1060,12 +1060,10 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatApplyVerificationFailureJson(error.receipt, error.message));
         } else {
-          process.stdout.write(
-            formatApplyVerificationFailure(
-              error.receipt,
-              error.message,
-              { ...parsed, context },
-            ),
+          writeHumanDocument(
+            process.stdout,
+            applyVerificationFailureDocument(error.receipt, error.message, parsed),
+            context,
           );
         }
         process.exitCode = 1;
@@ -1097,10 +1095,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleJson("status", report));
       } else {
-        // Status already carries node categories; skip the regex categoriser.
-        process.stdout.write(
-          formatLifecycleReport("status", report, { ...parsed, context }),
-        );
+        writeHumanDocument(process.stdout, lifecycleStatusDocument(report, parsed), context);
       }
       process.exitCode = lifecycleExitCode(report);
     } catch (error) {

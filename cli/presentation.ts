@@ -2939,62 +2939,6 @@ const DEFAULT_RENDER_CONTEXT: TerminalPresentationContext = {
   width: 10_000,
 };
 
-/** Render one lifecycle document with default context when unrequested. */
-function renderLifecycleDocument(
-  document: PresentationDocument,
-  context?: TerminalPresentationContext,
-): string {
-  const rendered = renderPresentationDocument(document, context ?? DEFAULT_RENDER_CONTEXT);
-  return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
-}
-
-export function formatApplyReport(
-  result: ApplyReconciliationResult,
-  options: LifecycleHumanOptions = {},
-): string {
-  return renderLifecycleDocument(
-    applyReportDocument(result, options),
-    options.context,
-  );
-}
-
-export function formatApplyExecutionFailure(
-  failure: {
-    readonly detail: string;
-    readonly failedProject: ProjectIdentity | undefined;
-    readonly message: string;
-    readonly pendingProjects: readonly ProjectIdentity[];
-    readonly receipt: ReconciliationReport;
-    readonly resultingState: ReconciliationReport | undefined;
-  },
-  options: LifecycleHumanOptions = {},
-): string {
-  return renderLifecycleDocument(
-    applyExecutionFailureDocument(failure, options),
-    options.context,
-  );
-}
-
-export function formatApplyVerificationFailure(
-  receipt: ReconciliationReport,
-  message: string,
-  options: LifecycleHumanOptions = {},
-): string {
-  return renderLifecycleDocument(
-    applyVerificationFailureDocument(receipt, message, options),
-    options.context,
-  );
-}
-
-export function formatBlockedApplyReport(
-  report: BlockedReconciliationReport,
-  options: LifecycleHumanOptions = {},
-): string {
-  return renderLifecycleDocument(
-    blockedApplyReportDocument(report, options),
-    options.context,
-  );
-}
 
 /**
  * Focused Blocker view for `status --blockers-only` (#351) and
@@ -3833,17 +3777,6 @@ export function lifecycleStatusDocument(
   return conciseStatusDocument(report, options);
 }
 
-export function formatLifecycleReport(
-  command: Exclude<LifecycleCommand, "apply">,
-  report: ReconciliationReport,
-  options: LifecycleHumanOptions = {},
-): string {
-  void command;
-  return renderLifecycleDocument(
-    lifecycleStatusDocument(report, options),
-    options.context,
-  );
-}
 
 /**
  * Uniform machine-surface exit codes for apply and status:
