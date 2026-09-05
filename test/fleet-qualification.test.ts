@@ -733,10 +733,10 @@ describe("integrated fleet recovery qualification", () => {
     const partialApply = await runCli(home, pathWithHosts, "apply", "--all", "--blockers-only");
     expectExitCode(partialApply, 2);
 
-    // Assert section ordering: committed Apply Receipt evidence forms an ordered prefix before the Blocker section (ADR-0024, INT-1)
+    // Assert section ordering: committed Apply Receipt evidence forms an ordered prefix before the Blocker section (ADR-0024). The Project key-value renders inline (accepted alignment change).
     const appliedIndex = partialApply.stdout.indexOf("Applied:");
     const freshlyCurrentIndex = partialApply.stdout.indexOf("Freshly current:");
-    const projectSectionIndex = partialApply.stdout.indexOf("\n\nProject:\n");
+    const projectSectionIndex = partialApply.stdout.indexOf("\n\nProject: ");
     const blockerTextIndex = partialApply.stdout.indexOf("These generated paths are tracked by Git");
     const blockersFooterIndex = partialApply.stdout.indexOf("Blockers: 1 · Affected Projects: 1");
 
