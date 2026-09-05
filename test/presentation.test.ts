@@ -5650,11 +5650,15 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const status = formatLifecycleReport("status", report);
-    expect(status).toContain("Updates ready for 1 project (1 file addition).");
-    expect(status).not.toContain("Projects: 1");
-    expect(status).not.toContain("Blockers: 0");
-    expect(status).not.toContain("Changes: none");
+    const status = lifecycleStatusDocument(report);
+    expect(noticesIn(status)[0]!.nodes[0]).toMatchObject({
+      kind: "prose",
+      parts: ["Updates ready for 1 project (1 file addition)."],
+    });
+    const statusTexts = presentationTexts(status);
+    expect(statusTexts.some((text) =>
+      /(^|\n)(Projects: 1|Blockers: 0|Changes: none)/.test(text)
+    )).toBe(false);
 
     // Successful changed apply: success notice, receipt evidence, and no
     // zero-value blocker, pending, or change clauses.
@@ -5687,10 +5691,15 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       blockers: [fixtureBlocker("/project-a: hooks disabled", "/project-a")],
     });
 
-    const status = formatLifecycleReport("status", report);
-    expect(status).toContain("Cannot apply");
-    expect(status).toContain("Blockers: 1");
-    expect(status).not.toContain("Blockers: 0");
+    const status = lifecycleStatusDocument(report);
+    expect(noticesIn(status)[0]!.nodes[0]).toMatchObject({
+      kind: "prose",
+      parts: ["Cannot apply"],
+    });
+    const statusTexts = presentationTexts(status);
+    // The aggregate is an error notice carrying the displayed Blocker count.
+    expect(statusTexts).toContain("Projects: 1 · Blockers: 1");
+    expect(statusTexts.some((text) => text.includes("Blockers: 0"))).toBe(false);
 
     // Blocked apply: error outcome notice, blocker aggregate with the count,
     // and the Pending: blocked clause.
@@ -5731,10 +5740,13 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       })),
     });
 
-    const status = formatLifecycleReport("status", report);
-    expect(status).toContain("Next: apkit apply --all");
-    expect(status).not.toContain("/project-a: apkit apply --all");
-    expect(status.match(/Next: apkit apply --all/g)).toHaveLength(1);
+    const status = lifecycleStatusDocument(report);
+    // The typed Next command value carries the fleet invocation once.
+    expect(nextGuidance(status)).toEqual(["apkit apply --all"]);
+    expect(keyValuesIn(status, "Next")).toHaveLength(1);
+    expect(presentationTexts(status).some((text) =>
+      text.includes("/project-a: apkit apply --all")
+    )).toBe(false);
   });
 
   test("aliased Project next actions keep the authored identity", () => {
@@ -5751,10 +5763,27 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const status = formatLifecycleReport("status", report, { project: "/project-a" });
-    expect(status).toContain("Next: apkit apply /project-a");
-    expect(status).toContain("Details: apkit status /project-a --verbose");
-    expect(status).not.toContain("/private/project-a");
+    const status = lifecycleStatusDocument(report, { project: "/project-a" });
+    // The authored identity is the path argument; the canonical spelling stays
+    // out of the document.
+    expect(keyValuesIn(status, "Next")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [
+        { kind: "text", value: "apply" },
+        { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "project" },
+      ],
+    });
+    expect(keyValuesIn(status, "Details")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [
+        { kind: "text", value: "status" },
+        { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "project" },
+        { kind: "text", value: "--verbose" },
+      ],
+    });
+    expect(presentationTexts(status).some((text) => text.includes("/private/project-a"))).toBe(false);
   });
 
   test("differing next actions stay scoped", () => {
@@ -5788,12 +5817,11 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       blockers: [fixtureBlocker("/project-b: hooks disabled", "/project-b")],
     });
 
-    const status = formatLifecycleReport("status", report);
-    expect(status).toContain(
-      "Next:\n" +
-        "- /project-a: After all blockers are resolved, run apkit apply --all.\n" +
-        "- /project-b: Resolve the reported blocker, then run apkit status again.",
-    );
+    const status = lifecycleStatusDocument(report);
+    expect(documentNextActions(status)).toEqual([
+      "/project-a: After all blockers are resolved, run apkit apply --all.",
+      "/project-b: Resolve the reported blocker, then run apkit status again.",
+    ]);
   });
 
   test("fleet next actions name the working-directory Project by home-relative identity", () => {
@@ -5825,10 +5853,21 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       blockers: [fixtureBlocker(`${other}: hooks disabled`, other)],
     });
 
-    const status = formatLifecycleReport("status", report);
-    expect(status).toContain(`${homeRelative}: After all blockers are resolved, run apkit apply --all.`);
-    expect(status).not.toContain(".: After all blockers");
-    expect(status).not.toMatch(/(^|\n)- \.: /);
+    const status = lifecycleStatusDocument(report);
+    const nextItems = documentNextActions(status);
+    expect(nextItems).toHaveLength(2);
+    // The working-directory Project is a typed fleet-scope path part; the
+    // renderer resolves it to the home-relative identity (never a cwd alias).
+    const nodes = flattenPresentationNodes(status);
+    expect(nodes.some((node) =>
+      node.kind === "list-item" &&
+      node.parts.some((part) => part.kind === "path" &&
+        part.canonicalPath === current && part.scope === "fleet")
+    )).toBe(true);
+    expect(renderBoundary(status, defaultRenderContext)).toContain(
+      `${homeRelative}: After all blockers are resolved, run apkit apply --all.`,
+    );
+    expect(renderBoundary(status, defaultRenderContext)).not.toContain(".: After all blockers");
   });
 
   test("successful apply does not print a current-Project matrix before Applied", () => {
