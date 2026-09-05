@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { HostSetupStep } from "../adapters/project-plan.js";
+import type { AdapterDiagnosticWarning, HostSetupStep } from "../adapters/project-plan.js";
+import { appendDiagnosticWarnings } from "../installer/project-plan.js";
 import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
 import {
   flatInlineText,
@@ -124,6 +125,7 @@ import type {
   ReconciliationKind,
   ReconciliationProjectRecord,
   ReconciliationReport,
+  ReconciliationWarning,
 } from "../installer/reconcile.js";
 import type {
   RepositoryExclusionChange,
@@ -273,9 +275,7 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
           copyableValues: fixture.diagnosticValues,
           kind: "diagnostic" as const,
           message,
-          ...(fixture.warningParts?.[index] !== undefined
-            ? { parts: fixture.warningParts[index] }
-            : {}),
+          parts: fixture.warningParts?.[index] ?? [message],
         })) : [],
         repositoryExclusions: key === firstProject ? fixture.repositoryExclusions : [],
       });
@@ -294,20 +294,29 @@ function executionProject(project: string): { readonly canonicalProject: string;
   return { canonicalProject: project, project };
 }
 
+interface MachineProjectOverrides extends Omit<Partial<ReconciliationProjectRecord>, "warnings"> {
+  readonly warnings?: readonly (Omit<ReconciliationWarning, "parts"> & { readonly parts?: readonly InlineContent[] })[];
+}
+
 function machineProject(
   project: string,
-  overrides: Partial<ReconciliationProjectRecord> = {},
+  overrides: MachineProjectOverrides = {},
 ): ReconciliationProjectRecord {
+  const { warnings: overrideWarnings, ...rest } = overrides;
+  const warnings: readonly ReconciliationWarning[] = (overrideWarnings ?? []).map((warning) => ({
+    ...warning,
+    parts: warning.parts ?? [warning.message],
+  }));
   return {
     canonicalProject: project,
     project,
     state: { kind: "current" },
     outputs: [],
     blockers: [],
-    warnings: [],
     setupSteps: [],
     repositoryExclusions: [],
-    ...overrides,
+    ...rest,
+    warnings,
   };
 }
 
@@ -1818,6 +1827,58 @@ describe("responsive lifecycle presentation", () => {
     ]);
   });
 
+  test("adapter-authored warning document retains structured identifier parts through normalization pipeline", () => {
+    const projectPath = "/projects/my-app";
+    const globalPath = "/home/user/.codex/config.toml";
+    const adapterWarnings: AdapterDiagnosticWarning[] = [
+      {
+        copyableValues: [globalPath, `${projectPath}/.codex/config.toml`],
+        message: `Codex SessionStart hooks are not enabled by ${globalPath}; generated Profile Context may not load until [features].hooks = true is set in ${projectPath}/.codex/config.toml or ${globalPath}`,
+        parts: [
+          "Codex SessionStart hooks are not enabled by ",
+          identifierPart(globalPath),
+          "; generated Profile Context may not load until [features].hooks = true is set in ",
+          identifierPart(`${projectPath}/.codex/config.toml`),
+          " or ",
+          identifierPart(globalPath),
+        ],
+      },
+    ];
+
+    // Normalize through appendDiagnosticWarnings
+    const normalizedWarnings: AdapterDiagnosticWarning[] = [];
+    appendDiagnosticWarnings(normalizedWarnings, adapterWarnings);
+
+    // Form ReconciliationReport
+    const report = machineReport([
+      machineProject(projectPath, {
+        warnings: normalizedWarnings.map((w) => ({
+          copyableValues: [...w.copyableValues],
+          kind: "diagnostic" as const,
+          message: w.message,
+          parts: w.parts,
+        })),
+      }),
+    ]);
+
+    const doc = lifecycleStatusDocument(report);
+    const nodes = flattenPresentationNodes(doc);
+    const warningItem = nodes.find((node) =>
+      node.kind === "list-item" &&
+      node.parts.some((part) => typeof part === "object" && part.kind === "identifier" && part.value === globalPath)
+    ) as Extract<PresentationNode, { kind: "list-item" }> | undefined;
+
+    expect(warningItem).toBeDefined();
+    expect(warningItem?.parts).toEqual([
+      "Codex SessionStart hooks are not enabled by ",
+      { kind: "identifier", value: globalPath },
+      "; generated Profile Context may not load until [features].hooks = true is set in ",
+      { kind: "identifier", value: `${projectPath}/.codex/config.toml` },
+      " or ",
+      { kind: "identifier", value: globalPath },
+      " (1 Project)",
+    ]);
+  });
 });
 
 describe("temporary-installation Project identity in documents", () => {

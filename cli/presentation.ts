@@ -27,6 +27,7 @@ import {
   identifierPart,
   pathPart,
   renderPresentationDocument,
+  textPart,
   type CommandArg,
   type CommandNode,
   type InlineContent,
@@ -1619,7 +1620,7 @@ export interface WarningPresentationGroup {
   readonly copyableValues: readonly string[];
   readonly kind: ReconciliationWarning["kind"];
   readonly message: string;
-  readonly parts?: readonly InlineContent[];
+  readonly parts: readonly InlineContent[];
   readonly projects: readonly {
     readonly canonicalProject: string;
     readonly project: string;
@@ -1632,7 +1633,7 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
     copyableValues: readonly string[];
     kind: ReconciliationWarning["kind"];
     message: string;
-    parts?: readonly InlineContent[];
+    parts: readonly InlineContent[];
     projects: { canonicalProject: string; project: string }[];
   }>();
 
@@ -1652,7 +1653,7 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
           copyableValues: [...warning.copyableValues],
           kind: warning.kind,
           message: warning.message,
-          ...(warning.parts === undefined ? {} : { parts: warning.parts }),
+          parts: warning.parts,
           projects: [{
             canonicalProject: projectRecord.canonicalProject,
             project: projectRecord.project,
@@ -1675,7 +1676,7 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
       copyableValues: group.copyableValues,
       kind: group.kind,
       message: group.message,
-      ...(group.parts === undefined ? {} : { parts: group.parts }),
+      parts: group.parts,
       projects: [...group.projects].sort((left, right) =>
         compareCanonicalStrings(left.canonicalProject, right.canonicalProject)
       ),
@@ -3231,19 +3232,40 @@ function untrackRecoveryNodes(
   ];
 }
 
+function shortenInlinePart(
+  part: InlineContent,
+  groups: readonly ProjectGroup[],
+  scope: LocationDisplayScope,
+): InlineContent {
+  if (typeof part === "string") {
+    return shortenProjectReferences(part, groups, scope);
+  }
+  if (part.kind === "identifier") {
+    return identifierPart(shortenProjectReferences(part.value, groups, scope));
+  }
+  if (part.kind === "path") {
+    return pathPart(
+      shortenProjectReferences(part.canonicalPath, groups, scope),
+      part.scope,
+      part.authoredPath === undefined ? undefined : shortenProjectReferences(part.authoredPath, groups, scope),
+    );
+  }
+  if (part.kind === "text") {
+    return textPart(shortenProjectReferences(part.value, groups, scope));
+  }
+  return part;
+}
+
 /**
- * Shorten project references inside inline content: references are composed
- * inside text spans, so shortening applies there; atomic parts are carried
- * values that shortening must never rewrite.
+ * Shorten project references inside inline content across text spans and
+ * carried identifier/path parts.
  */
 function shortenInlineProjectReferences(
   content: readonly InlineContent[],
   groups: readonly ProjectGroup[],
   scope: LocationDisplayScope,
 ): readonly InlineContent[] {
-  return content.map((part) =>
-    typeof part === "string" ? shortenProjectReferences(part, groups, scope) : part
-  );
+  return content.map((part) => shortenInlinePart(part, groups, scope));
 }
 
 /** The typed concise Blocker evidence for one Blocker (legacy indent kept). */
@@ -3475,12 +3497,7 @@ function formatWarningGroupParts(
   groups: readonly ProjectGroup[],
   scope: LocationDisplayScope,
 ): readonly InlineContent[] {
-  if (group.parts !== undefined && group.parts.length > 0) {
-    return group.parts.map((part) =>
-      typeof part === "string" ? shortenProjectReferences(part, groups, scope) : part
-    );
-  }
-  return [shortenProjectReferences(group.message, groups, scope)];
+  return shortenInlineProjectReferences(group.parts, groups, scope);
 }
 
 function warningNodes(
@@ -4007,7 +4024,12 @@ function canonicalMachineSetupSteps(
   });
 }
 
-function canonicalMachineWarning(warning: ReconciliationWarning): ReconciliationWarning {
+function canonicalMachineWarning(warning: ReconciliationWarning): {
+  readonly consequence?: string;
+  readonly copyableValues: readonly string[];
+  readonly kind: ReconciliationWarning["kind"];
+  readonly message: string;
+} {
   return {
     ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
     copyableValues: [...warning.copyableValues],

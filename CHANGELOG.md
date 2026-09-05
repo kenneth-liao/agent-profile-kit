@@ -8,7 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
-- Author atomic warning inline parts directly on adapter diagnostics and reconciliation warnings rather than searching composed messages with substring matching ([#428](https://github.com/kenneth-liao/agent-profile-kit/pull/428)).
+- Preserve structured warning inline parts across adapter diagnostics, Git exclusions, lifecycle normalization, and reconciliation rather than dropping them or searching composed messages ([#428](https://github.com/kenneth-liao/agent-profile-kit/pull/428)).
 
 ### Removed
 

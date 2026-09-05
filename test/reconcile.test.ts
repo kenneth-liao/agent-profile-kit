@@ -68,6 +68,7 @@ describe("nested Project reconciliation report", () => {
       warnings: [{
         copyableValues: [warningValue],
         message: `Review ${warningValue} before continuing`,
+        parts: [`Review ${warningValue} before continuing`],
       }],
     }));
 

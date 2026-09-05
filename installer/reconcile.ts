@@ -159,7 +159,7 @@ export interface ReconciliationWarning {
   readonly copyableValues: readonly string[];
   readonly kind: "diagnostic" | "host-attention";
   readonly message: string;
-  readonly parts?: readonly InlineContent[];
+  readonly parts: readonly InlineContent[];
 }
 
 export interface ReconciliationProjectOutput
@@ -728,14 +728,14 @@ function nestedReconciliationReport(
       copyableValues: [...warning.copyableValues],
       kind: "diagnostic" as const,
       message: warning.message,
-      ...(warning.parts === undefined ? {} : { parts: warning.parts }),
+      parts: warning.parts,
     }));
     for (const entry of installation.capabilityWarnings) {
       warnings.push({
         copyableValues: [...entry.warning.copyableValues],
         kind: "host-attention",
         message: entry.warning.message,
-        ...(entry.warning.parts === undefined ? {} : { parts: entry.warning.parts }),
+        parts: entry.warning.parts,
       });
     }
     warningsByCanonical.set(key, warnings);
@@ -767,6 +767,7 @@ function nestedReconciliationReport(
           copyableValues: [...warning.targets],
           kind: "diagnostic",
           message: warning.message,
+          parts: warning.parts,
         });
       }
       warningsByCanonical.set(key, warnings);
@@ -1524,6 +1525,7 @@ async function applyReconciliationLocked(
                 copyableValues: [...warning.targets],
                 kind: "diagnostic" as const,
                 message: warning.message,
+                parts: warning.parts,
               })),
             ],
           };

@@ -89,6 +89,7 @@ describe("Host capability probing", () => {
         warning: {
           copyableValues: ["codex"],
           message: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile",
+          parts: ["Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile"],
         },
       },
     ]);
@@ -120,6 +121,7 @@ describe("Host capability probing", () => {
             join(realpathSync(project), ".agents"),
           ],
           message: expect.stringContaining("Antigravity project surface cannot host Context"),
+          parts: expect.any(Array),
         },
       },
     ]);

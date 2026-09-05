@@ -1,4 +1,5 @@
 import type { SupportedHost } from "../schemas/local-configuration.js";
+import type { InlineContent } from "./project-plan.js";
 
 /** The affected-item evidence an Adapter capability failure can carry: a Host or a path. */
 export type AdapterCapabilityAffectedItemKind = "host" | "path";
@@ -20,6 +21,7 @@ export interface AdapterCapabilityFailure {
   readonly affectedItems: readonly AdapterCapabilityAffectedItem[];
   readonly host: SupportedHost;
   readonly message: string;
+  readonly parts?: readonly InlineContent[];
   readonly problem: string;
   readonly remedy: string;
   readonly requirement: string;
@@ -36,6 +38,7 @@ export interface AdapterCapabilityFailure {
 export class AdapterCapabilityError extends Error implements AdapterCapabilityFailure {
   readonly affectedItems: readonly AdapterCapabilityAffectedItem[];
   readonly host: SupportedHost;
+  readonly parts?: readonly InlineContent[];
   readonly problem: string;
   readonly remedy: string;
   readonly requirement: string;
@@ -51,6 +54,7 @@ export class AdapterCapabilityError extends Error implements AdapterCapabilityFa
     this.remedy = failure.remedy;
     this.requirement = failure.requirement;
     this.scope = failure.scope;
+    if (failure.parts !== undefined) this.parts = failure.parts;
     if (failure.requiredVersion !== undefined) this.requiredVersion = failure.requiredVersion;
   }
 }

@@ -153,6 +153,7 @@ export function capabilityWarning(
     warning: {
       copyableValues: failure.affectedItems.map((item) => item.value),
       message: failure.message,
+      parts: failure.parts ?? [failure.message],
     },
   };
 }
@@ -189,6 +190,7 @@ export function appendDiagnosticWarnings(
       ...(diagnostic.consequence === undefined ? {} : { consequence: diagnostic.consequence }),
       copyableValues: [...diagnostic.copyableValues],
       message: diagnostic.message,
+      parts: diagnostic.parts,
     });
   }
 }
