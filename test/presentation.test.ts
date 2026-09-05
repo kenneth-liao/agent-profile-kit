@@ -1130,9 +1130,13 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     expect(headingsIn(concise)).not.toContain("First use:");
-    // Each forbidden first-use item is independently absent.
-    expect(listItemsIn(concise)).not.toContain("Trust the bound project in Codex.");
-    expect(listItemsIn(concise)).not.toContain("Launch Codex from the exact bound project root");
+    // Each forbidden concise first-use payload is independently absent.
+    expect(listItemsIn(concise)).not.toContain(
+      "Trust the bound project in Codex so the Profile can load.",
+    );
+    expect(listItemsIn(concise)).not.toContain(
+      "Launch Codex from the exact bound project root so the Profile can load.",
+    );
     const verbose = applyReportDocument(applyResult(receipt, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toContain("Standing Host setup:");
     expect(listItemsIn(verbose)).toContain("Trust the bound project in Codex.");
@@ -1177,7 +1181,9 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     expect(headingsIn(concise)).not.toContain("First use:");
-    expect(listItemsIn(concise)).not.toContain("Trust the bound project in Pi.");
+    expect(listItemsIn(concise)).not.toContain(
+      "Trust the bound project in Pi so the Profile can load.",
+    );
     const verbose = applyReportDocument(applyResult(receipt, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toContain("Standing Host setup:");
     expect(listItemsIn(verbose)).toContain("Trust the bound project in Pi.");
@@ -1254,7 +1260,9 @@ describe("Host Setup Step provenance and presentation", () => {
     const concise = applyReportDocument(applyResult(report, resultingState));
     expect(headingsIn(concise)).not.toContain("First use:");
     expect(headingsIn(concise)).not.toContain("Standing Host setup:");
-    expect(listItemsIn(concise)).not.toContain("Grok uses Claude's shared rule path.");
+    expect(listItemsIn(concise)).not.toContain(
+      "Grok uses Claude's shared rule path so the Profile can load.",
+    );
     expect(flattenPresentationNodes(concise).at(-1)).toEqual({
       kind: "prose",
       text: "Profile coding will load the next time you launch a configured Host from a bound Project root.",
