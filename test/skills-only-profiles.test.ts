@@ -23,6 +23,7 @@ import { planOpenCodeProject } from "../adapters/opencode.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { ingestDefaultWorkspace } from "../installer/ingest-workspace.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
+import { flatInlineText } from "../cli/inline-content.js";
 import type { InstallerAuthoredError } from "../installer/tool-errors.js";
 import {
   applyReconciliation,
@@ -123,7 +124,7 @@ describe("Skills-only Profiles", () => {
       () => undefined,
       (error) => error as InstallerAuthoredError,
     );
-    expect(installerErrorSentence(failure)).toBe(
+    expect(flatInlineText(installerErrorSentence(failure) ?? [])).toBe(
       "Profile 'empty' must select at least one supported artifact (Context Module or Skill)",
     );
   });
@@ -240,9 +241,9 @@ describe("Skills-only Profiles", () => {
       ".agents/skills/review-pr",
     ]);
     expect(installation.setupSteps).toEqual([]);
-    expect(installation.warnings.some((warning) => /Context discovery/i.test(warning.message))).toBe(
-      false,
-    );
+    expect(
+      installation.warnings.some((warning) => /Context discovery/i.test(flatInlineText(warning.parts))),
+    ).toBe(false);
 
     const applied = await applyReconciliation(home, desired.installations);
     expect(reportBlockers(applied.receipt)).toEqual([]);
@@ -364,9 +365,9 @@ describe("Skills-only Profiles", () => {
         provenance: "standing",
       },
     ]);
-    expect(installation.warnings.some((warning) => warning.message.includes("not a Git worktree"))).toBe(
-      false,
-    );
+    expect(
+      installation.warnings.some((warning) => flatInlineText(warning.parts).includes("not a Git worktree")),
+    ).toBe(false);
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],

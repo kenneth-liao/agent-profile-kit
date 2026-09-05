@@ -24,6 +24,10 @@ import {
 } from "../adapters/capability.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
+import { flatInlineText } from "../adapters/project-plan.js";
+import { previewReconciliation } from "../installer/reconcile.js";
+import { lifecycleStatusDocument } from "../cli/presentation.js";
+import type { PresentationNode } from "../cli/presentation-document.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -88,7 +92,7 @@ describe("Host capability probing", () => {
         requiredVersion: "0.145.0",
         warning: {
           copyableValues: ["codex"],
-          message: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile",
+          parts: ["Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile"],
         },
       },
     ]);
@@ -110,6 +114,7 @@ describe("Host capability probing", () => {
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
     });
 
+    const realAgentsPath = join(realpathSync(project), ".agents");
     expect(desired.installations[0]?.capabilityWarnings).toEqual([
       {
         host: "antigravity",
@@ -117,12 +122,32 @@ describe("Host capability probing", () => {
         warning: {
           copyableValues: [
             "antigravity",
-            join(realpathSync(project), ".agents"),
+            realAgentsPath,
           ],
-          message: expect.stringContaining("Antigravity project surface cannot host Context"),
+          parts: [
+            "Antigravity project surface cannot host Context: ",
+            { kind: "identifier", value: ".agents" },
+            " is a file, not a directory",
+          ],
         },
       },
     ]);
+
+    const report = await previewReconciliation(desired.installations, {
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 9,
+    });
+    const document = lifecycleStatusDocument(report);
+    const warningItem = (document as PresentationNode[]).find(
+      (node): node is Extract<PresentationNode, { readonly kind: "list-item" }> =>
+        node.kind === "list-item",
+    );
+    expect(warningItem).toBeDefined();
+    expect(warningItem?.parts).toContainEqual({
+      kind: "identifier",
+      value: ".agents",
+    });
   });
 
   test("each Adapter capability boundary emits typed evidence and remains an Error", async () => {
@@ -329,7 +354,7 @@ describe("Host capability probing", () => {
     // A typed Adapter failure passes through with its authored scope and floor.
     const typed = capabilityFailure("codex", "project", "occupied", "retry", [
       { kind: "path", value: "/p" },
-    ], "occupied; retry");
+    ]);
     expect(caughtCapabilityFailure("codex", "project", typed)).toBe(typed);
 
     // A foreign error from a phase becomes typed evidence with that phase's
@@ -363,6 +388,8 @@ describe("Host capability probing", () => {
     const installation = desired.installations[0];
     expect(installation?.capabilityWarnings).toEqual([]);
     expect(installation?.warnings).toHaveLength(1);
-    expect(installation?.warnings[0]?.message).toContain("SessionStart hooks are not enabled");
+    expect(flatInlineText(installation?.warnings[0]?.parts ?? [])).toContain(
+      "SessionStart hooks are not enabled",
+    );
   });
 });

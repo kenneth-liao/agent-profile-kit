@@ -6,14 +6,15 @@ import type {
   AdapterProjectInput,
   AdapterProjectResult,
 } from "../adapters/adapter-contract.js";
-import type {
-  AdapterDiagnosticWarning,
-  AdapterProjectPlan,
-  HostSetupStep,
-  OutputRemedyKey,
-  ProposedDirectoryMember,
-  ProposedProjectOutput,
-  ProjectOutputEntryType,
+import {
+  flatInlineText,
+  type AdapterDiagnosticWarning,
+  type AdapterProjectPlan,
+  type HostSetupStep,
+  type OutputRemedyKey,
+  type ProposedDirectoryMember,
+  type ProposedProjectOutput,
+  type ProjectOutputEntryType,
 } from "../adapters/project-plan.js";
 import {
   type ProjectBinding,
@@ -152,7 +153,7 @@ export function capabilityWarning(
       : { requiredVersion: failure.requiredVersion }),
     warning: {
       copyableValues: failure.affectedItems.map((item) => item.value),
-      message: failure.message,
+      parts: failure.parts,
     },
   };
 }
@@ -188,7 +189,7 @@ export function appendDiagnosticWarnings(
     warnings.push({
       ...(diagnostic.consequence === undefined ? {} : { consequence: diagnostic.consequence }),
       copyableValues: [...diagnostic.copyableValues],
-      message: diagnostic.message,
+      parts: diagnostic.parts,
     });
   }
 }
@@ -763,7 +764,7 @@ export async function buildDesiredState(
   const dedupedInstallations = sortedInstallations.map((installation) => {
     const capabilityWarnings = installation.capabilityWarnings.filter((entry) => {
       if (entry.scope === "project") {
-        const key = `${entry.host}\0${installation.binding.canonicalProject}\0${entry.warning.message}`;
+        const key = `${entry.host}\0${installation.binding.canonicalProject}\0${flatInlineText(entry.warning.parts)}`;
         if (warnedProjectScope.has(key)) return false;
         warnedProjectScope.add(key);
         return true;

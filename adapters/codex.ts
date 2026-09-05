@@ -15,6 +15,7 @@ import type {
   AdapterProjectPlan,
   ProposedProjectOutput,
 } from "./project-plan.js";
+import { identifierPart } from "../cli/inline-content.js";
 import { invokeExecutable } from "./services/executable.js";
 import {
   compareCoreSemanticVersions,
@@ -306,7 +307,11 @@ export async function detectCodexProjectConfigurationWarnings(
       return [
         {
           copyableValues: [projectPath],
-          message: `Codex SessionStart hooks are not enabled by ${projectPath}; generated Profile Context may not load until [features].hooks = true is set there`,
+          parts: [
+            "Codex SessionStart hooks are not enabled by ",
+            identifierPart(projectPath),
+            "; generated Profile Context may not load until [features].hooks = true is set there",
+          ],
         },
       ];
     }
@@ -318,14 +323,23 @@ export async function detectCodexProjectConfigurationWarnings(
     return [
       {
         copyableValues: [globalPath, projectPath],
-        message: `Codex SessionStart hooks are not enabled by ${globalPath}; generated Profile Context may not load until [features].hooks = true is set in ${projectPath} or ${globalPath}`,
+        parts: [
+          "Codex SessionStart hooks are not enabled by ",
+          identifierPart(globalPath),
+          "; generated Profile Context may not load until [features].hooks = true is set in ",
+          identifierPart(projectPath),
+          " or ",
+          identifierPart(globalPath),
+        ],
       },
     ];
   } catch (error) {
     return [
       {
         copyableValues: [globalPath, projectPath],
-        message: `Codex configuration relevant to planned SessionStart Context could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Profile Context may not load until the configuration is repaired`,
+        parts: [
+          `Codex configuration relevant to planned SessionStart Context could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Profile Context may not load until the configuration is repaired`,
+        ],
       },
     ];
   }

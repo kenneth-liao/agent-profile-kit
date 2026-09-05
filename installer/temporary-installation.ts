@@ -6,14 +6,19 @@ import {
   TEMPORARY_INSTALLATION_HOSTS,
   type TemporaryInstallationHost,
 } from "../adapters/registry.js";
-import type { AdapterDiagnosticWarning, HostSetupStep } from "../adapters/project-plan.js";
+import {
+  flatInlineText,
+  type AdapterDiagnosticWarning,
+  type HostSetupStep,
+  type InlineContent,
+} from "../adapters/project-plan.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
 import {
   isSupportedHost,
   type SupportedHost,
 } from "../schemas/local-configuration.js";
 import type { OwnershipReceipt } from "../schemas/ownership-state.js";
-import { publishRepositoryExclusions } from "./git-exclusions.js";
+import { publishRepositoryExclusions, type RepositoryExclusionWarning } from "./git-exclusions.js";
 import { findGitProject } from "./git.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import {
@@ -130,6 +135,7 @@ export interface TemporaryInstallationReceipt {
   readonly diagnosticValues: readonly string[];
   /** Configuration warnings that do not block install but can prevent Host loading. */
   readonly warnings: readonly string[];
+  readonly warningParts?: readonly (readonly InlineContent[])[];
   readonly workspaceInputHash?: string;
 }
 
@@ -152,6 +158,7 @@ function receiptFromRecord(
     readonly diagnosticValues?: readonly string[];
     readonly setupSteps?: readonly HostSetupStep[];
     readonly warnings?: readonly string[];
+    readonly warningParts?: readonly (readonly InlineContent[])[];
   } = {},
 ): TemporaryInstallationReceipt {
   const host = Object.keys(record.hosts)[0]! as SupportedHost;
@@ -169,6 +176,7 @@ function receiptFromRecord(
     temporaryInstallationId: record.installationId,
     diagnosticValues: options.diagnosticValues ?? [],
     warnings: options.warnings ?? [],
+    ...(options.warningParts === undefined ? {} : { warningParts: options.warningParts }),
     workspaceInputHash: record.desiredInputDigest,
   };
 }
@@ -354,7 +362,7 @@ export async function installTemporaryProfile(options: {
 
       let durableRecorded = false;
       let outputsPublished = false;
-      const publicationWarnings: string[] = [];
+      const publicationWarnings: RepositoryExclusionWarning[] = [];
       let transaction: Awaited<ReturnType<typeof stageProjectOutputs>> | undefined;
 
       try {
@@ -382,7 +390,7 @@ export async function installTemporaryProfile(options: {
           includedProjects: new Set([canonicalProject]),
           previousState: state,
         });
-        publicationWarnings.push(...publication.warnings.map((warning) => warning.message));
+        publicationWarnings.push(...publication.warnings);
         await options.hooks?.onAfterExclusionCommit?.();
 
         await transaction.commit();
@@ -425,9 +433,14 @@ export async function installTemporaryProfile(options: {
           ])].sort(),
           setupSteps: desired.setupSteps,
           warnings: [
-            ...desired.warnings.map((warning) => warning.message),
-            ...desired.capabilityWarnings.map((entry) => entry.warning.message),
-            ...publicationWarnings,
+            ...desired.warnings.map((warning) => flatInlineText(warning.parts)),
+            ...desired.capabilityWarnings.map((entry) => flatInlineText(entry.warning.parts)),
+            ...publicationWarnings.map((warning) => flatInlineText(warning.parts)),
+          ],
+          warningParts: [
+            ...desired.warnings.map((warning) => warning.parts),
+            ...desired.capabilityWarnings.map((entry) => entry.warning.parts),
+            ...publicationWarnings.map((warning) => warning.parts),
           ],
         },
       );
@@ -492,7 +505,7 @@ export async function removeTemporaryProfile(options: {
         ],
       };
 
-      const publicationWarnings: string[] = [];
+      const publicationWarnings: RepositoryExclusionWarning[] = [];
       try {
         // Direct idempotent deletes — no process-private stage that can be orphaned.
         await removeDisposableOutputs({
@@ -507,7 +520,7 @@ export async function removeTemporaryProfile(options: {
           includedProjects: new Set([existing.project]),
           previousState: state,
         });
-        publicationWarnings.push(...publication.warnings.map((warning) => warning.message));
+        publicationWarnings.push(...publication.warnings);
         await options.hooks?.onBeforeTerminalStateWrite?.();
         await writeState(options.home, nextState);
       } catch (error) {
@@ -523,7 +536,10 @@ export async function removeTemporaryProfile(options: {
         throw error;
       }
 
-      return receiptFromRecord(existing, "removed", { warnings: publicationWarnings });
+      return receiptFromRecord(existing, "removed", {
+        warnings: publicationWarnings.map((warning) => flatInlineText(warning.parts)),
+        warningParts: publicationWarnings.map((warning) => warning.parts),
+      });
     },
     options.hooks?.lockTimeoutMs === undefined
       ? {}

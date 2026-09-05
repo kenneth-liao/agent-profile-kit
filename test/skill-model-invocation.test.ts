@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { flatInlineText, identifierPart } from "../cli/inline-content.js";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
   chmodSync,
@@ -48,7 +49,7 @@ function parseRejectionSentence(source: string): string {
     parseSkill(source, SKILL_PATH, SOURCE_PATH);
   } catch (error) {
     const typed = installerErrorSentence(error);
-    if (typed !== undefined) return typed;
+    if (typed !== undefined) return flatInlineText(typed);
     if (error instanceof Error) return error.message;
   }
   throw new Error("expected parseSkill to reject the source");
@@ -510,7 +511,14 @@ describe("Skill model-invocation policy", () => {
           join(codexHome, "config.toml"),
           join(project, ".codex", "config.toml"),
         ],
-        message: expect.stringContaining(join(codexHome, "config.toml")),
+        parts: [
+          "Codex SessionStart hooks are not enabled by ",
+          identifierPart(join(codexHome, "config.toml")),
+          "; generated Profile Context may not load until [features].hooks = true is set in ",
+          identifierPart(join(project, ".codex", "config.toml")),
+          " or ",
+          identifierPart(join(codexHome, "config.toml")),
+        ],
       },
     ]);
 
@@ -562,7 +570,7 @@ describe("Skill model-invocation policy", () => {
       // so one upgrade message covers Profiles that need both capabilities.
       expect(
         desired.installations[0]?.capabilityWarnings.some((entry) =>
-          entry.warning.message.includes("cannot deliver complete Context"),
+          flatInlineText(entry.warning.parts).includes("cannot deliver complete Context"),
         ),
       ).toBe(true);
       const preview = await previewReconciliation(desired.installations, {
@@ -574,7 +582,7 @@ describe("Skill model-invocation policy", () => {
       expect(reportBlockers(preview)).toEqual([]);
       expect(
         preview.projects[0]?.warnings.some((warning) =>
-          warning.message.includes("cannot deliver complete Context"),
+          flatInlineText(warning.parts).includes("cannot deliver complete Context"),
         ),
       ).toBe(true);
       expect(existsSync(join(project, ".agents", "skills", "to-spec"))).toBe(false);

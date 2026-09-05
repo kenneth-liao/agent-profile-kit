@@ -1,5 +1,34 @@
 import type { ArtifactReference } from "../schemas/dependencies.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
+import {
+  commandPart,
+  flatInlineText,
+  identifierPart,
+  pathPart,
+  textPart,
+  type CommandArg,
+  type CommandPart,
+  type IdentifierPart,
+  type InlineContent,
+  type InlinePart,
+  type PathPart,
+  type TextPart,
+} from "../cli/inline-content.js";
+
+export {
+  commandPart,
+  flatInlineText,
+  identifierPart,
+  pathPart,
+  textPart,
+  type CommandArg,
+  type CommandPart,
+  type IdentifierPart,
+  type InlineContent,
+  type InlinePart,
+  type PathPart,
+  type TextPart,
+};
 
 export type ProjectOutputEntryType = "directory" | "file";
 
@@ -118,7 +147,7 @@ export type HostSetupStep = AdapterHostSetupStep & { readonly host: SupportedHos
 export interface AdapterDiagnosticWarning {
   readonly consequence?: string;
   readonly copyableValues: readonly string[];
-  readonly message: string;
+  readonly parts: readonly InlineContent[];
 }
 
 export interface AdapterProjectPlan {

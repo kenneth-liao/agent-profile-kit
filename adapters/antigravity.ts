@@ -27,11 +27,12 @@ import {
   SHARED_SKILL_DISCOVERY_REQUIREMENT,
   SHARED_SKILLS_DISCOVERY_ROOT,
 } from "./shared-skill.js";
-import type {
-  AdapterHostSetupStep,
-  AdapterProjectPlan,
-  ProposedProjectFileOutput,
-  ProposedProjectOutput,
+import {
+  identifierPart,
+  type AdapterHostSetupStep,
+  type AdapterProjectPlan,
+  type ProposedProjectFileOutput,
+  type ProposedProjectOutput,
 } from "./project-plan.js";
 
 const execFileAsync = promisify(execFile);
@@ -216,7 +217,11 @@ function surfaceFailure(
     problem,
     `ensure the Antigravity ${requirement} surface is a directory, then retry`,
     [{ kind: "path", value: join(project, path) }],
-    problem,
+    [
+      `Antigravity project surface cannot host ${requirement}: `,
+      identifierPart(path),
+      ` is a ${kind}, not a directory`,
+    ],
   );
 }
 
@@ -281,7 +286,11 @@ function rulePath(index: number, moduleId?: string): string {
       problem,
       "select fewer Context Modules and retry",
       [],
-      problem,
+      [
+        "Antigravity rule sequence '",
+        identifierPart(numericSequence),
+        `' cannot preserve stable lexical order within ${ANTIGRAVITY_RULE_SEQUENCE_WIDTH}-digit rule names`,
+      ],
     );
   }
   const sequence = numericSequence.padStart(ANTIGRAVITY_RULE_SEQUENCE_WIDTH, "0");
@@ -305,7 +314,11 @@ function assertRuleSize(path: string, bytes: string): void {
     problem,
     "shorten the selected Context Module so its complete always-on rule fits, then retry",
     [{ kind: "path", value: path }],
-    problem,
+    [
+      "Antigravity rule '",
+      identifierPart(path),
+      `' is ${ruleCharacterCount(bytes)} characters, exceeding the ${ANTIGRAVITY_RULE_CHARACTER_LIMIT}-character limit`,
+    ],
   );
 }
 

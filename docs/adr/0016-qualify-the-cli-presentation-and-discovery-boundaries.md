@@ -89,3 +89,9 @@ kind, and machine JSON publishes that stored wording verbatim. The closed
 vocabularies and the one-trusted-normalization-boundary shape are unchanged.
 ADR-0025 records the reduction; this ADR's terminal-presentation and read-only
 discovery boundaries remain in force.
+
+### Amendment: presentation document pipeline and authored categories (ticket #391)
+
+The former string presentation pipeline — the regex categoriser, English prefix table, copyable-value substring protector, and string wrapping path — is deleted. Every human view (help, guides, inventory, info, receipts, lifecycle reports, and diagnostics) flows through `PresentationDocument` (`cli/presentation-document.ts`) and the pure `renderPresentationDocument` renderer.
+
+Semantic category is authored at formatter sites rather than inferred from rendered text (DEC-003). Structurally supplied values (paths, commands, identifiers) are authored as atomic inline parts/nodes (`cli/inline-content.ts`) rather than re-identified via substring scanning (DEC-009). The renderer wraps inline content with responsive measure clamping and keeps atomic nodes intact. Machine surfaces (`--json`) serialize directly from typed structured records without touching presentation documents or rendered prose.

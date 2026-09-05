@@ -1,13 +1,41 @@
 import { homedir } from "node:os";
 
+import { displayPath, type LocationDisplayScope } from "./display-path.js";
 import {
-  createCopyableValueProtector,
-  displayPath,
-  wrappedLifecycleLine,
-  wrappedSentenceLine,
-  type CopyableValueProtector,
-  type LocationDisplayScope,
-} from "./presentation.js";
+  commandPart,
+  flatInlineText,
+  identifierPart,
+  pathPart,
+  splitInlineLines,
+  textPart,
+  type CommandArg,
+  type CommandPart,
+  type CommandPathArg,
+  type IdentifierPart,
+  type InlineContent,
+  type InlinePart,
+  type PathPart,
+  type TextPart,
+} from "./inline-content.js";
+
+export {
+  commandPart,
+  flatInlineText,
+  identifierPart,
+  pathPart,
+  splitInlineLines,
+  textPart,
+};
+export type {
+  CommandArg,
+  CommandPart,
+  CommandPathArg,
+  IdentifierPart,
+  InlineContent,
+  InlinePart,
+  PathPart,
+  TextPart,
+};
 import {
   styleSemanticText,
   type SemanticCategory,
@@ -21,13 +49,11 @@ export type NoticeSeverity = "attention" | "error" | "info" | "success";
 export type PresentationRenderOptions = {
   readonly cwd?: string;
   readonly home?: string;
-  /** Report-supplied values whose spaces must survive prose wrapping. */
-  readonly copyableValues?: readonly string[];
 };
 
 export type ProseNode = {
   readonly kind: "prose";
-  readonly text: string;
+  readonly parts: readonly InlineContent[];
   readonly category?: SemanticCategory;
 };
 
@@ -39,7 +65,7 @@ export type ProseNode = {
  */
 export type SentenceNode = {
   readonly kind: "sentence";
-  readonly text: string;
+  readonly parts: readonly InlineContent[];
   readonly category?: SemanticCategory;
 };
 
@@ -63,17 +89,6 @@ export type PathNode = {
   readonly category?: SemanticCategory;
 };
 
-export type CommandPathArg = {
-  readonly kind: "path";
-  readonly canonicalPath: string;
-  readonly authoredPath?: string;
-  readonly scope: LocationDisplayScope;
-};
-
-export type CommandArg =
-  | { readonly kind: "text"; readonly value: string }
-  | CommandPathArg;
-
 export type CommandNode = {
   readonly kind: "command";
   readonly program: string;
@@ -90,7 +105,7 @@ export type KeyValueNode = {
 
 export type ListItemNode = {
   readonly kind: "list-item";
-  readonly nodes: readonly PresentationNode[];
+  readonly parts: readonly InlineContent[];
   readonly category?: SemanticCategory;
 };
 
@@ -137,6 +152,7 @@ export type PresentationNode =
 
 export type PresentationDocument = readonly PresentationNode[];
 
+
 const NOTICE_CATEGORY: Readonly<Record<NoticeSeverity, SemanticCategory>> = {
   attention: "attention",
   error: "error",
@@ -146,7 +162,6 @@ const NOTICE_CATEGORY: Readonly<Record<NoticeSeverity, SemanticCategory>> = {
 
 type RenderEnvironment = {
   readonly context: TerminalPresentationContext;
-  readonly copyableValueProtector: CopyableValueProtector;
   readonly cwd: string;
   readonly home: string;
 };
@@ -158,7 +173,6 @@ export function renderPresentationDocument(
 ): string {
   const environment: RenderEnvironment = {
     context,
-    copyableValueProtector: createCopyableValueProtector(options.copyableValues ?? []),
     cwd: options.cwd ?? process.cwd(),
     home: options.home ?? homedir(),
   };
@@ -200,10 +214,10 @@ function renderNode(
   const { context } = environment;
   switch (node.kind) {
     case "prose":
-      return wrappedLifecycleLine(node.text, context.width, environment.copyableValueProtector)
+      return wrapInlineNode(node.parts, environment, "lifecycle")
         .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
     case "sentence":
-      return wrappedSentenceLine(node.text, context.width, environment.copyableValueProtector)
+      return wrapInlineNode(node.parts, environment, "sentence")
         .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
     case "heading":
       return styleLines(node.text, node.category ?? "heading", context.color);
@@ -241,10 +255,11 @@ function renderNode(
         context.color,
       );
     case "list-item": {
-      const content = node.nodes
-        .flatMap((child) => renderNode(child, unstyled(environment), inheritedCategory))
-        .join(" ");
-      return wrappedLifecycleLine(`- ${content}`, context.width, environment.copyableValueProtector)
+      return wrapInlineNode(
+        ["- ", ...node.parts],
+        environment,
+        "lifecycle",
+      )
         .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
     }
     case "notice":
@@ -421,6 +436,168 @@ function unstyled(environment: RenderEnvironment): RenderEnvironment {
     ...environment,
     context: { ...environment.context, color: false },
   };
+}
+
+/**
+ * Wrap one inline-content node through the renderer's own two wrapping
+ * policies: lifecycle promotes authored command invocations onto dedicated
+ * lines; sentence keeps them inline and whole.
+ */
+function wrapInlineNode(
+  parts: readonly InlineContent[],
+  environment: RenderEnvironment,
+  policy: "lifecycle" | "sentence",
+): readonly string[] {
+  return wrapInlineParts(normalizeParts(parts), environment, policy);
+}
+
+function normalizeParts(content: readonly InlineContent[]): readonly InlinePart[] {
+  return content.map((part) =>
+    typeof part === "string" ? textPart(part) : part
+  );
+}
+
+/** Render one inline part verbatim: atomic parts never fold or elide. */
+function renderInlinePart(part: InlinePart, environment: RenderEnvironment): string {
+  switch (part.kind) {
+    case "text":
+      return part.value;
+    case "command":
+      return renderCommand(
+        { kind: "command", program: part.program, args: part.args },
+        environment,
+      );
+    case "path":
+      return displayPath(
+        part.canonicalPath,
+        part.authoredPath ?? part.canonicalPath,
+        part.scope,
+        environment.cwd,
+        environment.home,
+      );
+    case "identifier":
+      return part.value;
+  }
+}
+
+/** One wrapping unit: a token plus every token glued to it without whitespace. */
+type InlineRun = {
+  readonly text: string;
+  /** A run led by (or containing) an inline command part: lifecycle promotes it. */
+  readonly command: boolean;
+};
+
+function wrapInlineParts(
+  parts: readonly InlinePart[],
+  environment: RenderEnvironment,
+  policy: "lifecycle" | "sentence",
+): readonly string[] {
+  const { context } = environment;
+  const rendered = parts.map((part) => renderInlinePart(part, environment));
+  const line = rendered.join("");
+  if (line.trim().length === 0) return [line];
+
+  const indentation = line.match(/^\s*/)?.[0] ?? "";
+  const content = line.slice(indentation.length);
+  const bullet = policy === "lifecycle" && content.startsWith("- ") ? "- " : "";
+  const measure = Math.max(1, context.width - indentation.length - 2);
+  if (content.slice(bullet.length).length <= measure) return [line];
+
+  const runs = inlineRuns(parts, rendered, line, indentation.length + bullet.length);
+  const wrapped = wrapRuns(runs, measure, policy);
+  return wrapped.map((part, index) =>
+    `${index === 0 ? indentation + bullet : `${indentation}  `}${part}`
+  );
+}
+
+/**
+ * Tokenize rendered inline content into wrapping runs. Whitespace separates
+ * runs; parts glued directly to neighbouring text (trailing punctuation,
+ * brackets) join that neighbour's run, so a run breaks exactly where one
+ * protected word did before.
+ */
+function inlineRuns(
+  parts: readonly InlinePart[],
+  rendered: readonly string[],
+  line: string,
+  prefixLength: number,
+): readonly InlineRun[] {
+  const tokens: { text: string; atomic: boolean; command: boolean; glued: boolean }[] = [];
+  let offset = 0;
+  parts.forEach((part, index) => {
+    const text = rendered[index] ?? "";
+    const start = offset;
+    offset += text.length;
+    if (text.length === 0) return;
+    if (part.kind === "text") {
+      for (const match of text.matchAll(/\S+/g)) {
+        const tokenStart = start + (match.index ?? 0);
+        const tokenEnd = tokenStart + match[0].length;
+        if (tokenEnd <= prefixLength) continue; // indentation or bullet prefix
+        tokens.push({
+          text: match[0],
+          atomic: false,
+          command: false,
+          glued: tokenStart > prefixLength && tokenStart > 0 &&
+            !/\s/.test(line.charAt(tokenStart - 1)),
+        });
+      }
+      return;
+    }
+    if (start + text.length <= prefixLength) return; // inside the prefix
+    tokens.push({
+      text: start < prefixLength
+        ? text.slice(prefixLength - start)
+        : text,
+      atomic: true,
+      command: part.kind === "command",
+      glued: start > prefixLength && start > 0 && !/\s/.test(line.charAt(start - 1)),
+    });
+  });
+  const runs: InlineRun[] = [];
+  for (const token of tokens) {
+    if (token.glued && runs.length > 0) {
+      const run = runs.at(-1)!;
+      runs[runs.length - 1] = {
+        text: run.text + token.text,
+        command: run.command || token.command,
+      };
+      continue;
+    }
+    runs.push({ text: token.text, command: token.command });
+  }
+  return runs;
+}
+
+function wrapRuns(
+  runs: readonly InlineRun[],
+  measure: number,
+  policy: "lifecycle" | "sentence",
+): readonly string[] {
+  const lines: string[] = [];
+  let current = "";
+  const flush = (): void => {
+    if (current.length > 0) {
+      lines.push(current);
+      current = "";
+    }
+  };
+  for (const run of runs) {
+    if (policy === "lifecycle" && run.command) {
+      flush();
+      lines.push(run.text);
+      continue;
+    }
+    const candidate = current.length === 0 ? run.text : `${current} ${run.text}`;
+    if (current.length > 0 && candidate.length > measure) {
+      flush();
+      current = run.text;
+    } else {
+      current = candidate;
+    }
+  }
+  flush();
+  return lines;
 }
 
 function styleLines(

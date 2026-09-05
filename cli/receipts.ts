@@ -2,29 +2,25 @@ import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { hostsEqual } from "../installer/bind-project.js";
 import type { SupportedHost } from "../adapters/host-catalog.js";
 import { COMMAND_NAME } from "../installer/version.js";
+import { capitalize, DEFAULT_VIEW_LEXICON } from "./presentation.js";
+import { displayProjectPath } from "./display-path.js";
 import {
-  capitalize,
-  DEFAULT_VIEW_LEXICON,
-  displayProjectPath,
-} from "./presentation.js";
-import type {
-  PresentationDocument,
-  PresentationNode,
+  commandPart,
+  identifierPart,
+  pathPart,
+  type CommandArg,
+  type PresentationDocument,
+  type PresentationNode,
 } from "./presentation-document.js";
 
-/**
- * One authored receipt: its document plus the presented values whose spaces
- * must survive sentence wrapping (the temporary-blocked-view convention).
- */
-export interface ReceiptDocument {
-  readonly document: PresentationDocument;
-  readonly copyableValues: readonly string[];
-}
+/** One carried command argument. */
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 /**
  * Authoring and teardown receipt views as presentation documents. Every node
  * carries its semantic category where the meaning is known (DEC-003); wording
- * is the view's carried text.
+ * is the view's carried text, and every structurally supplied value is an
+ * atomic inline part the renderer never re-identifies (DEC-009).
  */
 
 const localConfiguration = DEFAULT_VIEW_LEXICON.localConfiguration;
@@ -36,49 +32,67 @@ export function initReceiptDocument(input: {
   readonly outcome: "created" | "migrated" | "unchanged";
   readonly path: string;
   readonly workspaceScaffolded?: boolean;
-}): ReceiptDocument {
+}): PresentationDocument {
+  const workspace = identifierPart(input.path);
   if (input.outcome === "unchanged") {
-    return receipt([{
+    return [{
       kind: "sentence",
-      text: `Workspace and ${localConfiguration} already initialized at ${input.path}; unchanged.`,
-    }], [input.path]);
+      parts: [
+        `Workspace and ${localConfiguration} already initialized at `,
+        workspace,
+        "; unchanged.",
+      ],
+    }];
   }
   if (input.outcome === "migrated") {
-    return receipt([
+    return [
       {
         kind: "sentence",
-        text: `Migrated ${localConfiguration} and validated the Agent Profile Kit Workspace at ${input.path}`,
+        parts: [
+          `Migrated ${localConfiguration} and validated the Agent Profile Kit Workspace at `,
+          workspace,
+        ],
         category: "success",
       },
       {
         kind: "sentence",
-        text: `Next: run ${COMMAND_NAME} validate, then status and apply as needed`,
+        parts: [
+          "Next: run ",
+          commandPart(COMMAND_NAME, [arg("validate")]),
+          ", then status and apply as needed",
+        ],
         category: "command",
       },
-    ], [input.path]);
+    ];
   }
-  return receipt([
+  return [
     {
       kind: "sentence",
-      text: `Initialized Agent Profile Kit Workspace and ${localConfiguration} at ${input.path}`,
+      parts: [
+        `Initialized Agent Profile Kit Workspace and ${localConfiguration} at `,
+        workspace,
+      ],
       category: "success",
     },
     {
       kind: "sentence",
-      text: input.workspaceScaffolded === true
-        ? `Next: from the project you want to try, run ${COMMAND_NAME} bind ${AUTHORING_EXAMPLES.profile.id} --host codex`
-        : `Next: run ${COMMAND_NAME} validate`,
+      parts: input.workspaceScaffolded === true
+        ? [
+          "Next: from the project you want to try, run ",
+          commandPart(COMMAND_NAME, [
+            arg("bind"),
+            arg(AUTHORING_EXAMPLES.profile.id),
+            arg("--host"),
+            arg("codex"),
+          ]),
+        ]
+        : [
+          "Next: run ",
+          commandPart(COMMAND_NAME, [arg("validate")]),
+        ],
       category: "command",
     },
-  ], [input.path]);
-}
-
-/** Bundles one receipt document with the presented values that must not split. */
-function receipt(
-  document: PresentationDocument,
-  copyableValues: readonly string[],
-): ReceiptDocument {
-  return { document, copyableValues: copyableValues.filter((value) => value.includes(" ")) };
+  ];
 }
 
 export type BindReceiptInput = {
@@ -100,15 +114,25 @@ type BindReceiptInputBase = {
 /** The receipt document for one `bind` invocation. */
 export function bindReceiptDocument(
   input: BindReceiptInput,
-): ReceiptDocument {
-  const project = displayProjectPath(input.canonicalProject, input.project, "project");
+): PresentationDocument {
+  const project = pathPart(
+    input.canonicalProject,
+    "project",
+    displayProjectPath(input.canonicalProject, input.project, "project"),
+  );
   const nodes: PresentationNode[] = [];
   if (input.outcome === "unchanged") {
-    nodes.push({ kind: "sentence", text: `${projectBindingCapitalized} unchanged for ${project}` });
+    nodes.push({
+      kind: "sentence",
+      parts: [`${projectBindingCapitalized} unchanged for `, project],
+    });
   } else {
     nodes.push({
       kind: "sentence",
-      text: `${input.outcome === "replaced" ? "Replaced" : "Recorded"} ${projectBindingSingular} for ${project}`,
+      parts: [
+        `${input.outcome === "replaced" ? "Replaced" : "Recorded"} ${projectBindingSingular} for `,
+        project,
+      ],
       category: "success",
     });
   }
@@ -145,7 +169,7 @@ export function bindReceiptDocument(
     );
   }
   nodes.push(nextCommandNode("status"));
-  return receipt(nodes, [project]);
+  return nodes;
 }
 
 export type UnbindReceiptInput =
@@ -164,19 +188,28 @@ export type UnbindReceiptInput =
 /** The receipt document for one `unbind` invocation. */
 export function unbindReceiptDocument(
   input: UnbindReceiptInput,
-): ReceiptDocument {
+): PresentationDocument {
   if (input.outcome === "unchanged") {
-    return receipt([{
+    return [{
       kind: "sentence",
-      text: `${projectBindingCapitalized} unchanged; no ${projectBindingSingular} matched ${input.requestedProject}`,
-    }], [input.requestedProject]);
+      parts: [
+        `${projectBindingCapitalized} unchanged; no ${projectBindingSingular} matched `,
+        identifierPart(input.requestedProject),
+      ],
+    }];
   }
   const presentedProject = input.recovery === "canonical"
     ? displayProjectPath(input.canonicalProject ?? input.project, input.project, "project")
     : displayProjectPath(input.project, input.project, "project");
   const nodes: PresentationNode[] = [{
     kind: "sentence",
-    text: `Removed ${projectBindingSingular} for ${presentedProject}`,
+    parts: [`Removed ${projectBindingSingular} for `, pathPart(
+      input.recovery === "canonical"
+        ? input.canonicalProject ?? input.project
+        : input.project,
+      "project",
+      presentedProject,
+    )],
     category: "success",
   }];
   if (input.recovery === "authored-path") {
@@ -212,16 +245,11 @@ export function unbindReceiptDocument(
   );
   if (input.generatedOutputSurvives) {
     nodes.push(
-      { kind: "prose", text: "Generated files remain until apply" },
+      { kind: "prose", parts: ["Generated files remain until apply"] },
       nextCommandNode("status --all"),
     );
   }
-  return receipt(nodes, [
-    presentedProject,
-    ...(input.recovery === "authored-path" && input.configurationPath !== undefined
-      ? [input.configurationPath]
-      : []),
-  ]);
+  return nodes;
 }
 
 /** The `Next:` line as one atomic command (the sibling receipt convention). */
@@ -235,7 +263,7 @@ function nextCommandNode(arguments_: string): PresentationNode {
       args: arguments_
         .split(/\s+/)
         .filter(Boolean)
-        .map((token) => ({ kind: "text" as const, value: token })),
+        .map(arg),
     },
     category: "command",
   };

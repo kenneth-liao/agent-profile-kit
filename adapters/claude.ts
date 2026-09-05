@@ -10,12 +10,13 @@ import {
   versionFloorCapabilityFailure,
   type AdapterCapabilityFailure,
 } from "./capability.js";
-import type {
-  AdapterProjectPlan,
-  ProposedDirectoryFileMember,
-  ProposedDirectoryMember,
-  ProposedProjectFileOutput,
-  ProposedProjectOutput,
+import {
+  identifierPart,
+  type AdapterProjectPlan,
+  type ProposedDirectoryFileMember,
+  type ProposedDirectoryMember,
+  type ProposedProjectFileOutput,
+  type ProposedProjectOutput,
 } from "./project-plan.js";
 import { invokeExecutable } from "./services/executable.js";
 import { classifyFileSystemEntry } from "./services/project-surface.js";
@@ -259,7 +260,11 @@ export async function assertClaudeProjectSurface(
       problem,
       "ensure the Claude project surface is a directory, then retry",
       [{ kind: "path", value: claudePath }],
-      problem,
+      [
+        "Claude project surface cannot host outputs: ",
+        identifierPart(claudePath),
+        ` is a ${claudeKind}, not a directory`,
+      ],
     );
   }
 
@@ -279,7 +284,11 @@ export async function assertClaudeProjectSurface(
       problem,
       "ensure the Claude rules surface is a directory, then retry",
       [{ kind: "path", value: rulesPath }],
-      problem,
+      [
+        "Claude project surface cannot host unscoped rules: ",
+        identifierPart(rulesPath),
+        ` is a ${rulesKind}, not a directory`,
+      ],
     );
   }
 }

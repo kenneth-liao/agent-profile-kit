@@ -69,7 +69,14 @@ import {
   temporaryBlockedMessagesDocument,
   type LifecycleCommand,
 } from "./presentation.js";
-import { renderPresentationDocument, type PresentationDocument } from "./presentation-document.js";
+import {
+  renderPresentationDocument,
+  type PresentationDocument,
+} from "./presentation-document.js";
+import { commandPart, flatInlineText, type CommandArg, type InlineContent } from "./inline-content.js";
+
+/** One carried command argument. */
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
 import { bindProject } from "../installer/bind-project.js";
 import {
@@ -112,7 +119,6 @@ import {
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
   COMMAND_HELP_ALIASES,
-  commandInvocationStarters,
   COMMANDS,
   COMMAND_GROUPS,
   defaultCommands,
@@ -132,7 +138,6 @@ import {
 } from "./inventory-topics.js";
 import {
   agentProfileKitWordmark,
-  renderHumanOutput,
   terminalPresentationContext,
   type TerminalPresentationContext,
 } from "./terminal-presentation.js";
@@ -140,8 +145,6 @@ import {
   beginDelayedProgress,
   STATUS_PROGRESS_LABEL,
 } from "./progress.js";
-
-const COMMAND_NAMES = commandInvocationStarters();
 
 /**
  * One trusted terminal-presentation context per human stream, read once at the
@@ -151,14 +154,6 @@ const COMMAND_NAMES = commandInvocationStarters();
 const stdoutPresentationContext = terminalPresentationContext(process.stdout);
 const stderrPresentationContext = terminalPresentationContext(process.stderr);
 
-function writeHuman(
-  stream: WriteStream,
-  text: string,
-  context: TerminalPresentationContext,
-): void {
-  stream.write(renderHumanOutput(text, context, { commandNames: COMMAND_NAMES }));
-}
-
 /**
  * The interactive wordmark authored at the CLI boundary — the one place allowed
  * to read the terminal context (DEC-012).
@@ -167,59 +162,62 @@ function rootWordmark(context: TerminalPresentationContext): readonly string[] {
   return context.interactive ? agentProfileKitWordmark(context.width) : [];
 }
 
-/** Help output rendered from a presentation document, without the regex categoriser. */
-function writeHelp(
-  stream: WriteStream,
-  help: { readonly document: PresentationDocument; readonly copyableValues: readonly string[] },
-  context: TerminalPresentationContext,
-): void {
-  writeHumanDocument(stream, help.document, context, help.copyableValues);
-}
-
 /** Human output rendered from a presentation document (DEC-018). */
 function writeHumanDocument(
   stream: WriteStream,
   document: PresentationDocument,
   context: TerminalPresentationContext,
-  copyableValues: readonly string[] = [],
 ): void {
-  stream.write(
-    `${renderPresentationDocument(document, context, { copyableValues })}\n`,
-  );
+  stream.write(`${renderPresentationDocument(document, context)}\n`);
 }
 
 /**
  * Human error projection: typed Installer errors render through presentation's
  * carried sentences verbatim (the #405 decision keeps tool-error wording
- * unchanged on screen); everything else matches the machine projection.
+ * unchanged on screen); everything else matches the machine projection. Every
+ * command invocation is authored as an atomic part, so wrapping never splits
+ * one (DEC-009).
  */
-function formatErrorForHuman(error: unknown): string {
+function formatErrorForHuman(error: unknown): readonly InlineContent[] {
   const authored = installerErrorSentence(error);
   if (authored !== undefined) return authored;
   if (error instanceof ProjectTargetError) {
     return formatProjectTargetErrorForHuman(error.reason);
   }
   if (error instanceof StateReadFailureError) {
-    return applyNewcomerSubstitutions(describeStateReadFailure(error.failure));
+    return [applyNewcomerSubstitutions(describeStateReadFailure(error.failure))];
   }
-  return formatError(error);
+  return formatErrorParts(error);
 }
 
 /**
  * Machine projection: typed Installer errors render through presentation's
- * owned sentences; unrecognized errors keep `error.message`.
+ * owned sentences, flattened to their plain text; unrecognized errors keep
+ * `error.message`.
  */
 function formatError(error: unknown): string {
+  return flatInlineText(formatErrorParts(error));
+}
+
+class CliArgumentError extends Error {
+  constructor(readonly parts: readonly InlineContent[]) {
+    super(flatInlineText(parts));
+    this.name = "CliArgumentError";
+  }
+}
+
+function formatErrorParts(error: unknown): readonly InlineContent[] {
   const authored = installerErrorSentence(error);
   if (authored !== undefined) return authored;
+  if (error instanceof CliArgumentError) return error.parts;
   if (error instanceof MissingProfileError) return formatMissingProfileError(error);
   if (error instanceof ProjectTargetError) return formatProjectTargetError(error.reason);
-  if (error instanceof StateReadFailureError) return describeStateReadFailure(error.failure);
+  if (error instanceof StateReadFailureError) return [describeStateReadFailure(error.failure)];
   if (error instanceof AggregateError) {
-    const causes = Array.from(error.errors, formatError);
-    return [error.message, ...causes.map((cause) => `caused by: ${cause}`)].join("\n");
+    const causes = Array.from(error.errors, formatErrorParts);
+    return [error.message, ...causes.map((cause) => ["\ncaused by: ", ...cause]).flat()];
   }
-  return errorMessage(error);
+  return [errorMessage(error)];
 }
 
 /** The carried syntax of one named command, for diagnostic usage nodes. */
@@ -400,8 +398,8 @@ function sanitizeCommandToken(token: string): string {
 /** The diagnostic for one command removed behind the machine namespace (DEC-019). */
 function removedNamespaceDiagnostic(name: string): PresentationDocument {
   return diagnosticDocument({
-    happened: `${name} moved behind the machine namespace`,
-    whatToType: [`Use ${COMMAND_NAME} machine ${name}`],
+    happened: [`${name} moved behind the machine namespace`],
+    whatToType: [["Use ", commandPart(COMMAND_NAME, [arg("machine"), arg(name)])]],
   });
 }
 
@@ -409,11 +407,13 @@ function unknownCommandDiagnostic(unknown: string): PresentationDocument {
   const safeUnknown = sanitizeCommandToken(unknown);
   const suggestion = suggestedCommand(safeUnknown);
   return diagnosticDocument({
-    happened: `unknown command '${safeUnknown}'`,
+    happened: [`unknown command '${safeUnknown}'`],
     whatToType: [
-      ...(suggestion === undefined ? [] : [`Did you mean: ${COMMAND_NAME} ${suggestion}?`]),
-      "",
-      `Run ${COMMAND_NAME} --help for available commands.`,
+      ...(suggestion === undefined
+        ? []
+        : [["Did you mean: ", commandPart(COMMAND_NAME, [arg(suggestion)]), "?"]]),
+      [],
+      ["Run ", commandPart(COMMAND_NAME, [arg("--help")]), " for available commands."],
     ],
   });
 }
@@ -433,13 +433,17 @@ function unknownMachineCommandDiagnostic(unknown: string): PresentationDocument 
     })[0]
     ?.name;
   return diagnosticDocument({
-    happened: `unknown machine command '${safeUnknown}'`,
+    happened: [`unknown machine command '${safeUnknown}'`],
     whatToType: [
       ...(suggestion === undefined
         ? []
-        : [`Did you mean: ${COMMAND_NAME} machine ${suggestion}?`]),
-      "",
-      `Run ${COMMAND_NAME} machine --help for available machine commands.`,
+        : [["Did you mean: ", commandPart(COMMAND_NAME, [arg("machine"), arg(suggestion)]), "?"]]),
+      [],
+      [
+        "Run ",
+        commandPart(COMMAND_NAME, [arg("machine"), arg("--help")]),
+        " for available machine commands.",
+      ],
     ],
   });
 }
@@ -673,9 +677,11 @@ function parseListArguments(
   if (arguments_.length === 0) return { kind: "index" };
   const topic = positionalArgument("list", "an inventory topic", arguments_[0]!);
   if (isMachineInventoryTopic(topic)) {
-    throw new Error(
-      `${COMMAND_NAME} list ${topic} moved behind the machine namespace; use ${COMMAND_NAME} machine list ${topic}`,
-    );
+    throw new CliArgumentError([
+      commandPart(COMMAND_NAME, [arg("list"), arg(topic)]),
+      " moved behind the machine namespace; use ",
+      commandPart(COMMAND_NAME, [arg("machine"), arg("list"), arg(topic)]),
+    ]);
   }
   if (!isInventoryTopic(topic)) {
     throw new Error(
@@ -813,12 +819,12 @@ async function main(): Promise<void> {
     (arguments_.length === 1 && ROOT_HELP_ALIASES.some((alias) => alias === arguments_[0]))
   ) {
     const context = stdoutPresentationContext;
-    writeHelp(process.stdout, rootHelpDocument(rootWordmark(context)), stdoutPresentationContext);
+    writeHumanDocument(process.stdout, rootHelpDocument(rootWordmark(context)), stdoutPresentationContext);
     return;
   }
   const focusedHelp = focusedHelpRequest(arguments_);
   if (focusedHelp?.kind === "root") {
-    writeHelp(
+    writeHumanDocument(
       process.stdout,
       rootHelpDocument(rootWordmark(stdoutPresentationContext)),
       stdoutPresentationContext,
@@ -826,7 +832,7 @@ async function main(): Promise<void> {
     return;
   }
   if (focusedHelp?.kind === "machine") {
-    writeHelp(process.stdout, machineHelpDocument(), stdoutPresentationContext);
+    writeHumanDocument(process.stdout, machineHelpDocument(), stdoutPresentationContext);
     return;
   }
   if (focusedHelp?.kind === "removedTemporary") {
@@ -839,20 +845,20 @@ async function main(): Promise<void> {
     return;
   }
   if (focusedHelp?.kind === "command") {
-    writeHelp(process.stdout, commandHelpDocument(focusedHelp.command), stdoutPresentationContext);
+    writeHumanDocument(process.stdout, commandHelpDocument(focusedHelp.command), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "guide") {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     if (parsed.kind === "index") {
-      writeHelp(process.stdout, guideIndexDocument(), stdoutPresentationContext);
+      writeHumanDocument(process.stdout, guideIndexDocument(), stdoutPresentationContext);
     } else if (parsed.kind === "topic") {
-      writeHelp(process.stdout, focusedGuideDocument(parsed.topic), stdoutPresentationContext);
+      writeHumanDocument(process.stdout, focusedGuideDocument(parsed.topic), stdoutPresentationContext);
     } else if (parsed.kind === "agent") {
-      writeHelp(process.stdout, guideFileDocument(await agentGuide()), stdoutPresentationContext);
+      writeHumanDocument(process.stdout, guideFileDocument(await agentGuide()), stdoutPresentationContext);
     } else {
-      writeHelp(process.stdout, guideFileDocument(await humanGuide()), stdoutPresentationContext);
+      writeHumanDocument(process.stdout, guideFileDocument(await humanGuide()), stdoutPresentationContext);
     }
     return;
   }
@@ -864,19 +870,13 @@ async function main(): Promise<void> {
       writeHumanDocument(
         process.stderr,
         diagnosticDocument({
-          happened: `warning: ${warning}`,
+          happened: [`warning: ${warning}`],
           severity: "attention",
         }),
         stderrPresentationContext,
       );
     }
-    const initReceipt = initReceiptDocument(result);
-    writeHumanDocument(
-      process.stdout,
-      initReceipt.document,
-      stdoutPresentationContext,
-      initReceipt.copyableValues,
-    );
+    writeHumanDocument(process.stdout, initReceiptDocument(result), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "bind") {
@@ -889,13 +889,7 @@ async function main(): Promise<void> {
       ...(parsed.replace ? { replace: true } : {}),
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
     });
-    const bindReceipt = bindReceiptDocument(result);
-    writeHumanDocument(
-      process.stdout,
-      bindReceipt.document,
-      stdoutPresentationContext,
-      bindReceipt.copyableValues,
-    );
+    writeHumanDocument(process.stdout, bindReceiptDocument(result), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "unbind") {
@@ -907,13 +901,7 @@ async function main(): Promise<void> {
     });
     // Exceptional recovery keeps the diagnostic detail needed to act safely;
     // routine removal stays compact (ADR-0014, DEC-041/DEC-043).
-    const unbindReceipt = unbindReceiptDocument(result);
-    writeHumanDocument(
-      process.stdout,
-      unbindReceipt.document,
-      stdoutPresentationContext,
-      unbindReceipt.copyableValues,
-    );
+    writeHumanDocument(process.stdout, unbindReceiptDocument(result), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "validate") {
@@ -1042,11 +1030,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatApplyJson(applied));
       } else {
-        writeHuman(
-          process.stdout,
-          formatApplyReport(applied, { ...parsed, context }),
-          context,
-        );
+        process.stdout.write(formatApplyReport(applied, { ...parsed, context }));
       }
       // Exit 0 whenever apply completed without blockers, including remaining
       // non-current work (outcome "attention"). Gate on blockers only — DEC-024.
@@ -1056,10 +1040,8 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatBlockedApplyJson(error.report));
         } else {
-          writeHuman(
-            process.stdout,
+          process.stdout.write(
             formatBlockedApplyReport(error.report, { ...parsed, context }),
-            context,
           );
         }
         process.exitCode = lifecycleExitCode(error.report);
@@ -1069,10 +1051,8 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatApplyExecutionFailureJson(error));
         } else {
-          writeHuman(
-            process.stderr,
+          process.stderr.write(
             formatApplyExecutionFailure(error, { ...parsed, context: stderrPresentationContext }),
-            stderrPresentationContext,
           );
         }
         process.exitCode = 1;
@@ -1082,14 +1062,12 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatApplyVerificationFailureJson(error.receipt, error.message));
         } else {
-          writeHuman(
-            process.stdout,
+          process.stdout.write(
             formatApplyVerificationFailure(
               error.receipt,
               error.message,
               { ...parsed, context },
             ),
-            context,
           );
         }
         process.exitCode = 1;
@@ -1164,12 +1142,12 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === MACHINE_NAMESPACE) {
     const rest = arguments_.slice(1);
     if (rest.length === 0) {
-      writeHelp(process.stdout, machineHelpDocument(), stdoutPresentationContext);
+      writeHumanDocument(process.stdout, machineHelpDocument(), stdoutPresentationContext);
       return;
     }
     const machineFocusedHelp = focusedMachineHelpRequest(rest);
     if (machineFocusedHelp?.kind === "command") {
-      writeHelp(
+      writeHumanDocument(
         process.stdout,
         commandHelpDocument(machineFocusedHelp.command),
         stdoutPresentationContext,
@@ -1212,9 +1190,10 @@ async function main(): Promise<void> {
               error.canonicalProject,
             );
             process.stderr.write(
-              renderPresentationDocument(blocked.document, stderrPresentationContext, {
-                copyableValues: [blocked.presented, error.canonicalProject],
-              }) + "\n",
+              `${renderPresentationDocument(
+                blocked.document,
+                stderrPresentationContext,
+              )}\n`,
             );
           }
           process.exitCode = 2;
@@ -1232,10 +1211,15 @@ async function main(): Promise<void> {
             writeHumanDocument(
               process.stderr,
               diagnosticDocument({
-                ...carriedErrorParts(formatError(error)),
-                whatToType: [
-                  `removal is required; run ${COMMAND_NAME} machine remove-temp ${error.temporaryInstallationId}`,
-                ],
+                ...carriedErrorParts(formatErrorForHuman(error)),
+                whatToType: [[
+                  "removal is required; run ",
+                  commandPart(COMMAND_NAME, [
+                    arg("machine"),
+                    arg("remove-temp"),
+                    arg(error.temporaryInstallationId),
+                  ]),
+                ]],
               }),
               stderrPresentationContext,
             );
@@ -1291,9 +1275,10 @@ async function main(): Promise<void> {
               error.canonicalProject,
             );
             process.stderr.write(
-              renderPresentationDocument(blocked.document, stderrPresentationContext, {
-                copyableValues: [blocked.presented, error.canonicalProject],
-              }) + "\n",
+              `${renderPresentationDocument(
+                blocked.document,
+                stderrPresentationContext,
+              )}\n`,
             );
           }
           process.exitCode = 2;

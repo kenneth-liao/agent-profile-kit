@@ -3,10 +3,11 @@ import { parseDocument, isMap, isScalar, Pair, Scalar, YAMLMap } from "yaml";
 import type { Document } from "yaml";
 
 import { capabilityFailure } from "./capability.js";
-import type {
-  ProposedDirectoryFileMember,
-  ProposedDirectoryMember,
-  ProposedProjectDirectoryOutput,
+import {
+  identifierPart,
+  type ProposedDirectoryFileMember,
+  type ProposedDirectoryMember,
+  type ProposedProjectDirectoryOutput,
 } from "./project-plan.js";
 import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
@@ -69,13 +70,20 @@ function policyAuthorityFailure(
   const remedy =
     `Repair the canonical Workspace Skill '${skill.id}' so ${MODEL_INVOCATION_METADATA_FIELD} ` +
     `remains authoritative and ${SHARED_SKILL_OPENAI_YAML} is absent or agrees, then retry`;
+  const yamlPath = join(skill.path, SHARED_SKILL_OPENAI_YAML);
   return capabilityFailure(
     skill.consumerHost ?? "codex",
     "project",
     problem,
     remedy,
-    [{ kind: "path", value: join(skill.path, SHARED_SKILL_OPENAI_YAML) }],
-    `${problem}; ${remedy}`,
+    [{ kind: "path", value: yamlPath }],
+    [
+      "Skill '",
+      identifierPart(skill.id),
+      `' has ${kind === "conflict" ? "conflicting" : "invalid"} model-invocation authorities: ${canonical}; ${host}; Repair the canonical Workspace Skill '`,
+      identifierPart(skill.id),
+      `' so ${MODEL_INVOCATION_METADATA_FIELD} remains authoritative and ${SHARED_SKILL_OPENAI_YAML} is absent or agrees, then retry`,
+    ],
   );
 }
 

@@ -21,14 +21,15 @@ import {
   compareCoreSemanticVersions,
   normalizeCoreSemanticVersion,
 } from "./services/semantic-version.js";
-import type {
-  AdapterHostSetupStep,
-  AdapterDiagnosticWarning,
-  AdapterProjectPlan,
-  ProposedDirectoryFileMember,
-  ProposedDirectoryMember,
-  ProposedProjectFileOutput,
-  ProposedProjectOutput,
+import {
+  identifierPart,
+  type AdapterHostSetupStep,
+  type AdapterDiagnosticWarning,
+  type AdapterProjectPlan,
+  type ProposedDirectoryFileMember,
+  type ProposedDirectoryMember,
+  type ProposedProjectFileOutput,
+  type ProposedProjectOutput,
 } from "./project-plan.js";
 import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
@@ -373,7 +374,9 @@ export async function detectGrokProjectConfigurationWarnings(
     return [
       {
         copyableValues: [configPath],
-        message: `Grok configuration relevant to planned Skills at ${configPath} could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Skills may not load until the configuration is repaired`,
+        parts: [
+          `Grok configuration relevant to planned Skills at ${configPath} could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Skills may not load until the configuration is repaired`,
+        ],
       },
     ];
   }
@@ -386,7 +389,13 @@ export async function detectGrokProjectConfigurationWarnings(
       warnings.push(
         {
           copyableValues: [configPath, skillId],
-          message: `Grok configuration at ${configPath} lists planned Skill '${skillId}' as disabled; generated Skill output may not load until it is enabled`,
+          parts: [
+            "Grok configuration at ",
+            identifierPart(configPath),
+            " lists planned Skill '",
+            identifierPart(skillId),
+            "' as disabled; generated Skill output may not load until it is enabled",
+          ],
         },
       );
     }
@@ -397,7 +406,15 @@ export async function detectGrokProjectConfigurationWarnings(
       warnings.push(
         {
           copyableValues: [configPath, managedDirectory, skillId],
-          message: `Grok configuration at ${configPath} ignores planned Skill '${skillId}' at ${managedDirectory}; generated Skill output may not load until the ignore entry is removed`,
+          parts: [
+            "Grok configuration at ",
+            identifierPart(configPath),
+            " ignores planned Skill '",
+            identifierPart(skillId),
+            "' at ",
+            identifierPart(managedDirectory),
+            "; generated Skill output may not load until the ignore entry is removed",
+          ],
         },
       );
     }
@@ -665,7 +682,11 @@ export async function assertGrokProjectSurface(
       problem,
       "ensure the Grok project surface is a directory, then retry",
       [{ kind: "path", value: grokPath }],
-      problem,
+      [
+        "Grok project surface cannot host outputs: ",
+        identifierPart(grokPath),
+        ` is a ${grokKind}, not a directory`,
+      ],
     );
   }
 
@@ -681,7 +702,11 @@ export async function assertGrokProjectSurface(
         problem,
         "ensure the Grok Skills surface is a directory, then retry",
         [{ kind: "path", value: skillsPath }],
-        problem,
+        [
+          "Grok project surface cannot host Skills: ",
+          identifierPart(skillsPath),
+          ` is a ${skillsKind}, not a directory`,
+        ],
       );
     }
   }
@@ -699,7 +724,11 @@ export async function assertGrokProjectSurface(
         problem,
         "ensure the Grok rules surface is a directory, then retry",
         [{ kind: "path", value: rulesPath }],
-        problem,
+        [
+          "Grok project surface cannot host unscoped rules: ",
+          identifierPart(rulesPath),
+          ` is a ${rulesKind}, not a directory`,
+        ],
       );
     }
   }

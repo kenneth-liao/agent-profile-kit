@@ -10,6 +10,10 @@ import {
 import { dirname, join } from "node:path";
 
 import {
+  flatInlineText,
+  type InlineContent,
+} from "../adapters/project-plan.js";
+import {
   compareCanonicalStrings,
 } from "../schemas/canonical.js";
 import {
@@ -157,7 +161,7 @@ export interface ReconciliationWarning {
   readonly consequence?: string;
   readonly copyableValues: readonly string[];
   readonly kind: "diagnostic" | "host-attention";
-  readonly message: string;
+  readonly parts: readonly InlineContent[];
 }
 
 export interface ReconciliationProjectOutput
@@ -725,13 +729,13 @@ function nestedReconciliationReport(
       ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
       copyableValues: [...warning.copyableValues],
       kind: "diagnostic" as const,
-      message: warning.message,
+      parts: warning.parts,
     }));
     for (const entry of installation.capabilityWarnings) {
       warnings.push({
         copyableValues: [...entry.warning.copyableValues],
         kind: "host-attention",
-        message: entry.warning.message,
+        parts: entry.warning.parts,
       });
     }
     warningsByCanonical.set(key, warnings);
@@ -758,11 +762,12 @@ function nestedReconciliationReport(
     for (const project of affectedProjects) {
       const key = canonicalProject(project);
       const warnings = warningsByCanonical.get(key) ?? [];
-      if (!warnings.some((entry) => entry.message === warning.message)) {
+      const warningText = flatInlineText(warning.parts);
+      if (!warnings.some((entry) => flatInlineText(entry.parts) === warningText)) {
         warnings.push({
           copyableValues: [...warning.targets],
           kind: "diagnostic",
-          message: warning.message,
+          parts: warning.parts,
         });
       }
       warningsByCanonical.set(key, warnings);
@@ -1519,7 +1524,7 @@ async function applyReconciliationLocked(
               ...warnings.map((warning) => ({
                 copyableValues: [...warning.targets],
                 kind: "diagnostic" as const,
-                message: warning.message,
+                parts: warning.parts,
               })),
             ],
           };

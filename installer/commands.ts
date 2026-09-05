@@ -21,6 +21,7 @@ import {
 } from "./installation-state.js";
 import type { OwnershipFailureFact } from "./blockers.js";
 import { publishRepositoryExclusions, receiptExclusionContribution } from "./git-exclusions.js";
+import { flatInlineText } from "../adapters/project-plan.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import type { LifecycleInstrumentation } from "./qualification-instrumentation.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
@@ -104,7 +105,7 @@ export async function validateApplication(
     profiles: [...desired.workspace.profiles.keys()].sort(),
     warnings: [...new Set(
       desired.installations.flatMap((installation) =>
-        installation.warnings.map((warning) => warning.message)
+        installation.warnings.map((warning) => flatInlineText(warning.parts))
       ),
     )].sort(),
   };
@@ -292,7 +293,7 @@ async function uninstallApplicationLocked(
       gitInspection,
       previousState: state,
     });
-    exclusionWarnings.push(...publication.warnings.map((warning) => warning.message));
+    exclusionWarnings.push(...publication.warnings.map((warning) => flatInlineText(warning.parts)));
     // "Cleaned" claims come only from successful publication changes: entries a
     // failed or skipped publication could not remove are never reported as
     // cleaned.

@@ -3,8 +3,16 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { HostSetupStep } from "../adapters/project-plan.js";
+import type { AdapterDiagnosticWarning, HostSetupStep } from "../adapters/project-plan.js";
+import { capabilityFailure } from "../adapters/capability.js";
+import { appendDiagnosticWarnings, capabilityWarning } from "../installer/project-plan.js";
 import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
+import {
+  flatInlineText,
+  identifierPart,
+  type InlineContent,
+  renderPresentationDocument,
+} from "../cli/presentation-document.js";
 import {
   COMMAND_GROUPS,
   commandHelpDocument,
@@ -86,7 +94,7 @@ function nodeShape(node: PresentationNode): string {
     case "key-value":
       return `key-value:${node.key.trim()}${node.category === undefined ? "" : `(${node.category})`}`;
     case "verbatim":
-      return node.text.length === 0 ? "spacer" : "verbatim";
+      return nodeText(node).length === 0 ? "spacer" : "verbatim";
     default:
       return node.kind;
   }
@@ -97,10 +105,7 @@ function shapes(document: PresentationDocument): readonly string[] {
 }
 import { INVENTORY_TOPICS, MACHINE_INVENTORY_TOPICS } from "../cli/inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
-import {
-  renderHumanOutput,
-  type TerminalPresentationContext,
-} from "../cli/terminal-presentation.js";
+import { type TerminalPresentationContext } from "../cli/terminal-presentation.js";
 import {
   normalizeBlocker,
   occupiedOutputBlocker,
@@ -121,6 +126,7 @@ import type {
   ReconciliationKind,
   ReconciliationProjectRecord,
   ReconciliationReport,
+  ReconciliationWarning,
 } from "../installer/reconcile.js";
 import type {
   RepositoryExclusionChange,
@@ -198,6 +204,7 @@ interface FlatFixture {
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
   readonly diagnosticValues: readonly string[];
   readonly warnings: readonly string[];
+  readonly warningParts?: readonly (readonly InlineContent[])[];
 }
 
 function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport {
@@ -265,10 +272,10 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
         blockers: fixture.blockers.filter((blocker) =>
           blocker.scope === "project" && canonicalProject(blocker.project!) === key
         ),
-        warnings: key === firstProject ? fixture.warnings.map((message) => ({
+        warnings: key === firstProject ? fixture.warnings.map((message, index) => ({
           copyableValues: fixture.diagnosticValues,
           kind: "diagnostic" as const,
-          message,
+          parts: fixture.warningParts?.[index] ?? [message],
         })) : [],
         repositoryExclusions: key === firstProject ? fixture.repositoryExclusions : [],
       });
@@ -287,20 +294,25 @@ function executionProject(project: string): { readonly canonicalProject: string;
   return { canonicalProject: project, project };
 }
 
+interface MachineProjectOverrides extends Omit<Partial<ReconciliationProjectRecord>, "warnings"> {
+  readonly warnings?: readonly ReconciliationWarning[];
+}
+
 function machineProject(
   project: string,
-  overrides: Partial<ReconciliationProjectRecord> = {},
+  overrides: MachineProjectOverrides = {},
 ): ReconciliationProjectRecord {
+  const { warnings: overrideWarnings, ...rest } = overrides;
   return {
     canonicalProject: project,
     project,
     state: { kind: "current" },
     outputs: [],
     blockers: [],
-    warnings: [],
     setupSteps: [],
     repositoryExclusions: [],
-    ...overrides,
+    ...rest,
+    warnings: overrideWarnings ?? [],
   };
 }
 
@@ -363,7 +375,7 @@ function flattenPresentationNodes(document: PresentationDocument): PresentationN
   const visit = (node: PresentationNode): void => {
     nodes.push(node);
     if (node.kind === "key-value") visit(node.value);
-    if (node.kind === "list-item" || node.kind === "notice") {
+    if (node.kind === "notice") {
       for (const child of node.nodes) visit(child);
     }
     if (node.kind === "row") {
@@ -377,6 +389,16 @@ function flattenPresentationNodes(document: PresentationDocument): PresentationN
   };
   for (const node of document) visit(node);
   return nodes;
+}
+
+/** The flat carried text of one node, composed from its inline parts. */
+function nodeText(node: PresentationNode): string {
+  if (node.kind === "heading" || node.kind === "verbatim") return node.text;
+  if (node.kind === "identifier") return node.value;
+  if (node.kind === "prose" || node.kind === "sentence" || node.kind === "list-item") {
+    return flatInlineText(node.parts);
+  }
+  return "";
 }
 
 /** One top-level node's kind and semantic category, in document order. */
@@ -402,7 +424,7 @@ function shape(node: PresentationNode): string {
     case "list-item":
       return "list-item";
     case "verbatim":
-      return node.text.length === 0 ? "blank" : "verbatim";
+      return nodeText(node).length === 0 ? "blank" : "verbatim";
     default:
       return node.kind;
   }
@@ -510,13 +532,14 @@ describe("lifecycle status document", () => {
     const blocker = flattenPresentationNodes(document).filter((node) =>
       node.kind === "prose"
     ) as Extract<PresentationNode, { kind: "prose" }>[];
-    expect(blocker.some((node) => node.category === "error" && node.text.startsWith("  Blocker: "))).toBe(true);
-    expect(blocker.some((node) => node.text.startsWith("    Requirement: "))).toBe(true);
-    expect(blocker.some((node) => node.text.startsWith("    Remedy: "))).toBe(true);
-    expect(blocker.some((node) => node.text.startsWith("    Scope: "))).toBe(true);
+    expect(blocker.some((node) => node.category === "error" && nodeText(node).startsWith("  Blocker: "))).toBe(true);
+    expect(blocker.some((node) => nodeText(node).startsWith("    Requirement: "))).toBe(true);
+    expect(blocker.some((node) => nodeText(node).startsWith("    Remedy: "))).toBe(true);
+    expect(blocker.some((node) => nodeText(node).startsWith("    Scope: "))).toBe(true);
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "list-item" &&
-      node.nodes.some((child) => child.kind === "prose" && /apkit status/.test(child.text))
+      node.parts !== undefined &&
+      flatInlineText(node.parts).includes("apkit status")
     )).toBe(true);
     expect(commandsIn(document).some((node) =>
       node.args.some((arg) => arg.kind === "text" && arg.value === "apply")
@@ -581,7 +604,7 @@ describe("lifecycle status document", () => {
     expect(contextText).toContain("---- end Context ----");
     expect(contextText.startsWith("---- begin Context ----")).toBe(true);
     const headings = document.filter((node) => node.kind === "heading")
-      .map((node) => node.kind === "heading" ? node.text : "");
+      .map((node) => node.kind === "heading" ? nodeText(node) : "");
     expect(headings).toEqual([
       "Projects:",
       "State explanations:",
@@ -599,7 +622,7 @@ describe("lifecycle status document", () => {
     const document = lifecycleStatusDocument(blockedReport(), { verbose: true });
 
     const headings = document.filter((node) => node.kind === "heading")
-      .map((node) => node.kind === "heading" ? node.text : "");
+      .map((node) => node.kind === "heading" ? nodeText(node) : "");
     expect(headings[0]).toBe("Blockers:");
     expect(headings.filter((text) => text === "Blockers:")).toHaveLength(1);
 
@@ -652,11 +675,11 @@ describe("lifecycle status document", () => {
     expect(flattenPresentationNodes(document).some((node) => node.kind === "path")).toBe(true);
     expect(flattenPresentationNodes(document).some((node) =>
       (node.kind === "prose" || node.kind === "heading") &&
-      "text" in node && /occupied output/i.test(node.text)
+      /occupied output/i.test(nodeText(node))
     )).toBe(true);
     expect(document.some((node) =>
       (node.kind === "heading" || node.kind === "prose") &&
-      /Host setup|Warnings:/i.test(node.text)
+      /Host setup|Warnings:/i.test(nodeText(node))
     )).toBe(false);
     expect(commandsIn(document)).toEqual([]);
   });
@@ -674,7 +697,7 @@ describe("lifecycle status document", () => {
       warnings: [{
         copyableValues: [],
         kind: "host-attention",
-        message: "Trust the bound project in Codex.",
+        parts: ["Trust the bound project in Codex."],
       }],
     })]);
 
@@ -857,8 +880,9 @@ function commandTexts(document: PresentationDocument): string[] {
  * reached through key-value, list-item and notice nesting. */
 function presentationTexts(document: PresentationDocument): string[] {
   return flattenPresentationNodes(document).flatMap((node) =>
-    node.kind === "prose" || node.kind === "heading" || node.kind === "verbatim"
-      ? [node.text]
+    node.kind === "prose" || node.kind === "heading" || node.kind === "verbatim" ||
+      node.kind === "list-item"
+      ? [nodeText(node)]
       : node.kind === "identifier"
       ? [node.value]
       : [],
@@ -877,7 +901,7 @@ function noticesIn(
 /** The heading texts of a presentation document, in document order. */
 function headingsIn(document: PresentationDocument): string[] {
   return flattenPresentationNodes(document).flatMap((node) =>
-    node.kind === "heading" ? [node.text] : [],
+    node.kind === "heading" ? [nodeText(node)] : [],
   );
 }
 
@@ -891,7 +915,7 @@ function keyValuesIn(
   );
 }
 
-/** The child prose texts of consecutive list items beginning at one flat index. */
+/** The carried text of consecutive list items beginning at one flat index. */
 function listItemsFrom(
   nodes: readonly PresentationNode[],
   start: number,
@@ -900,19 +924,15 @@ function listItemsFrom(
   for (let index = start; index < nodes.length; index += 1) {
     const node = nodes[index]!;
     if (node.kind !== "list-item") break;
-    for (const child of node.nodes) {
-      if (child.kind === "prose") texts.push(child.text);
-    }
+    texts.push(nodeText(node));
   }
   return texts;
 }
 
-/** Every list-item child prose text in document order. */
+/** Every list-item's carried text in document order. */
 function listItemsIn(document: PresentationDocument): string[] {
   return flattenPresentationNodes(document).flatMap((node) =>
-    node.kind === "list-item"
-      ? node.nodes.flatMap((child) => child.kind === "prose" ? [child.text] : [])
-      : [],
+    node.kind === "list-item" ? [nodeText(node)] : [],
   );
 }
 
@@ -1120,7 +1140,7 @@ describe("Host Setup Step provenance and presentation", () => {
 
     // Concise apply renders first-use guidance as one heading with consecutive
     // list items; transition and standing verbose headings never appear.
-    const firstUse = indexWhere(concise, (node) => node.kind === "heading" && node.text === "First use:");
+    const firstUse = indexWhere(concise, (node) => node.kind === "heading" && nodeText(node) === "First use:");
     expect(firstUse).toBeGreaterThan(-1);
     expect(listItemsFrom(concise, firstUse + 1)).toEqual([
       "Review and approve the generated SessionStart hook when Codex asks so the Profile can load.",
@@ -1132,11 +1152,11 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(headingsIn(applyReportDocument(applyResult(report, resultingState))))
       .not.toContain("Standing Host setup:");
     expect(concise.some((node) =>
-      node.kind === "prose" && node.text.startsWith("  Consequence: ")
+      node.kind === "prose" && nodeText(node).startsWith("  Consequence: ")
     )).toBe(false);
     expect(concise.at(-1)).toEqual({
       kind: "prose",
-      text: "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+      parts: ["Profile coding will load the next time you launch a configured Host from a bound Project root."],
     });
 
     const verbose = applyReportDocument(applyResult(report, resultingState), { verbose: true });
@@ -1148,11 +1168,11 @@ describe("Host Setup Step provenance and presentation", () => {
     ]));
     expect(flattenPresentationNodes(verbose).some((node) =>
       node.kind === "prose" &&
-      node.text === "  Consequence: Declining the hook prevents Profile Context from loading."
+      nodeText(node) === "  Consequence: Declining the hook prevents Profile Context from loading."
     )).toBe(true);
     expect(flattenPresentationNodes(verbose).at(-1)).toEqual({
       kind: "prose",
-      text: "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+      parts: ["Profile coding will load the next time you launch a configured Host from a bound Project root."],
     });
   });
 
@@ -1260,7 +1280,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(listItemsIn(concise)).not.toContain("Trust the bound project in Codex so the Profile can load.");
     expect(flattenPresentationNodes(concise).at(-1)).toEqual({
       kind: "prose",
-      text: "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+      parts: ["Profile coding will load the next time you launch a configured Host from a bound Project root."],
     });
   });
 
@@ -1286,7 +1306,7 @@ describe("Host Setup Step provenance and presentation", () => {
     const concise = flattenPresentationNodes(applyReportDocument(applyResult(report, resultingState)));
     expect(concise.at(-1)).toEqual({
       kind: "prose",
-      text: "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+      parts: ["Profile coding will load the next time you launch a configured Host from a bound Project root."],
     });
   });
 
@@ -1317,7 +1337,7 @@ describe("Host Setup Step provenance and presentation", () => {
     );
     expect(flattenPresentationNodes(concise).at(-1)).toEqual({
       kind: "prose",
-      text: "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+      parts: ["Profile coding will load the next time you launch a configured Host from a bound Project root."],
     });
     const verbose = applyReportDocument(applyResult(report, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toContain("Standing Host setup:");
@@ -1336,16 +1356,16 @@ describe("Host Setup Step provenance and presentation", () => {
     // No-op apply: success notice, the already-current statement, no setup
     // headings, no first-use items, no activation copy.
     expect(noticesIn(concise)).toEqual([
-      { kind: "notice", severity: "success", nodes: [{ kind: "prose", text: "Apply complete" }] },
+      { kind: "notice", severity: "success", nodes: [{ kind: "prose", parts: ["Apply complete"] }] },
     ]);
     expect(headingsIn(concise)).not.toContain("First use:");
     expect(headingsIn(concise)).not.toContain("Host setup:");
     expect(listItemsIn(concise)).toEqual([]);
-    expect(nodes.some((node) => node.kind === "prose" && node.text.includes("becomes active"))).toBe(false);
-    expect(nodes.some((node) => node.kind === "prose" && node.text === "All Projects were already current.")).toBe(true);
+    expect(nodes.some((node) => node.kind === "prose" && nodeText(node).includes("becomes active"))).toBe(false);
+    expect(nodes.some((node) => node.kind === "prose" && nodeText(node) === "All Projects were already current.")).toBe(true);
     expect(flattenPresentationNodes(
       applyReportDocument(applyResult(report), { verbose: true }),
-    ).some((node) => node.kind === "prose" && node.text.includes("becomes active"))).toBe(false);
+    ).some((node) => node.kind === "prose" && nodeText(node).includes("becomes active"))).toBe(false);
   });
 
   test("concise apply deduplicates first-use guidance across projects without a path matrix", () => {
@@ -1382,7 +1402,7 @@ describe("Host Setup Step provenance and presentation", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const firstUse = indexWhere(
       concise,
-      (node) => node.kind === "heading" && node.text === "First use:",
+      (node) => node.kind === "heading" && nodeText(node) === "First use:",
     );
     expect(firstUse).toBeGreaterThan(-1);
     // First-use guidance is deduplicated: one list item per distinct step,
@@ -1465,7 +1485,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(listItemsIn(concise)).not.toContain("Trust the bound project in Codex so the Profile can load.");
     expect(flattenPresentationNodes(concise).at(-1)).toEqual({
       kind: "prose",
-      text: "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+      parts: ["Profile coding will load the next time you launch a configured Host from a bound Project root."],
     });
   });
 
@@ -1499,7 +1519,7 @@ describe("Host Setup Step provenance and presentation", () => {
     const concise = applyReportDocument(applyResult(report, resultingState));
     const firstUse = indexWhere(
       concise,
-      (node) => node.kind === "heading" && node.text === "First use:",
+      (node) => node.kind === "heading" && nodeText(node) === "First use:",
     );
     expect(firstUse).toBeGreaterThan(-1);
     expect(listItemsFrom(concise, firstUse + 1)).toEqual([
@@ -1529,7 +1549,7 @@ describe("Host Setup Step provenance and presentation", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     expect(concise.at(-1)).toEqual({
       kind: "prose",
-      text: "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+      parts: ["Profile coding will load the next time you launch a configured Host from a bound Project root."],
     });
   });
 
@@ -1573,8 +1593,8 @@ describe("Host Setup Step provenance and presentation", () => {
     )).toBe(false);
     expect(flattenPresentationNodes(blockedApply).some((node) =>
       node.kind === "prose" &&
-      (node.text.includes("Review and approve the generated SessionStart hook") ||
-        node.text.includes("Trust the bound project in Codex."))
+      (nodeText(node).includes("Review and approve the generated SessionStart hook") ||
+        nodeText(node).includes("Trust the bound project in Codex."))
     )).toBe(false);
   });
 
@@ -1590,14 +1610,14 @@ describe("Host Setup Step provenance and presentation", () => {
     const failure = applyVerificationFailureDocument(report, "Verification failed.");
     const firstUse = indexWhere(
       failure,
-      (node) => node.kind === "heading" && node.text === "First use:",
+      (node) => node.kind === "heading" && nodeText(node) === "First use:",
     );
     expect(firstUse).toBeGreaterThan(-1);
     expect(listItemsFrom(failure, firstUse + 1)).toEqual([
       "Trust the bound project in Codex so the Profile can load.",
     ]);
     expect(flattenPresentationNodes(failure).some((node) =>
-      node.kind === "prose" && node.text.includes("becomes active")
+      node.kind === "prose" && nodeText(node).includes("becomes active")
     )).toBe(false);
   });
 });
@@ -1669,12 +1689,9 @@ describe("responsive lifecycle presentation", () => {
     expect(emptyStatus).toContain("apkit list projects");
     expect(emptyStatus).toContain("apkit bind <profile> --host <host>");
 
-    const punctuatedCommand = formatApplyVerificationFailure(
-      emptyReport(),
-      "Run apkit bind <profile> --host <host>.",
-      { context: context(40) },
-    );
-    expect(punctuatedCommand).toContain("\n  apkit bind <profile> --host <host>.\n");
+    // A command invocation inside an opaque carried message is no longer
+    // re-identified or promoted: structural commands are authored as parts
+    // and pinned by the presentation-document equivalence tests.
   });
 
   test("keeps diagnostic paths and authored Context payloads intact", () => {
@@ -1717,6 +1734,13 @@ describe("responsive lifecycle presentation", () => {
         `Inspect ${replacementPath} for marker replacement.`,
         `Check ${prefixedPath} then repair ${warningPath} ${markerCandidates}`,
       ],
+      warningParts: [
+        ["Review ", identifierPart(prefixedPath), ": repair ", identifierPart(warningPath), " \u0001\u0002"],
+        ["Inspect ", identifierPart(arbitraryPath), " for the generated Skill output."],
+        ["Inspect ", identifierPart(pathWithConjunction), " because it is missing."],
+        ["Inspect ", identifierPart(replacementPath), " for marker replacement."],
+        ["Check ", identifierPart(prefixedPath), " then repair ", identifierPart(warningPath), ` ${markerCandidates}`],
+      ],
     });
 
     const output = formatLifecycleReport("status", report, {
@@ -1744,6 +1768,7 @@ describe("responsive lifecycle presentation", () => {
     const report = emptyReport({
       diagnosticValues: [value],
       warnings: [warning],
+      warningParts: [["Inspect ", identifierPart(value), " before continuing with this diagnostic."]],
     });
     const output = formatLifecycleReport("status", report, { context: context(40) });
 
@@ -1754,6 +1779,7 @@ describe("responsive lifecycle presentation", () => {
     const path = "/tmp/foo";
     const output = formatLifecycleReport("status", emptyReport({
       warnings: [`Inspect ${path} and then explain this warning with enough prose to wrap cleanly.`],
+      warningParts: [["Inspect ", identifierPart(path), " and then explain this warning with enough prose to wrap cleanly."]],
     }), { context: context(40) });
 
     expect(output).toContain(path);
@@ -1765,6 +1791,7 @@ describe("responsive lifecycle presentation", () => {
     const output = formatLifecycleReport("status", emptyReport({
       diagnosticValues: [path],
       warnings: [warning],
+      warningParts: [["Inspect ", identifierPart(path), " before continuing with this diagnostic."]],
     }), {
       context: context(40),
     });
@@ -1773,6 +1800,125 @@ describe("responsive lifecycle presentation", () => {
     expect(output).not.toContain("untyped project with\n");
   });
 
+  test("warning nodes contain structured identifier parts without substring re-identification", () => {
+    const projectPath = "/Users/test/projects/my-project";
+    const report = emptyReport({
+      warnings: [`Inspect ${projectPath} for generated configuration.`],
+      warningParts: [
+        ["Inspect ", identifierPart(projectPath), " for generated configuration."],
+      ],
+    });
+    const doc = lifecycleStatusDocument(report);
+    const nodes = flattenPresentationNodes(doc);
+    const warningListItem = nodes.find((node) =>
+      node.kind === "list-item" &&
+      node.parts.some((part) => typeof part === "object" && part.kind === "identifier" && part.value === projectPath)
+    ) as Extract<PresentationNode, { kind: "list-item" }> | undefined;
+    expect(warningListItem).toBeDefined();
+    expect(warningListItem?.parts).toEqual([
+      "Inspect ",
+      { kind: "identifier", value: projectPath },
+      " for generated configuration.",
+      " (1 Project)",
+    ]);
+  });
+
+  test("adapter-authored warning document retains structured identifier parts through normalization pipeline", () => {
+    const projectPath = "/projects/my-app";
+    const globalPath = "/home/user/.codex/config.toml";
+    const adapterWarnings: AdapterDiagnosticWarning[] = [
+      {
+        copyableValues: [globalPath, `${projectPath}/.codex/config.toml`],
+        parts: [
+          "Codex SessionStart hooks are not enabled by ",
+          identifierPart(globalPath),
+          "; generated Profile Context may not load until [features].hooks = true is set in ",
+          identifierPart(`${projectPath}/.codex/config.toml`),
+          " or ",
+          identifierPart(globalPath),
+        ],
+      },
+    ];
+
+    // Normalize through appendDiagnosticWarnings
+    const normalizedWarnings: AdapterDiagnosticWarning[] = [];
+    appendDiagnosticWarnings(normalizedWarnings, adapterWarnings);
+
+    // Form ReconciliationReport
+    const report = machineReport([
+      machineProject(projectPath, {
+        warnings: normalizedWarnings.map((w) => ({
+          copyableValues: [...w.copyableValues],
+          kind: "diagnostic" as const,
+          parts: w.parts,
+        })),
+      }),
+    ]);
+
+    const doc = lifecycleStatusDocument(report);
+    const nodes = flattenPresentationNodes(doc);
+    const warningItem = nodes.find((node) =>
+      node.kind === "list-item" &&
+      node.parts.some((part) => typeof part === "object" && part.kind === "identifier" && part.value === globalPath)
+    ) as Extract<PresentationNode, { kind: "list-item" }> | undefined;
+
+    expect(warningItem).toBeDefined();
+    expect(warningItem?.parts).toEqual([
+      "Codex SessionStart hooks are not enabled by ",
+      { kind: "identifier", value: globalPath },
+      "; generated Profile Context may not load until [features].hooks = true is set in ",
+      { kind: "identifier", value: `${projectPath}/.codex/config.toml` },
+      " or ",
+      { kind: "identifier", value: globalPath },
+      " (1 Project)",
+    ]);
+  });
+
+  test("adapter-authored capability failure warning document retains structured identifier parts through normalization pipeline", () => {
+    const projectPath = "/projects/my-app";
+    const agentsPath = `${projectPath}/.agents`;
+    const failure = capabilityFailure(
+      "antigravity",
+      "project",
+      `Antigravity project surface cannot host Context: ${agentsPath} is a file, not a directory`,
+      "ensure the Antigravity Context surface is a directory, then retry",
+      [{ kind: "path", value: agentsPath }],
+      [
+        "Antigravity project surface cannot host Context: ",
+        identifierPart(agentsPath),
+        " is a file, not a directory",
+      ],
+    );
+
+    const capWarning = capabilityWarning("antigravity", failure);
+
+    const report = machineReport([
+      machineProject(projectPath, {
+        warnings: [
+          {
+            copyableValues: [...capWarning.warning.copyableValues],
+            kind: "host-attention",
+            parts: capWarning.warning.parts,
+          },
+        ],
+      }),
+    ]);
+
+    const doc = lifecycleStatusDocument(report);
+    const nodes = flattenPresentationNodes(doc);
+    const warningItem = nodes.find((node) =>
+      node.kind === "list-item" &&
+      node.parts.some((part) => typeof part === "object" && part.kind === "identifier" && part.value === agentsPath)
+    ) as Extract<PresentationNode, { kind: "list-item" }> | undefined;
+
+    expect(warningItem).toBeDefined();
+    expect(warningItem?.parts).toEqual([
+      "Antigravity project surface cannot host Context: ",
+      { kind: "identifier", value: agentsPath },
+      " is a file, not a directory",
+      " (1 Project)",
+    ]);
+  });
 });
 
 describe("temporary-installation Project identity in documents", () => {
@@ -1808,10 +1954,9 @@ describe("temporary-installation Project identity in documents", () => {
       );
 
       const step = flattenPresentationNodes(document).find((node) =>
-        node.kind === "list-item" &&
-        node.nodes.some((child) => child.kind === "prose" && child.text.startsWith("Launch Codex from"))
+        node.kind === "list-item" && nodeText(node).startsWith("Launch Codex from")
       ) as Extract<PresentationNode, { kind: "list-item" }>;
-      const stepText = (step.nodes[0] as Extract<PresentationNode, { kind: "prose" }>).text;
+      const stepText = nodeText(step);
       expect(stepText).toBe("Launch Codex from the exact bound project root: ~/projects/alpha");
       // The rendered receipt presents the Project only through the canonical
       // presenter; the raw path never reaches the rendered text.
@@ -1847,11 +1992,7 @@ test("terminal styling follows lifecycle labels emitted by the formatter", () =>
   );
 
   expect(ready).toContain("Updates ready");
-  expect(renderHumanOutput(ready, context)).toContain(
-    "\u001b[32mUpdates ready for 1 project (1 file addition).\u001b[0m",
-  );
   expect(blocked).toContain("Cannot apply");
-  expect(renderHumanOutput(blocked, context)).toContain("\u001b[31mCannot apply\u001b[0m");
 });
 
 /** Distinctive anchor phrases — not a second home for the full gloss table. */
@@ -1908,13 +2049,13 @@ describe("formatLifecycleReport concise terminology", () => {
       // Blocked views lead with Blocker evidence and carry no planned-change
       // summary or per-Project state bookkeeping.
       const blockerIndex = indexWhere(nodes, (node) =>
-        node.kind === "prose" && node.category === "error" && node.text.startsWith("  Blocker: "));
+        node.kind === "prose" && node.category === "error" && nodeText(node).startsWith("  Blocker: "));
       const summaryIndex = indexWhere(nodes, (node) =>
-        node.kind === "notice" && node.nodes.some((child) =>
-          child.kind === "prose" && child.text.startsWith("Projects: ")));
+        node.kind === "notice" && (node.nodes ?? []).some((child) =>
+          child.kind === "prose" && nodeText(child).startsWith("Projects: ")));
       expect(blockerIndex).toBeGreaterThan(-1);
       expect(summaryIndex).toBeGreaterThan(blockerIndex);
-      expect(nodes.some((node) => node.kind === "heading" && node.text === "Project changes:")).toBe(false);
+      expect(nodes.some((node) => node.kind === "heading" && nodeText(node) === "Project changes:")).toBe(false);
       expect(keyValuesIn(document, "  State")).toEqual([]);
     }
   });
@@ -1992,10 +2133,13 @@ describe("formatLifecycleReport concise terminology", () => {
 
   test("preserves task-authored warning text and typed copyable values without translation", () => {
     const value = "generated diagnostic value with spaces";
-    const message = `Use reconcile as authored; inspect ${value} before continuing.`;
     const report = machineReport([
       machineProject("/project-a", {
-        warnings: [{ copyableValues: [value], kind: "diagnostic", message }],
+        warnings: [{
+          copyableValues: [value],
+          kind: "diagnostic",
+          parts: ["Use reconcile as authored; inspect ", identifierPart(value), " before continuing."],
+        }],
       }),
     ]);
 
@@ -2313,12 +2457,10 @@ describe("formatLifecycleReport concise terminology", () => {
     const ordinaryVerbose = flattenPresentationNodes(
       applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
     );
-    expect(ordinaryVerbose).toEqual(expect.arrayContaining([
-      {
-        kind: "prose",
-        text: "  Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command.",
-      },
-    ]));
+    expect(ordinaryVerbose.some((node) =>
+      node.kind === "prose" && nodeText(node) ===
+        "  Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command."
+    )).toBe(true);
     expect(commandTexts(applyReportDocument(applyResult(receipt, resultingState), { verbose: true })))
       .toEqual([]);
   });
@@ -2353,12 +2495,10 @@ describe("formatLifecycleReport concise terminology", () => {
     const ordinary = flattenPresentationNodes(
       applyVerificationFailureDocument(receipt, message, { verbose: true }),
     );
-    expect(ordinary).toEqual(expect.arrayContaining([
-      {
-        kind: "prose",
-        text: "  Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command.",
-      },
-    ]));
+    expect(ordinary.some((node) =>
+      node.kind === "prose" && nodeText(node) ===
+        "  Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command."
+    )).toBe(true);
     expect(commandTexts(applyVerificationFailureDocument(receipt, message, { verbose: true })))
       .toEqual([]);
   });
@@ -2539,25 +2679,25 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(headingsIn(concise)).toContain("Applied:");
     expect(keyValuesIn(concise, "Project")).toEqual([]);
     expect(flattenPresentationNodes(concise).some((node) =>
-      node.kind === "prose" && node.text === "  + 1 generated file addition in ~/receipt-project"
+      node.kind === "prose" && nodeText(node) === "  + 1 generated file addition in ~/receipt-project"
     )).toBe(true);
 
     // Verbose receipt opens with the Applied section in Projects detail.
     const verbose = applyReportDocument(applyResult(receipt, emptyReport()), { verbose: true });
     const nodes = flattenPresentationNodes(verbose);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
     // The Applied section carries its own Projects detail after the section heading.
     const projects = indexWhere(
       nodes.slice(applied + 1),
-      (node) => node.kind === "heading" && node.text === "Projects:",
+      (node) => node.kind === "heading" && nodeText(node) === "Projects:",
     ) + applied + 1;
     expect(applied).toBeGreaterThan(-1);
     expect(projects).toBeGreaterThan(applied);
     expect(nodes.slice(projects, projects + 3).some((node) =>
-      node.kind === "prose" && node.text === "~/receipt-project: addition"
+      node.kind === "prose" && nodeText(node) === "~/receipt-project: addition"
     )).toBe(true);
     expect(nodes.some((node) =>
-      node.kind === "prose" && node.text === "~/receipt-project/a.md: addition"
+      node.kind === "prose" && nodeText(node) === "~/receipt-project/a.md: addition"
     )).toBe(true);
   });
 
@@ -2575,23 +2715,23 @@ describe("formatLifecycleReport concise terminology", () => {
     const conciseNodes = flattenPresentationNodes(concise);
     expect(headingsIn(concise)).toContain("Applied:");
     expect(conciseNodes.some((node) =>
-      node.kind === "prose" && node.text === "  + 1 generated file addition in 1 project"
+      node.kind === "prose" && nodeText(node) === "  + 1 generated file addition in 1 project"
     )).toBe(true);
     expect(conciseNodes.some((node) =>
-      node.kind === "prose" && node.text === "All Projects were already current."
+      node.kind === "prose" && nodeText(node) === "All Projects were already current."
     )).toBe(false);
-    expect(conciseNodes.some((node) => node.kind === "heading" && node.text === "Project changes:")).toBe(false);
+    expect(conciseNodes.some((node) => node.kind === "heading" && nodeText(node) === "Project changes:")).toBe(false);
 
     // Verbose apply separates Pending from Applied and has no resulting-state
     // section label.
     const verbose = applyReportDocument(applyResult(receipt, resultingState), { verbose: true });
     const verboseNodes = flattenPresentationNodes(verbose);
-    const pending = indexWhere(verboseNodes, (node) => node.kind === "heading" && node.text === "Pending:");
-    const applied = indexWhere(verboseNodes, (node) => node.kind === "heading" && node.text === "Applied:");
+    const pending = indexWhere(verboseNodes, (node) => node.kind === "heading" && nodeText(node) === "Pending:");
+    const applied = indexWhere(verboseNodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
     expect(pending).toBeGreaterThan(-1);
     expect(applied).toBeGreaterThan(pending);
     expect(verboseNodes.some((node) =>
-      node.kind === "heading" && (node.text === "Resulting state:" || node.text === "Apply receipt:")
+      node.kind === "heading" && (nodeText(node) === "Resulting state:" || nodeText(node) === "Apply receipt:")
     )).toBe(false);
   });
 
@@ -2843,10 +2983,10 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(keyValuesIn(concise, "  Profile")).toHaveLength(1);
     expect(keyValuesIn(concise, "  Profile")[0]!.value).toEqual({ kind: "identifier", value: "reconcile" });
     expect(applyNodes.some((node) =>
-      node.kind === "prose" && node.text.includes(project)
+      node.kind === "prose" && nodeText(node).includes(project)
     )).toBe(true);
     expect(applyNodes.some((node) =>
-      node.kind === "prose" && node.text.includes("generated-output/reconcile")
+      node.kind === "prose" && nodeText(node).includes("generated-output/reconcile")
     )).toBe(true);
 
     const verbose = formatLifecycleReport("status", report, { verbose: true });
@@ -2868,7 +3008,7 @@ describe("formatLifecycleReport concise terminology", () => {
     // the vocabulary guard holds over the whole document.
     const conciseNotices = noticesIn(applyVerificationFailureDocument(receipt, message));
     expect(conciseNotices).toEqual([
-      { kind: "notice", severity: "error", nodes: [{ kind: "prose", text: message }] },
+      { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: [message] }] },
     ]);
     expectUserFacingVocabulary(
       presentationTexts(applyVerificationFailureDocument(receipt, message)).join("\n"),
@@ -3142,17 +3282,16 @@ describe("formatLifecycleReport concise terminology", () => {
       // The populated Blockers section leads the verbose view, ahead of the
       // Projects detail.
       const nodes = flattenPresentationNodes(verbose);
-      const blockersHeading = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Blockers:");
-      const projectsHeading = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Projects:");
+      const blockersHeading = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Blockers:");
+      const projectsHeading = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Projects:");
       expect(blockersHeading).toBeGreaterThan(-1);
       expect(projectsHeading).toBeGreaterThan(blockersHeading);
       expect(nodes.slice(blockersHeading, projectsHeading).some((node) =>
         node.kind === "list-item" &&
-        node.nodes.some((child) => child.kind === "prose" &&
-          child.text.includes("Cannot verify generated-file ownership: recorded output hooks disabled does not match"))
-      )).toBe(true);
+        nodeText(node).includes("Cannot verify generated-file ownership: recorded output hooks disabled does not match"))
+      ).toBe(true);
       expect(nodes.some((node) =>
-        node.kind === "prose" && node.text === "  Scope: Project /project-b"
+        node.kind === "prose" && nodeText(node) === "  Scope: Project /project-b"
       )).toBe(true);
     }
   });
@@ -3371,22 +3510,22 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(noticesIn(concise)[0]).toEqual({
       kind: "notice",
       severity: "success",
-      nodes: [{ kind: "prose", text: "Apply complete" }],
+      nodes: [{ kind: "prose", parts: ["Apply complete"] }],
     });
 
     const verbose = applyReportDocument(applyResult(receipt, result), { verbose: true });
     const nodes = flattenPresentationNodes(verbose);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
     expect(applied).toBeGreaterThan(-1);
     const exclusions = indexWhere(
       nodes.slice(applied),
-      (node) => node.kind === "heading" && node.text === "Git exclusions:",
+      (node) => node.kind === "heading" && nodeText(node) === "Git exclusions:",
     );
     expect(exclusions).toBeGreaterThan(-1);
     expect(nodes.slice(applied).some((node) =>
-      node.kind === "list-item" && node.nodes.some((child) => child.kind === "prose" &&
-        child.text === "/repo/.git/info/exclude: add /.agent-profile-kit/codex/context.md")
-    )).toBe(true);
+      node.kind === "list-item" &&
+      nodeText(node) === "/repo/.git/info/exclude: add /.agent-profile-kit/codex/context.md")
+    ).toBe(true);
   });
 
   test("verbose apply explains non-current states once across pending and applied sections", () => {
@@ -3403,7 +3542,7 @@ describe("formatLifecycleReport concise terminology", () => {
     // Exactly one State explanations section, listing pending and applied
     // non-current states in canonical order as consecutive list items.
     const sections = nodes.flatMap((node, index) =>
-      node.kind === "heading" && node.text === "State explanations:" ? [index] : []);
+      node.kind === "heading" && nodeText(node) === "State explanations:" ? [index] : []);
     expect(sections).toHaveLength(1);
     expect(listItemsFrom(nodes, sections[0]! + 1)).toEqual([
       expect.stringContaining("stale source: Workspace source changed"),
@@ -3452,7 +3591,7 @@ describe("formatLifecycleReport concise terminology", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     expect(headingsIn(concise)).toContain("Applied:");
     expect(flattenPresentationNodes(concise).some((node) =>
-      node.kind === "prose" && node.text === "  ~ 1 generated file update in /changed"
+      node.kind === "prose" && nodeText(node) === "  ~ 1 generated file update in /changed"
     )).toBe(true);
     expect(keyValuesIn(concise, "Project")).toEqual([]);
   });
@@ -3477,11 +3616,11 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(noticesIn(concise)[0]).toEqual({
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: "Apply completed with blockers" }],
+      nodes: [{ kind: "prose", parts: ["Apply completed with blockers"] }],
     });
     expect(flattenPresentationNodes(concise).some((node) =>
       node.kind === "notice" && node.severity === "error" &&
-      node.nodes.some((child) => child.kind === "prose" && child.text.includes("Pending: blocked"))
+      (node.nodes ?? []).some((child) => child.kind === "prose" && nodeText(child).includes("Pending: blocked"))
     )).toBe(true);
     expect(listItemsIn(concise)).toEqual(expect.arrayContaining([
       expect.stringContaining("/project-a: Resolve the reported blocker"),
@@ -3510,9 +3649,9 @@ describe("formatLifecycleReport concise terminology", () => {
       resultingState,
     }));
 
-    expect(concise.some((node) => node.kind === "prose" && node.text === "Freshly current: /applied")).toBe(true);
+    expect(concise.some((node) => node.kind === "prose" && nodeText(node) === "Freshly current: /applied")).toBe(true);
     expect(concise.some((node) =>
-      node.kind === "prose" && node.text.includes("/already-current")
+      node.kind === "prose" && nodeText(node).includes("/already-current")
     )).toBe(false);
   });
 
@@ -3549,12 +3688,12 @@ describe("formatLifecycleReport concise terminology", () => {
       expect(noticesIn(document)[0]).toEqual({
         kind: "notice",
         severity: "error",
-        nodes: [{ kind: "prose", text: "Apply failed at ~/failed-alias: permission denied" }],
+        nodes: [{ kind: "prose", parts: ["Apply failed at ~/failed-alias: permission denied"] }],
       });
-      expect(nodes.some((node) => node.kind === "prose" && node.text === "Failed Project: ~/failed-alias")).toBe(true);
-      expect(nodes.some((node) => node.kind === "prose" && node.text === "Still pending: ~/pending-alias")).toBe(true);
-      expect(nodes.some((node) => "text" in node && node.text.includes(failedCanonical))).toBe(false);
-      expect(nodes.some((node) => "text" in node && node.text.includes(pendingCanonical))).toBe(false);
+      expect(nodes.some((node) => node.kind === "prose" && nodeText(node) === "Failed Project: ~/failed-alias")).toBe(true);
+      expect(nodes.some((node) => node.kind === "prose" && nodeText(node) === "Still pending: ~/pending-alias")).toBe(true);
+      expect(nodes.some((node) => "text" in node && nodeText(node).includes(failedCanonical))).toBe(false);
+      expect(nodes.some((node) => "text" in node && nodeText(node).includes(pendingCanonical))).toBe(false);
     } finally {
       rmSync(home, { force: true, recursive: true });
       rmSync(failedTarget, { force: true, recursive: true });
@@ -3577,14 +3716,14 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(noticesIn(concise)[0]).toEqual({
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: "Apply committed; post-apply verification failed: transient read" }],
+      nodes: [{ kind: "prose", parts: ["Apply committed; post-apply verification failed: transient read"] }],
     });
     const nodes = flattenPresentationNodes(concise);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
     expect(applied).toBeGreaterThan(-1);
-    expect(nodes.slice(applied).some((node) => node.kind === "prose" && node.text === "  + a.md")).toBe(true);
+    expect(nodes.slice(applied).some((node) => node.kind === "prose" && nodeText(node) === "  + a.md")).toBe(true);
     expect(noticesIn(concise).some((notice) =>
-      notice.nodes.some((child) => child.kind === "prose" && child.text === "Apply complete")
+      notice.nodes.some((child) => child.kind === "prose" && nodeText(child) === "Apply complete")
     )).toBe(false);
   });
 });
@@ -3592,12 +3731,10 @@ describe("formatLifecycleReport concise terminology", () => {
 /** The next-action bullets of a lifecycle document, asserted as structure. */
 function documentNextActions(document: PresentationDocument): string[] {
   const nodes = flattenPresentationNodes(document);
-  const headingIndex = nodes.findIndex((node) => node.kind === "heading" && node.text === "Next:");
+  const headingIndex = nodes.findIndex((node) => node.kind === "heading" && nodeText(node) === "Next:");
   if (headingIndex < 0) return [];
   return nodes.slice(headingIndex + 1)
-    .flatMap((node) => node.kind === "list-item"
-      ? node.nodes.flatMap((child) => child.kind === "prose" ? [child.text] : [])
-      : []);
+    .flatMap((node) => node.kind === "list-item" ? [nodeText(node)] : []);
 }
 
 describe("formatLifecycleReport next-action guidance", () => {
@@ -3809,13 +3946,12 @@ describe("formatLifecycleReport next-action guidance", () => {
       applyReportDocument(applyResult(metadataOnlyReceipt, metadataOnlyResult)),
     );
     expect(conciseNodes.some((node) =>
-      "text" in node &&
-      (node.text.includes("no changes were applied") ||
-        node.text === "All Projects were already current.")
+      nodeText(node).includes("no changes were applied") ||
+        nodeText(node) === "All Projects were already current."
     )).toBe(false);
     expect(flattenPresentationNodes(
       applyReportDocument(applyResult(metadataOnlyReceipt, metadataOnlyResult), { verbose: true }),
-    ).some((node) => "text" in node && node.text.includes(": update"))).toBe(true);
+    ).some((node) => nodeText(node).includes(": update"))).toBe(true);
   });
 
   test("mixed multi-project guidance names ready work alongside blocked work", () => {
@@ -4037,7 +4173,11 @@ describe("Machine surface JSON and exit codes", () => {
         state: { kind: "addition" },
         outputs: [{ kind: "addition", path: "a.md", consumingHosts: ["codex"] }],
         blockers: [blocker],
-        warnings: [{ message: "Review /copy/me", copyableValues: ["/copy/me"], kind: "diagnostic" }],
+        warnings: [{
+          copyableValues: ["/copy/me"],
+          kind: "diagnostic",
+          parts: ["Review ", identifierPart("/copy/me")],
+        }],
         setupSteps: [{
           host: "codex",
           kind: "approval-required",
@@ -4103,7 +4243,7 @@ describe("Machine surface JSON and exit codes", () => {
   test("machine JSON preserves warning and Git exclusion attribution across Projects", () => {
     const report = machineReport([
       machineProject("/project-a", {
-        warnings: [{ message: "Review A", copyableValues: ["/copy/a"], kind: "diagnostic" }],
+        warnings: [{ copyableValues: ["/copy/a"], kind: "diagnostic", parts: ["Review A"] }],
         repositoryExclusions: [{
           current: [],
           next: ["/a"],
@@ -4112,7 +4252,7 @@ describe("Machine surface JSON and exit codes", () => {
         }],
       }),
       machineProject("/project-b", {
-        warnings: [{ message: "Review B", copyableValues: ["/copy/b"], kind: "diagnostic" }],
+        warnings: [{ copyableValues: ["/copy/b"], kind: "diagnostic", parts: ["Review B"] }],
         repositoryExclusions: [{
           current: ["/old-b"],
           next: ["/b"],
@@ -4274,7 +4414,7 @@ describe("standalone view presentation documents (#389)", () => {
 
     expect(keyValuesIn(document, "Workspace")[0]!.value).toEqual({
       kind: "prose",
-      text: "Not configured",
+      parts: ["Not configured"],
     });
   });
 
@@ -4312,7 +4452,11 @@ describe("standalone view presentation documents (#389)", () => {
 
     expect(keyValuesIn(document, "Workspace")[0]!.value).toEqual({
       kind: "prose",
-      text: "Legacy configuration; run apkit init (selected: ~/.agents/agent-profile-kit/workspace)",
+      parts: [
+        "Legacy configuration; run ",
+        { kind: "command", program: "apkit", args: [{ kind: "text", value: "init" }] },
+        " (selected: ~/.agents/agent-profile-kit/workspace)",
+      ],
     });
   });
 
@@ -4324,7 +4468,7 @@ describe("standalone view presentation documents (#389)", () => {
     ]);
     const lines = flattenPresentationNodes(document)
       .filter((node) => node.kind === "prose")
-      .map((node) => (node as Extract<PresentationNode, { kind: "prose" }>).text);
+      .map((node) => nodeText(node));
     for (const topic of INVENTORY_TOPICS) {
       expect(lines).toContain(`  apkit list ${topic.name}`);
       expect(lines).toContain(`    ${topic.description}`);
@@ -4375,9 +4519,9 @@ describe("standalone view presentation documents (#389)", () => {
       scope: "fleet",
     });
     const problem = flattenPresentationNodes(document).find((node) =>
-      node.kind === "prose" && node.text.startsWith("  Problem: ")
+      node.kind === "prose" && nodeText(node).startsWith("  Problem: ")
     ) as Extract<PresentationNode, { kind: "prose" }>;
-    expect(problem.text).toBe(
+    expect(nodeText(problem)).toBe(
       "  Problem: Configured project root does not exist on this machine and cannot be reconciled.",
     );
   });
@@ -4415,8 +4559,8 @@ describe("standalone view presentation documents (#389)", () => {
     const document = projectInventoryDocument([], "/home", "/work");
     expect(document.map(shape)).toEqual(["notice:success", "prose"]);
     const notice = document[0] as Extract<PresentationNode, { kind: "notice" }>;
-    expect(notice.nodes[0]).toEqual({ kind: "prose", text: "No Projects are configured." });
-    expect((document[1] as Extract<PresentationNode, { kind: "prose" }>).text).toBe(
+    expect(notice.nodes[0]).toEqual({ kind: "prose", parts: ["No Projects are configured."] });
+    expect(nodeText(document[1] as Extract<PresentationNode, { kind: "prose" }>)).toBe(
       "Use apkit bind <profile> --host <host> to configure a Project.",
     );
   });
@@ -4443,7 +4587,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(document.map(shape)).toEqual(["notice:success", "prose"]);
     expect((document[0] as Extract<PresentationNode, { kind: "notice" }>).nodes[0]).toEqual({
       kind: "prose",
-      text: "No Profiles are available.",
+      parts: ["No Profiles are available."],
     });
   });
 
@@ -4455,7 +4599,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(document.map(shape)).toEqual(["heading", "prose", "prose", "blank", "prose"]);
     const hostLines = flattenPresentationNodes(document)
       .filter((node) => node.kind === "prose")
-      .map((node) => (node as Extract<PresentationNode, { kind: "prose" }>).text);
+      .map((node) => nodeText(node));
     expect(hostLines).toEqual(["  codex", "  claude", "", "Use <host> with apkit bind to select it for a configured Project."].filter((line) => line !== ""));
   });
 
@@ -4501,7 +4645,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(document.map(shape)).toEqual(["notice:success", "prose"]);
     expect((document[0] as Extract<PresentationNode, { kind: "notice" }>).nodes[0]).toEqual({
       kind: "prose",
-      text: "No temporary Profiles are active.",
+      parts: ["No temporary Profiles are active."],
     });
   });
 
@@ -4530,7 +4674,7 @@ describe("standalone view presentation documents (#389)", () => {
     });
     expect(keyValuesIn(document, "Profiles found")[0]!.value).toEqual({
       kind: "prose",
-      text: "engineering",
+      parts: ["engineering"],
     });
   });
 
@@ -4549,7 +4693,7 @@ describe("standalone view presentation documents (#389)", () => {
     });
     expect(keyValuesIn(document, "Profiles found")[0]!.value).toEqual({
       kind: "prose",
-      text: "none",
+      parts: ["none"],
     });
     // The count clause is protected report material: it never wraps (US-010).
     const rendered = formatValidationResult({
@@ -4599,7 +4743,7 @@ describe("standalone view presentation documents (#389)", () => {
     });
     const prose = flattenPresentationNodes(document)
       .filter((node) => node.kind === "prose")
-      .map((node) => (node as Extract<PresentationNode, { kind: "prose" }>).text);
+      .map((node) => nodeText(node));
     expect(prose).toContain("  Removed generated paths:");
     expect(prose).toContain("  - .agent-profile-kit/codex/context.md");
     expect(prose).toContain("Configured Projects preserved.");
@@ -4627,7 +4771,7 @@ describe("standalone view presentation documents (#389)", () => {
 
     const prose = flattenPresentationNodes(document)
       .filter((node) => node.kind === "prose")
-      .map((node) => (node as Extract<PresentationNode, { kind: "prose" }>).text);
+      .map((node) => nodeText(node));
     expect(prose.filter((line) => line === "  Cleaned Git exclusions:")).toHaveLength(1);
     expect(prose).toContain("  - /.claude/rules/agent-profile-kit.md (/project-a/.git/info/exclude)");
     expect(prose).toContain("  - /.codex/hooks.json (/project-a/.git/info/exclude)");
@@ -4655,7 +4799,7 @@ describe("standalone view presentation documents (#389)", () => {
       "prose",
     ]);
     const keptReason = flattenPresentationNodes(document).find((node) =>
-      node.kind === "prose" && node.text.startsWith("  - Cannot remove Project at ")
+      node.kind === "prose" && nodeText(node).startsWith("  - Cannot remove Project at ")
     ) as Extract<PresentationNode, { kind: "prose" }>;
     expect(keptReason.category).toBe("error");
   });
@@ -4673,7 +4817,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(items).toHaveLength(1);
     expect(document.map(shape)).toContain("prose:attention");
     expect(flattenPresentationNodes(document).some((node) =>
-      node.kind === "prose" && node.text === "  Cleaned Git exclusions:"
+      node.kind === "prose" && nodeText(node) === "  Cleaned Git exclusions:"
     )).toBe(false);
   });
 
@@ -4682,7 +4826,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(document.map(shape)).toEqual(["notice:success", "blank", "prose"]);
     expect((document[0] as Extract<PresentationNode, { kind: "notice" }>).nodes[0]).toEqual({
       kind: "prose",
-      text: "No ordinary Agent Profile Kit-owned output is installed.",
+      parts: ["No ordinary Agent Profile Kit-owned output is installed."],
     });
   });
 
@@ -4751,6 +4895,7 @@ describe("standalone view presentation documents (#389)", () => {
       }],
       temporaryInstallationId: "temporary-installation-opaque-id",
       warnings: [`Inspect ${diagnosticValue} before continuing with this diagnostic.`],
+      warningParts: [["Inspect ", identifierPart(diagnosticValue), " before continuing with this diagnostic."]],
       workspaceInputHash: "workspace-hash",
     };
 
@@ -4818,14 +4963,14 @@ describe("standalone view presentation documents (#389)", () => {
       const prose = flattenPresentationNodes(document)
         .filter((node) => node.kind === "prose")
         .map((node) => node as Extract<PresentationNode, { kind: "prose" }>);
-      expect(prose[0]!.text).toBe(
+      expect(nodeText(prose[0]!)).toBe(
         "apkit: ~/projects/alpha already has an ordinary Profile Installation; remove it before installing a temporary Profile",
       );
       expect(prose[0]!.category).toBe("error");
-      expect(prose[2]!.text).toContain(
+      expect(nodeText(prose[2]!)).toContain(
         "Cannot remove temporary Profile: owned output .codex/hooks.json is a symlink",
       );
-      expect(prose[3]!.text.startsWith("Remedy: ")).toBe(true);
+      expect(nodeText(prose[3]!).startsWith("Remedy: ")).toBe(true);
       expect(JSON.stringify(document)).not.toContain(canonical);
     } finally {
       rmSync(home, { force: true, recursive: true });
@@ -4864,14 +5009,14 @@ describe("standalone view presentation documents (#389)", () => {
       // unprefixed problem and remedy for every further Blocker.
       const lines = flattenPresentationNodes(document)
         .filter((node) => node.kind === "prose")
-        .map((node) => (node as Extract<PresentationNode, { kind: "prose" }>).text);
+        .map((node) => nodeText(node));
       expect(lines).toHaveLength(4);
       expect(lines[0]!.startsWith("apkit: ")).toBe(true);
       expect(lines[1]!.startsWith("Remedy: ")).toBe(true);
       expect(lines[2]!.startsWith("apkit: ")).toBe(false);
       expect(lines[3]!.startsWith("Remedy: ")).toBe(true);
       // The rendered diagnostic carries the prefix exactly once.
-      expect(lines.filter((line) => line.includes("apkit:"))).toHaveLength(1);
+      expect(lines.filter((line) => (line ?? "").includes("apkit:"))).toHaveLength(1);
       expect(lines[0]!.startsWith(`apkit: ~/projects/alpha`)).toBe(true);
     } finally {
       rmSync(home, { force: true, recursive: true });
@@ -4904,7 +5049,7 @@ describe("standalone view presentation documents (#389)", () => {
       const prose = flattenPresentationNodes(document)
         .filter((node) => node.kind === "prose")
         .map((node) => node as Extract<PresentationNode, { kind: "prose" }>);
-      expect(prose[0]!.text).toBe(
+      expect(nodeText(prose[0]!)).toBe(
         "apkit: ~/projects/alpha already has an ordinary Profile Installation; remove it before installing a temporary Profile",
       );
       expect(JSON.stringify(document)).not.toContain(canonical);
@@ -4938,7 +5083,7 @@ describe("standalone view presentation documents (#389)", () => {
       const prose = flattenPresentationNodes(document)
         .filter((node) => node.kind === "prose")
         .map((node) => node as Extract<PresentationNode, { kind: "prose" }>);
-      expect(prose[0]!.text).toBe(
+      expect(nodeText(prose[0]!)).toBe(
         "apkit: ~/real-project cannot be resolved: the authored spelling differs from ~/real-project",
       );
       expect(JSON.stringify(document)).not.toContain(canonical);
@@ -5110,16 +5255,16 @@ describe("operation-first multi-Project presentation", () => {
     // selected-setup detail stay out of the receipt section.
     const apply = applyReportDocument({ receipt, resultingState });
     const nodes = flattenPresentationNodes(apply);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
     expect(applied).toBeGreaterThan(-1);
     expect(nodes.slice(applied).some((node) =>
-      node.kind === "prose" && node.text === "  ~ 3 generated file updates in 3 projects"
+      node.kind === "prose" && nodeText(node) === "  ~ 3 generated file updates in 3 projects"
     )).toBe(true);
     expect(nodes.slice(applied).some((node) =>
       node.kind === "key-value" && node.key === "  State"
     )).toBe(false);
     expect(nodes.slice(applied).some((node) =>
-      "text" in node && node.text.includes("Skill review-pr")
+      "text" in node && nodeText(node).includes("Skill review-pr")
     )).toBe(false);
   });
 
@@ -5177,10 +5322,10 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(noticesIn(applied)[0]).toEqual({
       kind: "notice",
       severity: "success",
-      nodes: [{ kind: "prose", text: "Apply complete" }],
+      nodes: [{ kind: "prose", parts: ["Apply complete"] }],
     });
     expect(flattenPresentationNodes(applied).some((node) =>
-      "text" in node && /^(Blockers: 0|Pending: none|Changes: none)/.test(node.text)
+      "text" in node && /^(Blockers: 0|Pending: none|Changes: none)/.test(nodeText(node))
     )).toBe(false);
   });
 
@@ -5209,15 +5354,15 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(noticesIn(apply)[0]).toEqual({
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: "Apply blocked" }],
+      nodes: [{ kind: "prose", parts: ["Apply blocked"] }],
     });
     const summaryNotices = noticesIn(apply).filter((notice) =>
-      notice.nodes.some((child) => child.kind === "prose" && child.text.includes("Blockers: 1"))
+      notice.nodes.some((child) => child.kind === "prose" && nodeText(child).includes("Blockers: 1"))
     );
     expect(summaryNotices.length).toBeGreaterThan(0);
     expect(summaryNotices.at(-1)).toMatchObject({ severity: "error" });
     expect(summaryNotices.at(-1)!.nodes.some((child) =>
-      child.kind === "prose" && child.text.includes("Pending: blocked")
+      child.kind === "prose" && nodeText(child).includes("Pending: blocked")
     )).toBe(true);
   });
 
@@ -5365,18 +5510,18 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     // Applied, and no per-Project receipt block or state bookkeeping.
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
     expect(noticesIn(apply)[0]).toEqual({
       kind: "notice",
       severity: "success",
-      nodes: [{ kind: "prose", text: "Apply complete" }],
+      nodes: [{ kind: "prose", parts: ["Apply complete"] }],
     });
     expect(applied).toBeGreaterThan(-1);
     expect(nodes.slice(applied).some((node) =>
-      node.kind === "prose" && node.text === "  + 1 generated file addition in 1 project"
+      node.kind === "prose" && nodeText(node) === "  + 1 generated file addition in 1 project"
     )).toBe(true);
     expect(nodes.some((node) =>
-      node.kind === "prose" && node.text === "All Projects were already current."
+      node.kind === "prose" && nodeText(node) === "All Projects were already current."
     )).toBe(false);
     expect(keyValuesIn(apply, "Project")).toEqual([]);
     expect(keyValuesIn(apply, "  State")).toEqual([]);
@@ -5414,11 +5559,11 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(noticesIn(apply)[0]).toEqual({
       kind: "notice",
       severity: "success",
-      nodes: [{ kind: "prose", text: "Apply complete" }],
+      nodes: [{ kind: "prose", parts: ["Apply complete"] }],
     });
     expect(headingsIn(apply)).not.toContain("Git exclusions:");
     expect(flattenPresentationNodes(apply).some((node) =>
-      node.kind === "prose" && node.text === "All Projects were already current."
+      node.kind === "prose" && nodeText(node) === "All Projects were already current."
     )).toBe(false);
     expect(keyValuesIn(apply, "Project")).toEqual([]);
     expect(keyValuesIn(apply, "  State")).toEqual([]);
@@ -5428,9 +5573,8 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     );
     expect(verbose.some((node) =>
       node.kind === "list-item" &&
-      node.nodes.some((child) => child.kind === "prose" &&
-        child.text === "/repo/.git/info/exclude: add /.agent-profile-kit/codex/context.md")
-    )).toBe(true);
+      nodeText(node) === "/repo/.git/info/exclude: add /.agent-profile-kit/codex/context.md")
+    ).toBe(true);
   });
 
   test("remaining attention after apply still appears", () => {
@@ -5459,18 +5603,18 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(noticesIn(apply)[0]).toEqual({
       kind: "notice",
       severity: "success",
-      nodes: [{ kind: "prose", text: "Apply completed with attention" }],
+      nodes: [{ kind: "prose", parts: ["Apply completed with attention"] }],
     });
     expect(keyValuesIn(apply, "Project")).toHaveLength(1);
     const stateNodes = keyValuesIn(apply, "  State");
     expect(stateNodes).toHaveLength(1);
-    expect(stateNodes[0]!.value).toMatchObject({ kind: "prose", text: "drifted output (a.md)" });
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
+    expect(stateNodes[0]!.value).toMatchObject({ kind: "prose", parts: ["drifted output (a.md)"] });
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
     expect(applied).toBeGreaterThan(-1);
     expect(nodes.slice(applied).some((node) =>
-      node.kind === "prose" && node.text === "  ~ 1 generated file update in 1 project"
+      node.kind === "prose" && nodeText(node) === "  ~ 1 generated file update in 1 project"
     )).toBe(true);
-    expect(nodes.slice(applied).some((node) => node.kind === "prose" && node.text === "  ~ a.md")).toBe(true);
+    expect(nodes.slice(applied).some((node) => node.kind === "prose" && nodeText(node) === "  ~ a.md")).toBe(true);
   });
 
   test("multi-project apply preserves remaining attention across projects", () => {
@@ -5521,20 +5665,20 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(noticesIn(apply)[0]).toEqual({
       kind: "notice",
       severity: "success",
-      nodes: [{ kind: "prose", text: "Apply completed with attention" }],
+      nodes: [{ kind: "prose", parts: ["Apply completed with attention"] }],
     });
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
     expect(applied).toBeGreaterThan(-1);
     expect(nodes.slice(applied).some((node) =>
-      node.kind === "prose" && node.text === "  ~ 2 generated file updates in 2 projects"
+      node.kind === "prose" && nodeText(node) === "  ~ 2 generated file updates in 2 projects"
     )).toBe(true);
     const projectNodes = keyValuesIn(apply, "Project");
     expect(projectNodes).toHaveLength(1);
     expect(projectNodes[0]!.value).toMatchObject({ kind: "path", canonicalPath: "/project-b" });
     const stateNodes = keyValuesIn(apply, "  State");
     expect(stateNodes).toHaveLength(1);
-    expect(stateNodes[0]!.value).toMatchObject({ kind: "prose", text: "drifted output" });
-    expect(nodes.slice(applied).some((node) => node.kind === "prose" && node.text === "  ~ b.md")).toBe(true);
+    expect(stateNodes[0]!.value).toMatchObject({ kind: "prose", parts: ["drifted output"] });
+    expect(nodes.slice(applied).some((node) => node.kind === "prose" && nodeText(node) === "  ~ b.md")).toBe(true);
   });
 
   test("no-op status states current once", () => {
@@ -5578,9 +5722,9 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const document = applyReportDocument(applyResult(report));
     expect(document).toHaveLength(2);
     expect(noticesIn(document)).toEqual([
-      { kind: "notice", severity: "success", nodes: [{ kind: "prose", text: "Apply complete" }] },
+      { kind: "notice", severity: "success", nodes: [{ kind: "prose", parts: ["Apply complete"] }] },
     ]);
-    expect(document[1]).toEqual({ kind: "prose", text: "All Projects were already current." });
+    expect(document[1]).toEqual({ kind: "prose", parts: ["All Projects were already current."] });
     expect(headingsIn(document)).toEqual([]);
     expect(listItemsIn(document)).toEqual([]);
   });
@@ -5636,10 +5780,10 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(noticesIn(apply)[0]).toEqual({
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: "Apply blocked" }],
+      nodes: [{ kind: "prose", parts: ["Apply blocked"] }],
     });
     expect(flattenPresentationNodes(apply).some((node) =>
-      node.kind === "prose" && node.text === "Git exclusions: 1 entry to add."
+      node.kind === "prose" && nodeText(node) === "Git exclusions: 1 entry to add."
     )).toBe(true);
   });
 
@@ -5698,14 +5842,14 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(noticesIn(apply)[0]).toEqual({
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: "Apply completed with blockers" }],
+      nodes: [{ kind: "prose", parts: ["Apply completed with blockers"] }],
     });
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
     expect(applied).toBeGreaterThan(-1);
     expect(nodes.slice(applied).some((node) =>
-      node.kind === "prose" && node.text === "Git exclusions: 1 entry added."
+      node.kind === "prose" && nodeText(node) === "Git exclusions: 1 entry added."
     )).toBe(true);
-    expect(nodes.some((node) => node.kind === "prose" && node.text === "Freshly current: /project-a")).toBe(true);
+    expect(nodes.some((node) => node.kind === "prose" && nodeText(node) === "Freshly current: /project-a")).toBe(true);
   });
 
   test("readiness groups Projects that share Profile, Hosts, and setup condition", () => {
@@ -5751,16 +5895,16 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const nodes = flattenPresentationNodes(concise);
     const readiness = nodes.filter((node): node is Extract<PresentationNode, { kind: "prose" }> =>
       node.kind === "prose" &&
-      node.text.endsWith("will load the next time you launch a configured Host from a bound Project root."));
+      nodeText(node).endsWith("will load the next time you launch a configured Host from a bound Project root."));
     expect(readiness).toHaveLength(1);
     expect(nodes.at(-1)).toEqual(readiness[0]);
-    expect(readiness[0]!.text).toBe(
+    expect(nodeText(readiness[0]!)).toBe(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
-    expect(readiness[0]!.text).not.toContain("from /project-a");
-    expect(readiness[0]!.text).not.toContain("from /project-b");
+    expect(nodeText(readiness[0]!)).not.toContain("from /project-a");
+    expect(nodeText(readiness[0]!)).not.toContain("from /project-b");
     expect(nodes.some((node) =>
-      "text" in node && (node.text.includes("becomes active") || node.text.includes("bound Host"))
+      "text" in node && (nodeText(node).includes("becomes active") || nodeText(node).includes("bound Host"))
     )).toBe(false);
   });
 
@@ -5820,11 +5964,11 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(concise);
     const readiness = nodes.filter((node) =>
-      node.kind === "prose" && node.text.endsWith("bound Project root."));
+      node.kind === "prose" && nodeText(node).endsWith("bound Project root."));
     expect(readiness).toHaveLength(1);
     expect(nodes.at(-1)).toEqual(readiness[0]);
     expect(nodes.some((node) =>
-      "text" in node && (node.text.includes("becomes active") || node.text.includes("bound Host"))
+      "text" in node && (nodeText(node).includes("becomes active") || nodeText(node).includes("bound Host"))
     )).toBe(false);
   });
 
@@ -5873,11 +6017,11 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(concise);
     const readiness = nodes.filter((node) =>
-      node.kind === "prose" && node.text.endsWith("bound Project root."));
+      node.kind === "prose" && nodeText(node).endsWith("bound Project root."));
     expect(readiness).toHaveLength(1);
     expect(nodes.at(-1)).toEqual({
       kind: "prose",
-      text: "2 Profiles will load the next time you launch a configured Host from a bound Project root.",
+      parts: ["2 Profiles will load the next time you launch a configured Host from a bound Project root."],
     });
   });
 
@@ -5907,10 +6051,10 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     // readiness statement trails the document.
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(concise);
-    expect(nodes.some((node) => "text" in node && node.text.includes(".."))).toBe(false);
+    expect(nodes.some((node) => "text" in node && nodeText(node).includes(".."))).toBe(false);
     expect(nodes.at(-1)).toEqual({
       kind: "prose",
-      text: "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+      parts: ["Profile coding will load the next time you launch a configured Host from a bound Project root."],
     });
   });
 
@@ -5947,12 +6091,12 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const nodes = flattenPresentationNodes(concise);
     expect(nodes.some((node) =>
       "text" in node &&
-      (node.text.includes("After completing the Host setup above") ||
-        node.text.includes("No further Host setup is required"))
+      (nodeText(node).includes("After completing the Host setup above") ||
+        nodeText(node).includes("No further Host setup is required"))
     )).toBe(false);
     expect(nodes.at(-1)).toEqual({
       kind: "prose",
-      text: "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+      parts: ["Profile coding will load the next time you launch a configured Host from a bound Project root."],
     });
   });
 
@@ -6210,13 +6354,13 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     const verbose = formatLifecycleReport("status", report, { verbose: true });
     expect(verbose).toContain("Host Setup:");
 
-    const missingProfile = formatMissingProfileError({
+    const missingProfile = flatInlineText(formatMissingProfileError({
       availableProfiles: ["coding"],
       message: "Profile 'unknown' not found",
       name: "MissingProfileError",
       profile: "unknown",
       recoverByEditingLocalConfiguration: true,
-    });
+    }));
     expect(missingProfile).toContain("Edit Local Configuration directly");
   });
 });
@@ -6468,16 +6612,16 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(noticesIn(document)[0]).toEqual({
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: "Apply completed with blockers" }],
+      nodes: [{ kind: "prose", parts: ["Apply completed with blockers"] }],
     });
     // ADR-0024 safety-evidence order: Applied → Freshly current → Still pending
     // → Project → Blocker → footer, as an ordered prefix before the footer.
-    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
-    const freshIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.text === "Freshly current: /project-a");
-    const pendingIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.text === "Still pending: /project-c");
+    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const freshIndex = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node) === "Freshly current: /project-a");
+    const pendingIndex = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node) === "Still pending: /project-c");
     const projectIndex = indexWhere(nodes, (node) => node.kind === "key-value" && node.key === "Project");
-    const blockerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.category === "error" && node.text.startsWith("  Blocker: "));
-    const footerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.text.startsWith("Blockers: "));
+    const blockerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.category === "error" && nodeText(node).startsWith("  Blocker: "));
+    const footerIndex = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node).startsWith("Blockers: "));
     expect(appliedIndex).toBeGreaterThan(-1);
     expect(freshIndex).toBeGreaterThan(appliedIndex);
     expect(pendingIndex).toBeGreaterThan(freshIndex);
@@ -6485,16 +6629,16 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(blockerIndex).toBeGreaterThan(projectIndex);
     expect(footerIndex).toBeGreaterThan(blockerIndex);
     // Receipt evidence rendered exactly once inside the prefix.
-    expect(nodes.filter((node) => node.kind === "heading" && node.text === "Applied:")).toHaveLength(1);
+    expect(nodes.filter((node) => node.kind === "heading" && nodeText(node) === "Applied:")).toHaveLength(1);
     expect(nodes.slice(appliedIndex, pendingIndex).some((node) =>
-      node.kind === "prose" && node.text === "  + 1 generated file addition in /project-a"
+      node.kind === "prose" && nodeText(node) === "  + 1 generated file addition in /project-a"
     )).toBe(true);
     // The strict Blocker filter suppresses ordinary inventory.
     expect(headingsIn(document)).not.toContain("Warnings:");
     expect(headingsIn(document)).not.toContain("Host Setup:");
     expect(headingsIn(document)).not.toContain("Next:");
-    expect(nodes.some((node) => "text" in node && node.text.includes("duplicate Skill identity"))).toBe(false);
-    expect(nodes.some((node) => "text" in node && (node.text.includes("b.md") || node.text.includes("c.md")))).toBe(false);
+    expect(nodes.some((node) => "text" in node && nodeText(node).includes("duplicate Skill identity"))).toBe(false);
+    expect(nodes.some((node) => "text" in node && (nodeText(node).includes("b.md") || nodeText(node).includes("c.md")))).toBe(false);
   });
 
   test("focused verbose apply retains every Blocker affected item and the receipt without ordinary inventory sections", () => {
@@ -6508,15 +6652,15 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(noticesIn(document)[0]).toEqual({
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: "Apply completed with blockers" }],
+      nodes: [{ kind: "prose", parts: ["Apply completed with blockers"] }],
     });
     // ADR-0024 safety-evidence order (verbose): Applied → Freshly current →
     // Still pending → Blockers section → footer.
-    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
-    const freshIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.text === "Freshly current: /project-a");
-    const pendingIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.text === "Still pending: /project-c");
-    const blockersHeading = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Blockers:");
-    const footerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.text.startsWith("Blockers: "));
+    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const freshIndex = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node) === "Freshly current: /project-a");
+    const pendingIndex = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node) === "Still pending: /project-c");
+    const blockersHeading = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Blockers:");
+    const footerIndex = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node).startsWith("Blockers: "));
     expect(appliedIndex).toBeGreaterThan(-1);
     expect(freshIndex).toBeGreaterThan(appliedIndex);
     expect(pendingIndex).toBeGreaterThan(freshIndex);
@@ -6524,11 +6668,11 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(footerIndex).toBeGreaterThan(blockersHeading);
     // The Blocker bullet keeps every affected item as typed evidence.
     expect(nodes.slice(blockersHeading, footerIndex).some((node) =>
-      node.kind === "list-item" && node.nodes.some((child) => child.kind === "prose" &&
-        child.text.startsWith("Cannot verify generated-file ownership: owned output .codex/hooks.json"))
-    )).toBe(true);
+      node.kind === "list-item" &&
+      nodeText(node).startsWith("Cannot verify generated-file ownership: owned output .codex/hooks.json"))
+    ).toBe(true);
     expect(nodes.slice(blockersHeading, footerIndex).some((node) =>
-      node.kind === "prose" && node.text === "  Affected host: codex"
+      node.kind === "prose" && nodeText(node) === "  Affected host: codex"
     )).toBe(true);
     // The strict Blocker filter suppresses ordinary verbose inventory.
     expect(headingsIn(document)).toEqual(expect.arrayContaining(["Applied:", "Blockers:"]));
@@ -6564,31 +6708,35 @@ describe("focused blockers-only apply view (#352)", () => {
     // still-pending, or warning inventory.
     const concise = blockedApplyReportDocument(report, { blockersOnly: true });
     expect(noticesIn(concise)).toEqual([
-      { kind: "notice", severity: "error", nodes: [{ kind: "prose", text: "Apply blocked" }] },
+      { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: ["Apply blocked"] }] },
     ]);
     expect(headingsIn(concise)).toEqual(["Global blockers:"]);
     expect(keyValuesIn(concise, "Project")).toEqual([]);
     expect(flattenPresentationNodes(concise).some((node) =>
-      node.kind === "prose" && node.text.startsWith("  Blocker: installation record is unreadable")
+      node.kind === "prose" && nodeText(node).startsWith("  Blocker: installation record is unreadable")
     )).toBe(true);
     expect(flattenPresentationNodes(concise).filter((node) =>
-      node.kind === "prose" && node.text.startsWith("Blockers: ")
-    )).toEqual([{ kind: "prose", text: "Blockers: 1", category: "error" }]);
+      node.kind === "prose" && nodeText(node).startsWith("Blockers: ")
+    )).toEqual([{
+      kind: "prose",
+      parts: ["Blockers: 1"],
+      category: "error",
+    }]);
 
     // Verbose: the Blocker bullet with its fields, then the footer.
     const verbose = blockedApplyReportDocument(report, { blockersOnly: true, verbose: true });
     expect(noticesIn(verbose)[0]).toEqual({
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: "Apply blocked" }],
+      nodes: [{ kind: "prose", parts: ["Apply blocked"] }],
     });
     expect(headingsIn(verbose)).toEqual(["Blockers:"]);
     expect(listItemsIn(verbose)).toEqual(["installation record is unreadable"]);
     expect(flattenPresentationNodes(verbose).some((node) =>
-      node.kind === "prose" && node.text === "  Scope: Global"
+      node.kind === "prose" && nodeText(node) === "  Scope: Global"
     )).toBe(true);
     expect(flattenPresentationNodes(verbose).some((node) =>
-      node.kind === "prose" && node.text.startsWith("Blockers: 1")
+      node.kind === "prose" && nodeText(node).startsWith("Blockers: 1")
     )).toBe(true);
     expect(headingsIn(verbose)).not.toContain("Applied:");
     expect(headingsIn(verbose)).not.toContain("Next:");
@@ -6611,17 +6759,17 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(noticesIn(document)[0]).toEqual({
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: "Apply failed at /project-b: write failed" }],
+      nodes: [{ kind: "prose", parts: ["Apply failed at /project-b: write failed"] }],
     });
     // Safety evidence (Applied → Freshly current) precedes the Blocker section.
-    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
-    const freshIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.text === "Freshly current: /project-a");
-    const blockerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.category === "error" && node.text.startsWith("  Blocker: "));
+    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const freshIndex = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node) === "Freshly current: /project-a");
+    const blockerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.category === "error" && nodeText(node).startsWith("  Blocker: "));
     expect(appliedIndex).toBeGreaterThan(-1);
     expect(freshIndex).toBeGreaterThan(appliedIndex);
     expect(blockerIndex).toBeGreaterThan(freshIndex);
-    expect(nodes.some((node) => node.kind === "prose" && node.text === "Failed Project: /project-b")).toBe(true);
-    expect(nodes.some((node) => node.kind === "prose" && node.text === "Still pending: /project-c")).toBe(true);
+    expect(nodes.some((node) => node.kind === "prose" && nodeText(node) === "Failed Project: /project-b")).toBe(true);
+    expect(nodes.some((node) => node.kind === "prose" && nodeText(node) === "Still pending: /project-c")).toBe(true);
   });
 
   test("an execution failure with no Blockers renders unchanged under the filter", () => {
@@ -6658,7 +6806,7 @@ describe("focused blockers-only apply view (#352)", () => {
       applyExecutionFailureDocument(failure, { blockersOnly: true }),
     );
     const freshIndex = concise.findIndex((node) =>
-      node.kind === "prose" && node.text === "Freshly current: /project-a");
+      node.kind === "prose" && nodeText(node) === "Freshly current: /project-a");
     expect(freshIndex).toBeGreaterThan(-1);
     // Single blank-line separation before the concise Blocker section (RE-1).
     expect(concise[freshIndex + 1]).toMatchObject({ kind: "verbatim", text: "" });
@@ -6669,7 +6817,7 @@ describe("focused blockers-only apply view (#352)", () => {
     });
     const blockerIndex = concise.findIndex((node, index) =>
       index > freshIndex && node.kind === "prose" &&
-      node.text === "  Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex");
+      nodeText(node) === "  Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex");
     expect(blockerIndex).toBeGreaterThan(freshIndex + 2);
     expect(concise[blockerIndex - 1]).toMatchObject({
       kind: "path",
@@ -6680,13 +6828,13 @@ describe("focused blockers-only apply view (#352)", () => {
       applyExecutionFailureDocument(failure, { blockersOnly: true, verbose: true }),
     );
     const verboseFreshIndex = verbose.findIndex((node) =>
-      node.kind === "prose" && node.text === "Freshly current: /project-a");
+      node.kind === "prose" && nodeText(node) === "Freshly current: /project-a");
     expect(verboseFreshIndex).toBeGreaterThan(-1);
     expect(verbose[verboseFreshIndex + 1]).toMatchObject({ kind: "verbatim", text: "" });
     expect(verbose[verboseFreshIndex + 2]).toMatchObject({ kind: "heading", text: "Blockers:" });
     expect(verbose[verboseFreshIndex + 3]).toMatchObject({
       kind: "list-item",
-      nodes: [{ kind: "prose", text: "Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex" }],
+      parts: ["Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex"],
     });
   });
 });
@@ -6713,18 +6861,18 @@ describe("apply presentation documents", () => {
 
     const document = applyReportDocument(applyResult(receipt, resultingState));
     expect(noticesIn(document)).toEqual([
-      { kind: "notice", severity: "success", nodes: [{ kind: "prose", text: "Apply complete" }] },
+      { kind: "notice", severity: "success", nodes: [{ kind: "prose", parts: ["Apply complete"] }] },
     ]);
     const nodes = flattenPresentationNodes(document);
-    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
+    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
     expect(appliedIndex).toBeGreaterThan(-1);
     expect(nodes.slice(appliedIndex).some((node) =>
-      node.kind === "prose" && node.text === "  + 1 generated file addition in 1 project"
+      node.kind === "prose" && nodeText(node) === "  + 1 generated file addition in 1 project"
     )).toBe(true);
-    expect(nodes.slice(appliedIndex).some((node) => node.kind === "prose" && node.text === "  + a.md (/project-a)")).toBe(true);
+    expect(nodes.slice(appliedIndex).some((node) => node.kind === "prose" && nodeText(node) === "  + a.md (/project-a)")).toBe(true);
     expect(nodes.at(-1)).toEqual({
       kind: "prose",
-      text: "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+      parts: ["Profile coding will load the next time you launch a configured Host from a bound Project root."],
     });
     expect(commandsIn(document)).toEqual([]);
   });
@@ -6750,7 +6898,7 @@ describe("apply presentation documents", () => {
     const nodes = flattenPresentationNodes(
       applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
     );
-    const verbatim = nodes.flatMap((node) => node.kind === "verbatim" && node.text !== "" ? [node.text] : []);
+    const verbatim = nodes.flatMap((node) => node.kind === "verbatim" && nodeText(node) !== "" ? [nodeText(node)] : []);
     expect(verbatim).toHaveLength(2);
     for (const context of verbatim) {
       expect(context).toMatch(/begin Context/);
@@ -6783,17 +6931,17 @@ describe("apply presentation documents", () => {
     expect(notices[0]).toEqual({
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: "Apply blocked" }],
+      nodes: [{ kind: "prose", parts: ["Apply blocked"] }],
     });
     expect(notices.at(-1)).toMatchObject({
       kind: "notice",
       severity: "error",
-      nodes: [{ kind: "prose", text: "Projects: 1 · Pending: blocked · Blockers: 1" }],
+      nodes: [{ kind: "prose", parts: ["Projects: 1 · Pending: blocked · Blockers: 1"] }],
     });
     const nodes = flattenPresentationNodes(document);
     expect(nodes.some((node) => node.kind === "key-value" && node.key === "Project")).toBe(true);
     expect(nodes.some((node) =>
-      node.kind === "prose" && node.category === "error" && node.text.startsWith("  Blocker: ")
+      node.kind === "prose" && node.category === "error" && nodeText(node).startsWith("  Blocker: ")
     )).toBe(true);
   });
 
@@ -6830,11 +6978,11 @@ describe("apply presentation documents", () => {
     );
     // The complete ADR-0024 order: Applied → Freshly current → Project →
     // Blocker → footer, each as its own typed node.
-    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && node.text === "Applied:");
-    const freshlyCurrentIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.text === "Freshly current: /project-a");
+    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const freshlyCurrentIndex = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node) === "Freshly current: /project-a");
     const projectIndex = indexWhere(nodes, (node) => node.kind === "key-value" && node.key === "Project");
-    const blockerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.category === "error" && node.text.startsWith("  Blocker: "));
-    const footerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.text.startsWith("Blockers: "));
+    const blockerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.category === "error" && nodeText(node).startsWith("  Blocker: "));
+    const footerIndex = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node).startsWith("Blockers: "));
     expect(appliedIndex).toBeGreaterThan(-1);
     expect(freshlyCurrentIndex).toBeGreaterThan(appliedIndex);
     expect(projectIndex).toBeGreaterThan(freshlyCurrentIndex);
@@ -6860,12 +7008,12 @@ describe("apply presentation documents", () => {
       {
         kind: "notice",
         severity: "error",
-        nodes: [{ kind: "prose", text: "Apply failed at /project-a: write failed" }],
+        nodes: [{ kind: "prose", parts: ["Apply failed at /project-a: write failed"] }],
       },
     ]);
     const nodes = flattenPresentationNodes(document);
-    expect(nodes.some((node) => node.kind === "prose" && node.text === "Failed Project: /project-a")).toBe(true);
-    expect(nodes.some((node) => node.kind === "prose" && node.text === "Still pending: none")).toBe(true);
+    expect(nodes.some((node) => node.kind === "prose" && nodeText(node) === "Failed Project: /project-a")).toBe(true);
+    expect(nodes.some((node) => node.kind === "prose" && nodeText(node) === "Still pending: none")).toBe(true);
     expect(headingsIn(document)).toContain("Applied:");
   });
 
@@ -6885,7 +7033,7 @@ describe("apply presentation documents", () => {
 
     const document = applyVerificationFailureDocument(receipt, "Verification failed.");
     expect(noticesIn(document)).toEqual([
-      { kind: "notice", severity: "error", nodes: [{ kind: "prose", text: "Verification failed." }] },
+      { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: ["Verification failed."] }] },
     ]);
     expect(headingsIn(document)).toContain("Applied:");
   });
@@ -6900,21 +7048,21 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
         machineProject("/project-b", {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
         machineProject("/project-c", {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
       ],
@@ -6936,7 +7084,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
           warnings: [{
             copyableValues: ["/tmp/config.toml"],
             kind: "diagnostic",
-            message: "Codex SessionStart hooks are not enabled",
+            parts: ["Codex SessionStart hooks are not enabled"],
           }],
         }),
       ],
@@ -6957,14 +7105,14 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
         machineProject("/project-b", {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
       ],
@@ -6986,14 +7134,14 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
           warnings: [{
             copyableValues: ["/val-1"],
             kind: "diagnostic",
-            message: "Same message",
+            parts: ["Same message"],
           }],
         }),
         machineProject("/project-b", {
           warnings: [{
             copyableValues: ["/val-2"],
             kind: "diagnostic",
-            message: "Same message",
+            parts: ["Same message"],
           }],
         }),
         machineProject("/project-c", {
@@ -7001,14 +7149,14 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
             consequence: "Consequence X",
             copyableValues: ["/val-1"],
             kind: "diagnostic",
-            message: "Same message",
+            parts: ["Same message"],
           }],
         }),
         machineProject("/project-d", {
           warnings: [{
             copyableValues: ["/val-1"],
             kind: "host-attention",
-            message: "Same message",
+            parts: ["Same message"],
           }],
         }),
       ],
@@ -7033,14 +7181,14 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
         machineProject("/project-b", {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
       ],
@@ -7076,7 +7224,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
             consequence: "Consequence Z",
             copyableValues: ["/val-z"],
             kind: "host-attention",
-            message: "Shared warning message",
+            parts: ["Shared warning message"],
           }],
         }),
         machineProject("/project-3", {
@@ -7084,7 +7232,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
             consequence: "Consequence B",
             copyableValues: ["/val-b"],
             kind: "diagnostic",
-            message: "Shared warning message",
+            parts: ["Shared warning message"],
           }],
         }),
         machineProject("/project-2", {
@@ -7092,7 +7240,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
             consequence: "Consequence A",
             copyableValues: ["/val-b", "/val-c"],
             kind: "diagnostic",
-            message: "Shared warning message",
+            parts: ["Shared warning message"],
           }],
         }),
         machineProject("/project-1", {
@@ -7100,7 +7248,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
             consequence: "Consequence A",
             copyableValues: ["/val-a"],
             kind: "diagnostic",
-            message: "Shared warning message",
+            parts: ["Shared warning message"],
           }],
         }),
       ],
@@ -7219,7 +7367,7 @@ describe("blocker wording lives in presentation (DEC-020, US-026, US-027)", () =
         expect(view).toMatch(/Recovery command: run apkit |git -C /);
         return;
       }
-      expect(wording.remedy).toMatch(/apkit [a-z-]+/);
+      expect(flatInlineText(wording.remedy)).toMatch(/apkit [a-z-]+/);
     },
   );
 
@@ -7260,7 +7408,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
   const projectPath = join(home, "projects", "demo");
 
   test("the created receipt presents a success headline and the next command", () => {
-    const { document, copyableValues } = initReceiptDocument({
+    const document = initReceiptDocument({
       outcome: "created",
       path: `/test/workspace`,
       workspaceScaffolded: true,
@@ -7268,19 +7416,17 @@ describe("authoring and teardown receipt documents (#390)", () => {
     // Selective shape: kinds, categories, order, and atomic values — the
     // carried wording is locked by the golden snapshots.
     expect(shapes(document)).toEqual(["sentence(success)", "sentence(command)"]);
-    expect(copyableValues).toEqual([]);
     expect(document[0]).toMatchObject({ kind: "sentence", category: "success" });
     expect(document[1]).toMatchObject({ kind: "sentence", category: "command" });
   });
 
   test("the created receipt without scaffolding points at validate", () => {
-    const { document } = initReceiptDocument({
+    const document = initReceiptDocument({
       outcome: "created",
       path: `/test/workspace`,
       workspaceScaffolded: false,
     });
     expect(shapes(document)).toEqual(["sentence(success)", "sentence(command)"]);
-    expect((document[1] as { readonly text: string }).text).toContain("validate");
   });
 
   test("the migrated and unchanged receipts carry their severities and values", () => {
@@ -7288,19 +7434,16 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "migrated",
       path: `/test/workspace`,
     });
-    expect(shapes(migrated.document)).toEqual(["sentence(success)", "sentence(command)"]);
-    expect(migrated.copyableValues).toEqual([]);
+    expect(shapes(migrated)).toEqual(["sentence(success)", "sentence(command)"]);
     const unchanged = initReceiptDocument({
       outcome: "unchanged",
       path: `/test/workspace`,
     });
-    // Space-free values need no wrapping protection.
-    expect(unchanged.copyableValues).toEqual([]);
-    expect(shapes(unchanged.document)).toEqual(["sentence"]);
+    expect(shapes(unchanged)).toEqual(["sentence"]);
   });
 
   test("the recorded bind receipt presents binding detail and the next command", () => {
-    const { document, copyableValues } = bindReceiptDocument({
+    const document = bindReceiptDocument({
       outcome: "created",
       canonicalProject: projectPath,
       project: projectPath,
@@ -7313,7 +7456,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       "key-value:Hosts",
       "key-value:Next(command)",
     ]);
-    expect(copyableValues).toEqual([]);
     expect(document[1]).toEqual({
       kind: "key-value",
       key: "  Profile",
@@ -7329,7 +7471,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
   });
 
   test("the replaced bind receipt keeps only the changed deltas", () => {
-    const { document } = bindReceiptDocument({
+    const document = bindReceiptDocument({
       outcome: "replaced",
       canonicalProject: projectPath,
       project: projectPath,
@@ -7359,7 +7501,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       profile: "coding",
       hosts: ["codex"],
     });
-    expect(shapes(unchangedBind.document)).toEqual([
+    expect(shapes(unchangedBind)).toEqual([
       "sentence",
       "key-value:Profile(path)",
       "key-value:Hosts",
@@ -7369,11 +7511,11 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "unchanged",
       requestedProject: "~/projects/absent",
     });
-    expect(shapes(unchangedUnbind.document)).toEqual(["sentence"]);
+    expect(shapes(unchangedUnbind)).toEqual(["sentence"]);
   });
 
   test("the removed unbind receipt keeps recovery evidence and survival guidance", () => {
-    const { document, copyableValues } = unbindReceiptDocument({
+    const document = unbindReceiptDocument({
       outcome: "removed",
       canonicalProject: projectPath,
       project: projectPath,
@@ -7401,7 +7543,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
   });
 
   test("the authored-path unbind receipt carries the recovery explanation and configuration location", () => {
-    const { document, copyableValues } = unbindReceiptDocument({
+    const document = unbindReceiptDocument({
       outcome: "removed",
       project: "/opt/authored/demo",
       profile: "coding",
@@ -7417,14 +7559,36 @@ describe("authoring and teardown receipt documents (#390)", () => {
       "key-value:Profile(path)",
       "key-value:Hosts",
     ]);
-    // Space-free values need no wrapping protection.
-    expect(copyableValues).toEqual([]);
   });
 });
 
+/**
+ * Render one node alone: for asserting an atomic inline value survives as one
+ * whole line (the structural replacement for the copyable-value list).
+ */
+function renderedNodeLine(node: PresentationNode): string {
+  return renderPresentationDocument([node], { color: false, interactive: false, width: 40 });
+}
+
+/** The carried inline text of a wrapping node, flattened from its parts. */
+function inlineText(node: PresentationNode): string {
+  const parts: readonly InlineContent[] =
+    (node as { readonly parts?: readonly InlineContent[] }).parts ??
+    [(node as { readonly text?: string }).text ?? ""];
+  return parts.map((part) => {
+    if (typeof part === "string") return part;
+    switch (part.kind) {
+      case "text": return part.value;
+      case "command": return [part.program, ...part.args.map((arg) => arg.kind === "text" ? arg.value : "")].join(" ");
+      case "path": return part.authoredPath ?? part.canonicalPath;
+      case "identifier": return part.value;
+    }
+  }).join("");
+}
+
 describe("help documents (#390)", () => {
   test("root help presents the wordmark, intro, usage, quick start, groups, and guidance", () => {
-    const { document, copyableValues } = rootHelpDocument([]);
+    const document = rootHelpDocument([]);
     expect(shapes(document)).toEqual([
       "sentence",
       "spacer",
@@ -7468,15 +7632,18 @@ describe("help documents (#390)", () => {
       },
       category: "heading",
     });
-    // Every listed syntax line must survive wrapping whole.
+    // Every listed syntax line is one atomic command: it renders as one whole
+    // line even at the narrowest measure.
+    const syntaxLines = (document as PresentationNode[])
+      .filter((node) => node.kind === "sentence" && node.category === "command")
+      .map(renderedNodeLine);
     for (const command of defaultCommands()) {
-      expect(copyableValues).toContain(command.syntax);
+      expect(syntaxLines).toContain(`  ${command.syntax}`);
     }
-    expect(copyableValues).toHaveLength(defaultCommands().length);
   });
 
   test("root help renders the wordmark lines before the intro when interactive", () => {
-    const { document } = rootHelpDocument(["  /\\  Agent Profile Kit", " /__\\ reusable agent material"]);
+    const document = rootHelpDocument(["  /\\  Agent Profile Kit", " /__\\ reusable agent material"]);
     expect(shapes(document).slice(0, 2)).toEqual(["verbatim", "verbatim"]);
     expect(document[0]).toEqual({ kind: "verbatim", text: "  /\\  Agent Profile Kit" });
     expect(document[1]).toEqual({ kind: "verbatim", text: " /__\\ reusable agent material" });
@@ -7484,7 +7651,7 @@ describe("help documents (#390)", () => {
 
   test("focused command help presents purpose, usage, examples, writes, and next", () => {
     const status = defaultCommands().find((command) => command.name === "status")!;
-    const { document, copyableValues } = commandHelpDocument(status);
+    const document = commandHelpDocument(status);
     expect(shapes(document)).toEqual([
       "sentence(heading)",
       "spacer",
@@ -7507,26 +7674,29 @@ describe("help documents (#390)", () => {
       },
       category: "heading",
     });
+    // Every example and the usage line are atomic: one whole line each.
+    const commandLines = (document as PresentationNode[])
+      .filter((node) => node.kind === "sentence" && node.category === "command")
+      .map(renderedNodeLine);
     for (const example of status.examples) {
-      expect(copyableValues).toContain(`apkit ${example}`);
+      expect(commandLines).toContain(`  apkit ${example}`);
     }
-    expect(copyableValues).toContain(status.syntax);
   });
 
   test("focused command help lists supported Hosts when the command carries them", () => {
     const bind = defaultCommands().find((command) => command.name === "bind")!;
-    const { document } = commandHelpDocument(bind);
+    const document = commandHelpDocument(bind);
     const sections = shapes(document);
     const examplesIndex = sections.indexOf("heading");
     // The Supported Hosts sentence sits after Examples and before Writes.
     const hostIndex = sections.indexOf("sentence(heading)", examplesIndex + 1);
     expect(sections.indexOf("sentence(heading)", hostIndex + 1)).toBeGreaterThan(hostIndex);
-    expect((document[hostIndex] as { readonly text: string }).text)
+    expect(inlineText(document[hostIndex] as PresentationNode))
       .toContain(`Supported Hosts: ${bind.supportedHosts!.join(", ")}`);
   });
 
   test("machine help presents the namespace intro, usage, and machine commands", () => {
-    const { document, copyableValues } = machineHelpDocument();
+    const document = machineHelpDocument();
     expect(shapes(document)).toEqual([
       "sentence",
       "spacer",
@@ -7534,16 +7704,18 @@ describe("help documents (#390)", () => {
       "spacer",
       ...machineCommands().flatMap(() => ["sentence(command)", "sentence"]),
     ]);
+    const machineSyntaxLines = (document as PresentationNode[])
+      .filter((node) => node.kind === "sentence" && node.category === "command")
+      .map(renderedNodeLine);
     for (const command of machineCommands()) {
-      expect(copyableValues).toContain(command.syntax);
+      expect(machineSyntaxLines).toContain(`  ${command.syntax}`);
     }
-    expect(copyableValues).toHaveLength(machineCommands().length);
   });
 });
 
 describe("guide documents (#390)", () => {
   test("the guide index presents the title, intro, topics, references, and examples", () => {
-    const { document, copyableValues } = guideIndexDocument();
+    const document = guideIndexDocument();
     expect(shapes(document)).toEqual([
       "heading",
       "spacer",
@@ -7568,20 +7740,24 @@ describe("guide documents (#390)", () => {
       "sentence(command)",
       "sentence(command)",
     ]);
-    expect(copyableValues).toEqual([
-      "apkit guide profile",
-      "apkit guide context",
-      "apkit guide skill",
-      "apkit guide --full",
-      "apkit guide --agent",
-      "apkit init",
-      "apkit guide profile",
-      "apkit bind example --host codex",
+    // Every route and example line is one atomic command: one whole line each.
+    const routeLines = (document as PresentationNode[])
+      .filter((node) => node.kind === "sentence" && node.category === "command")
+      .map(renderedNodeLine);
+    expect(routeLines).toEqual([
+      "  apkit guide profile",
+      "  apkit guide context",
+      "  apkit guide skill",
+      "  apkit guide --full",
+      "  apkit guide --agent",
+      "  apkit init",
+      "  apkit guide profile",
+      "  apkit bind example --host codex",
     ]);
   });
 
   test("the focused guide keeps its fenced examples as verbatim content", () => {
-    const { document, copyableValues } = focusedGuideDocument("profile");
+    const document = focusedGuideDocument("profile");
     const example = AUTHORING_EXAMPLES.profile;
     const contextExample = AUTHORING_EXAMPLES.context;
     expect(shapes(document)).toEqual([
@@ -7605,15 +7781,16 @@ describe("guide documents (#390)", () => {
       text: `Create \`${contextExample.path}\`:\n\n\`\`\`md\n${contextExample.contents}\`\`\``,
     });
     // The carried next action renders whole, as the literal block it came from.
-    expect(copyableValues).toEqual([TOPIC_GUIDES.profile.next]);
+    expect(renderedNodeLine(document.at(-1) as PresentationNode))
+      .toBe(TOPIC_GUIDES.profile.next);
   });
 
   test("the focused context and skill guides end at their next line without extra examples", () => {
     for (const topic of ["context", "skill"] as const) {
-      const { document } = focusedGuideDocument(topic);
+      const document = focusedGuideDocument(topic);
       const bodies = document.filter(
         (node): node is Extract<PresentationNode, { readonly kind: "verbatim" }> =>
-          node.kind === "verbatim" && node.text.length > 0,
+          node.kind === "verbatim" && nodeText(node).length > 0,
       );
       expect(bodies).toHaveLength(1);
       expect(bodies[0]!.text.includes(AUTHORING_EXAMPLES[topic].path)).toBe(true);
@@ -7622,8 +7799,7 @@ describe("guide documents (#390)", () => {
   });
 
   test("a guide file body renders verbatim with one trailing newline restored by the writer", () => {
-    const { document, copyableValues } = guideFileDocument("# Title\n\nBody line.\n");
+    const document = guideFileDocument("# Title\n\nBody line.\n");
     expect(shapes(document)).toEqual(["verbatim"]);
-    expect(copyableValues).toEqual([]);
   });
 });

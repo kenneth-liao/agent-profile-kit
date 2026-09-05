@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 
 import { compareCanonicalStrings } from "../schemas/canonical.js";
 import type { OwnershipOutputReceipt, OwnershipState } from "../schemas/ownership-state.js";
+import { identifierPart, type InlineContent } from "../adapters/project-plan.js";
 import { assertRealDirectoryPath, findGitProject, gitExcludeEntry, type GitProject } from "./git.js";
 import type { LifecycleGitInspection } from "./lifecycle-git-inspection.js";
 
@@ -253,7 +254,7 @@ export interface RepositoryExclusionChange {
 }
 
 export interface RepositoryExclusionWarning {
-  readonly message: string;
+  readonly parts: readonly InlineContent[];
   /** The one Project whose derivation failed, when known. */
   readonly project?: string;
   /** Every target the warning's condition covers. */
@@ -314,10 +315,9 @@ async function deriveTargetUnions(
         options.includedProjects === undefined ||
         options.includedProjects.has(project)
       ) {
+        const detail = error instanceof Error ? error.message : String(error);
         warnings.push({
-          message:
-            `Git exclusion entries for ${project} could not be derived: ` +
-            `${error instanceof Error ? error.message : String(error)}`,
+          parts: ["Git exclusion entries for ", identifierPart(project), ` could not be derived: ${detail}`],
           project,
           targets: [],
         });
@@ -401,7 +401,7 @@ export async function inspectRepositoryExclusions(
           changes.push({ current: [], installed: derived.installed, next, target });
           if (derived.installed) {
             warnings.push({
-              message: `${target}${REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX}`,
+              parts: [identifierPart(target), REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX],
               targets: [target],
             });
           }
@@ -418,16 +418,15 @@ export async function inspectRepositoryExclusions(
         });
         if (derived.installed) {
           warnings.push({
-            message: `${target}${REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX}`,
+            parts: [identifierPart(target), REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX],
             targets: [target],
           });
         }
       }
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
       warnings.push({
-        message:
-          `Git exclusion bookkeeping at ${target} was skipped: ` +
-          `${error instanceof Error ? error.message : String(error)}`,
+        parts: ["Git exclusion bookkeeping at ", identifierPart(target), ` was skipped: ${detail}`],
         targets: [target],
       });
     }
@@ -533,10 +532,9 @@ export async function publishRepositoryExclusions(
       await writeExcludeFile(git, updated, snapshot.exists ? snapshot.mode : 0o644, snapshot);
       changes.push({ current, installed: derived.installed, next: sortedEntries(derived.entries), target });
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
       warnings.push({
-        message:
-          `Git exclusion update at ${target} failed: ` +
-          `${error instanceof Error ? error.message : String(error)}`,
+        parts: ["Git exclusion update at ", identifierPart(target), ` failed: ${detail}`],
         targets: [target],
       });
     }

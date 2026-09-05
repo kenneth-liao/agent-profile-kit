@@ -12,6 +12,7 @@ import {
 } from "../installer/project-plan.js";
 import { requireProfile, MissingProfileError } from "../installer/profile-selection.js";
 import { formatMissingProfileError } from "../cli/error-wording.js";
+import { flatInlineText } from "../cli/inline-content.js";
 
 test("missing Profile errors carry typed fields and presentation composes the sentence", () => {
   const failure = (() => {
@@ -26,7 +27,7 @@ test("missing Profile errors carry typed fields and presentation composes the se
   expect(failure?.profile).toBe("coding");
   // The error's message is opaque; presentation owns the user-facing sentence.
   expect(failure?.message).toBe("missing profile: coding");
-  expect(formatMissingProfileError(failure!)).toBe(
+  expect(flatInlineText(formatMissingProfileError(failure!))).toBe(
     "Profile 'coding' does not exist in this Workspace. No Profiles exist in the Workspace." +
       " Run apkit guide profile to learn how to add a Profile.",
   );

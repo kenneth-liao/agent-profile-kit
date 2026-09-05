@@ -12,6 +12,7 @@ import { hostCatalogEntryFor } from "../adapters/host-catalog.js";
 import { formatLifecycleJson } from "../cli/presentation.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState, hashBytes } from "../installer/project-plan.js";
+import { flatInlineText } from "../adapters/project-plan.js";
 import {
   ApplyVerificationError,
   applyReconciliation,
@@ -67,7 +68,7 @@ describe("nested Project reconciliation report", () => {
       ...installation,
       warnings: [{
         copyableValues: [warningValue],
-        message: `Review ${warningValue} before continuing`,
+        parts: [`Review ${warningValue} before continuing`],
       }],
     }));
 
@@ -89,7 +90,7 @@ describe("nested Project reconciliation report", () => {
       state: { kind: "addition" },
       warnings: [{
         copyableValues: [warningValue],
-        message: `Review ${warningValue} before continuing`,
+        parts: [`Review ${warningValue} before continuing`],
       }],
     });
     expect(report.projects[0]!.outputs).toEqual(expect.arrayContaining([
@@ -800,7 +801,7 @@ describe("uninstall failure safety and exclusion publication races", () => {
 
     expect(publication.changes).toEqual([]);
     expect(publication.warnings).toHaveLength(1);
-    expect(publication.warnings[0]!.message).toContain("changed during exclusion publication");
+    expect(flatInlineText(publication.warnings[0]!.parts)).toContain("changed during exclusion publication");
     expect(readFileSync(exclude, "utf8")).toBe(concurrentBytes);
   });
 

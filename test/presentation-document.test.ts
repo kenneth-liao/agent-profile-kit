@@ -2,13 +2,22 @@ import { expect, test } from "bun:test";
 
 import { delimitedContext, displayPath } from "../cli/presentation.js";
 import { diagnosticDocument } from "../cli/diagnostics.js";
-import { renderPresentationDocument } from "../cli/presentation-document.js";
+import {
+  type CommandArg,
+  commandPart,
+  identifierPart,
+  type InlineContent,
+  pathPart,
+  renderPresentationDocument,
+} from "../cli/presentation-document.js";
+
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 const redirected = { color: false, interactive: false, width: 80 } as const;
 
 test("renders a prose document to text for a terminal presentation context", () => {
   const text = renderPresentationDocument(
-    [{ kind: "prose", text: "Ready to apply.", category: "success" }],
+    [{ kind: "prose", parts: ["Ready to apply."], category: "success" }],
     redirected,
   );
   expect(text).toBe("Ready to apply.");
@@ -23,7 +32,7 @@ test("renders heading, key-value, identifier, and list-item nodes as distinct li
         key: "Workspace",
         value: { kind: "identifier", value: "engineering" },
       },
-      { kind: "list-item", nodes: [{ kind: "prose", text: "status reads the selected Project" }] },
+      { kind: "list-item", parts: ["status reads the selected Project"] },
     ],
     redirected,
   );
@@ -42,7 +51,7 @@ test("styles a notice by its severity rather than as a heading", () => {
     {
       kind: "notice" as const,
       severity: "error" as const,
-      nodes: [{ kind: "prose" as const, text: "2 Blockers" }],
+      nodes: [{ kind: "prose" as const, parts: ["2 Blockers"] }],
     },
   ];
 
@@ -68,7 +77,7 @@ test("wraps prose and carries its style across every wrapped line", () => {
   const sentence =
     "Blocker: generated output is occupied by a foreign file that Agent Profile Kit does not own.";
   const colored = renderPresentationDocument(
-    [{ kind: "prose", text: sentence, category: "error" }],
+    [{ kind: "prose", parts: [sentence], category: "error" }],
     { color: true, interactive: true, width: 40 },
   );
   const lines = colored.split("\n");
@@ -84,7 +93,7 @@ test("wraps prose and carries its style across every wrapped line", () => {
 test("holds prose to the selected measure on a wide terminal", () => {
   const sentence = Array.from({ length: 20 }, (_, index) => `word${index}`).join(" ");
   const text = renderPresentationDocument(
-    [{ kind: "prose", text: sentence }],
+    [{ kind: "prose", parts: [sentence] }],
     { color: false, interactive: true, width: 100 },
   );
   const lines = text.split("\n");
@@ -263,8 +272,8 @@ test("lays out a column group side by side and stacks when it will not fit", () 
   const document = [{
     kind: "column-group" as const,
     columns: [
-      [{ kind: "prose" as const, text: "Left column" }],
-      [{ kind: "prose" as const, text: "Right column" }],
+      [{ kind: "prose" as const, parts: ["Left column"] }],
+      [{ kind: "prose" as const, parts: ["Right column"] }],
     ],
   }];
   const wide = renderPresentationDocument(document, {
@@ -289,7 +298,7 @@ test("wraps a sentence continuously with embedded commands inline and whole", ()
     "apkit: apkit status Project target '/projects/demo' is not a bound Project; " +
     "run apkit list projects or apkit bind";
   const text = renderPresentationDocument(
-    [{ kind: "sentence", text: sentence }],
+    [{ kind: "sentence", parts: [sentence] }],
     { color: false, interactive: false, width: 40 },
   );
   const lines = text.split("\n");
@@ -313,23 +322,10 @@ test("wraps a sentence continuously with embedded commands inline and whole", ()
   expect(lines.map((line) => line.trimStart()).join(" ")).toBe(sentence);
 });
 
-test("keeps a supplied copyable value inline and whole inside a sentence", () => {
-  const sentence = "apkit: init recorded the Workspace at '/tmp/a b/workspace'";
-  const text = renderPresentationDocument(
-    [{ kind: "sentence", text: sentence }],
-    { color: false, interactive: false, width: 30 },
-    { copyableValues: ["'/tmp/a b/workspace'"] },
-  );
-  const lines = text.split("\n");
-  expect(lines.length).toBeGreaterThan(1);
-  expect(lines.some((line) => line.includes("'/tmp/a b/workspace'"))).toBe(true);
-  expect(lines.map((line) => line.trimStart()).join(" ")).toBe(sentence);
-});
-
 test("carries a sentence's category across every wrapped line", () => {
   const sentence = "apkit: apkit status failed because the Project target is not bound.";
   const colored = renderPresentationDocument(
-    [{ kind: "sentence", text: sentence, category: "error" }],
+    [{ kind: "sentence", parts: [sentence], category: "error" }],
     { color: true, interactive: false, width: 30 },
   );
   const lines = colored.split("\n");
@@ -343,8 +339,10 @@ test("carries a sentence's category across every wrapped line", () => {
 test("renders a diagnostic document as what happened, why, and what to type", () => {
   const text = renderPresentationDocument(
     diagnosticDocument({
-      happened: "apkit status Project target '/projects/demo' is not a bound Project; " +
-        "run apkit list projects or apkit bind",
+      happened: [
+        "apkit status Project target '/projects/demo' is not a bound Project; " +
+          "run apkit list projects or apkit bind",
+      ],
       usage: "status [project | --all] [--verbose] [--blockers-only] [--json]",
     }),
     { color: false, interactive: false, width: 80 },
@@ -364,9 +362,13 @@ test("renders a diagnostic document as what happened, why, and what to type", ()
 test("renders diagnostic cause lines after what happened and before what to type", () => {
   const text = renderPresentationDocument(
     diagnosticDocument({
-      happened: "apply failed",
-      why: ["caused by: one bad thing", "caused by: another bad thing"],
-      whatToType: ["Run apkit --help for available commands."],
+      happened: ["apply failed"],
+      why: [["caused by: one bad thing"], ["caused by: another bad thing"]],
+      whatToType: [[
+        "Run ",
+        commandPart("apkit", [{ kind: "text", value: "--help" }]),
+        " for available commands.",
+      ]],
     }),
     { color: false, interactive: false, width: 80 },
   );
@@ -392,6 +394,72 @@ test("reproduces verbatim content exactly, including fence escalation, without w
   expect(colored.split("\n").some((line) => line.length > 20)).toBe(true);
 });
 
+test("atomic inline parts preserve their AST shape and are never split across lines by wrapping", () => {
+  const dynamicIdentifier = identifierPart("/path with spaces/and identifiers/that must stay whole");
+  const dynamicCommand = commandPart("apkit", [
+    { kind: "text", value: "machine" },
+    { kind: "text", value: "install-temp" },
+    { kind: "text", value: "--profile" },
+    { kind: "text", value: "coding-v2" },
+  ]);
+  const dynamicPath = pathPart(
+    "/var/log/my test app/diagnostics.log",
+    "fleet",
+  );
+
+  expect(dynamicIdentifier).toEqual({
+    kind: "identifier",
+    value: "/path with spaces/and identifiers/that must stay whole",
+  });
+  expect(dynamicCommand).toEqual({
+    args: [
+      { kind: "text", value: "machine" },
+      { kind: "text", value: "install-temp" },
+      { kind: "text", value: "--profile" },
+      { kind: "text", value: "coding-v2" },
+    ],
+    kind: "command",
+    program: "apkit",
+  });
+  expect(dynamicPath).toEqual({
+    canonicalPath: "/var/log/my test app/diagnostics.log",
+    kind: "path",
+    scope: "fleet",
+  });
+
+  const doc = [
+    {
+      kind: "prose" as const,
+      parts: [
+        "Please check ",
+        dynamicIdentifier,
+        " and run ",
+        dynamicCommand,
+        " before checking ",
+        dynamicPath,
+        ".",
+      ],
+    },
+  ];
+
+  const rendered = renderPresentationDocument(doc, {
+    color: false,
+    interactive: false,
+    width: 60,
+  });
+
+  const lines = rendered.split("\n");
+  expect(lines.length).toBeGreaterThan(1);
+  for (const line of lines) {
+    expect(line.length).toBeLessThanOrEqual(60);
+  }
+
+  // The dynamic values with spaces must remain whole on single lines, not split across wrapped lines
+  expect(lines.some((line) => line.includes("/path with spaces/and identifiers/that must stay whole"))).toBe(true);
+  expect(lines.some((line) => line.includes("/var/log/my test app/diagnostics.log"))).toBe(true);
+});
+
 function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
 }
+

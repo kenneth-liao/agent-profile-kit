@@ -1,3 +1,4 @@
+import { flatInlineText } from "../../cli/inline-content.js";
 import type {
   OutputReconciliationItem,
   ReconciliationBlocker,
@@ -40,7 +41,7 @@ export function reportOutputs(report: ReconciliationReport): readonly OutputReco
 
 export function reportWarnings(report: ReconciliationReport): readonly string[] {
   return [...new Set(report.projects.flatMap((project) =>
-    project.warnings.map((warning) => warning.message)
+    project.warnings.map((warning) => flatInlineText(warning.parts))
   ))].sort();
 }
 
