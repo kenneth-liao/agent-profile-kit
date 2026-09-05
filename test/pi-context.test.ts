@@ -21,7 +21,7 @@ import {
 import { composeContextEnvelope } from "../adapters/context-envelope.js";
 import { emitSharedSkillMarkdown } from "../adapters/shared-skill.js";
 import { flatInlineText } from "../adapters/project-plan.js";
-import { formatLifecycleJson, formatLifecycleReport } from "../cli/presentation.js";
+import { formatLifecycleJson, lifecycleStatusDocument } from "../cli/presentation.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { applyReconciliation, previewReconciliation } from "../installer/reconcile.js";
@@ -615,9 +615,12 @@ describe("Pi Adapter", () => {
       consumingHosts: ["codex", "pi"],
       path: ".agents/skills/review-pr",
     }));
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain("Consuming Hosts:");
-    expect(verbose).toContain(".agents/skills/review-pr: codex, pi");
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const consumingEvidence = verbose.filter((node) => node.kind === "prose")
+      .filter((node) => flatInlineText(node.parts).includes(".agents/skills/review-pr"));
+    expect(consumingEvidence.some((node) =>
+      ["codex", "pi"].every((host) => flatInlineText(node.parts).includes(host))
+    )).toBe(true);
 
     writeFileSync(
       join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"),

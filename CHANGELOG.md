@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Complete the presentation contract: every human formatter API returns a presentation document and the CLI renders each document once at the output boundary, and the remaining in-process lifecycle, inventory, info, and temporary-installation prose assertions are replaced by semantic document assertions over node kinds, categories, structure, and stable domain values, with prose duplicates removed. Rendering-behaviour coverage (wrapping widths, colour extent, atomic commands) renders documents through the pure renderer, and the structural vocabulary guard keeps running against rendered output. Machine JSON, exit codes, wording, and golden snapshots are unchanged ([#391](https://github.com/kenneth-liao/agent-profile-kit/issues/391)).
+
 ### Fixed
 
 - Store warning wording only as canonical structured inline parts across adapter capability failures, diagnostics, Git exclusions, lifecycle normalization, and reconciliation, and derive flat machine messages only at projection boundaries ([#428](https://github.com/kenneth-liao/agent-profile-kit/pull/428)).

@@ -1071,7 +1071,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.148.6
+Engine version: 0.148.7
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1723,7 +1723,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.148.6
+Engine version: 0.148.7
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1733,7 +1733,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.148.6\x1B[0m
+\x1B[35mEngine version: 0.148.7\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1743,7 +1743,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.148.6
+Engine version: 0.148.7
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1753,7 +1753,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.148.6\x1B[0m
+\x1B[35mEngine version: 0.148.7\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2243,6 +2243,200 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 \x1B[31mapkit: apkit status Project target '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a\x1B[0m
 \x1B[31m  bound Project; run apkit list projects or apkit bind\x1B[0m
 Usage: \x1B[36mapkit status [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+--- stderr ---
+"
+`;
+exports[`golden snapshots of every human view status tracked counts grouped-twelve: status-tracked-counts-grouped-twelve 1`] = `
+"--- stdout ---
+Cannot apply
+
+Project: ~/projects/tracked-counts
+  Blocker: These generated paths are tracked by Git, so Agent Profile Kit
+    cannot write to them without conflicting with repository ownership.
+    Requirement: Generated files must be exclusively managed by Agent Profile
+      Kit; repository-owned paths cannot be replaced.
+    Remedy: Choose one: keep repository ownership and change the configured
+      Project or its Host selection so Agent Profile Kit does not plan output at
+      these paths, or intentionally remove the conflicting paths from repository
+      ownership yourself before retrying. Agent Profile Kit will not delete,
+      untrack, adopt, or overwrite repository-owned material.
+    Scope: Project ~/projects/tracked-counts
+    Affected paths (14):
+      - .agents/skills/ (12 paths)
+      - .claude/skills/single
+      - .grok/skills/single
+    Recovery command: run
+      apkit status --blockers-only --verbose
+      to see the exact untracking command.
+
+Blockers: 1 · Affected Projects: 1
+
+Next:
+- ~/projects/tracked-counts: Resolve the reported blocker, then run
+  apkit status
+  again.
+--- stderr ---
+"
+`;
+
+exports[`golden snapshots of every human view status tracked counts eleven-no-cap: status-tracked-counts-eleven-no-cap 1`] = `
+"--- stdout ---
+Cannot apply
+
+Project: ~/projects/tracked-counts
+  Blocker: These generated paths are tracked by Git, so Agent Profile Kit
+    cannot write to them without conflicting with repository ownership.
+    Requirement: Generated files must be exclusively managed by Agent Profile
+      Kit; repository-owned paths cannot be replaced.
+    Remedy: Choose one: keep repository ownership and change the configured
+      Project or its Host selection so Agent Profile Kit does not plan output at
+      these paths, or intentionally remove the conflicting paths from repository
+      ownership yourself before retrying. Agent Profile Kit will not delete,
+      untrack, adopt, or overwrite repository-owned material.
+    Scope: Project ~/projects/tracked-counts
+    Affected paths (11):
+      - .agents/skills/ (11 paths)
+    Recovery command: run
+      apkit status --blockers-only --verbose
+      to see the exact untracking command.
+
+Blockers: 1 · Affected Projects: 1
+
+Next:
+- ~/projects/tracked-counts: Resolve the reported blocker, then run
+  apkit status
+  again.
+--- stderr ---
+"
+`;
+
+exports[`golden snapshots of every human view status tracked counts root-immediate-parent-equivalent: status-tracked-counts-root-immediate-parent-equivalent 1`] = `
+"--- stdout ---
+Cannot apply
+
+Project: ~/projects/tracked-counts
+  Blocker: These generated paths are tracked by Git, so Agent Profile Kit
+    cannot write to them without conflicting with repository ownership.
+    Requirement: Generated files must be exclusively managed by Agent Profile
+      Kit; repository-owned paths cannot be replaced.
+    Remedy: Choose one: keep repository ownership and change the configured
+      Project or its Host selection so Agent Profile Kit does not plan output at
+      these paths, or intentionally remove the conflicting paths from repository
+      ownership yourself before retrying. Agent Profile Kit will not delete,
+      untrack, adopt, or overwrite repository-owned material.
+    Scope: Project ~/projects/tracked-counts
+    Affected paths (6):
+      - .agents/skills/ (2 paths)
+      - .claude/skills/ (2 paths)
+      - .grok/skills/ (2 paths)
+    Recovery command: run
+      apkit status --blockers-only --verbose
+      to see the exact untracking command.
+
+Blockers: 1 · Affected Projects: 1
+
+Next:
+- ~/projects/tracked-counts: Resolve the reported blocker, then run
+  apkit status
+  again.
+--- stderr ---
+"
+`;
+
+exports[`golden snapshots of every human view status tracked counts overlapping-parent-equivalent: status-tracked-counts-overlapping-parent-equivalent 1`] = `
+"--- stdout ---
+Cannot apply
+
+Project: ~/projects/tracked-counts
+  Blocker: These generated paths are tracked by Git, so Agent Profile Kit
+    cannot write to them without conflicting with repository ownership.
+    Requirement: Generated files must be exclusively managed by Agent Profile
+      Kit; repository-owned paths cannot be replaced.
+    Remedy: Choose one: keep repository ownership and change the configured
+      Project or its Host selection so Agent Profile Kit does not plan output at
+      these paths, or intentionally remove the conflicting paths from repository
+      ownership yourself before retrying. Agent Profile Kit will not delete,
+      untrack, adopt, or overwrite repository-owned material.
+    Scope: Project ~/projects/tracked-counts
+    Affected paths (3):
+      - .agents/skills/ (2 paths)
+      - .claude/skills/single
+    Recovery command: run
+      apkit status --blockers-only --verbose
+      to see the exact untracking command.
+
+Blockers: 1 · Affected Projects: 1
+
+Next:
+- ~/projects/tracked-counts: Resolve the reported blocker, then run
+  apkit status
+  again.
+--- stderr ---
+"
+`;
+
+exports[`golden snapshots of every human view status tracked counts deterministic-order: status-tracked-counts-deterministic-order 1`] = `
+"--- stdout ---
+Cannot apply
+
+Project: ~/projects/tracked-counts
+  Blocker: These generated paths are tracked by Git, so Agent Profile Kit
+    cannot write to them without conflicting with repository ownership.
+    Requirement: Generated files must be exclusively managed by Agent Profile
+      Kit; repository-owned paths cannot be replaced.
+    Remedy: Choose one: keep repository ownership and change the configured
+      Project or its Host selection so Agent Profile Kit does not plan output at
+      these paths, or intentionally remove the conflicting paths from repository
+      ownership yourself before retrying. Agent Profile Kit will not delete,
+      untrack, adopt, or overwrite repository-owned material.
+    Scope: Project ~/projects/tracked-counts
+    Affected paths (3):
+      - .agents/skills/alpha
+      - .claude/skills/beta
+      - .grok/skills/zeta
+    Recovery command: run
+      apkit status --blockers-only --verbose
+      to see the exact untracking command.
+
+Blockers: 1 · Affected Projects: 1
+
+Next:
+- ~/projects/tracked-counts: Resolve the reported blocker, then run
+  apkit status
+  again.
+--- stderr ---
+"
+`;
+
+exports[`golden snapshots of every human view status tracked counts large-60-60-30: status-tracked-counts-large-60-60-30 1`] = `
+"--- stdout ---
+Cannot apply
+
+Project: ~/projects/tracked-counts
+  Blocker: These generated paths are tracked by Git, so Agent Profile Kit
+    cannot write to them without conflicting with repository ownership.
+    Requirement: Generated files must be exclusively managed by Agent Profile
+      Kit; repository-owned paths cannot be replaced.
+    Remedy: Choose one: keep repository ownership and change the configured
+      Project or its Host selection so Agent Profile Kit does not plan output at
+      these paths, or intentionally remove the conflicting paths from repository
+      ownership yourself before retrying. Agent Profile Kit will not delete,
+      untrack, adopt, or overwrite repository-owned material.
+    Scope: Project ~/projects/tracked-counts
+    Affected paths (150):
+      - .agents/skills/ (60 paths)
+      - .claude/skills/ (60 paths)
+      - .grok/skills/ (30 paths)
+    Recovery command: run
+      apkit status --blockers-only --verbose
+      to see the exact untracking command.
+
+Blockers: 1 · Affected Projects: 1
+
+Next:
+- ~/projects/tracked-counts: Resolve the reported blocker, then run
+  apkit status
+  again.
 --- stderr ---
 "
 `;

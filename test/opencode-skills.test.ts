@@ -46,7 +46,7 @@ import { readInstallationState } from "../installer/installation-state.js";
 import type { Skill } from "../schemas/skill.js";
 import {
   formatLifecycleJson,
-  formatLifecycleReport,
+  lifecycleStatusDocument,
 } from "../cli/presentation.js";
 import {
   reportBlockers,
@@ -947,14 +947,19 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     const statusReport = await previewReconciliation(desired.installations, state);
 
     // 1. Concise human output carries no duplicate-Skill warning.
-    const concise = formatLifecycleReport("status", statusReport);
-    expect(concise).not.toContain("OpenCode discovers Skills");
+    const concise = lifecycleStatusDocument(statusReport);
+    expect(concise.filter((node) => node.kind === "heading").map((node) => node.text)).not.toContain("Warnings:");
 
     // 2. Verbose human output lists all 15 Projects and no warning.
-    const verbose = formatLifecycleReport("status", statusReport, { verbose: true });
-    expect(verbose).not.toContain("OpenCode discovers Skills");
+    const verbose = lifecycleStatusDocument(statusReport, { verbose: true });
+    const warningsAt = verbose.findIndex((node) => node.kind === "heading" && node.text === "Warnings:");
+    const nextSection = verbose.findIndex((node, index) => index > warningsAt && node.kind === "heading");
+    expect(warningsAt).toBeGreaterThan(-1);
+    expect(verbose.slice(warningsAt + 1, nextSection).filter((node) => node.kind !== "verbatim").map((node) => node.kind)).toEqual(["prose"]);
     for (const project of projects) {
-      expect(verbose).toContain(project);
+      expect(verbose.some((node) => node.kind === "prose" && node.parts.some((part) =>
+        typeof part !== "string" && part.kind === "identifier" && part.value === project
+      ))).toBe(true);
     }
 
     // 3. Machine JSON retains 15 separate Project records, each warning-free.

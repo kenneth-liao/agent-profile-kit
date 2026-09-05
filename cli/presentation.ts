@@ -26,7 +26,6 @@ import {
   flatInlineText,
   identifierPart,
   pathPart,
-  renderPresentationDocument,
   textPart,
   type CommandArg,
   type CommandNode,
@@ -307,7 +306,6 @@ interface GroupedProjects {
 const DEFAULT_OUTPUT_PATH_LIMIT = 10;
 
 
-
 /** The machine-details view (`apkit info`) as a presentation document. */
 export function infoDocument(
   info: ApplicationInfo,
@@ -358,14 +356,6 @@ export function infoDocument(
   ];
 }
 
-export function formatInfoHuman(
-  info: ApplicationInfo,
-  options: { readonly context?: TerminalPresentationContext } = {},
-  home = homedir(),
-  cwd = process.cwd(),
-): string {
-  return renderStandaloneDocument(infoDocument(info, home, cwd), options.context, { cwd, home });
-}
 
 interface InfoMachineBase {
   readonly command: "info";
@@ -426,19 +416,6 @@ export function formatInfoToolErrorJson(
   });
 }
 
-/** Shared rendering for standalone documents: default context when unrequested. */
-function renderStandaloneDocument(
-  document: PresentationDocument,
-  context?: TerminalPresentationContext,
-  environment: { readonly cwd?: string; readonly home?: string } = {},
-): string {
-  const rendered = renderPresentationDocument(
-    document,
-    context ?? DEFAULT_RENDER_CONTEXT,
-    environment.cwd === undefined && environment.home === undefined ? {} : environment,
-  );
-  return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
-}
 
 /** The inventory index view as a presentation document. */
 export function inventoryIndexDocument(): PresentationDocument {
@@ -469,18 +446,8 @@ function inventoryTopicNodes(
   return nodes;
 }
 
-export function formatInventoryIndex(
-  options: { readonly context?: TerminalPresentationContext } = {},
-): string {
-  return renderStandaloneDocument(inventoryIndexDocument(), options.context);
-}
 
 /** Index view for the machine-namespaced inventory command (DEC-019). */
-export function formatMachineInventoryIndex(
-  options: { readonly context?: TerminalPresentationContext } = {},
-): string {
-  return renderStandaloneDocument(machineInventoryIndexDocument(), options.context);
-}
 
 /** The Project inventory listing as a presentation document. */
 export function projectInventoryDocument(
@@ -552,18 +519,6 @@ export function projectInventoryDocument(
   return nodes;
 }
 
-export function formatProjectInventoryHuman(
-  projects: readonly ProjectInventoryRecord[],
-  options: { readonly context?: TerminalPresentationContext } = {},
-  home = homedir(),
-  cwd = process.cwd(),
-): string {
-  return renderStandaloneDocument(
-    projectInventoryDocument(projects, home, cwd),
-    options.context,
-    { cwd, home },
-  );
-}
 
 interface ListInventoryMachineBase<Topic extends InventoryTopic | MachineInventoryTopic> {
   readonly command: "list";
@@ -702,12 +657,6 @@ export function profileInventoryDocument(
   return nodes;
 }
 
-export function formatProfileInventoryHuman(
-  profiles: readonly ProfileInventoryRecord[],
-  options: { readonly context?: TerminalPresentationContext } = {},
-): string {
-  return renderStandaloneDocument(profileInventoryDocument(profiles), options.context);
-}
 
 type ProfileInventoryMachineBase = ListInventoryMachineBase<"profiles">;
 
@@ -763,12 +712,6 @@ export function hostInventoryDocument(
   ];
 }
 
-export function formatHostInventoryHuman(
-  hosts: readonly HostInventoryRecord[],
-  options: { readonly context?: TerminalPresentationContext } = {},
-): string {
-  return renderStandaloneDocument(hostInventoryDocument(hosts), options.context);
-}
 
 type HostInventoryMachineBase = ListInventoryMachineBase<"hosts">;
 
@@ -873,18 +816,6 @@ export function temporaryInventoryDocument(
   return nodes;
 }
 
-export function formatTemporaryInventoryHuman(
-  installations: readonly TemporaryInventoryRecord[],
-  options: { readonly context?: TerminalPresentationContext } = {},
-  home = homedir(),
-  cwd = process.cwd(),
-): string {
-  return renderStandaloneDocument(
-    temporaryInventoryDocument(installations, home, cwd),
-    options.context,
-    { cwd, home },
-  );
-}
 
 type TemporaryInventoryMachineBase = ListInventoryMachineBase<"temporary">;
 
@@ -993,13 +924,6 @@ export function validationResultDocument(result: ValidationResult): Presentation
   ];
 }
 
-export function formatValidationResult(
-  result: ValidationResult,
-  options: { readonly context?: TerminalPresentationContext } = {},
-): string {
-  return renderStandaloneDocument(validationResultDocument(result), options.context);
-}
-
 /** The uninstall result view as a presentation document. */
 export function uninstallResultDocument(
   result: UninstallResult,
@@ -1105,12 +1029,6 @@ export function uninstallResultDocument(
   return nodes;
 }
 
-export function formatUninstallResult(
-  result: UninstallResult,
-  options: { readonly context?: TerminalPresentationContext } = {},
-): string {
-  return renderStandaloneDocument(uninstallResultDocument(result), options.context);
-}
 
 function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputSummary {
   return outputs.reduce<OutputSummary>(
@@ -1469,11 +1387,6 @@ function trackedPathUntrackCommand(
 type UntrackRecovery =
   | { readonly kind: "full" }
   | { readonly kind: "pointer"; readonly command: LifecycleCommand };
-
-
-
-
-
 
 
 function groupProjects(report: ReconciliationReport): GroupedProjects {
@@ -2308,7 +2221,6 @@ function operationGroupLine(
 }
 
 
-
 /** The typed concise operation summary shared by the status views. */
 function operationSummaryNodes(
   report: ReconciliationReport,
@@ -2456,7 +2368,6 @@ function lifecycleInvocation(
 }
 
 
-
 /**
  * One named path line per affected generated file in the Apply Receipt, with
  * its Project attribution, ordered by operation, Project, then path, and
@@ -2493,8 +2404,6 @@ function operationReceiptPathLines(
 }
 
 
-
-
 interface LifecycleHumanOptions {
   readonly all?: boolean;
   readonly blockersOnly?: boolean;
@@ -2522,10 +2431,6 @@ export function delimitedContext(context: string): string {
   }
   return `${fence} begin Context ${fence}\n${body}${fence} end Context ${fence}`;
 }
-
-
-
-
 
 
 /** The apply outcome notice: severity derives from report facts, never copy. */
@@ -3027,68 +2932,6 @@ export function applyVerificationFailureDocument(
   return nodes;
 }
 
-const DEFAULT_RENDER_CONTEXT: TerminalPresentationContext = {
-  color: false,
-  interactive: false,
-  width: 10_000,
-};
-
-/** Render one lifecycle document with default context when unrequested. */
-function renderLifecycleDocument(
-  document: PresentationDocument,
-  context?: TerminalPresentationContext,
-): string {
-  const rendered = renderPresentationDocument(document, context ?? DEFAULT_RENDER_CONTEXT);
-  return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
-}
-
-export function formatApplyReport(
-  result: ApplyReconciliationResult,
-  options: LifecycleHumanOptions = {},
-): string {
-  return renderLifecycleDocument(
-    applyReportDocument(result, options),
-    options.context,
-  );
-}
-
-export function formatApplyExecutionFailure(
-  failure: {
-    readonly detail: string;
-    readonly failedProject: ProjectIdentity | undefined;
-    readonly message: string;
-    readonly pendingProjects: readonly ProjectIdentity[];
-    readonly receipt: ReconciliationReport;
-    readonly resultingState: ReconciliationReport | undefined;
-  },
-  options: LifecycleHumanOptions = {},
-): string {
-  return renderLifecycleDocument(
-    applyExecutionFailureDocument(failure, options),
-    options.context,
-  );
-}
-
-export function formatApplyVerificationFailure(
-  receipt: ReconciliationReport,
-  message: string,
-  options: LifecycleHumanOptions = {},
-): string {
-  return renderLifecycleDocument(
-    applyVerificationFailureDocument(receipt, message, options),
-    options.context,
-  );
-}
-
-export function formatBlockedApplyReport(
-  report: BlockedReconciliationReport,
-  options: LifecycleHumanOptions = {},
-): string {
-  return renderLifecycleDocument(
-    blockedApplyReportDocument(report, options),
-    options.context,
-  );
-}
 
 /**
  * Focused Blocker view for `status --blockers-only` (#351) and
@@ -3119,7 +2962,6 @@ function blockersOnlyFooter(report: ReconciliationReport): string {
 function displayedBlockerGroups(report: ReconciliationReport): readonly ProjectGroup[] {
   return groupProjects(report).groups.filter((candidate) => candidate.blockers.length > 0);
 }
-
 
 
 /** The typed concise focused Blocker section shared by `status` and `apply`:
@@ -3486,7 +3328,6 @@ function projectPathNode(
     scope,
   };
 }
-
 
 
 function formatWarningGroupParts(
@@ -3929,17 +3770,6 @@ export function lifecycleStatusDocument(
   return conciseStatusDocument(report, options);
 }
 
-export function formatLifecycleReport(
-  command: Exclude<LifecycleCommand, "apply">,
-  report: ReconciliationReport,
-  options: LifecycleHumanOptions = {},
-): string {
-  void command;
-  return renderLifecycleDocument(
-    lifecycleStatusDocument(report, options),
-    options.context,
-  );
-}
 
 /**
  * Uniform machine-surface exit codes for apply and status:
@@ -4373,19 +4203,6 @@ export function temporaryInstallationDocument(
   return nodes;
 }
 
-export function formatTemporaryInstallationHuman(
-  command: TemporaryInstallCommand,
-  receipt: TemporaryInstallationReceiptView,
-  options: { readonly context?: TerminalPresentationContext } = {},
-  cwd = process.cwd(),
-  home = homedir(),
-): string {
-  return renderStandaloneDocument(
-    temporaryInstallationDocument(command, receipt, cwd, home),
-    options.context,
-    { cwd, home },
-  );
-}
 
 /**
  * The blocked temporary-installation diagnostic as a presentation document.

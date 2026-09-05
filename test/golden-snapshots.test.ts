@@ -241,6 +241,53 @@ async function blockedHome(): Promise<{ home: string; project: string }> {
   return { home, project };
 }
 
+/** Real selected Skill roots tracked by Git, observed through the packed CLI.
+ * No report injection or direct presentation call is used by these fixtures. */
+async function trackedSkillsHome(paths: readonly string[]): Promise<{ home: string; project: string }> {
+  const home = isolatedHome();
+  await initialize(home);
+  const project = gitProject(home, "tracked-counts");
+  const skills = [...new Set(paths.map((path) => path.split("/").at(-1)!))];
+  const hosts = [...new Set(paths.map((path) =>
+    path.startsWith(".agents/") ? "codex" : path.startsWith(".claude/") ? "claude" : "grok"))];
+  for (const [binary, version] of [["claude", "2.1.78 (Claude Code)"], ["grok", "grok 0.2.0"]]) {
+    const executable = join(home, "bin", binary!);
+    writeFileSync(executable, `#!/bin/sh\necho '${version}'\n`);
+    chmodSync(executable, 0o755);
+  }
+  for (const skill of skills) {
+    const directory = join(workspacePath(home), "skills", skill);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "SKILL.md"), `---\nname: ${skill}\ndescription: Count fixture.\n---\nFixture content.\n`);
+  }
+  writeFileSync(join(workspacePath(home), "profiles", "counts.yaml"),
+    `id: counts\ncontext: []\nskills: ${JSON.stringify(skills)}\n`);
+  for (const path of paths) {
+    mkdirSync(join(project, path), { recursive: true });
+    writeFileSync(join(project, path, "SKILL.md"), "tracked fixture content\n");
+  }
+  execFileSync("git", ["-C", project, "add", "--", ...paths]);
+  writeFileSync(configPath(home),
+    `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${project}\n    profile: counts\n    hosts: ${JSON.stringify(hosts)}\n`);
+  return { home, project };
+}
+
+const trackedSkills = (root: string, count: number): string[] =>
+  Array.from({ length: count }, (_, index) => `${root}/s${String(index + 1).padStart(3, "0")}`);
+
+// Current Adapters plan flat Skill IDs below fixed Host roots. They cannot
+// produce the synthetic root-level or ancestor/descendant roots in the semantic
+// suite. The two sibling-directory cases are the approved observable equivalents;
+// exact root/overlap identity and cardinality checks stay in presentation.test.ts.
+const TRACKED_COUNT_CASES = [
+  { name: "grouped-twelve", paths: [...trackedSkills(".agents/skills", 12), ".claude/skills/single", ".grok/skills/single"] },
+  { name: "eleven-no-cap", paths: trackedSkills(".agents/skills", 11) },
+  { name: "root-immediate-parent-equivalent", paths: [...trackedSkills(".agents/skills", 2), ...trackedSkills(".claude/skills", 2), ...trackedSkills(".grok/skills", 2)] },
+  { name: "overlapping-parent-equivalent", paths: [...trackedSkills(".agents/skills", 2), ".claude/skills/single"] },
+  { name: "deterministic-order", paths: [".grok/skills/zeta", ".claude/skills/beta", ".agents/skills/alpha"] },
+  { name: "large-60-60-30", paths: [...trackedSkills(".agents/skills", 60), ...trackedSkills(".claude/skills", 60), ...trackedSkills(".grok/skills", 30)] },
+] as const;
+
 function publicCommandId(command: (typeof COMMANDS)[number]): string {
   return command.namespace === undefined ? command.name : `${command.namespace} ${command.name}`;
 }
@@ -447,6 +494,15 @@ const HUMAN_VIEWS: readonly HumanView[] = [
       return { home, args: ["status", project] };
     },
   },
+  ...TRACKED_COUNT_CASES.map(({ name, paths }): HumanView => ({
+    test: `status tracked counts ${name}`,
+    snapshot: `status-tracked-counts-${name}`,
+    commandId: "status",
+    prepare: async () => {
+      const { home, project } = await trackedSkillsHome(paths);
+      return { home, args: ["status", project, "--blockers-only"] };
+    },
+  })),
   {
     test: "status verbose",
     snapshot: "status-verbose",
