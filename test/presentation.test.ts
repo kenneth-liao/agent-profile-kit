@@ -539,6 +539,22 @@ describe("lifecycle status document", () => {
     ]);
   });
 
+  test("blocked verbose status renders the Blockers section exactly once, leading the details", () => {
+    const document = lifecycleStatusDocument(blockedReport(), { verbose: true });
+
+    const headings = document.filter((node) => node.kind === "heading")
+      .map((node) => node.kind === "heading" ? node.text : "");
+    expect(headings[0]).toBe("Blockers:");
+    expect(headings.filter((text) => text === "Blockers:")).toHaveLength(1);
+
+    const rendered = formatLifecycleReport("status", blockedReport(), {
+      context: { color: false, interactive: true, width: 80 },
+      verbose: true,
+    });
+    expect(rendered.match(/^Blockers:$/gm)).toHaveLength(1);
+    expect(rendered.indexOf("Blocker: ")).toBeLessThan(rendered.indexOf("Projects:"));
+  });
+
   test("blockers-only status keeps Blockers and omits unrelated inventory", () => {
     const report = emptyReport({
       blockers: [fixtureBlocker("occupied output", "/project-a")],

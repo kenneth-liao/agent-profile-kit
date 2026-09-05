@@ -3689,8 +3689,12 @@ function verboseStatusSections(
     }
   }
   nodes.push(...verboseDetailNodes(report, groups, shorten, scope));
-  nodes.push({ kind: "heading", text: "Blockers:", category: "error" });
-  if (blockers.length === 0) nodes.push({ kind: "prose", text: "(none)" });
+  // The populated Blockers section leads the verbose view; the trailing
+  // heading exists only to report the empty outcome.
+  if (blockers.length === 0) {
+    nodes.push({ kind: "heading", text: "Blockers:", category: "error" });
+    nodes.push({ kind: "prose", text: "(none)" });
+  }
   return nodes;
 }
 
