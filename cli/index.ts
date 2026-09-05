@@ -9,6 +9,11 @@ import {
   diagnosticDocument,
 } from "./diagnostics.js";
 import {
+  commandHelpDocument,
+  machineHelpDocument,
+  rootHelpDocument,
+} from "./command-help.js";
+import {
   bindReceiptDocument,
   initReceiptDocument,
   unbindReceiptDocument,
@@ -149,6 +154,23 @@ function writeHuman(
   stream.write(renderHumanOutput(text, context, { commandNames: COMMAND_NAMES }));
 }
 
+/**
+ * The interactive wordmark authored at the CLI boundary — the one place allowed
+ * to read the terminal context (DEC-012).
+ */
+function rootWordmark(context: TerminalPresentationContext): readonly string[] {
+  return context.interactive ? agentProfileKitWordmark(context.width) : [];
+}
+
+/** Help output rendered from a presentation document, without the regex categoriser. */
+function writeHelp(
+  stream: WriteStream,
+  help: { readonly document: PresentationDocument; readonly copyableValues: readonly string[] },
+  context: TerminalPresentationContext,
+): void {
+  writeHumanDocument(stream, help.document, context, help.copyableValues);
+}
+
 /** Human output rendered from a presentation document (DEC-018). */
 function writeHumanDocument(
   stream: WriteStream,
@@ -195,10 +217,6 @@ function formatError(error: unknown): string {
   return errorMessage(error);
 }
 
-function usageLine(command: { readonly syntax: string }): string {
-  return `Usage: ${COMMAND_NAME} ${command.syntax}`;
-}
-
 /** The carried syntax of one named command, for diagnostic usage nodes. */
 function commandSyntax(name: string): string {
   return findCommand(name).syntax;
@@ -219,12 +237,6 @@ function lifecycleToolErrorDiagnostic(
     why,
     ...(error instanceof ProjectTargetError ? { usage: commandSyntax(command) } : {}),
   });
-}
-
-/** The single line of usage guidance for one named command. */
-function commandUsage(name: string): string {
-  const command = findCommand(name);
-  return `${usageLine(command)}\n`;
 }
 
 /**
@@ -425,104 +437,6 @@ function unknownMachineCommandDiagnostic(unknown: string): PresentationDocument 
       `Run ${COMMAND_NAME} machine --help for available machine commands.`,
     ],
   });
-}
-
-function perCommandHelp(
-  command: CommandHelp,
-  context: TerminalPresentationContext,
-): string {
-  const supportedHosts = command.supportedHosts === undefined
-    ? ""
-    : `Supported Hosts: ${command.supportedHosts.join(", ")}\n\n`;
-  return responsiveHumanText(
-    `Purpose: ${command.summary}\n\n` +
-      `${usageLine(command)}\n\n` +
-      "Examples:\n" +
-      command.examples.map((example) => `  ${COMMAND_NAME} ${example}\n`).join("") +
-      `\n${supportedHosts}` +
-      `Writes: ${command.writes}\n\n` +
-      `Next: ${command.next}\n`,
-    context,
-    [
-      usageLine(command),
-      ...command.examples.map((example) => `${COMMAND_NAME} ${example}`),
-      ...(command.supportedHosts === undefined
-        ? []
-        : [`Supported Hosts: ${command.supportedHosts.join(", ")}`]),
-    ],
-  );
-}
-
-/** Root help shown for a bare invocation and root `--help` aliases. */
-function rootHelp(context: TerminalPresentationContext): string {
-  const wordmark = context.interactive ? agentProfileKitWordmark(context.width) : [];
-  const proseWidth = Math.max(1, context.width - 4);
-  const listedCommands = defaultCommands();
-  const commandLines = (group: CommandHelp["group"]): string[] =>
-    listedCommands
-      .filter((candidate) => candidate.group === group)
-      .flatMap((command) => [
-        `  ${command.syntax}`,
-        ...wrapPresentationText(command.summary, proseWidth)
-          .map((line) => `    ${line}`),
-      ]);
-  const commonGroupLabel = COMMAND_GROUPS.find(([group]) => group === "common")?.[1];
-  if (commonGroupLabel === undefined) throw new Error("Common command group is not configured");
-  const commonCommandLines = commandLines("common");
-  const secondaryCommandLines = COMMAND_GROUPS
-    .filter(([group]) => group !== "common")
-    .flatMap(([group, label]) => {
-      const lines = commandLines(group);
-      return lines.length === 0 ? [] : [`  ${label}:`, ...lines];
-    });
-  const intro = wrapPresentationText(
-    "Agent Profile Kit composes reusable agent material into host-native projects.",
-    context.width,
-  ).join("\n");
-  const guidance = wrapPresentationText(
-    `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide --full.`,
-    context.width,
-  ).join("\n");
-  const quickStartHeading = "First run:";
-  const discovery = wrapPresentationText(
-    `Choose a Profile with ${COMMAND_NAME} guide profile; see ${COMMAND_NAME} bind --help for supported Host values.`,
-    Math.max(1, context.width - 2),
-  ).map((line) => `  ${line}`).join("\n");
-  const identity = wordmark.length === 0 ? "" : `${wordmark.join("\n")}\n\n`;
-  return identity + `${intro}\n\n` +
-    `Usage: ${COMMAND_NAME} <command> [arguments]\n\n` +
-    `${quickStartHeading}\n` +
-    `  ${COMMAND_NAME} init\n` +
-    `  ${COMMAND_NAME} bind <profile> --host <host>\n` +
-    `  ${COMMAND_NAME} status\n` +
-    `  ${COMMAND_NAME} apply\n\n` +
-    `${discovery}\n\n` +
-    `${commonGroupLabel}:\n` +
-    `${commonCommandLines.join("\n")}\n\n` +
-    "More commands:\n" +
-    `${secondaryCommandLines.join("\n")}\n\n` +
-    `${guidance}\n`;
-}
-
-/**
- * Help for the machine-facing namespace (DEC-019): the only place its commands
- * are listed, deliberately absent from the default command list.
- */
-function machineHelp(context: TerminalPresentationContext): string {
-  const proseWidth = Math.max(1, context.width - 4);
-  const commandLines = machineCommands()
-    .flatMap((command) => [
-      `  ${command.syntax}`,
-      ...wrapPresentationText(command.summary, proseWidth)
-        .map((line) => `    ${line}`),
-    ]);
-  const intro = wrapPresentationText(
-    "Machine-facing commands for external runners and automation. Temporary Profile Installation behavior, JSON payloads, and exit codes are unchanged from their documented contract.",
-    context.width,
-  ).join("\n");
-  return `${intro}\n\n` +
-    `Usage: ${COMMAND_NAME} machine <command> [arguments]\n\n` +
-    `${commandLines.join("\n")}\n`;
 }
 
 /** Runs a command-argument parser and, on failure, reports the error with that command's usage. */
@@ -894,17 +808,20 @@ async function main(): Promise<void> {
     (arguments_.length === 1 && ROOT_HELP_ALIASES.some((alias) => alias === arguments_[0]))
   ) {
     const context = stdoutPresentationContext;
-    writeHuman(process.stdout, rootHelp(context), context);
+    writeHelp(process.stdout, rootHelpDocument(rootWordmark(context)), stdoutPresentationContext);
     return;
   }
   const focusedHelp = focusedHelpRequest(arguments_);
   if (focusedHelp?.kind === "root") {
-    const context = stdoutPresentationContext;
-    writeHuman(process.stdout, rootHelp(context), context);
+    writeHelp(
+      process.stdout,
+      rootHelpDocument(rootWordmark(stdoutPresentationContext)),
+      stdoutPresentationContext,
+    );
     return;
   }
   if (focusedHelp?.kind === "machine") {
-    writeHuman(process.stdout, machineHelp(stdoutPresentationContext), stdoutPresentationContext);
+    writeHelp(process.stdout, machineHelpDocument(), stdoutPresentationContext);
     return;
   }
   if (focusedHelp?.kind === "removedTemporary") {
@@ -917,11 +834,7 @@ async function main(): Promise<void> {
     return;
   }
   if (focusedHelp?.kind === "command") {
-    writeHuman(
-      process.stdout,
-      perCommandHelp(focusedHelp.command, stdoutPresentationContext),
-      stdoutPresentationContext,
-    );
+    writeHelp(process.stdout, commandHelpDocument(focusedHelp.command), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "guide") {
@@ -1246,14 +1159,14 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === MACHINE_NAMESPACE) {
     const rest = arguments_.slice(1);
     if (rest.length === 0) {
-      writeHuman(process.stdout, machineHelp(stdoutPresentationContext), stdoutPresentationContext);
+      writeHelp(process.stdout, machineHelpDocument(), stdoutPresentationContext);
       return;
     }
     const machineFocusedHelp = focusedMachineHelpRequest(rest);
     if (machineFocusedHelp?.kind === "command") {
-      writeHuman(
+      writeHelp(
         process.stdout,
-        perCommandHelp(machineFocusedHelp.command, stdoutPresentationContext),
+        commandHelpDocument(machineFocusedHelp.command),
         stdoutPresentationContext,
       );
       return;

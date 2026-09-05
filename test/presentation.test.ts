@@ -6,6 +6,13 @@ import { dirname, join } from "node:path";
 import type { HostSetupStep } from "../adapters/project-plan.js";
 import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
 import {
+  commandHelpDocument,
+  defaultCommands,
+  machineCommands,
+  machineHelpDocument,
+  rootHelpDocument,
+} from "../cli/command-help.js";
+import {
   applyExecutionFailureDocument,
   applyReportDocument,
   applyVerificationFailureDocument,
@@ -7426,5 +7433,169 @@ describe("authoring and teardown receipt documents (#390)", () => {
       { kind: "key-value", key: "  Hosts", value: { kind: "identifier", value: "codex" } },
     ]);
     expect(copyableValues).toEqual([]);
+  });
+});
+
+describe("help documents (#390)", () => {
+  test("root help presents the wordmark, intro, usage, quick start, groups, and guidance", () => {
+    const { document, copyableValues } = rootHelpDocument([]);
+    const texts = document.map((node) =>
+      node.kind === "key-value"
+        ? `${node.key}:`
+        : node.kind === "sentence" || node.kind === "prose" || node.kind === "heading"
+          ? node.text
+          : "",
+    );
+    expect(texts).toEqual([
+      "Agent Profile Kit composes reusable agent material into host-native projects.",
+      "",
+      "Usage:",
+      "",
+      "First run:",
+      "  apkit init",
+      "  apkit bind <profile> --host <host>",
+      "  apkit status",
+      "  apkit apply",
+      "",
+      "  Choose a Profile with apkit guide profile; see apkit bind --help for supported Host values.",
+      "",
+      "Common commands:",
+      "  init [workspace]",
+      "    Initialize or adopt the canonical Workspace and settings",
+      "  guide [profile|context|skill|--full|--agent]",
+      "    Show a topic index, full Workspace guidance, or one focused authoring example",
+      "  bind <profile> [project] --host <host> [--host <host> ...] [--replace]",
+      "    Configure a Project with a Profile and Agent Hosts, or replace an existing binding",
+      "  validate",
+      "    Check Workspace and settings validity",
+      "  status [project | --all] [--verbose] [--blockers-only] [--json]",
+      "    Show the complete read-only apply plan for the current Project, one explicit Project, or the complete fleet; --blockers-only shows a focused Blocker-only view (combines with --verbose, not --json)",
+      "  apply [project | --all] [--verbose] [--blockers-only] [--json]",
+      "    Sync the current Project, one explicit Project, or the complete fleet; --blockers-only shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view renders unchanged",
+      "",
+      "More commands:",
+      "  Inventory:",
+      "  list [projects|profiles|hosts [--json]]",
+      "    List read-only inventory for Projects, Profiles, Hosts, or temporary Profiles",
+      "  Teardown:",
+      "  unbind [project]",
+      "    Remove a configured Project",
+      "  uninstall",
+      "    Remove proven Agent Profile Kit-owned output from all ordinary Project installations",
+      "  Machine details:",
+      "  info [--json]",
+      "    Show the engine version and selected application locations",
+      "",
+      "For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run apkit guide --full.",
+    ]);
+    // The usage line is one atomic command; quick-start lines are commands.
+    expect(document[2]).toEqual({
+      kind: "key-value",
+      key: "Usage",
+      value: {
+        kind: "command",
+        program: "apkit",
+        args: [
+          { kind: "text", value: "<command>" },
+          { kind: "text", value: "[arguments]" },
+        ],
+      },
+      category: "heading",
+    });
+    const syntaxLines = document.filter((node) =>
+      node.kind === "sentence" && /^\s{2}[a-z]/.test(node.text) && !node.text.startsWith("  apkit") &&
+      !node.text.startsWith("  Choose"),
+    );
+    for (const line of syntaxLines) {
+      expect(line.kind === "sentence" && line.category).toBe("command");
+    }
+    // Every listed syntax line must survive wrapping whole.
+    for (const command of defaultCommands()) {
+      expect(copyableValues).toContain(command.syntax);
+    }
+  });
+
+  test("root help renders the wordmark lines before the intro when interactive", () => {
+    const { document } = rootHelpDocument(["  /\\  Agent Profile Kit", " /__\\ reusable agent material"]);
+    expect(document[0]).toEqual({ kind: "verbatim", text: "  /\\  Agent Profile Kit" });
+    expect(document[1]).toEqual({ kind: "verbatim", text: " /__\\ reusable agent material" });
+    expect(document[2]).toEqual({ kind: "verbatim", text: "" });
+  });
+
+  test("focused command help presents purpose, usage, examples, writes, and next", () => {
+    const status = defaultCommands().find((command) => command.name === "status")!;
+    const { document, copyableValues } = commandHelpDocument(status);
+    const texts = document.map((node) =>
+      node.kind === "key-value"
+        ? `${node.key}:`
+        : node.kind === "sentence" || node.kind === "prose" || node.kind === "heading"
+          ? node.text
+          : "",
+    );
+    expect(texts).toEqual([
+      `Purpose: ${status.summary}`,
+      "",
+      "Usage:",
+      "",
+      "Examples:",
+      ...status.examples.map((example) => `  apkit ${example}`),
+      "",
+      `Writes: ${status.writes}`,
+      "",
+      `Next: ${status.next}`,
+    ]);
+    expect(document[2]).toEqual({
+      kind: "key-value",
+      key: "Usage",
+      value: {
+        kind: "command",
+        program: "apkit",
+        args: status.syntax.split(/\s+/).map((token) => ({ kind: "text", value: token })),
+      },
+      category: "heading",
+    });
+    for (const example of status.examples) {
+      expect(copyableValues).toContain(`apkit ${example}`);
+    }
+    expect(copyableValues).toContain(status.syntax);
+  });
+
+  test("focused command help lists supported Hosts when the command carries them", () => {
+    const bind = defaultCommands().find((command) => command.name === "bind")!;
+    const { document } = commandHelpDocument(bind);
+    const texts = document.map((node) =>
+      node.kind === "sentence" || node.kind === "prose" || node.kind === "heading" ? node.text : "",
+    );
+    expect(texts).toContain("Supported Hosts: antigravity, claude, codex, grok, opencode, pi");
+    expect(texts.indexOf("Supported Hosts: antigravity, claude, codex, grok, opencode, pi"))
+      .toBeGreaterThan(texts.indexOf("Examples:"));
+    expect(texts.indexOf("Supported Hosts: antigravity, claude, codex, grok, opencode, pi"))
+      .toBeLessThan(texts.indexOf(`Writes: ${bind.writes}`));
+  });
+
+  test("machine help presents the namespace intro, usage, and machine commands", () => {
+    const { document, copyableValues } = machineHelpDocument();
+    const texts = document.map((node) =>
+      node.kind === "key-value"
+        ? `${node.key}:`
+        : node.kind === "sentence" || node.kind === "prose" || node.kind === "heading"
+          ? node.text
+          : "",
+    );
+    expect(texts).toEqual([
+      "Machine-facing commands for external runners and automation. Temporary Profile Installation behavior, JSON payloads, and exit codes are unchanged from their documented contract.",
+      "",
+      "Usage:",
+      "",
+      "  machine install-temp <profile> <project> --host <host> [--json]",
+      "    Install a temporary Profile into one Project",
+      "  machine remove-temp <temporary-installation-id> [--json]",
+      "    Remove one temporary Profile",
+      "  machine list [temporary [--json]]",
+      "    List active temporary Profile inventory for external runners",
+    ]);
+    for (const command of machineCommands()) {
+      expect(copyableValues).toContain(command.syntax);
+    }
   });
 });

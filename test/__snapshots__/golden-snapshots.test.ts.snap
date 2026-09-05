@@ -12,48 +12,48 @@ First run:
   apkit status
   apkit apply
 
-  Choose a Profile with apkit guide profile; see apkit bind --help for supported
-  Host values.
+  Choose a Profile with apkit guide profile; see apkit bind --help for
+    supported Host values.
 
 Common commands:
   init [workspace]
     Initialize or adopt the canonical Workspace and settings
   guide [profile|context|skill|--full|--agent]
     Show a topic index, full Workspace guidance, or one focused authoring
-    example
+      example
   bind <profile> [project] --host <host> [--host <host> ...] [--replace]
     Configure a Project with a Profile and Agent Hosts, or replace an existing
-    binding
+      binding
   validate
     Check Workspace and settings validity
   status [project | --all] [--verbose] [--blockers-only] [--json]
-    Show the complete read-only apply plan for the current Project, one explicit
-    Project, or the complete fleet; --blockers-only shows a focused Blocker-only
-    view (combines with --verbose, not --json)
+    Show the complete read-only apply plan for the current Project, one
+      explicit Project, or the complete fleet; --blockers-only shows a focused
+      Blocker-only view (combines with --verbose, not --json)
   apply [project | --all] [--verbose] [--blockers-only] [--json]
     Sync the current Project, one explicit Project, or the complete fleet;
-    --blockers-only shows a focused Blocker-only view that always keeps the
-    Applied receipt and failed or pending Projects visible (combines with
-    --verbose, not --json); with no Blockers the ordinary receipt view renders
-    unchanged
+      --blockers-only shows a focused Blocker-only view that always keeps the
+      Applied receipt and failed or pending Projects visible (combines with
+      --verbose, not --json); with no Blockers the ordinary receipt view renders
+      unchanged
 
 More commands:
   Inventory:
   list [projects|profiles|hosts [--json]]
     List read-only inventory for Projects, Profiles, Hosts, or temporary
-    Profiles
+      Profiles
   Teardown:
   unbind [project]
     Remove a configured Project
   uninstall
     Remove proven Agent Profile Kit-owned output from all ordinary Project
-    installations
+      installations
   Machine details:
   info [--json]
     Show the engine version and selected application locations
 
-For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and
-bindings), run apkit guide --full.
+For deeper Workspace authoring guidance (Context Modules, Skills, Profiles,
+  and bindings), run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -61,8 +61,8 @@ bindings), run apkit guide --full.
 exports[`golden snapshots of every human view machine help: machine-help 1`] = `
 "--- stdout ---
 Machine-facing commands for external runners and automation. Temporary Profile
-Installation behavior, JSON payloads, and exit codes are unchanged from their
-documented contract.
+  Installation behavior, JSON payloads, and exit codes are unchanged from their
+  documented contract.
 
 Usage: apkit machine <command> [arguments]
 
@@ -1453,8 +1453,8 @@ exports[`rendering matrix for a representative subset root help matrix: root-hel
  /__\\ reusable agent material
 
 Agent Profile Kit composes reusable
-agent material into host-native
-projects.
+  agent material into host-native
+  projects.
 
 Usage: apkit <command> [arguments]
 
@@ -1465,78 +1465,80 @@ First run:
   apkit apply
 
   Choose a Profile with apkit guide
-  profile; see apkit bind --help for
-  supported Host values.
+    profile; see apkit bind --help for
+    supported Host values.
 
 Common commands:
   init [workspace]
     Initialize or adopt the canonical
-    Workspace and settings
+      Workspace and settings
   guide [profile|context|skill|--full|--agent]
     Show a topic index, full Workspace
-    guidance, or one focused authoring
-    example
+      guidance, or one focused authoring
+      example
   bind <profile> [project] --host <host> [--host <host> ...] [--replace]
     Configure a Project with a Profile
-    and Agent Hosts, or replace an
-    existing binding
+      and Agent Hosts, or replace an
+      existing binding
   validate
     Check Workspace and settings
-    validity
+      validity
   status [project | --all] [--verbose] [--blockers-only] [--json]
     Show the complete read-only apply
-    plan for the current Project, one
-    explicit Project, or the complete
-    fleet; --blockers-only shows a
-    focused Blocker-only view (combines
-    with --verbose, not --json)
+      plan for the current Project, one
+      explicit Project, or the complete
+      fleet; --blockers-only shows a
+      focused Blocker-only view
+      (combines with --verbose, not
+      --json)
   apply [project | --all] [--verbose] [--blockers-only] [--json]
     Sync the current Project, one
-    explicit Project, or the complete
-    fleet; --blockers-only shows a
-    focused Blocker-only view that
-    always keeps the Applied receipt and
-    failed or pending Projects visible
-    (combines with --verbose, not
-    --json); with no Blockers the
-    ordinary receipt view renders
-    unchanged
+      explicit Project, or the complete
+      fleet; --blockers-only shows a
+      focused Blocker-only view that
+      always keeps the Applied receipt
+      and failed or pending Projects
+      visible (combines with --verbose,
+      not --json); with no Blockers the
+      ordinary receipt view renders
+      unchanged
 
 More commands:
   Inventory:
   list [projects|profiles|hosts [--json]]
     List read-only inventory for
-    Projects, Profiles, Hosts, or
-    temporary Profiles
+      Projects, Profiles, Hosts, or
+      temporary Profiles
   Teardown:
   unbind [project]
     Remove a configured Project
   uninstall
     Remove proven Agent Profile
-    Kit-owned output from all ordinary
-    Project installations
+      Kit-owned output from all ordinary
+      Project installations
   Machine details:
   info [--json]
-    Show the engine version and selected
-    application locations
+    Show the engine version and
+      selected application locations
 
-For deeper Workspace authoring guidance
-(Context Modules, Skills, Profiles, and
-bindings), run apkit guide --full.
+For deeper Workspace authoring
+  guidance (Context Modules, Skills,
+  Profiles, and bindings), run
+  apkit guide --full.
 --- stderr ---
 "
 `;
 
 exports[`rendering matrix for a representative subset root help matrix: root-help-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1;34m  /\\  Agent Profile Kit\x1B[0m
-\x1B[1;34m /__\\ reusable agent material\x1B[0m
+  /\\  Agent Profile Kit
+ /__\\ reusable agent material
 
 Agent Profile Kit composes reusable
-agent material into host-native
-projects.
+  agent material into host-native
+  projects.
 
-\x1B[1;34mUsage: apkit <command> [arguments]\x1B[0m
+\x1B[1;34mUsage: \x1B[36mapkit <command> [arguments]\x1B[0m\x1B[0m
 
 \x1B[1;34mFirst run:\x1B[0m
 \x1B[36m  apkit init\x1B[0m
@@ -1545,64 +1547,66 @@ projects.
 \x1B[36m  apkit apply\x1B[0m
 
   Choose a Profile with apkit guide
-  profile; see apkit bind --help for
-  supported Host values.
+    profile; see apkit bind --help for
+    supported Host values.
 
 \x1B[1;34mCommon commands:\x1B[0m
 \x1B[36m  init [workspace]\x1B[0m
     Initialize or adopt the canonical
-    Workspace and settings
+      Workspace and settings
 \x1B[36m  guide [profile|context|skill|--full|--agent]\x1B[0m
     Show a topic index, full Workspace
-    guidance, or one focused authoring
-    example
+      guidance, or one focused authoring
+      example
 \x1B[36m  bind <profile> [project] --host <host> [--host <host> ...] [--replace]\x1B[0m
     Configure a Project with a Profile
-    and Agent Hosts, or replace an
-    existing binding
+      and Agent Hosts, or replace an
+      existing binding
 \x1B[36m  validate\x1B[0m
     Check Workspace and settings
-    validity
+      validity
 \x1B[36m  status [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
     Show the complete read-only apply
-    plan for the current Project, one
-    explicit Project, or the complete
-    fleet; --blockers-only shows a
-    focused Blocker-only view (combines
-    with --verbose, not --json)
+      plan for the current Project, one
+      explicit Project, or the complete
+      fleet; --blockers-only shows a
+      focused Blocker-only view
+      (combines with --verbose, not
+      --json)
 \x1B[36m  apply [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
     Sync the current Project, one
-    explicit Project, or the complete
-    fleet; --blockers-only shows a
-    focused Blocker-only view that
-    always keeps the Applied receipt and
-    failed or pending Projects visible
-    (combines with --verbose, not
-    --json); with no Blockers the
-    ordinary receipt view renders
-    unchanged
+      explicit Project, or the complete
+      fleet; --blockers-only shows a
+      focused Blocker-only view that
+      always keeps the Applied receipt
+      and failed or pending Projects
+      visible (combines with --verbose,
+      not --json); with no Blockers the
+      ordinary receipt view renders
+      unchanged
 
 \x1B[1;34mMore commands:\x1B[0m
 \x1B[1;34m  Inventory:\x1B[0m
 \x1B[36m  list [projects|profiles|hosts [--json]]\x1B[0m
     List read-only inventory for
-    Projects, Profiles, Hosts, or
-    temporary Profiles
+      Projects, Profiles, Hosts, or
+      temporary Profiles
 \x1B[1;34m  Teardown:\x1B[0m
 \x1B[36m  unbind [project]\x1B[0m
     Remove a configured Project
 \x1B[36m  uninstall\x1B[0m
     Remove proven Agent Profile
-    Kit-owned output from all ordinary
-    Project installations
+      Kit-owned output from all ordinary
+      Project installations
 \x1B[1;34m  Machine details:\x1B[0m
 \x1B[36m  info [--json]\x1B[0m
-    Show the engine version and selected
-    application locations
+    Show the engine version and
+      selected application locations
 
-\x1B[2mFor deeper Workspace authoring guidance\x1B[0m
-(Context Modules, Skills, Profiles, and
-bindings), run apkit guide --full.
+\x1B[2mFor deeper Workspace authoring\x1B[0m
+\x1B[2m  guidance (Context Modules, Skills,\x1B[0m
+\x1B[2m  Profiles, and bindings), run\x1B[0m
+\x1B[2m  apkit guide --full.\x1B[0m
 --- stderr ---
 "
 `;
@@ -1635,13 +1639,13 @@ Common commands:
     Check Workspace and settings validity
   status [project | --all] [--verbose] [--blockers-only] [--json]
     Show the complete read-only apply plan for the current Project, one explicit Project, or the
-    complete fleet; --blockers-only shows a focused Blocker-only view (combines with --verbose, not
-    --json)
+      complete fleet; --blockers-only shows a focused Blocker-only view (combines with --verbose,
+      not --json)
   apply [project | --all] [--verbose] [--blockers-only] [--json]
     Sync the current Project, one explicit Project, or the complete fleet; --blockers-only shows a
-    focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects
-    visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view
-    renders unchanged
+      focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects
+      visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view
+      renders unchanged
 
 More commands:
   Inventory:
@@ -1656,20 +1660,20 @@ More commands:
   info [--json]
     Show the engine version and selected application locations
 
-For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run apkit
-guide --full.
+For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run
+  apkit guide --full.
 --- stderr ---
 "
 `;
 
 exports[`rendering matrix for a representative subset root help matrix: root-help-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1;34m  /\\  Agent Profile Kit\x1B[0m
-\x1B[1;34m /__\\ reusable agent material\x1B[0m
+  /\\  Agent Profile Kit
+ /__\\ reusable agent material
 
 Agent Profile Kit composes reusable agent material into host-native projects.
 
-\x1B[1;34mUsage: apkit <command> [arguments]\x1B[0m
+\x1B[1;34mUsage: \x1B[36mapkit <command> [arguments]\x1B[0m\x1B[0m
 
 \x1B[1;34mFirst run:\x1B[0m
 \x1B[36m  apkit init\x1B[0m
@@ -1690,13 +1694,13 @@ Agent Profile Kit composes reusable agent material into host-native projects.
     Check Workspace and settings validity
 \x1B[36m  status [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
     Show the complete read-only apply plan for the current Project, one explicit Project, or the
-    complete fleet; --blockers-only shows a focused Blocker-only view (combines with --verbose, not
-    --json)
+      complete fleet; --blockers-only shows a focused Blocker-only view (combines with --verbose,
+      not --json)
 \x1B[36m  apply [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
     Sync the current Project, one explicit Project, or the complete fleet; --blockers-only shows a
-    focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects
-    visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view
-    renders unchanged
+      focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects
+      visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view
+      renders unchanged
 
 \x1B[1;34mMore commands:\x1B[0m
 \x1B[1;34m  Inventory:\x1B[0m
@@ -1711,8 +1715,8 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[36m  info [--json]\x1B[0m
     Show the engine version and selected application locations
 
-\x1B[2mFor deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run apkit\x1B[0m
-\x1B[36mguide --full.\x1B[0m
+\x1B[2mFor deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run\x1B[0m
+\x1B[2m  apkit guide --full.\x1B[0m
 --- stderr ---
 "
 `;

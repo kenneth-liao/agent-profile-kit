@@ -205,3 +205,163 @@ export function commandInvocationStarters(): readonly string[] {
     command.namespace === undefined ? command.name : `${command.namespace} ${command.name}`,
   );
 }
+
+import type { PresentationDocument, PresentationNode } from "./presentation-document.js";
+
+/** One help view: its document plus the lines that must survive wrapping whole. */
+export interface HelpDocument {
+  readonly document: PresentationDocument;
+  readonly copyableValues: readonly string[];
+}
+
+const ROOT_INTRO =
+  "Agent Profile Kit composes reusable agent material into host-native projects.";
+const ROOT_DISCOVERY =
+  `  Choose a Profile with ${COMMAND_NAME} guide profile; see ${COMMAND_NAME} bind --help for supported Host values.`;
+const ROOT_GUIDANCE =
+  `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide --full.`;
+
+const QUICK_START_COMMANDS = [
+  "init",
+  "bind <profile> --host <host>",
+  "status",
+  "apply",
+] as const;
+
+function spacer(): PresentationNode {
+  return { kind: "verbatim", text: "" };
+}
+
+/** One indented syntax line: category command, never wrapped or folded. */
+function syntaxNodes(command: CommandHelp): PresentationNode {
+  return {
+    kind: "sentence",
+    text: `  ${command.syntax}`,
+    category: "command",
+  };
+}
+
+function summaryNode(command: CommandHelp): PresentationNode {
+  return { kind: "sentence", text: `    ${command.summary}` };
+}
+
+function usageNode(syntax: string): PresentationNode {
+  return {
+    kind: "key-value",
+    key: "Usage",
+    value: {
+      kind: "command",
+      program: COMMAND_NAME,
+      args: syntax
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((token) => ({ kind: "text" as const, value: token })),
+    },
+    category: "heading",
+  };
+}
+
+/**
+ * Root help as a presentation document. The wordmark is authored by the CLI
+ * boundary — the one place allowed to read the terminal context (DEC-012).
+ */
+export function rootHelpDocument(wordmark: readonly string[]): HelpDocument {
+  const nodes: PresentationNode[] = [];
+  const copyableValues: string[] = [];
+  // The wordmark is pre-formatted ASCII art: reproduced exactly, unwrapped
+  // and unstyled (verbatim content, DEC-008).
+  for (const line of wordmark) {
+    nodes.push({ kind: "verbatim", text: line });
+  }
+  if (wordmark.length > 0) nodes.push(spacer());
+  nodes.push(
+    { kind: "sentence", text: ROOT_INTRO },
+    spacer(),
+    usageNode("<command> [arguments]"),
+    spacer(),
+    { kind: "heading", text: "First run:" },
+  );
+  for (const command of QUICK_START_COMMANDS) {
+    nodes.push({ kind: "sentence", text: `  ${COMMAND_NAME} ${command}`, category: "command" });
+  }
+  nodes.push(
+    spacer(),
+    { kind: "sentence", text: ROOT_DISCOVERY },
+    spacer(),
+    { kind: "heading", text: "Common commands:" },
+  );
+  for (const command of defaultCommands().filter((entry) => entry.group === "common")) {
+    nodes.push(syntaxNodes(command), summaryNode(command));
+    copyableValues.push(command.syntax);
+  }
+  nodes.push(spacer(), { kind: "heading", text: "More commands:" });
+  for (const [group, label] of COMMAND_GROUPS) {
+    if (group === "common") continue;
+    const listed = defaultCommands().filter((entry) => entry.group === group);
+    if (listed.length === 0) continue;
+    nodes.push({ kind: "heading", text: `  ${label}:` });
+    for (const command of listed) {
+      nodes.push(syntaxNodes(command), summaryNode(command));
+      copyableValues.push(command.syntax);
+    }
+  }
+  nodes.push(spacer(), { kind: "sentence", text: ROOT_GUIDANCE, category: "muted" });
+  return { document: nodes, copyableValues };
+}
+
+/**
+ * Help for the machine-facing namespace (DEC-019): the only place its commands
+ * are listed, deliberately absent from the default command list.
+ */
+export function machineHelpDocument(): HelpDocument {
+  const nodes: PresentationNode[] = [
+    {
+      kind: "sentence",
+      text:
+        "Machine-facing commands for external runners and automation. Temporary Profile Installation behavior, JSON payloads, and exit codes are unchanged from their documented contract.",
+    },
+    spacer(),
+    usageNode("machine <command> [arguments]"),
+    spacer(),
+  ];
+  const copyableValues: string[] = [];
+  for (const command of machineCommands()) {
+    nodes.push(syntaxNodes(command), summaryNode(command));
+    copyableValues.push(command.syntax);
+  }
+  return { document: nodes, copyableValues };
+}
+
+/** Focused help for one command: purpose, usage, examples, writes, and next. */
+export function commandHelpDocument(command: CommandHelp): HelpDocument {
+  const nodes: PresentationNode[] = [
+    { kind: "sentence", text: `Purpose: ${command.summary}`, category: "heading" },
+    spacer(),
+    usageNode(command.syntax),
+    spacer(),
+    { kind: "heading", text: "Examples:" },
+  ];
+  const copyableValues: string[] = [command.syntax];
+  for (const example of command.examples) {
+    const invocation = `${COMMAND_NAME} ${example}`;
+    nodes.push({ kind: "sentence", text: `  ${invocation}`, category: "command" });
+    copyableValues.push(invocation);
+  }
+  if (command.supportedHosts !== undefined) {
+    nodes.push(
+      spacer(),
+      {
+        kind: "sentence",
+        text: `Supported Hosts: ${command.supportedHosts.join(", ")}`,
+        category: "heading",
+      },
+    );
+  }
+  nodes.push(
+    spacer(),
+    { kind: "sentence", text: `Writes: ${command.writes}`, category: "heading" },
+    spacer(),
+    { kind: "sentence", text: `Next: ${command.next}`, category: "command" },
+  );
+  return { document: nodes, copyableValues };
+}
