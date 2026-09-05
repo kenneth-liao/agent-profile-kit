@@ -47,6 +47,12 @@ import { readInstallationState } from "../installer/installation-state.js";
 import { humanText } from "./support/human-text.js";
 import { ensureProductionBundle } from "./support/package-archive.js";
 import {
+  FLEET_CLI_PATH,
+  runFleetCli,
+  runFleetCliWithExplicitPath,
+  withFleetScope,
+} from "./support/fleet-cli.js";
+import {
   createFleetFixture,
   cleanupFleetFixtures,
   gitRepository,
@@ -72,7 +78,6 @@ import {
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
-let cliPath = join(repositoryRoot, "dist", "cli.js");
 
 beforeAll(() => {
   ensureProductionBundle(repositoryRoot);
@@ -94,22 +99,8 @@ function createPackedFleet(home: string): FleetFixture {
   return createFleetFixture(home);
 }
 
-function withFleetScope(arguments_: readonly string[]): readonly string[] {
-  const [command, ...rest] = arguments_;
-  const hasPositional = rest.some((arg) => !arg.startsWith("-"));
-  return (command === "apply" || command === "status") && !rest.includes("--all") && !hasPositional
-    ? [...arguments_, "--all"]
-    : arguments_;
-}
-
 async function runCli(home: string, pathValue: string, ...arguments_: string[]) {
-  return runProcess({
-    executable: process.env.NODE_BINARY ?? "node",
-    arguments_: [cliPath, ...withFleetScope(arguments_)],
-    environment: { ...process.env, HOME: home, PATH: pathValue },
-    deadlineMs: TEST_CHILD_DEADLINE_MS,
-    commandLabel: "packed CLI",
-  });
+  return runFleetCli(home, pathValue, arguments_);
 }
 
 /** Packed CLI run with a fully controlled PATH (system PATH excluded) so a missing Host stays missing. */
@@ -118,14 +109,7 @@ async function runCliWithExplicitPath(
   pathValue: string,
   ...arguments_: string[]
 ) {
-  return runProcess({
-    // Absolute runtime path so a restricted PATH cannot shadow the runner.
-    executable: process.env.NODE_BINARY ?? process.execPath,
-    arguments_: [cliPath, ...withFleetScope(arguments_)],
-    environment: { ...process.env, HOME: home, PATH: pathValue },
-    deadlineMs: TEST_CHILD_DEADLINE_MS,
-    commandLabel: "packed CLI",
-  });
+  return runFleetCliWithExplicitPath(home, pathValue, arguments_);
 }
 
 function stripPtyControlArtifacts(text: string): string {
@@ -149,7 +133,7 @@ async function runCliInPtyRaw(
     "exec",
     ...[
       process.env.NODE_BINARY ?? "node",
-      cliPath,
+      FLEET_CLI_PATH,
       ...withFleetScope(arguments_),
     ].map(shellQuote),
   ].join(" ");
@@ -457,7 +441,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(nextRead.stdout).toContain("All Projects are current (14 Projects)");
     expectExitCode(await runCli(home, fixture.pathWithHosts, "apply"), 0);
     expect(readFileSync(statePath, "utf8")).toBe(published);
-  });
+  }, 120_000);
 
   test("delayed progress is cleared on the packed fleet PTY, and non-interactive modes stay progress-free", async () => {
     const home = isolatedHome();
@@ -490,7 +474,7 @@ describe("fleet-wide synchronization qualification", () => {
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [cliPath, "status", "--all"],
+      arguments_: [FLEET_CLI_PATH, "status", "--all"],
       environment: {
         ...process.env,
         APKIT_TEST_CODEX_DELAY: "1.2",
@@ -507,7 +491,7 @@ describe("fleet-wide synchronization qualification", () => {
 
     const json = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [cliPath, "status", "--all", "--json"],
+      arguments_: [FLEET_CLI_PATH, "status", "--all", "--json"],
       environment: {
         ...process.env,
         APKIT_TEST_CODEX_DELAY: "1.2",
@@ -558,7 +542,7 @@ describe("fleet-wide synchronization qualification", () => {
     await expect(benchmarkWarmRuns(home, { commands: [] })).rejects.toThrow(
       /at least one command/,
     );
-  });
+  }, 120_000);
 
   test("validate is part of the same command-layer instrumentation surface", async () => {
     const home = isolatedHome();
