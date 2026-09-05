@@ -2,7 +2,15 @@ import { expect, test } from "bun:test";
 
 import { delimitedContext, displayPath } from "../cli/presentation.js";
 import { diagnosticDocument } from "../cli/diagnostics.js";
-import { renderPresentationDocument } from "../cli/presentation-document.js";
+import {
+  type CommandArg,
+  commandPart,
+  type InlineContent,
+  pathPart,
+  renderPresentationDocument,
+} from "../cli/presentation-document.js";
+
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 const redirected = { color: false, interactive: false, width: 80 } as const;
 
@@ -395,3 +403,95 @@ test("reproduces verbatim content exactly, including fence escalation, without w
 function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
 }
+
+test("renders inline parts with byte-identical output to the carried string", () => {
+  // The parts model is the structural replacement for the copyable-value
+  // protector: whatever the protector kept whole or promoted must render
+  // identically when the invocation and path are authored as parts instead of
+  // scanned out of the rendered string.
+  const project = "/tmp/agent profile kit/project";
+  const cases: readonly {
+    readonly name: string;
+    readonly text: string;
+    readonly parts: readonly InlineContent[];
+    readonly copyableValues?: readonly string[];
+  }[] = [
+    {
+      name: "promoted command invocation",
+      text: "Recovery command: run apkit status --blockers-only --verbose to see the exact untracking command.",
+      parts: [
+        "Recovery command: run ",
+        commandPart("apkit", [arg("status"), arg("--blockers-only"), arg("--verbose")]),
+        " to see the exact untracking command.",
+      ],
+    },
+    {
+      name: "promoted invocation with trailing punctuation",
+      text: "For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run apkit guide --full.",
+      parts: [
+        "For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ",
+        commandPart("apkit", [arg("guide"), arg("--full.")]),
+      ],
+    },
+    {
+      name: "spaced copyable path kept whole",
+      text: `- ${project}: Profile installation update`,
+      parts: ["- ", pathPart(project, "fleet"), ": Profile installation update"],
+      copyableValues: [project],
+    },
+    {
+      name: "sentence keeps invocations inline and whole",
+      text: "apkit: apkit status Project target '/projects/demo' is not a bound Project; run apkit list projects or apkit bind",
+      parts: [
+        "apkit: ",
+        commandPart("apkit", [arg("status")]),
+        " Project target '/projects/demo' is not a bound Project; run ",
+        commandPart("apkit", [arg("list"), arg("projects")]),
+        " or ",
+        commandPart("apkit", [arg("bind")]),
+      ],
+    },
+  ];
+  for (const width of [40, 72, 80, 100]) {
+    for (const { name, text, parts, copyableValues } of cases) {
+      for (const kind of ["prose", "sentence"] as const) {
+        const carried = renderPresentationDocument(
+          [{ kind, text, category: "attention" }],
+          { color: false, interactive: false, width },
+          copyableValues === undefined ? {} : { copyableValues },
+        );
+        const structured = renderPresentationDocument(
+          [{ kind, parts, category: "attention" }],
+          { color: false, interactive: false, width },
+        );
+        expect(structured, `${kind} parts mismatch at width ${width}: ${name}`).toBe(carried);
+      }
+    }
+  }
+});
+
+test("renders list-item parts with byte-identical output to carried child nodes", () => {
+  const carried = renderPresentationDocument(
+    [{
+      kind: "list-item",
+      nodes: [{
+        kind: "prose",
+        text: "~/projects/demo: Resolve the reported blocker, then run apkit status again.",
+      }],
+    }],
+    { color: false, interactive: false, width: 40 },
+  );
+  const structured = renderPresentationDocument(
+    [{
+      kind: "list-item",
+      parts: [
+        "~/projects/demo",
+        ": Resolve the reported blocker, then run ",
+        commandPart("apkit", [arg("status")]),
+        " again.",
+      ],
+    }],
+    { color: false, interactive: false, width: 40 },
+  );
+  expect(structured).toBe(carried);
+});
