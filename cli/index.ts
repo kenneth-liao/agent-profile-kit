@@ -391,29 +391,29 @@ function sanitizeCommandToken(token: string): string {
   return token.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").replaceAll("'", "\\'");
 }
 
-function wrapErrorLine(text: string, width: number): string {
-  return wrapPresentationText(text, width)
-    .map((line, index) => index === 0 ? line : `  ${line}`)
-    .join("\n");
+/** The diagnostic for one command removed behind the machine namespace (DEC-019). */
+function removedNamespaceDiagnostic(name: string): PresentationDocument {
+  return diagnosticDocument({
+    happened: `${name} moved behind the machine namespace`,
+    whatToType: [`Use ${COMMAND_NAME} machine ${name}`],
+  });
 }
 
-function unknownCommandHelp(unknown: string, context: TerminalPresentationContext): string {
+function unknownCommandDiagnostic(unknown: string): PresentationDocument {
   const safeUnknown = sanitizeCommandToken(unknown);
   const suggestion = suggestedCommand(safeUnknown);
-  const unknownLine = `${COMMAND_NAME}: unknown command '${safeUnknown}'`;
-  const lines = [unknownLine];
-  if (suggestion !== undefined) lines.push(`Did you mean: ${COMMAND_NAME} ${suggestion}?`);
-  lines.push("", `Run ${COMMAND_NAME} --help for available commands.`);
-  return lines
-    .map((line) => line === "" ? "" : wrapErrorLine(line, context.width))
-    .join("\n") + "\n";
+  return diagnosticDocument({
+    happened: `unknown command '${safeUnknown}'`,
+    whatToType: [
+      ...(suggestion === undefined ? [] : [`Did you mean: ${COMMAND_NAME} ${suggestion}?`]),
+      "",
+      `Run ${COMMAND_NAME} --help for available commands.`,
+    ],
+  });
 }
 
 /** Unknown-command help inside the machine-facing namespace (DEC-019). */
-function unknownMachineCommandHelp(
-  unknown: string,
-  context: TerminalPresentationContext,
-): string {
+function unknownMachineCommandDiagnostic(unknown: string): PresentationDocument {
   const safeUnknown = sanitizeCommandToken(unknown);
   const suggestion = machineCommands()
     .map((command) => ({
@@ -426,14 +426,16 @@ function unknownMachineCommandHelp(
       return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
     })[0]
     ?.name;
-  const lines = [`${COMMAND_NAME}: unknown machine command '${safeUnknown}'`];
-  if (suggestion !== undefined) {
-    lines.push(`Did you mean: ${COMMAND_NAME} machine ${suggestion}?`);
-  }
-  lines.push("", `Run ${COMMAND_NAME} machine --help for available machine commands.`);
-  return lines
-    .map((line) => line === "" ? "" : wrapErrorLine(line, context.width))
-    .join("\n") + "\n";
+  return diagnosticDocument({
+    happened: `unknown machine command '${safeUnknown}'`,
+    whatToType: [
+      ...(suggestion === undefined
+        ? []
+        : [`Did you mean: ${COMMAND_NAME} machine ${suggestion}?`]),
+      "",
+      `Run ${COMMAND_NAME} machine --help for available machine commands.`,
+    ],
+  });
 }
 
 function perCommandHelp(
@@ -539,9 +541,12 @@ function parseOrExit<T>(command: string, parse: () => T): T | undefined {
   try {
     return parse();
   } catch (error) {
-    writeHuman(
+    writeHumanDiagnostic(
       process.stderr,
-      humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`) + commandUsage(command),
+      diagnosticDocument({
+        ...carriedErrorParts(formatErrorForHuman(error)),
+        usage: commandSyntax(command),
+      }),
       stderrPresentationContext,
     );
     process.exitCode = 1;
@@ -914,11 +919,9 @@ async function main(): Promise<void> {
     return;
   }
   if (focusedHelp?.kind === "removedTemporary") {
-    writeHuman(
+    writeHumanDiagnostic(
       process.stderr,
-      humanError(
-        `${COMMAND_NAME}: ${focusedHelp.name} moved behind the machine namespace\nUse ${COMMAND_NAME} machine ${focusedHelp.name}\n`,
-      ),
+      removedNamespaceDiagnostic(focusedHelp.name),
       stderrPresentationContext,
     );
     process.exitCode = 1;
@@ -953,7 +956,14 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     const result = await initializeWorkspace(home, parsed);
     for (const warning of result.warnings) {
-      writeHuman(process.stderr, humanError(`${COMMAND_NAME}: warning: ${warning}\n`), stderrPresentationContext);
+      writeHumanDiagnostic(
+        process.stderr,
+        diagnosticDocument({
+          happened: `warning: ${warning}`,
+          severity: "attention",
+        }),
+        stderrPresentationContext,
+      );
     }
     if (result.outcome === "migrated") {
       writeHuman(
@@ -1143,7 +1153,11 @@ async function main(): Promise<void> {
           formatInfoToolErrorJson(applicationInfoLocations(home), formatError(error)),
         );
       } else {
-        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+        writeHumanDiagnostic(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
       }
       process.exitCode = 1;
     }
@@ -1177,7 +1191,11 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProjectInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+            writeHumanDiagnostic(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
           }
           process.exitCode = 1;
         }
@@ -1197,7 +1215,11 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProfileInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+            writeHumanDiagnostic(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
           }
           process.exitCode = 1;
         }
@@ -1341,11 +1363,9 @@ async function main(): Promise<void> {
   }
   if (arguments_.length >= 1 && REMOVED_TEMPORARY_COMMANDS.some((name) => name === arguments_[0])) {
     const removed = arguments_[0]!;
-    writeHuman(
+    writeHumanDiagnostic(
       process.stderr,
-      humanError(
-        `${COMMAND_NAME}: ${removed} moved behind the machine namespace\nUse ${COMMAND_NAME} machine ${removed}\n`,
-      ),
+      removedNamespaceDiagnostic(removed),
       stderrPresentationContext,
     );
     process.exitCode = 1;
@@ -1419,13 +1439,14 @@ async function main(): Promise<void> {
               }),
             );
           } else {
-            writeHuman(
+            writeHumanDiagnostic(
               process.stderr,
-              humanError(
-                `${COMMAND_NAME}: ${formatError(error)}\n` +
-                  `${COMMAND_NAME}: removal is required; run ${COMMAND_NAME} machine remove-temp ${error.temporaryInstallationId}\n`,
-                [error.temporaryInstallationId],
-              ),
+              diagnosticDocument({
+                happened: formatError(error),
+                whatToType: [
+                  `removal is required; run ${COMMAND_NAME} machine remove-temp ${error.temporaryInstallationId}`,
+                ],
+              }),
               stderrPresentationContext,
             );
           }
@@ -1437,7 +1458,11 @@ async function main(): Promise<void> {
             formatTemporaryInstallationToolErrorJson("install-temp", formatError(error)),
           );
         } else {
-          writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+          writeHumanDiagnostic(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
         }
         process.exitCode = 1;
       }
@@ -1489,7 +1514,11 @@ async function main(): Promise<void> {
             formatTemporaryInstallationToolErrorJson("remove-temp", formatError(error)),
           );
         } else {
-          writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+          writeHumanDiagnostic(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
         }
         process.exitCode = 1;
       }
@@ -1523,14 +1552,21 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatTemporaryInventoryToolErrorJson(formatError(error)));
         } else {
-          writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+          writeHumanDiagnostic(
+            process.stderr,
+            diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+            stderrPresentationContext,
+          );
         }
         process.exitCode = 1;
       }
       return;
     }
-    const context = stderrPresentationContext;
-    writeHuman(process.stderr, unknownMachineCommandHelp(subcommand, context), context);
+    writeHumanDiagnostic(
+      process.stderr,
+      unknownMachineCommandDiagnostic(subcommand),
+      stderrPresentationContext,
+    );
     process.exitCode = 1;
     return;
   }
@@ -1538,12 +1574,19 @@ async function main(): Promise<void> {
   const unknown = focusedHelp?.kind === "unknown"
     ? focusedHelp.token
     : arguments_[0] ?? "";
-  const context = stderrPresentationContext;
-  writeHuman(process.stderr, unknownCommandHelp(unknown, context), context);
+  writeHumanDiagnostic(
+    process.stderr,
+    unknownCommandDiagnostic(unknown),
+    stderrPresentationContext,
+  );
   process.exitCode = 1;
 }
 
 main().catch((error: unknown) => {
-  writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+  writeHumanDiagnostic(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
   process.exitCode = 1;
 });

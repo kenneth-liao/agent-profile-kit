@@ -1,6 +1,7 @@
 import { COMMAND_NAME } from "../installer/version.js";
 import type {
   CommandArg,
+  NoticeSeverity,
   PresentationDocument,
   PresentationNode,
 } from "./presentation-document.js";
@@ -23,6 +24,8 @@ export interface DiagnosticDocumentParts {
   readonly whatToType?: readonly string[];
   /** The command usage line, rendered as one atomic command node. */
   readonly usage?: string;
+  /** Severity of the diagnostic notice; errors default, warnings pass "attention". */
+  readonly severity?: NoticeSeverity;
 }
 
 /** The presentation document for one CLI-boundary diagnostic (DEC-018). */
@@ -30,7 +33,7 @@ export function diagnosticDocument(parts: DiagnosticDocumentParts): Presentation
   const nodes: PresentationNode[] = [
     {
       kind: "notice",
-      severity: "error",
+      severity: parts.severity ?? "error",
       nodes: [
         { kind: "sentence", text: `${COMMAND_NAME}: ${parts.happened}` },
         ...(parts.why ?? []).map((line): PresentationNode => ({

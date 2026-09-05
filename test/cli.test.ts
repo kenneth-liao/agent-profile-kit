@@ -889,8 +889,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(projectPath, { recursive: true });
 
     const cases: { workspace: string; setup?: () => void; pattern: RegExp }[] = [
-      { workspace: "./relative-ws", pattern: /absolute path or home-relative/i },
-      { workspace: "~/projects/*", pattern: /without wildcards/i },
+      { workspace: "./relative-ws", pattern: /absolute path or\s+home-relative/i },
+      { workspace: "~/projects/*", pattern: /without\s+wildcards/i },
       { workspace: join(home, "missing-ws"), pattern: /must be an existing directory/i },
       {
         workspace: join(home, "as-file"),
@@ -1242,11 +1242,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }[] = [
       {
         authored: () => "./relative-workspace",
-        pattern: /absolute path or home-relative/i,
+        pattern: /absolute path or\s+home-relative/i,
       },
       {
         authored: () => "~/projects/*",
-        pattern: /without wildcards/i,
+        pattern: /without\s+wildcards/i,
       },
       {
         authored: (home) => join(home, "as-file"),
@@ -1965,7 +1965,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       { cwd: undefined, target: unbound, pattern: /not a bound Project/i },
       { cwd: undefined, target: missing, pattern: /must be an existing directory/i },
       { cwd: undefined, target: "relative/project", pattern: /absolute path or\s+home-relative/i },
-      { cwd: undefined, target: "~/projects/*", pattern: /without wildcards/i },
+      { cwd: undefined, target: "~/projects/*", pattern: /without\s+wildcards/i },
       { cwd: undefined, target: invalid, pattern: /must be an existing directory/i },
       { cwd: nested, target: undefined, pattern: /ambiguous.*multiple configured Projects/i },
     ] as const;
@@ -8602,7 +8602,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     const relative = await runCli(home, "bind", "coding", "relative/path", "--host", "codex");
     expectExitCode(relative, 1);
-    expect(relative.stderr).toMatch(/absolute path or home-relative/i);
+    expect(relative.stderr).toMatch(/absolute path or\s+home-relative/i);
 
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
