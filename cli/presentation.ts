@@ -1609,7 +1609,7 @@ function aggregateLine(
 function warningGroupKey(warning: ReconciliationWarning): string {
   return JSON.stringify([
     warning.kind,
-    warning.message,
+    flatInlineText(warning.parts),
     warning.consequence ?? "",
     [...warning.copyableValues],
   ]);
@@ -1619,7 +1619,6 @@ export interface WarningPresentationGroup {
   readonly consequence?: string;
   readonly copyableValues: readonly string[];
   readonly kind: ReconciliationWarning["kind"];
-  readonly message: string;
   readonly parts: readonly InlineContent[];
   readonly projects: readonly {
     readonly canonicalProject: string;
@@ -1632,16 +1631,16 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
     consequence?: string;
     copyableValues: readonly string[];
     kind: ReconciliationWarning["kind"];
-    message: string;
     parts: readonly InlineContent[];
     projects: { canonicalProject: string; project: string }[];
   }>();
 
   for (const projectRecord of report.projects) {
     for (const warning of projectRecord.warnings) {
+      const message = flatInlineText(warning.parts);
       if (
-        warning.message.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX) ||
-        warning.message.endsWith(REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX)
+        message.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX) ||
+        message.endsWith(REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX)
       ) {
         continue;
       }
@@ -1652,7 +1651,6 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
           ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
           copyableValues: [...warning.copyableValues],
           kind: warning.kind,
-          message: warning.message,
           parts: warning.parts,
           projects: [{
             canonicalProject: projectRecord.canonicalProject,
@@ -1675,14 +1673,13 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
       ...(group.consequence === undefined ? {} : { consequence: group.consequence }),
       copyableValues: group.copyableValues,
       kind: group.kind,
-      message: group.message,
       parts: group.parts,
       projects: [...group.projects].sort((left, right) =>
         compareCanonicalStrings(left.canonicalProject, right.canonicalProject)
       ),
     }))
     .sort((left, right) =>
-      compareCanonicalStrings(left.message, right.message) ||
+      compareCanonicalStrings(flatInlineText(left.parts), flatInlineText(right.parts)) ||
       compareCanonicalStrings(left.kind, right.kind) ||
       compareCanonicalStrings(left.consequence ?? "", right.consequence ?? "") ||
       compareCanonicalStrings(
@@ -4034,7 +4031,7 @@ function canonicalMachineWarning(warning: ReconciliationWarning): {
     ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
     copyableValues: [...warning.copyableValues],
     kind: warning.kind,
-    message: warning.message,
+    message: flatInlineText(warning.parts),
   };
 }
 

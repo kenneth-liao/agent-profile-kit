@@ -254,7 +254,6 @@ export interface RepositoryExclusionChange {
 }
 
 export interface RepositoryExclusionWarning {
-  readonly message: string;
   readonly parts: readonly InlineContent[];
   /** The one Project whose derivation failed, when known. */
   readonly project?: string;
@@ -318,7 +317,6 @@ async function deriveTargetUnions(
       ) {
         const detail = error instanceof Error ? error.message : String(error);
         warnings.push({
-          message: `Git exclusion entries for ${project} could not be derived: ${detail}`,
           parts: ["Git exclusion entries for ", identifierPart(project), ` could not be derived: ${detail}`],
           project,
           targets: [],
@@ -403,7 +401,6 @@ export async function inspectRepositoryExclusions(
           changes.push({ current: [], installed: derived.installed, next, target });
           if (derived.installed) {
             warnings.push({
-              message: `${target}${REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX}`,
               parts: [identifierPart(target), REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX],
               targets: [target],
             });
@@ -421,7 +418,6 @@ export async function inspectRepositoryExclusions(
         });
         if (derived.installed) {
           warnings.push({
-            message: `${target}${REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX}`,
             parts: [identifierPart(target), REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX],
             targets: [target],
           });
@@ -430,7 +426,6 @@ export async function inspectRepositoryExclusions(
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       warnings.push({
-        message: `Git exclusion bookkeeping at ${target} was skipped: ${detail}`,
         parts: ["Git exclusion bookkeeping at ", identifierPart(target), ` was skipped: ${detail}`],
         targets: [target],
       });
@@ -539,7 +534,6 @@ export async function publishRepositoryExclusions(
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       warnings.push({
-        message: `Git exclusion update at ${target} failed: ${detail}`,
         parts: ["Git exclusion update at ", identifierPart(target), ` failed: ${detail}`],
         targets: [target],
       });

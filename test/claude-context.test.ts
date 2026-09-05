@@ -368,7 +368,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
       const desired = await buildDesiredState(home);
       expect(
         desired.installations[0]?.capabilityWarnings.some((entry) =>
-          entry.warning.message.includes("is a file, not a directory"),
+          flatInlineText(entry.warning.parts).includes("is a file, not a directory"),
         ),
       ).toBe(true);
 

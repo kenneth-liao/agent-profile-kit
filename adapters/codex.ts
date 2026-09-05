@@ -307,7 +307,6 @@ export async function detectCodexProjectConfigurationWarnings(
       return [
         {
           copyableValues: [projectPath],
-          message: `Codex SessionStart hooks are not enabled by ${projectPath}; generated Profile Context may not load until [features].hooks = true is set there`,
           parts: [
             "Codex SessionStart hooks are not enabled by ",
             identifierPart(projectPath),
@@ -324,7 +323,6 @@ export async function detectCodexProjectConfigurationWarnings(
     return [
       {
         copyableValues: [globalPath, projectPath],
-        message: `Codex SessionStart hooks are not enabled by ${globalPath}; generated Profile Context may not load until [features].hooks = true is set in ${projectPath} or ${globalPath}`,
         parts: [
           "Codex SessionStart hooks are not enabled by ",
           identifierPart(globalPath),
@@ -339,7 +337,6 @@ export async function detectCodexProjectConfigurationWarnings(
     return [
       {
         copyableValues: [globalPath, projectPath],
-        message: `Codex configuration relevant to planned SessionStart Context could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Profile Context may not load until the configuration is repaired`,
         parts: [
           `Codex configuration relevant to planned SessionStart Context could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Profile Context may not load until the configuration is repaired`,
         ],

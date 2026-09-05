@@ -20,6 +20,7 @@ import {
 } from "../adapters/pi.js";
 import { composeContextEnvelope } from "../adapters/context-envelope.js";
 import { emitSharedSkillMarkdown } from "../adapters/shared-skill.js";
+import { flatInlineText } from "../adapters/project-plan.js";
 import { formatLifecycleJson, formatLifecycleReport } from "../cli/presentation.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
@@ -792,7 +793,7 @@ describe("Pi Adapter", () => {
     );
     expect(installation?.capabilityWarnings).toEqual([]);
     expect(installation?.warnings.some((warning) =>
-      /project settings.*JSON/i.test(warning.message)
+      /project settings.*JSON/i.test(flatInlineText(warning.parts))
     )).toBe(true);
     const canonicalSettingsPath = join(realpathSync(project), ".pi", "settings.json");
     expect(installation?.warnings[0]?.copyableValues).toContain(canonicalSettingsPath);

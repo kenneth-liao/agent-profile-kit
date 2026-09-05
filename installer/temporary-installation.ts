@@ -6,10 +6,11 @@ import {
   TEMPORARY_INSTALLATION_HOSTS,
   type TemporaryInstallationHost,
 } from "../adapters/registry.js";
-import type {
-  AdapterDiagnosticWarning,
-  HostSetupStep,
-  InlineContent,
+import {
+  flatInlineText,
+  type AdapterDiagnosticWarning,
+  type HostSetupStep,
+  type InlineContent,
 } from "../adapters/project-plan.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
 import {
@@ -432,9 +433,9 @@ export async function installTemporaryProfile(options: {
           ])].sort(),
           setupSteps: desired.setupSteps,
           warnings: [
-            ...desired.warnings.map((warning) => warning.message),
-            ...desired.capabilityWarnings.map((entry) => entry.warning.message),
-            ...publicationWarnings.map((warning) => warning.message),
+            ...desired.warnings.map((warning) => flatInlineText(warning.parts)),
+            ...desired.capabilityWarnings.map((entry) => flatInlineText(entry.warning.parts)),
+            ...publicationWarnings.map((warning) => flatInlineText(warning.parts)),
           ],
           warningParts: [
             ...desired.warnings.map((warning) => warning.parts),
@@ -536,7 +537,7 @@ export async function removeTemporaryProfile(options: {
       }
 
       return receiptFromRecord(existing, "removed", {
-        warnings: publicationWarnings.map((warning) => warning.message),
+        warnings: publicationWarnings.map((warning) => flatInlineText(warning.parts)),
         warningParts: publicationWarnings.map((warning) => warning.parts),
       });
     },

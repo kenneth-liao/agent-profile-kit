@@ -24,6 +24,7 @@ import {
 } from "../adapters/capability.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
+import { flatInlineText } from "../adapters/project-plan.js";
 import { previewReconciliation } from "../installer/reconcile.js";
 import { lifecycleStatusDocument } from "../cli/presentation.js";
 import type { PresentationNode } from "../cli/presentation-document.js";
@@ -91,7 +92,6 @@ describe("Host capability probing", () => {
         requiredVersion: "0.145.0",
         warning: {
           copyableValues: ["codex"],
-          message: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile",
           parts: ["Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile"],
         },
       },
@@ -124,7 +124,6 @@ describe("Host capability probing", () => {
             "antigravity",
             realAgentsPath,
           ],
-          message: "Antigravity project surface cannot host Context: .agents is a file, not a directory",
           parts: [
             "Antigravity project surface cannot host Context: ",
             { kind: "identifier", value: ".agents" },
@@ -389,6 +388,8 @@ describe("Host capability probing", () => {
     const installation = desired.installations[0];
     expect(installation?.capabilityWarnings).toEqual([]);
     expect(installation?.warnings).toHaveLength(1);
-    expect(installation?.warnings[0]?.message).toContain("SessionStart hooks are not enabled");
+    expect(flatInlineText(installation?.warnings[0]?.parts ?? [])).toContain(
+      "SessionStart hooks are not enabled",
+    );
   });
 });

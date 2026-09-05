@@ -275,7 +275,6 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
         warnings: key === firstProject ? fixture.warnings.map((message, index) => ({
           copyableValues: fixture.diagnosticValues,
           kind: "diagnostic" as const,
-          message,
           parts: fixture.warningParts?.[index] ?? [message],
         })) : [],
         repositoryExclusions: key === firstProject ? fixture.repositoryExclusions : [],
@@ -296,7 +295,7 @@ function executionProject(project: string): { readonly canonicalProject: string;
 }
 
 interface MachineProjectOverrides extends Omit<Partial<ReconciliationProjectRecord>, "warnings"> {
-  readonly warnings?: readonly (Omit<ReconciliationWarning, "parts"> & { readonly parts?: readonly InlineContent[] })[];
+  readonly warnings?: readonly ReconciliationWarning[];
 }
 
 function machineProject(
@@ -304,10 +303,6 @@ function machineProject(
   overrides: MachineProjectOverrides = {},
 ): ReconciliationProjectRecord {
   const { warnings: overrideWarnings, ...rest } = overrides;
-  const warnings: readonly ReconciliationWarning[] = (overrideWarnings ?? []).map((warning) => ({
-    ...warning,
-    parts: warning.parts ?? [warning.message],
-  }));
   return {
     canonicalProject: project,
     project,
@@ -317,7 +312,7 @@ function machineProject(
     setupSteps: [],
     repositoryExclusions: [],
     ...rest,
-    warnings,
+    warnings: overrideWarnings ?? [],
   };
 }
 
@@ -702,7 +697,7 @@ describe("lifecycle status document", () => {
       warnings: [{
         copyableValues: [],
         kind: "host-attention",
-        message: "Trust the bound project in Codex.",
+        parts: ["Trust the bound project in Codex."],
       }],
     })]);
 
@@ -1834,7 +1829,6 @@ describe("responsive lifecycle presentation", () => {
     const adapterWarnings: AdapterDiagnosticWarning[] = [
       {
         copyableValues: [globalPath, `${projectPath}/.codex/config.toml`],
-        message: `Codex SessionStart hooks are not enabled by ${globalPath}; generated Profile Context may not load until [features].hooks = true is set in ${projectPath}/.codex/config.toml or ${globalPath}`,
         parts: [
           "Codex SessionStart hooks are not enabled by ",
           identifierPart(globalPath),
@@ -1856,7 +1850,6 @@ describe("responsive lifecycle presentation", () => {
         warnings: normalizedWarnings.map((w) => ({
           copyableValues: [...w.copyableValues],
           kind: "diagnostic" as const,
-          message: w.message,
           parts: w.parts,
         })),
       }),
@@ -1905,7 +1898,6 @@ describe("responsive lifecycle presentation", () => {
           {
             copyableValues: [...capWarning.warning.copyableValues],
             kind: "host-attention",
-            message: capWarning.warning.message,
             parts: capWarning.warning.parts,
           },
         ],
@@ -2141,10 +2133,13 @@ describe("formatLifecycleReport concise terminology", () => {
 
   test("preserves task-authored warning text and typed copyable values without translation", () => {
     const value = "generated diagnostic value with spaces";
-    const message = `Use reconcile as authored; inspect ${value} before continuing.`;
     const report = machineReport([
       machineProject("/project-a", {
-        warnings: [{ copyableValues: [value], kind: "diagnostic", message }],
+        warnings: [{
+          copyableValues: [value],
+          kind: "diagnostic",
+          parts: ["Use reconcile as authored; inspect ", identifierPart(value), " before continuing."],
+        }],
       }),
     ]);
 
@@ -4178,7 +4173,11 @@ describe("Machine surface JSON and exit codes", () => {
         state: { kind: "addition" },
         outputs: [{ kind: "addition", path: "a.md", consumingHosts: ["codex"] }],
         blockers: [blocker],
-        warnings: [{ message: "Review /copy/me", copyableValues: ["/copy/me"], kind: "diagnostic" }],
+        warnings: [{
+          copyableValues: ["/copy/me"],
+          kind: "diagnostic",
+          parts: ["Review ", identifierPart("/copy/me")],
+        }],
         setupSteps: [{
           host: "codex",
           kind: "approval-required",
@@ -4244,7 +4243,7 @@ describe("Machine surface JSON and exit codes", () => {
   test("machine JSON preserves warning and Git exclusion attribution across Projects", () => {
     const report = machineReport([
       machineProject("/project-a", {
-        warnings: [{ message: "Review A", copyableValues: ["/copy/a"], kind: "diagnostic" }],
+        warnings: [{ copyableValues: ["/copy/a"], kind: "diagnostic", parts: ["Review A"] }],
         repositoryExclusions: [{
           current: [],
           next: ["/a"],
@@ -4253,7 +4252,7 @@ describe("Machine surface JSON and exit codes", () => {
         }],
       }),
       machineProject("/project-b", {
-        warnings: [{ message: "Review B", copyableValues: ["/copy/b"], kind: "diagnostic" }],
+        warnings: [{ copyableValues: ["/copy/b"], kind: "diagnostic", parts: ["Review B"] }],
         repositoryExclusions: [{
           current: ["/old-b"],
           next: ["/b"],
@@ -7049,21 +7048,21 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
         machineProject("/project-b", {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
         machineProject("/project-c", {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
       ],
@@ -7085,7 +7084,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
           warnings: [{
             copyableValues: ["/tmp/config.toml"],
             kind: "diagnostic",
-            message: "Codex SessionStart hooks are not enabled",
+            parts: ["Codex SessionStart hooks are not enabled"],
           }],
         }),
       ],
@@ -7106,14 +7105,14 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
         machineProject("/project-b", {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
       ],
@@ -7135,14 +7134,14 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
           warnings: [{
             copyableValues: ["/val-1"],
             kind: "diagnostic",
-            message: "Same message",
+            parts: ["Same message"],
           }],
         }),
         machineProject("/project-b", {
           warnings: [{
             copyableValues: ["/val-2"],
             kind: "diagnostic",
-            message: "Same message",
+            parts: ["Same message"],
           }],
         }),
         machineProject("/project-c", {
@@ -7150,14 +7149,14 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
             consequence: "Consequence X",
             copyableValues: ["/val-1"],
             kind: "diagnostic",
-            message: "Same message",
+            parts: ["Same message"],
           }],
         }),
         machineProject("/project-d", {
           warnings: [{
             copyableValues: ["/val-1"],
             kind: "host-attention",
-            message: "Same message",
+            parts: ["Same message"],
           }],
         }),
       ],
@@ -7182,14 +7181,14 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
         machineProject("/project-b", {
           warnings: [{
             copyableValues: [".claude/skills", ".agents/skills"],
             kind: "diagnostic",
-            message: "OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names",
+            parts: ["OpenCode discovers Skills from both .claude/skills and .agents/skills and will report duplicate Skill names"],
           }],
         }),
       ],
@@ -7225,7 +7224,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
             consequence: "Consequence Z",
             copyableValues: ["/val-z"],
             kind: "host-attention",
-            message: "Shared warning message",
+            parts: ["Shared warning message"],
           }],
         }),
         machineProject("/project-3", {
@@ -7233,7 +7232,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
             consequence: "Consequence B",
             copyableValues: ["/val-b"],
             kind: "diagnostic",
-            message: "Shared warning message",
+            parts: ["Shared warning message"],
           }],
         }),
         machineProject("/project-2", {
@@ -7241,7 +7240,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
             consequence: "Consequence A",
             copyableValues: ["/val-b", "/val-c"],
             kind: "diagnostic",
-            message: "Shared warning message",
+            parts: ["Shared warning message"],
           }],
         }),
         machineProject("/project-1", {
@@ -7249,7 +7248,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
             consequence: "Consequence A",
             copyableValues: ["/val-a"],
             kind: "diagnostic",
-            message: "Shared warning message",
+            parts: ["Shared warning message"],
           }],
         }),
       ],

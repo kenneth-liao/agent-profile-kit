@@ -374,7 +374,6 @@ export async function detectGrokProjectConfigurationWarnings(
     return [
       {
         copyableValues: [configPath],
-        message: `Grok configuration relevant to planned Skills at ${configPath} could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Skills may not load until the configuration is repaired`,
         parts: [
           `Grok configuration relevant to planned Skills at ${configPath} could not be read or parsed (${error instanceof Error ? error.message : String(error)}); generated Skills may not load until the configuration is repaired`,
         ],
@@ -390,7 +389,6 @@ export async function detectGrokProjectConfigurationWarnings(
       warnings.push(
         {
           copyableValues: [configPath, skillId],
-          message: `Grok configuration at ${configPath} lists planned Skill '${skillId}' as disabled; generated Skill output may not load until it is enabled`,
           parts: [
             "Grok configuration at ",
             identifierPart(configPath),
@@ -408,7 +406,6 @@ export async function detectGrokProjectConfigurationWarnings(
       warnings.push(
         {
           copyableValues: [configPath, managedDirectory, skillId],
-          message: `Grok configuration at ${configPath} ignores planned Skill '${skillId}' at ${managedDirectory}; generated Skill output may not load until the ignore entry is removed`,
           parts: [
             "Grok configuration at ",
             identifierPart(configPath),

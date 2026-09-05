@@ -24,6 +24,7 @@ import {
   type AdapterPlanningMaterials,
 } from "./skill-package.js";
 import {
+  flatInlineText,
   identifierPart,
   type AdapterHostSetupStep,
   type AdapterDiagnosticWarning,
@@ -118,7 +119,6 @@ export async function detectPiSkillSettingsWarnings(
     warnings.push(
       {
         copyableValues: [path],
-        message: `Pi ${scope} settings relevant to planned Skills at ${path} could not be read or parsed (${detail}); generated Skills may not load until the configuration is repaired`,
         parts: [
           `Pi ${scope} settings relevant to planned Skills at `,
           identifierPart(path),
@@ -146,8 +146,10 @@ export async function detectPiSkillSettingsWarnings(
     }
   }
 
-  const unique = new Map(warnings.map((warning) => [warning.message, warning]));
-  return [...unique.values()].sort((left, right) => left.message.localeCompare(right.message));
+  const unique = new Map(warnings.map((warning) => [flatInlineText(warning.parts), warning]));
+  return [...unique.values()].sort((left, right) =>
+    flatInlineText(left.parts).localeCompare(flatInlineText(right.parts))
+  );
 }
 
 /** Parse the leading semver from `pi --version` output. */

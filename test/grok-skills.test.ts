@@ -19,6 +19,7 @@ import {
   CLAUDE_HOST_VERSION,
 } from "../adapters/claude.js";
 import { CODEX_HOST_VERSION } from "../adapters/codex.js";
+import { flatInlineText } from "../adapters/project-plan.js";
 import {
   assertGrokCliVersionSupported,
   assertGrokProjectCapability,
@@ -758,7 +759,7 @@ exit 2
     expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
     expect(
       desired.installations[0]?.warnings.some((warning) =>
-        /Grok.*review-pr.*disabled.*may not load/i.test(warning.message),
+        /Grok.*review-pr.*disabled.*may not load/i.test(flatInlineText(warning.parts)),
       ),
     ).toBe(true);
   });

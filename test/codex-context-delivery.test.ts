@@ -25,6 +25,7 @@ import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
 import { applyReconciliation } from "../installer/reconcile.js";
 import { buildDesiredState, hashBytes } from "../installer/project-plan.js";
+import { flatInlineText } from "../adapters/project-plan.js";
 import {
   reportItems,
 } from "./support/reconciliation-report.js";
@@ -178,7 +179,7 @@ describe("Codex complete Context delivery", () => {
       const desired = await buildDesiredState(home);
       expect(
         desired.installations[0]?.capabilityWarnings.some((entry) =>
-          entry.warning.message.includes("cannot deliver complete Context"),
+          flatInlineText(entry.warning.parts).includes("cannot deliver complete Context"),
         ),
       ).toBe(true);
       expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);

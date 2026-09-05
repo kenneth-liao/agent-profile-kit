@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { identifierPart } from "../cli/inline-content.js";
+import { flatInlineText, identifierPart } from "../cli/inline-content.js";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
   chmodSync,
@@ -41,7 +41,6 @@ import {
 import { buildDesiredState } from "../installer/project-plan.js";
 import { parseSkill, type Skill } from "../schemas/skill.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
-import { flatInlineText } from "../cli/inline-content.js";
 import type { InstallerAuthoredError } from "../installer/tool-errors.js";
 
 /** Parse a Skill source and return its presentation-owned rejection sentence. */
@@ -512,7 +511,6 @@ describe("Skill model-invocation policy", () => {
           join(codexHome, "config.toml"),
           join(project, ".codex", "config.toml"),
         ],
-        message: expect.stringContaining(join(codexHome, "config.toml")),
         parts: [
           "Codex SessionStart hooks are not enabled by ",
           identifierPart(join(codexHome, "config.toml")),
@@ -572,7 +570,7 @@ describe("Skill model-invocation policy", () => {
       // so one upgrade message covers Profiles that need both capabilities.
       expect(
         desired.installations[0]?.capabilityWarnings.some((entry) =>
-          entry.warning.message.includes("cannot deliver complete Context"),
+          flatInlineText(entry.warning.parts).includes("cannot deliver complete Context"),
         ),
       ).toBe(true);
       const preview = await previewReconciliation(desired.installations, {
@@ -584,7 +582,7 @@ describe("Skill model-invocation policy", () => {
       expect(reportBlockers(preview)).toEqual([]);
       expect(
         preview.projects[0]?.warnings.some((warning) =>
-          warning.message.includes("cannot deliver complete Context"),
+          flatInlineText(warning.parts).includes("cannot deliver complete Context"),
         ),
       ).toBe(true);
       expect(existsSync(join(project, ".agents", "skills", "to-spec"))).toBe(false);
