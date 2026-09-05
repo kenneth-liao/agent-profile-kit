@@ -3753,47 +3753,6 @@ export function formatApplyExecutionFailure(
   options: LifecycleHumanOptions = {},
 ): string {
   const scope = locationDisplayScope(options, failure.receipt);
-  const failedProject = failure.failedProject === undefined
-    ? undefined
-    : presentProject(failure.failedProject, scope);
-  const lines = [
-    failedProject === undefined
-      ? `Apply failed after committing Project work: ${failure.detail}`
-      : `Apply failed at ${failedProject}: ${failure.detail}`,
-    ...(failedProject === undefined ? [] : [`Failed Project: ${failedProject}`]),
-    `Still pending: ${failure.pendingProjects.length === 0
-      ? "none"
-      : failure.pendingProjects.map((project) => presentProject(project, scope)).join(", ")}`,
-    ...applyReceiptLines(failure.receipt, scope),
-  ];
-  if (failure.resultingState !== undefined) {
-    const appliedProjects = new Set(
-      failure.receipt.projects.map((project) => project.canonicalProject),
-    );
-    const current = failure.resultingState.projects
-      .filter((project) =>
-        project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
-      )
-      .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
-    if (current.length > 0) lines.push(`Freshly current: ${current.join(", ")}`);
-  }
-  if (
-    options.blockersOnly === true &&
-    failure.resultingState !== undefined &&
-    reportBlockers(failure.resultingState).length > 0
-  ) {
-    // Both focused sections supply their own leading blank line (RE-1).
-    lines.push(...(options.verbose
-      ? focusedVerboseBlockers(
-          failure.resultingState,
-          locationDisplayScope(options, failure.resultingState),
-        )
-      : focusedConciseBlockers(
-          failure.resultingState,
-          "apply",
-          locationDisplayScope(options, failure.resultingState),
-        )));
-  }
   return renderLifecycleDocument(
     applyExecutionFailureDocument(failure, options),
     scope,
@@ -3811,34 +3770,6 @@ export function formatApplyVerificationFailure(
   options: LifecycleHumanOptions = {},
 ): string {
   const scope = locationDisplayScope(options, receipt);
-  if (options.verbose) {
-    return responsiveLifecycleOutput(
-      `${message}\nApplied:\n${verboseSections(receipt, {
-        completedRepositoryExclusions: true,
-        scope,
-        // Focused verbose verification failure carries the exact command
-        // (#353 Decision 3); ordinary verbose points to the focused view.
-        untrackRecovery: options.blockersOnly === true
-          ? { kind: "full" }
-          : { kind: "pointer", command: "apply" },
-      })}` +
-        verboseSetupSection("apply", receipt, scope),
-      options.context,
-      lifecycleCopyableValues([receipt], scope),
-    );
-  }
-  const lines = [
-    message,
-    ...applyReceiptLines(receipt, scope),
-  ];
-  const setup = hostSetupSections(
-    "apply",
-    receipt,
-    receipt,
-    false,
-    scope,
-  );
-  if (setup.length > 0) lines.push("", ...setup);
   return renderLifecycleDocument(
     applyVerificationFailureDocument(receipt, message, options),
     scope,
