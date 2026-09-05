@@ -433,6 +433,18 @@ const defaultRenderContext: TerminalPresentationContext = {
   width: 10_000,
 };
 
+/** One document rendered exactly as the CLI boundary renders it: the pure
+ * renderer with the given context plus one terminating newline. Rendering
+ * behaviour (TEST-006/TEST-008) asserts this form; meaning assertions read the
+ * document nodes instead (TEST-003). */
+function renderBoundary(
+  document: PresentationDocument,
+  context: TerminalPresentationContext = defaultRenderContext,
+): string {
+  const rendered = renderPresentationDocument(document, context);
+  return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
+}
+
 describe("lifecycle status document", () => {
   const pendingReport = () => emptyReport({
     desired: [{
@@ -622,13 +634,6 @@ describe("lifecycle status document", () => {
       .map((node) => node.kind === "heading" ? nodeText(node) : "");
     expect(headings[0]).toBe("Blockers:");
     expect(headings.filter((text) => text === "Blockers:")).toHaveLength(1);
-
-    const rendered = formatLifecycleReport("status", blockedReport(), {
-      context: { color: false, interactive: true, width: 80 },
-      verbose: true,
-    });
-    expect(rendered.match(/^Blockers:$/gm)).toHaveLength(1);
-    expect(rendered.indexOf("Blocker: ")).toBeLessThan(rendered.indexOf("Projects:"));
   });
 
   test("blockers-only status keeps Blockers and omits unrelated inventory", () => {
@@ -705,9 +710,11 @@ describe("lifecycle status document", () => {
       "heading:attention",
       "list-item",
     ]);
-    const rendered = formatLifecycleReport("status", hostAttention, {
-      context: { color: true, interactive: true, width: 80 },
-    });
+    // Severity drives the colour, not rendered copy (TEST-008).
+    const rendered = renderBoundary(
+      lifecycleStatusDocument(hostAttention),
+      { color: true, interactive: true, width: 80 },
+    );
     expect(rendered).toContain("\u001b[33mHost attention required\u001b[0m");
   });
 
@@ -747,10 +754,10 @@ describe("lifecycle status document", () => {
       node.args.some((arg) => arg.kind === "path")
     )).toBe(true);
 
-    const rendered = formatLifecycleReport("status", report, {
-      context: { color: false, interactive: true, width: 40 },
-      project,
-    });
+    const rendered = renderBoundary(
+      lifecycleStatusDocument(report, { project }),
+      { color: false, interactive: true, width: 40 },
+    );
     for (const line of rendered.split("\n")) {
       if (!line.startsWith("Next: apkit apply") && !line.startsWith("Details: apkit status")) {
         continue;
@@ -807,17 +814,11 @@ describe("lifecycle status document", () => {
     });
     for (const width of [40, 80, 100]) {
       const views = [
-        formatLifecycleReport("status", clean, { context: context(width) }),
-        formatLifecycleReport("status", attention, { context: context(width) }),
-        formatLifecycleReport("status", blocked, { context: context(width) }),
-        formatLifecycleReport("status", blocked, {
-          context: context(width),
-          verbose: true,
-        }),
-        formatLifecycleReport("status", blocked, {
-          blockersOnly: true,
-          context: context(width),
-        }),
+        renderBoundary(lifecycleStatusDocument(clean), context(width)),
+        renderBoundary(lifecycleStatusDocument(attention), context(width)),
+        renderBoundary(lifecycleStatusDocument(blocked), context(width)),
+        renderBoundary(lifecycleStatusDocument(blocked, { verbose: true }), context(width)),
+        renderBoundary(lifecycleStatusDocument(blocked, { blockersOnly: true }), context(width)),
       ];
 
       for (const view of views) {
@@ -844,9 +845,10 @@ describe("lifecycle status document", () => {
       warnings: ["The Workspace warning explains a long condition that needs attention."],
     });
 
-    const rendered = formatLifecycleReport("status", report, {
-      context: { color: true, interactive: true, width: 80 },
-    });
+    const rendered = renderBoundary(
+      lifecycleStatusDocument(report),
+      { color: true, interactive: true, width: 80 },
+    );
 
     expect(rendered).toContain("\u001b[31mCannot apply\u001b[0m");
     expect(rendered).toContain("\u001b[35m/project-a\u001b[0m");
@@ -1004,19 +1006,29 @@ describe("Host Setup Step provenance and presentation", () => {
       interactive: false,
       width: 80,
     };
-    const verbose = formatLifecycleReport("status", report, { context, verbose: true });
-    expect(verbose).toContain("Host setup:");
-    expect(verbose).toContain("Standing Host setup:");
-    expect(verbose).toContain(
-      "- Review and approve the generated SessionStart hook when Codex asks.\n" +
-        "  Consequence: Declining the hook prevents Profile Context from loading.",
-    );
-    expect(verbose).toContain(
-      "- Trust the bound project in Codex.\n" +
-        "  Consequence: Profile Context does not load until the project is trusted.",
-    );
-    expect(verbose).toContain("Launch Codex from the exact bound project root: /project-a");
-    expect(verbose).toContain("Grok uses Claude's shared rule path.");
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    // Sections are authored headings; each step is a list item whose distinct
+    // consequence follows as its own prose node.
+    expect(headingsIn(verbose)).toContain("Host setup:");
+    expect(headingsIn(verbose)).toContain("Standing Host setup:");
+    const nodes = flattenPresentationNodes(verbose);
+    const approvalIndex = indexWhere(nodes, (node) =>
+      node.kind === "list-item" && nodeText(node) ===
+        "Review and approve the generated SessionStart hook when Codex asks.");
+    expect(approvalIndex).toBeGreaterThan(-1);
+    expect(nodes[approvalIndex + 1]).toEqual({
+      kind: "prose",
+      parts: ["  Consequence: Declining the hook prevents Profile Context from loading."],
+    });
+    const trustIndex = indexWhere(nodes, (node) =>
+      node.kind === "list-item" && nodeText(node) === "Trust the bound project in Codex.");
+    expect(trustIndex).toBeGreaterThan(-1);
+    expect(nodes[trustIndex + 1]).toEqual({
+      kind: "prose",
+      parts: ["  Consequence: Profile Context does not load until the project is trusted."],
+    });
+    expect(listItemsIn(verbose)).toContain("Launch Codex from the exact bound project root: /project-a");
+    expect(listItemsIn(verbose)).toContain("Grok uses Claude's shared rule path.");
 
     const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       readonly projects: readonly {
@@ -1086,14 +1098,22 @@ describe("Host Setup Step provenance and presentation", () => {
       ],
     });
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
 
     // The identical step renders once with compact Project scope; the distinct
     // consequence keeps its own bullet (US-048, US-049).
-    expect(verbose.match(/- Trust the bound project in Codex\./g)).toHaveLength(2);
-    expect(verbose).toContain("- Trust the bound project in Codex. (/project-a, /project-b)");
-    expect(verbose.match(/Profile Context does not load until the project is trusted\./g)).toHaveLength(1);
-    expect(verbose.match(/A different consequence remains visible\./g)).toHaveLength(1);
+    expect(listItemsIn(verbose).filter((text) =>
+      text.startsWith("Trust the bound project in Codex.")
+    )).toEqual([
+      "Trust the bound project in Codex. (/project-a, /project-b)",
+      "Trust the bound project in Codex.",
+    ]);
+    expect(presentationTexts(verbose).filter((text) =>
+      text === "  Consequence: Profile Context does not load until the project is trusted."
+    )).toHaveLength(1);
+    expect(presentationTexts(verbose).filter((text) =>
+      text === "  Consequence: A different consequence remains visible."
+    )).toHaveLength(1);
   });
 
   test("verbose status renders typed bound-project paths through the canonical path presenter", () => {
@@ -1110,10 +1130,10 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "current", project: "/project-a" }],
     });
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
 
-    expect(verbose.split("\n").find((line) => line.startsWith("- Launch Codex from"))).toBe(
-      "- Launch Codex from the exact bound project root: /project-a",
+    expect(listItemsIn(verbose)).toContain(
+      "Launch Codex from the exact bound project root: /project-a",
     );
   });
 
@@ -1560,15 +1580,17 @@ describe("Host Setup Step provenance and presentation", () => {
     });
 
     // Concise clean status stays quiet; verbose retains the full Project scope.
-    expect(formatLifecycleReport("status", report)).toBe(
+    expect(renderBoundary(lifecycleStatusDocument(report))).toBe(
       "All Projects are current (6 Projects)\n",
     );
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain(
-      "- Trust the bound project in Codex. (/p-1, /p-2, /p-3, /p-4, /p-5, /p-6)",
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    expect(listItemsIn(verbose)).toContain(
+      "Trust the bound project in Codex. (/p-1, /p-2, /p-3, /p-4, /p-5, /p-6)",
     );
-    expect(verbose).not.toContain("use --verbose");
-    expect(verbose.match(/- Trust the bound project in Codex\./g)).toHaveLength(1);
+    expect(presentationTexts(verbose)).not.toContain("use --verbose");
+    expect(listItemsIn(verbose).filter((text) =>
+      text.startsWith("Trust the bound project in Codex.")
+    )).toHaveLength(1);
   });
 
   test("blocked apply suppresses Host setup for work that did not happen", () => {
@@ -1647,9 +1669,11 @@ describe("responsive lifecycle presentation", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
     for (const width of [40, 80, 100]) {
-      // Status wrapping is asserted by golden snapshots. Apply still uses the
-      // string pipeline in this ticket.
-      const view = formatApplyReport(applyResult(receipt, applied), { context: context(width) });
+      // Status wrapping is asserted by golden snapshots; apply wraps here.
+      const view = renderBoundary(
+        applyReportDocument(applyResult(receipt, applied)),
+        context(width),
+      );
       for (const line of view.trimEnd().split("\n")) {
         expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(width);
       }
@@ -1662,15 +1686,15 @@ describe("responsive lifecycle presentation", () => {
     // At a narrow width the selected-Project command argument shortens through
     // displayPath (INT-2) so each command stays on one fitting line; with room
     // to spare the copyable Project path survives intact.
-    const status = formatLifecycleReport("status", report, {
-      context: context(40),
-      project,
-    });
-    const wideStatus = formatLifecycleReport("status", report, {
-      context: context(80),
-      project,
-    });
-    const emptyStatus = formatLifecycleReport("status", emptyReport(), { context: context(40) });
+    const status = renderBoundary(
+      lifecycleStatusDocument(report, { project }),
+      context(40),
+    );
+    const wideStatus = renderBoundary(
+      lifecycleStatusDocument(report, { project }),
+      context(80),
+    );
+    const emptyStatus = renderBoundary(lifecycleStatusDocument(emptyReport()), context(40));
 
     for (const line of status.split("\n")) {
       if (!line.startsWith("Next: apkit apply") && !line.startsWith("Details: apkit status")) {
@@ -1740,10 +1764,10 @@ describe("responsive lifecycle presentation", () => {
       ],
     });
 
-    const output = formatLifecycleReport("status", report, {
-      context: context(40),
-      verbose: true,
-    });
+    const output = renderBoundary(
+      lifecycleStatusDocument(report, { verbose: true }),
+      context(40),
+    );
 
     expect(output).toContain(prefixedPath);
     expect(output).toContain(warningPath);
@@ -1767,17 +1791,17 @@ describe("responsive lifecycle presentation", () => {
       warnings: [warning],
       warningParts: [["Inspect ", identifierPart(value), " before continuing with this diagnostic."]],
     });
-    const output = formatLifecycleReport("status", report, { context: context(40) });
+    const output = renderBoundary(lifecycleStatusDocument(report), context(40));
 
     expect(output).toContain(value);
   });
 
   test("wraps prose after a suffixless path without widening the line", () => {
     const path = "/tmp/foo";
-    const output = formatLifecycleReport("status", emptyReport({
+    const output = renderBoundary(lifecycleStatusDocument(emptyReport({
       warnings: [`Inspect ${path} and then explain this warning with enough prose to wrap cleanly.`],
       warningParts: [["Inspect ", identifierPart(path), " and then explain this warning with enough prose to wrap cleanly."]],
-    }), { context: context(40) });
+    })), context(40));
 
     expect(output).toContain(path);
   });
@@ -1785,13 +1809,11 @@ describe("responsive lifecycle presentation", () => {
   test("preserves a typed path without relying on warning prose", () => {
     const path = "~/untyped project with spaces";
     const warning = `Inspect ${path} before continuing with this diagnostic.`;
-    const output = formatLifecycleReport("status", emptyReport({
+    const output = renderBoundary(lifecycleStatusDocument(emptyReport({
       diagnosticValues: [path],
       warnings: [warning],
       warningParts: [["Inspect ", identifierPart(path), " before continuing with this diagnostic."]],
-    }), {
-      context: context(40),
-    });
+    })), context(40));
 
     expect(output).toContain(path);
     expect(output).not.toContain("untyped project with\n");
@@ -1982,13 +2004,13 @@ describe("temporary-installation Project identity in documents", () => {
 
 test("terminal styling follows lifecycle labels emitted by the formatter", () => {
   const context = { color: true, interactive: true, width: 80 } as const;
-  const ready = formatLifecycleReport("status", identityReport("/project-a"));
-  const blocked = formatLifecycleReport(
-    "status",
-    emptyReport({
+  const ready = renderBoundary(lifecycleStatusDocument(identityReport("/project-a")), context);
+  const blocked = renderBoundary(
+    lifecycleStatusDocument(emptyReport({
       blockers: [fixtureBlocker("occupied output", "/project-a")],
       items: [{ kind: "blocked", project: "/project-a" }],
-    }),
+    })),
+    context,
   );
 
   expect(ready).toContain("Updates ready");
@@ -2074,9 +2096,11 @@ describe("formatLifecycleReport concise terminology", () => {
 
     // Human views render presentation-owned wording keyed by the typed kind;
     // machine JSON publishes the verbatim stored sentences from one lexicon.
-    expect(formatLifecycleReport("status", structured)).toContain(
-      "Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex",
-    );
+    const document = lifecycleStatusDocument(structured);
+    expect(flattenPresentationNodes(document).some((node) =>
+      node.kind === "prose" && node.category === "error" && nodeText(node) ===
+        "  Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex"
+    )).toBe(true);
     const machine = machineReport([
       machineProject("/project-a", { blockers: reportBlockers(structured) }),
     ]);
@@ -2116,19 +2140,23 @@ describe("formatLifecycleReport concise terminology", () => {
       }),
     ]);
 
-    const concise = formatLifecycleReport("status", report);
-
-    expect(concise).toContain("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex");
-    expect(concise).toContain(
-      "Requirement: Agent Profile Kit syncs or removes only files whose ownership is " +
-      "proven by the active installation record at safe paths",
+    const concise = lifecycleStatusDocument(report);
+    const nodes = flattenPresentationNodes(concise);
+    const blockerIndex = indexWhere(nodes, (node) =>
+      node.kind === "prose" && node.category === "error" &&
+      nodeText(node).startsWith("  Blocker: "));
+    expect(blockerIndex).toBeGreaterThan(-1);
+    // Every structured field is its own prose node in the typed evidence block.
+    expect(nodeText(nodes[blockerIndex + 1]!)).toBe(
+      "    Requirement: Agent Profile Kit syncs or removes only files whose ownership is " +
+        "proven by the active installation record at safe paths",
     );
-    expect(concise).toContain(
-      "Remedy: Remove the conflicting generated files yourself after verifying the paths, " +
-      "then retry. Run apkit apply to retry.",
+    expect(nodeText(nodes[blockerIndex + 2]!)).toBe(
+      "    Remedy: Remove the conflicting generated files yourself after verifying the paths, " +
+        "then retry. Run apkit apply to retry.",
     );
-    expect(concise).toContain("Scope: Project /project-a");
-    expect(concise).toContain("Affected host: codex");
+    expect(nodeText(nodes[blockerIndex + 3]!)).toBe("    Scope: Project /project-a");
+    expect(nodeText(nodes[blockerIndex + 4]!)).toBe("    Affected host: codex");
   });
 
   test("preserves task-authored warning text and typed copyable values without translation", () => {
