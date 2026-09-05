@@ -27,7 +27,7 @@ export interface CommandHelp {
   readonly examples: readonly string[];
   readonly supportedHosts?: readonly string[];
   readonly writes: string;
-  readonly next: string;
+  readonly next: readonly InlineContent[];
 }
 
 export type CommandGroup = "common" | "inventory" | "teardown" | "machine" | "temporary";
@@ -58,7 +58,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Initialize or adopt the canonical Workspace and settings",
     examples: COMMAND_EXAMPLES.init,
     writes: "Creates missing Workspace scaffolding and settings; never overwrites a valid Workspace.",
-    next: `Run ${COMMAND_NAME} bind ${AUTHORING_EXAMPLES.profile.id} --host codex.`,
+    next: ["Run ", invocation("bind", AUTHORING_EXAMPLES.profile.id, "--host", "codex"), "."],
   },
   {
     name: "guide",
@@ -67,7 +67,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Show a topic index, full Workspace guidance, or one focused authoring example",
     examples: COMMAND_EXAMPLES.guide,
     writes: "Nothing; this command is read-only.",
-    next: `Run ${COMMAND_NAME} validate after editing your Workspace.`,
+    next: ["Run ", invocation("validate"), " after editing your Workspace."],
   },
   {
     name: "bind",
@@ -78,7 +78,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     supportedHosts: SUPPORTED_HOSTS,
     writes:
       "Records one configured Project in settings; --replace restates an existing binding's Profile and Hosts. Does not install project files.",
-    next: `Run ${COMMAND_NAME} status.`,
+    next: ["Run ", invocation("status"), "."],
   },
   {
     name: "unbind",
@@ -87,7 +87,8 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Remove a configured Project",
     examples: COMMAND_EXAMPLES.unbind,
     writes: "Removes one configured Project from settings; does not remove installed project files.",
-    next: `Run ${COMMAND_NAME} status --all, then ${COMMAND_NAME} apply --all to remove obsolete generated files.`,
+    next: ["Run ", invocation("status", "--all,"), " then ", invocation("apply", "--all"),
+    " to remove obsolete generated files."],
   },
   {
     name: "validate",
@@ -96,7 +97,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Check Workspace and settings validity",
     examples: COMMAND_EXAMPLES.validate,
     writes: "Nothing; this command is read-only.",
-    next: `Run ${COMMAND_NAME} status.`,
+    next: ["Run ", invocation("status"), "."],
   },
   {
     name: "info",
@@ -105,7 +106,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Show the engine version and selected application locations",
     examples: COMMAND_EXAMPLES.info,
     writes: "Nothing; this command is read-only.",
-    next: `Run ${COMMAND_NAME} validate to check the selected Workspace and settings.`,
+    next: ["Run ", invocation("validate"), " to check the selected Workspace and settings."],
   },
   {
     name: "list",
@@ -114,7 +115,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "List read-only inventory for Projects, Profiles, Hosts, or temporary Profiles",
     examples: COMMAND_EXAMPLES.list,
     writes: "Nothing; this command is read-only.",
-    next: `Run ${COMMAND_NAME} status for Project lifecycle diagnostics.`,
+    next: ["Run ", invocation("status"), " for Project lifecycle diagnostics."],
   },
   {
     name: "status",
@@ -123,7 +124,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Show the complete read-only apply plan for the current Project, one explicit Project, or the complete fleet; --blockers-only shows a focused Blocker-only view (combines with --verbose, not --json)",
     examples: COMMAND_EXAMPLES.status,
     writes: "Nothing; this command is read-only.",
-    next: `Run ${COMMAND_NAME} apply for pending work after resolving any blockers.`,
+    next: ["Run ", invocation("apply"), " for pending work after resolving any blockers."],
   },
   {
     name: "apply",
@@ -132,7 +133,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Sync the current Project, one explicit Project, or the complete fleet; --blockers-only shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view renders unchanged",
     examples: COMMAND_EXAMPLES.apply,
     writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",
-    next: `Launch a bound Host from the project, or run ${COMMAND_NAME} status.`,
+    next: ["Launch a bound Host from the project, or run ", invocation("status"), "."],
   },
   {
     name: "uninstall",
@@ -141,7 +142,8 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Remove proven Agent Profile Kit-owned output from all ordinary Project installations",
     examples: COMMAND_EXAMPLES.uninstall,
     writes: "Removes owned generated project files and machine-local installation records; keeps the Workspace and configured Projects.",
-    next: `Run ${COMMAND_NAME} unbind for configured Projects you no longer want, or ${COMMAND_NAME} apply to reinstall.`,
+    next: ["Run ", invocation("unbind"), " for configured Projects you no longer want, or ",
+    invocation("apply"), " to reinstall."],
   },
   {
     name: "install-temp",
@@ -152,7 +154,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     examples: COMMAND_EXAMPLES["install-temp"],
     supportedHosts: TEMPORARY_INSTALLATION_HOSTS,
     writes: "Writes temporary Agent Profile Kit-owned project files and machine-local temporary installation records; does not change settings or configured Projects.",
-    next: `Run ${COMMAND_NAME} machine remove-temp <temporary-installation-id> when finished.`,
+    next: ["Run ", invocation("machine", "remove-temp", "<temporary-installation-id>"), " when finished."],
   },
   {
     name: "remove-temp",
@@ -162,7 +164,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Remove one temporary Profile",
     examples: COMMAND_EXAMPLES["remove-temp"],
     writes: "Removes only the receipt-owned temporary project files and exclusion contribution.",
-    next: "Nothing further is required for this temporary installation.",
+    next: ["Nothing further is required for this temporary installation."],
   },
   {
     name: "list",
@@ -172,9 +174,17 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "List active temporary Profile inventory for external runners",
     examples: MACHINE_LIST_EXAMPLES,
     writes: "Nothing; this command is read-only.",
-    next: `Run ${COMMAND_NAME} machine remove-temp <temporary-installation-id> to remove one.`,
+    next: ["Run ", invocation("machine", "remove-temp", "<temporary-installation-id>"), " to remove one."],
   },
 ];
+
+/** One `apkit …` invocation as one atomic inline command part. */
+function invocation(...tokens: readonly string[]): ReturnType<typeof commandPart> {
+  return commandPart(
+    COMMAND_NAME,
+    tokens.map((value): CommandArg => ({ kind: "text", value })),
+  );
+}
 
 /**
  * Commands shown in the default command list: every command outside a
@@ -206,20 +216,30 @@ export function commandInvocationStarters(): readonly string[] {
   );
 }
 
-import type { PresentationDocument, PresentationNode } from "./presentation-document.js";
-
-/** One help view: its document plus the lines that must survive wrapping whole. */
-export interface HelpDocument {
-  readonly document: PresentationDocument;
-  readonly copyableValues: readonly string[];
-}
+import {
+  commandPart,
+  type CommandArg,
+  type InlineContent,
+} from "./inline-content.js";
+import type {
+  PresentationDocument,
+  PresentationNode,
+} from "./presentation-document.js";
 
 const ROOT_INTRO =
   "Agent Profile Kit composes reusable agent material into host-native projects.";
-const ROOT_DISCOVERY =
-  `  Choose a Profile with ${COMMAND_NAME} guide profile; see ${COMMAND_NAME} bind --help for supported Host values.`;
-const ROOT_GUIDANCE =
-  `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide --full.`;
+const ROOT_DISCOVERY_PARTS: readonly InlineContent[] = [
+  "  Choose a Profile with ",
+  invocation("guide"),
+  " profile; see ",
+  invocation("bind", "--help"),
+  " for supported Host values.",
+];
+const ROOT_GUIDANCE_PARTS: readonly InlineContent[] = [
+  "For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ",
+  invocation("guide", "--full"),
+  ".",
+];
 
 const QUICK_START_COMMANDS = [
   "init",
@@ -232,17 +252,27 @@ function spacer(): PresentationNode {
   return { kind: "verbatim", text: "" };
 }
 
-/** One indented syntax line: category command, never wrapped or folded. */
+/**
+ * One indented syntax line: category command, and the whole syntax is one
+ * atomic inline command, never wrapped or folded.
+ */
 function syntaxNodes(command: CommandHelp): PresentationNode {
+  const tokens = command.syntax.trim().split(/\s+/).filter(Boolean);
   return {
     kind: "sentence",
-    text: `  ${command.syntax}`,
+    parts: [
+      "  ",
+      commandPart(
+        tokens[0]!,
+        tokens.slice(1).map((value): CommandArg => ({ kind: "text", value })),
+      ),
+    ],
     category: "command",
   };
 }
 
 function summaryNode(command: CommandHelp): PresentationNode {
-  return { kind: "sentence", text: `    ${command.summary}` };
+  return { kind: "sentence", parts: [`    ${command.summary}`] };
 }
 
 function usageNode(syntax: string): PresentationNode {
@@ -265,9 +295,8 @@ function usageNode(syntax: string): PresentationNode {
  * Root help as a presentation document. The wordmark is authored by the CLI
  * boundary — the one place allowed to read the terminal context (DEC-012).
  */
-export function rootHelpDocument(wordmark: readonly string[]): HelpDocument {
+export function rootHelpDocument(wordmark: readonly string[]): PresentationDocument {
   const nodes: PresentationNode[] = [];
-  const copyableValues: string[] = [];
   // The wordmark is pre-formatted ASCII art: reproduced exactly, unwrapped
   // and unstyled (verbatim content, DEC-008).
   for (const line of wordmark) {
@@ -282,17 +311,20 @@ export function rootHelpDocument(wordmark: readonly string[]): HelpDocument {
     { kind: "heading", text: "First run:" },
   );
   for (const command of QUICK_START_COMMANDS) {
-    nodes.push({ kind: "sentence", text: `  ${COMMAND_NAME} ${command}`, category: "command" });
+    nodes.push({
+      kind: "sentence",
+      parts: ["  ", invocation(...command.split(/\s+/))],
+      category: "command",
+    });
   }
   nodes.push(
     spacer(),
-    { kind: "sentence", text: ROOT_DISCOVERY },
+    { kind: "sentence", parts: ROOT_DISCOVERY_PARTS },
     spacer(),
     { kind: "heading", text: "Common commands:" },
   );
   for (const command of defaultCommands().filter((entry) => entry.group === "common")) {
     nodes.push(syntaxNodes(command), summaryNode(command));
-    copyableValues.push(command.syntax);
   }
   nodes.push(spacer(), { kind: "heading", text: "More commands:" });
   for (const [group, label] of COMMAND_GROUPS) {
@@ -302,18 +334,21 @@ export function rootHelpDocument(wordmark: readonly string[]): HelpDocument {
     nodes.push({ kind: "heading", text: `  ${label}:` });
     for (const command of listed) {
       nodes.push(syntaxNodes(command), summaryNode(command));
-      copyableValues.push(command.syntax);
     }
   }
-  nodes.push(spacer(), { kind: "sentence", text: ROOT_GUIDANCE, category: "muted" });
-  return { document: nodes, copyableValues };
+  nodes.push(spacer(), {
+    kind: "sentence",
+    parts: ROOT_GUIDANCE_PARTS,
+    category: "muted",
+  });
+  return nodes;
 }
 
 /**
  * Help for the machine-facing namespace (DEC-019): the only place its commands
  * are listed, deliberately absent from the default command list.
  */
-export function machineHelpDocument(): HelpDocument {
+export function machineHelpDocument(): PresentationDocument {
   const nodes: PresentationNode[] = [
     {
       kind: "sentence",
@@ -324,44 +359,43 @@ export function machineHelpDocument(): HelpDocument {
     usageNode("machine <command> [arguments]"),
     spacer(),
   ];
-  const copyableValues: string[] = [];
   for (const command of machineCommands()) {
     nodes.push(syntaxNodes(command), summaryNode(command));
-    copyableValues.push(command.syntax);
   }
-  return { document: nodes, copyableValues };
+  return nodes;
 }
 
 /** Focused help for one command: purpose, usage, examples, writes, and next. */
-export function commandHelpDocument(command: CommandHelp): HelpDocument {
+export function commandHelpDocument(command: CommandHelp): PresentationDocument {
   const nodes: PresentationNode[] = [
-    { kind: "sentence", text: `Purpose: ${command.summary}`, category: "heading" },
+    { kind: "sentence", parts: [`Purpose: ${command.summary}`], category: "heading" },
     spacer(),
     usageNode(command.syntax),
     spacer(),
     { kind: "heading", text: "Examples:" },
   ];
-  const copyableValues: string[] = [command.syntax];
   for (const example of command.examples) {
-    const invocation = `${COMMAND_NAME} ${example}`;
-    nodes.push({ kind: "sentence", text: `  ${invocation}`, category: "command" });
-    copyableValues.push(invocation);
+    nodes.push({
+      kind: "sentence",
+      parts: ["  ", invocation(...example.split(/\s+/))],
+      category: "command",
+    });
   }
   if (command.supportedHosts !== undefined) {
     nodes.push(
       spacer(),
       {
         kind: "sentence",
-        text: `Supported Hosts: ${command.supportedHosts.join(", ")}`,
+        parts: [`Supported Hosts: ${command.supportedHosts.join(", ")}`],
         category: "heading",
       },
     );
   }
   nodes.push(
     spacer(),
-    { kind: "sentence", text: `Writes: ${command.writes}`, category: "heading" },
+    { kind: "sentence", parts: [`Writes: ${command.writes}`], category: "heading" },
     spacer(),
-    { kind: "sentence", text: `Next: ${command.next}`, category: "command" },
+    { kind: "sentence", parts: ["Next: ", ...command.next], category: "command" },
   );
-  return { document: nodes, copyableValues };
+  return nodes;
 }

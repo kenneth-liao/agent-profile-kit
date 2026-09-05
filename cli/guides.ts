@@ -2,9 +2,11 @@ import { readFile } from "node:fs/promises";
 
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { COMMAND_NAME } from "../installer/version.js";
-import type {
-  PresentationDocument,
-  PresentationNode,
+import {
+  commandPart,
+  identifierPart,
+  type PresentationDocument,
+  type PresentationNode,
 } from "./presentation-document.js";
 
 function guidePath(name: string): URL {
@@ -50,21 +52,12 @@ export const TOPIC_GUIDES = {
 } as const;
 
 
-/**
- * One guide view: its document plus the command lines that must survive
- * wrapping whole.
- */
-export interface GuideDocument {
-  readonly document: PresentationDocument;
-  readonly copyableValues: readonly string[];
-}
-
 function spacer(): PresentationNode {
   return { kind: "verbatim", text: "" };
 }
 
 /** The guide index as a presentation document. */
-export function guideIndexDocument(): GuideDocument {
+export function guideIndexDocument(): PresentationDocument {
   const nodes: PresentationNode[] = [
     { kind: "heading", text: "# Agent Profile Kit guide" },
     spacer(),
@@ -76,37 +69,47 @@ export function guideIndexDocument(): GuideDocument {
     spacer(),
     { kind: "heading", text: "Topics:" },
   ];
-  const copyableValues: string[] = [];
   for (const topic of GUIDE_TOPICS) {
     const guide = TOPIC_GUIDES[topic];
-    const route = `${COMMAND_NAME} guide ${topic}`;
     nodes.push(
-      { kind: "sentence", text: `  ${route}`, category: "command" },
-      { kind: "sentence", text: `    ${guide.title}: ${guide.introduction}` },
+      routeLine(["guide", topic]),
+      { kind: "sentence", parts: [`    ${guide.title}: ${guide.introduction}`] },
     );
-    copyableValues.push(route);
   }
   nodes.push(spacer(), { kind: "heading", text: "Complete references:" });
   for (const [route, description] of [
-    [`${COMMAND_NAME} guide --full`, "Complete human Workspace guide"],
-    [`${COMMAND_NAME} guide --agent`, "Agent workflow reference"],
+    [["guide", "--full"], "Complete human Workspace guide"],
+    [["guide", "--agent"], "Agent workflow reference"],
   ] as const) {
     nodes.push(
-      { kind: "sentence", text: `  ${route}`, category: "command" },
-      { kind: "sentence", text: `    ${description}` },
+      routeLine(route),
+      { kind: "sentence", parts: [`    ${description}`] },
     );
-    copyableValues.push(route);
   }
   nodes.push(spacer(), { kind: "heading", text: "Examples:" });
-  for (const example of [
-    `${COMMAND_NAME} init`,
-    `${COMMAND_NAME} guide profile`,
-    `${COMMAND_NAME} bind ${AUTHORING_EXAMPLES.profile.id} --host codex`,
-  ]) {
-    nodes.push({ kind: "sentence", text: `  ${example}`, category: "command" });
-    copyableValues.push(example);
+  for (const args of [
+    ["init"],
+    ["guide", "profile"],
+    ["bind", AUTHORING_EXAMPLES.profile.id, "--host", "codex"],
+  ] as const) {
+    nodes.push(routeLine(args));
   }
-  return { document: nodes, copyableValues };
+  return nodes;
+}
+
+/**
+ * One indented route line as a single atomic command part: the whole route
+ * renders on one line, never split or folded.
+ */
+function routeLine(args: readonly string[]): PresentationNode {
+  return {
+    kind: "sentence",
+    parts: [
+      "  ",
+      commandPart(COMMAND_NAME, args.map((value) => ({ kind: "text" as const, value }))),
+    ],
+    category: "command",
+  };
 }
 
 /** One fenced authoring example, reproduced exactly (verbatim content). */
@@ -124,7 +127,7 @@ function exampleNodes(
 }
 
 /** One focused authoring guide (profile, context, or skill) as a document. */
-export function focusedGuideDocument(topic: GuideTopic): GuideDocument {
+export function focusedGuideDocument(topic: GuideTopic): PresentationDocument {
   const guide = TOPIC_GUIDES[topic];
   const nodes: PresentationNode[] = [
     { kind: "heading", text: `# ${guide.title}` },
@@ -135,9 +138,13 @@ export function focusedGuideDocument(topic: GuideTopic): GuideDocument {
   if (topic === "profile") {
     nodes.push(...exampleNodes(AUTHORING_EXAMPLES.context, "md"));
   }
-  nodes.push(spacer(), { kind: "sentence", text: guide.next, category: "heading" });
-  // The carried next action renders whole, as the literal block it came from.
-  return { document: nodes, copyableValues: [guide.next] };
+  nodes.push(spacer(), {
+    kind: "sentence",
+    // The carried next action renders whole, as the literal block it came from.
+    parts: [identifierPart(guide.next)],
+    category: "heading",
+  });
+  return nodes;
 }
 
 /**
@@ -145,10 +152,7 @@ export function focusedGuideDocument(topic: GuideTopic): GuideDocument {
  * user-facing quoted material reproduced without wrapping or styling. The
  * file's trailing newline is the writer's line terminator.
  */
-export function guideFileDocument(body: string): GuideDocument {
+export function guideFileDocument(body: string): PresentationDocument {
   const withoutFinalNewline = body.endsWith("\n") ? body.slice(0, -1) : body;
-  return {
-    document: [{ kind: "verbatim", text: withoutFinalNewline }],
-    copyableValues: [],
-  };
+  return [{ kind: "verbatim", text: withoutFinalNewline }];
 }

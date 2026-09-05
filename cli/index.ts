@@ -167,25 +167,13 @@ function rootWordmark(context: TerminalPresentationContext): readonly string[] {
   return context.interactive ? agentProfileKitWordmark(context.width) : [];
 }
 
-/** Help output rendered from a presentation document, without the regex categoriser. */
-function writeHelp(
-  stream: WriteStream,
-  help: { readonly document: PresentationDocument; readonly copyableValues: readonly string[] },
-  context: TerminalPresentationContext,
-): void {
-  writeHumanDocument(stream, help.document, context, help.copyableValues);
-}
-
 /** Human output rendered from a presentation document (DEC-018). */
 function writeHumanDocument(
   stream: WriteStream,
   document: PresentationDocument,
   context: TerminalPresentationContext,
-  copyableValues: readonly string[] = [],
 ): void {
-  stream.write(
-    `${renderPresentationDocument(document, context, { copyableValues })}\n`,
-  );
+  stream.write(`${renderPresentationDocument(document, context)}\n`);
 }
 
 /**
@@ -813,12 +801,12 @@ async function main(): Promise<void> {
     (arguments_.length === 1 && ROOT_HELP_ALIASES.some((alias) => alias === arguments_[0]))
   ) {
     const context = stdoutPresentationContext;
-    writeHelp(process.stdout, rootHelpDocument(rootWordmark(context)), stdoutPresentationContext);
+    writeHumanDocument(process.stdout, rootHelpDocument(rootWordmark(context)), stdoutPresentationContext);
     return;
   }
   const focusedHelp = focusedHelpRequest(arguments_);
   if (focusedHelp?.kind === "root") {
-    writeHelp(
+    writeHumanDocument(
       process.stdout,
       rootHelpDocument(rootWordmark(stdoutPresentationContext)),
       stdoutPresentationContext,
@@ -826,7 +814,7 @@ async function main(): Promise<void> {
     return;
   }
   if (focusedHelp?.kind === "machine") {
-    writeHelp(process.stdout, machineHelpDocument(), stdoutPresentationContext);
+    writeHumanDocument(process.stdout, machineHelpDocument(), stdoutPresentationContext);
     return;
   }
   if (focusedHelp?.kind === "removedTemporary") {
@@ -839,20 +827,20 @@ async function main(): Promise<void> {
     return;
   }
   if (focusedHelp?.kind === "command") {
-    writeHelp(process.stdout, commandHelpDocument(focusedHelp.command), stdoutPresentationContext);
+    writeHumanDocument(process.stdout, commandHelpDocument(focusedHelp.command), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "guide") {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     if (parsed.kind === "index") {
-      writeHelp(process.stdout, guideIndexDocument(), stdoutPresentationContext);
+      writeHumanDocument(process.stdout, guideIndexDocument(), stdoutPresentationContext);
     } else if (parsed.kind === "topic") {
-      writeHelp(process.stdout, focusedGuideDocument(parsed.topic), stdoutPresentationContext);
+      writeHumanDocument(process.stdout, focusedGuideDocument(parsed.topic), stdoutPresentationContext);
     } else if (parsed.kind === "agent") {
-      writeHelp(process.stdout, guideFileDocument(await agentGuide()), stdoutPresentationContext);
+      writeHumanDocument(process.stdout, guideFileDocument(await agentGuide()), stdoutPresentationContext);
     } else {
-      writeHelp(process.stdout, guideFileDocument(await humanGuide()), stdoutPresentationContext);
+      writeHumanDocument(process.stdout, guideFileDocument(await humanGuide()), stdoutPresentationContext);
     }
     return;
   }
@@ -870,13 +858,7 @@ async function main(): Promise<void> {
         stderrPresentationContext,
       );
     }
-    const initReceipt = initReceiptDocument(result);
-    writeHumanDocument(
-      process.stdout,
-      initReceipt.document,
-      stdoutPresentationContext,
-      initReceipt.copyableValues,
-    );
+    writeHumanDocument(process.stdout, initReceiptDocument(result), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "bind") {
@@ -889,13 +871,7 @@ async function main(): Promise<void> {
       ...(parsed.replace ? { replace: true } : {}),
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
     });
-    const bindReceipt = bindReceiptDocument(result);
-    writeHumanDocument(
-      process.stdout,
-      bindReceipt.document,
-      stdoutPresentationContext,
-      bindReceipt.copyableValues,
-    );
+    writeHumanDocument(process.stdout, bindReceiptDocument(result), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "unbind") {
@@ -907,13 +883,7 @@ async function main(): Promise<void> {
     });
     // Exceptional recovery keeps the diagnostic detail needed to act safely;
     // routine removal stays compact (ADR-0014, DEC-041/DEC-043).
-    const unbindReceipt = unbindReceiptDocument(result);
-    writeHumanDocument(
-      process.stdout,
-      unbindReceipt.document,
-      stdoutPresentationContext,
-      unbindReceipt.copyableValues,
-    );
+    writeHumanDocument(process.stdout, unbindReceiptDocument(result), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "validate") {
@@ -1164,12 +1134,12 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === MACHINE_NAMESPACE) {
     const rest = arguments_.slice(1);
     if (rest.length === 0) {
-      writeHelp(process.stdout, machineHelpDocument(), stdoutPresentationContext);
+      writeHumanDocument(process.stdout, machineHelpDocument(), stdoutPresentationContext);
       return;
     }
     const machineFocusedHelp = focusedMachineHelpRequest(rest);
     if (machineFocusedHelp?.kind === "command") {
-      writeHelp(
+      writeHumanDocument(
         process.stdout,
         commandHelpDocument(machineFocusedHelp.command),
         stdoutPresentationContext,

@@ -6,6 +6,10 @@ import { dirname, join } from "node:path";
 import type { HostSetupStep } from "../adapters/project-plan.js";
 import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
 import {
+  type InlineContent,
+  renderPresentationDocument,
+} from "../cli/presentation-document.js";
+import {
   COMMAND_GROUPS,
   commandHelpDocument,
   defaultCommands,
@@ -7260,7 +7264,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
   const projectPath = join(home, "projects", "demo");
 
   test("the created receipt presents a success headline and the next command", () => {
-    const { document, copyableValues } = initReceiptDocument({
+    const document = initReceiptDocument({
       outcome: "created",
       path: `/test/workspace`,
       workspaceScaffolded: true,
@@ -7268,19 +7272,17 @@ describe("authoring and teardown receipt documents (#390)", () => {
     // Selective shape: kinds, categories, order, and atomic values — the
     // carried wording is locked by the golden snapshots.
     expect(shapes(document)).toEqual(["sentence(success)", "sentence(command)"]);
-    expect(copyableValues).toEqual([]);
     expect(document[0]).toMatchObject({ kind: "sentence", category: "success" });
     expect(document[1]).toMatchObject({ kind: "sentence", category: "command" });
   });
 
   test("the created receipt without scaffolding points at validate", () => {
-    const { document } = initReceiptDocument({
+    const document = initReceiptDocument({
       outcome: "created",
       path: `/test/workspace`,
       workspaceScaffolded: false,
     });
     expect(shapes(document)).toEqual(["sentence(success)", "sentence(command)"]);
-    expect((document[1] as { readonly text: string }).text).toContain("validate");
   });
 
   test("the migrated and unchanged receipts carry their severities and values", () => {
@@ -7288,19 +7290,16 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "migrated",
       path: `/test/workspace`,
     });
-    expect(shapes(migrated.document)).toEqual(["sentence(success)", "sentence(command)"]);
-    expect(migrated.copyableValues).toEqual([]);
+    expect(shapes(migrated)).toEqual(["sentence(success)", "sentence(command)"]);
     const unchanged = initReceiptDocument({
       outcome: "unchanged",
       path: `/test/workspace`,
     });
-    // Space-free values need no wrapping protection.
-    expect(unchanged.copyableValues).toEqual([]);
-    expect(shapes(unchanged.document)).toEqual(["sentence"]);
+    expect(shapes(unchanged)).toEqual(["sentence"]);
   });
 
   test("the recorded bind receipt presents binding detail and the next command", () => {
-    const { document, copyableValues } = bindReceiptDocument({
+    const document = bindReceiptDocument({
       outcome: "created",
       canonicalProject: projectPath,
       project: projectPath,
@@ -7313,7 +7312,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       "key-value:Hosts",
       "key-value:Next(command)",
     ]);
-    expect(copyableValues).toEqual([]);
     expect(document[1]).toEqual({
       kind: "key-value",
       key: "  Profile",
@@ -7329,7 +7327,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
   });
 
   test("the replaced bind receipt keeps only the changed deltas", () => {
-    const { document } = bindReceiptDocument({
+    const document = bindReceiptDocument({
       outcome: "replaced",
       canonicalProject: projectPath,
       project: projectPath,
@@ -7359,7 +7357,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       profile: "coding",
       hosts: ["codex"],
     });
-    expect(shapes(unchangedBind.document)).toEqual([
+    expect(shapes(unchangedBind)).toEqual([
       "sentence",
       "key-value:Profile(path)",
       "key-value:Hosts",
@@ -7369,11 +7367,11 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "unchanged",
       requestedProject: "~/projects/absent",
     });
-    expect(shapes(unchangedUnbind.document)).toEqual(["sentence"]);
+    expect(shapes(unchangedUnbind)).toEqual(["sentence"]);
   });
 
   test("the removed unbind receipt keeps recovery evidence and survival guidance", () => {
-    const { document, copyableValues } = unbindReceiptDocument({
+    const document = unbindReceiptDocument({
       outcome: "removed",
       canonicalProject: projectPath,
       project: projectPath,
@@ -7401,7 +7399,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
   });
 
   test("the authored-path unbind receipt carries the recovery explanation and configuration location", () => {
-    const { document, copyableValues } = unbindReceiptDocument({
+    const document = unbindReceiptDocument({
       outcome: "removed",
       project: "/opt/authored/demo",
       profile: "coding",
@@ -7417,14 +7415,36 @@ describe("authoring and teardown receipt documents (#390)", () => {
       "key-value:Profile(path)",
       "key-value:Hosts",
     ]);
-    // Space-free values need no wrapping protection.
-    expect(copyableValues).toEqual([]);
   });
 });
 
+/**
+ * Render one node alone: for asserting an atomic inline value survives as one
+ * whole line (the structural replacement for the copyable-value list).
+ */
+function renderedNodeLine(node: PresentationNode): string {
+  return renderPresentationDocument([node], { color: false, interactive: false, width: 40 });
+}
+
+/** The carried inline text of a wrapping node, flattened from its parts. */
+function inlineText(node: PresentationNode): string {
+  const parts: readonly InlineContent[] =
+    (node as { readonly parts?: readonly InlineContent[] }).parts ??
+    [(node as { readonly text?: string }).text ?? ""];
+  return parts.map((part) => {
+    if (typeof part === "string") return part;
+    switch (part.kind) {
+      case "text": return part.value;
+      case "command": return [part.program, ...part.args.map((arg) => arg.kind === "text" ? arg.value : "")].join(" ");
+      case "path": return part.authoredPath ?? part.canonicalPath;
+      case "identifier": return part.value;
+    }
+  }).join("");
+}
+
 describe("help documents (#390)", () => {
   test("root help presents the wordmark, intro, usage, quick start, groups, and guidance", () => {
-    const { document, copyableValues } = rootHelpDocument([]);
+    const document = rootHelpDocument([]);
     expect(shapes(document)).toEqual([
       "sentence",
       "spacer",
@@ -7468,15 +7488,18 @@ describe("help documents (#390)", () => {
       },
       category: "heading",
     });
-    // Every listed syntax line must survive wrapping whole.
+    // Every listed syntax line is one atomic command: it renders as one whole
+    // line even at the narrowest measure.
+    const syntaxLines = (document as PresentationNode[])
+      .filter((node) => node.kind === "sentence" && node.category === "command")
+      .map(renderedNodeLine);
     for (const command of defaultCommands()) {
-      expect(copyableValues).toContain(command.syntax);
+      expect(syntaxLines).toContain(`  ${command.syntax}`);
     }
-    expect(copyableValues).toHaveLength(defaultCommands().length);
   });
 
   test("root help renders the wordmark lines before the intro when interactive", () => {
-    const { document } = rootHelpDocument(["  /\\  Agent Profile Kit", " /__\\ reusable agent material"]);
+    const document = rootHelpDocument(["  /\\  Agent Profile Kit", " /__\\ reusable agent material"]);
     expect(shapes(document).slice(0, 2)).toEqual(["verbatim", "verbatim"]);
     expect(document[0]).toEqual({ kind: "verbatim", text: "  /\\  Agent Profile Kit" });
     expect(document[1]).toEqual({ kind: "verbatim", text: " /__\\ reusable agent material" });
@@ -7484,7 +7507,7 @@ describe("help documents (#390)", () => {
 
   test("focused command help presents purpose, usage, examples, writes, and next", () => {
     const status = defaultCommands().find((command) => command.name === "status")!;
-    const { document, copyableValues } = commandHelpDocument(status);
+    const document = commandHelpDocument(status);
     expect(shapes(document)).toEqual([
       "sentence(heading)",
       "spacer",
@@ -7507,26 +7530,29 @@ describe("help documents (#390)", () => {
       },
       category: "heading",
     });
+    // Every example and the usage line are atomic: one whole line each.
+    const commandLines = (document as PresentationNode[])
+      .filter((node) => node.kind === "sentence" && node.category === "command")
+      .map(renderedNodeLine);
     for (const example of status.examples) {
-      expect(copyableValues).toContain(`apkit ${example}`);
+      expect(commandLines).toContain(`  apkit ${example}`);
     }
-    expect(copyableValues).toContain(status.syntax);
   });
 
   test("focused command help lists supported Hosts when the command carries them", () => {
     const bind = defaultCommands().find((command) => command.name === "bind")!;
-    const { document } = commandHelpDocument(bind);
+    const document = commandHelpDocument(bind);
     const sections = shapes(document);
     const examplesIndex = sections.indexOf("heading");
     // The Supported Hosts sentence sits after Examples and before Writes.
     const hostIndex = sections.indexOf("sentence(heading)", examplesIndex + 1);
     expect(sections.indexOf("sentence(heading)", hostIndex + 1)).toBeGreaterThan(hostIndex);
-    expect((document[hostIndex] as { readonly text: string }).text)
+    expect(inlineText(document[hostIndex] as PresentationNode))
       .toContain(`Supported Hosts: ${bind.supportedHosts!.join(", ")}`);
   });
 
   test("machine help presents the namespace intro, usage, and machine commands", () => {
-    const { document, copyableValues } = machineHelpDocument();
+    const document = machineHelpDocument();
     expect(shapes(document)).toEqual([
       "sentence",
       "spacer",
@@ -7534,16 +7560,18 @@ describe("help documents (#390)", () => {
       "spacer",
       ...machineCommands().flatMap(() => ["sentence(command)", "sentence"]),
     ]);
+    const machineSyntaxLines = (document as PresentationNode[])
+      .filter((node) => node.kind === "sentence" && node.category === "command")
+      .map(renderedNodeLine);
     for (const command of machineCommands()) {
-      expect(copyableValues).toContain(command.syntax);
+      expect(machineSyntaxLines).toContain(`  ${command.syntax}`);
     }
-    expect(copyableValues).toHaveLength(machineCommands().length);
   });
 });
 
 describe("guide documents (#390)", () => {
   test("the guide index presents the title, intro, topics, references, and examples", () => {
-    const { document, copyableValues } = guideIndexDocument();
+    const document = guideIndexDocument();
     expect(shapes(document)).toEqual([
       "heading",
       "spacer",
@@ -7568,20 +7596,24 @@ describe("guide documents (#390)", () => {
       "sentence(command)",
       "sentence(command)",
     ]);
-    expect(copyableValues).toEqual([
-      "apkit guide profile",
-      "apkit guide context",
-      "apkit guide skill",
-      "apkit guide --full",
-      "apkit guide --agent",
-      "apkit init",
-      "apkit guide profile",
-      "apkit bind example --host codex",
+    // Every route and example line is one atomic command: one whole line each.
+    const routeLines = (document as PresentationNode[])
+      .filter((node) => node.kind === "sentence" && node.category === "command")
+      .map(renderedNodeLine);
+    expect(routeLines).toEqual([
+      "  apkit guide profile",
+      "  apkit guide context",
+      "  apkit guide skill",
+      "  apkit guide --full",
+      "  apkit guide --agent",
+      "  apkit init",
+      "  apkit guide profile",
+      "  apkit bind example --host codex",
     ]);
   });
 
   test("the focused guide keeps its fenced examples as verbatim content", () => {
-    const { document, copyableValues } = focusedGuideDocument("profile");
+    const document = focusedGuideDocument("profile");
     const example = AUTHORING_EXAMPLES.profile;
     const contextExample = AUTHORING_EXAMPLES.context;
     expect(shapes(document)).toEqual([
@@ -7605,12 +7637,13 @@ describe("guide documents (#390)", () => {
       text: `Create \`${contextExample.path}\`:\n\n\`\`\`md\n${contextExample.contents}\`\`\``,
     });
     // The carried next action renders whole, as the literal block it came from.
-    expect(copyableValues).toEqual([TOPIC_GUIDES.profile.next]);
+    expect(renderedNodeLine(document.at(-1) as PresentationNode))
+      .toBe(TOPIC_GUIDES.profile.next);
   });
 
   test("the focused context and skill guides end at their next line without extra examples", () => {
     for (const topic of ["context", "skill"] as const) {
-      const { document } = focusedGuideDocument(topic);
+      const document = focusedGuideDocument(topic);
       const bodies = document.filter(
         (node): node is Extract<PresentationNode, { readonly kind: "verbatim" }> =>
           node.kind === "verbatim" && (node.text ?? "").length > 0,
@@ -7622,8 +7655,7 @@ describe("guide documents (#390)", () => {
   });
 
   test("a guide file body renders verbatim with one trailing newline restored by the writer", () => {
-    const { document, copyableValues } = guideFileDocument("# Title\n\nBody line.\n");
+    const document = guideFileDocument("# Title\n\nBody line.\n");
     expect(shapes(document)).toEqual(["verbatim"]);
-    expect(copyableValues).toEqual([]);
   });
 });
