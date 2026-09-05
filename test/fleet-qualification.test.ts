@@ -47,6 +47,12 @@ import { readInstallationState } from "../installer/installation-state.js";
 import { humanText } from "./support/human-text.js";
 import { ensureProductionBundle } from "./support/package-archive.js";
 import {
+  FLEET_CLI_PATH,
+  runFleetCli,
+  runFleetCliWithExplicitPath,
+  withFleetScope,
+} from "./support/fleet-cli.js";
+import {
   createFleetFixture,
   cleanupFleetFixtures,
   gitRepository,
@@ -71,8 +77,10 @@ import {
 } from "./support/reconciliation-report.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+// Fleet qualification uses structural assertions; this is a finite hang bound,
+// with headroom for packed-CLI deadlines and cleanup on slower runners.
+const FLEET_TEST_TIMEOUT_MS = 120_000;
 const temporaryDirectories: string[] = [];
-let cliPath = join(repositoryRoot, "dist", "cli.js");
 
 beforeAll(() => {
   ensureProductionBundle(repositoryRoot);
@@ -94,22 +102,8 @@ function createPackedFleet(home: string): FleetFixture {
   return createFleetFixture(home);
 }
 
-function withFleetScope(arguments_: readonly string[]): readonly string[] {
-  const [command, ...rest] = arguments_;
-  const hasPositional = rest.some((arg) => !arg.startsWith("-"));
-  return (command === "apply" || command === "status") && !rest.includes("--all") && !hasPositional
-    ? [...arguments_, "--all"]
-    : arguments_;
-}
-
 async function runCli(home: string, pathValue: string, ...arguments_: string[]) {
-  return runProcess({
-    executable: process.env.NODE_BINARY ?? "node",
-    arguments_: [cliPath, ...withFleetScope(arguments_)],
-    environment: { ...process.env, HOME: home, PATH: pathValue },
-    deadlineMs: TEST_CHILD_DEADLINE_MS,
-    commandLabel: "packed CLI",
-  });
+  return runFleetCli(home, pathValue, arguments_);
 }
 
 /** Packed CLI run with a fully controlled PATH (system PATH excluded) so a missing Host stays missing. */
@@ -118,14 +112,7 @@ async function runCliWithExplicitPath(
   pathValue: string,
   ...arguments_: string[]
 ) {
-  return runProcess({
-    // Absolute runtime path so a restricted PATH cannot shadow the runner.
-    executable: process.env.NODE_BINARY ?? process.execPath,
-    arguments_: [cliPath, ...withFleetScope(arguments_)],
-    environment: { ...process.env, HOME: home, PATH: pathValue },
-    deadlineMs: TEST_CHILD_DEADLINE_MS,
-    commandLabel: "packed CLI",
-  });
+  return runFleetCliWithExplicitPath(home, pathValue, arguments_);
 }
 
 function stripPtyControlArtifacts(text: string): string {
@@ -149,7 +136,7 @@ async function runCliInPtyRaw(
     "exec",
     ...[
       process.env.NODE_BINARY ?? "node",
-      cliPath,
+      FLEET_CLI_PATH,
       ...withFleetScope(arguments_),
     ].map(shellQuote),
   ].join(" ");
@@ -278,7 +265,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(status.stdout).not.toContain("Next:");
     // Pi now generates output in the added Project.
     expect(existsSync(join(withPi, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
-  }, 120_000);
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("integrated journeys enforce invocation-scoped operation budgets for unique Profiles, Hosts, Projects, and generated outputs", async () => {
     const home = isolatedHome();
@@ -348,7 +335,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(steady.counts.classifyTrackedPaths).toBe(6);
     expect(steady.counts.findGitProject).toBe(12);
     expect(reportItems(report)).toHaveLength(12);
-  });
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("operation budgets flow through the command layer with Host probes once per unique requirement", async () => {
     const home = isolatedHome();
@@ -377,7 +364,7 @@ describe("fleet-wide synchronization qualification", () => {
     // One machine-level probe per supported Host requirement set for the
     // Context+Skill Profile during apply's planning.
     expect(applyInstrumentation.counts.probeHostCapability).toBe(5);
-  });
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("apply still performs fresh post-commit verification while writes, state, and receipts stay sequential", async () => {
     const home = isolatedHome();
@@ -434,7 +421,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(reportItems(applied.resultingState).every((item) => item.kind === "current")).toBe(true);
     const state = await readInstallationState(home);
     expect(state.receipts).toHaveLength(12);
-  });
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("a dependency-rich 14-Project publication remains readable across fresh processes", async () => {
     const home = isolatedHome();
@@ -457,7 +444,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(nextRead.stdout).toContain("All Projects are current (14 Projects)");
     expectExitCode(await runCli(home, fixture.pathWithHosts, "apply"), 0);
     expect(readFileSync(statePath, "utf8")).toBe(published);
-  });
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("delayed progress is cleared on the packed fleet PTY, and non-interactive modes stay progress-free", async () => {
     const home = isolatedHome();
@@ -490,7 +477,7 @@ describe("fleet-wide synchronization qualification", () => {
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [cliPath, "status", "--all"],
+      arguments_: [FLEET_CLI_PATH, "status", "--all"],
       environment: {
         ...process.env,
         APKIT_TEST_CODEX_DELAY: "1.2",
@@ -507,7 +494,7 @@ describe("fleet-wide synchronization qualification", () => {
 
     const json = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [cliPath, "status", "--all", "--json"],
+      arguments_: [FLEET_CLI_PATH, "status", "--all", "--json"],
       environment: {
         ...process.env,
         APKIT_TEST_CODEX_DELAY: "1.2",
@@ -521,7 +508,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(json.stdout).not.toContain(STATUS_PROGRESS_LABEL);
     expect(json.stdout).not.toMatch(/\r/);
     expect(() => JSON.parse(json.stdout)).not.toThrow();
-  }, 120_000);
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("representative warm status and apply samples are benchmarked and recorded with the qualification evidence", async () => {
     const home = isolatedHome();
@@ -558,7 +545,7 @@ describe("fleet-wide synchronization qualification", () => {
     await expect(benchmarkWarmRuns(home, { commands: [] })).rejects.toThrow(
       /at least one command/,
     );
-  });
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("validate is part of the same command-layer instrumentation surface", async () => {
     const home = isolatedHome();
@@ -577,7 +564,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(reportBlockers(report)).toEqual([]);
     expect(reportItems(report)).toHaveLength(12);
     expect(statusInstrumentation.counts.resolveProfile).toBe(1);
-  });
+  }, FLEET_TEST_TIMEOUT_MS);
 });
 
 interface FsSnapshotEntry {
@@ -863,7 +850,7 @@ describe("integrated fleet recovery qualification", () => {
     expect(secondStatus.stdout).toContain("Blockers:");
     expect(secondStatus.stdout).toContain(projectB);
     expect(secondStatus.stdout).not.toContain("OpenCode discovers Skills");
-  }, 120_000);
+  }, FLEET_TEST_TIMEOUT_MS);
 
   test("a 30-Project fleet recovers a hand-deleted Project's generated roots as ordinary pending work", async () => {
     const home = isolatedHome();
