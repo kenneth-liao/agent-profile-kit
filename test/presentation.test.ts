@@ -6078,12 +6078,12 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    const status = formatLifecycleReport("status", report);
-    expect(status).toBe("All Projects are current (1 Project)\n");
-    expect(status).not.toContain("Ready to apply");
-    expect(status).not.toContain("Blockers: 0");
-    expect(status).not.toContain("Changes: none");
-    expect(status).not.toContain("Projects: 1");
+    const status = lifecycleStatusDocument(report);
+    expect(renderBoundary(status)).toBe("All Projects are current (1 Project)\n");
+    const statusTexts = presentationTexts(status);
+    expect(statusTexts.some((text) =>
+      /Ready to apply|Blockers: 0|Changes: none|Projects: 1/.test(text)
+    )).toBe(false);
   });
 
   test("no-op apply states current once without readiness", () => {
@@ -6497,14 +6497,24 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    expect(verbose).toContain("Projects:");
-    expect(verbose).toContain("/project-a: addition");
-    expect(verbose).toContain("Outputs:");
-    expect(verbose).toContain("/project-a/a.md: addition");
-    expect(verbose).toContain("Selected setup:");
-    expect(verbose).toContain("Blockers:");
-    expect(verbose).not.toContain("Next:");
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const nodes = flattenPresentationNodes(verbose);
+    const sectionAt = (text: string) => indexWhere(nodes, (node) =>
+      node.kind === "heading" && nodeText(node) === text);
+    for (const section of ["Projects:", "Outputs:", "Selected setup:", "Blockers:"]) {
+      expect(sectionAt(section)).toBeGreaterThan(-1);
+    }
+    expect(projectStateLines(verbose)).toContain("/project-a: addition");
+    const nodes2 = flattenPresentationNodes(verbose);
+    expect(nodes2.some((node) =>
+      node.kind === "prose" &&
+      JSON.stringify(node.parts) === JSON.stringify([
+        { kind: "identifier", value: "/project-a/a.md" },
+        ": addition",
+      ])
+    )).toBe(true);
+    expect(keyValuesIn(verbose, "Next")).toEqual([]);
+    expect(headingsIn(verbose).some((text) => text.startsWith("Next"))).toBe(false);
 
     const machine = machineReport([
       machineProject("/project-a", {
@@ -6849,33 +6859,47 @@ describe("focused blockers-only status view (#351)", () => {
   };
 
   test("focused concise view renders Project and global Blockers and suppresses unrelated inventory", () => {
-    const output = formatLifecycleReport("status", blockedFleet(), { blockersOnly: true });
+    const focused = lifecycleStatusDocument(blockedFleet(), { blockersOnly: true });
+    const nodes = flattenPresentationNodes(focused);
+    const texts = presentationTexts(focused);
 
-    expect(output).toStartWith("Cannot apply\n");
-    expect(output).toContain("Project: /project-a");
-    expect(output).toContain("Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex");
-    expect(output).toContain("Global blockers:");
-    expect(output).toContain("Blocker: installation record is unreadable");
-    expect(output).toContain("Next:");
-    expect(output).toContain("/project-a: Resolve the reported blocker, then run apkit status again.");
-    expect(output).toContain("Resolve the reported global blocker, then run apkit status again.");
+    expect(noticesIn(focused)[0]).toEqual({
+      kind: "notice",
+      severity: "error",
+      nodes: [{ kind: "prose", parts: ["Cannot apply"] }],
+    });
+    expect(keyValuesIn(focused, "Project")).toHaveLength(1);
+    expect(texts.some((text) =>
+      text.startsWith(
+        "  Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex",
+      )
+    )).toBe(true);
+    expect(headingsIn(focused)).toContain("Global blockers:");
+    expect(texts.some((text) =>
+      text.includes("Blocker: installation record is unreadable")
+    )).toBe(true);
+    expect(documentNextActions(focused)).toEqual([
+      "/project-a: Resolve the reported blocker, then run apkit status again.",
+      "Resolve the reported global blocker, then run apkit status again.",
+    ]);
     // Footer counts derive exclusively from the displayed Blockers.
-    expect(output).toContain("Blockers: 2 · Affected Projects: 1");
-    expect(output).not.toContain("Warnings:");
-    expect(output).not.toContain("duplicate Skill identity");
-    expect(output).not.toContain("Files:");
-    expect(output).not.toContain("drifted output");
-    expect(output).not.toContain("Profile: coding");
-    expect(output).not.toContain("State:");
-    expect(output).not.toContain("Host Setup:");
-    expect(output).not.toContain("Approve hook");
-    expect(output).not.toContain("Git exclusions");
+    expect(texts).toContain("Blockers: 2 · Affected Projects: 1");
+    // No unrelated lifecycle inventory: no warnings, paths, states, setup, or
+    // exclusion sections, and no binding Profile detail.
+    expect(headingsIn(focused).some((text) =>
+      /Warnings:|Host Setup:|Git exclusions/.test(text)
+    )).toBe(false);
+    expect(texts.some((text) =>
+      text.includes("duplicate Skill identity") || text.includes("drifted output") ||
+      text.includes("Approve hook") || text.startsWith("    State:")
+    )).toBe(false);
+    expect(keyValuesIn(focused, "  Profile")).toEqual([]);
   });
 
   test("focused concise output is deterministic across repeated rendering", () => {
-    const first = formatLifecycleReport("status", blockedFleet(), { blockersOnly: true });
-    const second = formatLifecycleReport("status", blockedFleet(), { blockersOnly: true });
-    expect(second).toBe(first);
+    const first = lifecycleStatusDocument(blockedFleet(), { blockersOnly: true });
+    const second = lifecycleStatusDocument(blockedFleet(), { blockersOnly: true });
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
   });
 
   test("focused concise view deduplicates one shared blocker resolution across Projects", () => {
@@ -6886,11 +6910,15 @@ describe("focused blockers-only status view (#351)", () => {
       ],
     });
 
-    const output = formatLifecycleReport("status", report, { blockersOnly: true });
-
-    expect(output.indexOf("Project: /a-project")).toBeLessThan(output.indexOf("Project: /z-project"));
-    expect(output.match(/then run apkit status again/g)).toHaveLength(1);
-    expect(output).toContain("Blockers: 2 · Affected Projects: 2");
+    const focused = lifecycleStatusDocument(report, { blockersOnly: true });
+    const projectKeys = keyValuesIn(focused, "Project")
+      .map((node) => (node.value as { readonly canonicalPath: string }).canonicalPath);
+    expect(projectKeys).toEqual(["/a-project", "/z-project"]);
+    // One shared resolution renders once.
+    expect(documentNextActions(focused)).toEqual([
+      "Resolve the reported blocker, then run apkit status again.",
+    ]);
+    expect(presentationTexts(focused)).toContain("Blockers: 2 · Affected Projects: 2");
   });
 
   test("focused concise view never attributes next actions to Projects without displayed Blockers", () => {
@@ -6921,38 +6949,46 @@ describe("focused blockers-only status view (#351)", () => {
       blockers: [fixtureBlocker("Project /project-a is blocked", "/project-a")],
     });
 
-    const output = formatLifecycleReport("status", report, { blockersOnly: true });
+    const focused = lifecycleStatusDocument(report, { blockersOnly: true });
+    const texts = presentationTexts(focused);
 
-    expect(output).toContain("Project: /project-a");
-    expect(output).not.toContain("/project-b");
-    expect(output).not.toContain("After all blockers are resolved");
-    expect(output).toContain("Blockers: 1 · Affected Projects: 1");
+    expect(keyValuesIn(focused, "Project")).toHaveLength(1);
+    expect(texts.some((text) => text.includes("/project-b"))).toBe(false);
+    expect(texts.some((text) => text.includes("After all blockers are resolved"))).toBe(false);
+    expect(texts).toContain("Blockers: 1 · Affected Projects: 1");
   });
 
   test("focused verbose view retains complete Blocker fields and affected items without unrelated sections", () => {
-    const output = formatLifecycleReport("status", blockedFleet(), { blockersOnly: true, verbose: true });
+    const focused = lifecycleStatusDocument(blockedFleet(), { blockersOnly: true, verbose: true });
+    const nodes = flattenPresentationNodes(focused);
+    const texts = presentationTexts(focused);
 
-    expect(output).toContain("- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex");
-    expect(output).toContain(
-      "Requirement: Agent Profile Kit syncs or removes only files whose ownership is " +
+    expect(nodes.some((node) =>
+      node.kind === "list-item" && nodeText(node).startsWith(
+        "Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex",
+      )
+    )).toBe(true);
+    expect(texts).toContain(
+      "  Requirement: Agent Profile Kit syncs or removes only files whose ownership is " +
       "proven by the active installation record at safe paths",
     );
-    expect(output).toContain(
-      "Remedy: Remove the conflicting generated files yourself after verifying the paths, " +
+    expect(texts).toContain(
+      "  Remedy: Remove the conflicting generated files yourself after verifying the paths, " +
       "then retry. Run apkit apply to retry.",
     );
-    expect(output).toContain("Scope: Project /project-a");
-    expect(output).toContain("Affected host: codex");
-    expect(output).toContain("- installation record is unreadable");
-    expect(output).toContain("Scope: Global");
-    expect(output).toContain("Blockers: 2 · Affected Projects: 1");
-    expect(output).not.toMatch(/^Projects:/m);
-    expect(output).not.toContain("Outputs:");
-    expect(output).not.toContain("Selected setup:");
-    expect(output).not.toContain("Warnings:");
-    expect(output).not.toContain("Host Setup:");
-    expect(output).not.toContain("Git exclusions");
-    expect(output).not.toContain("Next:");
+    expect(texts).toContain("  Scope: Project /project-a");
+    expect(texts).toContain("  Affected host: codex");
+    expect(nodes.some((node) =>
+      node.kind === "list-item" && nodeText(node) === "installation record is unreadable"
+    )).toBe(true);
+    expect(texts).toContain("  Scope: Global");
+    expect(texts).toContain("Blockers: 2 · Affected Projects: 1");
+    // No unrelated sections or next guidance.
+    for (const section of ["Projects:", "Outputs:", "Selected setup:", "Warnings:", "Host Setup:"]) {
+      expect(headingsIn(focused)).not.toContain(section);
+    }
+    expect(texts.some((text) => text.includes("Git exclusions"))).toBe(false);
+    expect(nextGuidance(focused)).toEqual([]);
   });
 
   test("focused footer omits affected-Project count when only global Blockers are displayed", () => {
@@ -6960,27 +6996,31 @@ describe("focused blockers-only status view (#351)", () => {
       blockers: [fixtureBlocker("Installation State is unreadable")],
     });
 
-    const concise = formatLifecycleReport("status", report, { blockersOnly: true });
-    const verbose = formatLifecycleReport("status", report, { blockersOnly: true, verbose: true });
+    const concise = lifecycleStatusDocument(report, { blockersOnly: true });
+    const verbose = lifecycleStatusDocument(report, { blockersOnly: true, verbose: true });
 
-    expect(concise).toContain("Global blockers:");
-    expect(concise).toContain("Blockers: 1");
-    expect(concise).not.toContain("Affected Projects:");
-    expect(verbose).toContain("Blockers: 1");
-    expect(verbose).not.toContain("Affected Projects:");
+    expect(headingsIn(concise)).toContain("Global blockers:");
+    expect(presentationTexts(concise)).toContain("Blockers: 1");
+    expect(presentationTexts(concise).some((text) => text.includes("Affected Projects:"))).toBe(false);
+    expect(presentationTexts(verbose)).toContain("Blockers: 1");
+    expect(presentationTexts(verbose).some((text) => text.includes("Affected Projects:"))).toBe(false);
   });
 
   test("a scope with no Blockers reports that outcome without lifecycle inventory", () => {
-    const concise = formatLifecycleReport("status", emptyReport(), { blockersOnly: true });
-    const verbose = formatLifecycleReport("status", emptyReport(), { blockersOnly: true, verbose: true });
+    const concise = lifecycleStatusDocument(emptyReport(), { blockersOnly: true });
+    const verbose = lifecycleStatusDocument(emptyReport(), { blockersOnly: true, verbose: true });
 
-    expect(concise).toBe(verbose);
-    expect(concise).toStartWith("No blockers.\n");
-    expect(concise).toContain("Run apkit status for the complete lifecycle view.");
-    expect(concise).not.toContain("Project");
+    expect(JSON.stringify(concise)).toBe(JSON.stringify(verbose));
+    expect(concise[0]).toEqual({ kind: "prose", parts: ["No blockers."], category: "success" });
+    expect(presentationTexts(concise)).toContain(
+      "Next: Run apkit status for the complete lifecycle view.",
+    );
+    expect(presentationTexts(concise).some((text) => text.includes("Project"))).toBe(false);
 
-    const fleet = formatLifecycleReport("status", emptyReport(), { all: true, blockersOnly: true });
-    expect(fleet).toContain("Run apkit status --all for the complete lifecycle view.");
+    const fleet = lifecycleStatusDocument(emptyReport(), { all: true, blockersOnly: true });
+    expect(presentationTexts(fleet)).toContain(
+      "Next: Run apkit status --all for the complete lifecycle view.",
+    );
   });
 });
 
