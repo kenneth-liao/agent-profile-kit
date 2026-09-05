@@ -349,13 +349,16 @@ test("renders a diagnostic document as what happened, why, and what to type", ()
     }),
     { color: false, interactive: false, width: 80 },
   );
-  expect(text).toBe(
-    [
-      "apkit: apkit status Project target '/projects/demo' is not a bound Project;",
-      "  run apkit list projects or apkit bind",
-      "Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]",
-    ].join("\n"),
-  );
+  const lines = text.split("\n");
+  // Structural shape, not wording: the label prefixes the first line only,
+  // the sentence flows with a hanging indent, and usage renders last as one
+  // whole command line (the writer appends the final line terminator).
+  expect(lines.at(-1)).toBe("Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
+  const sentence = lines.slice(0, -1).map((line) => line.trimStart()).join(" ");
+  expect(sentence.startsWith("apkit: ")).toBe(true);
+  expect(lines.slice(1, -1).every((line) => line.startsWith("  "))).toBe(true);
+  expect(lines).not.toContain("apkit:");
+  expect(lines.at(-1)!.startsWith("Usage: apkit status")).toBe(true);
 });
 
 test("renders diagnostic cause lines after what happened and before what to type", () => {
@@ -367,14 +370,12 @@ test("renders diagnostic cause lines after what happened and before what to type
     }),
     { color: false, interactive: false, width: 80 },
   );
-  expect(text).toBe(
-    [
-      "apkit: apply failed",
-      "caused by: one bad thing",
-      "caused by: another bad thing",
-      "Run apkit --help for available commands.",
-    ].join("\n"),
-  );
+  const lines = text.split("\n").filter((line) => line.length > 0);
+  // Order is the structural shape: happened, then why, then what to type.
+  expect(lines[0]!.startsWith("apkit: ")).toBe(true);
+  expect(lines.slice(1, 3).every((line) => line.startsWith("caused by: "))).toBe(true);
+  expect(lines[3]!.startsWith("Run apkit")).toBe(true);
+  expect(lines).toHaveLength(4);
 });
 
 test("reproduces verbatim content exactly, including fence escalation, without wrapping or styling", () => {

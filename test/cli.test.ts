@@ -969,6 +969,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(custom, ".gitignore"))).toBe(true);
   });
 
+  test("a space-containing Workspace path stays whole in the init receipt at narrow width", async () => {
+    const home = isolatedHome();
+    const custom = join(home, "My Workspaces");
+
+    const narrow = await runCliInPty(home, 40, "init", custom);
+    const wide = await runCliInPty(home, 100, "init", custom);
+
+    expectExitCode(narrow, 0);
+    expectExitCode(wide, 0);
+    // The presented path is atomic: it never splits across lines, at any width.
+    for (const rendered of [narrow.stdout, wide.stdout]) {
+      const receiptLine = rendered.split("\n").find((line) => line.includes("My Workspaces"));
+      expect(receiptLine).toBeDefined();
+      expect(receiptLine!.includes(custom)).toBe(true);
+    }
+  });
+
   test("init creates missing parent directories for an explicit Workspace destination", async () => {
     const home = isolatedHome();
     const custom = join(home, "nested", "custom-workspace");

@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import type { HostSetupStep } from "../adapters/project-plan.js";
 import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
 import {
+  COMMAND_GROUPS,
   commandHelpDocument,
   defaultCommands,
   machineCommands,
@@ -69,6 +70,31 @@ import type {
   PresentationNode,
 } from "../cli/presentation-document.js";
 import type { ApplicationInfo } from "../installer/info.js";
+
+/**
+ * Selective document shape: kinds, keys, categories, and order — the carried
+ * wording and complete rendering stay locked by the golden snapshots (#390,
+ * TEST-003/TEST-016).
+ */
+function nodeShape(node: PresentationNode): string {
+  switch (node.kind) {
+    case "sentence":
+    case "prose":
+      return `${node.kind}${node.category === undefined ? "" : `(${node.category})`}`;
+    case "heading":
+      return "heading";
+    case "key-value":
+      return `key-value:${node.key.trim()}${node.category === undefined ? "" : `(${node.category})`}`;
+    case "verbatim":
+      return node.text.length === 0 ? "spacer" : "verbatim";
+    default:
+      return node.kind;
+  }
+}
+
+function shapes(document: PresentationDocument): readonly string[] {
+  return document.map(nodeShape);
+}
 import { INVENTORY_TOPICS, MACHINE_INVENTORY_TOPICS } from "../cli/inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
 import {
@@ -7233,25 +7259,18 @@ describe("authoring and teardown receipt documents (#390)", () => {
   const home = homedir();
   const projectPath = join(home, "projects", "demo");
 
-  test("the created receipt presents the headline, and the next action", () => {
+  test("the created receipt presents a success headline and the next command", () => {
     const { document, copyableValues } = initReceiptDocument({
       outcome: "created",
       path: `/test/workspace`,
       workspaceScaffolded: true,
     });
+    // Selective shape: kinds, categories, order, and atomic values — the
+    // carried wording is locked by the golden snapshots.
+    expect(shapes(document)).toEqual(["sentence(success)", "sentence(command)"]);
     expect(copyableValues).toEqual([]);
-    expect(document).toEqual([
-      {
-        kind: "sentence",
-        text: "Initialized Agent Profile Kit Workspace and settings at /test/workspace",
-        category: "success",
-      },
-      {
-        kind: "sentence",
-        text: "Next: from the project you want to try, run apkit bind example --host codex",
-        category: "command",
-      },
-    ]);
+    expect(document[0]).toMatchObject({ kind: "sentence", category: "success" });
+    expect(document[1]).toMatchObject({ kind: "sentence", category: "command" });
   });
 
   test("the created receipt without scaffolding points at validate", () => {
@@ -7260,44 +7279,27 @@ describe("authoring and teardown receipt documents (#390)", () => {
       path: `/test/workspace`,
       workspaceScaffolded: false,
     });
-    expect(document.at(-1)).toEqual({
-      kind: "sentence",
-      text: "Next: run apkit validate",
-      category: "command",
-    });
+    expect(shapes(document)).toEqual(["sentence(success)", "sentence(command)"]);
+    expect((document[1] as { readonly text: string }).text).toContain("validate");
   });
 
-  test("the migrated and unchanged receipts carry their carried sentences", () => {
-    expect(initReceiptDocument({
+  test("the migrated and unchanged receipts carry their severities and values", () => {
+    const migrated = initReceiptDocument({
       outcome: "migrated",
       path: `/test/workspace`,
-    }).document).toEqual([
-      {
-        kind: "sentence",
-        text: "Migrated settings and validated the Agent Profile Kit Workspace at /test/workspace",
-        category: "success",
-      },
-      {
-        kind: "sentence",
-        text: "Next: run apkit validate, then status and apply as needed",
-        category: "command",
-      },
-    ]);
+    });
+    expect(shapes(migrated.document)).toEqual(["sentence(success)", "sentence(command)"]);
+    expect(migrated.copyableValues).toEqual([]);
     const unchanged = initReceiptDocument({
       outcome: "unchanged",
       path: `/test/workspace`,
     });
     // Space-free values need no wrapping protection.
     expect(unchanged.copyableValues).toEqual([]);
-    expect(unchanged.document).toEqual([
-      {
-        kind: "sentence",
-        text: "Workspace and settings already initialized at /test/workspace; unchanged.",
-      },
-    ]);
+    expect(shapes(unchanged.document)).toEqual(["sentence"]);
   });
 
-  test("the recorded bind receipt presents the binding detail and the next command", () => {
+  test("the recorded bind receipt presents binding detail and the next command", () => {
     const { document, copyableValues } = bindReceiptDocument({
       outcome: "created",
       canonicalProject: projectPath,
@@ -7305,22 +7307,29 @@ describe("authoring and teardown receipt documents (#390)", () => {
       profile: "coding",
       hosts: ["codex", "pi"],
     });
-    expect(copyableValues).toEqual([]);
-    expect(document).toEqual([
-      { kind: "sentence", text: "Recorded configured Project for ~/projects/demo", category: "success" },
-      { kind: "key-value", key: "  Profile", value: { kind: "identifier", value: "coding" }, category: "path" },
-      { kind: "key-value", key: "  Hosts", value: { kind: "identifier", value: "codex, pi" } },
-      {
-        kind: "key-value",
-        key: "Next",
-        value: { kind: "command", program: "apkit", args: [{ kind: "text", value: "status" }] },
-        category: "command",
-      },
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "key-value:Profile(path)",
+      "key-value:Hosts",
+      "key-value:Next(command)",
     ]);
+    expect(copyableValues).toEqual([]);
+    expect(document[1]).toEqual({
+      kind: "key-value",
+      key: "  Profile",
+      value: { kind: "identifier", value: "coding" },
+      category: "path",
+    });
+    expect(document.at(-1)).toEqual({
+      kind: "key-value",
+      key: "Next",
+      value: { kind: "command", program: "apkit", args: [{ kind: "text", value: "status" }] },
+      category: "command",
+    });
   });
 
   test("the replaced bind receipt keeps only the changed deltas", () => {
-    const { document, copyableValues } = bindReceiptDocument({
+    const { document } = bindReceiptDocument({
       outcome: "replaced",
       canonicalProject: projectPath,
       project: projectPath,
@@ -7329,17 +7338,11 @@ describe("authoring and teardown receipt documents (#390)", () => {
       previousProfile: "coding",
       previousHosts: ["codex", "pi"],
     });
-    const texts = document.map((node) =>
-      node.kind === "key-value"
-        ? `${node.key}: `
-        : node.kind === "sentence" || node.kind === "prose"
-          ? node.text
-          : "",
-    );
-    expect(texts).toEqual([
-      "Replaced configured Project for ~/projects/demo",
-      "  Hosts: ",
-      "Next: ",
+    // The unchanged Profile delta is omitted; the changed Hosts delta remains.
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "key-value:Hosts",
+      "key-value:Next(command)",
     ]);
     expect(document[1]).toEqual({
       kind: "key-value",
@@ -7356,30 +7359,21 @@ describe("authoring and teardown receipt documents (#390)", () => {
       profile: "coding",
       hosts: ["codex"],
     });
-    expect(unchangedBind.document).toEqual([
-      { kind: "sentence", text: "Configured Project unchanged for ~/projects/demo" },
-      { kind: "key-value", key: "  Profile", value: { kind: "identifier", value: "coding" }, category: "path" },
-      { kind: "key-value", key: "  Hosts", value: { kind: "identifier", value: "codex" } },
-      {
-        kind: "key-value",
-        key: "Next",
-        value: { kind: "command", program: "apkit", args: [{ kind: "text", value: "status" }] },
-        category: "command",
-      },
+    expect(shapes(unchangedBind.document)).toEqual([
+      "sentence",
+      "key-value:Profile(path)",
+      "key-value:Hosts",
+      "key-value:Next(command)",
     ]);
-    expect(unbindReceiptDocument({
+    const unchangedUnbind = unbindReceiptDocument({
       outcome: "unchanged",
       requestedProject: "~/projects/absent",
-    }).document).toEqual([
-      {
-        kind: "sentence",
-        text: "Configured Project unchanged; no configured Project matched ~/projects/absent",
-      },
-    ]);
+    });
+    expect(shapes(unchangedUnbind.document)).toEqual(["sentence"]);
   });
 
   test("the removed unbind receipt keeps recovery evidence and survival guidance", () => {
-    const { document } = unbindReceiptDocument({
+    const { document, copyableValues } = unbindReceiptDocument({
       outcome: "removed",
       canonicalProject: projectPath,
       project: projectPath,
@@ -7388,21 +7382,22 @@ describe("authoring and teardown receipt documents (#390)", () => {
       recovery: "canonical",
       generatedOutputSurvives: true,
     });
-    expect(document).toEqual([
-      { kind: "sentence", text: "Removed configured Project for ~/projects/demo", category: "success" },
-      { kind: "key-value", key: "  Profile", value: { kind: "identifier", value: "coding" }, category: "path" },
-      { kind: "key-value", key: "  Hosts", value: { kind: "identifier", value: "codex" } },
-      { kind: "prose", text: "Generated files remain until apply" },
-      {
-        kind: "key-value",
-        key: "Next",
-        value: { kind: "command", program: "apkit", args: [
-          { kind: "text", value: "status" },
-          { kind: "text", value: "--all" },
-        ] },
-        category: "command",
-      },
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "key-value:Profile(path)",
+      "key-value:Hosts",
+      "prose",
+      "key-value:Next(command)",
     ]);
+    expect(document.at(-1)).toEqual({
+      kind: "key-value",
+      key: "Next",
+      value: { kind: "command", program: "apkit", args: [
+        { kind: "text", value: "status" },
+        { kind: "text", value: "--all" },
+      ] },
+      category: "command",
+    });
   });
 
   test("the authored-path unbind receipt carries the recovery explanation and configuration location", () => {
@@ -7415,30 +7410,14 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: `/test/config.yaml`,
       generatedOutputSurvives: false,
     });
-    expect(document).toEqual([
-      { kind: "sentence", text: "Removed configured Project for /opt/authored/demo", category: "success" },
-      {
-        kind: "key-value",
-        key: "  Recovery",
-        value: {
-          kind: "identifier",
-          value: "exact authored path match; canonical project identity could not be proven",
-        },
-      },
-      {
-        kind: "key-value",
-        key: "  Local Configuration",
-        value: { kind: "identifier", value: "/test/config.yaml" },
-        category: "path",
-      },
-      {
-        kind: "key-value",
-        key: "  Profile",
-        value: { kind: "identifier", value: "coding" },
-        category: "path",
-      },
-      { kind: "key-value", key: "  Hosts", value: { kind: "identifier", value: "codex" } },
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "key-value:Recovery",
+      "key-value:Local Configuration(path)",
+      "key-value:Profile(path)",
+      "key-value:Hosts",
     ]);
+    // Space-free values need no wrapping protection.
     expect(copyableValues).toEqual([]);
   });
 });
@@ -7446,56 +7425,36 @@ describe("authoring and teardown receipt documents (#390)", () => {
 describe("help documents (#390)", () => {
   test("root help presents the wordmark, intro, usage, quick start, groups, and guidance", () => {
     const { document, copyableValues } = rootHelpDocument([]);
-    const texts = document.map((node) =>
-      node.kind === "key-value"
-        ? `${node.key}:`
-        : node.kind === "sentence" || node.kind === "prose" || node.kind === "heading"
-          ? node.text
-          : "",
-    );
-    expect(texts).toEqual([
-      "Agent Profile Kit composes reusable agent material into host-native projects.",
-      "",
-      "Usage:",
-      "",
-      "First run:",
-      "  apkit init",
-      "  apkit bind <profile> --host <host>",
-      "  apkit status",
-      "  apkit apply",
-      "",
-      "  Choose a Profile with apkit guide profile; see apkit bind --help for supported Host values.",
-      "",
-      "Common commands:",
-      "  init [workspace]",
-      "    Initialize or adopt the canonical Workspace and settings",
-      "  guide [profile|context|skill|--full|--agent]",
-      "    Show a topic index, full Workspace guidance, or one focused authoring example",
-      "  bind <profile> [project] --host <host> [--host <host> ...] [--replace]",
-      "    Configure a Project with a Profile and Agent Hosts, or replace an existing binding",
-      "  validate",
-      "    Check Workspace and settings validity",
-      "  status [project | --all] [--verbose] [--blockers-only] [--json]",
-      "    Show the complete read-only apply plan for the current Project, one explicit Project, or the complete fleet; --blockers-only shows a focused Blocker-only view (combines with --verbose, not --json)",
-      "  apply [project | --all] [--verbose] [--blockers-only] [--json]",
-      "    Sync the current Project, one explicit Project, or the complete fleet; --blockers-only shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view renders unchanged",
-      "",
-      "More commands:",
-      "  Inventory:",
-      "  list [projects|profiles|hosts [--json]]",
-      "    List read-only inventory for Projects, Profiles, Hosts, or temporary Profiles",
-      "  Teardown:",
-      "  unbind [project]",
-      "    Remove a configured Project",
-      "  uninstall",
-      "    Remove proven Agent Profile Kit-owned output from all ordinary Project installations",
-      "  Machine details:",
-      "  info [--json]",
-      "    Show the engine version and selected application locations",
-      "",
-      "For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run apkit guide --full.",
+    expect(shapes(document)).toEqual([
+      "sentence",
+      "spacer",
+      "key-value:Usage(heading)",
+      "spacer",
+      "heading",
+      "sentence(command)",
+      "sentence(command)",
+      "sentence(command)",
+      "sentence(command)",
+      "spacer",
+      "sentence",
+      "spacer",
+      "heading",
+      ...defaultCommands()
+        .filter((command) => command.group === "common")
+        .flatMap(() => ["sentence(command)", "sentence"]),
+      "spacer",
+      "heading",
+      ...COMMAND_GROUPS
+        .filter(([group]) => group !== "common")
+        .flatMap(([group]) => {
+          const listed = defaultCommands().filter((command) => command.group === group);
+          if (listed.length === 0) return [];
+          return ["heading", ...listed.flatMap(() => ["sentence(command)", "sentence"])];
+        }),
+      "spacer",
+      "sentence(muted)",
     ]);
-    // The usage line is one atomic command; quick-start lines are commands.
+    // The usage line is one atomic command.
     expect(document[2]).toEqual({
       kind: "key-value",
       key: "Usage",
@@ -7509,47 +7468,34 @@ describe("help documents (#390)", () => {
       },
       category: "heading",
     });
-    const syntaxLines = document.filter((node) =>
-      node.kind === "sentence" && /^\s{2}[a-z]/.test(node.text) && !node.text.startsWith("  apkit") &&
-      !node.text.startsWith("  Choose"),
-    );
-    for (const line of syntaxLines) {
-      expect(line.kind === "sentence" && line.category).toBe("command");
-    }
     // Every listed syntax line must survive wrapping whole.
     for (const command of defaultCommands()) {
       expect(copyableValues).toContain(command.syntax);
     }
+    expect(copyableValues).toHaveLength(defaultCommands().length);
   });
 
   test("root help renders the wordmark lines before the intro when interactive", () => {
     const { document } = rootHelpDocument(["  /\\  Agent Profile Kit", " /__\\ reusable agent material"]);
+    expect(shapes(document).slice(0, 2)).toEqual(["verbatim", "verbatim"]);
     expect(document[0]).toEqual({ kind: "verbatim", text: "  /\\  Agent Profile Kit" });
     expect(document[1]).toEqual({ kind: "verbatim", text: " /__\\ reusable agent material" });
-    expect(document[2]).toEqual({ kind: "verbatim", text: "" });
   });
 
   test("focused command help presents purpose, usage, examples, writes, and next", () => {
     const status = defaultCommands().find((command) => command.name === "status")!;
     const { document, copyableValues } = commandHelpDocument(status);
-    const texts = document.map((node) =>
-      node.kind === "key-value"
-        ? `${node.key}:`
-        : node.kind === "sentence" || node.kind === "prose" || node.kind === "heading"
-          ? node.text
-          : "",
-    );
-    expect(texts).toEqual([
-      `Purpose: ${status.summary}`,
-      "",
-      "Usage:",
-      "",
-      "Examples:",
-      ...status.examples.map((example) => `  apkit ${example}`),
-      "",
-      `Writes: ${status.writes}`,
-      "",
-      `Next: ${status.next}`,
+    expect(shapes(document)).toEqual([
+      "sentence(heading)",
+      "spacer",
+      "key-value:Usage(heading)",
+      "spacer",
+      "heading",
+      ...status.examples.map(() => "sentence(command)"),
+      "spacer",
+      "sentence(heading)",
+      "spacer",
+      "sentence(command)",
     ]);
     expect(document[2]).toEqual({
       kind: "key-value",
@@ -7570,74 +7516,57 @@ describe("help documents (#390)", () => {
   test("focused command help lists supported Hosts when the command carries them", () => {
     const bind = defaultCommands().find((command) => command.name === "bind")!;
     const { document } = commandHelpDocument(bind);
-    const texts = document.map((node) =>
-      node.kind === "sentence" || node.kind === "prose" || node.kind === "heading" ? node.text : "",
-    );
-    expect(texts).toContain("Supported Hosts: antigravity, claude, codex, grok, opencode, pi");
-    expect(texts.indexOf("Supported Hosts: antigravity, claude, codex, grok, opencode, pi"))
-      .toBeGreaterThan(texts.indexOf("Examples:"));
-    expect(texts.indexOf("Supported Hosts: antigravity, claude, codex, grok, opencode, pi"))
-      .toBeLessThan(texts.indexOf(`Writes: ${bind.writes}`));
+    const sections = shapes(document);
+    const examplesIndex = sections.indexOf("heading");
+    // The Supported Hosts sentence sits after Examples and before Writes.
+    const hostIndex = sections.indexOf("sentence(heading)", examplesIndex + 1);
+    expect(sections.indexOf("sentence(heading)", hostIndex + 1)).toBeGreaterThan(hostIndex);
+    expect((document[hostIndex] as { readonly text: string }).text)
+      .toContain(`Supported Hosts: ${bind.supportedHosts!.join(", ")}`);
   });
 
   test("machine help presents the namespace intro, usage, and machine commands", () => {
     const { document, copyableValues } = machineHelpDocument();
-    const texts = document.map((node) =>
-      node.kind === "key-value"
-        ? `${node.key}:`
-        : node.kind === "sentence" || node.kind === "prose" || node.kind === "heading"
-          ? node.text
-          : "",
-    );
-    expect(texts).toEqual([
-      "Machine-facing commands for external runners and automation. Temporary Profile Installation behavior, JSON payloads, and exit codes are unchanged from their documented contract.",
-      "",
-      "Usage:",
-      "",
-      "  machine install-temp <profile> <project> --host <host> [--json]",
-      "    Install a temporary Profile into one Project",
-      "  machine remove-temp <temporary-installation-id> [--json]",
-      "    Remove one temporary Profile",
-      "  machine list [temporary [--json]]",
-      "    List active temporary Profile inventory for external runners",
+    expect(shapes(document)).toEqual([
+      "sentence",
+      "spacer",
+      "key-value:Usage(heading)",
+      "spacer",
+      ...machineCommands().flatMap(() => ["sentence(command)", "sentence"]),
     ]);
     for (const command of machineCommands()) {
       expect(copyableValues).toContain(command.syntax);
     }
+    expect(copyableValues).toHaveLength(machineCommands().length);
   });
 });
 
 describe("guide documents (#390)", () => {
   test("the guide index presents the title, intro, topics, references, and examples", () => {
     const { document, copyableValues } = guideIndexDocument();
-    const texts = document.map((node) =>
-      node.kind === "sentence" || node.kind === "prose" || node.kind === "heading"
-        ? node.text
-        : "",
-    );
-    expect(texts).toEqual([
-      "# Agent Profile Kit guide",
-      "",
-      "Choose a focused authoring topic, read the complete human guide, or open the agent workflow reference.",
-      "",
-      "Topics:",
-      "  apkit guide profile",
-      "    Profile: A Profile selects reusable material for a kind of work through its context and skills lists.",
-      "  apkit guide context",
-      "    Context Module: A Context Module is an independently reusable unit of always-loaded guidance. Profiles select it by its frontmatter `id`.",
-      "  apkit guide skill",
-      "    Skill: A Skill is a reusable workflow package. Profiles select it by its frontmatter `name`, and its description tells an Agent Host when the workflow applies.",
-      "",
-      "Complete references:",
-      "  apkit guide --full",
-      "    Complete human Workspace guide",
-      "  apkit guide --agent",
-      "    Agent workflow reference",
-      "",
-      "Examples:",
-      "  apkit init",
-      "  apkit guide profile",
-      "  apkit bind example --host codex",
+    expect(shapes(document)).toEqual([
+      "heading",
+      "spacer",
+      "sentence",
+      "spacer",
+      "heading",
+      "sentence(command)",
+      "sentence",
+      "sentence(command)",
+      "sentence",
+      "sentence(command)",
+      "sentence",
+      "spacer",
+      "heading",
+      "sentence(command)",
+      "sentence",
+      "sentence(command)",
+      "sentence",
+      "spacer",
+      "heading",
+      "sentence(command)",
+      "sentence(command)",
+      "sentence(command)",
     ]);
     expect(copyableValues).toEqual([
       "apkit guide profile",
@@ -7655,30 +7584,26 @@ describe("guide documents (#390)", () => {
     const { document, copyableValues } = focusedGuideDocument("profile");
     const example = AUTHORING_EXAMPLES.profile;
     const contextExample = AUTHORING_EXAMPLES.context;
-    expect(document).toEqual([
-      { kind: "heading", text: "# Profile" },
-      { kind: "verbatim", text: "" },
-      {
-        kind: "sentence",
-        text: "A Profile selects reusable material for a kind of work through its context and skills lists.",
-      },
-      { kind: "verbatim", text: "" },
-      {
-        kind: "verbatim",
-        text: `Create \`${example.path}\`:\n\n\`\`\`yaml\n${example.contents}\`\`\``,
-      },
-      { kind: "verbatim", text: "" },
-      {
-        kind: "verbatim",
-        text: `Create \`${contextExample.path}\`:\n\n\`\`\`md\n${contextExample.contents}\`\`\``,
-      },
-      { kind: "verbatim", text: "" },
-      {
-        kind: "sentence",
-        text: "Next: run `apkit bind example --host codex`.",
-        category: "heading",
-      },
+    expect(shapes(document)).toEqual([
+      "heading",
+      "spacer",
+      "sentence",
+      "spacer",
+      "verbatim",
+      "spacer",
+      "verbatim",
+      "spacer",
+      "sentence(heading)",
     ]);
+    // Example bodies are true verbatim content: reproduced exactly.
+    expect(document[4]).toEqual({
+      kind: "verbatim",
+      text: `Create \`${example.path}\`:\n\n\`\`\`yaml\n${example.contents}\`\`\``,
+    });
+    expect(document[6]).toEqual({
+      kind: "verbatim",
+      text: `Create \`${contextExample.path}\`:\n\n\`\`\`md\n${contextExample.contents}\`\`\``,
+    });
     // The carried next action renders whole, as the literal block it came from.
     expect(copyableValues).toEqual([TOPIC_GUIDES.profile.next]);
   });
@@ -7686,20 +7611,19 @@ describe("guide documents (#390)", () => {
   test("the focused context and skill guides end at their next line without extra examples", () => {
     for (const topic of ["context", "skill"] as const) {
       const { document } = focusedGuideDocument(topic);
-      expect(document.some((node) => node.kind === "verbatim" && node.text !== "" &&
-        node.text.includes(AUTHORING_EXAMPLES[topic].path))).toBe(true);
-      expect(document.filter((node) => node.kind === "verbatim" && node.text !== "").length).toBe(1);
-      expect(document.at(-1)).toEqual({
-        kind: "sentence",
-        text: TOPIC_GUIDES[topic].next,
-        category: "heading",
-      });
+      const bodies = document.filter(
+        (node): node is Extract<PresentationNode, { readonly kind: "verbatim" }> =>
+          node.kind === "verbatim" && node.text.length > 0,
+      );
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]!.text.includes(AUTHORING_EXAMPLES[topic].path)).toBe(true);
+      expect(shapes(document).at(-1)).toBe("sentence(heading)");
     }
   });
 
   test("a guide file body renders verbatim with one trailing newline restored by the writer", () => {
     const { document, copyableValues } = guideFileDocument("# Title\n\nBody line.\n");
-    expect(document).toEqual([{ kind: "verbatim", text: "# Title\n\nBody line." }]);
+    expect(shapes(document)).toEqual(["verbatim"]);
     expect(copyableValues).toEqual([]);
   });
 });

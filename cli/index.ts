@@ -870,10 +870,12 @@ async function main(): Promise<void> {
         stderrPresentationContext,
       );
     }
+    const initReceipt = initReceiptDocument(result);
     writeHumanDocument(
       process.stdout,
-      initReceiptDocument(result).document,
+      initReceipt.document,
       stdoutPresentationContext,
+      initReceipt.copyableValues,
     );
     return;
   }
