@@ -2589,20 +2589,33 @@ describe("formatLifecycleReport concise terminology", () => {
     const project = process.cwd();
     const report = identityReport(project);
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-
-    expect(verbose).toContain("Projects:\n.: addition\n");
-    expect(verbose).not.toContain(`Projects:\n${project}: addition\n`);
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const nodes = flattenPresentationNodes(verbose);
+    const projectsIndex = indexWhere(nodes, (node) =>
+      node.kind === "heading" && nodeText(node) === "Projects:");
+    expect(projectsIndex).toBeGreaterThan(-1);
+    // The identity is a typed identifier part carrying the cwd alias.
+    expect(nodes[projectsIndex + 1]).toEqual({
+      kind: "prose",
+      parts: [{ kind: "identifier", value: "." }, ": addition"],
+    });
+    expect(presentationTexts(verbose).join("\n")).not.toContain(project);
   });
 
   test("identifies an ancestor project relative to the working directory", () => {
     const project = dirname(process.cwd());
     const report = identityReport(project);
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-
-    expect(verbose).toContain("Projects:\n..: addition\n");
-    expect(verbose).not.toContain(`Projects:\n${project}: addition\n`);
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const nodes = flattenPresentationNodes(verbose);
+    const projectsIndex = indexWhere(nodes, (node) =>
+      node.kind === "heading" && nodeText(node) === "Projects:");
+    expect(projectsIndex).toBeGreaterThan(-1);
+    expect(nodes[projectsIndex + 1]).toEqual({
+      kind: "prose",
+      parts: [{ kind: "identifier", value: ".." }, ": addition"],
+    });
+    expect(presentationTexts(verbose).join("\n")).not.toContain(project);
   });
 
   test("fleet status names the working-directory Project by home-relative identity", () => {
@@ -2625,29 +2638,50 @@ describe("formatLifecycleReport concise terminology", () => {
       })),
     });
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-    const concise = formatLifecycleReport("status", report);
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const concise = lifecycleStatusDocument(report);
     const homeRelative = current === homedir()
       ? "~"
       : current.startsWith(`${homedir()}/`)
       ? `~/${current.slice(homedir().length + 1)}`
       : current;
 
-    expect(verbose).toContain(`${homeRelative}: addition\n`);
-    expect(verbose).not.toContain(".: addition\n");
-    expect(verbose).not.toContain(".: Profile");
-    expect(concise).not.toContain("Project: .\n");
-    expect(concise).not.toMatch(/(^|\n)\.: /);
+    const nodes = flattenPresentationNodes(verbose);
+    const projectsIndex = indexWhere(nodes, (node) =>
+      node.kind === "heading" && nodeText(node) === "Projects:");
+    expect(projectsIndex).toBeGreaterThan(-1);
+    expect(nodes.slice(projectsIndex + 1).some((node) =>
+      node.kind === "prose" &&
+      JSON.stringify(node.parts) === JSON.stringify([
+        { kind: "identifier", value: homeRelative },
+        ": addition",
+      ])
+    )).toBe(true);
+    const texts = presentationTexts(verbose).join("\n");
+    expect(texts).not.toContain(".: addition\n");
+    expect(texts).not.toContain(".: Profile");
+    // The concise Project key-value never presents a bare cwd alias.
+    expect(keyValuesIn(concise, "Project").map((node) => node.value)).not.toContain({
+      kind: "prose",
+      parts: [{ kind: "identifier", value: "." }, ": "],
+    });
+    expect(presentationTexts(concise).join("\n")).not.toMatch(/(^|\n)\.: /);
   });
 
   test("identifies another home project with a home-relative path", () => {
     const project = join(homedir(), "another-project");
     const report = identityReport(project);
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
-
-    expect(verbose).toContain("Projects:\n~/another-project: addition\n");
-    expect(verbose).not.toContain(`Projects:\n${project}: addition\n`);
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const nodes = flattenPresentationNodes(verbose);
+    const projectsIndex = indexWhere(nodes, (node) =>
+      node.kind === "heading" && nodeText(node) === "Projects:");
+    expect(projectsIndex).toBeGreaterThan(-1);
+    expect(nodes[projectsIndex + 1]).toEqual({
+      kind: "prose",
+      parts: [{ kind: "identifier", value: "~/another-project" }, ": addition"],
+    });
+    expect(presentationTexts(verbose).join("\n")).not.toContain(project);
   });
 
   test("keeps canonical paths short through symlinked home and working-directory aliases", () => {
