@@ -5,6 +5,10 @@ import { dirname, join } from "node:path";
 
 import type { HostSetupStep } from "../adapters/project-plan.js";
 import {
+  applyExecutionFailureDocument,
+  applyReportDocument,
+  applyVerificationFailureDocument,
+  blockedApplyReportDocument,
   formatBlockedApplyReport,
   formatApplyExecutionFailure,
   formatApplyReport,
@@ -789,6 +793,35 @@ function commandsIn(
   );
 }
 
+/** The exact invocation each command node carries, asserted as structure. */
+function commandTexts(document: PresentationDocument): string[] {
+  return commandsIn(document).map((node) =>
+    [node.program, ...node.args.map((arg) => arg.kind === "text" ? arg.value : "")].join(" "),
+  );
+}
+
+/** Flat text facts of a presentation document, asserted as structure — never
+ * as rendered prose. Covers prose, headings, verbatim bodies, and identifiers
+ * reached through key-value, list-item and notice nesting. */
+function presentationTexts(document: PresentationDocument): string[] {
+  return flattenPresentationNodes(document).flatMap((node) =>
+    node.kind === "prose" || node.kind === "heading" || node.kind === "verbatim"
+      ? [node.text]
+      : node.kind === "identifier"
+      ? [node.value]
+      : [],
+  );
+}
+
+/** The notice nodes of a presentation document, for severity assertions. */
+function noticesIn(
+  document: PresentationDocument,
+): Extract<PresentationNode, { kind: "notice" }>[] {
+  return flattenPresentationNodes(document).flatMap((node) =>
+    node.kind === "notice" ? [node] : [],
+  );
+}
+
 describe("Host Setup Step provenance and presentation", () => {
   const hookPath = ".codex/hooks.json";
 
@@ -981,29 +1014,33 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "current", project: "/project-a" }],
     });
 
-    const apply = formatApplyReport(applyResult(report, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(report, resultingState)));
 
-    expect(apply).toContain("First use:\n");
+    expect(apply).toContain("First use:");
     expect(apply).not.toContain("Host setup:");
     expect(apply).not.toContain("Standing Host setup:");
     expect(apply).toContain(
-      "- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.",
+      "Review and approve the generated SessionStart hook when Codex asks so the Profile can load.",
     );
-    expect(apply).toContain("- Trust the bound project in Codex so the Profile can load.");
+    expect(apply).toContain("Trust the bound project in Codex so the Profile can load.");
     expect(apply).toContain(
-      "- Launch Codex from the exact bound project root so the Profile can load.",
+      "Launch Codex from the exact bound project root so the Profile can load.",
     );
     expect(apply).not.toContain("Declining the hook prevents Profile Context from loading.");
     expect(apply).not.toContain("Grok uses Claude's shared rule path.");
-    expect(apply.trimEnd()).toEndWith(
+    expect(apply.at(-1)).toBe(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
-    const verbose = formatApplyReport(applyResult(report, resultingState), { verbose: true });
+    const verbose = presentationTexts(
+      applyReportDocument(applyResult(report, resultingState), { verbose: true }),
+    );
     expect(verbose).toContain("Host setup:");
     expect(verbose).toContain("Standing Host setup:");
     expect(verbose).toContain("Grok uses Claude's shared rule path.");
-    expect(verbose).toContain("Declining the hook prevents Profile Context from loading.");
-    expect(verbose.trimEnd()).toEndWith(
+    expect(verbose).toContain(
+      "  Consequence: Declining the hook prevents Profile Context from loading.",
+    );
+    expect(verbose.at(-1)).toBe(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
@@ -1032,11 +1069,13 @@ describe("Host Setup Step provenance and presentation", () => {
       ],
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState)));
     expect(apply).not.toContain("First use:");
     expect(apply).not.toContain("Trust the bound project in Codex");
     expect(apply).not.toContain("Launch Codex from the exact bound project root");
-    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+    const verbose = presentationTexts(
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
+    );
     expect(verbose).toContain("Standing Host setup:");
     expect(verbose).toContain("Trust the bound project in Codex.");
   });
@@ -1078,10 +1117,12 @@ describe("Host Setup Step provenance and presentation", () => {
       ],
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState)));
     expect(apply).not.toContain("First use:");
     expect(apply).not.toContain("Trust the bound project in Pi");
-    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+    const verbose = presentationTexts(
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
+    );
     expect(verbose).toContain("Standing Host setup:");
     expect(verbose).toContain("Trust the bound project in Pi.");
   });
@@ -1098,7 +1139,7 @@ describe("Host Setup Step provenance and presentation", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState)));
 
     expect(apply).not.toContain("First use:");
     expect(apply).not.toContain(
@@ -1107,7 +1148,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(apply).not.toContain("Host setup:");
     expect(apply).not.toContain("Standing Host setup:");
     expect(apply).not.toContain("Trust the bound project in Codex.");
-    expect(apply.trimEnd()).toEndWith(
+    expect(apply.at(-1)).toBe(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
@@ -1131,7 +1172,9 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "current", project: "/project-a" }],
     });
 
-    expect(formatApplyReport(applyResult(report, resultingState)).trimEnd()).toEndWith(
+    expect(
+      presentationTexts(applyReportDocument(applyResult(report, resultingState))).at(-1),
+    ).toBe(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
@@ -1155,15 +1198,17 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "current", project: "/project-a" }],
     });
 
-    const apply = formatApplyReport(applyResult(report, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(report, resultingState)));
 
     expect(apply).not.toContain("First use:");
     expect(apply).not.toContain("Standing Host setup:");
     expect(apply).not.toContain("Grok uses Claude's shared rule path.");
-    expect(apply.trimEnd()).toEndWith(
+    expect(apply.at(-1)).toBe(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
-    const verbose = formatApplyReport(applyResult(report, resultingState), { verbose: true });
+    const verbose = presentationTexts(
+      applyReportDocument(applyResult(report, resultingState), { verbose: true }),
+    );
     expect(verbose).toContain("Standing Host setup:");
     expect(verbose).toContain("Grok uses Claude's shared rule path.");
   });
@@ -1175,7 +1220,7 @@ describe("Host Setup Step provenance and presentation", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    const output = formatApplyReport(applyResult(report));
+    const output = presentationTexts(applyReportDocument(applyResult(report)));
     expect(output).not.toContain("becomes active");
     expect(output).not.toContain("First use:");
     expect(output).not.toContain("Host setup:");
@@ -1183,9 +1228,10 @@ describe("Host Setup Step provenance and presentation", () => {
       "Review and approve the generated SessionStart hook",
     );
     expect(output).not.toContain("Trust the bound project in Codex.");
-    expect(formatApplyReport(applyResult(report), { verbose: true })).not.toContain(
-      "becomes active",
-    );
+    expect(output).toContain("All Projects were already current.");
+    expect(
+      presentationTexts(applyReportDocument(applyResult(report), { verbose: true })),
+    ).not.toContain("becomes active");
   });
 
   test("concise apply deduplicates first-use guidance across projects without a path matrix", () => {
@@ -1219,17 +1265,22 @@ describe("Host Setup Step provenance and presentation", () => {
       items: projects.map((p) => ({ kind: "current" as const, project: p.project })),
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
-    expect(apply).toContain("First use:\n");
-    expect(apply).toContain("- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.\n");
-    expect(apply).toContain("- Trust the bound project in Codex so the Profile can load.\n");
-    expect(apply).toContain("- Trust the bound project in Pi so the Profile can load.\n");
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState)));
+    expect(apply).toContain("First use:");
+    expect(apply).toContain(
+      "Review and approve the generated SessionStart hook when Codex asks so the Profile can load.",
+    );
+    expect(apply).toContain("Trust the bound project in Codex so the Profile can load.");
+    expect(apply).toContain("Trust the bound project in Pi so the Profile can load.");
     // Named Apply Receipt paths list per Project, but the setup guidance stays
     // deduplicated with no per-Project setup matrix.
-    expect(apply).not.toContain("Project: /p-1");
-    expect(apply).not.toContain("Project: /p-2");
-    expect(apply.match(/- Trust the bound project in Codex/g)).toHaveLength(1);
-    expect(apply.match(/- Trust the bound project in Pi/g)).toHaveLength(1);
+    expect(apply.some((text) => text.includes("+ .codex/hooks.json"))).toBe(true);
+    expect(apply.filter((text) =>
+      text === "Trust the bound project in Codex so the Profile can load."
+    )).toHaveLength(1);
+    expect(apply.filter((text) =>
+      text === "Trust the bound project in Pi so the Profile can load."
+    )).toHaveLength(1);
   });
 
   test("subset-only launch constraint gives affected count and verbose route", () => {
@@ -1253,14 +1304,16 @@ describe("Host Setup Step provenance and presentation", () => {
       items: projects.map((p) => ({ kind: "current" as const, project: p.project })),
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState)));
     expect(apply).toContain(
-      "- Launch Codex from the exact bound project root for 2 projects (use --verbose to see all Projects) so the Profile can load.",
+      "Launch Codex from the exact bound project root for 2 projects (use --verbose to see all Projects) so the Profile can load.",
     );
 
-    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
-    expect(verbose).toContain("- Launch Codex from the exact bound project root: /p-1");
-    expect(verbose).toContain("- Launch Codex from the exact bound project root: /p-2");
+    const verbose = presentationTexts(
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
+    );
+    expect(verbose).toContain("Launch Codex from the exact bound project root: /p-1");
+    expect(verbose).toContain("Launch Codex from the exact bound project root: /p-2");
   });
 
   test("standing guidance is not triggered by non-host bookkeeping additions or outputs for different hosts", () => {
@@ -1290,7 +1343,7 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "current", project: "/project-a" }],
     });
 
-    const apply = formatApplyReport(applyResult(report, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(report, resultingState)));
     expect(apply).not.toContain("First use:");
     expect(apply).not.toContain("Trust the bound project in Codex");
     expect(apply).toContain(
@@ -1325,9 +1378,11 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "current", project: "/project-a" }],
     });
 
-    const apply = formatApplyReport(applyResult(report, resultingState));
-    expect(apply).toContain("First use:\n");
-    expect(apply).toContain("- Trust the bound project in Codex (Security warning: remote execution permitted).");
+    const apply = presentationTexts(applyReportDocument(applyResult(report, resultingState)));
+    expect(apply).toContain("First use:");
+    expect(apply).toContain(
+      "Trust the bound project in Codex (Security warning: remote execution permitted).",
+    );
   });
 
   test("changed aliased projects retain activation through their authored report identity", () => {
@@ -1349,7 +1404,9 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "current", project: "/project-a" }],
     });
 
-    expect(formatApplyReport(applyResult(receipt, resultingState)).trimEnd()).toEndWith(
+    expect(
+      presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).at(-1),
+    ).toBe(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
@@ -1382,7 +1439,9 @@ describe("Host Setup Step provenance and presentation", () => {
       items: [{ kind: "blocked", project: "/project-a" }],
     });
 
-    const blockedApply = formatBlockedApplyReport(asBlockedReport(report));
+    const blockedApply = presentationTexts(
+      blockedApplyReportDocument(asBlockedReport(report)),
+    );
     expect(blockedApply).not.toContain(
       "Review and approve the generated SessionStart hook",
     );
@@ -1399,10 +1458,12 @@ describe("Host Setup Step provenance and presentation", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const failure = formatApplyVerificationFailure(report, "Verification failed.");
+    const failure = presentationTexts(
+      applyVerificationFailureDocument(report, "Verification failed."),
+    );
 
     expect(failure).toContain("First use:");
-    expect(failure).toContain("- Trust the bound project in Codex so the Profile can load.");
+    expect(failure).toContain("Trust the bound project in Codex so the Profile can load.");
     expect(failure).not.toContain("becomes active");
   });
 });
@@ -1955,13 +2016,16 @@ describe("formatLifecycleReport concise terminology", () => {
     });
 
     for (const command of ["status", "apply"] as const) {
-      const concise = command === "apply"
-        ? formatBlockedApplyReport(asBlockedReport(report))
-        : formatLifecycleReport(command, report);
+      const document = command === "apply"
+        ? blockedApplyReportDocument(asBlockedReport(report))
+        : lifecycleStatusDocument(report);
+      const concise = presentationTexts(document).join("\n");
 
       expect(concise.indexOf("Blocker:")).toBeLessThan(concise.indexOf("Projects:"));
       expect(concise).not.toContain("Changes:");
-      expect(concise).not.toContain("State:");
+      expect(flattenPresentationNodes(document).some((node) =>
+        node.kind === "key-value" && node.key === "  State"
+      )).toBe(false);
     }
   });
 
@@ -2332,21 +2396,21 @@ describe("formatLifecycleReport concise terminology", () => {
     });
     const command = untrackCommandFor("/project-b", paths);
 
-    const focusedApply = formatApplyReport(
+    const focusedApply = applyReportDocument(
       applyResult(receipt, resultingState),
       { blockersOnly: true, verbose: true },
     );
-    expect(focusedApply.split("\n").filter((line) => line.includes("rm -r --cached")))
+    expect(commandTexts(focusedApply).filter((text) => text.includes("rm -r --cached")))
       .toHaveLength(1);
-    expect(focusedApply).toContain(command);
+    expect(commandTexts(focusedApply)).toContain(command);
 
-    const blockedApply = formatBlockedApplyReport(
+    const blockedApply = blockedApplyReportDocument(
       asBlockedReport(resultingState),
       { blockersOnly: true, verbose: true },
     );
-    expect(blockedApply).toContain(command);
+    expect(commandTexts(blockedApply)).toContain(command);
 
-    const executionFailure = formatApplyExecutionFailure({
+    const executionFailure = applyExecutionFailureDocument({
       detail: "Apply failed while writing the Project",
       failedProject: executionProject(project),
       message: "Apply failed while writing the Project",
@@ -2354,15 +2418,16 @@ describe("formatLifecycleReport concise terminology", () => {
       receipt,
       resultingState,
     }, { blockersOnly: true, verbose: true });
-    expect(executionFailure).toContain(command);
+    expect(commandTexts(executionFailure)).toContain(command);
 
-    const ordinaryVerbose = formatApplyReport(applyResult(receipt, resultingState), {
-      verbose: true,
-    });
-    expect(ordinaryVerbose).toContain(
-      "Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command.",
+    const ordinaryVerbose = presentationTexts(
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
     );
-    expect(ordinaryVerbose).not.toContain("rm -r --cached");
+    expect(ordinaryVerbose).toContain(
+      "  Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command.",
+    );
+    expect(commandTexts(applyReportDocument(applyResult(receipt, resultingState), { verbose: true })))
+      .toEqual([]);
   });
 
   test("focused verbose verification failure prints the command while ordinary verbose only points to it (#353)", () => {
@@ -2384,19 +2449,22 @@ describe("formatLifecycleReport concise terminology", () => {
     });
     const message = "Apply verification failed";
 
-    const focused = formatApplyVerificationFailure(receipt, message, {
+    const focused = applyVerificationFailureDocument(receipt, message, {
       blockersOnly: true,
       verbose: true,
     });
-    expect(focused.split("\n").filter((line) => line.includes("rm -r --cached")))
+    expect(commandTexts(focused).filter((text) => text.includes("rm -r --cached")))
       .toHaveLength(1);
-    expect(focused).toContain(untrackCommandFor("/project-b", paths));
+    expect(commandTexts(focused)).toContain(untrackCommandFor("/project-b", paths));
 
-    const ordinary = formatApplyVerificationFailure(receipt, message, { verbose: true });
-    expect(ordinary).toContain(
-      "Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command.",
+    const ordinary = presentationTexts(
+      applyVerificationFailureDocument(receipt, message, { verbose: true }),
     );
-    expect(ordinary).not.toContain("rm -r --cached");
+    expect(ordinary).toContain(
+      "  Recovery command: run apkit apply --blockers-only --verbose to see the exact untracking command.",
+    );
+    expect(commandTexts(applyVerificationFailureDocument(receipt, message, { verbose: true })))
+      .toEqual([]);
   });
 
   test("large tracked-path sets render lossless groups and one complete command (#353)", () => {
@@ -2569,12 +2637,14 @@ describe("formatLifecycleReport concise terminology", () => {
     const project = join(homedir(), "receipt-project");
     const receipt = identityReport(project);
 
-    const concise = formatApplyReport(applyResult(receipt, emptyReport()));
+    const concise = presentationTexts(applyReportDocument(applyResult(receipt, emptyReport()))).join("\n");
 
     expect(concise).toContain("Applied:\n  + 1 generated file addition in ~/receipt-project");
     expect(concise).not.toContain(`- ${project}:`);
 
-    const verbose = formatApplyReport(applyResult(receipt, emptyReport()), { verbose: true });
+    const verbose = presentationTexts(
+      applyReportDocument(applyResult(receipt, emptyReport()), { verbose: true }),
+    ).join("\n");
     expect(verbose).toContain("Applied:\nProjects:\n~/receipt-project: addition");
     expect(verbose).toContain("~/receipt-project/a.md: addition");
   });
@@ -2587,7 +2657,7 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    const concise = formatApplyReport(applyResult(receipt, resultingState));
+    const concise = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
 
     expect(concise).not.toContain("Pending: none");
     expect(concise).not.toContain("All Projects were already current.");
@@ -2595,7 +2665,9 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).not.toContain("Changes:");
     expect(concise).not.toContain("Apply receipt:");
 
-    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+    const verbose = presentationTexts(
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
+    ).join("\n");
     expect(verbose).toContain("Pending:\n");
     expect(verbose).toContain("Applied:\n");
     expect(verbose).not.toContain("Resulting state:");
@@ -2842,10 +2914,13 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(conciseStatus).not.toContain(exclusionTarget);
     expect(conciseStatus).not.toContain(exclusionEntry);
 
-    const apply = formatApplyReport(applyResult(report));
-    expect(apply).toContain(`Project: ${project}`);
-    expect(apply).toContain("Profile: reconcile");
-    expect(apply).toContain("generated-output/reconcile");
+    const applyNodes = flattenPresentationNodes(applyReportDocument(applyResult(report)));
+    const applyTexts = presentationTexts(applyReportDocument(applyResult(report))).join("\n");
+    expect(applyNodes.some((node) => node.kind === "key-value" && node.key === "Project")).toBe(true);
+    expect(applyTexts).toContain(project);
+    expect(applyNodes.some((node) => node.kind === "key-value" && node.key === "  Profile")).toBe(true);
+    expect(applyTexts).toContain("reconcile");
+    expect(applyTexts).toContain("generated-output/reconcile");
 
     const verbose = formatLifecycleReport("status", report, { verbose: true });
     expect(verbose).toContain(project);
@@ -2862,12 +2937,14 @@ describe("formatLifecycleReport concise terminology", () => {
     });
 
     const message = "Cannot verify the selected Project setup from its installation record";
-    const view = formatApplyVerificationFailure(receipt, message);
+    const view = presentationTexts(applyVerificationFailureDocument(receipt, message)).join("\n");
 
     expect(view).toContain(message);
     expectUserFacingVocabulary(view);
 
-    const verbose = formatApplyVerificationFailure(receipt, message, { verbose: true });
+    const verbose = presentationTexts(
+      applyVerificationFailureDocument(receipt, message, { verbose: true }),
+    ).join("\n");
     expect(verbose).toContain(message);
     expect(verbose).toContain("Git exclusions:");
     expect(verbose).toContain("Selected setup:");
@@ -3130,14 +3207,14 @@ describe("formatLifecycleReport concise terminology", () => {
     );
 
     for (const command of ["status", "apply"] as const) {
-      const verbose = command === "apply"
-        ? formatBlockedApplyReport(asBlockedReport(report), { verbose: true })
-        : formatLifecycleReport(command, report, { verbose: true });
+      const verbose = presentationTexts(command === "apply"
+        ? blockedApplyReportDocument(asBlockedReport(report), { verbose: true })
+        : lifecycleStatusDocument(report, { verbose: true })).join("\n");
       expect(verbose.indexOf(
-        "Blockers:\n- Cannot verify generated-file ownership: recorded output hooks disabled does not match",
+        "Blockers:\nCannot verify generated-file ownership: recorded output hooks disabled does not match",
       )).toBeGreaterThan(-1);
       expect(verbose).toContain("Scope: Project /project-b");
-      expect(verbose.indexOf("Blockers:\n- /project-b: hooks disabled")).toBeLessThan(
+      expect(verbose.indexOf("Blockers:\n/project-b: hooks disabled")).toBeLessThan(
         verbose.indexOf("Projects:"),
       );
     }
@@ -3350,11 +3427,13 @@ describe("formatLifecycleReport concise terminology", () => {
       );
     }
 
-    const concise = formatApplyReport(applyResult(receipt, result));
+    const concise = presentationTexts(applyReportDocument(applyResult(receipt, result))).join("\n");
     expect(concise).not.toContain("Git exclusions:");
     expect(concise).toContain("Apply complete");
 
-    const verbose = formatApplyReport(applyResult(receipt, result), { verbose: true });
+    const verbose = presentationTexts(
+      applyReportDocument(applyResult(receipt, result), { verbose: true }),
+    ).join("\n");
 
     expect(verbose).toContain("Applied:");
     expect(verbose).toContain("Git exclusions:");
@@ -3369,10 +3448,13 @@ describe("formatLifecycleReport concise terminology", () => {
       items: [{ kind: "drifted output", project: "/repo", reason: "a.md" }],
     });
 
-    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+    const texts = presentationTexts(
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
+    );
 
-    expect(verbose.match(/State explanations:/g)).toHaveLength(1);
-    expect(explanationLines(verbose)).toEqual([
+    expect(texts.filter((text) => text === "State explanations:")).toHaveLength(1);
+    const start = texts.indexOf("State explanations:");
+    expect(texts.slice(start + 1, start + 3)).toEqual([
       expect.stringContaining("stale source: Workspace source changed"),
       expect.stringContaining("drifted output: An owned generated file differs from its recorded installation"),
     ]);
@@ -3414,7 +3496,7 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatApplyReport(applyResult(receipt, resultingState));
+    const concise = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
 
     expect(concise).toContain("Applied:\n  ~ 1 generated file update in /changed");
     expect(concise).not.toContain("Project: /changed");
@@ -3435,11 +3517,11 @@ describe("formatLifecycleReport concise terminology", () => {
       blockers: [fixtureBlocker("changed after commit", "/project-a")],
     });
 
-    const concise = formatApplyReport(applyResult(emptyReport(), resultingState));
+    const concise = presentationTexts(applyReportDocument(applyResult(emptyReport(), resultingState))).join("\n");
 
     expect(concise.startsWith("Apply completed with blockers\n")).toBe(true);
     expect(concise).toContain("Pending: blocked");
-    expect(concise).toContain("- /project-a: Resolve the reported blocker");
+    expect(concise).toContain("/project-a: Resolve the reported blocker");
   });
 
   test("execution failures label only applied receipt Projects as freshly current", () => {
@@ -3455,14 +3537,14 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatApplyExecutionFailure({
+    const concise = presentationTexts(applyExecutionFailureDocument({
       detail: "Apply failed",
       failedProject: executionProject("/failed"),
       message: "Apply failed",
       pendingProjects: [],
       receipt,
       resultingState,
-    });
+    })).join("\n");
 
     expect(concise).toContain("Freshly current: /applied");
     expect(concise).not.toContain("Freshly current: /already-current");
@@ -3480,7 +3562,7 @@ describe("formatLifecycleReport concise terminology", () => {
       const failedCanonical = realpathSync(failedAlias);
       const pendingCanonical = realpathSync(pendingAlias);
 
-      const output = formatApplyExecutionFailure({
+      const output = presentationTexts(applyExecutionFailureDocument({
         detail: "permission denied",
         failedProject: {
           canonicalProject: failedCanonical,
@@ -3493,7 +3575,7 @@ describe("formatLifecycleReport concise terminology", () => {
         }],
         receipt: emptyReport(),
         resultingState: undefined,
-      }, { all: true });
+      }, { all: true })).join("\n");
 
       expect(output).toContain("Apply failed at ~/failed-alias: permission denied\n");
       expect(output).toContain("Failed Project: ~/failed-alias\n");
@@ -3513,10 +3595,12 @@ describe("formatLifecycleReport concise terminology", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const concise = formatApplyVerificationFailure(
-      receipt,
-      "Apply committed; post-apply verification failed: transient read",
-    );
+    const concise = presentationTexts(
+      applyVerificationFailureDocument(
+        receipt,
+        "Apply committed; post-apply verification failed: transient read",
+      ),
+    ).join("\n");
 
     expect(concise.startsWith("Apply committed; post-apply verification failed: transient read\n")).toBe(true);
     expect(concise).toContain("Applied:");
@@ -3524,6 +3608,17 @@ describe("formatLifecycleReport concise terminology", () => {
     expect(concise).not.toContain("Apply complete");
   });
 });
+
+/** The next-action bullets of a lifecycle document, asserted as structure. */
+function documentNextActions(document: PresentationDocument): string[] {
+  const nodes = flattenPresentationNodes(document);
+  const headingIndex = nodes.findIndex((node) => node.kind === "heading" && node.text === "Next:");
+  if (headingIndex < 0) return [];
+  return nodes.slice(headingIndex + 1)
+    .flatMap((node) => node.kind === "list-item"
+      ? node.nodes.flatMap((child) => child.kind === "prose" ? [child.text] : [])
+      : []);
+}
 
 describe("formatLifecycleReport next-action guidance", () => {
   function nextActionLines(reportText: string): string[] {
@@ -3623,7 +3718,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       blockers: [fixtureBlocker("/project-a: hooks disabled", "/project-a")],
     });
 
-    const next = nextActionLines(formatApplyReport(applyResult(report)));
+    const next = documentNextActions(applyReportDocument(applyResult(report)));
     expect(next).toHaveLength(1);
     expect(next[0]).toMatch(/resolve/i);
     expect(next[0]).toMatch(/blocker/i);
@@ -3701,7 +3796,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
-    expect(nextActionLines(formatApplyReport(applyResult(current)))).toEqual([]);
+    expect(documentNextActions(applyReportDocument(applyResult(current)))).toEqual([]);
 
     const appliedWithChanges = emptyReport({
       desired: [{
@@ -3716,7 +3811,7 @@ describe("formatLifecycleReport next-action guidance", () => {
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
     // Apply already completed; do not recommend another apply or status.
-    expect(nextActionLines(formatApplyReport(applyResult(appliedWithChanges)))).toEqual([]);
+    expect(documentNextActions(applyReportDocument(applyResult(appliedWithChanges)))).toEqual([]);
 
     const metadataOnlyReceipt = emptyReport({
       desired: reportDesired(current),
@@ -3728,11 +3823,15 @@ describe("formatLifecycleReport next-action guidance", () => {
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
-    const metadataOnly = formatApplyReport(applyResult(metadataOnlyReceipt, metadataOnlyResult));
+    const metadataOnly = presentationTexts(
+      applyReportDocument(applyResult(metadataOnlyReceipt, metadataOnlyResult)),
+    ).join("\n");
     expect(metadataOnly).not.toContain("no changes were applied");
     expect(metadataOnly).not.toContain("All Projects were already current.");
     expect(
-      formatApplyReport(applyResult(metadataOnlyReceipt, metadataOnlyResult), { verbose: true }),
+      presentationTexts(
+        applyReportDocument(applyResult(metadataOnlyReceipt, metadataOnlyResult), { verbose: true }),
+      ).join("\n"),
     ).toContain("update");
   });
 
@@ -4595,7 +4694,7 @@ describe("operation-first multi-Project presentation", () => {
       })),
     });
 
-    const apply = formatApplyReport({ receipt, resultingState });
+    const apply = presentationTexts(applyReportDocument({ receipt, resultingState })).join("\n");
 
     expect(apply).toContain("Applied:\n  ~ 3 generated file updates in 3 projects");
     expect(apply).not.toContain("State: current");
@@ -4646,11 +4745,11 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(status).not.toContain("Blockers: 0");
     expect(status).not.toContain("Changes: none");
 
-    const applied = formatApplyReport(applyResult(report, emptyReport({
+    const applied = presentationTexts(applyReportDocument(applyResult(report, emptyReport({
       desired: reportDesired(report),
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
-    })));
+    })))).join("\n");
     expect(applied).toContain("Apply complete");
     expect(applied).not.toContain("Blockers: 0");
     expect(applied).not.toContain("Pending: none");
@@ -4676,7 +4775,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(status).toContain("Blockers: 1");
     expect(status).not.toContain("Blockers: 0");
 
-    const apply = formatBlockedApplyReport(asBlockedReport(report));
+    const apply = presentationTexts(blockedApplyReportDocument(asBlockedReport(report))).join("\n");
     expect(apply).toContain("Apply blocked");
     expect(apply).toContain("Blockers: 1");
     expect(apply).toContain("Pending: blocked");
@@ -4822,7 +4921,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
     expect(apply).toContain("Apply complete");
     expect(apply).toContain("Applied:\n  + 1 generated file addition in 1 project");
     expect(apply).not.toContain("All Projects were already current.");
@@ -4856,14 +4955,16 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/repo" }],
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
     expect(apply).toContain("Apply complete");
     expect(apply).not.toContain("Git exclusions:");
     expect(apply).not.toContain("All Projects were already current.");
     expect(apply).not.toContain("Project: /repo");
     expect(apply).not.toContain("State: current");
 
-    const verbose = formatApplyReport(applyResult(receipt, resultingState), { verbose: true });
+    const verbose = presentationTexts(
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
+    ).join("\n");
     expect(verbose).toContain("/repo/.git/info/exclude: add /.agent-profile-kit/codex/context.md");
   });
 
@@ -4886,10 +4987,14 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
+    const nodes = flattenPresentationNodes(applyReportDocument(applyResult(receipt, resultingState)));
     expect(apply).toContain("Apply completed with attention");
-    expect(apply).toContain("Project: /project-a");
-    expect(apply).toContain("State: drifted output (a.md)");
+    expect(nodes.some((node) => node.kind === "key-value" && node.key === "Project")).toBe(true);
+    const stateNodes = nodes.flatMap((node) =>
+      node.kind === "key-value" && node.key === "  State" ? [node] : []);
+    expect(stateNodes).toHaveLength(1);
+    expect(stateNodes[0]!.value).toMatchObject({ kind: "prose", text: "drifted output (a.md)" });
     expect(apply).toContain("~ a.md");
     expect(apply).toContain("Applied:\n  ~ 1 generated file update in 1 project");
   });
@@ -4935,13 +5040,18 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       ],
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
+    const projectNodes = flattenPresentationNodes(applyReportDocument(applyResult(receipt, resultingState)))
+      .flatMap((node) => node.kind === "key-value" && node.key === "Project" ? [node] : []);
     expect(apply).toContain("Apply completed with attention");
     expect(apply).toContain("Applied:\n  ~ 2 generated file updates in 2 projects");
-    expect(apply).toContain("Project: /project-b");
-    expect(apply).toContain("State: drifted output");
+    expect(projectNodes).toHaveLength(1);
+    expect(projectNodes[0]!.value).toMatchObject({ kind: "path", canonicalPath: "/project-b" });
+    const stateNodes = flattenPresentationNodes(applyReportDocument(applyResult(receipt, resultingState)))
+      .flatMap((node) => node.kind === "key-value" && node.key === "  State" ? [node] : []);
+    expect(stateNodes).toHaveLength(1);
+    expect(stateNodes[0]!.value).toMatchObject({ kind: "prose", text: "drifted output" });
     expect(apply).toContain("~ b.md");
-    expect(apply).not.toContain("Project: /project-a");
   });
 
   test("no-op status states current once", () => {
@@ -4980,13 +5090,17 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    const apply = formatApplyReport(applyResult(report));
-    expect(apply).toBe("Apply complete\nAll Projects were already current.\n");
-    expect(apply).not.toContain("Pending: none");
-    expect(apply).not.toContain("Applied: none");
-    expect(apply).not.toContain("Blockers: 0");
-    expect(apply).not.toContain("becomes active");
-    expect(apply).not.toContain("Host setup:");
+    const document = applyReportDocument(applyResult(report));
+    expect(noticesIn(document)).toEqual([
+      { kind: "notice", severity: "success", nodes: [{ kind: "prose", text: "Apply complete" }] },
+    ]);
+    const texts = presentationTexts(document);
+    expect(texts).toEqual(["Apply complete", "All Projects were already current."]);
+    expect(texts.join("\n")).not.toContain("Pending: none");
+    expect(texts.join("\n")).not.toContain("Applied: none");
+    expect(texts.join("\n")).not.toContain("Blockers: 0");
+    expect(texts.join("\n")).not.toContain("becomes active");
+    expect(texts).not.toContain("Host setup:");
   });
 
   test("no-op apply preserves adapter warnings", () => {
@@ -5004,15 +5118,16 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       warnings: ["Project /project-a carries an adapter warning."],
     });
 
-    const apply = formatApplyReport(applyResult(report));
-    expect(apply).toBe(
-      "Apply complete\n" +
-        "All Projects were already current.\n\n" +
-        "Warnings:\n" +
-        "- Project /project-a carries an adapter warning. (1 Project)\n",
-    );
-    expect(apply).not.toContain("Applied:");
-    expect(apply).not.toContain("Host setup:");
+    const texts = presentationTexts(applyReportDocument(applyResult(report)));
+    expect(texts).toEqual([
+      "Apply complete",
+      "All Projects were already current.",
+      "",
+      "Warnings:",
+      "Project /project-a carries an adapter warning. (1 Project)",
+    ]);
+    expect(texts).not.toContain("Applied:");
+    expect(texts).not.toContain("Host setup:");
   });
 
   test("blocked apply retains pending Git exclusions", () => {
@@ -5036,7 +5151,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       }],
     });
 
-    const apply = formatBlockedApplyReport(asBlockedReport(report));
+    const apply = presentationTexts(blockedApplyReportDocument(asBlockedReport(report))).join("\n");
     expect(apply).toContain("Apply blocked");
     expect(apply).toContain("Git exclusions: 1 entry to add.");
   });
@@ -5089,7 +5204,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "addition", path: "b.md", project: "/project-b" }],
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
     expect(apply).toContain("Apply completed with blockers");
     expect(apply).toContain("Applied:\n\nGit exclusions: 1 entry added.");
     expect(apply).toContain("Freshly current: /project-a");
@@ -5132,7 +5247,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       })),
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
     expect(apply.match(/will load the next time you launch/g)).toHaveLength(1);
     expect(apply).toContain(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
@@ -5141,7 +5256,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(apply).not.toContain("from /project-b");
     expect(apply).not.toContain("becomes active");
     expect(apply).not.toContain("bound Host");
-    expect(apply.trimEnd()).toEndWith(
+    expect(apply.split("\n").at(-1)).toBe(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
@@ -5198,9 +5313,9 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       })),
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
     expect(apply.match(/will load the next time you launch/g)).toHaveLength(1);
-    expect(apply.trimEnd()).toEndWith(
+    expect(apply.split("\n").at(-1)).toBe(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
     expect(apply).not.toContain("becomes active");
@@ -5248,9 +5363,9 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       })),
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
     expect(apply.match(/will load the next time you launch/g)).toHaveLength(1);
-    expect(apply.trimEnd()).toEndWith(
+    expect(apply.split("\n").at(-1)).toBe(
       "2 Profiles will load the next time you launch a configured Host from a bound Project root.",
     );
   });
@@ -5277,9 +5392,9 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       items: [{ kind: "current" as const, project: "." }],
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
     expect(apply).not.toContain("..");
-    expect(apply.trimEnd()).toEndWith(
+    expect(apply.split("\n").at(-1)).toBe(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
@@ -5312,10 +5427,10 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    const apply = formatApplyReport(applyResult(receipt, resultingState));
+    const apply = presentationTexts(applyReportDocument(applyResult(receipt, resultingState))).join("\n");
     expect(apply).not.toContain("After completing the Host setup above");
     expect(apply).not.toContain("No further Host setup is required");
-    expect(apply.trimEnd()).toEndWith(
+    expect(apply.split("\n").at(-1)).toBe(
       "Profile coding will load the next time you launch a configured Host from a bound Project root.",
     );
   });
@@ -5826,9 +5941,11 @@ describe("focused blockers-only apply view (#352)", () => {
 
   test("focused concise apply renders receipt and pending scope before Blocker evidence and suppresses unrelated inventory", () => {
     const { receipt, resultingState } = partialApply();
-    const output = formatApplyReport({ receipt, resultingState }, { blockersOnly: true });
+    const output = presentationTexts(
+      applyReportDocument({ receipt, resultingState }, { blockersOnly: true }),
+    ).join("\n");
 
-    expect(output).toStartWith("Apply completed with blockers\n");
+    expect(output.startsWith("Apply completed with blockers\n")).toBe(true);
     expect(output).toContain("Applied:");
     expect(output).toContain("+ 1 generated file addition in /project-a");
     expect(output).toContain("Freshly current: /project-a");
@@ -5857,13 +5974,15 @@ describe("focused blockers-only apply view (#352)", () => {
 
   test("focused verbose apply retains every Blocker affected item and the receipt without ordinary inventory sections", () => {
     const { receipt, resultingState } = partialApply();
-    const output = formatApplyReport(
-      { receipt, resultingState },
-      { blockersOnly: true, verbose: true },
-    );
+    const output = presentationTexts(
+      applyReportDocument(
+        { receipt, resultingState },
+        { blockersOnly: true, verbose: true },
+      ),
+    ).join("\n");
 
-    expect(output).toStartWith("Apply completed with blockers\n");
-    expect(output).toContain("- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex");
+    expect(output.startsWith("Apply completed with blockers\n")).toBe(true);
+    expect(output).toContain("Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex");
     expect(output).toContain(
       "Requirement: Agent Profile Kit syncs or removes only files whose ownership is " +
       "proven by the active installation record at safe paths",
@@ -5879,7 +5998,7 @@ describe("focused blockers-only apply view (#352)", () => {
     expect(output).toContain("Still pending: /project-c");
     expect(output).toContain("Blockers: 1 · Affected Projects: 1");
     expect(output.indexOf("Applied:")).toBeLessThan(
-      output.indexOf("- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex"),
+      output.indexOf("Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex"),
     );
     expect(output).not.toMatch(/^Projects:/m);
     expect(output).not.toContain("Outputs:");
@@ -5897,11 +6016,11 @@ describe("focused blockers-only apply view (#352)", () => {
     });
     const result = applyResult(receipt, emptyReport());
 
-    expect(formatApplyReport(result, { blockersOnly: true })).toBe(formatApplyReport(result, {}));
-    expect(formatApplyReport(result, { blockersOnly: true, verbose: true })).toBe(
-      formatApplyReport(result, { verbose: true }),
+    expect(applyReportDocument(result, { blockersOnly: true })).toEqual(applyReportDocument(result, {}));
+    expect(applyReportDocument(result, { blockersOnly: true, verbose: true })).toEqual(
+      applyReportDocument(result, { verbose: true }),
     );
-    expect(formatApplyReport(result, { blockersOnly: true })).toContain("Applied:");
+    expect(presentationTexts(applyReportDocument(result, { blockersOnly: true }))).toContain("Applied:");
   });
 
   test("a globally blocked apply renders focused Blocker evidence without receipt sections", () => {
@@ -5909,18 +6028,20 @@ describe("focused blockers-only apply view (#352)", () => {
       blockers: [fixtureBlocker("Installation State is unreadable")],
     }));
 
-    const concise = formatBlockedApplyReport(report, { blockersOnly: true });
-    const verbose = formatBlockedApplyReport(report, { blockersOnly: true, verbose: true });
+    const concise = presentationTexts(blockedApplyReportDocument(report, { blockersOnly: true })).join("\n");
+    const verbose = presentationTexts(
+      blockedApplyReportDocument(report, { blockersOnly: true, verbose: true }),
+    ).join("\n");
 
-    expect(concise).toStartWith("Apply blocked\n");
+    expect(concise.startsWith("Apply blocked\n")).toBe(true);
     expect(concise).toContain("Global blockers:");
     expect(concise).toContain("Blocker: installation record is unreadable");
     expect(concise).toContain("Blockers: 1");
     expect(concise).not.toContain("Applied:");
     expect(concise).not.toContain("Still pending:");
     expect(concise).not.toContain("Warnings:");
-    expect(verbose).toStartWith("Apply blocked\n");
-    expect(verbose).toContain("- installation record is unreadable");
+    expect(verbose.startsWith("Apply blocked\n")).toBe(true);
+    expect(verbose).toContain("installation record is unreadable");
     expect(verbose).toContain("Blockers: 1");
     expect(verbose).not.toContain("Applied:");
     expect(verbose).not.toContain("Next:");
@@ -5937,9 +6058,9 @@ describe("focused blockers-only apply view (#352)", () => {
       receipt,
       resultingState,
     };
-    const output = formatApplyExecutionFailure(failure, { blockersOnly: true });
+    const output = presentationTexts(applyExecutionFailureDocument(failure, { blockersOnly: true })).join("\n");
 
-    expect(output).toStartWith("Apply failed at /project-b: write failed\n");
+    expect(output.startsWith("Apply failed at /project-b: write failed\n")).toBe(true);
     expect(output).toContain("Failed Project: /project-b");
     expect(output).toContain("Still pending: /project-c");
     expect(output).toContain("Applied:");
@@ -5964,8 +6085,8 @@ describe("focused blockers-only apply view (#352)", () => {
       resultingState: undefined,
     };
 
-    expect(formatApplyExecutionFailure(failure, { blockersOnly: true })).toBe(
-      formatApplyExecutionFailure(failure, {}),
+    expect(applyExecutionFailureDocument(failure, { blockersOnly: true })).toEqual(
+      applyExecutionFailureDocument(failure, {}),
     );
   });
 
@@ -5980,15 +6101,219 @@ describe("focused blockers-only apply view (#352)", () => {
       resultingState,
     };
 
-    const concise = formatApplyExecutionFailure(failure, { blockersOnly: true });
-    expect(concise).toContain(
-      "Freshly current: /project-a\n\nProject: /project-b\n  Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex",
+    const concise = flattenPresentationNodes(
+      applyExecutionFailureDocument(failure, { blockersOnly: true }),
     );
+    const freshIndex = concise.findIndex((node) =>
+      node.kind === "prose" && node.text === "Freshly current: /project-a");
+    expect(freshIndex).toBeGreaterThan(-1);
+    // Single blank-line separation before the concise Blocker section (RE-1).
+    expect(concise[freshIndex + 1]).toMatchObject({ kind: "verbatim", text: "" });
+    expect(concise[freshIndex + 2]).toMatchObject({
+      kind: "key-value",
+      key: "Project",
+      value: { kind: "path", canonicalPath: "/project-b" },
+    });
+    const blockerIndex = concise.findIndex((node, index) =>
+      index > freshIndex && node.kind === "prose" &&
+      node.text === "  Blocker: Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex");
+    expect(blockerIndex).toBeGreaterThan(freshIndex + 2);
+    expect(concise[blockerIndex - 1]).toMatchObject({
+      kind: "path",
+      canonicalPath: "/project-b",
+    });
 
-    const verbose = formatApplyExecutionFailure(failure, { blockersOnly: true, verbose: true });
-    expect(verbose).toContain(
-      "Freshly current: /project-a\n\nBlockers:\n- Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex",
+    const verbose = flattenPresentationNodes(
+      applyExecutionFailureDocument(failure, { blockersOnly: true, verbose: true }),
     );
+    const verboseFreshIndex = verbose.findIndex((node) =>
+      node.kind === "prose" && node.text === "Freshly current: /project-a");
+    expect(verboseFreshIndex).toBeGreaterThan(-1);
+    expect(verbose[verboseFreshIndex + 1]).toMatchObject({ kind: "verbatim", text: "" });
+    expect(verbose[verboseFreshIndex + 2]).toMatchObject({ kind: "heading", text: "Blockers:" });
+    expect(verbose[verboseFreshIndex + 3]).toMatchObject({
+      kind: "list-item",
+      nodes: [{ kind: "prose", text: "Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-b/.codex" }],
+    });
+  });
+});
+
+describe("apply presentation documents", () => {
+  test("concise apply receipt carries a success notice, receipt evidence, and trailing readiness", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    const document = applyReportDocument(applyResult(receipt, resultingState));
+    expect(noticesIn(document)).toEqual([
+      { kind: "notice", severity: "success", nodes: [{ kind: "prose", text: "Apply complete" }] },
+    ]);
+    const texts = presentationTexts(document);
+    expect(texts).toContain("Applied:");
+    expect(texts).toContain("  + 1 generated file addition in 1 project");
+    expect(texts.some((text) => text.includes("+ a.md"))).toBe(true);
+    expect(texts.at(-1)).toBe(
+      "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+    );
+    expect(commandsIn(document)).toEqual([]);
+  });
+
+  test("verbose apply keeps composed Context as the only verbatim content", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+
+    const nodes = flattenPresentationNodes(
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
+    );
+    const verbatim = nodes.flatMap((node) => node.kind === "verbatim" && node.text !== "" ? [node.text] : []);
+    expect(verbatim).toHaveLength(2);
+    for (const context of verbatim) {
+      expect(context).toMatch(/begin Context/);
+      expect(context).toMatch(/end Context/);
+    }
+    const texts = presentationTexts(
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
+    );
+    expect(texts).toContain("Pending:");
+    expect(texts).toContain("Applied:");
+    expect(texts).toContain("Host Setup:");
+  });
+
+  test("blocked apply presents an error notice, Blocker evidence, and the committed receipt", () => {
+    const report = emptyReport({
+      blockers: [fixtureBlocker("occupied output", "/project-a")],
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a" }],
+    });
+
+    const document = blockedApplyReportDocument(asBlockedReport(report));
+    const notices = noticesIn(document);
+    expect(notices[0]).toEqual({
+      kind: "notice",
+      severity: "error",
+      nodes: [{ kind: "prose", text: "Apply blocked" }],
+    });
+    expect(notices.at(-1)).toMatchObject({
+      kind: "notice",
+      severity: "error",
+      nodes: [{ kind: "prose", text: "Projects: 1 · Pending: blocked · Blockers: 1" }],
+    });
+    const nodes = flattenPresentationNodes(document);
+    expect(nodes.some((node) => node.kind === "key-value" && node.key === "Project")).toBe(true);
+    expect(nodes.some((node) =>
+      node.kind === "prose" && node.category === "error" && node.text.startsWith("  Blocker: ")
+    )).toBe(true);
+  });
+
+  test("focused apply places safety evidence before the footer-only Blocker section", () => {
+    const receipt = emptyReport({
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      blockers: [fixtureBlocker("occupied output", "/project-b")],
+      desired: [{
+        canonicalProject: "/project-b",
+        context: "composed",
+        outputs: ["b.md"],
+        profile: "coding",
+        project: "/project-b",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-b" }],
+    });
+
+    const nodes = flattenPresentationNodes(
+      applyReportDocument(applyResult(receipt, resultingState), { blockersOnly: true }),
+    );
+    const appliedIndex = nodes.findIndex((node) => node.kind === "heading" && node.text === "Applied:");
+    const footerIndex = nodes.findIndex((node) =>
+      node.kind === "prose" && node.text.startsWith("Blockers: "));
+    expect(appliedIndex).toBeGreaterThan(-1);
+    expect(footerIndex).toBeGreaterThan(appliedIndex);
+  });
+
+  test("execution failure carries an error notice, Project scope, and the committed receipt", () => {
+    const receipt = emptyReport({
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+
+    const document = applyExecutionFailureDocument({
+      detail: "write failed",
+      failedProject: executionProject("/project-a"),
+      message: "Apply failed while writing the Project",
+      pendingProjects: [],
+      receipt,
+      resultingState: undefined,
+    });
+    expect(noticesIn(document)).toEqual([
+      {
+        kind: "notice",
+        severity: "error",
+        nodes: [{ kind: "prose", text: "Apply failed at /project-a: write failed" }],
+      },
+    ]);
+    const texts = presentationTexts(document);
+    expect(texts).toContain("Failed Project: /project-a");
+    expect(texts).toContain("Still pending: none");
+    expect(texts).toContain("Applied:");
+  });
+
+  test("verification failure carries the task message as an error notice and receipt evidence", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+
+    const document = applyVerificationFailureDocument(receipt, "Verification failed.");
+    expect(noticesIn(document)).toEqual([
+      { kind: "notice", severity: "error", nodes: [{ kind: "prose", text: "Verification failed." }] },
+    ]);
+    expect(presentationTexts(document)).toContain("Applied:");
   });
 });
 

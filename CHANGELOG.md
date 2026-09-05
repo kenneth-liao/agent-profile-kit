@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Migrate apply receipts, blocked apply reports, and both apply failure views onto the presentation document and renderer. Each view presents exactly its baseline facts; snapshot diffs are wrapping, eliding, alignment, and colour extent only, the machine JSON surface is byte-identical, and exit codes are unchanged. In-process coverage asserts document structure ([#388](https://github.com/kenneth-liao/agent-profile-kit/issues/388)).
+
 - Migrate lifecycle `status` human views onto the presentation document and renderer. JSON, exit codes, and other commands stay on the string pipeline. Snapshot diffs are wrapping, eliding, alignment, and colour extent only ([#387](https://github.com/kenneth-liao/agent-profile-kit/issues/387)).
 
 - Add a typed presentation document and pure renderer beside the existing string pipeline, with atomic path/command layout, wrapped-line styling, row stacking, and verbatim reproduction. No command output changes ([#386](https://github.com/kenneth-liao/agent-profile-kit/issues/386)).

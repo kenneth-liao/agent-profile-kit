@@ -1116,6 +1116,19 @@ function stateExplanationLines(items: readonly ReconciliationItem[]): readonly s
   ];
 }
 
+/** The typed state-explanation section; empty when every item is current. */
+function stateExplanationNodes(items: readonly ReconciliationItem[]): PresentationNode[] {
+  const kinds = presentNonCurrentKinds(items);
+  if (kinds.length === 0) return [];
+  return [
+    { kind: "heading", text: "State explanations:" },
+    ...kinds.map((kind) => ({
+      kind: "list-item" as const,
+      nodes: [{ kind: "prose" as const, text: `${kind}: ${STATE_EXPLANATIONS[kind]}` }],
+    })),
+  ];
+}
+
 function blockerProject(blocker: ReconciliationBlocker): string | undefined {
   return blocker.project || undefined;
 }
@@ -1868,11 +1881,19 @@ function conciseFirstUseAction(
   return `${base}${subsetClause} ${reason}`;
 }
 
-function conciseFirstUseLines(
+/** One deduplicated concise first-use group with its affected Projects. */
+interface ConciseFirstUseGroup {
+  readonly host: HostSetupStep["host"];
+  readonly kind: HostSetupStepKind;
+  readonly message: string;
+  readonly projects: readonly string[];
+  readonly step: HostSetupStep;
+}
+
+/** Deduplicate identical concise first-use actions across Projects. */
+function conciseFirstUseGroups(
   presented: readonly PresentedSetupStep[],
-  changeEvidence: ReconciliationReport | undefined,
-): readonly string[] {
-  if (presented.length === 0) return [];
+): readonly ConciseFirstUseGroup[] {
   const byKey = new Map<string, {
     host: HostSetupStep["host"];
     kind: HostSetupStepKind;
@@ -1895,7 +1916,7 @@ function conciseFirstUseLines(
       });
     }
   }
-  const groups = [...byKey.values()]
+  return [...byKey.values()]
     .map((group) => ({
       ...group,
       projects: [...new Set(group.projects)].sort(compareCanonicalStrings),
@@ -1906,19 +1927,50 @@ function conciseFirstUseLines(
         HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
       left.message.localeCompare(right.message),
     );
+}
 
+/** One concise first-use action line for a deduplicated setup-step group. */
+function conciseFirstUseActionLine(
+  group: ConciseFirstUseGroup,
+  changeEvidence: ReconciliationReport | undefined,
+): string {
+  let isSubset = false;
+  if (group.kind === "launch-constraint" && changeEvidence !== undefined) {
+    const hostAdditionProjects = changeEvidence.projects.filter((changeProject) =>
+      isFirstRelevantHostOutput(changeProject, changeProject, group.host)
+    ).length;
+    isSubset = group.projects.length < hostAdditionProjects;
+  }
+  return conciseFirstUseAction(group.step, group.projects, isSubset);
+}
+
+function conciseFirstUseLines(
+  presented: readonly PresentedSetupStep[],
+  changeEvidence: ReconciliationReport | undefined,
+): readonly string[] {
+  if (presented.length === 0) return [];
+  const groups = conciseFirstUseGroups(presented);
   const lines = ["First use:"];
   for (const group of groups) {
-    let isSubset = false;
-    if (group.kind === "launch-constraint" && changeEvidence !== undefined) {
-      const hostAdditionProjects = changeEvidence.projects.filter((changeProject) =>
-        isFirstRelevantHostOutput(changeProject, changeProject, group.host)
-      ).length;
-      isSubset = group.projects.length < hostAdditionProjects;
-    }
-    lines.push(`- ${conciseFirstUseAction(group.step, group.projects, isSubset)}`);
+    lines.push(`- ${conciseFirstUseActionLine(group, changeEvidence)}`);
   }
   return lines;
+}
+
+/** The typed concise first-use section; empty when no presented step remains. */
+function conciseFirstUseNodes(
+  presented: readonly PresentedSetupStep[],
+  changeEvidence: ReconciliationReport | undefined,
+): PresentationNode[] {
+  const groups = conciseFirstUseGroups(presented);
+  if (groups.length === 0) return [];
+  return [
+    { kind: "heading", text: "First use:" },
+    ...groups.map((group) => ({
+      kind: "list-item" as const,
+      nodes: [{ kind: "prose" as const, text: conciseFirstUseActionLine(group, changeEvidence) }],
+    })),
+  ];
 }
 
 /**
@@ -3158,22 +3210,534 @@ function focusedApplyReport(
   ].join("\n") + "\n";
 }
 
+/** The apply outcome notice: severity derives from report facts, never copy. */
+function applyOutcomeNotice(
+  report: ReconciliationReport,
+  applyCompleted: boolean,
+): PresentationNode {
+  return {
+    kind: "notice",
+    severity: reportBlockers(report).length > 0 ? "error" : "success",
+    nodes: [{ kind: "prose", text: outcomeLine("apply", report, applyCompleted) }],
+  };
+}
+
+/** The typed Apply Receipt operation summary: counted operations, then the
+ * named affected paths with their Project attribution (#380). */
+function operationReceiptNodes(
+  receipt: ReconciliationReport,
+  fleetScope: ReconciliationReport,
+  scope: LocationDisplayScope,
+  includeExclusions = true,
+): PresentationNode[] {
+  const groups = groupOutputOperations(receipt);
+  const exclusionClause = includeExclusions ? repositoryExclusionClause(receipt, true) : undefined;
+  if (groups.length === 0 && exclusionClause === undefined) return [];
+  const nodes: PresentationNode[] = [
+    { kind: "heading", text: "Applied:" },
+    ...groups.map((group) => ({
+      kind: "prose" as const,
+      text: `  ${operationGroupLine(group, fleetScope, scope)}`,
+    })),
+    ...operationReceiptPathLines(receipt, scope).map((line) => ({
+      kind: "prose" as const,
+      text: line,
+    })),
+  ];
+  if (exclusionClause !== undefined) {
+    nodes.push(spacerNode(), { kind: "prose", text: exclusionClause });
+  }
+  return nodes;
+}
+
+/** The typed Apply Receipt: applied evidence per Project, or the operation
+ * summary above one Project, or the explicit no-change outcome. */
+function applyReceiptNodes(
+  receipt: ReconciliationReport,
+  scope: LocationDisplayScope,
+  summarizeFleet = false,
+  fleetScope: ReconciliationReport = receipt,
+): PresentationNode[] {
+  if (summarizeFleet || useOperationSummary(receipt, false)) {
+    return operationReceiptNodes(receipt, fleetScope, scope);
+  }
+  const grouped = groupProjects(receipt);
+  const entries: PresentationNode[] = grouped.groups.flatMap((group) => {
+    const paths = outputPathLines(group.outputs);
+    if (paths.length > 0) {
+      return [
+        {
+          kind: "prose" as const,
+          text: `- ${displayProjectPath(group.canonicalProject, group.project, scope)}:`,
+        },
+        ...paths.map((line) => ({ kind: "prose" as const, text: `  ${line}` })),
+      ];
+    }
+    const workKinds = [...new Set(
+      group.items
+        .filter((item) => item.kind !== "current")
+        .map((item) => item.kind === "update"
+          ? `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} update`
+          : `${DEFAULT_VIEW_LEXICON.reconciliation.noun} ${item.kind}`),
+    )];
+    return workKinds.length > 0
+      ? [{
+        kind: "prose" as const,
+        text: `- ${displayProjectPath(group.canonicalProject, group.project, scope)}: ${workKinds.join(", ")}`,
+      }]
+      : [];
+  });
+  const exclusionClause = repositoryExclusionClause(receipt, true);
+  if (entries.length === 0 && exclusionClause === undefined) {
+    return [{ kind: "prose", text: "Applied: none." }];
+  }
+  const nodes: PresentationNode[] = [
+    { kind: "heading", text: "Applied:" },
+    ...(entries.length > 0
+      ? entries
+      : [{ kind: "prose" as const, text: `- No ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} changes` }]),
+  ];
+  if (exclusionClause !== undefined) {
+    nodes.push(spacerNode(), { kind: "prose", text: exclusionClause });
+  }
+  return nodes;
+}
+
+/** The committed Apply Receipt plus the Projects it made current, as typed nodes. */
+function committedApplyEvidenceNodes(
+  receipt: ReconciliationReport,
+  postState: ReconciliationReport,
+  summarizeFleet: boolean,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const nodes: PresentationNode[] = [
+    ...applyReceiptNodes(receipt, scope, summarizeFleet, postState),
+  ];
+  const appliedProjects = new Set(
+    receipt.projects.map((project) => project.canonicalProject),
+  );
+  const freshlyCurrent = postState.projects
+    .filter((project) =>
+      project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
+    )
+    .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
+  if (freshlyCurrent.length > 0) {
+    nodes.push({ kind: "prose", text: `Freshly current: ${freshlyCurrent.join(", ")}` });
+  }
+  return nodes;
+}
+
+/** The typed still-pending line; empty when no Project awaits reconciliation work. */
+function stillPendingNodes(
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const pending = stillPendingProjects(report, scope);
+  if (pending.length === 0) return [];
+  return [{ kind: "prose", text: `Still pending: ${pending.join(", ")}` }];
+}
+
+/** The typed invocation-wide next-launch readiness statement. */
+function readinessNodes(
+  report: ReconciliationReport,
+  receipt: ReconciliationReport,
+): PresentationNode[] {
+  return readinessLines(report, receipt).map((line) => ({
+    kind: "prose" as const,
+    text: line,
+  }));
+}
+
+/** The concise apply view as a presentation document. */
+function conciseApplyDocument(
+  report: ReconciliationReport,
+  receipt: ReconciliationReport | undefined,
+  options: LifecycleHumanOptions,
+): PresentationDocument {
+  const scope = locationDisplayScope(options, report);
+  const grouped = groupProjects(report);
+  const groups = grouped.groups;
+  const blocked = reportBlockers(report).length > 0;
+  const noOpApply = isNoOpApply("apply", report, receipt);
+
+  const nodes: PresentationNode[] = [
+    applyOutcomeNotice(report, noOpApply || receipt !== undefined),
+  ];
+  if (noOpApply) {
+    nodes.push({
+      kind: "prose",
+      text: `All ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
+    });
+  }
+
+  if (!blocked && !noOpApply && receipt !== undefined) {
+    const appliedNodes = operationReceiptNodes(receipt, report, scope, false);
+    if (appliedNodes.length > 0) nodes.push(spacerNode(), ...appliedNodes);
+  }
+
+  const activeGroups = blocked
+    ? groups.filter((group) => group.blockers.length > 0)
+    : groups.filter((group) => groupNeedsAttention(group, "apply"));
+
+  if (!noOpApply) {
+    for (const group of activeGroups) {
+      nodes.push(
+        spacerNode(),
+        {
+          kind: "key-value",
+          key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
+          value: projectPathNode(group.canonicalProject, group.project, scope),
+        },
+      );
+      const desired = desiredInstallation(report, group.canonicalProject);
+      if (desired) {
+        nodes.push(
+          {
+            kind: "key-value",
+            key: "  Profile",
+            value: { kind: "identifier", value: desired.profile },
+            category: "path",
+          },
+          {
+            kind: "key-value",
+            key: "  Hosts",
+            value: { kind: "identifier", value: desired.hosts.join(", ") },
+          },
+        );
+      }
+      if (blocked) {
+        nodes.push(...group.blockers.flatMap((blocker) =>
+          conciseBlockerNodes(
+            blocker,
+            displayProjectPath(group.canonicalProject, group.project, scope),
+            groups,
+            "  ",
+            { kind: "pointer", command: "apply" },
+            scope,
+          ),
+        ));
+        continue;
+      }
+      for (const item of group.items) {
+        if (item.kind !== "current") {
+          nodes.push({
+            kind: "key-value",
+            key: "  State",
+            value: { kind: "prose", text: itemText(item) },
+            category: "attention",
+          });
+        }
+      }
+      const outputLines = outputPathLines(group.outputs);
+      if (outputLines.length > 0) {
+        nodes.push({ kind: "prose", text: "  Files:" });
+        nodes.push(...outputLines.map((line) => ({ kind: "prose" as const, text: `  ${line}` })));
+      }
+      for (const blocker of group.blockers) {
+        nodes.push(...conciseBlockerNodes(
+          blocker,
+          displayProjectPath(group.canonicalProject, group.project, scope),
+          groups,
+          "  ",
+          { kind: "pointer", command: "apply" },
+          scope,
+        ));
+      }
+    }
+  }
+
+  if (blocked) {
+    const pending = stillPendingNodes(report, scope);
+    if (pending.length > 0) nodes.push(spacerNode(), ...pending);
+  }
+
+  const exclusionClause = repositoryExclusionClause(report, false, false);
+  if (exclusionClause !== undefined) {
+    nodes.push(spacerNode(), { kind: "prose", text: exclusionClause });
+  }
+
+  const globalBlockers = globalBlockerNodes(report, groups, {
+    kind: "pointer",
+    command: "apply",
+  }, scope);
+  if (globalBlockers.length > 0) nodes.push(spacerNode(), ...globalBlockers);
+
+  const blockedSummary = blocked ? aggregateLine("apply", report, groups) : undefined;
+  if (blockedSummary !== undefined) {
+    nodes.push(spacerNode(), {
+      kind: "notice",
+      severity: "error",
+      nodes: [{ kind: "prose", text: blockedSummary }],
+    });
+  }
+
+  nodes.push(...warningNodes(report, groups, scope));
+
+  const setupNodes = conciseFirstUseNodes(
+    presentedSetupSteps("apply", report, receipt, false, scope),
+    receipt,
+  );
+  if (setupNodes.length > 0) nodes.push(spacerNode(), ...setupNodes);
+
+  const next = nextActionNodes("apply", report, {
+    groups,
+    unscopedItems: grouped.unscopedItems,
+  }, options);
+  if (next.length > 0) nodes.push(spacerNode(), ...next);
+
+  if (blocked && receipt !== undefined) {
+    nodes.push(
+      spacerNode(),
+      ...committedApplyEvidenceNodes(receipt, report, report.projects.length > 1, scope),
+    );
+  }
+  if (!blocked && !noOpApply && receipt !== undefined) {
+    const readiness = readinessNodes(report, receipt);
+    if (readiness.length > 0) nodes.push(spacerNode(), ...readiness);
+  }
+  return nodes;
+}
+
+/** The verbose apply view as a presentation document. */
+function verboseApplyDocument(
+  result: ApplyReconciliationResult,
+  options: LifecycleHumanOptions,
+): PresentationDocument {
+  const scope = locationDisplayScope(options, result.resultingState);
+  const untrackRecovery: UntrackRecovery = { kind: "pointer", command: "apply" };
+  const nodes: PresentationNode[] = [
+    applyOutcomeNotice(result.resultingState, true),
+    { kind: "heading", text: "Pending:" },
+    ...verboseLifecycleSections(result.resultingState, {
+      scope,
+      stateExplanationItems: [
+        ...reportItems(result.resultingState),
+        ...reportItems(result.receipt),
+      ],
+      untrackRecovery,
+    }),
+    { kind: "heading", text: "Applied:" },
+    ...verboseLifecycleSections(result.receipt, {
+      includeStateExplanations: false,
+      scope,
+      untrackRecovery,
+    }),
+    ...verboseHostSetupNodes("apply", result.resultingState, scope),
+  ];
+  if (reportBlockers(result.resultingState).length === 0) {
+    nodes.push(...readinessNodes(result.resultingState, result.receipt));
+  }
+  return nodes;
+}
+
+/**
+ * Ordered apply safety evidence for a focused view (#352) as typed nodes: the
+ * committed Apply Receipt with the Projects it made current, then still-pending
+ * Project identities. The focused filter renders this prefix before Blocker
+ * evidence and can never suppress it, because a presentation filter must never
+ * hide writes (ADR-0024, spec #345 Decision 6).
+ */
+function focusedApplySafetyEvidenceNodes(
+  postState: ReconciliationReport,
+  receipt: ReconciliationReport,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const nodes: PresentationNode[] = [
+    ...committedApplyEvidenceNodes(receipt, postState, postState.projects.length > 1, scope),
+  ];
+  const pending = stillPendingNodes(postState, scope);
+  if (pending.length > 0) nodes.push(spacerNode(), ...pending);
+  return nodes.length > 0 ? [spacerNode(), ...nodes] : nodes;
+}
+
+/** Focused apply view (#352) as a document: safety-evidence prefix, then Blocker evidence. */
+function focusedApplyDocument(
+  result: ApplyReconciliationResult,
+  options: LifecycleHumanOptions,
+): PresentationDocument {
+  const scope = locationDisplayScope(options, result.resultingState);
+  return [
+    applyOutcomeNotice(result.resultingState, true),
+    ...focusedApplySafetyEvidenceNodes(result.resultingState, result.receipt, scope),
+    ...(options.verbose === true
+      ? focusedVerboseBlockerNodes(result.resultingState, scope)
+      : focusedConciseBlockerNodes(result.resultingState, "apply", scope)),
+  ];
+}
+
+/** The apply receipt view as a presentation document. */
+export function applyReportDocument(
+  result: ApplyReconciliationResult,
+  options: LifecycleHumanOptions = {},
+): PresentationDocument {
+  const focused =
+    options.blockersOnly === true && reportBlockers(result.resultingState).length > 0;
+  if (focused) return focusedApplyDocument(result, options);
+  if (options.verbose === true) return verboseApplyDocument(result, options);
+  return conciseApplyDocument(result.resultingState, result.receipt, options);
+}
+
+/** The blocked apply view as a presentation document. */
+export function blockedApplyReportDocument(
+  report: BlockedReconciliationReport,
+  options: LifecycleHumanOptions = {},
+): PresentationDocument {
+  const scope = locationDisplayScope(options, report);
+  if (options.blockersOnly === true) {
+    return [
+      applyOutcomeNotice(report, false),
+      ...(options.verbose === true
+        ? focusedVerboseBlockerNodes(report, scope)
+        : focusedConciseBlockerNodes(report, "apply", scope)),
+    ];
+  }
+  if (options.verbose === true) {
+    return [
+      applyOutcomeNotice(report, false),
+      ...verboseLifecycleSections(report, {
+        scope,
+        untrackRecovery: { kind: "pointer", command: "apply" },
+      }),
+      ...verboseHostSetupNodes("apply", report, scope),
+    ];
+  }
+  return conciseApplyDocument(report, undefined, options);
+}
+
+/** The apply execution-failure view as a presentation document. */
+export function applyExecutionFailureDocument(
+  failure: {
+    readonly detail: string;
+    readonly failedProject: ProjectIdentity | undefined;
+    readonly message: string;
+    readonly pendingProjects: readonly ProjectIdentity[];
+    readonly receipt: ReconciliationReport;
+    readonly resultingState: ReconciliationReport | undefined;
+  },
+  options: LifecycleHumanOptions = {},
+): PresentationDocument {
+  const scope = locationDisplayScope(options, failure.receipt);
+  const failedProject = failure.failedProject === undefined
+    ? undefined
+    : presentProject(failure.failedProject, scope);
+  const nodes: PresentationNode[] = [
+    {
+      kind: "notice",
+      severity: "error",
+      nodes: [{
+        kind: "prose",
+        text: failedProject === undefined
+          ? `Apply failed after committing Project work: ${failure.detail}`
+          : `Apply failed at ${failedProject}: ${failure.detail}`,
+      }],
+    },
+  ];
+  if (failedProject !== undefined) {
+    nodes.push({ kind: "prose", text: `Failed Project: ${failedProject}` });
+  }
+  nodes.push({
+    kind: "prose",
+    text: `Still pending: ${failure.pendingProjects.length === 0
+      ? "none"
+      : failure.pendingProjects.map((project) => presentProject(project, scope)).join(", ")}`,
+  });
+  nodes.push(...applyReceiptNodes(failure.receipt, scope));
+  if (failure.resultingState !== undefined) {
+    const appliedProjects = new Set(
+      failure.receipt.projects.map((project) => project.canonicalProject),
+    );
+    const current = failure.resultingState.projects
+      .filter((project) =>
+        project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
+      )
+      .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
+    if (current.length > 0) {
+      nodes.push({ kind: "prose", text: `Freshly current: ${current.join(", ")}` });
+    }
+  }
+  if (
+    options.blockersOnly === true &&
+    failure.resultingState !== undefined &&
+    reportBlockers(failure.resultingState).length > 0
+  ) {
+    // Both focused sections supply their own leading blank line (RE-1).
+    nodes.push(...(options.verbose === true
+      ? focusedVerboseBlockerNodes(
+          failure.resultingState,
+          locationDisplayScope(options, failure.resultingState),
+        )
+      : focusedConciseBlockerNodes(
+          failure.resultingState,
+          "apply",
+          locationDisplayScope(options, failure.resultingState),
+        )));
+  }
+  return nodes;
+}
+
+/** The apply verification-failure view as a presentation document. */
+export function applyVerificationFailureDocument(
+  receipt: ReconciliationReport,
+  message: string,
+  options: LifecycleHumanOptions = {},
+): PresentationDocument {
+  const scope = locationDisplayScope(options, receipt);
+  if (options.verbose === true) {
+    return [
+      { kind: "notice", severity: "error", nodes: [{ kind: "prose", text: message }] },
+      { kind: "heading", text: "Applied:" },
+      ...verboseLifecycleSections(receipt, {
+        scope,
+        // Focused verbose verification failure carries the exact command
+        // (#353 Decision 3); ordinary verbose points to the focused view.
+        untrackRecovery: options.blockersOnly === true
+          ? { kind: "full" }
+          : { kind: "pointer", command: "apply" },
+      }),
+      ...verboseHostSetupNodes("apply", receipt, scope),
+    ];
+  }
+  const nodes: PresentationNode[] = [
+    { kind: "notice", severity: "error", nodes: [{ kind: "prose", text: message }] },
+    ...applyReceiptNodes(receipt, scope),
+  ];
+  const setup = conciseFirstUseNodes(
+    presentedSetupSteps("apply", receipt, receipt, false, scope),
+    receipt,
+  );
+  if (setup.length > 0) nodes.push(spacerNode(), ...setup);
+  return nodes;
+}
+
+const DEFAULT_RENDER_CONTEXT: TerminalPresentationContext = {
+  color: false,
+  interactive: false,
+  width: 10_000,
+};
+
+/** Render one lifecycle document with the report's copyable values protected. */
+function renderLifecycleDocument(
+  document: PresentationDocument,
+  scope: LocationDisplayScope,
+  reports: readonly ReconciliationReport[],
+  context?: TerminalPresentationContext,
+): string {
+  const rendered = renderPresentationDocument(document, context ?? DEFAULT_RENDER_CONTEXT, {
+    copyableValues: lifecycleCopyableValues(reports, scope),
+  });
+  return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
+}
+
 export function formatApplyReport(
   result: ApplyReconciliationResult,
   options: LifecycleHumanOptions = {},
 ): string {
   const scope = locationDisplayScope(options, result.resultingState);
-  const focused =
-    options.blockersOnly === true && reportBlockers(result.resultingState).length > 0;
-  const report = focused
-    ? focusedApplyReport(result, options)
-    : options.verbose
-    ? verboseApplyReport(result, scope)
-    : conciseReport("apply", result.resultingState, result.receipt, options);
-  return responsiveLifecycleOutput(
-    report,
+  return renderLifecycleDocument(
+    applyReportDocument(result, options),
+    scope,
+    [result.resultingState, result.receipt],
     options.context,
-    lifecycleCopyableValues([result.resultingState, result.receipt], scope),
   );
 }
 
@@ -3230,13 +3794,14 @@ export function formatApplyExecutionFailure(
           locationDisplayScope(options, failure.resultingState),
         )));
   }
-  return responsiveLifecycleOutput(
-    `${lines.join("\n")}\n`,
-    options.context,
-    lifecycleCopyableValues([
+  return renderLifecycleDocument(
+    applyExecutionFailureDocument(failure, options),
+    scope,
+    [
       failure.receipt,
       ...(failure.resultingState === undefined ? [] : [failure.resultingState]),
-    ], scope),
+    ],
+    options.context,
   );
 }
 
@@ -3274,10 +3839,11 @@ export function formatApplyVerificationFailure(
     scope,
   );
   if (setup.length > 0) lines.push("", ...setup);
-  return responsiveLifecycleOutput(
-    `${lines.join("\n")}\n`,
+  return renderLifecycleDocument(
+    applyVerificationFailureDocument(receipt, message, options),
+    scope,
+    [receipt],
     options.context,
-    lifecycleCopyableValues([receipt], scope),
   );
 }
 
@@ -3286,18 +3852,12 @@ export function formatBlockedApplyReport(
   options: LifecycleHumanOptions = {},
 ): string {
   const scope = locationDisplayScope(options, report);
-  const focused = options.blockersOnly === true && reportBlockers(report).length > 0;
-  const output = focused
-    ? [
-        outcomeLine("apply", report),
-        ...(options.verbose
-          ? focusedVerboseBlockers(report, scope)
-          : focusedConciseBlockers(report, "apply", scope)),
-      ].join("\n") + "\n"
-    : options.verbose
-    ? verboseReport("apply", report, scope)
-    : conciseReport("apply", report, undefined, options);
-  return responsiveLifecycleOutput(output, options.context, lifecycleCopyableValues([report], scope));
+  return renderLifecycleDocument(
+    blockedApplyReportDocument(report, options),
+    scope,
+    [report],
+    options.context,
+  );
 }
 
 /**
@@ -3377,6 +3937,65 @@ function focusedVerboseBlockers(
       .join("\n")}`,
     "",
     blockersOnlyFooter(report),
+  ];
+}
+
+/** The typed concise focused Blocker section shared by `status` and `apply`:
+ * one deterministic group per affected Project, then global Blockers, then the
+ * displayed-Blocker footer. The caller owns the outcome notice and any prefix. */
+function focusedConciseBlockerNodes(
+  report: ReconciliationReport,
+  command: LifecycleCommand,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const grouped = groupProjects(report);
+  const nodes: PresentationNode[] = [];
+  for (const group of displayedBlockerGroups(report)) {
+    nodes.push(
+      spacerNode(),
+      {
+        kind: "key-value",
+        key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
+        value: projectPathNode(group.canonicalProject, group.project, scope),
+      },
+      ...group.blockers.flatMap((blocker) =>
+        conciseBlockerNodes(
+          blocker,
+          displayProjectPath(group.canonicalProject, group.project, scope),
+          grouped.groups,
+          "  ",
+          { kind: "pointer", command },
+          scope,
+        ),
+      ),
+    );
+  }
+  const globalBlockers = globalBlockerNodes(report, grouped.groups, {
+    kind: "pointer",
+    command,
+  }, scope);
+  if (globalBlockers.length > 0) nodes.push(spacerNode(), ...globalBlockers);
+  nodes.push(spacerNode(), blockersOnlyFooterNode(report));
+  return nodes;
+}
+
+/** The typed verbose focused Blocker section: complete Blocker fields with
+ * every affected item, then the footer. This is the only view that prints the
+ * exact user-owned untracking command (#353, spec #345 Decision 8). */
+function focusedVerboseBlockerNodes(
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const groups = groupProjects(report).groups;
+  const shorten = (text: string): string => shortenProjectReferences(text, groups, scope);
+  return [
+    spacerNode(),
+    { kind: "heading", text: "Blockers:", category: "error" },
+    ...reportBlockers(report).flatMap((blocker) =>
+      verboseBlockerNodes(blocker, groups, shorten, { kind: "full" }, scope)
+    ),
+    spacerNode(),
+    blockersOnlyFooterNode(report),
   ];
 }
 
@@ -3632,6 +4251,7 @@ function projectPathNode(
 }
 
 function nextActionNodes(
+  command: LifecycleCommand,
   report: ReconciliationReport,
   surface: {
     readonly groups: readonly ProjectGroup[];
@@ -3639,7 +4259,7 @@ function nextActionNodes(
   },
   options: LifecycleHumanOptions,
 ): PresentationNode[] {
-  const actions = nextActions("status", report, surface, options);
+  const actions = nextActions(command, report, surface, options);
   if (actions.length === 0) return [];
   return [
     { kind: "heading", text: "Next:" },
@@ -3670,25 +4290,31 @@ function warningNodes(
   ];
 }
 
-/** The verbose status detail sections and Blocker section as typed nodes.
+/** The verbose lifecycle detail sections and Blocker section as typed nodes.
  * Composed Context is the only verbatim content: it is user-authored
  * material reproduced byte-for-byte (INT-1). */
-function verboseStatusSections(
+function verboseLifecycleSections(
   report: ReconciliationReport,
-  scope: LocationDisplayScope,
-  untrackRecovery: UntrackRecovery,
+  options: VerboseSectionOptions,
 ): PresentationNode[] {
   const groups = groupProjects(report).groups;
-  const shorten = (text: string): string => shortenProjectReferences(text, groups, scope);
+  const shorten = (text: string): string => shortenProjectReferences(text, groups, options.scope);
   const blockers = reportBlockers(report);
   const nodes: PresentationNode[] = [];
   if (blockers.length > 0) {
     nodes.push({ kind: "heading", text: "Blockers:", category: "error" });
     for (const blocker of blockers) {
-      nodes.push(...verboseBlockerNodes(blocker, groups, shorten, untrackRecovery, scope));
+      nodes.push(...verboseBlockerNodes(blocker, groups, shorten, options.untrackRecovery, options.scope));
     }
   }
-  nodes.push(...verboseDetailNodes(report, groups, shorten, scope));
+  nodes.push(...verboseDetailNodes(
+    report,
+    groups,
+    shorten,
+    options.scope,
+    options.includeStateExplanations ?? true,
+    options.stateExplanationItems ?? reportItems(report),
+  ));
   // The populated Blockers section leads the verbose view; the trailing
   // heading exists only to report the empty outcome.
   if (blockers.length === 0) {
@@ -3703,12 +4329,13 @@ function verboseDetailNodes(
   groups: readonly ProjectGroup[],
   shorten: (text: string) => string,
   scope: LocationDisplayScope,
+  includeStateExplanations = true,
+  stateExplanationItems: readonly ReconciliationItem[] = reportItems(report),
 ): PresentationNode[] {
   const items = reportItems(report);
   const outputs = reportOutputs(report);
   const exclusions = changedRepositoryExclusions(report);
   const warningGroups = groupWarnings(report);
-  const explanations = stateExplanationLines(items);
   const nodes: PresentationNode[] = [
     { kind: "heading", text: "Projects:" },
     ...(items.length === 0
@@ -3720,11 +4347,8 @@ function verboseDetailNodes(
         ),
       }))),
   ];
-  if (explanations.length > 0) {
-    nodes.push({ kind: "heading", text: "State explanations:" });
-    for (const line of explanations.slice(1)) {
-      nodes.push({ kind: "list-item", nodes: [{ kind: "prose", text: line.slice(2) }] });
-    }
+  if (includeStateExplanations) {
+    nodes.push(...stateExplanationNodes(stateExplanationItems));
   }
   nodes.push(
     { kind: "heading", text: "Outputs:" },
@@ -3822,10 +4446,11 @@ function verboseInstallationNodes(
 
 /** The verbose Host Setup section as typed nodes. */
 function verboseHostSetupNodes(
+  command: LifecycleCommand,
   report: ReconciliationReport,
   scope: LocationDisplayScope,
 ): PresentationNode[] {
-  const presented = presentedSetupSteps("status", report, undefined, true, scope);
+  const presented = presentedSetupSteps(command, report, undefined, true, scope);
   const nodes: PresentationNode[] = [{ kind: "heading", text: "Host Setup:" }];
   if (presented.length === 0) {
     nodes.push({ kind: "prose", text: "(none)" });
@@ -3995,7 +4620,7 @@ function conciseStatusDocument(
     });
   }
   nodes.push(...warningNodes(report, groups, scope));
-  nodes.push(spacerNode(), ...nextActionNodes(report, {
+  nodes.push(spacerNode(), ...nextActionNodes("status", report, {
     groups,
     unscopedItems: grouped.unscopedItems,
   }, options));
@@ -4009,8 +4634,8 @@ function verboseStatusDocument(
   const scope = locationDisplayScope(options, report);
   return [
     statusOutcomeNotice(report),
-    ...verboseStatusSections(report, scope, { kind: "pointer", command: "status" }),
-    ...verboseHostSetupNodes(report, scope),
+    ...verboseLifecycleSections(report, { scope, untrackRecovery: { kind: "pointer", command: "status" } }),
+    ...verboseHostSetupNodes("status", report, scope),
   ];
 }
 
@@ -4034,46 +4659,13 @@ function blockersOnlyStatusDocument(
   }
   const nodes: PresentationNode[] = [statusOutcomeNotice(report)];
   if (options.verbose === true) {
-    const groups = groupProjects(report).groups;
-    const shorten = (text: string): string => shortenProjectReferences(text, groups, scope);
-    nodes.push({ kind: "heading", text: "Blockers:", category: "error" });
-    for (const blocker of reportBlockers(report)) {
-      nodes.push(...verboseBlockerNodes(blocker, groups, shorten, { kind: "full" }, scope));
-    }
-    nodes.push(spacerNode(), blockersOnlyFooterNode(report));
+    nodes.push(...focusedVerboseBlockerNodes(report, scope));
     return nodes;
   }
   const grouped = groupProjects(report);
   const displayedGroups = displayedBlockerGroups(report);
-  for (const group of displayedGroups) {
-    nodes.push(
-      spacerNode(),
-      {
-        kind: "key-value",
-        key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
-        value: projectPathNode(group.canonicalProject, group.project, scope),
-      },
-      ...group.blockers.flatMap((blocker) =>
-        conciseBlockerNodes(
-          blocker,
-          displayProjectPath(group.canonicalProject, group.project, scope),
-          grouped.groups,
-          "  ",
-          { kind: "pointer", command: "status" },
-          scope,
-        ),
-      ),
-    );
-  }
-  const globalBlockers = globalBlockerNodes(report, grouped.groups, {
-    kind: "pointer",
-    command: "status",
-  }, scope);
-  if (globalBlockers.length > 0) {
-    nodes.push(spacerNode(), ...globalBlockers);
-  }
-  nodes.push(spacerNode(), blockersOnlyFooterNode(report));
-  const next = nextActionNodes(report, {
+  nodes.push(...focusedConciseBlockerNodes(report, "status", scope));
+  const next = nextActionNodes("status", report, {
     groups: displayedGroups,
     unscopedItems: [],
   }, options);
@@ -4097,16 +4689,12 @@ export function formatLifecycleReport(
 ): string {
   void command;
   const scope = locationDisplayScope(options, report);
-  const document = lifecycleStatusDocument(report, options);
-  const context = options.context ?? {
-    color: false,
-    interactive: false,
-    width: 10_000,
-  };
-  const rendered = renderPresentationDocument(document, context, {
-    copyableValues: lifecycleCopyableValues([report], scope),
-  });
-  return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
+  return renderLifecycleDocument(
+    lifecycleStatusDocument(report, options),
+    scope,
+    [report],
+    options.context,
+  );
 }
 
 /**
