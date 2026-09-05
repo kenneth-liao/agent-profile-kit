@@ -1263,7 +1263,11 @@ describe("project-bound release candidate", () => {
 
     const projects = await runCli(home, ["list", "projects"]);
     expectExitCode(projects, 0);
-    expect(projects.stdout).toContain(projectPath);
+    // The typed Project identity is an atomic path node: it elides in the
+    // middle and keeps the tail visible instead of overflowing (DEC-004).
+    expect(projects.stdout).toContain(
+      `Project: /…/dk/6t5fkn113ql5x4t9m8g48vfm0000gn/T/${projectPath.split("/").at(-1)}`,
+    );
     expect(projects.stdout).toContain("Profile: coding");
 
     // Plan and apply with controlled Host CLIs on PATH.

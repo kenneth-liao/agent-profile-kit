@@ -47,10 +47,11 @@ import {
   formatUninstallResult,
   formatValidationResult,
   lifecycleExitCode,
-  presentTemporaryBlockedMessages,
+  temporaryBlockedMessagesDocument,
   responsiveHumanText,
   type LifecycleCommand,
 } from "./presentation.js";
+import { renderPresentationDocument } from "./presentation-document.js";
 import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
 import { bindProject, hostsEqual } from "../installer/bind-project.js";
 import {
@@ -1084,7 +1085,8 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("validate", () => parseNoArguments("validate", arguments_.slice(1)));
     if (parsed === undefined) return;
     const result = await validateApplication(home);
-    writeHuman(process.stdout, formatValidationResult(result, { context: stdoutPresentationContext }), stdoutPresentationContext);
+    // Validation already carries node categories; skip the regex categoriser.
+    process.stdout.write(formatValidationResult(result, { context: stdoutPresentationContext }));
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "info") {
@@ -1095,10 +1097,9 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatInfoJson(info));
       } else {
-        writeHuman(
-          process.stdout,
+        // Machine details already carry node categories; skip the regex categoriser.
+        process.stdout.write(
           formatInfoHuman(info, { context: stdoutPresentationContext }, home),
-          stdoutPresentationContext,
         );
       }
     } catch (error) {
@@ -1117,7 +1118,8 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("list", () => parseListArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     if (parsed.kind === "index") {
-      writeHuman(process.stdout, formatInventoryIndex({ context: stdoutPresentationContext }), stdoutPresentationContext);
+      // Inventory already carries node categories; skip the regex categoriser.
+      process.stdout.write(formatInventoryIndex({ context: stdoutPresentationContext }));
       return;
     }
     switch (parsed.topic) {
@@ -1127,14 +1129,13 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProjectInventoryJson(projects));
           } else {
-            writeHuman(
-              process.stdout,
+            // Project inventory already carries node categories; skip the regex categoriser.
+            process.stdout.write(
               formatProjectInventoryHuman(
                 projects,
                 { context: stdoutPresentationContext },
                 home,
               ),
-              stdoutPresentationContext,
             );
           }
         } catch (error) {
@@ -1152,10 +1153,9 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProfileInventoryJson(profiles));
           } else {
-            writeHuman(
-              process.stdout,
+            // Profile inventory already carries node categories; skip the regex categoriser.
+            process.stdout.write(
               formatProfileInventoryHuman(profiles, { context: stdoutPresentationContext }),
-              stdoutPresentationContext,
             );
           }
         } catch (error) {
@@ -1173,10 +1173,9 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatHostInventoryJson(hosts));
           } else {
-            writeHuman(
-              process.stdout,
+            // Host inventory already carries node categories; skip the regex categoriser.
+            process.stdout.write(
               formatHostInventoryHuman(hosts, { context: stdoutPresentationContext }),
-              stdoutPresentationContext,
             );
           }
         }
@@ -1303,10 +1302,9 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "uninstall") {
     const parsed = parseOrExit("uninstall", () => parseNoArguments("uninstall", arguments_.slice(1)));
     if (parsed === undefined) return;
-    writeHuman(
-      process.stdout,
+    // Teardown already carries node categories; skip the regex categoriser.
+    process.stdout.write(
       formatUninstallResult(await uninstallApplication(home), { context: stdoutPresentationContext }),
-      stdoutPresentationContext,
     );
     return;
   }
@@ -1355,10 +1353,9 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatTemporaryInstallationJson("install-temp", receipt));
         } else {
-          writeHuman(
-            process.stdout,
+          // Receipts already carry node categories; skip the regex categoriser.
+          process.stdout.write(
             formatTemporaryInstallationHuman("install-temp", receipt, { context }),
-            context,
           );
         }
         process.exitCode = 0;
@@ -1369,17 +1366,14 @@ async function main(): Promise<void> {
               formatTemporaryInstallationBlockedJson("install-temp", error.structured),
             );
           } else {
-            const blocked = presentTemporaryBlockedMessages(
+            const blocked = temporaryBlockedMessagesDocument(
               error.structured,
               error.canonicalProject,
             );
-            writeHuman(
-              process.stderr,
-              humanError(
-                `${COMMAND_NAME}: ${blocked.text}\n`,
-                [blocked.presented, error.canonicalProject],
-              ),
-              stderrPresentationContext,
+            process.stderr.write(
+              renderPresentationDocument(blocked.document, stderrPresentationContext, {
+                copyableValues: [blocked.presented, error.canonicalProject],
+              }) + "\n",
             );
           }
           process.exitCode = 2;
@@ -1433,10 +1427,9 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatTemporaryInstallationJson("remove-temp", receipt));
         } else {
-          writeHuman(
-            process.stdout,
+          // Receipts already carry node categories; skip the regex categoriser.
+          process.stdout.write(
             formatTemporaryInstallationHuman("remove-temp", receipt, { context }),
-            context,
           );
         }
         process.exitCode = 0;
@@ -1447,17 +1440,14 @@ async function main(): Promise<void> {
               formatTemporaryInstallationBlockedJson("remove-temp", error.structured),
             );
           } else {
-            const blocked = presentTemporaryBlockedMessages(
+            const blocked = temporaryBlockedMessagesDocument(
               error.structured,
               error.canonicalProject,
             );
-            writeHuman(
-              process.stderr,
-              humanError(
-                `${COMMAND_NAME}: ${blocked.text}\n`,
-                [blocked.presented, error.canonicalProject],
-              ),
-              stderrPresentationContext,
+            process.stderr.write(
+              renderPresentationDocument(blocked.document, stderrPresentationContext, {
+                copyableValues: [blocked.presented, error.canonicalProject],
+              }) + "\n",
             );
           }
           process.exitCode = 2;
@@ -1478,10 +1468,9 @@ async function main(): Promise<void> {
       const parsed = parseOrExit("machine list", () => parseMachineListArguments(rest.slice(1)));
       if (parsed === undefined) return;
       if (parsed.kind === "index") {
-        writeHuman(
-          process.stdout,
+        // Inventory already carries node categories; skip the regex categoriser.
+        process.stdout.write(
           formatMachineInventoryIndex({ context: stdoutPresentationContext }),
-          stdoutPresentationContext,
         );
         return;
       }
@@ -1490,14 +1479,13 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatTemporaryInventoryJson(installations));
         } else {
-          writeHuman(
-            process.stdout,
+          // Temporary inventory already carries node categories; skip the regex categoriser.
+          process.stdout.write(
             formatTemporaryInventoryHuman(
               installations,
               { context: stdoutPresentationContext },
               home,
             ),
-            stdoutPresentationContext,
           );
         }
       } catch (error) {

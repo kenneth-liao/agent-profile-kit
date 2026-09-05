@@ -410,51 +410,59 @@ export function displayProjectPath(
   return displayPath(canonicalProject, authoredProject, scope, cwd, home, maxWidth);
 }
 
+/** The machine-details view (`apkit info`) as a presentation document. */
+export function infoDocument(
+  info: ApplicationInfo,
+  home = homedir(),
+  cwd = process.cwd(),
+): PresentationDocument {
+  const workspaceValue: PresentationNode = info.workspace === null
+    ? { kind: "prose", text: info.configurationState === "legacy"
+      ? `Legacy configuration; run ${COMMAND_NAME} init`
+      : "Not configured" }
+    : info.configurationState === "legacy"
+      ? { kind: "prose", text: `Legacy configuration; run ${COMMAND_NAME} init (selected: ${
+        displayPath(info.workspace.canonical, info.workspace.authored, "fleet", cwd, home)
+      })` }
+      : { kind: "path", canonicalPath: info.workspace.canonical, authoredPath: info.workspace.authored, scope: "fleet" };
+  return [
+    {
+      kind: "key-value",
+      key: "Engine version",
+      value: { kind: "identifier", value: info.engineVersion },
+      category: "path",
+    },
+    { kind: "key-value", key: "Workspace", value: workspaceValue },
+    {
+      kind: "key-value",
+      key: "Local Configuration",
+      value: {
+        kind: "path",
+        canonicalPath: info.localConfiguration,
+        authoredPath: info.localConfiguration,
+        scope: "fleet",
+      },
+    },
+    {
+      kind: "key-value",
+      key: "Installation State",
+      value: {
+        kind: "path",
+        canonicalPath: info.installationState,
+        authoredPath: info.installationState,
+        scope: "fleet",
+      },
+    },
+  ];
+}
+
 export function formatInfoHuman(
   info: ApplicationInfo,
   options: { readonly context?: TerminalPresentationContext } = {},
   home = homedir(),
   cwd = process.cwd(),
 ): string {
-  const workspace = info.workspace === null
-    ? info.configurationState === "legacy"
-      ? `Legacy configuration; run ${COMMAND_NAME} init`
-      : "Not configured"
-    : info.configurationState === "legacy"
-      ? `Legacy configuration; run ${COMMAND_NAME} init (selected: ${displayPath(
-          info.workspace.canonical,
-          info.workspace.authored,
-          "fleet",
-          cwd,
-          home,
-        )})`
-      : displayPath(info.workspace.canonical, info.workspace.authored, "fleet", cwd, home);
-  const localConfiguration = displayPath(
-    info.localConfiguration,
-    info.localConfiguration,
-    "fleet",
-    cwd,
-    home,
-  );
-  const installationState = displayPath(
-    info.installationState,
-    info.installationState,
-    "fleet",
-    cwd,
-    home,
-  );
-  return responsiveHumanText(
-    `Engine version: ${info.engineVersion}\n` +
-      `Workspace: ${workspace}\n` +
-      `Local Configuration: ${localConfiguration}\n` +
-      `Installation State: ${installationState}\n`,
-    options.context,
-    [
-      `Workspace: ${workspace}`,
-      `Local Configuration: ${localConfiguration}`,
-      `Installation State: ${installationState}`,
-    ],
-  );
+  return renderStandaloneDocument(infoDocument(info, home, cwd), options.context, [], { cwd, home });
 }
 
 interface InfoMachineBase {
@@ -516,31 +524,117 @@ export function formatInfoToolErrorJson(
   });
 }
 
+/** Shared rendering for standalone documents: default context when unrequested. */
+function renderStandaloneDocument(
+  document: PresentationDocument,
+  context?: TerminalPresentationContext,
+  copyableValues: readonly string[] = [],
+  environment: { readonly cwd?: string; readonly home?: string } = {},
+): string {
+  const rendered = renderPresentationDocument(document, context ?? DEFAULT_RENDER_CONTEXT, {
+    copyableValues,
+    ...(environment.cwd === undefined ? {} : { cwd: environment.cwd }),
+    ...(environment.home === undefined ? {} : { home: environment.home }),
+  });
+  return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
+}
+
+/** The inventory index view as a presentation document. */
+export function inventoryIndexDocument(): PresentationDocument {
+  return inventoryTopicNodes(INVENTORY_TOPICS, (topic) => `${COMMAND_NAME} list ${topic.name}`);
+}
+
+/** Index view for the machine-namespaced inventory command (DEC-019). */
+export function machineInventoryIndexDocument(): PresentationDocument {
+  return inventoryTopicNodes(
+    MACHINE_INVENTORY_TOPICS,
+    (topic) => `${COMMAND_NAME} machine list ${topic.name}`,
+  );
+}
+
+function inventoryTopicNodes(
+  topics: readonly { readonly description: string; readonly name: string }[],
+  command: (topic: { readonly description: string; readonly name: string }) => string,
+): PresentationDocument {
+  const nodes: PresentationNode[] = [{ kind: "heading", text: "Inventory topics:" }];
+  for (const topic of topics) {
+    nodes.push(
+      // Indented command invocations are prose lines with an authored command
+      // category: the command node kind cannot carry the two-space indent.
+      { kind: "prose", text: `  ${command(topic)}`, category: "command" },
+      { kind: "prose", text: `    ${topic.description}` },
+    );
+  }
+  return nodes;
+}
+
 export function formatInventoryIndex(
   options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
-  const lines = ["Inventory topics:"];
-  for (const topic of INVENTORY_TOPICS) {
-    lines.push(
-      `  ${COMMAND_NAME} list ${topic.name}`,
-      `    ${topic.description}`,
-    );
-  }
-  return responsiveHumanText(`${lines.join("\n")}\n`, options.context);
+  return renderStandaloneDocument(inventoryIndexDocument(), options.context);
 }
 
 /** Index view for the machine-namespaced inventory command (DEC-019). */
 export function formatMachineInventoryIndex(
   options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
-  const lines = ["Inventory topics:"];
-  for (const topic of MACHINE_INVENTORY_TOPICS) {
-    lines.push(
-      `  ${COMMAND_NAME} machine list ${topic.name}`,
-      `    ${topic.description}`,
-    );
+  return renderStandaloneDocument(machineInventoryIndexDocument(), options.context);
+}
+
+/** The Project inventory listing as a presentation document. */
+export function projectInventoryDocument(
+  projects: readonly ProjectInventoryRecord[],
+  home = homedir(),
+  cwd = process.cwd(),
+): PresentationDocument {
+  if (projects.length === 0) {
+    return [
+      {
+        kind: "notice",
+        severity: "success",
+        nodes: [{ kind: "prose", text: "No Projects are configured." }],
+      },
+      {
+        kind: "prose",
+        text: `Use ${COMMAND_NAME} bind <profile> --host <host> to configure a Project.`,
+      },
+    ];
   }
-  return responsiveHumanText(`${lines.join("\n")}\n`, options.context);
+
+  const nodes: PresentationNode[] = [{ kind: "heading", text: `Projects (${projects.length}):` }];
+  for (const project of projects) {
+    nodes.push(
+      spacerNode(),
+      {
+        kind: "key-value",
+        key: "Project",
+        value: projectPathNode(project.canonicalProject ?? project.project, project.project, "fleet"),
+      },
+      {
+        kind: "key-value",
+        key: "  Profile",
+        value: { kind: "identifier", value: project.profile },
+        category: "path",
+      },
+      {
+        kind: "key-value",
+        key: "  Hosts",
+        value: { kind: "identifier", value: project.hosts.join(", ") },
+      },
+    );
+    if (project.problem !== null) {
+      nodes.push({
+        kind: "prose",
+        text: `  Problem: ${formatInstallerToolError(project.problem)}`,
+        category: "attention",
+      });
+    }
+  }
+  nodes.push(
+    spacerNode(),
+    { kind: "prose", text: `Use ${COMMAND_NAME} status to inspect Project lifecycle diagnostics.` },
+  );
+  return nodes;
 }
 
 export function formatProjectInventoryHuman(
@@ -549,17 +643,7 @@ export function formatProjectInventoryHuman(
   home = homedir(),
   cwd = process.cwd(),
 ): string {
-  if (projects.length === 0) {
-    return responsiveHumanText(
-      "No Projects are configured.\n" +
-        `Use ${COMMAND_NAME} bind <profile> --host <host> to configure a Project.\n`,
-      options.context,
-    );
-  }
-
-  const lines = [`Projects (${projects.length}):`];
-  const copyable: string[] = [];
-  for (const project of projects) {
+  const copyable = projects.flatMap((project) => {
     const presented = displayProjectPath(
       project.canonicalProject ?? project.project,
       project.project,
@@ -567,25 +651,20 @@ export function formatProjectInventoryHuman(
       cwd,
       home,
     );
-    lines.push(
-      "",
-      `Project: ${presented}`,
-      `  Profile: ${project.profile}`,
-      `  Hosts: ${project.hosts.join(", ")}`,
-    );
-    if (project.problem !== null) {
-      lines.push(`  Problem: ${formatInstallerToolError(project.problem)}`);
-    }
-    copyable.push(
+    return [
       `Project: ${presented}`,
       presented,
       project.canonicalProject ?? project.project,
       project.project,
       project.hosts.join(", "),
-    );
-  }
-  lines.push("", `Use ${COMMAND_NAME} status to inspect Project lifecycle diagnostics.`);
-  return responsiveHumanText(`${lines.join("\n")}\n`, options.context, copyable);
+    ];
+  });
+  return renderStandaloneDocument(
+    projectInventoryDocument(projects, home, cwd),
+    options.context,
+    copyable,
+    { cwd, home },
+  );
 }
 
 interface ListInventoryMachineBase<Topic extends InventoryTopic | MachineInventoryTopic> {
@@ -665,32 +744,61 @@ export function formatProjectInventoryToolErrorJson(message: string): string {
   );
 }
 
+/** The Profile inventory listing as a presentation document. */
+export function profileInventoryDocument(
+  profiles: readonly ProfileInventoryRecord[],
+): PresentationDocument {
+  if (profiles.length === 0) {
+    return [
+      {
+        kind: "notice",
+        severity: "success",
+        nodes: [{ kind: "prose", text: "No Profiles are available." }],
+      },
+      {
+        kind: "prose",
+        text: `Add a Profile to the selected Workspace, then use <profile> with ${COMMAND_NAME} bind.`,
+      },
+    ];
+  }
+
+  const nodes: PresentationNode[] = [{ kind: "heading", text: `Profiles (${profiles.length}):` }];
+  for (const profile of profiles) {
+    nodes.push(
+      spacerNode(),
+      {
+        kind: "key-value",
+        key: "Profile",
+        value: { kind: "identifier", value: profile.id },
+        category: "path",
+      },
+      {
+        kind: "key-value",
+        key: "  Context Modules",
+        value: { kind: "identifier", value: String(profile.contextModules) },
+      },
+      {
+        kind: "key-value",
+        key: "  Skills",
+        value: { kind: "identifier", value: String(profile.skills) },
+      },
+    );
+  }
+  nodes.push(
+    spacerNode(),
+    {
+      kind: "prose",
+      text: `Use <profile> with ${COMMAND_NAME} bind to select it for a configured Project.`,
+    },
+  );
+  return nodes;
+}
+
 export function formatProfileInventoryHuman(
   profiles: readonly ProfileInventoryRecord[],
   options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
-  if (profiles.length === 0) {
-    return responsiveHumanText(
-      "No Profiles are available.\n" +
-        `Add a Profile to the selected Workspace, then use <profile> with ${COMMAND_NAME} bind.\n`,
-      options.context,
-    );
-  }
-
-  const lines = [`Profiles (${profiles.length}):`];
-  for (const profile of profiles) {
-    lines.push(
-      "",
-      `Profile: ${profile.id}`,
-      `  Context Modules: ${profile.contextModules}`,
-      `  Skills: ${profile.skills}`,
-    );
-  }
-  lines.push(
-    "",
-    `Use <profile> with ${COMMAND_NAME} bind to select it for a configured Project.`,
-  );
-  return responsiveHumanText(`${lines.join("\n")}\n`, options.context);
+  return renderStandaloneDocument(profileInventoryDocument(profiles), options.context);
 }
 
 type ProfileInventoryMachineBase = ListInventoryMachineBase<"profiles">;
@@ -728,17 +836,26 @@ export function formatProfileInventoryToolErrorJson(message: string): string {
   );
 }
 
+/** The Agent Host inventory listing as a presentation document. */
+export function hostInventoryDocument(
+  hosts: readonly HostInventoryRecord[],
+): PresentationDocument {
+  return [
+    { kind: "heading", text: "Supported Hosts:" },
+    ...hosts.map(({ host }) => ({ kind: "prose" as const, text: `  ${host}` })),
+    spacerNode(),
+    {
+      kind: "prose",
+      text: `Use <host> with ${COMMAND_NAME} bind to select it for a configured Project.`,
+    },
+  ];
+}
+
 export function formatHostInventoryHuman(
   hosts: readonly HostInventoryRecord[],
   options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
-  const lines = [
-    "Supported Hosts:",
-    ...hosts.map(({ host }) => `  ${host}`),
-    "",
-    `Use <host> with ${COMMAND_NAME} bind to select it for a configured Project.`,
-  ];
-  return responsiveHumanText(`${lines.join("\n")}\n`, options.context);
+  return renderStandaloneDocument(hostInventoryDocument(hosts), options.context);
 }
 
 type HostInventoryMachineBase = ListInventoryMachineBase<"hosts">;
@@ -758,43 +875,94 @@ export function formatHostInventoryJson(
   );
 }
 
+/** The Temporary Profile Installation inventory listing as a presentation document. */
+export function temporaryInventoryDocument(
+  installations: readonly TemporaryInventoryRecord[],
+  home = homedir(),
+  cwd = process.cwd(),
+): PresentationDocument {
+  if (installations.length === 0) {
+    return [
+      {
+        kind: "notice",
+        severity: "success",
+        nodes: [{
+          kind: "prose",
+          text: `No ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.plural} are active.`,
+        }],
+      },
+      {
+        kind: "prose",
+        text: `Create one with ${COMMAND_NAME} machine install-temp <profile> <project> --host <host>.`,
+      },
+    ];
+  }
+
+  const nodes: PresentationNode[] = [
+    {
+      kind: "heading",
+      text: `${capitalize(DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.plural)} (${installations.length}):`,
+    },
+  ];
+  for (const installation of installations) {
+    nodes.push(
+      spacerNode(),
+      {
+        kind: "key-value",
+        key: "Temporary installation",
+        value: { kind: "identifier", value: installation.temporaryInstallationId },
+        category: "path",
+      },
+      {
+        kind: "key-value",
+        key: "  Project",
+        value: projectPathNode(installation.project, installation.project, "fleet"),
+      },
+      {
+        kind: "key-value",
+        key: "  Profile",
+        value: { kind: "identifier", value: installation.profileId },
+        category: "path",
+      },
+      {
+        kind: "key-value",
+        key: "  Host",
+        value: { kind: "identifier", value: installation.host },
+        category: "path",
+      },
+    );
+  }
+  nodes.push(
+    spacerNode(),
+    {
+      kind: "prose",
+      text: `Use ${COMMAND_NAME} machine remove-temp <temporary-installation-id> to remove one.`,
+    },
+  );
+  return nodes;
+}
+
 export function formatTemporaryInventoryHuman(
   installations: readonly TemporaryInventoryRecord[],
   options: { readonly context?: TerminalPresentationContext } = {},
   home = homedir(),
   cwd = process.cwd(),
 ): string {
-  if (installations.length === 0) {
-    return responsiveHumanText(
-      `No ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.plural} are active.\n` +
-        `Create one with ${COMMAND_NAME} machine install-temp <profile> <project> --host <host>.\n`,
-      options.context,
-    );
-  }
-
-  const lines = [`${capitalize(DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.plural)} (${installations.length}):`];
-  const copyable: string[] = [];
-  for (const installation of installations) {
+  const copyable = installations.flatMap((installation) => {
     const presented = displayProjectPath(installation.project, installation.project, "fleet", cwd, home);
-    lines.push(
-      "",
-      `Temporary installation: ${installation.temporaryInstallationId}`,
-      `  Project: ${presented}`,
-      `  Profile: ${installation.profileId}`,
-      `  Host: ${installation.host}`,
-    );
-    copyable.push(
+    return [
       `Temporary installation: ${installation.temporaryInstallationId}`,
       `Project: ${presented}`,
       presented,
       installation.project,
-    );
-  }
-  lines.push(
-    "",
-    `Use ${COMMAND_NAME} machine remove-temp <temporary-installation-id> to remove one.`,
+    ];
+  });
+  return renderStandaloneDocument(
+    temporaryInventoryDocument(installations, home, cwd),
+    options.context,
+    copyable,
+    { cwd, home },
   );
-  return responsiveHumanText(`${lines.join("\n")}\n`, options.context, copyable);
 }
 
 type TemporaryInventoryMachineBase = ListInventoryMachineBase<"temporary">;
@@ -842,95 +1010,181 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled output kind: ${String(value)}`);
 }
 
-export function formatValidationResult(
-  result: ValidationResult,
-  options: { readonly context?: TerminalPresentationContext } = {},
-): string {
-  const profileCount = result.profiles.length;
-  const countClause = `(${plural(profileCount, "Profile")}, ${plural(
+/** The one home for the validation count clause: document and protector share it. */
+function validationCountClause(result: ValidationResult): string {
+  return `(${plural(result.profiles.length, "Profile")}, ${plural(
     result.bindings,
     DEFAULT_VIEW_LEXICON.projectBinding.singular,
     DEFAULT_VIEW_LEXICON.projectBinding.plural,
   )})`;
-  const output = `Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} valid ${countClause}\n` +
-    `Profiles found: ${profileCount === 0 ? "none" : result.profiles.join(", ")}\n` +
-    `Hosts bound: ${result.hosts.length === 0 ? "none" : result.hosts.join(", ")}\n` +
-    result.warnings.map((warning) => `Warning: ${warning}\n`).join("") +
-    `Next: ${result.bindings === 0
-      ? `${COMMAND_NAME} bind <profile> --host <host>`
-      : `${COMMAND_NAME} status`}\n`;
-  return responsiveHumanText(output, options.context, [
-    countClause,
+}
+
+/** The validation result view as a presentation document. */
+export function validationResultDocument(result: ValidationResult): PresentationDocument {
+  const profileCount = result.profiles.length;
+  const countClause = validationCountClause(result);
+  return [
+    // Severity is the validation outcome fact: the view only renders valid results.
+    {
+      kind: "notice",
+      severity: "success",
+      nodes: [{
+        kind: "prose",
+        text: `Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} valid ${countClause}`,
+      }],
+    },
+    {
+      kind: "key-value",
+      key: "Profiles found",
+      value: { kind: "prose", text: profileCount === 0 ? "none" : result.profiles.join(", ") },
+    },
+    {
+      kind: "key-value",
+      key: "Hosts bound",
+      value: { kind: "prose", text: result.hosts.length === 0 ? "none" : result.hosts.join(", ") },
+    },
+    ...result.warnings.map((warning) => ({
+      kind: "prose" as const,
+      text: `Warning: ${warning}`,
+      category: "attention" as const,
+    })),
+    {
+      kind: "key-value",
+      key: "Next",
+      value: {
+        kind: "command",
+        program: COMMAND_NAME,
+        args: [{
+          kind: "text",
+          value: result.bindings === 0 ? "bind <profile> --host <host>" : "status",
+        }],
+      },
+    },
+  ];
+}
+
+export function formatValidationResult(
+  result: ValidationResult,
+  options: { readonly context?: TerminalPresentationContext } = {},
+): string {
+  return renderStandaloneDocument(validationResultDocument(result), options.context, [
+    validationCountClause(result),
     result.profiles.join(", "),
     result.hosts.join(", "),
   ]);
+}
+
+/** The uninstall result view as a presentation document. */
+export function uninstallResultDocument(
+  result: UninstallResult,
+  home = homedir(),
+  cwd = process.cwd(),
+): PresentationDocument {
+  const projectCount = result.projects.length;
+  const keptCount = result.kept.length;
+  const nodes: PresentationNode[] = [
+    // Severity is the teardown outcome fact: removed, kept-below, or nothing installed.
+    {
+      kind: "notice",
+      severity: "success",
+      nodes: [{
+        kind: "prose",
+        text: projectCount === 0
+          ? keptCount === 0
+            ? "No ordinary Agent Profile Kit-owned output is installed."
+            : `Removed no Agent Profile Kit-owned output; kept ${plural(keptCount, "Project")} below.`
+          : `Removed proven Agent Profile Kit-owned output from ${plural(projectCount, "Project")}.`,
+      }],
+    },
+  ];
+  for (const project of result.projects) {
+    nodes.push(
+      spacerNode(),
+      {
+        kind: "key-value",
+        key: "Project",
+        value: projectPathNode(project.project, project.project, "fleet"),
+      },
+      { kind: "prose", text: "  Removed generated paths:", category: "success" },
+      ...project.outputs.map((path) => ({ kind: "prose" as const, text: `  - ${path}` })),
+    );
+    if (project.repositoryExclusions.length > 0) {
+      nodes.push(
+        { kind: "prose", text: "  Cleaned Git exclusions:" },
+        ...project.repositoryExclusions.flatMap((exclusion) =>
+          exclusion.entries.map((entry) => ({
+            kind: "prose" as const,
+            text: `  - ${entry} (${replaceProjectReference(
+              exclusion.target,
+              project.project,
+              displayProjectPath(project.project, project.project, "fleet", cwd, home),
+            )})`,
+          })),
+        ),
+      );
+    }
+  }
+  if (keptCount > 0) {
+    nodes.push(
+      spacerNode(),
+      {
+        kind: "prose",
+        text: `Kept ${plural(keptCount, "Project")} whose owned output could not be fully removed:`,
+      },
+    );
+    for (const kept of result.kept) {
+      nodes.push(
+        spacerNode(),
+        {
+          kind: "key-value",
+          key: "Project",
+          value: projectPathNode(kept.project, kept.project, "fleet"),
+        },
+        // The reason is a removal failure fact; its category is error.
+        { kind: "prose", text: `  - ${renderItemReason(kept.reason)}`, category: "error" },
+      );
+    }
+  }
+  if (result.warnings.length > 0) {
+    nodes.push(
+      spacerNode(),
+      { kind: "prose", text: "Warnings:", category: "attention" },
+      ...result.warnings.map((warning) => ({
+        kind: "list-item" as const,
+        nodes: [{ kind: "prose" as const, text: warning }],
+      })),
+    );
+  }
+  nodes.push(
+    spacerNode(),
+    { kind: "prose", text: `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.plural)} preserved.` },
+  );
+  if (projectCount > 0) {
+    nodes.push({
+      kind: "prose",
+      text: `Next: Run ${COMMAND_NAME} unbind for ${DEFAULT_VIEW_LEXICON.projectBinding.plural} you no longer want, or ${COMMAND_NAME} apply to reinstall.`,
+      category: "command",
+    });
+  }
+  return nodes;
 }
 
 export function formatUninstallResult(
   result: UninstallResult,
   options: { readonly context?: TerminalPresentationContext } = {},
 ): string {
-  const projectCount = result.projects.length;
-  const keptCount = result.kept.length;
-  const lines = [
-    projectCount === 0
-      ? keptCount === 0
-        ? "No ordinary Agent Profile Kit-owned output is installed."
-        : `Removed no Agent Profile Kit-owned output; kept ${plural(keptCount, "Project")} below.`
-      : `Removed proven Agent Profile Kit-owned output from ${plural(projectCount, "Project")}.`,
-  ];
-  const copyable: string[] = [];
-  for (const project of result.projects) {
-    const presentedProject = displayProjectPath(project.project, project.project, "fleet");
-    lines.push(
-      "",
-      `Project: ${presentedProject}`,
-      "  Removed generated paths:",
-      ...project.outputs.map((path) => `  - ${path}`),
-    );
-    copyable.push(`Project: ${presentedProject}`, presentedProject, project.project);
-    if (project.repositoryExclusions.length > 0) {
-      lines.push(
-        "  Cleaned Git exclusions:",
-        ...project.repositoryExclusions.flatMap((exclusion) =>
-          exclusion.entries.map((entry) =>
-            `  - ${entry} (${replaceProjectReference(
-              exclusion.target,
-              project.project,
-              presentedProject,
-            )})`
-          )
-        ),
-      );
-    }
-  }
-  if (keptCount > 0) {
-    lines.push(
-      "",
-      `Kept ${plural(keptCount, "Project")} whose owned output could not be fully removed:`,
-    );
-    for (const kept of result.kept) {
+  const copyable = [
+    ...result.projects.flatMap((project) => {
+      const presentedProject = displayProjectPath(project.project, project.project, "fleet");
+      return [`Project: ${presentedProject}`, presentedProject, project.project];
+    }),
+    ...result.kept.flatMap((kept) => {
       const presentedProject = displayProjectPath(kept.project, kept.project, "fleet");
-      lines.push(
-        "",
-        `Project: ${presentedProject}`,
-        `  - ${renderItemReason(kept.reason)}`,
-      );
-      copyable.push(`Project: ${presentedProject}`, presentedProject, kept.project);
-    }
-  }
-  if (result.warnings.length > 0) {
-    lines.push("", "Warnings:");
-    for (const warning of result.warnings) lines.push(`- ${warning}`);
-    copyable.push(...result.warnings);
-  }
-  lines.push("", `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.plural)} preserved.`);
-  if (projectCount > 0) {
-    lines.push(
-      `Next: Run ${COMMAND_NAME} unbind for ${DEFAULT_VIEW_LEXICON.projectBinding.plural} you no longer want, or ${COMMAND_NAME} apply to reinstall.`,
-    );
-  }
-  return responsiveHumanText(`${lines.join("\n")}\n`, options.context, copyable);
+      return [`Project: ${presentedProject}`, presentedProject, kept.project];
+    }),
+    ...result.warnings,
+  ];
+  return renderStandaloneDocument(uninstallResultDocument(result), options.context, copyable);
 }
 
 function summarizeOutputs(outputs: readonly OutputReconciliationItem[]): OutputSummary {
@@ -4932,6 +5186,128 @@ export function formatTemporaryInstallationJson(
   )}\n`;
 }
 
+/** The temporary installation receipt view (install-temp and remove-temp) as a document. */
+export function temporaryInstallationDocument(
+  command: TemporaryInstallCommand,
+  receipt: TemporaryInstallationReceiptView,
+  cwd = process.cwd(),
+  home = homedir(),
+): PresentationDocument {
+  if (command === "install-temp" && (
+    receipt.project === undefined || receipt.profileId === undefined || receipt.host === undefined
+  )) {
+    throw new Error("Installed temporary receipt is missing active installation detail");
+  }
+  const projectValue = receipt.project === undefined
+    ? undefined
+    : projectPathNode(receipt.project, receipt.project, "project");
+  if (command === "install-temp") {
+    const nodes: PresentationNode[] = [
+      // Severity is the receipt outcome fact: the temporary Profile was installed.
+      {
+        kind: "notice",
+        severity: "success",
+        nodes: [{
+          kind: "prose",
+          text: `Installed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`,
+        }],
+      },
+      {
+        kind: "key-value",
+        key: "  Profile",
+        value: { kind: "identifier", value: receipt.profileId! },
+        category: "path",
+      },
+      {
+        kind: "key-value",
+        key: "  Host",
+        value: { kind: "identifier", value: receipt.host! },
+        category: "path",
+      },
+      { kind: "key-value", key: "  Project", value: projectValue! },
+      {
+        kind: "key-value",
+        key: "  Temporary installation",
+        value: { kind: "identifier", value: receipt.temporaryInstallationId },
+        category: "path",
+      },
+    ];
+    if (receipt.warnings.length > 0) {
+      nodes.push(
+        { kind: "prose", text: "Warnings:", category: "attention" },
+        ...receipt.warnings.map((warning) => ({
+          kind: "list-item" as const,
+          nodes: [{ kind: "prose" as const, text: warning }],
+        })),
+      );
+    }
+    if (receipt.setupSteps.length > 0) {
+      nodes.push(
+        { kind: "heading", text: `${capitalize(receipt.host!)} setup:` },
+        ...[...receipt.setupSteps]
+          .sort((left, right) =>
+            HOST_SETUP_STEP_ORDER.indexOf(left.kind) -
+              HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
+            left.message.localeCompare(right.message)
+          )
+          .flatMap((step) => {
+            const message = setupStepMessage(step, displayProjectPath(
+              receipt.project!,
+              receipt.project!,
+              "project",
+              cwd,
+              home,
+            ));
+            return [
+              {
+                kind: "list-item" as const,
+                nodes: [{ kind: "prose" as const, text: message }],
+              },
+              ...(step.consequence === undefined
+                ? []
+                : [{ kind: "prose" as const, text: `  Consequence: ${step.consequence}` }]),
+            ];
+          }),
+      );
+    }
+    nodes.push({
+      kind: "key-value",
+      key: "Next",
+      value: {
+        kind: "command",
+        program: COMMAND_NAME,
+        args: [
+          { kind: "text", value: "machine" },
+          { kind: "text", value: "remove-temp" },
+          { kind: "text", value: receipt.temporaryInstallationId },
+        ],
+      },
+    });
+    return nodes;
+  }
+  const nodes: PresentationNode[] = [
+    // Severity is the receipt outcome fact: the temporary Profile was removed.
+    {
+      kind: "notice",
+      severity: "success",
+      nodes: [{
+        kind: "prose",
+        text: `Removed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`,
+      }],
+    },
+    {
+      kind: "key-value",
+      key: "  Temporary installation",
+      value: { kind: "identifier", value: receipt.temporaryInstallationId },
+      category: "path",
+    },
+  ];
+  if (projectValue !== undefined) {
+    nodes.push({ kind: "key-value", key: "  Project", value: projectValue });
+  }
+  return nodes;
+}
+
 export function formatTemporaryInstallationHuman(
   command: TemporaryInstallCommand,
   receipt: TemporaryInstallationReceiptView,
@@ -4939,92 +5315,43 @@ export function formatTemporaryInstallationHuman(
   cwd = process.cwd(),
   home = homedir(),
 ): string {
-  if (command === "install-temp" && (
-    receipt.project === undefined || receipt.profileId === undefined || receipt.host === undefined
-  )) {
-    throw new Error("Installed temporary receipt is missing active installation detail");
-  }
-  const project = receipt.project === undefined
-    ? undefined
-    : displayProjectPath(receipt.project, receipt.project, "project", cwd, home);
-  if (command === "install-temp") {
-    const removalCommand = `${COMMAND_NAME} machine remove-temp ${receipt.temporaryInstallationId}`;
-    const warningLines = receipt.warnings.length === 0
-      ? []
-      : [
-          "Warnings:",
-          ...receipt.warnings.map((warning) => `- ${warning}`),
-        ];
-    const setupLines = receipt.setupSteps.length === 0
-      ? []
-      : [
-          `${capitalize(receipt.host!)} setup:`,
-          ...[...receipt.setupSteps]
-            .sort((left, right) =>
-              HOST_SETUP_STEP_ORDER.indexOf(left.kind) -
-                HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
-              left.message.localeCompare(right.message)
-            )
-            .flatMap((step) => {
-              const message = setupStepMessage(step, project!);
-              return [
-                `- ${message}`,
-                ...(step.consequence === undefined
-                  ? []
-                  : [`  Consequence: ${step.consequence}`]),
-              ];
-            }),
-        ];
-    return responsiveLifecycleOutput((
-      `Installed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}\n` +
-      `  Profile: ${receipt.profileId}\n` +
-      `  Host: ${receipt.host}\n` +
-      `  Project: ${project!}\n` +
-      `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
-      (warningLines.length > 0 ? `${warningLines.join("\n")}\n` : "") +
-      (setupLines.length > 0 ? `${setupLines.join("\n")}\n` : "") +
-      `Next: ${removalCommand}\n`
-    ), options.context, [
-      project!,
-      removalCommand,
+  const copyable = command === "install-temp"
+    ? [
+      displayProjectPath(receipt.project!, receipt.project!, "project", cwd, home),
+      `${COMMAND_NAME} machine remove-temp ${receipt.temporaryInstallationId}`,
       receipt.temporaryInstallationId,
       receipt.profileId!,
       ...receipt.diagnosticValues,
       ...receipt.outputs,
-    ]);
-  }
-  return responsiveLifecycleOutput((
-    `Removed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}\n` +
-    `  Temporary installation: ${receipt.temporaryInstallationId}\n` +
-    (project === undefined ? "" : `  Project: ${project}\n`)
-  ), options.context, [
-    ...(project === undefined ? [] : [project]),
-    receipt.temporaryInstallationId,
-  ]);
+    ]
+    : [
+      ...(receipt.project === undefined ? [] : [
+        displayProjectPath(receipt.project, receipt.project, "project", cwd, home),
+      ]),
+      receipt.temporaryInstallationId,
+    ];
+  return renderStandaloneDocument(
+    temporaryInstallationDocument(command, receipt, cwd, home),
+    options.context,
+    copyable,
+    { cwd, home },
+  );
 }
 
 /**
- * Render the blocked temporary-installation messages with the one canonical
- * Project path presenter, so a blocked install/remove identifies the Project
- * the same way every other human view does. Human views read the message
- * projection; machine JSON publishes the structured blocker records.
+ * The blocked temporary-installation diagnostic as a presentation document.
+ * The command-name prefix is part of the first line so the prefix counts toward
+ * the width measure, and every Project reference is replaced through the one
+ * canonical Project path presenter. Human views consume this document; machine
+ * JSON publishes the structured blocker records.
  */
-/**
- * Render the blocked temporary-installation messages with the one canonical
- * Project path presenter, so a blocked install/remove identifies the Project
- * the same way every other human view does. Human views read the message
- * projection; machine JSON publishes the structured blocker records. The
- * rendered text is intentionally unwrapped: callers compose the complete
- * prefixed diagnostic and pass it through the shared human boundary so the
- * command-name prefix counts toward the width measure.
- */
-export function presentTemporaryBlockedMessages(
+export function temporaryBlockedMessagesDocument(
   blockers: readonly ReconciliationBlocker[],
   canonicalProject: string,
   authoredProject = canonicalProject,
   cwd = process.cwd(),
   home = homedir(),
-): { readonly presented: string; readonly text: string } {
+): { readonly presented: string; readonly document: PresentationDocument } {
   const presented = displayProjectPath(
     canonicalProject,
     authoredProject,
@@ -5034,22 +5361,23 @@ export function presentTemporaryBlockedMessages(
   );
   const references = [...new Set([canonicalProject, absoluteAuthoredPath(authoredProject, home)])]
     .sort((left, right) => right.length - left.length || left.localeCompare(right));
-  const text = blockers
-    .flatMap((blocker) => {
-      const wording = humanBlockerWording(blocker);
-      // Every blocked temporary-installation Blocker renders its problem and
-      // its remedy, so recovery always names a runnable command (US-027).
-      return [
-        wording.problem,
-        `Remedy: ${wording.remedy}`,
-      ];
-    })
-    .map((line) => references.reduce(
+  const replaceReferences = (line: string): string =>
+    references.reduce(
       (reduced, project) => replaceProjectReference(reduced, project, presented),
       line,
-    ))
-    .join("\n");
-  return { presented, text };
+    );
+  const document: PresentationDocument = blockers.flatMap((blocker) => {
+    const wording = humanBlockerWording(blocker);
+    // Every blocked temporary-installation Blocker renders its problem and
+    // its remedy, so recovery always names a runnable command (US-027).
+    return [
+      // The diagnostic prefix is authored error content: the whole problem is
+      // the failure being reported.
+      { kind: "prose", text: replaceReferences(`${COMMAND_NAME}: ${wording.problem}`), category: "error" },
+      { kind: "prose", text: replaceReferences(`Remedy: ${wording.remedy}`) },
+    ];
+  });
+  return { presented, document };
 }
 
 export function formatTemporaryInstallationBlockedJson(
