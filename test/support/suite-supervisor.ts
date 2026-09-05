@@ -29,6 +29,15 @@ export const DEFAULT_MAX_RUNS = 10;
 export const FAST_SUITE_PATH_IGNORE_PATTERNS = ["test/fleet-qualification.test.ts"] as const;
 /** Optional canonical CLI input for an explicit diagnostics directory. */
 export const DIAGNOSTICS_DIR_ENV = "APKIT_TEST_DIAGNOSTICS_DIR";
+/**
+ * Bun's explicit local snapshot-update workflow is the runner's own
+ * `--update-snapshots` flag. Bun does not expose that mode to the tests it
+ * runs, so the supervisor marks the child environment when it forwards the
+ * flag; the golden atomicity gate reads this marker to allow committed
+ * baseline creation. CI never passes the flag and never sets the marker.
+ */
+export const UPDATE_SNAPSHOTS_FLAG = "--update-snapshots";
+export const UPDATE_SNAPSHOTS_ENV = "APKIT_TEST_UPDATE_SNAPSHOTS";
 
 export interface SupervisedRun {
   readonly runNumber: number;
@@ -110,9 +119,15 @@ function validate(options: SuiteSupervisorOptions): void {
   }
 }
 
-function suiteProcessEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+function suiteProcessEnvironment(
+  environment: NodeJS.ProcessEnv,
+  bunArguments?: readonly string[],
+): NodeJS.ProcessEnv {
   const childEnvironment = { ...environment };
   delete childEnvironment[DIAGNOSTICS_DIR_ENV];
+  if (bunArguments?.includes(UPDATE_SNAPSHOTS_FLAG) === true) {
+    childEnvironment[UPDATE_SNAPSHOTS_ENV] = "1";
+  }
   return childEnvironment;
 }
 
@@ -218,7 +233,7 @@ export async function runSupervisedSuite(
           ...(options.bunArguments ?? []),
         ],
         deadlineMs: runDeadline,
-        environment: suiteProcessEnvironment(process.env),
+        environment: suiteProcessEnvironment(process.env, options.bunArguments),
         ...(options.cleanupGraceMs === undefined ? {} : { cleanupGraceMs: options.cleanupGraceMs }),
         commandLabel: `suite ${mode} run ${runNumber}/${maxRuns}`,
       },
