@@ -5366,14 +5366,15 @@ export function temporaryBlockedMessagesDocument(
       (reduced, project) => replaceProjectReference(reduced, project, presented),
       line,
     );
-  const document: PresentationDocument = blockers.flatMap((blocker) => {
+  const document: PresentationDocument = blockers.flatMap((blocker, index) => {
     const wording = humanBlockerWording(blocker);
     // Every blocked temporary-installation Blocker renders its problem and
-    // its remedy, so recovery always names a runnable command (US-027).
+    // its remedy, so recovery always names a runnable command (US-027). The
+    // command-name diagnostic prefix belongs to the first line only, exactly
+    // as the composed CLI diagnostic carried it before the document model.
+    const problem = index === 0 ? `${COMMAND_NAME}: ${wording.problem}` : wording.problem;
     return [
-      // The diagnostic prefix is authored error content: the whole problem is
-      // the failure being reported.
-      { kind: "prose", text: replaceReferences(`${COMMAND_NAME}: ${wording.problem}`), category: "error" },
+      { kind: "prose", text: replaceReferences(problem), category: "error" },
       { kind: "prose", text: replaceReferences(`Remedy: ${wording.remedy}`) },
     ];
   });

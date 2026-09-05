@@ -4791,6 +4791,52 @@ describe("standalone view presentation documents (#389)", () => {
     }
   });
 
+  test("only the first blocked-message line carries the diagnostic prefix", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
+    try {
+      const canonical = join(home, "projects", "alpha");
+      const blockers = [
+        normalizeBlocker({
+          affectedItems: [],
+          detail:
+            `${canonical} already has an ordinary Profile Installation; remove it ` +
+            "before installing a temporary Profile",
+          kind: "installation-state-unreadable",
+          scope: "global",
+        }),
+        normalizeBlocker(temporaryInstallationRemovalBlocker({
+          failure: { case: "symlink-output", output: ".codex/hooks.json" },
+          outputs: [".codex/hooks.json"],
+          project: canonical,
+        })),
+      ];
+
+      const { document } = temporaryBlockedMessagesDocument(
+        blockers,
+        canonical,
+        "~/projects/alpha",
+        process.cwd(),
+        home,
+      );
+
+      // Exact multi-Blocker line sequence: prefixed problem, remedy, then
+      // unprefixed problem and remedy for every further Blocker.
+      const lines = flattenPresentationNodes(document)
+        .filter((node) => node.kind === "prose")
+        .map((node) => (node as Extract<PresentationNode, { kind: "prose" }>).text);
+      expect(lines).toHaveLength(4);
+      expect(lines[0]!.startsWith("apkit: ")).toBe(true);
+      expect(lines[1]!.startsWith("Remedy: ")).toBe(true);
+      expect(lines[2]!.startsWith("apkit: ")).toBe(false);
+      expect(lines[3]!.startsWith("Remedy: ")).toBe(true);
+      // The rendered diagnostic carries the prefix exactly once.
+      expect(lines.filter((line) => line.includes("apkit:"))).toHaveLength(1);
+      expect(lines[0]!.startsWith(`apkit: ~/projects/alpha`)).toBe(true);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
   test("blocked messages keep the Project subject when running from inside it", () => {
     const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
     try {
