@@ -9,9 +9,12 @@ import {
   diagnosticDocument,
 } from "./diagnostics.js";
 import {
-  capitalize,
+  bindReceiptDocument,
+  initReceiptDocument,
+  unbindReceiptDocument,
+} from "./receipts.js";
+import {
   DEFAULT_VIEW_LEXICON,
-  displayProjectPath,
   formatApplyJson,
   formatApplyReport,
   formatApplyExecutionFailure,
@@ -51,13 +54,13 @@ import {
   formatUninstallResult,
   formatValidationResult,
   lifecycleExitCode,
-  temporaryBlockedMessagesDocument,
   responsiveHumanText,
+  temporaryBlockedMessagesDocument,
   type LifecycleCommand,
 } from "./presentation.js";
 import { renderPresentationDocument, type PresentationDocument } from "./presentation-document.js";
 import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
-import { bindProject, hostsEqual } from "../installer/bind-project.js";
+import { bindProject } from "../installer/bind-project.js";
 import {
   unbindProject,
 } from "../installer/unbind-project.js";
@@ -89,7 +92,6 @@ import {
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { installerErrorSentence } from "./error-wording.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
-import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import {
   listHosts,
   listProfiles,
@@ -147,29 +149,16 @@ function writeHuman(
   stream.write(renderHumanOutput(text, context, { commandNames: COMMAND_NAMES }));
 }
 
-/** Diagnostic output rendered from a presentation document (DEC-018). */
-function writeHumanDiagnostic(
+/** Human output rendered from a presentation document (DEC-018). */
+function writeHumanDocument(
   stream: WriteStream,
   document: PresentationDocument,
   context: TerminalPresentationContext,
+  copyableValues: readonly string[] = [],
 ): void {
-  stream.write(`${renderPresentationDocument(document, context)}\n`);
-}
-
-/** Authoring and teardown output wrapped through the shared human boundary. */
-function humanOutput(
-  text: string,
-  copyableValues: readonly string[] = [],
-): string {
-  return responsiveHumanText(text, stdoutPresentationContext, copyableValues);
-}
-
-/** Diagnostic output (errors and warnings) wrapped through the shared human boundary. */
-function humanError(
-  text: string,
-  copyableValues: readonly string[] = [],
-): string {
-  return responsiveHumanText(text, stderrPresentationContext, copyableValues);
+  stream.write(
+    `${renderPresentationDocument(document, context, { copyableValues })}\n`,
+  );
 }
 
 /**
@@ -541,7 +530,7 @@ function parseOrExit<T>(command: string, parse: () => T): T | undefined {
   try {
     return parse();
   } catch (error) {
-    writeHumanDiagnostic(
+    writeHumanDocument(
       process.stderr,
       diagnosticDocument({
         ...carriedErrorParts(formatErrorForHuman(error)),
@@ -919,7 +908,7 @@ async function main(): Promise<void> {
     return;
   }
   if (focusedHelp?.kind === "removedTemporary") {
-    writeHumanDiagnostic(
+    writeHumanDocument(
       process.stderr,
       removedNamespaceDiagnostic(focusedHelp.name),
       stderrPresentationContext,
@@ -956,7 +945,7 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     const result = await initializeWorkspace(home, parsed);
     for (const warning of result.warnings) {
-      writeHumanDiagnostic(
+      writeHumanDocument(
         process.stderr,
         diagnosticDocument({
           happened: `warning: ${warning}`,
@@ -965,42 +954,9 @@ async function main(): Promise<void> {
         stderrPresentationContext,
       );
     }
-    if (result.outcome === "migrated") {
-      writeHuman(
-        process.stdout,
-        humanOutput(
-          `Migrated ${DEFAULT_VIEW_LEXICON.localConfiguration} and validated the Agent Profile Kit Workspace at ${result.path}\n` +
-            `Next: run ${COMMAND_NAME} validate, then status and apply as needed\n`,
-          [
-            `Migrated ${DEFAULT_VIEW_LEXICON.localConfiguration} and validated the Agent Profile Kit Workspace at ${result.path}`,
-          ],
-        ),
-        stdoutPresentationContext,
-      );
-      return;
-    }
-    if (result.outcome === "unchanged") {
-      writeHuman(
-        process.stdout,
-        humanOutput(
-          `Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} already initialized at ${result.path}; unchanged.\n`,
-          [`Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} already initialized at ${result.path}; unchanged.`],
-        ),
-        stdoutPresentationContext,
-      );
-      return;
-    }
-    const next = result.workspaceScaffolded
-      ? `Next: from the project you want to try, run ${COMMAND_NAME} bind ${AUTHORING_EXAMPLES.profile.id} --host codex\n`
-      : `Next: run ${COMMAND_NAME} validate\n`;
-    writeHuman(
+    writeHumanDocument(
       process.stdout,
-      humanOutput(
-        `Initialized Agent Profile Kit Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} at ${result.path}\n` + next,
-        [
-          `Initialized Agent Profile Kit Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} at ${result.path}`,
-        ],
-      ),
+      initReceiptDocument(result).document,
       stdoutPresentationContext,
     );
     return;
@@ -1015,60 +971,12 @@ async function main(): Promise<void> {
       ...(parsed.replace ? { replace: true } : {}),
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
     });
-    if (result.outcome === "unchanged") {
-      writeHuman(
-        process.stdout,
-        humanOutput(
-          `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged for ${displayProjectPath(result.canonicalProject, result.project, "project")}\n` +
-            `  Profile: ${result.profile}\n` +
-            `  Hosts: ${result.hosts.join(", ")}\n` +
-            `Next: ${COMMAND_NAME} status\n`,
-          [
-            `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged for ${displayProjectPath(result.canonicalProject, result.project, "project")}`,
-            result.hosts.join(", "),
-          ],
-        ),
-        stdoutPresentationContext,
-      );
-      return;
-    }
-    if (result.outcome === "replaced") {
-      const deltaLines = [
-        result.previousProfile === result.profile
-          ? undefined
-          : `  Profile: ${result.previousProfile} → ${result.profile}`,
-        hostsEqual(result.previousHosts, result.hosts)
-          ? undefined
-          : `  Hosts: ${result.previousHosts.join(", ")} → ${result.hosts.join(", ")}`,
-      ].filter((line) => line !== undefined);
-      writeHuman(
-        process.stdout,
-        humanOutput(
-          `Replaced ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}\n` +
-            deltaLines.map((line) => `${line}\n`).join("") +
-            `Next: ${COMMAND_NAME} status\n`,
-          [
-            `Replaced ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}`,
-            ...deltaLines.map((line) => line.slice(2)),
-          ],
-        ),
-        stdoutPresentationContext,
-      );
-      return;
-    }
-    writeHuman(
+    const bindReceipt = bindReceiptDocument(result);
+    writeHumanDocument(
       process.stdout,
-      humanOutput(
-        `Recorded ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}\n` +
-          `  Profile: ${result.profile}\n` +
-          `  Hosts: ${result.hosts.join(", ")}\n` +
-          `Next: ${COMMAND_NAME} status\n`,
-        [
-          `Recorded ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}`,
-          result.hosts.join(", "),
-        ],
-      ),
+      bindReceipt.document,
       stdoutPresentationContext,
+      bindReceipt.copyableValues,
     );
     return;
   }
@@ -1079,50 +987,14 @@ async function main(): Promise<void> {
       home,
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
     });
-    if (result.outcome === "unchanged") {
-      writeHuman(
-        process.stdout,
-        humanOutput(
-          `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged; no ${DEFAULT_VIEW_LEXICON.projectBinding.singular} matched ${result.requestedProject}\n`,
-          [`${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged; no ${DEFAULT_VIEW_LEXICON.projectBinding.singular} matched ${result.requestedProject}`],
-        ),
-        stdoutPresentationContext,
-      );
-      return;
-    }
     // Exceptional recovery keeps the diagnostic detail needed to act safely;
     // routine removal stays compact (ADR-0014, DEC-041/DEC-043).
-    const recoveryExplanation =
-      "Recovery: exact authored path match; canonical project identity could not be proven";
-    const recovery = result.recovery === "authored-path"
-      ? `  ${recoveryExplanation}\n` +
-        `  Local Configuration: ${result.configurationPath}\n`
-      : "";
-    const recoveryCopyable = result.recovery === "authored-path"
-      ? [recoveryExplanation, `Local Configuration: ${result.configurationPath}`]
-      : [];
-    const survival = result.generatedOutputSurvives
-      ? "Generated files remain until apply\n" +
-        `Next: ${COMMAND_NAME} status --all\n`
-      : "";
-    const presentedProject = result.recovery === "canonical"
-      ? displayProjectPath(result.canonicalProject, result.project, "project")
-      : displayProjectPath(result.project, result.project, "project");
-    writeHuman(
+    const unbindReceipt = unbindReceiptDocument(result);
+    writeHumanDocument(
       process.stdout,
-      humanOutput(
-        `Removed ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${presentedProject}\n` +
-          recovery +
-          `  Profile: ${result.profile}\n` +
-          `  Hosts: ${result.hosts.join(", ")}\n` +
-          survival,
-        [
-          `Removed ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${presentedProject}`,
-          ...recoveryCopyable,
-          result.hosts.join(", "),
-        ],
-      ),
+      unbindReceipt.document,
       stdoutPresentationContext,
+      unbindReceipt.copyableValues,
     );
     return;
   }
@@ -1153,7 +1025,7 @@ async function main(): Promise<void> {
           formatInfoToolErrorJson(applicationInfoLocations(home), formatError(error)),
         );
       } else {
-        writeHumanDiagnostic(
+        writeHumanDocument(
   process.stderr,
   diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
   stderrPresentationContext,
@@ -1191,7 +1063,7 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProjectInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHumanDiagnostic(
+            writeHumanDocument(
   process.stderr,
   diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
   stderrPresentationContext,
@@ -1215,7 +1087,7 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProfileInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHumanDiagnostic(
+            writeHumanDocument(
   process.stderr,
   diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
   stderrPresentationContext,
@@ -1308,7 +1180,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
       } else {
-        writeHumanDiagnostic(
+        writeHumanDocument(
           process.stderr,
           lifecycleToolErrorDiagnostic("apply", error),
           stderrPresentationContext,
@@ -1342,7 +1214,7 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("status", formatError(error)));
       } else {
-        writeHumanDiagnostic(
+        writeHumanDocument(
           process.stderr,
           lifecycleToolErrorDiagnostic("status", error),
           stderrPresentationContext,
@@ -1363,7 +1235,7 @@ async function main(): Promise<void> {
   }
   if (arguments_.length >= 1 && REMOVED_TEMPORARY_COMMANDS.some((name) => name === arguments_[0])) {
     const removed = arguments_[0]!;
-    writeHumanDiagnostic(
+    writeHumanDocument(
       process.stderr,
       removedNamespaceDiagnostic(removed),
       stderrPresentationContext,
@@ -1439,7 +1311,7 @@ async function main(): Promise<void> {
               }),
             );
           } else {
-            writeHumanDiagnostic(
+            writeHumanDocument(
               process.stderr,
               diagnosticDocument({
                 happened: formatError(error),
@@ -1458,7 +1330,7 @@ async function main(): Promise<void> {
             formatTemporaryInstallationToolErrorJson("install-temp", formatError(error)),
           );
         } else {
-          writeHumanDiagnostic(
+          writeHumanDocument(
   process.stderr,
   diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
   stderrPresentationContext,
@@ -1514,7 +1386,7 @@ async function main(): Promise<void> {
             formatTemporaryInstallationToolErrorJson("remove-temp", formatError(error)),
           );
         } else {
-          writeHumanDiagnostic(
+          writeHumanDocument(
   process.stderr,
   diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
   stderrPresentationContext,
@@ -1552,7 +1424,7 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatTemporaryInventoryToolErrorJson(formatError(error)));
         } else {
-          writeHumanDiagnostic(
+          writeHumanDocument(
             process.stderr,
             diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
             stderrPresentationContext,
@@ -1562,7 +1434,7 @@ async function main(): Promise<void> {
       }
       return;
     }
-    writeHumanDiagnostic(
+    writeHumanDocument(
       process.stderr,
       unknownMachineCommandDiagnostic(subcommand),
       stderrPresentationContext,
@@ -1574,7 +1446,7 @@ async function main(): Promise<void> {
   const unknown = focusedHelp?.kind === "unknown"
     ? focusedHelp.token
     : arguments_[0] ?? "";
-  writeHumanDiagnostic(
+  writeHumanDocument(
     process.stderr,
     unknownCommandDiagnostic(unknown),
     stderrPresentationContext,
@@ -1583,7 +1455,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  writeHumanDiagnostic(
+  writeHumanDocument(
   process.stderr,
   diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
   stderrPresentationContext,

@@ -7665,7 +7665,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCliAt(home, projectPath, "unbind");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed configured Project for .");
+    expect(humanText(result.stdout)).toContain("Removed configured Project for .");
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
     expect(result.stdout).not.toContain(realpathSync(projectPath));
@@ -7897,7 +7897,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     const removed = await runCli(home, "unbind", projectPath);
     expectExitCode(removed, 0);
-    expect(removed.stdout).toContain(`Removed configured Project for ${projectPath}`);
+    expect(humanText(removed.stdout)).toContain(`Removed configured Project for ${projectPath}`);
     expect(removed.stdout).not.toContain(realpathSync(projectPath));
     expect(removed.stdout).not.toContain(configPath(home));
     expect(removed.stdout).toContain("Generated files remain until apply");
@@ -8172,7 +8172,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", alias);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(`Removed configured Project for ${projectPath}`);
+    expect(humanText(result.stdout)).toContain(`Removed configured Project for ${projectPath}`);
     expect(result.stdout).not.toContain(realpathSync(projectPath));
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
     expect(existsSync(alias)).toBe(true);
@@ -8231,7 +8231,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", removed);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(`Removed configured Project for ${removed}`);
+    expect(humanText(result.stdout)).toContain(`Removed configured Project for ${removed}`);
     expect(result.stdout).not.toContain(realpathSync(removed));
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
@@ -8368,7 +8368,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     );
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(`Replaced configured Project for ${projectPath}`);
+    expect(humanText(result.stdout)).toContain(`Replaced configured Project for ${projectPath}`);
     expect(humanText(result.stdout)).toContain("Profile: coding → ops");
     expect(humanText(result.stdout)).toContain("Hosts: codex → claude, codex");
     expect(result.stdout).toContain("Next: apkit status");
@@ -8398,7 +8398,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     );
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(`Replaced configured Project for ${projectPath}`);
+    expect(humanText(result.stdout)).toContain(`Replaced configured Project for ${projectPath}`);
     expect(humanText(result.stdout)).toContain("Hosts: codex → claude, codex");
     expect(humanText(result.stdout)).not.toContain("Profile:");
   });
@@ -11813,7 +11813,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const bind = await runCli(home, "bind", "coding", authored, "--host", "codex");
     expectExitCode(bind, 0);
-    expect(bind.stdout).toContain(`Recorded configured Project for ${authored}\n`);
+    expect(humanText(bind.stdout)).toContain(`Recorded configured Project for ${authored}`);
     expect(bind.stdout).not.toContain(canonical);
 
     const list = await runCli(home, "list", "projects");
@@ -11850,7 +11850,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const unbind = await runCli(home, "unbind", authored);
     expectExitCode(unbind, 0);
-    expect(unbind.stdout).toContain(`Removed configured Project for ${authored}\n`);
+    expect(humanText(unbind.stdout)).toContain(`Removed configured Project for ${authored}`);
     expect(unbind.stdout).not.toContain(canonical);
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
   });

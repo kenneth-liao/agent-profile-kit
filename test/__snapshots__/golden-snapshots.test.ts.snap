@@ -1156,7 +1156,8 @@ Create one with apkit machine install-temp <profile> <project> --host <host>.
 
 exports[`golden snapshots of every human view init: init 1`] = `
 "--- stdout ---
-Initialized Agent Profile Kit Workspace and settings at /private/tmp/apkit-golden-xxxx/.agents/agent-profile-kit/workspace
+Initialized Agent Profile Kit Workspace and settings at
+  /private/tmp/apkit-golden-xxxx/.agents/agent-profile-kit/workspace
 Next: from the project you want to try, run apkit bind example --host codex
 --- stderr ---
 "

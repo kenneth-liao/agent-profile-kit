@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { HostSetupStep } from "../adapters/project-plan.js";
+import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
 import {
   applyExecutionFailureDocument,
   applyReportDocument,
@@ -7211,5 +7212,219 @@ describe("blocker wording lives in presentation (DEC-020, US-026, US-027)", () =
     expect(wording.problem).toBe(".opencode/opencode.json is an occupied directory path");
     expect(wording.remedy).toBe(OPENCODE_CONFIG_OCCUPIED_REMEDY);
     expect(wording.remedy).toContain("opencode.json or .opencode/opencode.json");
+  });
+});
+
+describe("authoring and teardown receipt documents (#390)", () => {
+  const home = homedir();
+  const projectPath = join(home, "projects", "demo");
+
+  test("the created receipt presents the headline, and the next action", () => {
+    const { document, copyableValues } = initReceiptDocument({
+      outcome: "created",
+      path: `/test/workspace`,
+      workspaceScaffolded: true,
+    });
+    expect(copyableValues).toEqual([]);
+    expect(document).toEqual([
+      {
+        kind: "sentence",
+        text: "Initialized Agent Profile Kit Workspace and settings at /test/workspace",
+        category: "success",
+      },
+      {
+        kind: "sentence",
+        text: "Next: from the project you want to try, run apkit bind example --host codex",
+        category: "command",
+      },
+    ]);
+  });
+
+  test("the created receipt without scaffolding points at validate", () => {
+    const { document } = initReceiptDocument({
+      outcome: "created",
+      path: `/test/workspace`,
+      workspaceScaffolded: false,
+    });
+    expect(document.at(-1)).toEqual({
+      kind: "sentence",
+      text: "Next: run apkit validate",
+      category: "command",
+    });
+  });
+
+  test("the migrated and unchanged receipts carry their carried sentences", () => {
+    expect(initReceiptDocument({
+      outcome: "migrated",
+      path: `/test/workspace`,
+    }).document).toEqual([
+      {
+        kind: "sentence",
+        text: "Migrated settings and validated the Agent Profile Kit Workspace at /test/workspace",
+        category: "success",
+      },
+      {
+        kind: "sentence",
+        text: "Next: run apkit validate, then status and apply as needed",
+        category: "command",
+      },
+    ]);
+    const unchanged = initReceiptDocument({
+      outcome: "unchanged",
+      path: `/test/workspace`,
+    });
+    // Space-free values need no wrapping protection.
+    expect(unchanged.copyableValues).toEqual([]);
+    expect(unchanged.document).toEqual([
+      {
+        kind: "sentence",
+        text: "Workspace and settings already initialized at /test/workspace; unchanged.",
+      },
+    ]);
+  });
+
+  test("the recorded bind receipt presents the binding detail and the next command", () => {
+    const { document, copyableValues } = bindReceiptDocument({
+      outcome: "created",
+      canonicalProject: projectPath,
+      project: projectPath,
+      profile: "coding",
+      hosts: ["codex", "pi"],
+    });
+    expect(copyableValues).toEqual([]);
+    expect(document).toEqual([
+      { kind: "sentence", text: "Recorded configured Project for ~/projects/demo", category: "success" },
+      { kind: "key-value", key: "  Profile", value: { kind: "identifier", value: "coding" }, category: "path" },
+      { kind: "key-value", key: "  Hosts", value: { kind: "identifier", value: "codex, pi" } },
+      {
+        kind: "key-value",
+        key: "Next",
+        value: { kind: "command", program: "apkit", args: [{ kind: "text", value: "status" }] },
+        category: "command",
+      },
+    ]);
+  });
+
+  test("the replaced bind receipt keeps only the changed deltas", () => {
+    const { document, copyableValues } = bindReceiptDocument({
+      outcome: "replaced",
+      canonicalProject: projectPath,
+      project: projectPath,
+      profile: "coding",
+      hosts: ["codex"],
+      previousProfile: "coding",
+      previousHosts: ["codex", "pi"],
+    });
+    const texts = document.map((node) =>
+      node.kind === "key-value"
+        ? `${node.key}: `
+        : node.kind === "sentence" || node.kind === "prose"
+          ? node.text
+          : "",
+    );
+    expect(texts).toEqual([
+      "Replaced configured Project for ~/projects/demo",
+      "  Hosts: ",
+      "Next: ",
+    ]);
+    expect(document[1]).toEqual({
+      kind: "key-value",
+      key: "  Hosts",
+      value: { kind: "identifier", value: "codex, pi → codex" },
+    });
+  });
+
+  test("the unchanged bind and unbind receipts stay informational", () => {
+    const unchangedBind = bindReceiptDocument({
+      outcome: "unchanged",
+      canonicalProject: projectPath,
+      project: projectPath,
+      profile: "coding",
+      hosts: ["codex"],
+    });
+    expect(unchangedBind.document).toEqual([
+      { kind: "sentence", text: "Configured Project unchanged for ~/projects/demo" },
+      { kind: "key-value", key: "  Profile", value: { kind: "identifier", value: "coding" }, category: "path" },
+      { kind: "key-value", key: "  Hosts", value: { kind: "identifier", value: "codex" } },
+      {
+        kind: "key-value",
+        key: "Next",
+        value: { kind: "command", program: "apkit", args: [{ kind: "text", value: "status" }] },
+        category: "command",
+      },
+    ]);
+    expect(unbindReceiptDocument({
+      outcome: "unchanged",
+      requestedProject: "~/projects/absent",
+    }).document).toEqual([
+      {
+        kind: "sentence",
+        text: "Configured Project unchanged; no configured Project matched ~/projects/absent",
+      },
+    ]);
+  });
+
+  test("the removed unbind receipt keeps recovery evidence and survival guidance", () => {
+    const { document } = unbindReceiptDocument({
+      outcome: "removed",
+      canonicalProject: projectPath,
+      project: projectPath,
+      profile: "coding",
+      hosts: ["codex"],
+      recovery: "canonical",
+      generatedOutputSurvives: true,
+    });
+    expect(document).toEqual([
+      { kind: "sentence", text: "Removed configured Project for ~/projects/demo", category: "success" },
+      { kind: "key-value", key: "  Profile", value: { kind: "identifier", value: "coding" }, category: "path" },
+      { kind: "key-value", key: "  Hosts", value: { kind: "identifier", value: "codex" } },
+      { kind: "prose", text: "Generated files remain until apply" },
+      {
+        kind: "key-value",
+        key: "Next",
+        value: { kind: "command", program: "apkit", args: [
+          { kind: "text", value: "status" },
+          { kind: "text", value: "--all" },
+        ] },
+        category: "command",
+      },
+    ]);
+  });
+
+  test("the authored-path unbind receipt carries the recovery explanation and configuration location", () => {
+    const { document, copyableValues } = unbindReceiptDocument({
+      outcome: "removed",
+      project: "/opt/authored/demo",
+      profile: "coding",
+      hosts: ["codex"],
+      recovery: "authored-path",
+      configurationPath: `/test/config.yaml`,
+      generatedOutputSurvives: false,
+    });
+    expect(document).toEqual([
+      { kind: "sentence", text: "Removed configured Project for /opt/authored/demo", category: "success" },
+      {
+        kind: "key-value",
+        key: "  Recovery",
+        value: {
+          kind: "identifier",
+          value: "exact authored path match; canonical project identity could not be proven",
+        },
+      },
+      {
+        kind: "key-value",
+        key: "  Local Configuration",
+        value: { kind: "identifier", value: "/test/config.yaml" },
+        category: "path",
+      },
+      {
+        kind: "key-value",
+        key: "  Profile",
+        value: { kind: "identifier", value: "coding" },
+        category: "path",
+      },
+      { kind: "key-value", key: "  Hosts", value: { kind: "identifier", value: "codex" } },
+    ]);
+    expect(copyableValues).toEqual([]);
   });
 });
