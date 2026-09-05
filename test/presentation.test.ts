@@ -3604,13 +3604,16 @@ describe("formatLifecycleReport concise terminology", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = lifecycleStatusDocument(report);
+    const conciseTexts = presentationTexts(concise);
 
-    expect(concise).toContain(
-        "Blocker: Cannot verify generated-file ownership: recorded output occupied output does not match",
-      );
-    expect(concise).toContain("Git exclusions: 1 entry to add.");
-    expect(concise).not.toContain("/repo/.git/info/exclude");
+    expect(conciseTexts.some((text) =>
+      text.startsWith(
+        "  Blocker: Cannot verify generated-file ownership: recorded output occupied output does not match",
+      )
+    )).toBe(true);
+    expect(conciseTexts).toContain("Git exclusions: 1 entry to add.");
+    expect(conciseTexts.some((text) => text.includes("/repo/.git/info/exclude"))).toBe(false);
   });
 
   test("--verbose still renders complete diagnostics from the same ReconciliationReport", () => {
@@ -3643,39 +3646,64 @@ describe("formatLifecycleReport concise terminology", () => {
       blockers: [fixtureBlocker("/project-a: example blocker", "/project-a")],
     });
 
-    const verbose = formatLifecycleReport("status", report, { verbose: true });
+    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const nodes = flattenPresentationNodes(verbose);
+    const texts = presentationTexts(verbose);
 
-    expect(verbose.startsWith("Cannot apply\n")).toBe(true);
-    expect(verbose).toContain("Projects:");
-    expect(verbose).toContain("/project-a: stale source");
-    expect(verbose).toContain("Outputs:");
-    expect(verbose).toContain("/project-a/.agent-profile-kit/codex/context.md: update");
-    expect(verbose).toContain("/project-a/.codex/hooks.json: unchanged");
-    expect(verbose).toContain("Git exclusions:");
-    expect(verbose).toContain("/project-a/.git/info/exclude: add /.agent-profile-kit/codex/context.md");
-    expect(verbose).toContain("Selected setup:");
-    expect(verbose).toContain("Profile coding");
-    expect(verbose).toContain("Hosts: claude, codex");
-    expect(verbose).toContain("Resolved artifacts:");
-    expect(verbose).toContain("context:team-rules");
-    expect(verbose).toContain(
-      "  Context:\n" +
-      "---- begin Context ----\n" +
-      "First Context Module\n" +
-      "--- end Context ---\n" +
-      "Second Context Module\n" +
-      "---- end Context ----\n",
+    // The outcome notice leads; every verbose section follows with its typed nodes.
+    expect(noticesIn(verbose)[0]).toEqual({
+      kind: "notice",
+      severity: "error",
+      nodes: [{ kind: "prose", parts: ["Cannot apply"] }],
+    });
+    const sectionAt = (text: string) => indexWhere(nodes, (node) =>
+      node.kind === "heading" && nodeText(node) === text);
+    for (const section of ["Projects:", "Outputs:", "Git exclusions:", "Selected setup:", "Warnings:", "Blockers:", "State explanations:"]) {
+      expect(sectionAt(section)).toBeGreaterThan(-1);
+    }
+    expect(projectStateLines(verbose)).toContain("/project-a: stale source");
+    const outputLine = (path: string, kind: string) => nodes.some((node) =>
+      node.kind === "prose" &&
+      JSON.stringify(node.parts) === JSON.stringify([
+        { kind: "identifier", value: path },
+        `: ${kind}`,
+      ]));
+    expect(outputLine("/project-a/.agent-profile-kit/codex/context.md", "update")).toBe(true);
+    expect(outputLine("/project-a/.codex/hooks.json", "unchanged")).toBe(true);
+    const exclusionLine = nodes.find((node) =>
+      node.kind === "list-item" && nodeText(node).startsWith("/project-a/.git/info/exclude: "));
+    expect(nodeText(exclusionLine!)).toBe(
+      "/project-a/.git/info/exclude: add /.agent-profile-kit/codex/context.md",
     );
-    expect(verbose).toContain("Warnings:");
-    expect(verbose).toContain("example warning");
-    expect(verbose).toContain("Blockers:");
-    expect(verbose).toContain(
-        "- Cannot verify generated-file ownership: recorded output example blocker does not match",
-      );
-    expect(verbose).toContain("Scope: Project /project-a");
-    expect(verbose).toContain("State explanations:");
-    expect(verbose).not.toContain("generated-output");
-    expect(verbose).not.toContain("Git-local exclusions that keep Installer-owned generated paths untracked");
+    expect(texts).toContain("/project-a: Profile coding");
+    expect(texts).toContain("  Hosts: claude, codex");
+    expect(texts).toContain("  Resolved artifacts:");
+    expect(texts).toContain("    - context:team-rules (coding: selected by profile)");
+    // Composed Context is verbatim content reproduced exactly (DEC-008).
+    const verbatim = nodes.find((node) =>
+      node.kind === "verbatim" && nodeText(node).includes("First Context Module"));
+    // The verbatim node reproduces the authored Context byte-for-byte,
+    // delimiters and fence escalation included (DEC-008).
+    expect(verbatim).toEqual({
+      kind: "verbatim",
+      text: "---- begin Context ----\n" +
+        "First Context Module\n" +
+        "--- end Context ---\n" +
+        "Second Context Module\n" +
+        "---- end Context ----",
+    });
+    expect(listItemsIn(verbose)).toContain("example warning (/project-a)");
+    expect(nodes.some((node) =>
+      node.kind === "list-item" &&
+      nodeText(node).startsWith(
+        "Cannot verify generated-file ownership: recorded output example blocker does not match",
+      )
+    )).toBe(true);
+    expect(texts).toContain("  Scope: Project /project-a");
+    expect(texts.some((text) => text.includes("generated-output"))).toBe(false);
+    expect(texts.some((text) =>
+      text.includes("Git-local exclusions that keep Installer-owned generated paths untracked")
+    )).toBe(false);
   });
 
   test("verbose apply keeps published exclusion guidance in the receipt tense", () => {
