@@ -5404,19 +5404,30 @@ describe("operation-first multi-Project presentation", () => {
   }
 
   test("multi-Project status groups observable operations without inferring artifact causality", () => {
-    const concise = formatLifecycleReport("status", sharedSkillFleet());
+    const concise = lifecycleStatusDocument(sharedSkillFleet());
 
-    expect(concise).toBe(
-      "Updates ready for 3 projects (3 file updates).\n" +
-        "Next: apkit apply --all\n\n" +
-        "Details: apkit status --all --verbose\n",
-    );
-    expect(concise).not.toContain("Skill review-pr");
-    expect(concise).not.toContain("Workspace changes:");
-    expect(concise).not.toContain("Project: /project-a");
-    expect(concise).not.toContain("Project: /project-b");
-    expect(concise).not.toContain("Project: /project-c");
-    expectUserFacingVocabulary(concise);
+    // The operation summary is one notice; guidance is the typed Next and
+    // Details command values; no per-Project receipt bookkeeping appears.
+    expect(noticesIn(concise)).toEqual([{
+      kind: "notice",
+      severity: "success",
+      nodes: [{ kind: "prose", parts: ["Updates ready for 3 projects (3 file updates)."] }],
+    }]);
+    expect(nextGuidance(concise)).toEqual(["apkit apply --all"]);
+    expect(keyValuesIn(concise, "Details")[0]!.value).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [
+        { kind: "text", value: "status" },
+        { kind: "text", value: "--all" },
+        { kind: "text", value: "--verbose" },
+      ],
+    });
+    const conciseTexts = presentationTexts(concise);
+    expect(conciseTexts.some((text) => text.includes("Skill review-pr"))).toBe(false);
+    expect(conciseTexts.some((text) => text.includes("Workspace changes:"))).toBe(false);
+    expect(keyValuesIn(concise, "Project")).toEqual([]);
+    expectUserFacingVocabulary(renderBoundary(concise));
   });
 
   test("fleet summaries group each observable operation with its affected Projects", () => {
@@ -5430,16 +5441,24 @@ describe("operation-first multi-Project presentation", () => {
       ],
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = lifecycleStatusDocument(report);
 
-    expect(concise).toStartWith(
-      "Updates ready for 3 projects.\n" +
-        "+ 1 file addition in /project-a\n" +
-        "~ 3 file updates in /project-a, /project-b\n" +
-        "- 1 file removal in /project-c\n",
-    );
-    expect(concise).not.toContain("Projects: 3");
-    expect(concise).not.toContain("Project changes:");
+    // The operation summary notice leads; each operation is one prose line
+    // naming its affected Projects.
+    const nodes = flattenPresentationNodes(concise);
+    expect(noticesIn(concise)[0]).toEqual({
+      kind: "notice",
+      severity: "success",
+      nodes: [{ kind: "prose", parts: ["Updates ready for 3 projects."] }],
+    });
+    // flattenPresentationNodes expands the notice's child: the three
+    // operation lines follow as consecutive prose nodes.
+    expect(nodes.slice(2, 5).map((node) => node.kind)).toEqual(["prose", "prose", "prose"]);
+    expect(nodeText(nodes[2]!)).toBe("+ 1 file addition in /project-a");
+    expect(nodeText(nodes[3]!)).toBe("~ 3 file updates in /project-a, /project-b");
+    expect(nodeText(nodes[4]!)).toBe("- 1 file removal in /project-c");
+    expect(presentationTexts(concise).some((text) => text.includes("Projects: 3"))).toBe(false);
+    expect(headingsIn(concise)).not.toContain("Project changes:");
   });
 
   test("large affected-Project sets are capped with a verbose pointer", () => {
@@ -5465,9 +5484,10 @@ describe("operation-first multi-Project presentation", () => {
       })),
     });
 
-    expect(formatLifecycleReport("status", report)).toStartWith(
-      "Updates ready for 5 projects (5 file updates).\n",
-    );
+    expect(noticesIn(lifecycleStatusDocument(report))[0]!.nodes[0]).toMatchObject({
+      kind: "prose",
+      parts: ["Updates ready for 5 projects (5 file updates)."],
+    });
   });
 
   test("single-Project status hides routine paths and Git bookkeeping behind matching verbose detail", () => {
@@ -5490,16 +5510,36 @@ describe("operation-first multi-Project presentation", () => {
       }],
     });
 
-    const concise = formatLifecycleReport("status", report, { project: "/project-a" });
+    const concise = lifecycleStatusDocument(report, { project: "/project-a" });
 
-    expect(concise).toBe(
-      "Updates ready for 1 project (1 file update).\n" +
-        "Next: apkit apply /project-a\n\n" +
-        "Details: apkit status /project-a --verbose\n",
-    );
-    expect(concise).not.toContain(SKILL_PATH);
-    expect(concise).not.toContain("Git exclusion");
-    expect(concise).not.toContain(".git/info/exclude");
+    expect(noticesIn(concise)[0]!.nodes[0]).toMatchObject({
+      kind: "prose",
+      parts: ["Updates ready for 1 project (1 file update)."],
+    });
+    // The selected Project is a typed path argument on each guidance command.
+    const next = keyValuesIn(concise, "Next")[0]!.value;
+    expect(next).toMatchObject({ kind: "command", program: "apkit" });
+    expect(next).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [
+        { kind: "text", value: "apply" },
+        { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "project" },
+      ],
+    });
+    const details = keyValuesIn(concise, "Details")[0]!.value;
+    expect(details).toEqual({
+      kind: "command",
+      program: "apkit",
+      args: [
+        { kind: "text", value: "status" },
+        { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "project" },
+        { kind: "text", value: "--verbose" },
+      ],
+    });
+    expect(presentationTexts(concise).some((text) =>
+      text.includes(SKILL_PATH) || text.includes("Git exclusion") || text.includes(".git/info/exclude")
+    )).toBe(false);
   });
 
   test("blocked fleets keep structured blockers ahead of operation detail", () => {
@@ -5514,11 +5554,18 @@ describe("operation-first multi-Project presentation", () => {
       ),
     });
 
-    const concise = formatLifecycleReport("status", report);
+    const concise = lifecycleStatusDocument(report);
 
-    expect(concise.startsWith("Cannot apply\n")).toBe(true);
-    expect(concise).toContain("Blocker:");
-    expect(concise).not.toContain("Project changes:");
+    expect(noticesIn(concise)[0]).toEqual({
+      kind: "notice",
+      severity: "error",
+      nodes: [{ kind: "prose", parts: ["Cannot apply"] }],
+    });
+    expect(flattenPresentationNodes(concise).some((node) =>
+      node.kind === "prose" && node.category === "error" &&
+      nodeText(node).startsWith("  Blocker: ")
+    )).toBe(true);
+    expect(headingsIn(concise)).not.toContain("Project changes:");
   });
 
   test("apply summarizes applied operations separately from freshly verified state", () => {
@@ -5562,17 +5609,29 @@ describe("operation-first multi-Project presentation", () => {
       ],
     });
 
-    expect(formatLifecycleReport("status", report)).toContain(
-      "Project exceptions:\n  /project-a:\n    State: drifted output (.agents/skills/review-pr)",
-    );
+    const concise = lifecycleStatusDocument(report);
+    const nodes = flattenPresentationNodes(concise);
+    const exceptionsAt = indexWhere(nodes, (node) =>
+      node.kind === "heading" && nodeText(node) === "Project exceptions:");
+    expect(exceptionsAt).toBeGreaterThan(-1);
+    expect(nodes[exceptionsAt + 1]).toEqual({ kind: "prose", parts: ["  /project-a:"] });
+    expect(nodes[exceptionsAt + 2]).toEqual({
+      kind: "prose",
+      parts: [`    State: drifted output (${SKILL_PATH})`],
+    });
   });
 
   test("verbose retains complete per-Project operation evidence", () => {
-    const verbose = formatLifecycleReport("status", sharedSkillFleet(), { verbose: true });
-
-    expect(verbose).toContain("/project-a/.agents/skills/review-pr: update");
-    expect(verbose).toContain("/project-b/.agents/skills/review-pr: update");
-    expect(verbose).toContain("/project-c/.agents/skills/review-pr: update");
+    const verbose = lifecycleStatusDocument(sharedSkillFleet(), { verbose: true });
+    const outputLine = (path: string, kind: string) => flattenPresentationNodes(verbose).some((node) =>
+      node.kind === "prose" &&
+      JSON.stringify(node.parts) === JSON.stringify([
+        { kind: "identifier", value: path },
+        `: ${kind}`,
+      ]));
+    expect(outputLine("/project-a/.agents/skills/review-pr", "update")).toBe(true);
+    expect(outputLine("/project-b/.agents/skills/review-pr", "update")).toBe(true);
+    expect(outputLine("/project-c/.agents/skills/review-pr", "update")).toBe(true);
   });
 });
 
