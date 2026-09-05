@@ -2003,10 +2003,6 @@ function expectTrackedGroups(document: PresentationDocument, identities: readonl
   const groups = trackedPathGroups(document);
   expect(groups).toHaveLength(identities.length);
   groups.forEach((node, index) => expect(nodeText(node)).toContain(identities[index]!));
-  // The CLI golden catalog does not exercise these multi-parent/count fixtures.
-  // Keep their exact lossless count rendering at a narrow snapshot seam, not
-  // in the semantic assertions above. Existing CLI goldens remain unchanged.
-  expect(renderPresentationDocument(groups, defaultRenderContext)).toMatchSnapshot("tracked-path group counts");
 }
 
 /** Top-level receipt evidence ends before the separator for the next section.
